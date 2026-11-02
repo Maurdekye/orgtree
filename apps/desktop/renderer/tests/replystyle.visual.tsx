@@ -20,7 +20,7 @@ import { ReplyPreview } from '../src/canvas/replypreview'
 import { SelectionReplyPreview } from '../src/canvas/selectionpreview'
 import { applyTheme } from '../src/themes'
 import { applyContrast } from '../src/contrast'
-import type { RefWorld } from '../src/canvas/reflinks'
+import { AT, BODY, QAT, QUOTE, linkedEv, org, world } from './replystyle.scenes'
 import '../src/styles.css'
 import '../src/shell.css'
 
@@ -32,16 +32,6 @@ if (!owned || owned.configurable) Object.defineProperty(navigator, 'clipboard', 
   value: { readText: refused, writeText: refused, read: refused, write: refused } })
 window.fetch = (async () => new Response(JSON.stringify({}), { status: 404, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
 
-const org = 'synthetic'
-const world: RefWorld = { org, handles: new Set(['mail', 'item', 'doc']), docs: new Map([['doc-plan', 'Attract mode: design notes']]) }
-const QUOTE = 'USER 2026-11-02 21:05:08Z m578f4c33fa34, verbatim: "finish the muse work on appropriate claude and codex agents. whats left to be done?" This supersedes m2e2a78426006\'s "Wonder seats finish their own work" and "don\'t move frozen Wonder work unasked". Move the three unfinished Wonder items.'
-const BODY = 'Done (USER m578f4c33fa34). I removed the Muse-reset watchdog and retired all four Wonder seats. Their handover notes were already on the items.'
-const AT = '2026-11-02T21:06:33Z', QAT = '2026-11-02T21:05:29Z'
-const linkedEv = {
-  v: 1, variant: 'reply.mail', actor: { kind: 'agent', id: 'coordinator-opus' },
-  object: { kind: 'mail', org, box: 'user', id: 'm578f4c33fa34', sender: 'user', at: QAT },
-  engine_authored: false, body: BODY, quote: { from: 'liaison-opus', at: QAT, gist: QUOTE },
-}
 const props = { profile: 'operator' as const, slug: org, nid: 'coordinator-opus', world, onOpen: () => {} }
 
 const SURFACES: Record<string, () => ReactNode> = {

@@ -9,6 +9,8 @@ import path from 'node:path'
 import React from 'react'
 import { MailReplyPreview } from '../src/canvas/mailreply'
 import type { RefWorld } from '../src/canvas/reflinks'
+import { MailMessage } from '../src/events/segments'
+import * as scenes from './replystyle.scenes'
 
 declare const __SRC_DIR__: string
 const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
@@ -69,4 +71,19 @@ test('§3 a linked reply does not repeat the card header\'s object chip; a store
     await inAct(async () => { await flush(3) })
     assert.ok(legacy.el.querySelector('.reply-preview-head .ref-chip'), 'no header shows it elsewhere: the chip stays')
   } finally { await legacy.unmount() }
+})
+
+test('§4 the capture fixture\'s linked scene is a real reply card, not the unsupported fallback', async () => {
+  const view = await mountView(<MailMessage profile="operator" slug={scenes.org} nid="coordinator-opus" world={scenes.world} onOpen={() => {}}
+    row={{ id: 'm-reply', from: 'coordinator-opus', kind: 'message', body: scenes.BODY, at: scenes.AT, ev: scenes.linkedEv }} />, el => el)
+  try {
+    await inAct(async () => { await flush(3) })
+    assert.doesNotMatch(view.el.textContent ?? '', /Unsupported/i)
+    assert.equal(view.el.querySelector('.turn-mail')?.getAttribute('data-event-variant'), 'reply.mail')
+    const head = view.el.querySelector('.reply-preview-head')
+    assert.ok(head, 'the quote renders')
+    assert.match(head!.textContent ?? '', /In reply to liaison-opus/)
+    assert.equal(head!.querySelector('.ref-chip'), null)
+    assert.ok(view.el.querySelector('.turn-mail-head .ref-chip'), 'the card header carries the mail chip instead')
+  } finally { await view.unmount() }
 })
