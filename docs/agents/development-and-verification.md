@@ -181,6 +181,18 @@ not execute; never count it as a product result.
   query-refusal and precision controls. See [process identity](../rust-engine/test-rig.md#what-keeps-it-safe).
   [verified: `tools/rig/proofs/retire-concurrent.mjs`; 2026-10-25]
 
+- **No CDP command before the capture window's first page load.**
+  `Emulation.setDeviceMetricsOverride` sent to an offscreen Electron 44 window
+  that has not loaded a page kills the app at once: `crashpad_client_win.cc:867
+  not connected`, exit 4294930435 (0xFFFF7003; PowerShell's joblimit reports
+  127), with no fixture and no receipt, with or without a job. The
+  `chipcapture-guard.cjs` window loads `about:blank` when it is created, and its
+  `debugger.sendCommand` waits for the first finished load; use the guard's
+  `emulate()` for device metrics. Fixture snapshots returned through
+  `executeJavaScript` must be plain data: a DOMStringMap such as
+  `element.dataset` fails "An object could not be cloned" (copy it with `{...}`).
+  [verified: `tests/chipcapture-guard.test.mjs`; measured 2026-11-02]
+
 - **A capture fixture loads what main.tsx loads, at the width the app would.**
   The app menu's dropdown and other v3 shell rules live in `shell.css`, which
   `main.tsx` imports after `styles.css`; a fixture importing only `styles.css`
