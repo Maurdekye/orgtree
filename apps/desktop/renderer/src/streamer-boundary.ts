@@ -83,16 +83,22 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (!frame) position()
     if (!supported || !ready) return
     const nodes: { node: Text; start: number; end: number }[] = []
-    let text = ''
+    let text = '', block: Element | null = null
     const walker = doc.createTreeWalker(doc.body, 4)
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const node = n as Text, parent = node.parentElement
       if (!parent || parent.closest('script,style,textarea,select,[contenteditable=true],[data-streamer-ui]')) continue
+      const nextBlock = parent.closest('p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label')
+      if (nextBlock !== block) { text += '\n'; block = nextBlock }
       const start = text.length; text += node.data; nodes.push({ node, start, end: text.length })
     }
     const ranges: Range[] = []
+    let firstIndex = 0, lastIndex = 0
     for (const span of sensitiveSpans(text, known)) {
-      const first = nodes.find(n => n.end > span.start), last = nodes.find(n => n.end >= span.end)
+      while (nodes[firstIndex] && nodes[firstIndex]!.end <= span.start) firstIndex++
+      lastIndex = Math.max(firstIndex, lastIndex)
+      while (nodes[lastIndex] && nodes[lastIndex]!.end < span.end) lastIndex++
+      const first = nodes[firstIndex], last = nodes[lastIndex]
       if (!first || !last) continue
       const range = doc.createRange(); range.setStart(first.node, span.start - first.start); range.setEnd(last.node, span.end - last.start); ranges.push(range)
     }

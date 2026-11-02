@@ -1,4 +1,5 @@
 import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
+import { setStreamerMode, useStreamerMode } from './streamer'
 import type { HireDefaultsRequest, SettingsRequest } from './types'
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
 import { useHireAutoFocus } from './hirefocus'
@@ -427,6 +428,7 @@ const slugFromPath = () => {
 }
 
 export default function App() {
+  const streamer = useStreamerMode()
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
   const identity = useWindowIdentity()
@@ -1654,11 +1656,10 @@ export default function App() {
     void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
       toast([`could not open the creation window: ${e.message}`]))
   }, [toast])
-  // App menu › Modes: app-wide on/off toggles as sibling entries
-  // (shell/menu.tsx ShellMenuMode). STREAMER MODE GOES FIRST in this array
-  // (agreed with @presented-by-astra 2026-11-02), then Attract mode.
+  // App-wide Modes use symmetric siblings: Streamer first, then Attract.
   const attractOn = useAttractMode()
   const menuModes: ShellMenuMode[] = [
+    { id: 'streamer', label: 'Streamer mode', on: streamer.enabled, onToggle: () => { void setStreamerMode(!streamer.enabled) } },
     { id: 'attract', label: 'Attract mode', on: attractOn, onToggle: () => { void setAttractMode(!attractOn) } },
   ]
   const shellMenu = (
