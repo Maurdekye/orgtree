@@ -141,7 +141,12 @@ test('streamer cover and banner buttons use theme button colours instead of inhe
       const buttons = [...doc.querySelectorAll<HTMLButtonElement>('[data-streamer-ui] button')]
       assert.equal(buttons.length, 2)
       for (const button of buttons) {
-        const css = dom.window.getComputedStyle(button)
+        // jsdom cannot resolve var() through currentColor; assert the actual matched
+        // CSS rule here. Real Chromium pixel contrast is an integration capture gate.
+        const rules = [...doc.styleSheets].flatMap(sheet => [...sheet.cssRules])
+        const rule = rules.find(rule => 'selectorText' in rule && (rule as CSSStyleRule).selectorText === '[data-streamer-ui] button') as CSSStyleRule | undefined
+        assert.ok(rule && button.matches(rule.selectorText), 'both controls have a dedicated theme rule')
+        const css = rule.style
         assert.equal(css.getPropertyValue('-webkit-text-fill-color'), 'currentColor', `${theme}: ${button.textContent} uses its own colour`)
         assert.equal(css.color, 'var(--ink)', `${theme}: standard ink token`)
         assert.equal(css.backgroundColor, 'var(--input)', `${theme}: standard button surface token`)
