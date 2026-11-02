@@ -317,6 +317,15 @@ than schema-required - a batch source replaces it, ordinary sends without one
 still refuse; the notice card and the standalone user MCP are unchanged. See
 [the message guide](../skills/orgtree-working/mail/tool-message/SKILL.md#batch-queue-submission).
 
+Agent state history (USER 2026-10-31 m36bf8730cba7, implemented 2026-11-02,
+4.5.5): an agent's desk Chat transcript records each change of its effective
+state (active / idle / blocked / halted / frozen, the desk badges'
+precedence) as one compact system row — "Idle · was active 12m" — with the
+new state's start on hover. Blocked is the agent's self-reported status; the
+rest are engine-measured. Ordinary conversation rows appended by the actor,
+loaded lazily with the rest of the history; no org-wide view, no totals. See
+[state history](state-history.md).
+
 Object-mention wrapping (USER2026-10-27): Display > Text > Wrap object mentions
 opts into links continuing inline across lines. Default off retains existing
 unbroken controls. Existing user `orgtree_settings` runtime scope exposes

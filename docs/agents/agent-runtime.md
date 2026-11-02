@@ -1083,3 +1083,17 @@ result correlate the latter; returned JSON never issues new receipt authority.
 The canonical secondary read rechecks project reach and normal outside-mail
 visibility. Display-name normalization is deliberately not trusted here.
 See [manual mail provenance](../rust-engine/manual-mail-provenance.md).
+
+## Agent state history (2026-11-02, 4.5.5)
+
+Each effective-state change (halted > frozen > active > blocked > idle, the
+desk badges' precedence) appends one `kind: "state"` system row to the
+agent's conversation, written only by its actor (`Actor::note_state`); pure
+connection/rate-limit retries are not frozen spans. External writes to
+`halt`, `frozen`, `limit_locked` or `last_status` notify the actor with
+`runtime::state_note` after commit; the tracker seeds at actor start from
+the newest state row (else the durable stamps) and reconciles once. Account
+rebind/removal and rehire rely on that later pickup. Pure logic and tests:
+`runtime/state_history.rs`. See [state history](../rust-engine/state-history.md).
+[decided: user 2026-10-31, liaison spec 2026-11-01; verified:
+`runtime/{state_history,actor,freeze}.rs`, `tools/mailtools.rs`]

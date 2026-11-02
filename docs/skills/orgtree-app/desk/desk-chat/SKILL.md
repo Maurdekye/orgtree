@@ -157,6 +157,21 @@ Each mention wears its kind on the left (user 2026-10-27): an agent its model ba
 
 A network mention, @net: or @org:, names a party outside the org, so it sits on a pill tinted for its kind in Hubchat's colours (user 2026-10-27): an Orgtree org terracotta, an agent session blue, a person grey. A person's pill and picture are round, an org's or session's squared off, and an address no hub roster lists has a dashed outline instead. With Hubchat installed its icon is the avatar Hubchat's DM list shows for the party (user 2026-10-29): an agent session's terminal icon, never a picture; else the party's picture when Orgtree can see one (the logo of an org on this PC, or the picture a hub this org is registered on advertises); else the initials of its roster name, or of the address, on its kind's colour, the org's own address on Hubchat's own-avatar colour; and a small grey dot for an address no hub roster lists. Without Hubchat it is the picture, else a globe. When the hub roster names the party, the chip shows that name on its outlined pill, and its icon marks it as outside (user 2026-10-27); a copy of the chip or of the message still gives the address as written; the hover gives the kind and name, the address, then what a click does. Without a name the text is the address as written, its @net: or @org: dimmed, and the hover gives the kind, then what a click does. An org on this PC keeps its organization hover and opens in a new window; any other address opens in Hubchat, and its chip is inert when Hubchat isn't installed. The menu keeps Mention (in a message box), Open in Hubchat, Open in org inbox and Copy identity; Open in org inbox shows the mail the organization exchanged with that address in the org inbox. A mail header names an outside sender with this same link (user 2026-10-29).
 
+## State changes in the transcript
+
+Each time the agent's state changes, the transcript gains one compact system
+line where it happened — `Idle · was active 12m`, `Frozen · was active 3m`,
+`Active · was frozen 2h`. The first word is the state just entered (Active,
+Idle, Blocked, Halted or Frozen — the same states the desk's badges show, by
+the same precedence: a halt over a freeze over a running turn over a blocked
+report over idle); what follows is the state that ended and how long it
+lasted. Hovering the line names the instant the new state began, in full.
+Blocked is the one state the agent reports itself (`orgtree_status`); the
+others are measured by the engine. A blocked report made during a turn shows
+when that turn ends. Where a state began before recording did, its length is
+left out rather than guessed. The lines load with the rest of the transcript
+as you scroll; there is no separate timeline or totals view.
+
 ## Helper activity inside a tool call
 
 Expand a helper Agent/Task tool row to see its retained transcript inline.
