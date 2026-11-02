@@ -23,7 +23,7 @@ test('a state row reads as one compact system line with its start time on hover'
   // the start time is the row's own instant, named the way every other
   // age on the desk names it on hover: what it counts from, then the
   // full instant (`ageTitle`)
-  assert.match(line!.getAttribute('title') ?? '', /^Idle since .+2026/)
+  assert.match(line!.getAttribute('title') ?? '', /^Idle since 2026-/)
   assert.equal(line!.getAttribute('aria-label'), line!.getAttribute('title'))
 })
 
