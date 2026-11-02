@@ -93,6 +93,10 @@ test('opaque surfaces stay mounted, each cover dismisses independently and retur
     doc.querySelector<HTMLButtonElement>('[data-streamer-dismiss]')!.click()
     original[0]!.remove(); await flush(); doc.body.appendChild(original[0]!); await flush()
     assert.equal(original[0]!.hasAttribute('data-streamer-revealed'), false)
+    doc.querySelector<HTMLButtonElement>('[data-streamer-dismiss]')!.click()
+    const reused = doc.querySelector('[data-streamer-revealed]')!
+    reused.remove(); doc.body.appendChild(reused); await flush()
+    assert.equal(reused.hasAttribute('data-streamer-revealed'), false, 'same-turn close/reopen also resets the cover')
     assert.equal(doc.querySelector('.md')!.textContent, 'Safe Markdown')
   } finally { boundary.dispose(); dom.window.close() }
 })

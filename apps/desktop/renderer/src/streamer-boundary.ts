@@ -34,6 +34,11 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const bannerLabel = doc.createElement('span'); banner.appendChild(bannerLabel)
   if (turnOff) { const off = doc.createElement('button'); off.type = 'button'; off.textContent = 'Turn off'; off.onclick = turnOff; banner.appendChild(off) }
   function position() {
+    let reopened = false
+    for (const el of revealed) if (!el.isConnected || !el.getClientRects().length) {
+      el.removeAttribute('data-streamer-revealed'); revealed.delete(el); reopened = true
+    }
+    if (reopened) scan()
     for (const [el, cover] of covered) {
       const r = el.getBoundingClientRect()
       Object.assign(cover.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` })
@@ -59,6 +64,15 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   }
   function scan() {
     if (!active || !doc.body) return
+    // Virtualized transcripts must not retain detached history through our restoration maps.
+    for (const [el, attrs] of attributes) if (!el.isConnected) {
+      for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
+      attributes.delete(el)
+    }
+    for (const [el, value] of autocomplete) if (!el.isConnected) {
+      if (el.getAttribute('autocomplete') === 'off') { if (value === null) el.removeAttribute('autocomplete'); else el.setAttribute('autocomplete', value) }
+      autocomplete.delete(el)
+    }
     doc.documentElement.classList.add('streamer-on')
     const supported = !!win?.Highlight && !!win.CSS?.highlights
     doc.documentElement.classList.toggle('streamer-covered', !supported || !ready)
@@ -117,6 +131,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   }
   const observer = new win.MutationObserver(records => {
     if (!active) return
+    // A close/reopen can remove and reinsert the same runtime node in one turn.
+    for (const record of records) for (const removed of record.removedNodes) for (const el of revealed) {
+      if (removed.contains(el)) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
+    }
     if (records.every(r => (r.target.nodeType === 1 ? r.target as Element : r.target.parentElement)?.closest('[data-streamer-ui]'))) return
     scan()
   })
