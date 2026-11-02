@@ -149,7 +149,7 @@ test('streamer cover and banner buttons use theme button colours instead of inhe
         const css = rule.style
         assert.equal(css.getPropertyValue('-webkit-text-fill-color').toLowerCase(), 'currentcolor', `${theme}: ${button.textContent} uses its own colour`)
         assert.equal(css.color, 'var(--ink)', `${theme}: standard ink token`)
-        assert.equal(css.backgroundColor, 'var(--input)', `${theme}: standard button surface token`)
+        assert.equal(css.getPropertyValue('background'), 'var(--input)', `${theme}: standard button surface token`)
       }
     } finally { boundary.dispose(); dom.window.close() }
   }
