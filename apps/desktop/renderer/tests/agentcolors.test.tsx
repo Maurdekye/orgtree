@@ -7,6 +7,8 @@ import { AgentColorSetting, applyAgentColorSource, readableAgentAccent, startAge
 import { ThemeSetting, applyTheme, THEMES } from '../src/themes'
 import { applyContrast } from '../src/contrast'
 import { CONTRAST_THEMES } from '../../../../packages/contracts/contrast-theme'
+import { createRefMarkEl, REF_MARK_PATHS, type RefMarkKind } from '../src/canvas/refmarks'
+import { createTierChipEl } from '../src/canvas/identity'
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { DesktopEvent } from '../../../../packages/contracts'
 
@@ -119,6 +121,39 @@ function token(el: Element, name: string, depth = 0): string {
   const value = window.getComputedStyle(el).getPropertyValue(name).trim()
   const reference = /^var\((--[\w-]+)\)$/.exec(value)
   return reference ? token(el, reference[1]!, depth+1) : value
+}
+
+for (const [provider, expected] of [['openai', '#22c4bd'], ['claude', '#d97757']] as const) {
+  test(`${provider} desk transcript reference icons use the desk accent; outside icons and semantic colours stay independent`, () => {
+    native(); localStorage.clear(); applyTheme('claude'); applyContrast('charcoal'); applyAgentColorSource('provider')
+    const removeCss = stylesheet(), host = document.createElement('div')
+    host.innerHTML = `<div class="desk-body prov-${provider}"><div class="msgs"><div class="md"></div><div class="cc-body"></div><div class="reminder"></div></div><div class="desk-header"></div></div><div class="inbox"></div>`
+    document.body.appendChild(host)
+    const desk = host.querySelector('.desk-body')!
+    const marks = () => [...(Object.keys(REF_MARK_PATHS) as RefMarkKind[]).map(kind => createRefMarkEl(document, kind)), createTierChipEl(document, 'project')!]
+    for (const container of host.querySelectorAll('.md, .cc-body, .reminder, .desk-header, .inbox')) container.append(...marks())
+    // Resolve jsdom's winning color declaration through the actual inherited variables.
+    function color(el: Element): string {
+      const value = window.getComputedStyle(el).color
+      const reference = /^var\((--[\w-]+)(?:,.*)?\)$/.exec(value)
+      assert.ok(reference, `expected a scoped accent declaration, got ${value}`)
+      return token(el, reference[1]!)
+    }
+    const semantic = document.createElement('span')
+    semantic.className = 'statuschip blocked'
+    desk.querySelector('.msgs')!.appendChild(semantic)
+    const originalStatus = window.getComputedStyle(semantic).color
+    try {
+      assert.equal(token(desk, '--accent'), expected)
+      for (const mark of host.querySelectorAll('.msgs .ref-mark, .msgs .project-mark')) assert.equal(color(mark), expected, mark.className)
+      for (const mark of host.querySelectorAll('.inbox .ref-mark, .inbox .project-mark, .desk-header .ref-mark, .desk-header .project-mark')) assert.equal(color(mark), '#d97757', 'outside transcript remains org coloured')
+      applyTheme('custom:#8435cf')
+      for (const mark of host.querySelectorAll('.msgs .ref-mark, .msgs .project-mark')) assert.equal(color(mark), expected, 'org theme changes do not recolour provider icons')
+      applyAgentColorSource('organization')
+      for (const mark of host.querySelectorAll('.msgs .ref-mark, .msgs .project-mark')) assert.equal(color(mark), '#8435cf', 'explicit organization-colour preference still applies')
+      assert.equal(window.getComputedStyle(semantic).color, originalStatus)
+    } finally { host.remove(); removeCss(); applyAgentColorSource('provider') }
+  })
 }
 test('organization mode reaches all provider-scoped agent surfaces, nested destinations and inline account shades without touching status or tier identity', () => {
   native(); localStorage.clear(); applyTheme('custom:#8435cf'); applyContrast('charcoal')
