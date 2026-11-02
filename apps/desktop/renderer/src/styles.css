@@ -926,6 +926,31 @@ button.badge.audience-fold.alert {
   color: var(--bad); border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
   background: color-mix(in srgb, var(--bad) 10%, var(--input));
 }
+/* the subtree fold chevron (liaison spec 2026-11-01): the same disclosure-
+   chip vocabulary on the canvas — a badge in the norm node's badge row and
+   a corner chip on the mini node. Folded, it carries the hidden count and
+   summarises the hidden members in the card states' own colours: `working`
+   in the workstate green (.sq-idle.working), `attention` in the asking
+   accent, so folding a branch never makes its state unreadable. */
+button.badge.subtree-fold { cursor: pointer; font: inherit; font-size: inherit; }
+button.badge.subtree-fold:hover { border-color: var(--button-accent); }
+button.badge.subtree-fold.working { color: var(--work); }
+button.badge.subtree-fold.attention {
+  color: var(--agent-accent-text, var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.sq-fold-mini {
+  position: absolute; right: 4px; bottom: 4px; z-index: 3;
+  padding: 1px 6px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+  font: inherit; font-size: 11px; line-height: 1.3;
+}
+.sq-fold-mini:hover { border-color: var(--button-accent); }
+.sq-fold-mini.working { color: var(--work); }
+.sq-fold-mini.attention {
+  color: var(--agent-accent-text, var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
 .resume-all {
   /* resume = thaw: ice-tinted, matching what it resumes (was haiku-green,
      which made a frozen-org control wear a model tier's color) */

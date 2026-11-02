@@ -1,5 +1,7 @@
 import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
+import { FoldBadge } from './foldbadge'
+import type { FoldInfo } from './subtreefold'
 // canvas/projectcard.tsx — the canvas card of a PROJECT NODE
 // (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16): a node that stands
 // for one project and is not an agent. It runs no turns and holds no
@@ -50,6 +52,10 @@ interface ProjectSquareProps {
   node: CanvasNode
   retiredCount?: number
   onRetired?: () => void
+  /** subtree fold (subtreefold.ts): present exactly while this project
+   *  has members, as on an agent card */
+  fold?: FoldInfo
+  onToggleFold?: () => void
   pos: Pt
   lod: 'mini' | 'norm'
   /** the camera is on it: the card is its project desk (user 2026-10-17 19:38Z) */
@@ -109,7 +115,7 @@ interface ProjectSquareProps {
 
 export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onTeam, onSettings, onDocket, onOpenDoc, onOpenGallery,
-  onOpenTemporary, onPopout, onDismiss, retiredCount = 0, onRetired, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onOpenTemporary, onPopout, onDismiss, retiredCount = 0, onRetired, fold, onToggleFold, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   const surfaceRoutes = useAgentSurfaceRoutes()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
@@ -175,6 +181,11 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     return () => clearTimeout(timer)
   }, [menu.isOpen])
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
+  // subtree fold rollup, the agent card's own classes (subtreefold.ts): a
+  // collapsed project whose hidden member is mid-turn or needs the user
+  // wears the busy ring / asking aura just as a collapsed agent does
+  if (fold?.collapsed && fold.working) cls.push('busy')
+  if (fold?.collapsed && fold.attention) cls.push('asking')
   if (pinned) cls.push('pinned')
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
@@ -232,6 +243,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (<>
         <span className="project-mini" {...agentTooltipProps(node.id)}><FolderIcon fontSize="inherit" /></span>
+        {fold && onToggleFold && <FoldBadge mini id={node.id} fold={fold} onToggle={onToggleFold} />}
         {farEligible && <span className="sq-far-tier" aria-hidden="true"><span className="sq-far-scaler">
           {farIcon}<span className="sq-far-name">{node.id}</span>
         </span></span>}
@@ -272,7 +284,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               aria-label={`mailbox of project ${node.id}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onInbox(true, mailQueueFolder(queue)) }}>{queue.text}</button>}
+            {!deskOpen && fold && onToggleFold && <FoldBadge id={node.id} fold={fold} onToggle={onToggleFold} />}
             {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
+
             </div>
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}

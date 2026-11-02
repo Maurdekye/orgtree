@@ -1,5 +1,7 @@
 import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
+import { FoldBadge } from './foldbadge'
+import type { FoldInfo } from './subtreefold'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { DndBadge } from './dnd'
@@ -1398,6 +1400,10 @@ interface NodeSquareProps {
   node: CanvasNode
   retiredCount?: number
   onRetired?: () => void
+  /** subtree fold (subtreefold.ts): present exactly while this card has
+   *  members; `collapsed` carries the hidden members' summary */
+  fold?: FoldInfo
+  onToggleFold?: () => void
   pos: Pt
   lod: 'mini' | 'norm'
   focused: boolean
@@ -1551,10 +1557,19 @@ function ActionBadge({ deskView, className, title, onAct, children }: {
  * representation of the agent's authoritative state. The agent name and all
  * other secondary interior details remain omitted at this scale.
  */
-export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
+export function FarZoomStateIcon({ node, hiddenWorking = false }: {
+  node: CanvasNode
+  /** subtree fold: a folded-away member is mid-turn — the collapsed node's
+   *  far icon summarises it as Active, without masking the node's own
+   *  halted/frozen/queued/errored state */
+  hiddenWorking?: boolean
+}) {
   const visual = deriveAgentVisualState(node)
+  const farKind = hiddenWorking
+    && (visual.farKind === 'idle' || visual.farKind === 'done' || visual.farKind === 'working')
+    ? 'active' : visual.farKind
   let stateIcon: ReactNode
-  switch (visual.farKind) {
+  switch (farKind) {
     case 'halted':
       stateIcon = <span className="sq-far-status halted" role="status">
         <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
@@ -1621,7 +1636,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, deskEligible = true, dogs, oneShotDogs, slotHolds, pinned, pinnedFocus, onPin, onShowPin,
   onOpenTemporary,
-  onDismiss, retiredCount = 0, onRetired }: NodeSquareProps) {
+  onDismiss, retiredCount = 0, onRetired, fold, onToggleFold }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
@@ -1756,6 +1771,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       || (live && hasUnseenUserMention(node, slug))) {
     cls.push('asking')
   }
+  // subtree fold rollup (liaison spec 2026-11-01): a collapsed node wears
+  // its hidden members' summary in the same styling — the busy ring while
+  // any is mid-turn, the asking aura while any needs the user. Collapsing
+  // never hides attention; the count sits on the fold badge itself.
+  if (fold?.collapsed && fold.working && !node.busy) cls.push('busy')
+  if (fold?.collapsed && fold.attention && !cls.includes('asking')) cls.push('asking')
   if (node.audiences_held?.length) cls.push('aud')
   if (pinned) cls.push('pinned')
   const toggleCompactHire = (which: 'b' | 'l' | 'r' | 't') =>
@@ -1908,9 +1929,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             .catch(() => {})}
           zoom={zoom} pxc={pxc} />
       )}
-      {!focused && lod === 'mini' && (
-        <FarZoomStateIcon node={node} />
-      )}
+      {!focused && lod === 'mini' && (<>
+        <FarZoomStateIcon node={node} hiddenWorking={!!(fold?.collapsed && fold.working)} />
+        {/* the fold chevron at far zoom: a small corner chip like the hire
+            strips' edge-anchored tokens, not a hover row over the body —
+            it stops its own press, so aiming anywhere else still focuses */}
+        {fold && onToggleFold && <FoldBadge mini id={node.id} fold={fold} onToggle={onToggleFold} />}
+      </>)}
       {!focused && lod !== 'mini' && <CardFace>
       {/* the whole world-scaled head disappears at focus — the desk renders its
           own compact chrome inside the counter-scaled panel (a world-scaled name
@@ -2131,7 +2156,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             : tierEffortLevels(slug, node.tier)} />
           <DndBadge active={node.dnd} nextTurn={node.dnd_next_turn} />
           <SessionZeroBadge node={node} />
+          {/* the subtree fold chevron, wearing the hidden count while
+              folded — before the retired token, which stays last in both
+              header rows (2026-10-21) */}
+          {fold && onToggleFold && <FoldBadge id={node.id} fold={fold} onToggle={onToggleFold} />}
           {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
+
         </div>
       )}
       </CardFace>}

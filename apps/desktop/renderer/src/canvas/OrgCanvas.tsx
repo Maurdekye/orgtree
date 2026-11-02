@@ -1,5 +1,7 @@
 import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { expandCollapsedSubtrees, getCollapsedSubtrees, pruneCollapsedView, subtreeFoldInfo, toggleCollapsedSubtree, useCollapsedSubtrees } from './subtreefold'
+import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { hireAutoFocusOn } from '../hirefocus'
 import { projectBunches, projectBunchLink, projectBunchInsertion, type ProjectBunch } from './projectbunch'
 import { projectBunchesOn, useProjectBunches, projectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
@@ -78,7 +80,7 @@ import { openReaders, pickReader } from './readers'
 import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
-import { liveMentionCandidatesFromTree, noteKnownOrg, registerOrgInboxOpener, setOrgMentionCandidates } from './agentmentions'
+import { hasUnseenUserMention, liveMentionCandidatesFromTree, noteKnownOrg, registerOrgInboxOpener, setOrgMentionCandidates, useSeenMentions } from './agentmentions'
 import { setNetRoster } from './netmentions'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
@@ -876,12 +878,49 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   useEffect(() => { setShownRetired(new Set<string>()) }, [slug])
   const prunedView = useMemo(() => pruneRetiredView(vrootFull, hideRetired, shownRetired),
     [vrootFull, hideRetired, shownRetired])
-  const vroot = prunedView.root
+  // subtree fold (liaison spec 2026-11-01): the reader's folded subtrees,
+  // the second DISPLAY prune in the chain (subtreefold.ts). The attention
+  // rollup reads the same two signals the card's own asking aura reads, so
+  // a member's glow cannot disagree folded vs shown; the ask/mention
+  // versions are deps so answering or seeing clears the summary at once, as
+  // it clears the card. Attention alone NEVER unfolds (centerOn's explicit
+  // jump is the only reveal).
+  const collapsedSubtrees = useCollapsedSubtrees(slug)
+  const askVersion = useSubmittedAsks()
+  const mentionVersion = useSeenMentions()
+  const collapsedView = useMemo(() => pruneCollapsedView(prunedView.root, collapsedSubtrees,
+    (n) => (!!n.ask && (n.ask.status === 'open' || n.ask.status === 'pending')
+        && !askHidden(slug, n.ask.id))
+      || (n.state === 'live' && hasUnseenUserMention(n, slug))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [prunedView, collapsedSubtrees, slug, askVersion, mentionVersion])
+  const foldInfo = useMemo(() => subtreeFoldInfo(prunedView.root, collapsedSubtrees,
+    collapsedView.summaries), [prunedView, collapsedSubtrees, collapsedView])
+  const vroot = collapsedView.root
   const prunedRef = useRef(prunedView.prunedIds)
   useEffect(() => { prunedRef.current = prunedView.prunedIds }, [prunedView])
+  const collapsedPrunedRef = useRef(collapsedView.prunedIds)
+  useEffect(() => { collapsedPrunedRef.current = collapsedView.prunedIds }, [collapsedView])
   // the retired-list token's open menu: the parent id whose list is showing
   const [retiredOpen, setRetiredOpen] = useState<string | null>(null)
   const map = useMemo(() => flatten(vrootFull, seats), [vrootFull])   // eslint-disable-line
+  // one toggle for every card's chevron. Folding over an OPEN hire draft is
+  // refused, not destructive: the draft card lives inside the subtree, and
+  // pruning it would strand the form mid-hire (its state would survive, its
+  // surface would not). Expanding is never refused.
+  const toggleFold = useCallback((id: string) => {
+    if (draft && !getCollapsedSubtrees(slug).has(id)) {
+      let cur: string | null | undefined = draft.parent
+      while (cur) {
+        if (cur === id) {
+          toast(['finish or cancel the new agent first — its card is inside this subtree'])
+          return
+        }
+        cur = map.get(cur)?.parent
+      }
+    }
+    toggleCollapsedSubtree(slug, id)
+  }, [slug, draft, map, toast])
   const retiredCounts = useMemo(() => {
     const counts = new Map([...prunedView.retiredByParent].map(([id, rows]) => [id, rows.length]))
     if (hideRetired) for (const [id, node] of map) {
@@ -1256,7 +1295,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     for (const p of piles.values()) for (const m of p.list) out.set(m, p)
     pileOfRef.current = out
   }, [piles])
-  const hiddenMemo = useMemo(() => viewHidden(vroot, piles), [vroot, piles])
+  // folded-away members join the piled-away in the ONE hidden map: no card,
+  // no wire, no focus, sparks and audience lines land on the collapsed
+  // node standing for them (subtreefold.ts)
+  const hiddenMemo = useMemo(() => {
+    const h = viewHidden(vroot, piles)
+    for (const [id, root] of collapsedView.hiddenBy) if (!h.has(id)) h.set(id, root)
+    return h
+  }, [vroot, piles, collapsedView])
   const hidden = hiddenMemo
   const chartLayout = useChartLayout()
   const bunchProjects = useProjectBunches()
@@ -1521,9 +1567,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const ghostOffset = useMemo(() => draggingId && !draggingInBunch ? moveGhostOffset(
     pendingBunch ? withProjectBunchRotation(tree, pendingBunch) : tree, pendingTargets,
     pendingOrders, draggingId, dropId, { draft, seats, pileFront, crowdPiles,
-      hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, newHirePosition }) : undefined,
+      hideRetired, shownRetired, collapsed: collapsedSubtrees, chartLayout, inboxPxc, draftCredits, bunchProjects, newHirePosition }) : undefined,
   [draggingId, draggingInBunch, dropId, tree, pendingTargets, pendingOrders, draft, seats, pileFront,
-    crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingBunch, newHirePosition])
+    crowdPiles, hideRetired, shownRetired, collapsedSubtrees, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingBunch, newHirePosition])
   const ghostParent = dropId ? springs.current.get(dropId) ?? target.get(dropId) : undefined
   const moveGhost = ghostOffset && ghostParent
     ? { x: ghostParent.x + ghostOffset.x, y: ghostParent.y + ghostOffset.y } : undefined
@@ -2410,6 +2456,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         cur = mapRef.current.get(cur)?.parent ?? undefined
       }
       setShownRetired((s) => new Set([...s, ...add]))
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        centerRef.current?.(id, z, onCanvas)))
+      return
+    }
+    // a member folded away by a collapsed subtree is revealed the same way,
+    // by an EXPLICIT jump only: unfold every collapsed ancestor over it so
+    // the glide has a card to land on. Attention on a hidden member never
+    // reaches here — it only lights the collapsed node's aura (spec).
+    if (collapsedPrunedRef.current.has(id)) {
+      const folded = getCollapsedSubtrees(slug)
+      const over: string[] = []
+      let cur: string | null | undefined = mapRef.current.get(id)?.parent
+      while (cur && (folded.has(cur) || collapsedPrunedRef.current.has(cur))) {
+        if (folded.has(cur)) over.push(cur)
+        cur = mapRef.current.get(cur)?.parent
+      }
+      expandCollapsedSubtrees(slug, over)
       requestAnimationFrame(() => requestAnimationFrame(() =>
         centerRef.current?.(id, z, onCanvas)))
       return
@@ -4668,7 +4731,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
           const pileHere = pileByFront.get(n.id)
           const square = isProject(n)
-            ? <ProjectSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
+            ? <ProjectSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} fold={foldInfo.get(n.id)} onToggleFold={() => toggleFold(n.id)} key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
               focused={n.id === focusId && !worldHidden && !projectDesks.ids.includes(n.id)}
               pinnedFocus={n.id === pinnedFocusId}
@@ -4701,7 +4764,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 ? () => dismissRetiredAgent(n.id) : undefined}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag} />
-            : <NodeSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
+            : <NodeSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} fold={foldInfo.get(n.id)} onToggleFold={() => toggleFold(n.id)} key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
               quickChatDefaults={tree.quick_chat}
               deskEligible={!worldHidden}
               /* FR-3: the camera is on this card but its desk is a pinned

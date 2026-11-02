@@ -2,6 +2,7 @@ import type { TreePayload } from '../types'
 import type { NewHirePosition } from '../hireposition'
 import { withPendingOrder, type PendingOrder } from './pendingorder'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { pruneCollapsedView } from './subtreefold'
 import { USER, DRAFT, INBOX, NODE_W, NODE_H, flatten, withDraftTree, withPendingMoves, treeParents } from './shared'
 import type { Pt, ChartLayout, DraftState, PendingMoves } from './shared'
 
@@ -13,6 +14,9 @@ export type MoveGhostOptions = {
   crowdPiles: boolean
   hideRetired: boolean
   shownRetired: ReadonlySet<string>
+  /** the reader's folded subtrees (subtreefold.ts): the ghost projects the
+   *  same pruned tree the canvas lays out */
+  collapsed?: ReadonlySet<string>
   chartLayout: ChartLayout
   inboxPxc: number
   draftCredits?: number
@@ -37,10 +41,13 @@ export function moveGhostOffset(tree: TreePayload, moves: PendingMoves,
   for (const entry of orders.values())
     if (!entry.block.includes(id)) projected = withPendingOrder(projected, entry)
   const full = canonPiles(withDraftTree(projected, options.draft, options.newHirePosition))
-  const root = pruneRetiredView(full, options.hideRetired, options.shownRetired).root
+  const retiredRoot = pruneRetiredView(full, options.hideRetired, options.shownRetired).root
+  const folded = pruneCollapsedView(retiredRoot, options.collapsed ?? new Set())
+  const root = folded.root
   const map = flatten(full, options.seats)
   const piles = viewPiles(root, options.pileFront, options.crowdPiles, options.hideRetired, options.shownRetired)
   const hidden = viewHidden(root, piles)
+  for (const [hid, front] of folded.hiddenBy) if (!hidden.has(hid)) hidden.set(hid, front)
   const targets = canvasTargets(root, map, hidden, options.chartLayout, tree, options.inboxPxc, options.draftCredits, options.bunchProjects, options.hideRetired)
   const moved = targets.get(id), superior = targets.get(drop)
   return moved && superior ? { x: moved.x - superior.x, y: moved.y - superior.y } : undefined
