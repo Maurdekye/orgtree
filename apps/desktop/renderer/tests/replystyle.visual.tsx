@@ -25,7 +25,10 @@ import '../src/styles.css'
 import '../src/shell.css'
 
 const refused = () => Promise.reject(new DOMException('clipboard disabled in this fixture', 'NotAllowedError'))
-Object.defineProperty(navigator, 'clipboard', { configurable: true,
+// a capture guard preloaded by the harness may already own the property
+// (nonconfigurable): keep it, and refuse here only when nothing does
+const owned = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+if (!owned || owned.configurable) Object.defineProperty(navigator, 'clipboard', { configurable: true,
   value: { readText: refused, writeText: refused, read: refused, write: refused } })
 window.fetch = (async () => new Response(JSON.stringify({}), { status: 404, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
 
