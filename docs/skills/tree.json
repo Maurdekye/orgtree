@@ -3043,7 +3043,13 @@
    "registered": false,
    "covers": [
     "screen:org-header",
-    "screen:app-menu"
+    "screen:app-menu",
+    "np:streamerMode",
+    "ls:orgtree-streamer-mode"
+   ],
+   "key_sources": [
+    { "key": "np:streamerMode", "file": "apps/desktop/renderer/src/streamer.ts", "needles": ["streamerMode"] },
+    { "key": "ls:orgtree-streamer-mode", "file": "apps/desktop/renderer/src/streamer.ts", "needles": ["orgtree-streamer-mode"] }
    ],
    "purpose": "The org window header and the Orgtree app menu: view toggle, Inbox, Work, Presentations, Org settings, and the menu items.",
    "must_cover": [

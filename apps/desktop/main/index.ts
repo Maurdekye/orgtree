@@ -3,7 +3,8 @@ import { installShiftAltSpace } from './shift-alt-space'
 import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
-import { app, BrowserWindow, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
 const dialog = protectNativeDialogs(rawDialog), Menu = protectNativeMenus(rawMenu)
@@ -700,7 +701,8 @@ else {
     const currentTheme = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
     const explicitTheme = currentTheme?.visualThemeExplicit === true ? currentTheme.visualTheme : undefined
     const theme = effectiveTheme ?? explicitTheme ?? 'claude'
-    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(orderedRows, theme))) }
+    const screenRows = nativeStreamerOn() ? orderedRows?.map(row => ({ ...row, name: nativeScreenText(row.name, true) })) ?? null : orderedRows
+    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(screenRows, theme))) }
     catch { if (trayPopup === popup) closeTrayPopup(); return }
     if (trayPopup !== popup || popup.isDestroyed()) return
     popup.show()
@@ -713,7 +715,10 @@ else {
     // Renderer theme resolution is authoritative; discard the previous
     // ephemeral value so a newly explicit choice is reflected immediately.
     effectiveTheme = undefined
-    const next = preferences.set(patch); setNativeStreamer(next.streamerMode === true); loginPreference(); rebuildTray()
+    const beforeStreamer = nativeStreamerOn()
+    const next = preferences.set(patch); setNativeStreamer(next.streamerMode === true)
+    if (beforeStreamer !== nativeStreamerOn()) closeTrayPopup()
+    loginPreference(); rebuildTray()
     notifications.configure(next)
     broadcastAll({ type: 'preferences', data: next }); return next
   }
@@ -2536,6 +2541,7 @@ else {
         // retain the native title bar for this read-only auxiliary window.
         const viewer = new BrowserWindow({ width: 1000, height: 760, icon: iconPath, autoHideMenuBar: true,
           webPreferences: { session: artifactSession, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } })
+        protectOpaqueWindow(viewer, () => new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false, webviewTag: false } }))
         viewer.setIcon(runtimeIcon())
         viewer.on('closed', quitAfterLastView)
         viewer.on('closed', () => forgetSealedSession(artifactSession))
@@ -2707,15 +2713,19 @@ else {
         // and nothing ever looked at it again. This watches the navigation the
         // reload starts, so a failed load is a state the window leaves rather
         // than the state it ends in.
+        let stopHoldingCover: (() => void) | null = null
         record.loadRecovery = attachWindowLoadRecovery(window.webContents, {
           record: recordWindowLoad,
           target: () => engine.origin,
           route: () => routeFor(id),
           builtFor: () => windowOrigin,
-          load: url => !window.isDestroyed() ? window.loadURL(url) : Promise.resolve(),
-          showHolding: html => !window.isDestroyed()
-            ? window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-            : Promise.resolve(),
+          load: url => { stopHoldingCover?.(); stopHoldingCover = null; return !window.isDestroyed() ? window.loadURL(url) : Promise.resolve() },
+          showHolding: html => {
+            if (window.isDestroyed()) return Promise.resolve()
+            stopHoldingCover?.()
+            stopHoldingCover = protectOpaqueWindow(window, () => new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false, webviewTag: false } }))
+            return window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+          },
           suspended: () => quitting || installerUpgradeShutdown,
           documentLost: eventLifecycle.documentLost,
           setTimer: (fn, ms) => setTimeout(fn, ms),

@@ -1,5 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { conversionPage } from './policy'
+import { nativeScreenText } from '../../../packages/contracts/streamer'
+import { nativeStreamerOn, watchNativeStreamer } from './streamer-native'
 
 /** A small window shown ONLY while the engine converts a 2.1.12 data folder
  *  on the first v3 start (user decision 38). Startup builds no other window
@@ -24,6 +26,8 @@ export class ConversionWindow {
       this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       this.window.webContents.on('will-navigate', event => event.preventDefault())
       this.window.on('closed', () => { this.window = null })
+      const stopPrivacy = watchNativeStreamer(() => this.flush())
+      this.window.on('closed', stopPrivacy)
       this.flush()
     } else if (!this.timer) this.timer = setTimeout(() => { this.timer = null; this.flush() }, 500)
   }
@@ -38,6 +42,6 @@ export class ConversionWindow {
 
   private flush(): void {
     if (!this.window || this.window.isDestroyed() || this.pending === null) return
-    void this.window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(conversionPage(this.pending))).catch(() => {})
+    void this.window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(conversionPage(nativeScreenText(this.pending, nativeStreamerOn())))).catch(() => {})
   }
 }

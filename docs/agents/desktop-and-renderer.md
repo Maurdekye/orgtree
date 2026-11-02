@@ -2869,6 +2869,14 @@ follow, as before. Not changed: a pinned (non-modal) window's resize reaches the
 Proof: `tests/fitview.test.tsx`, the pin registering before any timer runs.
 [decided: user 2026-10-31 mde9aed4fbe59; verified: `canvas/OrgCanvas.tsx`, `canvas/pins.tsx`, `canvas/pinspace.ts`]
 
+## Streamer mode (2026-11-02, 4.5.5)
+
+Screen-only privacy uses one shared detector and DOM paint boundary, synchronized
+across documents, with native sinks and opaque HTML/media covers. Original data and
+clipboard values remain unchanged. Native file pickers are explicitly excluded.
+See [streamer mode](streamer-mode.md) for policy, lifecycle, tests and limits.
+[decided: user 2026-11-02 m0103b81de013, m2656d00014b4, m84e04d547421; verified: `streamer*.ts`, `packages/contracts/streamer.ts`]
+
 ## Transcript reference icons follow the desk provider (2026-11-02, 4.5.5)
 
 Inside `.desk-body .msgs`, the shared mail, ticket, presentation, app and panel

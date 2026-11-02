@@ -8,6 +8,7 @@ export function trackStreamerNotice<T extends { close(): void; on(event: 'close'
   notices.add(notice); notice.on('close', () => notices.delete(notice)); return notice
 }
 export const nativeStreamerOn = () => enabled
+export function watchNativeStreamer(fn: () => void) { changed.add(fn); return () => { changed.delete(fn) } }
 export function setNativeStreamer(on: boolean) {
   if (on && !enabled) { for (const notice of notices) { try { notice.close() } catch { /* OS already removed it */ } } notices.clear() }
   enabled = on; for (const fn of changed) fn()

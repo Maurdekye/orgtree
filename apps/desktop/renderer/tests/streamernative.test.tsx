@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events'
 import { nativeDialogOptions, nativeMenuLabel, protectNativeDialogs, protectNativeMenus, setNativeStreamer, trackStreamerNotice } from '../../main/streamer-native'
 import { NativeNotifications } from '../../main/notifications'
 import { preferencesPatch } from '../../main/policy'
+import { protectOpaqueWindow } from '../../main/streamer-opaque'
 
 test('native screen sinks hide unknown strings, preserve actions and leave OS file pickers untouched', async () => {
   setNativeStreamer(true)
@@ -43,4 +44,28 @@ test('enabling streamer mode closes existing notifications without modifying the
   setNativeStreamer(true); manager.configure({ ...prefs, streamerMode:true })
   assert.ok(notice.closed > 0); assert.equal(data.body, 'private@example.test')
   setNativeStreamer(false)
+})
+
+test('native HTML viewers receive an opaque cover without replacing their content; dismissal is local and resets', () => {
+  class Contents extends EventEmitter {
+    closed=false; loaded=''; isDestroyed(){return this.closed} close(){this.closed=true}
+    setWindowOpenHandler(){} setAudioMuted(){} loadURL(url:string){this.loaded=url;return Promise.resolve()}
+  }
+  class Cover { webContents=new Contents(); color=''; bounds={}; setBackgroundColor(c:string){this.color=c} setBounds(b:unknown){this.bounds=b as object} }
+  class Window extends EventEmitter {
+    covers:Cover[]=[]; contentView={addChildView:(v:Cover)=>this.covers.push(v),removeChildView:(v:Cover)=>{this.covers=this.covers.filter(c=>c!==v)}}
+    isDestroyed(){return false} getContentSize(){return [1000,760]}
+  }
+  setNativeStreamer(true)
+  const a=new Window(),b=new Window()
+  const stopA=protectOpaqueWindow(a as never,()=>new Cover() as never),stopB=protectOpaqueWindow(b as never,()=>new Cover() as never)
+  try {
+    assert.equal(a.covers.length,1);assert.equal(b.covers.length,1);assert.equal(a.covers[0]!.color,'#292929')
+    assert.match(decodeURIComponent(a.covers[0]!.webContents.loaded),/Hidden in Streamer mode/)
+    let prevented=false
+    a.covers[0]!.webContents.emit('will-navigate',{preventDefault(){prevented=true}},'https://streamer-dismiss.invalid/')
+    assert.equal(prevented,true);assert.equal(a.covers.length,0);assert.equal(b.covers.length,1)
+    setNativeStreamer(false);setNativeStreamer(true)
+    assert.equal(a.covers.length,1);assert.equal(b.covers.length,1)
+  } finally {stopA();stopB();setNativeStreamer(false)}
 })

@@ -28,6 +28,36 @@ The Orgtree application menu contains New window, Open organization, Create new 
 
 App settings affect the application; Organization settings affect the selected organization. Usage is reached through the application menu. For keyboard bindings see [App keyboard shortcuts](../../app-settings/app-keyboard-shortcuts/SKILL.md).
 
+## Streamer mode
+
+The App menu's **Modes** group contains a **Streamer mode** on/off toggle.
+A visible Streamer mode indicator remains on screen while protection is enabled,
+including in popped-out windows. The choice persists and synchronizes across windows.
+
+Streamer mode masks screen text matching known account/settings identities and
+conservative patterns for secrets, email addresses, local paths (including usernames),
+keys, IP addresses, account names, hub addresses, phone numbers and URL tokens.
+Uncertain long identifiers and URLs are hidden conservatively. Editors are visually
+masked while remaining editable. Canvas, desks, displayed transcripts, panels and
+Markdown presentations use the same text boundary.
+
+HTML apps/presentations, images, videos, canvas and embedded-document previews have
+a **Hidden in Streamer mode** cover. The underlying content continues running.
+Dismiss the cover with its close control to reveal only that surface; this choice
+lasts until the surface closes or Streamer mode is switched off and on again.
+Text masking has no per-value reveal. Native notifications and window titles use
+generic text; existing notices close on enable. App-owned native menu/dialog text
+is conservatively masked, while its actions remain available.
+
+**On screen only:** original agent inputs, stored transcripts, editor/submission
+values, links and copied/clipboard data are unchanged. Copy can therefore contain
+the original sensitive value. **Native OS file/open/save dialogs and browser file
+inputs are explicitly excluded** and remain usable; their filenames and paths can
+be visible. Content deliberately revealed by dismissing an opaque cover is visible.
+If identity loading or the browser's masking support is unavailable, content stays
+covered; the visible indicator offers Turn off. Pattern matching is conservative,
+but cannot identify an arbitrary unlabelled short secret as secret text.
+
 ## See also
 
 - [orgtree-attention-view](../attention-view/SKILL.md)
