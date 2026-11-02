@@ -29,6 +29,10 @@ export interface DesktopPreferences extends NotificationPreferences {
   epicMode?: boolean
   /** Tray-only EPIC audio mute. Absent means audible; visuals stay enabled. */
   epicMuted?: boolean
+  /** App menu › Modes › Attract mode (USER 2026-11-02 mc8e118c58de9): an
+   *  organization window left without input for more than five minutes
+   *  cycles through new activity on its own. Absent means off. */
+  attractMode?: boolean
   /** Canvas background theme and per-theme intensities (App settings ›
    *  Display); absent means the original dot grid at full strength. */
   canvasBackground?: CanvasBackgroundPreference

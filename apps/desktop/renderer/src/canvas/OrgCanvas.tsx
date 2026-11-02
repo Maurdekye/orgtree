@@ -23,6 +23,8 @@ import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, sav
 import type { WindowRestore } from '../windowlayout'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modalkinds'
 import { placedInstance, useModalInstances } from './modalinstances'
+import { useCanvasAttract } from '../attract/canvas'
+import type { AttractPanel } from '../attract/canvas'
 import { detachedPanel, revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
@@ -221,6 +223,12 @@ export interface OrgCanvasProps {
    *  reason — SettingsPanel lives in App, not on the canvas. When absent, the
    *  controls disappear rather than becoming dead. */
   onOrgSettings?: (keepOpen?: boolean) => void
+  /** App menu › Modes › Attract mode is on (attract/attract.ts); the cycle
+   *  starts here after five minutes without input */
+  attract?: boolean
+  /** attract mode opening the inbox or docket at one row, or closing what it
+   *  opened (null): App owns both panels */
+  onAttractPanel?: (panel: AttractPanel) => void
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
   /** Taskbar question/mention: raise an existing desk before Attention selection. */
@@ -546,7 +554,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, openDogAt, onOpenDogHandled, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
-  onActiveAgentsOnly }: OrgCanvasProps) {
+  onActiveAgentsOnly, attract = false, onAttractPanel }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
@@ -3758,6 +3766,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (sheetGate()) { setSheetId(id); setTrayOpen(false) }
     else centerOn(id)
   }, [map, setFront, centerOn])
+  // ATTRACT MODE (attract/attract.ts): this window's own idle timer and cycle,
+  // through the routes above and the shell's inbox/docket jumps
+  useCanvasAttract({
+    enabled: attract, slug, tree, map, pinnedIds: () => pinnedIdsRef.current,
+    goToAgent, fitAll: () => fitAll(), openDoc: openDocView,
+    readerIds: () => agentReaderIds, closeReader: closeAgentReader, onPanel: onAttractPanel,
+  })
 
   const trayRowMenu = (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,

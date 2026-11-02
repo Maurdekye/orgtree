@@ -574,7 +574,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                     ))}
                   </LazyDocList>
                   }>
-                  <div className="mailer-read">
+                  <div className="mailer-read" data-reading={cur?.id}>
                     {cur
                       ? <DocPane key={cur.id} slug={slug} row={cur} toast={toast}
                           onDismissed={() => setSelId(null)}
@@ -990,7 +990,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
             ))}
           </LazyDocList>
           }>
-          <div className="mailer-read">
+          <div className="mailer-read" data-reading={cur?.id}>
             {cur ? (
               <DocPane key={cur.id} slug={slug} row={cur} toast={toast} onBroadcast={onBroadcast}
                 projectBroadcast={isProject ? { project: nid, members: projectBroadcastMembers ?? 0 } : undefined}

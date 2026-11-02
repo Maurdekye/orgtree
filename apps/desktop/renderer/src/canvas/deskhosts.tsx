@@ -30,6 +30,16 @@ export function revealExistingDesk(slug: string,
   const surface = openSurfaces().find((s) => s.kind === `desk:${deskIdentity(slug, node)}`)
   return surface ? revealSurface(surface) : false
 }
+/** Whether this agent's desk is already open in a window of its own — the
+ *  same lookup as `revealExistingDesk`, without revealing anything. Attract
+ *  mode skips such desks (USER 2026-11-02 m79cb0cf57f61 "it does not focus
+ *  any agent desks that are already pinned or open elsewhere"). */
+export function deskOpenElsewhere(slug: string,
+  node: Pick<CanvasNode, 'id' | 'generation'> | undefined): boolean {
+  if (!node || typeof node.generation !== 'number'
+    || !Number.isSafeInteger(node.generation) || node.generation < 0) return false
+  return openSurfaces().some((s) => s.kind === `desk:${deskIdentity(slug, node)}`)
+}
 interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
 interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean

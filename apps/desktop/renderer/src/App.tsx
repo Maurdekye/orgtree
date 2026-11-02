@@ -65,6 +65,9 @@ import { MentionNavigator, readMention } from './shell/mentionnavigation'
 import type { NavigationMention } from './shell/mentionnavigation'
 import { requestMentionLanding } from './canvas/mentionlanding'
 import { OrgtreeMenu } from './shell/menu'
+import type { ShellMenuMode } from './shell/menu'
+import { setAttractMode, useAttractMode } from './attract/pref'
+import type { AttractPanel } from './attract/canvas'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
 import type { CanvasShortcutRef } from './shell/appshortcuts'
@@ -579,6 +582,30 @@ export default function App() {
     setChangelogOpening((n) => n + 1)
     toggleSurface('changelog', showChangelog, setShowChangelog, true)
   }, [toggleSurface, showChangelog, setShowChangelog])
+  // ATTRACT MODE opens the inbox at one unread mail or the docket at one
+  // updated ticket through the same jumps the canvas's own links use, and
+  // closes only a panel IT opened when the cycle moves on (gap-fill Q2,
+  // m082646bad468): one already open stays open.
+  const attractOpened = useRef<'inbox' | 'docket' | null>(null)
+  const showInboxNow = useRef(showInbox); showInboxNow.current = showInbox
+  const showDocketNow = useRef(showDocket); showDocketNow.current = showDocket
+  const attractPanel = useCallback((panel: AttractPanel) => {
+    if (!panel) {
+      if (attractOpened.current === 'inbox') setShowInbox(false)
+      if (attractOpened.current === 'docket') setShowDocket(false)
+      attractOpened.current = null
+      return
+    }
+    if (panel.kind === 'inbox') {
+      attractOpened.current = showInboxNow.current ? null : 'inbox'
+      setInboxJump(jumpTo(panel.mail)); setShowInbox(true)
+      raisePinnedModal('inbox', slug)
+    } else {
+      attractOpened.current = showDocketNow.current ? null : 'docket'
+      setDocketJump(jumpTo(panel.item)); setShowDocket(true)
+      raisePinnedModal('docket', slug)
+    }
+  }, [slug])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -1627,8 +1654,15 @@ export default function App() {
     void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
       toast([`could not open the creation window: ${e.message}`]))
   }, [toast])
+  // App menu › Modes: app-wide on/off toggles as sibling entries
+  // (shell/menu.tsx ShellMenuMode). STREAMER MODE GOES FIRST in this array
+  // (agreed with @presented-by-astra 2026-11-02), then Attract mode.
+  const attractOn = useAttractMode()
+  const menuModes: ShellMenuMode[] = [
+    { id: 'attract', label: 'Attract mode', on: attractOn, onToggle: () => { void setAttractMode(!attractOn) } },
+  ]
   const shellMenu = (
-    <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
+    <OrgtreeMenu orgs={orgs} modes={menuModes} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
       error={orgStatus.error} currentOrg={slug}
       onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
       onUsage={() => toggleSurface('usage', showUsage, setShowUsage, true)}
@@ -2070,6 +2104,8 @@ export default function App() {
                     treeStatus={treeStatus} />
                 ) : undefined}
                 agentList={agentList}
+                attract={attractOn}
+                onAttractPanel={attractPanel}
                 focusAgent={focusAgent}
                 focusAgentDesk={focusAgentDesk}
                 onFocusAgentHandled={() => { setFocusAgent(null); setFocusAgentDesk(false) }}

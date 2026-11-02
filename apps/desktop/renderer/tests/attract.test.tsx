@@ -1,0 +1,219 @@
+// Attract mode (@item:orgtree/attract-mode-the-org-drives-its-own-ui-cycling-t).
+// USER 2026-11-02 m79cb0cf57f61 + answers mc8e118c58de9; gap-fills Q1-Q3
+// @coordinator-opus m082646bad468.
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import React from 'react'
+import {
+  ATTRACT_IDLE_MS, DWELL_MAX_MS, DWELL_MIN_MS, attractCandidates, attractDwell, pickAttract,
+  targetKey, useAttractCycle, watchInput,
+} from '../src/attract/attract'
+import type { AttractInput, AttractRoutes, AttractTarget } from '../src/attract/attract'
+import { scrollMs, SCROLL_MAX_MS, SCROLL_PAUSE_MS, SCROLL_PX_PER_S } from '../src/attract/scroll'
+import { ATTRACT_KEY, setAttractMode, watchAttract } from '../src/attract/pref'
+import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
+import { canvasAttractRoutes } from '../src/attract/canvas'
+import { markDocViewed } from '../src/canvas/docviewed'
+import { readLocally, resetLocalReads } from '../src/mailread'
+
+const SINCE = Date.parse('2026-11-02T12:00:00Z')
+const before = '2026-11-02T11:59:00Z', later = '2026-11-02T12:01:00Z'
+const input = (over: Partial<AttractInput> = {}): AttractInput =>
+  ({ since: SINCE, agents: [], mail: [], docs: [], tickets: [], ...over })
+const keys = (ts: AttractTarget[]) => ts.map(targetKey)
+
+test('§1 what counts as new: busy or moved agents, unread mail (oldest), unread docs, moved tickets', () => {
+  const got = attractCandidates(input({
+    agents: [
+      { id: 'quiet', busy: false, activityAt: before, deskTaken: false },
+      { id: 'moved', busy: false, activityAt: later, deskTaken: false },
+      { id: 'working', busy: true, activityAt: before, deskTaken: false },
+      // "it does not focus any agent desks that are already pinned or open elsewhere"
+      { id: 'pinned', busy: true, activityAt: later, deskTaken: true },
+    ],
+    mail: [{ id: 'm-old' }, { id: 'm-new' }],
+    docs: [{ id: 'd1', node: 'moved' }],
+    tickets: [{ slug: 'old-item', updatedAt: before }, { slug: 'new-item', updatedAt: later }, { slug: 'never', updatedAt: null }],
+  }), new Set())
+  assert.deepEqual(keys(got), [
+    `agent:moved:${later}`, `agent:working:${before}`, 'mail:m-old', 'doc:d1', `ticket:new-item:${later}`,
+  ])
+})
+
+test('§2 shown this run is not shown again, until that agent or ticket moves again', () => {
+  const base = input({
+    agents: [{ id: 'a', busy: true, activityAt: later, deskTaken: false }],
+    mail: [{ id: 'm1' }, { id: 'm2' }],
+    tickets: [{ slug: 't', updatedAt: later }],
+  })
+  const shown = new Set([`agent:a:${later}`, 'mail:m1', `ticket:t:${later}`])
+  assert.deepEqual(keys(attractCandidates(base, shown)), ['mail:m2'])
+  const again = '2026-11-02T12:05:00Z'
+  const moved = { ...base, agents: [{ ...base.agents[0]!, activityAt: again }], tickets: [{ slug: 't', updatedAt: again }] }
+  assert.deepEqual(keys(attractCandidates(moved, shown)), [`agent:a:${again}`, 'mail:m2', `ticket:t:${again}`])
+})
+
+test('§3 nothing new: only fit the whole org; otherwise the org is one random choice among them', () => {
+  assert.deepEqual(pickAttract([], () => 0.99, null), { kind: 'org' })
+  assert.deepEqual(pickAttract([], () => 0, { kind: 'org' }), { kind: 'org' }, 'repeats the org when it is all there is')
+  const doc: AttractTarget = { kind: 'doc', id: 'd', node: null }
+  const mail: AttractTarget = { kind: 'mail', id: 'm' }
+  const picks = new Set([0, 0.4, 0.7, 0.99].map(r => targetKey(pickAttract([doc, mail], () => r, null))))
+  assert.deepEqual([...picks].sort(), ['doc:d', 'mail:m', 'org'])
+  // never the same target twice in a row
+  for (const r of [0, 0.5, 0.99]) assert.notEqual(targetKey(pickAttract([doc, mail], () => r, doc)), 'doc:d')
+})
+
+test('§4 dwell is 8-15 s, a presentation at least its scroll; the scroll paces and caps', () => {
+  assert.equal(attractDwell(() => 0), DWELL_MIN_MS)
+  assert.equal(attractDwell(() => 0.9999), DWELL_MAX_MS)
+  assert.equal([DWELL_MIN_MS, DWELL_MAX_MS].join(), '8000,15000')
+  assert.equal(attractDwell(() => 0, 40_000), 40_000)
+  assert.equal(scrollMs(SCROLL_PX_PER_S * 10), 2 * SCROLL_PAUSE_MS + 10_000)
+  assert.equal(scrollMs(1e9), SCROLL_MAX_MS)
+})
+
+// ------------------------------------------------------------- the cycle
+interface Log { calls: string[] }
+function Cycle({ enabled, routes, log }: { enabled: boolean; routes: AttractRoutes; log: Log }) {
+  const running = useAttractCycle(enabled, routes, () => 0)
+  log.calls.push(`render:${running}`)
+  return <span data-running={String(running)} />
+}
+
+const routesFor = (log: Log, mail: { id: string }[]): AttractRoutes => ({
+  collect: async () => ({ agents: [], mail: mail.filter(m => !log.calls.includes(`show:mail:${m.id}`)), docs: [], tickets: [] }),
+  show: (t) => { log.calls.push('show:' + targetKey(t)) },
+  hide: (t) => { log.calls.push('hide:' + targetKey(t)) },
+  stop: () => { log.calls.push('stop') },
+})
+const shows = (log: Log) => log.calls.filter(c => c.startsWith('show:') || c.startsWith('hide:') || c === 'stop')
+const key = () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a' }))
+
+test('§5 starts after more than five minutes without input; any input stops it and leaves the screen', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()   // the tracker, installed
+    key()                    // the last input: now on the fake clock
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routesFor(log, [{ id: 'm1' }])} log={log} />, el => el)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      await advance(ATTRACT_IDLE_MS - 1_000, 10_000)
+      assert.equal(running(), 'false', 'not before five minutes')
+      await advance(2_000, 500)
+      assert.equal(running(), 'true')
+      // with rng 0 the first pick is the first candidate: the unread mail
+      assert.deepEqual(shows(log), ['show:mail:m1'])
+      await advance(DWELL_MIN_MS, 500)
+      assert.deepEqual(shows(log), ['show:mail:m1', 'hide:mail:m1', 'show:org'], 'nothing new left: the org')
+      await inAct(() => { key() })
+      assert.equal(running(), 'false')
+      assert.equal(shows(log).at(-1), 'stop', 'input stops it; nothing it showed is hidden')
+      await advance(DWELL_MAX_MS * 2, 5_000)
+      assert.equal(shows(log).at(-1), 'stop', 'and it stays stopped')
+    } finally { await view.unmount() }
+  } finally { realClock() }
+})
+
+test('§6 a pointer that did not move is not input; one that moved is; off never runs', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    const move = (x: number) => window.dispatchEvent(Object.assign(new window.Event('pointermove'), { screenX: x, screenY: 5 }))
+    move(1)
+    key()
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routesFor(log, [])} log={log} />, el => el)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      await advance(ATTRACT_IDLE_MS + 1_000, 10_000)
+      assert.equal(running(), 'true')
+      await inAct(() => { move(1) })
+      assert.equal(running(), 'true', 'Chromium\'s mousemove at an unmoved cursor is not input')
+      await inAct(() => { move(9) })
+      assert.equal(running(), 'false')
+    } finally { await view.unmount() }
+    key()
+    const off: Log = { calls: [] }
+    const idle = await mountView(<Cycle enabled={false} routes={routesFor(off, [])} log={off} />, el => el)
+    try {
+      await advance(ATTRACT_IDLE_MS * 2, 30_000)
+      assert.equal(idle.el.querySelector('span')!.dataset.running, 'false')
+      assert.deepEqual(shows(off), [])
+    } finally { await idle.unmount() }
+  } finally { realClock() }
+  await flush()
+})
+
+test('§7 one app-wide toggle: off by default, flips through the shared store, and the main process accepts only a boolean', async () => {
+  assert.equal('attractMode' in DEFAULT_PREFERENCES, false, 'absent means off: nothing stored on a fresh install')
+  assert.deepEqual(preferencesPatch({ attractMode: true }), { attractMode: true })
+  assert.deepEqual(preferencesPatch({ attractMode: false }), { attractMode: false })
+  for (const bad of ['1', 1, null, {}]) assert.throws(() => preferencesPatch({ attractMode: bad }))
+  localStorage.removeItem(ATTRACT_KEY)
+  const seen: boolean[] = []
+  const stop = watchAttract(on => seen.push(on))
+  try {
+    await setAttractMode(true)
+    assert.equal(localStorage.getItem(ATTRACT_KEY), '1')
+    await setAttractMode(false)
+    assert.deepEqual(seen, [false, true, false])
+  } finally { stop(); localStorage.removeItem(ATTRACT_KEY) }
+})
+
+// ------------------------------------------------------------- the canvas adapter
+test('§8 the canvas routes: pinned or popped-out desks are skipped, real read marks, panels via the shell', async () => {
+  const realFetch = globalThis.fetch
+  const posted: string[] = []
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url)
+    if ((init?.method ?? 'GET') !== 'GET') posted.push(u)
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (u.includes('/work-items-view')) return json({ items: [{ slug: 'moved', updated_at: later }, { slug: 'still', updated_at: before }], counts: { attention: 0, active: 2, archived: 0, backlogged: 0 }, now: later })
+    if (u.endsWith('/inbox')) return json({ pending: [{ id: 'm2', at: later }, { id: 'm1', at: before, urgent: true }], delivered: [], sent: [] })
+    if (u.includes('/inbox/read')) return json({ read: 1 })
+    return json({})
+  }) as typeof fetch
+  resetLocalReads()
+  localStorage.clear()
+  try {
+    const node = (id: string, extra: Record<string, unknown> = {}) =>
+      [id, { id, tier: 'opus', state: 'idle', generation: 1, busy: false, turn_started_at: before, ...extra }] as const
+    const map = new Map<string, any>([
+      node('free', { busy: true }),
+      node('pinned', { busy: true }),
+      node('proj', { kind: 'project', busy: true }),
+      node('old', { documents: [{ id: 'seen', title: 's', at: before }, { id: 'fresh', title: 'f', at: later }] }),
+    ])
+    markDocViewed('acme', 'seen', before)
+    const calls: string[] = []
+    const routes = canvasAttractRoutes(() => ({
+      enabled: true, slug: 'acme', tree: { user_inbox_count: 2 } as any, map, pinnedIds: () => new Set(['pinned']),
+      goToAgent: (id) => calls.push('go:' + id), fitAll: () => calls.push('fit'), openDoc: (id) => calls.push('doc:' + id),
+      readerIds: () => [], closeReader: (id) => calls.push('close-reader:' + id),
+      onPanel: (p) => calls.push('panel:' + (p ? `${p.kind}:${'mail' in p ? p.mail : p.item}` : 'close')),
+    }))
+    const got = await routes.collect(SINCE)
+    assert.deepEqual(got.agents.map(a => `${a.id}:${a.deskTaken}`), ['free:false', 'pinned:true', 'old:false'])
+    assert.deepEqual(got.docs, [{ id: 'fresh', node: 'old' }])
+    assert.deepEqual(got.mail, [{ id: 'm1', urgent: true }, { id: 'm2' }], 'unread mail, oldest first')
+    assert.deepEqual(keys(attractCandidates({ ...got, since: SINCE }, new Set())),
+      [`agent:free:${before}`, 'mail:m1', 'doc:fresh', `ticket:moved:${later}`])
+    await routes.show({ kind: 'org' })
+    await routes.show({ kind: 'agent', id: 'free', mark: before })
+    await routes.show({ kind: 'mail', id: 'm1', urgent: true })
+    await flush()
+    assert.equal(readLocally('acme', 'm1'), true, 'showing the mail reads it')
+    assert.ok(posted.some(u => u.endsWith('/api/orgs/acme/inbox/read')))
+    routes.hide({ kind: 'mail', id: 'm1' })
+    await routes.show({ kind: 'ticket', slug: 'moved', mark: later })
+    routes.hide({ kind: 'ticket', slug: 'moved', mark: later })
+    const shown = routes.show({ kind: 'doc', id: 'fresh', node: 'old' })
+    routes.hide({ kind: 'doc', id: 'fresh', node: 'old' })
+    await shown
+    assert.deepEqual(calls, ['fit', 'go:free', 'panel:inbox:m1', 'panel:close', 'panel:docket:moved', 'panel:close',
+      'doc:fresh', 'close-reader:old'])
+  } finally { globalThis.fetch = realFetch; resetLocalReads(); localStorage.clear() }
+})
