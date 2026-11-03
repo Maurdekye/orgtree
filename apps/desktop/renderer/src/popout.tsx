@@ -281,18 +281,47 @@ function NoticeStrip({ home, items }: { home: Document; items: PopoutNotice[] })
   </div>
 }
 
-function StripPortal({ home, items }: { home: Document; items: PopoutNotice[] }) {
+const canvasHosts = new WeakMap<Element, HTMLElement>()
+/** The canvas window's mount point (@coordinator-opus m50194ab90648): an
+ *  UNTRANSFORMED sibling placed just before `.space` in the canvas world, so
+ *  it paints above the backdrop and below every node, desk and wire, and never
+ *  pans or zooms. z-index alone cannot do this from `<body>`: `.space` is a
+ *  transformed layer, so anything fixed outside it is above ALL of it. Null in
+ *  a window with no org canvas (pop-outs, settings): the body host stays. */
+function canvasHost(home: Document): HTMLElement | null {
+  const space = home.querySelector<HTMLElement>('.viewport .space')
+  const parent = space?.parentElement
+  if (!space || !parent) return null
+  let host = canvasHosts.get(space)
+  if (!host) {
+    host = home.createElement('div'); host.className = 'popout-notices in-canvas'
+    canvasHosts.set(space, host)
+  }
+  if (host.parentElement !== parent || host.nextElementSibling !== space) parent.insertBefore(host, space)
+  return host
+}
+
+function bodyHost(home: Document): HTMLElement {
   let host = noticeHosts.get(home)
   if (!host) {
     host = home.createElement('div'); host.className = 'popout-notices'
     noticeHosts.set(home, host)
   }
-  const target = host
+  return host
+}
+
+function StripPortal({ home, items }: { home: Document; items: PopoutNotice[] }) {
+  const [target, setTarget] = useState<HTMLElement>(() => canvasHost(home) ?? bodyHost(home))
+  useLayoutEffect(() => {
+    // re-resolved every commit: the canvas can mount, unmount or re-key
+    const want = canvasHost(home) ?? bodyHost(home)
+    if (want !== target) setTarget(want)
+  })
   useLayoutEffect(() => {
     if (!target.isConnected) home.body.appendChild(target)
     return () => {
       // React removes this portal's children during the same commit.
-      queueMicrotask(() => { if (!target.childElementCount) target.remove() })
+      queueMicrotask(() => { if (!target.childElementCount && !target.classList.contains('in-canvas')) target.remove() })
     }
   }, [home, target])
   return createPortal(<NoticeStrip home={home} items={items} />, target)

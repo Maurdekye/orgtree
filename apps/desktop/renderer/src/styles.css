@@ -8993,6 +8993,10 @@ html.mobile .popout-button { display: none; }
      menus (1600) and overlays (60+). Pointer events only on the chip. */
   z-index: 4; pointer-events: none; }
 .popout-notices:empty { display: none; }
+/* In a canvas window the strip is mounted by popout.tsx (canvasHost) as an
+   untransformed sibling BEFORE .space: positioned, no z-index, so DOM order puts
+   it above the backdrop and below the nodes, desks and wires. */
+.popout-notices.in-canvas { position: absolute; top: 12px; z-index: auto; }
 .popout-notices > .popout-strip { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
 .popout-chip { pointer-events: auto; min-width: 0; max-width: 280px; box-sizing: border-box;
   padding: 4px 8px; gap: 6px; border: 1px solid var(--line); border-radius: 6px;

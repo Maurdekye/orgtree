@@ -110,3 +110,34 @@ test('a focused card whose desk is in another window is NOT laid out as the desk
   assert.match(hosts, /className="desk-slot"[^]*?\{elsewhere && <InDesksPlace/, 'production markup: the holder is INSIDE .desk-slot, not a direct child of .sq')
   assert.doesNotMatch(css(), /\.sq:not\(\.desk\) > \.desk-elsewhere-holder/, 'so the offset must be a descendant selector')
 })
+
+test('in a canvas window the strip mounts as an untransformed sibling BEFORE .space; elsewhere it is body-fixed', async (t) => {
+  const viewport = document.createElement('div'); viewport.className = 'viewport'
+  const world = document.createElement('div'); world.className = 'canvas-world'
+  const backdrop = document.createElement('div'); backdrop.className = 'backdrop'
+  const space = document.createElement('div'); space.className = 'space'
+  world.append(backdrop, space); viewport.append(world); document.body.appendChild(viewport)
+  const v = await mountView(<>{notice('Inbox', 'inbox', [])}</>, (el) => el)
+  t.after(() => { v.unmount(); viewport.remove() })
+  await inAct(async () => { await flush(3) })
+  const host = space.previousElementSibling as HTMLElement
+  assert.ok(host?.classList.contains('popout-notices') && host.classList.contains('in-canvas'),
+    'the host sits immediately before .space, after the backdrop')
+  assert.equal(host.parentElement, world, 'in the canvas world, not under the transformed .space')
+  assert.equal(host.closest('.space'), null)
+  assert.ok(host.querySelector('.popout-chip'), 'and carries the chip')
+  assert.equal(document.querySelector('body > .popout-notices'), null, 'no body-fixed copy while the canvas exists')
+  const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
+  const inCanvas = css.slice(css.indexOf('.popout-notices.in-canvas {'), css.indexOf('}', css.indexOf('.popout-notices.in-canvas {')))
+  assert.match(inCanvas, /position:\s*absolute/)
+  assert.match(inCanvas, /z-index:\s*auto/, 'no z-index: DOM order puts it under .space')
+  assert.doesNotMatch(inCanvas, /transform/)
+})
+
+test('with no canvas the strip is the body-fixed host', async (t) => {
+  const v = await mountView(<>{notice('Inbox', 'inbox', [])}</>, (el) => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(3) })
+  assert.ok(document.querySelector('body > .popout-notices .popout-chip'))
+  assert.equal(document.querySelector('.popout-notices.in-canvas'), null)
+})
