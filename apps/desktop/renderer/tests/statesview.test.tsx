@@ -30,10 +30,10 @@ test('states tab lists spans newest first with an open span reading now, and a t
   const rows = [...view.el.querySelectorAll('li[data-state]')]
   assert.deepEqual(rows.map(r => r.getAttribute('data-state')), ['idle', 'active'], 'newest first')
   assert.match(rows[0].textContent ?? '', /Idle/)
-  assert.match(rows[0].textContent ?? '', /now/, 'the current span has no end yet')
+  assert.match(rows[0].querySelector('time')?.getAttribute('title') ?? '', /now/, 'the current span has no end yet')
   assert.match(rows[0].textContent ?? '', /30m/)
   assert.match(rows[1].textContent ?? '', /12m/)
-  assert.doesNotMatch(rows[1].textContent ?? '', /now/, 'a closed span names its end')
+  assert.doesNotMatch(rows[1].querySelector('time')?.getAttribute('title') ?? '', /now/, 'a closed span names its end')
   const totals = view.el.querySelector('.agent-states-totals')
   assert.ok(totals, 'totals line present on the first page')
   const text = totals!.textContent ?? ''
@@ -46,7 +46,16 @@ test('states tab lists spans newest first with an open span reading now, and a t
   assert.match(urls[0], /\/api\/orgs\/fixture\/nodes\/worker\/states\?limit=50$/)
 })
 
-test('load older asks for the next page by cursor and appends below', async t => {
+test('older states load when the sentinel comes into view, by cursor, and append below', async t => {
+  const watchers = new Set<(e: { isIntersecting: boolean }[]) => void>()
+  const g = globalThis as Record<string, unknown>
+  const had = g.IntersectionObserver
+  g.IntersectionObserver = class {
+    constructor(private cb: (e: { isIntersecting: boolean }[]) => void) {}
+    observe() { watchers.add(this.cb) }
+    disconnect() { watchers.delete(this.cb) }
+  }
+  t.after(() => { g.IntersectionObserver = had })
   const urls: string[] = []
   globalThis.fetch = (async (url: string) => {
     urls.push(String(url)); return response(String(url).includes('before=41') ? older : first)
@@ -54,14 +63,11 @@ test('load older asks for the next page by cursor and appends below', async t =>
   const view = await mountView(<AgentStatesView slug="fixture" nid="worker" />, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(3) })
-  const more = [...view.el.querySelectorAll('button')].find(b => /older/i.test(b.textContent ?? ''))
-  assert.ok(more, 'a Load older button while a cursor stands')
-  await inAct(async () => { more!.click(); await flush(3) })
+  assert.equal([...view.el.querySelectorAll('button')].some(b => /older/i.test(b.textContent ?? '')), false, 'no Load older button')
+  await inAct(async () => { for (const cb of [...watchers]) cb([{ isIntersecting: true }]); await flush(3) })
   assert.match(urls[1], /before=41/)
   const rows = [...view.el.querySelectorAll('li[data-state]')]
   assert.deepEqual(rows.map(r => r.getAttribute('data-state')), ['idle', 'active', 'frozen'])
-  assert.equal([...view.el.querySelectorAll('button')].some(b => /older/i.test(b.textContent ?? '')), false,
-    'no cursor left, no button')
 })
 
 test('an agent with no recorded states says so', async t => {

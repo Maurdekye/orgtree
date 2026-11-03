@@ -95,8 +95,9 @@ test('the duration text sits beside its bar in its own aligned column; bars shar
   const row = rules('.agent-states-list li')
   const cols = decl(row, 'grid-template-columns') ?? ''
   const tracks = cols.split(/\s+(?![^(]*\))/)
-  assert.equal(tracks.length, 4, `name | when | bar | duration, got "${cols}"`)
-  assert.match(tracks[2]!, /^\d+px$/, 'the bar track is a fixed width, so every bar starts at one left edge')
+  assert.equal(tracks.length, 4, `name | time | bar | duration, got "${cols}"`)
+  assert.match(tracks[0]!, /^\d+px$/); assert.match(tracks[1]!, /^\d+px$/, 'the fixed columns before the bar are equal on every row, so every bar starts at one left edge')
+  assert.equal(tracks[2], 'minmax(0, 1fr)', 'the bar track takes the rest of the row (USER m1ef0c049a6fd), the same on every row, so every bar also ends at one right edge')
   assert.match(tracks[3]!, /^\d+(px|em|rem|ch)$/, 'the duration column is a fixed width')
   const dur = rules('.agent-states-dur')
   assert.equal(decl(dur, 'text-align'), 'right')

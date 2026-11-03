@@ -10521,8 +10521,8 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .agent-states-totals { display: flex; flex-direction: column; gap: 2px; font-size: 12px; padding: 4px 0 6px; border-bottom: 1px solid rgba(128,128,128,.16); }
 .agent-states-window b { font-weight: 600; margin-right: 6px; }
 .agent-states-list { list-style: none; padding: 0; margin: 0; }
-.agent-states-list li { display: grid; grid-template-columns: 96px minmax(0, 1fr) 90px 60px; align-items: center; gap: 8px; min-height: 30px; border-bottom: 1px solid rgba(128,128,128,.16); }
-.agent-states-when { font-size: 11px; min-width: 0; }
+.agent-states-list li { display: grid; grid-template-columns: 88px 40px minmax(0, 1fr) 56px; align-items: center; gap: 8px; min-height: 30px; border-bottom: 1px solid rgba(128,128,128,.16); }
+.agent-states-when { font-size: 11px; min-width: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .agent-states-dur { font-size: 12px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .agent-states-name { display: inline-flex; align-items: center; gap: 6px; }
 /* one status colour per state, read by the dot and the duration bar alike */
@@ -10532,10 +10532,15 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .agent-states [data-state="halted"] { --state-colour: var(--bad); }
 .agent-states [data-state="frozen"] { --state-colour: var(--ice); }
 .agent-states .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-colour); display: inline-block; }
-/* the duration bar: a fixed track (so every bar starts at one left edge and lengths compare across rows) with a log-length fill */
-.agent-states-bar { display: block; width: 90px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--dim) 18%, transparent); overflow: hidden; }
+/* the duration bar: the track takes the row's width between the time and the duration columns (every bar starts at one left edge and ends at one right edge, so lengths compare across rows and pages) with a log-length fill */
+.agent-states-bar { display: block; width: 100%; min-width: 0; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--dim) 18%, transparent); overflow: hidden; }
 .agent-states .state-bar { display: block; height: 100%; border-radius: 4px; background: var(--state-colour); }
-.agent-states-more { align-self: flex-start; }
+.agent-states-tail { position: relative; }
+/* the sentinel overlaps the list's last half screen (no layout height), so the next page starts loading before the end shows */
+.agent-states-sentinel { position: absolute; left: 0; right: 0; bottom: 100%; height: 50vh; pointer-events: none; }
+.agent-states-loading, .agent-states-retry { margin: 4px 0; font-size: 12px; }
+/* a date divider row: the pending divider's label between rules */
+.agent-states-list li.agent-states-day { display: flex; min-height: 24px; border-bottom: 0; }
 
 /* the jump link joins the quoted block's own header row at its right end
    (USER 2026-11-03 m3db1ac4251e4); a header with a time already pushes it
