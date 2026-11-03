@@ -512,3 +512,58 @@ async fn t20_list() {
     let e = err(list(&w.e, w.stranger, &json!({"project":"stream"})).await);
     assert!(e.contains("neither above nor below"), "{e}");
 }
+
+/// T14 (D6): a reaching agent holding web sends on a project websocket dog and the server gets
+/// it; one without the web tool, or one that does not reach the project, is refused.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn t14_send_on_a_project_websocket_dog() {
+    use crate::ws::testserver::{Opts, TestServer};
+    let w = world().await;
+    w.listeners_on(true).await;
+    let server = TestServer::start(Opts::default()).await;
+    let url = server.url("/v1/events");
+    let out = create(&w.e, w.org.id, w.boss, &json!({"kind":"websocket","target":url,"name":"sock","project":"stream"})).await.unwrap();
+    assert_eq!(out["handle"], "stream/sock", "{out}");
+    assert!(server.until(10, |s| s.live() >= 1).await, "the project's one connection is up");
+    let row = w.dog("sock").await.5;
+    for _ in 0..50 {
+        if w.e.dogs.ws.link(row).is_some() { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(w.e.dogs.ws.link(row).is_some(), "the dog's runner holds the live connection");
+    // a member below the project, holding web, writes on it
+    let sent = send(&w.e, w.org.id, Some(w.member), "stream/sock", &json!({"message":"hello from a member"})).await.unwrap();
+    assert_eq!(sent["sent"], true, "{sent}");
+    assert!(server.until(5, |s| s.got().iter().any(|(_, t)| t == "hello from a member")).await, "the server received it");
+    // without the web tool: refused, nothing sent
+    w.sql("UPDATE ot.agents SET scope=jsonb_build_object('tools',jsonb_build_object('web',false)) WHERE id=$1", &[&w.member]).await;
+    let e = err(send(&w.e, w.org.id, Some(w.member), "stream/sock", &json!({"message":"blocked"})).await);
+    assert!(e.contains("web tool"), "{e}");
+    // an agent that does not reach the project may not even resolve the dog
+    let e = err(send(&w.e, w.org.id, Some(w.stranger), "stream/sock", &json!({"message":"blocked"})).await);
+    assert!(e.contains("only agents above or below project stream manage its watchdogs"), "{e}");
+    assert!(!server.got().iter().any(|(_, t)| t == "blocked"));
+    disarm(&w.e, row);
+    server.stop();
+}
+
+/// T21 (D19): a template export skips project dogs and says how many.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn t21_templates_skip_project_dogs() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.put_dog(w.boss, "feed").await.unwrap();
+    // an agent dog stays in the template
+    create(&w.e, w.org.id, w.boss, &json!({"kind":"command","target":"echo hi","pattern":"zzz-never","name":"mine","interval_s":3600})).await.unwrap();
+    let include: crate::domain::templates::Include = serde_json::from_value(json!({"watchdogs": true})).unwrap();
+    let mut root = json!({});
+    crate::domain::template_links::capture(&w.e, w.org.id, &[], &include, &mut root).await.unwrap();
+    let saved: Vec<String> = root["watchdogs"].as_array().cloned().unwrap_or_default().iter().filter_map(|d| d["name"].as_str().map(str::to_string)).collect();
+    assert!(!saved.iter().any(|n| n == "feed"), "the project's dog is not exported: {saved:?}");
+    let warnings = root["warnings"].to_string();
+    assert!(warnings.contains("project watchdogs are not included in templates yet (1 skipped)"), "{warnings}");
+}

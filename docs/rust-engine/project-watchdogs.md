@@ -77,7 +77,6 @@ characters), the detail card reads `project @P` / `created by`.
 
 ## Tests
 
-`runtime/watchdogs/project_tests.rs` (T1-T13, T15-T20; synthetic PG `projdogs_fixture`, env
-`ORGTREE_PROJDOGS_TEST_URL`/`ORGTREE_PROJDOGS_TEST_ROOT`, `--ignored --test-threads=1`), renderer
-`tests/projectwatchdogs.test.tsx` (R1-R5). Not covered: T14 (send on a project websocket dog, needs
-the websocket server fixture) and T21 (template export warning).
+`runtime/watchdogs/project_tests.rs` (T1-T21; synthetic PG `projdogs_fixture`, env
+`ORGTREE_PROJDOGS_TEST_URL`/`ORGTREE_PROJDOGS_TEST_ROOT`, `--include-ignored --test-threads=1`; T14 uses the
+in-process websocket test server), renderer `tests/projectwatchdogs.test.tsx` (R1-R5).
