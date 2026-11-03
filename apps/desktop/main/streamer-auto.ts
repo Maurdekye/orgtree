@@ -64,7 +64,17 @@ export interface StreamerAutoDeps {
   prefs: () => AutoPrefs
   /** Writes through the one preference path (broadcast, native masking). */
   apply: (patch: AutoPatch) => void
+  /** Test seams; real timers and the real clock by default. */
+  sleep?: (ms: number) => Promise<void>
+  now?: () => number
 }
+
+/** The listing's own bound is 4 s (execFile timeout); this one only guards a
+ *  list() that never settles. */
+const LIST_BOUND_MS = 4500
+/** Longest the first verdict may hold the app's windows back. */
+export const STARTUP_CAP_MS = 10_000
+const RETRY_MS = 500
 
 /** Consecutive samples without a streaming app before it counts as exited: a
  *  restart of OBS must not flap the mode off and on. */
@@ -126,12 +136,37 @@ export class StreamerAuto {
       if (names) this.step(detectStreamingApp(names)) // unreadable: no verdict
     } catch { /* a failed look changes nothing */ } finally { this.busy = false }
   }
-  /** Before any window exists: the first verdict is in place before anything paints. */
-  startup() { return this.sample() }
+  private sleep(ms: number) { return (this.deps.sleep ?? (m => new Promise<void>(r => { setTimeout(r, m).unref?.() })))(ms) }
+  /** Before any window exists: wait for a DEFINITIVE first verdict (a readable
+   *  listing), retrying null, timed-out or failed looks, for at most `capMs`.
+   *  True = a verdict was applied; false = none arrived within the cap and the
+   *  stored preference stands. Native protection must stay on until this settles
+   *  (coordinator maf0e03d7007b; requirement: no unmasked first paint). */
+  async startup(capMs = STARTUP_CAP_MS): Promise<boolean> {
+    const now = this.deps.now ?? Date.now, began = now()
+    for (;;) {
+      let names: ReadonlySet<string> | null = null
+      try { names = await Promise.race([this.deps.list(), this.sleep(LIST_BOUND_MS).then(() => null)]) } catch { names = null }
+      if (names) { this.step(detectStreamingApp(names)); return true }
+      if (now() - began >= capMs) return false
+      await this.sleep(RETRY_MS)
+    }
+  }
   start(everyMs = 5000) {
     if (this.timer) return
     this.timer = setInterval(() => { void this.sample() }, everyMs)
     this.timer.unref?.()
   }
   stop() { if (this.timer) clearInterval(this.timer); this.timer = undefined }
+}
+
+/** The startup order main/index.ts runs, as one testable function: native
+ *  protection is only released (setNative) after the first verdict settles, or
+ *  after the cap, when the stored preference stands and the miss is logged. */
+export async function settleStartupVerdict(auto: StreamerAuto, prefs: () => AutoPrefs, setNative: (on: boolean) => void,
+  log: (message: string) => void = m => console.warn(m)): Promise<boolean> {
+  const verdict = await auto.startup()
+  if (!verdict) log('streamer auto: no readable process list within ' + STARTUP_CAP_MS + ' ms; following the stored Streamer mode preference')
+  setNative(prefs().streamerMode === true)
+  return verdict
 }

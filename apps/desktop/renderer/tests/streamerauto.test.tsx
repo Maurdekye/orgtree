@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { JSDOM, flush, inAct, mountView } from './harness'
-import { StreamerAuto, STREAMING_APPS, STREAMING_APP_LABEL, detectStreamingApp, listProcessNames, parsePs, parseTasklist, streamingAppRunning, type AutoPrefs } from '../../main/streamer-auto'
+import { StreamerAuto, STARTUP_CAP_MS, settleStartupVerdict, STREAMING_APPS, STREAMING_APP_LABEL, detectStreamingApp, listProcessNames, parsePs, parseTasklist, streamingAppRunning, type AutoPrefs } from '../../main/streamer-auto'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { AccountsPanel } from '../src/canvas/accounts'
 import type { NativePreferences } from '../src/desktop'
@@ -117,6 +117,60 @@ test('with the setting off nothing turns on; a persisted flag from a past sessio
   const startup = rig()
   startup.auto.step(true)
   assert.equal(startup.prefs.streamerMode, true, 'the first sample (startup) already turns it on')
+})
+
+// Startup (coordinator maf0e03d7007b, @build-sol's source read): native protection is released only
+// after a DEFINITIVE first verdict, or after the 10 s cap; a slow, null, hung or failing listing never
+// releases it early, and the stored preference is followed (and logged) only at the cap.
+function startupRig(list: () => Promise<ReadonlySet<string> | null>, initial: AutoPrefs = {}) {
+  const prefs: AutoPrefs = { ...initial }, events: string[] = []
+  let t = 0
+  // fake clock: a sleep advances it and settles at once, except the 4.5 s list bound when `holdBound`
+  const state = { holdBound: false }
+  const auto = new StreamerAuto({
+    list, prefs: () => ({ ...prefs }), apply: p => { events.push('apply ' + JSON.stringify(p)); Object.assign(prefs, p) },
+    now: () => t, sleep: ms => { if (ms === 4500 && state.holdBound) return new Promise<void>(() => {}); t += ms; return Promise.resolve() },
+  })
+  const logs: string[] = []
+  const settle = () => settleStartupVerdict(auto, () => ({ ...prefs }), on => { events.push('native ' + on) }, m => logs.push(m))
+  return { prefs, events, logs, settle, state, now: () => t }
+}
+const pending = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+
+test('startup: a slow listing (OBS running) keeps native protection on until its verdict lands', async () => {
+  let resolve!: (v: ReadonlySet<string>) => void
+  const r = startupRig(() => new Promise(res => { resolve = res }))
+  r.state.holdBound = true // the 4.5 s guard does not fire inside this 3 s listing
+  let done = false
+  const settled = r.settle().then(v => { done = true; return v })
+  await pending()
+  assert.deepEqual(r.events, [], 'nothing released and nothing applied while the listing is out')
+  assert.equal(done, false)
+  resolve(new Set(['obs64.exe']))
+  assert.equal(await settled, true)
+  assert.deepEqual(r.events, ['apply {"streamerMode":true,"streamerAutoActive":true,"streamerAutoApp":"OBS"}', 'native true'], 'the mode is on BEFORE native protection is evaluated')
+})
+
+test('startup: null listings are retried and protection stays on until a readable one arrives', async () => {
+  let calls = 0
+  const r = startupRig(async () => ++calls < 3 ? null : new Set(['explorer.exe']))
+  assert.equal(await r.settle(), true)
+  assert.equal(calls, 3)
+  assert.deepEqual(r.events, ['native false'], 'a readable listing with no streaming app releases protection once')
+})
+
+test('startup: a listing that never settles or never reads is capped, logged, and the stored preference stands', async () => {
+  const hung = startupRig(() => new Promise(() => {}), { streamerMode: true })
+  assert.equal(await hung.settle(), false)
+  assert.ok(hung.now() >= STARTUP_CAP_MS, 'ran to the cap')
+  assert.deepEqual(hung.events, ['native true'], 'the stored preference (on) stands; nothing was applied')
+  assert.equal(hung.logs.length, 1)
+  const unreadable = startupRig(async () => null)
+  assert.equal(await unreadable.settle(), false)
+  assert.deepEqual(unreadable.events, ['native false'])
+  assert.match(unreadable.logs[0]!, /no readable process list/)
+  const failing = startupRig(async () => { throw new Error('tasklist blocked') })
+  assert.equal(await failing.settle(), false, 'a thrown listing is a miss, not a crash')
 })
 
 test('an unreadable listing is no verdict and overlapping samples do not stack', async () => {

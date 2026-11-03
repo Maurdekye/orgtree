@@ -7,7 +7,7 @@ import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
-import { listProcessNames, StreamerAuto } from './streamer-auto'
+import { listProcessNames, settleStartupVerdict, StreamerAuto } from './streamer-auto'
 const dialog = protectNativeDialogs(rawDialog), Menu = protectNativeMenus(rawMenu)
 import path from 'node:path'
 import os from 'node:os'
@@ -1921,8 +1921,7 @@ else {
     // BEFORE any window exists, so nothing can paint unmasked first. Native
     // masking stays on (its default) until this first verdict is in.
     const streamerAuto = new StreamerAuto({ list: listProcessNames, prefs: () => preferences.get(), apply: patch => { setPreferences(patch) } })
-    await Promise.race([streamerAuto.startup(), new Promise(resolve => setTimeout(resolve, 2500))])
-    setNativeStreamer(preferences.get().streamerMode === true)
+    await settleStartupVerdict(streamerAuto, () => preferences.get(), setNativeStreamer)
     streamerAuto.start()
     app.on('will-quit', () => streamerAuto.stop())
     loginPreference()
