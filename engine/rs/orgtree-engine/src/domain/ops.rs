@@ -3647,7 +3647,8 @@ mod project_settings_tests {
         // op), with no agent tool this round — so configure refuses them as
         // unknown, like any other key it does not own.
         for patch in [json!({"theme_color":"#e11d48"}), json!({"theme_icon":"rocket"}),
-            json!({"theme_color":null}), json!({"slots":1,"theme_icon":"rocket"})] {
+            json!({"theme_color":null}), json!({"slots":1,"theme_icon":"rocket"}),
+            json!({"theme_icon_custom":"a".repeat(64)})] {
             assert!(project_setting_ops("alpha",&patch).is_err(),"accepted {patch}");
         }
     }

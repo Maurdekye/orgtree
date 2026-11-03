@@ -12,6 +12,8 @@
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
@@ -19,6 +21,8 @@ import { TierChip, createTierChipEl } from '../src/canvas/identity'
 import { hydrateTree } from '../src/archived'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
+
+declare const __SRC_DIR__: string
 
 const noop = () => {}
 const FOLDER_D = 'M20 6h-8l-2-2H4'
@@ -134,4 +138,143 @@ test('§5 clearing back to the folder and the default colour; an untouched save 
   await inAct(async () => { save().click(); await flush(4) })
   assert.deepEqual(ops.map((o) => ({ ...o })),
     [{ op: 'set_theme', node: 'website', theme_color: null, theme_icon: null }])
+})
+
+/* ── FOLLOW-UP (@item:orgtree/project-themes-colour-the-whole-project-node-by-i;
+   USER 2026-11-03 09:22:44Z mc4fd305e1c09 "1. project nodes should be
+   color-coded to their icons, 2 shouls be able to uplosd a cuwtom icon") ── */
+
+const css = () => readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
+const rule = (sheet: string, selector: string) => {
+  const at = sheet.indexOf(selector + ' {')
+  assert.ok(at >= 0, selector + ' rule exists')
+  return sheet.slice(at, sheet.indexOf('}', at))
+}
+
+test('§6 the theme colour colours the project node itself, as an agent card wears its provider accent', async (t) => {
+  for (const lod of ['norm', 'mini'] as const) {
+    const card = (await square(t, themed(), lod)).querySelector<HTMLElement>('.sq.project')!
+    assert.ok(card, 'the card')
+    assert.equal(card.style.getPropertyValue('--provider-accent').trim().toLowerCase(), ROSE,
+      `${lod}: the card carries the theme colour on the agent card's own accent variable`)
+  }
+  const plain = (await square(t, project(), 'norm')).querySelector<HTMLElement>('.sq.project')!
+  assert.equal(plain.style.getPropertyValue('--provider-accent'), '', 'an unthemed project looks as it did')
+})
+
+test('§7 the project card rules read the accent variable; busy and asking keep their state colour', () => {
+  const sheet = css()
+  assert.match(rule(sheet, '.sq.project'), /var\(--provider-accent\)/, 'the card wash follows the accent')
+  assert.match(rule(sheet, '.sq.project.norm'), /var\(--provider-accent\)/, 'the norm border follows the accent')
+  assert.match(rule(sheet, '.sq.project .project-mini'), /var\(--provider-accent\)/, 'the mini glyph follows the accent')
+  for (const state of ['.sq.project.busy', '.sq.project.asking']) {
+    const r = rule(sheet, state)
+    assert.match(r, /var\(--accent\)/, state + ' keeps the semantic state colour')
+    assert.doesNotMatch(r, /provider-accent/, state + ' is not re-tinted by the theme')
+  }
+})
+
+const SHA = 'a'.repeat(64)
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+const uploaded = () => project({ theme_color: ROSE, theme_icon: 'rocket', theme_icon_custom: SHA })
+
+/** the project-icon routes, over the harness server */
+function serveIcons(t: TestContext) {
+  serve(t)
+  const inner = (globalThis as { fetch: typeof fetch }).fetch
+  const calls: { method: string; url: string; body: unknown }[] = []
+  ;(globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input)
+    if (!url.includes('/project-icon')) return inner(input as RequestInfo, init)
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    calls.push({ method, url, body })
+    const json = method === 'GET'
+      ? { picture: { revision: '1', sha256: SHA, width: 256, height: 256, bytes: 68, data: PNG_B64 } }
+      : { node: 'website', theme_icon_custom: body?.data ? SHA : null }
+    return new Response(JSON.stringify(json), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  return calls
+}
+
+test('§8 an uploaded icon shows in its own colours on the node, the mark and the DOM chip', async (t) => {
+  const calls = serveIcons(t)
+  hydrateTree({ slug: 'org', roots: [uploaded()] } as unknown as TreePayload)
+  for (const lod of ['mini', 'norm'] as const) {
+    const view = await mountView(<ProjectSquare node={uploaded()} pos={{ x: 0, y: 0 }} lod={lod}
+      dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
+      toast={noop} zoom={lod === 'mini' ? 0.4 : 1.2} hire={{}} seats={{}}
+      onHire={noop} onNewProject={noop} onInbox={noop}
+      onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+    t.after(() => view.unmount())
+    await inAct(async () => { await flush(8) })
+    const where = lod === 'mini' ? '.project-mini' : '.sq-head .project-mark'
+    const img = view.el.querySelector<HTMLImageElement>(where + ' img.project-icon-img')
+    assert.ok(img, `${lod}: the uploaded image replaces the glyph`)
+    assert.equal(img.getAttribute('src'), 'data:image/png;base64,' + PNG_B64, 'a PNG data URL, never markup')
+    assert.ok(!view.el.querySelector(where + ' svg'), 'no built-in glyph beside it')
+    assert.equal(view.el.querySelector<HTMLElement>('.sq.project')!.style.getPropertyValue('--provider-accent').trim().toLowerCase(), ROSE,
+      'the theme colour still colours the node')
+  }
+  assert.ok(calls.some((c) => c.method === 'GET' && c.url.includes('/api/orgs/org/project-icon') && c.url.includes('node=website')),
+    'the image is read by its own route, not carried on the tree')
+  const chip = await mountView(<TierChip tier="project" agentName="website" />, (el) => el)
+  t.after(() => chip.unmount())
+  await inAct(async () => { await flush(4) })
+  assert.ok(chip.el.querySelector('.project-mark img.project-icon-img'), 'the link chip wears the upload')
+  const dom = createTierChipEl(document, 'project', 'website')!
+  assert.ok(dom.querySelector('img.project-icon-img'), 'and so does the DOM chip of markdown @project links')
+})
+
+function pickFile(input: HTMLInputElement, file: File) {
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+test('§9 settings: Upload icon… sends a PNG/JPEG/WebP to the project-icon route; oversized and wrong types are refused', async (t) => {
+  const calls = serveIcons(t)
+  const node = project()
+  const view = await mountView(<NodeConfig node={node} map={new Map([[node.id, node]])} tree={tree} slug="org"
+    op={async () => ({} as OpResult)} toast={noop} close={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  assert.ok(button('Upload icon…'), 'an Upload icon… choice beside the built-in icons')
+  const input = document.querySelector<HTMLInputElement>('input[type="file"][aria-label="Upload icon file"]')!
+  assert.ok(input, 'a file field')
+  for (const type of ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'])
+    assert.ok(input.accept.includes(type), 'accepts ' + type)
+  await inAct(async () => { pickFile(input, new File([new Uint8Array(2 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' })); await flush(6) })
+  assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'an oversized file never leaves the renderer')
+  assert.ok(document.body.textContent!.includes('2 MB'), 'with a clear message naming the limit')
+  await inAct(async () => { pickFile(input, new File(['GIF89a'], 'anim.gif', { type: 'image/gif' })); await flush(6) })
+  assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'a GIF is refused')
+  assert.match(document.body.textContent!, /PNG, JPEG, WebP or SVG/, 'naming the accepted formats')
+  const png = Uint8Array.from(atob(PNG_B64), (c) => c.charCodeAt(0))
+  await inAct(async () => { pickFile(input, new File([png], 'logo.png', { type: 'image/png' })); await flush(10) })
+  const post = calls.find((c) => c.method === 'POST')
+  assert.ok(post, 'a PNG is uploaded')
+  assert.deepEqual(post!.body, { node: 'website', data: PNG_B64 }, 'the raw bytes, base64: the engine normalises them')
+})
+
+test('§10 settings: an uploaded icon shows as chosen and can be removed back to the built-in icon', async (t) => {
+  const calls = serveIcons(t)
+  hydrateTree({ slug: 'org', roots: [uploaded()] } as unknown as TreePayload)
+  const ops: OpRequest[] = []
+  const node = uploaded()
+  const view = await mountView(<NodeConfig node={node} map={new Map([[node.id, node]])} tree={tree} slug="org"
+    op={async (b) => { ops.push(b); return {} as OpResult }} toast={noop} close={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(8) })
+  const tile = button('Icon: Uploaded')
+  assert.ok(tile, 'the upload is a tile in the grid')
+  assert.equal(tile.getAttribute('aria-pressed'), 'true', 'and it is the chosen one')
+  assert.equal(button('Icon: Rocket').getAttribute('aria-pressed'), 'false', 'the built-in under it is not drawn as chosen')
+  await inAct(async () => { button('Remove uploaded icon').click(); await flush(8) })
+  assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ node: 'website', data: null }],
+    'removing clears the upload through the same route')
+  // choosing a built-in icon while an upload is set replaces it on save
+  await inAct(() => button('Icon: Folder (default)').click())
+  await inAct(async () => { save().click(); await flush(4) })
+  assert.deepEqual(ops.map((o) => ({ ...o })), [{ op: 'set_theme', node: 'website', theme_icon: null }],
+    'a built-in pick saves through set_theme, which also drops the upload')
 })
