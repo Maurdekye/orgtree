@@ -16,8 +16,9 @@ import type { Scroll } from './scroll'
 import type { CanvasNode } from '../canvas/shared'
 import type { TreePayload } from '../types'
 
-/** the shell's two panels attract mode opens; null closes what it opened */
-export type AttractPanel = { kind: 'inbox'; mail: string } | { kind: 'docket'; item: string } | null
+/** the shell's two panels attract mode opens; null closes what it opened; 'release' hands
+ *  what it opened over to the user (touched, or the run was interrupted): nothing closes it */
+export type AttractPanel = { kind: 'inbox'; mail: string } | { kind: 'docket'; item: string } | null | 'release'
 
 export interface CanvasAttractDeps {
   enabled: boolean
@@ -43,6 +44,14 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
   const deps = { get current() { return get() } }
   const scroll: { current: Scroll | null } = { current: null }
   const openedReader: { current: string | null } = { current: null }
+  /** the node whose reader the shell opens a presentation on: the first node
+   *  listing it, as OrgCanvas's `docOwner` (the reader that opens is that node's) */
+  const ownerOf = (id: string): string | null => {
+    for (const n of deps.current.map.values()) if (n.documents?.some(d => d.id === id)) return n.id
+    return null
+  }
+  /** what attract opened now belongs to the user: it closes nothing of it later */
+  const release = () => { openedReader.current = null; deps.current.onPanel?.('release') }
   const endScroll = () => { scroll.current?.cancel(); scroll.current = null }
   return {
     collect: async () => {
@@ -86,7 +95,8 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
         case 'doc': {
           const before = c.readerIds()
           c.openDoc(t.id)   // the reader marks it viewed as it loads
-          openedReader.current = t.node && !before.includes(t.node) ? t.node : null
+          const owner = ownerOf(t.id) ?? t.node
+          openedReader.current = owner && !before.includes(owner) ? owner : null
           endScroll()
           scroll.current = scrollThrough(t.id)
           return scroll.current.length
@@ -102,8 +112,10 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
         openedReader.current = null
       }
     },
-    // input: the scroll stops where it is; every panel stays on screen
-    stop: () => { endScroll(); openedReader.current = null },
+    // canvas interaction ended the run: the scroll stops where it is and every
+    // panel stays on screen - as the user's
+    stop: () => { endScroll(); release() },
+    release,
   }
 }
 

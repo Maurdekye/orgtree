@@ -150,7 +150,17 @@ const NOT_CANVAS = '.overlay, .desk-over, .tray, .tray-wrap, .pinwin, .custom-ap
 let lastInput = Date.now()
 let lastPointer: { x: number; y: number } | null = null
 let installed = false
-const inputSubs = new Set<(canvas: boolean) => void>()
+const inputSubs = new Set<(canvas: boolean, panel: boolean) => void>()
+
+/** the panels attract mode can have open (the shell's inbox and docket, readers): a press,
+ *  wheel or key in one hands it to the user. The agents tray is not one. */
+const PANEL_AREA = '.overlay, .pinwin, .custom-app-window'
+/** an event aimed at a panel attract may have opened */
+export function isPanelEvent(e: Event): boolean {
+  const t = e.target as Element | null
+  if (e.type === 'pointermove' || !t || typeof t.closest !== 'function') return false
+  return !!t.closest(PANEL_AREA)
+}
 
 /** An event aimed at the org canvas itself (its background, nodes and
  *  controls), not at a panel that merely sits inside it. */
@@ -174,7 +184,8 @@ function onInput(e: Event): void {
   lastInput = Date.now()
   const canvas = isCanvasEvent(e)
   if (canvas && (e.type === 'pointerdown' || e.type === 'touchstart')) held = true
-  for (const fn of [...inputSubs]) fn(canvas)
+  const panel = !canvas && isPanelEvent(e)
+  for (const fn of [...inputSubs]) fn(canvas, panel)
 }
 /** The press ended: the interaction is over, so the quiet time counts from now.
  *  (Only a press the canvas took; a release elsewhere is not input.) */
@@ -182,12 +193,12 @@ function onRelease(): void {
   if (!held) return
   held = false
   lastInput = Date.now()
-  for (const fn of [...inputSubs]) fn(false)
+  for (const fn of [...inputSubs]) fn(false, false)
 }
 
 /** Follow user input in this window (`canvas`: it was canvas interaction);
  *  also starts the window's tracker. */
-export function watchInput(fn: (canvas: boolean) => void): () => void {
+export function watchInput(fn: (canvas: boolean, panel: boolean) => void): () => void {
   if (!installed && typeof window !== 'undefined') {
     installed = true
     for (const type of INPUT_EVENTS) window.addEventListener(type, onInput, { capture: true, passive: true })
@@ -209,6 +220,9 @@ export interface AttractRoutes {
   hide: (t: AttractTarget) => void
   /** canvas interaction ended the run: stop anything still moving, leave the rest on screen */
   stop?: () => void
+  /** the user touched a panel attract opened (a press, wheel or key in it): it is theirs now,
+   *  and the run goes on without closing it */
+  release?: () => void
 }
 
 /** Runs the cycle while `enabled` and the window has had no input for more
@@ -240,7 +254,11 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
         else if (!held) arm()
       }, wait)
     }
-    const stop = watchInput(canvas => { if (canvas) setRunning(false); arm() })
+    const stop = watchInput((canvas, panel) => {
+      if (canvas) setRunning(false)
+      else if (panel) routesRef.current.release?.()
+      arm()
+    })
     arm()
     return () => { clearTimeout(timer); stop() }
   }, [enabled, idleMs])

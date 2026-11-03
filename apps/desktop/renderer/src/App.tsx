@@ -69,6 +69,7 @@ import { OrgtreeMenu } from './shell/menu'
 import type { ShellMenuMode } from './shell/menu'
 import { setAttractMode, useAttractMode } from './attract/pref'
 import type { AttractPanel } from './attract/canvas'
+import { createAttractPanels } from './attract/panels'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
 import type { CanvasShortcutRef } from './shell/appshortcuts'
@@ -585,29 +586,24 @@ export default function App() {
     toggleSurface('changelog', showChangelog, setShowChangelog, true)
   }, [toggleSurface, showChangelog, setShowChangelog])
   // ATTRACT MODE opens the inbox at one unread mail or the docket at one
-  // updated ticket through the same jumps the canvas's own links use, and
-  // closes only a panel IT opened when the cycle moves on (gap-fill Q2,
-  // m082646bad468): one already open stays open.
-  const attractOpened = useRef<'inbox' | 'docket' | null>(null)
+  // updated ticket through the same jumps the canvas's own links use
+  // (attract/panels.ts decides which of them are its own to close). The refs
+  // are written the moment a panel opens or closes here, so "is it open" is
+  // never a render behind.
   const showInboxNow = useRef(showInbox); showInboxNow.current = showInbox
   const showDocketNow = useRef(showDocket); showDocketNow.current = showDocket
-  const attractPanel = useCallback((panel: AttractPanel) => {
-    if (!panel) {
-      if (attractOpened.current === 'inbox') setShowInbox(false)
-      if (attractOpened.current === 'docket') setShowDocket(false)
-      attractOpened.current = null
-      return
-    }
-    if (panel.kind === 'inbox') {
-      attractOpened.current = showInboxNow.current ? null : 'inbox'
-      setInboxJump(jumpTo(panel.mail)); setShowInbox(true)
-      raisePinnedModal('inbox', slug)
-    } else {
-      attractOpened.current = showDocketNow.current ? null : 'docket'
-      setDocketJump(jumpTo(panel.item)); setShowDocket(true)
-      raisePinnedModal('docket', slug)
-    }
-  }, [slug])
+  const attractPanels = useMemo(() => createAttractPanels({
+    isOpen: kind => kind === 'inbox' ? showInboxNow.current : showDocketNow.current,
+    show: (kind, id) => {
+      if (kind === 'inbox') { showInboxNow.current = true; setInboxJump(jumpTo(id)); setShowInbox(true); raisePinnedModal('inbox', slug) }
+      else { showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }
+    },
+    close: kind => {
+      if (kind === 'inbox') { showInboxNow.current = false; setShowInbox(false) }
+      else { showDocketNow.current = false; setShowDocket(false) }
+    },
+  }), [slug])
+  const attractPanel = useCallback((panel: AttractPanel) => attractPanels.apply(panel), [attractPanels])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
