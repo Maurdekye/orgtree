@@ -36,8 +36,8 @@ test('states tab lists spans newest first with an open span reading now, and a t
   const text = totals!.textContent ?? ''
   assert.match(text, /24 hours/)
   assert.match(text, /7 days/)
-  assert.match(text, /Active 1h/, '24h active = 3600s')
-  assert.match(text, /Idle 90m/, '24h idle = 5400s')
+  assert.match(text, /Active 60m/, '24h active = 3600s, in the desk age words (under 90 min reads minutes)')
+  assert.match(text, /Idle 2h/, '24h idle = 5400s (90 min rounds to hours)')
   assert.doesNotMatch(text.split('7 days')[0], /Halted/, 'a state with no time is left out')
   assert.match(text.split('7 days')[1], /Halted 20s/)
   assert.match(urls[0], /\/api\/orgs\/fixture\/nodes\/worker\/states\?limit=50$/)
