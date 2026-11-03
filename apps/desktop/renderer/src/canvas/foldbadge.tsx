@@ -1,12 +1,13 @@
 import { useContextMenu } from './contextmenu'
 import { providerOf } from './shared'
 import { useProjectTheme } from './projecttheme'
+import { MAX_TUCKS } from './subtreefold'
 import type { FoldInfo, FoldTuck } from './subtreefold'
 
 /** One tucked shape: the child's own colour, a project's from its theme. */
 function Tuck({ tuck, i }: { tuck: FoldTuck; i: number }) {
   const theme = useProjectTheme(tuck.project ? tuck.id : null)
-  const cls = 'fold-tuck' + (tuck.project ? ' project' : ' prov-' + providerOf(tuck.tier ?? ''))
+  const cls = 'fold-tuck t' + Math.min(i, 2) + (tuck.project ? ' project' : ' prov-' + providerOf(tuck.tier ?? ''))
   return <span className={cls} data-tuck={tuck.id}
     style={{ '--tuck-i': i, ...(theme?.color ? { '--provider-accent': theme.color } : {}) } as React.CSSProperties} />
 }
@@ -31,7 +32,7 @@ export function FoldStack({ id, fold, onToggle }: {
     : ''
   const cls = 'fold-stack folded' + (fold.working ? ' working' : '')
     + (fold.attention ? ' attention' : '')
-  const tucks = fold.tucks ?? []
+  const tucks = (fold.tucks ?? []).slice(0, MAX_TUCKS)   // the retired pile's three layers
   return <><button type="button" className={cls} data-fold-for={id}
     title={label + facts} aria-label={label} aria-expanded={false}
     onPointerDown={e => e.stopPropagation()}

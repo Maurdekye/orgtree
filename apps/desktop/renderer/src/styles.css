@@ -932,43 +932,39 @@ button.badge.audience-fold.alert {
    summarises the hidden members in the card states' own colours: `working`
    in the workstate green (.sq-idle.working), `attention` in the asking
    accent, so folding a branch never makes its state unreadable. */
-/* subtree fold: the tucked stack under a collapsed node's bottom edge
-   (replaces the chevron button; foldbadge.tsx FoldStack) */
+/* subtree fold: the tucked stack under a collapsed node's bottom edge (replaces the chevron button; foldbadge.tsx FoldStack).
+   Drawn like the RETIRED PILE (.pile-layer: same radius, border, fills and 5px step, up to three layers) but offset
+   straight DOWN under the node instead of diagonally up-right (USER 2026-11-03 m05ca05916042). Each layer is the strip of the
+   node's own silhouette that shows below it; the shallow layer is in front. Behind neighbouring nodes in z-order. */
 .fold-stack {
-  /* the peek must fit the 8px clearance the layout leaves under a node
-     (projectbunch.ts card + 8): it ends at 8px, below any neighbour in
-     z-order, and the count rides on the node's own bottom edge */
-  position: absolute; left: 50%; top: 100%; z-index: 0;
-  transform: translateX(-50%); margin-top: 0;
-  width: 78%; height: 8px; padding: 0; cursor: pointer;
-  border: 0; background: transparent; color: var(--ink);
+  --fold-step: 5px;
+  position: absolute; left: 0; top: 100%; z-index: 0; width: 100%; height: calc(var(--fold-step) * 3);
+  padding: 0; cursor: pointer; border: 0; background: transparent; color: var(--ink);
   font: inherit; font-size: 10px; line-height: 1;
 }
 .fold-tuck {
-  position: absolute; top: 0; left: 50%; border-radius: 0 0 5px 5px;
-  border: 1px solid var(--line); border-top: 0;
-  background: color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, var(--panel-2));
-  /* cards under a card: each deeper tuck is narrower, drawn behind the one
-     before it and reaches 2px lower, so every colour shows a band below it:
-     4px, 6px, 8px */
-  height: calc(4px + var(--tuck-i, 0) * 2px);
-  width: calc(100% - var(--tuck-i, 0) * 14%);
-  transform: translateX(-50%);
+  position: absolute; top: 0; left: 0; width: 100%; box-sizing: border-box;
+  height: calc(var(--fold-step) * (var(--tuck-i, 0) + 1));
+  border-radius: 0 0 8px 8px; border: 1px solid var(--line-soft); border-top: 0;
   z-index: calc(3 - var(--tuck-i, 0));
+  /* the child's own colour survives as a thin cue on the layer's lower edge; the glow rules set --tuck-glow */
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--provider-accent, var(--accent)) 70%, transparent), var(--tuck-glow, 0 0 0 transparent);
 }
-/* the bottom hire strip starts 1px INSIDE the card and 22px tall, which lay over
-   the 8px stack (build-sol: elementFromPoint at the mini stack centre = .hs-fam,
-   so the click hired instead of expanding). A folded node's strip starts below
-   the stack; the stack is a child of the card, so the hover stays contiguous. */
-.sq:has(> .fold-stack) > .hsof:not(.side) { top: calc(100% + 7px); }
+.fold-tuck.t0 { background: var(--pile-1); --tuck-i: 0; }
+.fold-tuck.t1 { background: var(--pile-2); --tuck-i: 1; }
+.fold-tuck.t2 { background: var(--pile-3); --tuck-i: 2; }
+/* the bottom hire strip starts 1px INSIDE the card and 22px tall, which lay over the stack (build-sol: elementFromPoint at the
+   mini stack centre = .hs-fam, so the click hired instead of expanding). A folded node's strip starts below the 15px stack;
+   the stack is a child of the card, so the hover stays contiguous. */
+.sq:has(> .fold-stack) > .hsof:not(.side) { top: calc(100% + 14px); }
 .fold-tuck.prov-claude { --provider-accent: var(--prov-claude); }
 .fold-tuck.prov-openai { --provider-accent: var(--prov-openai); }
 .fold-tuck.prov-google { --provider-accent: var(--prov-google); }
 .fold-tuck.prov-openrouter { --provider-accent: var(--prov-openrouter); }
 .fold-stack .fold-count {
   position: absolute; z-index: 4; right: 0; bottom: 100%; margin-bottom: 3px; padding: 0 5px;
-  border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line);
-  font-size: 10px;
+  font-family: var(--mono); font-weight: 700; font-size: 9px; line-height: 1.6;
+  border-radius: 8px; background: var(--input); border: 1px solid var(--line); color: var(--dim);
 }
 .fold-stack:hover .fold-count { border-color: var(--button-accent); }
 .fold-stack.working .fold-count { color: var(--work); border-color: var(--work); }
@@ -976,8 +972,8 @@ button.badge.audience-fold.alert {
   color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
-.fold-stack.working .fold-tuck { box-shadow: 0 0 6px color-mix(in srgb, var(--work) 60%, transparent); }
-.fold-stack.attention .fold-tuck { box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent); }
+.fold-stack.working .fold-tuck { --tuck-glow: 0 0 6px color-mix(in srgb, var(--work) 60%, transparent); }
+.fold-stack.attention .fold-tuck { --tuck-glow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent); }
 .resume-all {
   /* resume = thaw: ice-tinted, matching what it resumes (was haiku-green,
      which made a frozen-org control wear a model tier's color) */
