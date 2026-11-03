@@ -53,3 +53,15 @@ test('RT-C13b the tray summary stays one ellipsis-clipped line: its Markdown is 
   assert.match(css, /\.tray-sum-text \.md-inline \{[^}]*display: inline;[^}]*white-space: inherit/,
     'the tray summary overrides .md-inline (inline-block) and .md (white-space: normal)')
 })
+
+test('RT-C13c a multi-line summary shows on ONE line in the tray: no <br>, the words stay apart', async t => {
+  const node = { id: 'alpha', state: 'live', kind: 'agent', tier: 'sonnet', children: [], turns: [],
+    last_status: { status: 'working', summary: 'first line\nsecond **bold**', at: '2026-11-03T10:00:00Z' } } as unknown as CanvasNode
+  const view = await mountView(<AgentTray map={new Map([['alpha', node]])} rows={[{ node, depth: 0 }] as never}
+    query="" onQuery={() => {}} archived={false} onArchived={() => {}} onPick={() => {}} refs={refs} />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(2) })
+  const text = view.el.querySelector('.tray-sum-text')!
+  assert.equal(text.querySelectorAll('br').length, 0, 'no hard break in the one-line summary')
+  assert.ok((text.textContent ?? '').includes('first line second bold'), `the lines are joined by a space: "${text.textContent}"`)
+})

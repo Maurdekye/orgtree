@@ -23,6 +23,10 @@ import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
 import { RefMdBody } from './refmd'
 import { inlineMd } from './shared'
+
+/** the tray's status line is ONE line: the chat Markdown turns a newline into <br> (breaks: true), which ends the line even
+ *  under white-space: nowrap, so each break becomes a space (spec C13) */
+const oneLine = (r: { __html: string }) => ({ __html: r.__html.replace(/<br\s*\/?>/gi, ' ') })
 import { charterLine } from '../archived'
 import { agentTooltipProps } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
@@ -221,7 +225,7 @@ export function AgentTray({
                 title={stat?.summary || undefined}>
                 {stat?.summary ? <>
                 <span className="tray-sum-text">
-                  {stat.status}: <RefMdBody el="span" className="md md-inline" html={inlineMd(stat.summary)} world={refs?.world} onOpen={refs?.onOpen} />
+                  {stat.status}: <RefMdBody el="span" className="md md-inline" html={oneLine(inlineMd(stat.summary))} world={refs?.world} onOpen={refs?.onOpen} />
                 </span>
                 {stat.at && <span className="tray-sum-at" title={ageTitle(stat.at)} aria-label={ageTitle(stat.at)}> · {fmtAge(stat.at)} ago</span>}
                 </> : <span className="tray-sum-text" aria-hidden="true">&nbsp;</span>}
