@@ -1212,7 +1212,7 @@ async fn queue_row(
     let tx = client.transaction().await?;
     crate::domain::orginbox::admit(&tx, &[org_id]).await?;
     if let Some(j) = job {
-        crate::domain::orginbox::recheck_job_reply(&tx, org_id, j).await?;
+        crate::domain::orginbox::recheck_job_reply(&*tx, org_id, j).await?;
     }
     let via_job: Option<&str> = job.map(|j| j.job);
     let row = tx

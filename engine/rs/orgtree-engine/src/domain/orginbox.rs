@@ -263,7 +263,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     let tx = client.transaction().await?;
     admit(&tx, &[org_id, dst.id]).await?;
     if let (Some(job), From::Agent { id, .. }) = (&via_job, &out.from) {
-        recheck_job_reply(&tx, org_id, &JobReply { agent: *id, job: job.as_str(), out }).await?;
+        recheck_job_reply(&*tx, org_id, &JobReply { agent: *id, job: job.as_str(), out }).await?;
     }
     // a quote that names a message by its id is re-pointed at the receiver's own row of it (ids are per org)
     let mut reply_there = reply_there;

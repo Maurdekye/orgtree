@@ -484,7 +484,7 @@ async fn t29_the_send_rechecks_the_right_on_its_own_transaction() {
     // source guards: the job is read FOR SHARE, and the @net: row gets via_job in its own INSERT
     assert!(include_str!("orginbox_jobs.rs").contains("FOR SHARE OF j"));
     let net = include_str!("../net.rs");
-    assert!(net.contains("recheck_job_reply(&tx, org_id, j)") && net.contains("sender_generation, replies, via_job)"), "queue_row checks and writes via_job in one transaction");
+    assert!(net.contains("recheck_job_reply(&*tx, org_id, j)") && net.contains("sender_generation, replies, via_job)"), "queue_row checks and writes via_job in one transaction");
     assert!(!include_str!("orginbox.rs").contains("UPDATE ot.org_inbox SET via_job=$2"), "no after-the-fact UPDATE of via_job");
 }
 
