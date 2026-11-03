@@ -895,3 +895,7 @@ desk shows the user as the @user mention chip, user 13:50Z). The full list of ru
   `project-user-queue.mjs`; renderer `usermention`, `userslots`, `userlisteners`, `usermailqueue`,
   `userjobs`, `userlinks`, `usermailheader`, `registermenu`, `listenerspanel`; captures with
   `PROJECTNODE_VISUAL_ONLY=headercontrols`.
+
+## Project watchdogs (USER 2026-11-03 10:33Z; migration 0083)
+
+A project can own watchdogs (`orgtree_watchdog create project=P`, kinds file/command/process/stream/websocket/mqtt). Each fire is the project's event, broadcast to its armed `project_listener`s; any agent above or below the project may create, pause, resume, remove and `send` on them. The listeners tab lists them as **Event sources**. Design and decisions: [project watchdogs](project-watchdogs.md).

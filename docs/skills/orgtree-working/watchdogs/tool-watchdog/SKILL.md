@@ -124,6 +124,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 | `batch` | Create, `fair_queue` only | Integer 1–20, default 1: maximum mails per assignment batch and unacked mails in ACK mode. |
 | `slots` | Create, `slot` only | Integer 1–9,999,999, default 1; at most capacity minus your held/pending units. Reserve all requested units as one lease in strict FIFO order. |
 | `fire_actions` | Create, any kind except `fair_queue` | Up to 4 `{tool, args}` orgtree_* tool calls run as you when the dog fires; results return inline for a ready once result, otherwise in fire mail. Credentials in them only as a file path. See Fire-time tool calls. |
+| `project` | Create, list | Create: put the watchdog on this project (you must be above or below it): kinds `file`, `command`, `process`, `stream`, `websocket`, `mqtt` only; `notice` true and `fire_actions` are refused. Its fires are the project's event for every armed `project_listener`; the id is `P/uid`, and any agent above or below the project (or the user) can pause, resume, remove, `send` and `configure` it. It runs with the project's hands (the creator must hold them too); prefer inline credentials. List: that project's own watchdogs. |
 | `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, a project's name for `fair_queue`, `slot`, `project_listener` and `listener_watch`, a broker `mqtt://host[:port]`/`mqtts://host[:port]` for `mqtt`, or a `ws://`/`wss://` URL for `websocket`. |
 | `name` | Create | Optional short name; its normalized slug becomes the owner-local ID. |
 | `pattern` | Create | Regex. Required for `command`; optional otherwise. Process down edges do not use it. For `mqtt` it is required and is the MQTT topic filter (`+`/`#` wildcards), not a regex. For `websocket` it is an optional regex on text messages. |
@@ -240,6 +241,8 @@ This is separate from one queue listener's batch size, and introduces no
 holding limit. See [checkups and reminders](../../runtime/checkups-and-reminders/SKILL.md).
 
 ### project_listener
+
+A `project_listener` may carry an optional `pattern` (a regex): it receives only fires whose event text (the first line, then the message) matches; a fire it does not match leaves its mail, `fired` count and one-shot untouched. A watchdog the project itself owns (`create project=P`) fires with a first line `watchdog @P/uid ("name", kind · target) fired the event on project @P`, so a pattern such as `^watchdog @P/uid ` picks one source.
 
 Recovery only processes active organizations that are open in the engine.
 Trashed or closed organizations keep pending event/watch work without new mail,

@@ -153,3 +153,7 @@ Two agents watching each other can still cause an alert ping-pong; this does
 not attempt a cross-agent causal graph. Use one-shot or passive notices for
 such mutual watches.
 Measured second-round scratch smoke: two forced file-save errors recovered after 6.05 seconds (2s and 4s delays; four attempted UPDATEs including successful save/fire). A NUL-containing file saved progress and fired without NUL in the alert. Deleted and initially missing dogs cleared health and stayed stopped. Own CLI events did not fire; another visible agent CLI eviction did. Final cargo check and typecheck pass. The scratch engine and private PostgreSQL stopped.
+
+## `project.event` payload (project watchdogs)
+
+`project.event` carries `source`: `manual`, or `watchdog` with `dog` (`P/uid`) and `dog_kind`; it still never carries the message text. See [project watchdogs](project-watchdogs.md).
