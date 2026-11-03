@@ -219,6 +219,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             deferred: false,
         });
     }
+    let (sender_agent, sender_gen) = match &out.from { From::Agent { id, generation, .. } => (Some(*id), Some(*generation)), _ => (None, None) };
     let slug = to.strip_prefix("org:").unwrap_or(to).trim();
     let Some(dst) = engine.orgs.get(slug) else {
         crate::refuse!(NotFound, "no organization @org:{slug} on this machine (orgtree_list_orgs lists them)");
@@ -240,20 +241,36 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         .map(|q| Value::Object(["from", "at", "gist"].iter().filter_map(|k| q.get(*k).filter(|v| !v.is_null()).map(|v| (k.to_string(), v.clone()))).collect()))
         .filter(|q| q.get("gist").is_some());
     let replies_here = super::replies::snapshots(out.reply_to.as_ref(),Some(&Value::Array(out.replies.clone())));
-    let replies_there: Vec<Value> = replies_here.iter().map(|q| {
+    let mut replies_there: Vec<Value> = replies_here.iter().map(|q| {
         let mut q=q.clone();
         if let Some(o)=q.as_object_mut() { o.entry("org").or_insert_with(|| json!(src.slug)); }
         q
     }).collect();
+    // D19: both rows carry one message id (the hub's format), so the receiver can thread a reply
+    let msg_id = uuid::Uuid::new_v4().simple().to_string();
     let tx = client.transaction().await?;
     admit(&tx, &[org_id, dst.id]).await?;
+    // a quote that names a message by its id is re-pointed at the receiver's own row of it (ids are per org)
+    let mut reply_there = reply_there;
+    for q in replies_there.iter_mut() {
+        if let Some(n) = q["net_id"].as_str().map(str::to_string) {
+            if let Some(r) = tx.query_opt(&format!("SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE org_id=$1 AND net_id=$2 AND peer=$3 LIMIT 1"),
+                &[&dst.id, &n, &src_peer]).await? {
+                *q = inbox_quote(&r);
+            }
+        }
+    }
+    if let Some(first) = replies_there.first() {
+        if first.get("box").is_some() { reply_there = Some(first.clone()); }
+    }
     // Preserve the canonical kind for a later pull or Normal-mode release.
     tx
         .execute(
-            "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to, replies)
-                        VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10, $12))
-             INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, reply_to, replies) VALUES ($7, $8, 'in', $9, $4, $6, $11, $13)",
-            &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there, &json!(replies_here), &json!(replies_there)],
+            "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to, replies, net_id, sender_agent_id, sender_generation, via_job)
+                        VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10, $12, $14, $15, $16, $17))
+             INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, reply_to, replies, net_id) VALUES ($7, $8, 'in', $9, $4, $6, $11, $13, $14)",
+            &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there, &json!(replies_here), &json!(replies_there),
+              &msg_id, &sender_agent, &sender_gen, &via_job],
         )
         .await?;
     tx.execute("UPDATE ot.org_inbox SET kind=$2 WHERE uid=$1", &[&in_uid,&out.kind]).await?;
@@ -369,6 +386,10 @@ pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
 #[cfg(test)]
 #[path = "orginbox_busy_tests.rs"]
 mod busy_tests;
+
+#[cfg(test)]
+#[path = "orginbox_queue_tests.rs"]
+mod queue_tests;
 
 /// Who gets inbound outside mail (decision 59): the holders who can run;
 /// while none can, the first top-level agent who can (no grant: the

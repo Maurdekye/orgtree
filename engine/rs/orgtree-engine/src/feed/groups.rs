@@ -284,8 +284,11 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                     &[&org_id],
                 )
                 .await?;
-            let holders = crate::domain::orginbox::live_holders(client, org_id,
+            let holder_rows = crate::domain::orginbox::holder_rows(client, org_id,
                 settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
+            let holders: Vec<String> = holder_rows.iter().map(|r| r.0.clone()).collect();
+            // which holders are projects (each gets one queued job per message; spec D4)
+            let holder_projects: Vec<String> = holder_rows.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
             let mut entries: Vec<Value> = preview.iter().map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))).collect();
             entries.reverse();
             let total: i64 = counts.get(0);
@@ -295,6 +298,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "total": total,
                 "unread": counts.get::<_, i64>(1),
                 "holders": holders,
+                "holder_projects": holder_projects,
                 "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false),
                 "enabled": settings["org_inbox_enabled"].as_bool().unwrap_or(true), "visible": settings["org_inbox_enabled"].as_bool().unwrap_or(true) && (total > 0 || !holders.is_empty()),
             }})

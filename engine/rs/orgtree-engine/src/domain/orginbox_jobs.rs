@@ -144,7 +144,7 @@ fn org_refs(row: &Value) -> Vec<String> {
 #[logged]
 async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<Published>> {
     let peer = row["peer"].as_str().unwrap_or("");
-    if !peer.starts_with("@net:") {
+    if !peer.starts_with("@net:") && !peer.starts_with("@org:") {
         return Ok(None);
     }
     let refs = org_refs(row);
