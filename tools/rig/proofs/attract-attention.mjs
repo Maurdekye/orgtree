@@ -15,7 +15,8 @@
 // Phase 2 (pinned desk): agent bea's desk is pinned (a pin seeded in localStorage, as pin-resize.cjs does) and bea says '@user ...'
 //   (rig.userMail triggers a scripted turn). PASS facts: bea's pinned window is untouched (still there, same rect), no second
 //   desk was opened, and bea's card is inside the viewport (the whole-org fit has the node in view); the zoom HUD reading is
-//   recorded before and after.
+//   recorded before and after. The page is told to start observing only after the mention is in the org tree (measured), and
+//   observes for 30 s after that; bea's CLI is warmed first (a cold one took ~49 s).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,10 +31,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 export default async function (rig) {
   const p = new Proof('attract-attention')
   rig.scenario({
-    agents: { bea: { turns: [{ name: 'mention', match: 'PROOF-MENTION', once: true, steps: [{ text: '@user please look at this when you can: the proof wants your attention.' }] }] } },
+    agents: { bea: { turns: [{ name: 'warm', match: 'PROOF-WARM', once: true, steps: [{ text: 'warm.' }] }, { name: 'mention', match: 'PROOF-MENTION', once: true, steps: [{ text: '@user please look at this when you can: the proof wants your attention.' }] }] } },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   await rig.op({ op: 'hire', name: 'bea', parent: 'boss', tier: 'haiku', title: 'Mention agent' })
+  // a cold fake CLI took ~49 s to answer the first time (measured by the first real run): warm bea's now, before the proof is timed
+  await rig.userMail('bea', 'PROOF-WARM: hello')
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'bea warm-up turn', timeout: 180000 })
   const created = []
   const make = async (title) => {
     const made = await rig.tool('boss', 'orgtree_work', { action: 'create', kind: 'code', title,
@@ -69,10 +73,20 @@ export default async function (rig) {
     const r = await rig.tool('boss', 'orgtree_work', { action: 'update', slug: flagSlug, attention: true, attention_reason: 'attract attention proof: look at this now' })
     fs.writeFileSync(flags.raised, JSON.stringify({ at: Date.now(), ok: !!r?.ok, raw: r }))
   }
-  // phase 2: the page asks for bea's mention
+  // phase 2: the page asks for bea's mention; the page is only told once the mention is REALLY in the org's tree (user_mention),
+  // so an unchanged pin and card cannot pass without an arrival
+  let mention = { at: null, inTree: false, waitedMs: 0 }
   if (await waitFor(flags.mention, 200000)) {
+    const sent = Date.now()
     await rig.userMail('bea', 'PROOF-MENTION: say @user')
-    fs.writeFileSync(flags.mentioned, JSON.stringify({ at: Date.now() }))
+    const end = Date.now() + 240000
+    while (Date.now() < end) {
+      const t = await rig.api('GET', `/api/orgs/${rig.org}?view=delta`).catch(() => null)
+      const text = typeof t === 'string' ? t : JSON.stringify(t ?? '')
+      if (text.includes('user_mention') && text.includes('the proof wants your attention')) { mention = { at: Date.now(), inTree: true, waitedMs: Date.now() - sent }; break }
+      await sleep(1000)
+    }
+    fs.writeFileSync(flags.mentioned, JSON.stringify({ ...mention, sentAt: sent }))
   }
   const r = await desk
   fs.writeFileSync(path.join(evidence, 'desktop-result.json'), JSON.stringify(r, null, 2))
@@ -88,6 +102,7 @@ export default async function (rig) {
   p.check('phase 1: the previous dwell was cut short (shown < 8 s after the previous step began, the shortest dwell)', a.sincePrevStartMs != null && a.sincePrevStartMs < 8000, a.sincePrevStartMs)
   p.check('phase 1: an attract-opened inbox from the previous step is closed (or none was open)', a.inboxClosedAfter === true || a.prevOpen?.includes('inbox') === false, a)
   const b = v.phase2 ?? {}
+  p.check('phase 2: the @user mention of bea really reached the org tree (user_mention) before the observation window', mention.inTree === true, mention)
   p.check('phase 2: bea\'s pinned desk window is untouched (still there, same rect)', b.pinSame === true, b)
   p.check('phase 2: bea\'s card is inside the viewport (the whole-org fit has the node in view)', b.cardInView === true, b)
   p.check('phase 2: no second desk for bea was opened by attract', b.extraDesk === false, b)

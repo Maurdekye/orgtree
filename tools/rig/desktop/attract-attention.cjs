@@ -76,6 +76,8 @@ module.exports = async (page, { org, args }) => {
       phase1.prevStartAt = lastChangeAt
       phase1.prevOpen = s.open.slice()
       phase1.prevTicket = s.ticket
+      // the BEFORE picture first (the flag is raised only after this file exists), then the request
+      await page.screenshot('02-before-flag')
       fs.writeFileSync(args.flags.raise, new Date().toISOString())
       void before
       break
@@ -83,7 +85,6 @@ module.exports = async (page, { org, args }) => {
     await sleep(250)
   }
   if (phase1.armed) {
-    await page.screenshot('02-before-flag')
     const endRaised = Date.now() + 60000
     while (!fs.existsSync(args.flags.raised) && Date.now() < endRaised) { await sample(); await sleep(100) }
     const raised = fs.existsSync(args.flags.raised) ? JSON.parse(fs.readFileSync(args.flags.raised, 'utf8')) : null
@@ -112,17 +113,24 @@ module.exports = async (page, { org, args }) => {
   const before2 = await state()
   phase2.before = { pin: before2.pin, zoom: before2.zoom, card: before2.card, desks: before2.desks }
   fs.writeFileSync(args.flags.mention, new Date().toISOString())
-  const endM = Date.now() + 90000
+  // the proof answers only when the mention is in the org tree (it waits up to 240 s for bea's cold CLI)
+  const endM = Date.now() + 330000
   while (!fs.existsSync(args.flags.mentioned) && Date.now() < endM) { await sample(); await sleep(250) }
+  const mentioned = fs.existsSync(args.flags.mentioned) ? JSON.parse(fs.readFileSync(args.flags.mentioned, 'utf8')) : null
+  phase2.mentionInTree = !!mentioned?.inTree
+  phase2.mentionAt = mentioned?.at ?? null
   const zooms = []
-  const end2 = Date.now() + 50000
+  const t2 = Date.now()
+  let shot = false
+  const end2 = t2 + 30000
   while (Date.now() < end2) {
     const s = await sample()
-    zooms.push({ t: Date.now(), zoom: s.zoom })
+    zooms.push({ dt: Date.now() - t2, zoom: s.zoom, open: s.open.slice() })
+    if (!shot && Date.now() - t2 > 3000) { shot = true; await page.screenshot('04-mention-plus-3s') }
     await sleep(500)
   }
   const after2 = await state()
-  await page.screenshot('04-after-mention')
+  await page.screenshot('05-mention-plus-30s')
   const near = (a, b) => !!a && !!b && ['x', 'y', 'w', 'h'].every((k) => Math.abs(a[k] - b[k]) <= 2)
   phase2.after = { pin: after2.pin, zoom: after2.zoom, card: after2.card, desks: after2.desks, vp: after2.vp }
   phase2.pinSame = near(before2.pin, after2.pin)
@@ -130,6 +138,7 @@ module.exports = async (page, { org, args }) => {
     && after2.card.x + after2.card.w <= after2.vp.x + after2.vp.w + 1 && after2.card.y + after2.card.h <= after2.vp.y + after2.vp.h + 1
   phase2.extraDesk = after2.desks > before2.desks
   phase2.zoomSeries = [...new Set(zooms.map((z) => z.zoom))]
+  phase2.observed = zooms
 
   return { samples, moves, phase1, phase2, stillRunning: (await state()).running }
 }
