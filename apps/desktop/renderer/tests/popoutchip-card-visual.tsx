@@ -53,6 +53,29 @@ function Fixture() {
     focus: (id: string) => setFocus(id),
     children: () => frames.map(f => ({ name: f.getAttribute('data-synthetic-child'), connected: f.isConnected })),
     closeAll: () => { for (const f of frames) f.contentWindow?.close() },
+    /** programmatic click of the first visible "Open in new window" button:
+     *  no pointer geometry, so a moving camera cannot make it miss */
+    clickPopout: (which = 0) => {
+      const b = [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="Open in new window"]')][which]
+      if (!b) return false
+      b.click(); return true
+    },
+    /** durable DOM facts for a failure receipt: every popout button, every
+     *  chip (card `.desk-elsewhere` AND inline `.popout-chip`) with its rect and
+     *  whether it is bare (the focused desk) or on a card, the iframes, the camera */
+    state: () => {
+      const rect = (el: Element) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height } }
+      return {
+        popoutButtons: [...document.querySelectorAll('button[aria-label="Open in new window"]')]
+          .map(b => ({ ...rect(b), inDeskOver: !!b.closest('.desk-over'), inCard: !!b.closest('.sq') })),
+        chips: [...document.querySelectorAll('.popout-chip')].map(c => ({
+          cls: c.className, text: (c.textContent ?? '').slice(0, 80), ...rect(c),
+          onCard: c.classList.contains('desk-elsewhere'), inNotices: !!c.closest('.popout-notices') })),
+        iframes: frames.map(f => ({ name: f.getAttribute('data-synthetic-child'), connected: f.isConnected })),
+        deskSlots: document.querySelectorAll('.desk-slot').length,
+        cards: [...document.querySelectorAll('.sq')].slice(0, 6).map(c => ({ cls: c.className, ...rect(c) })),
+      }
+    },
     hits: () => {
       const chip = document.querySelector('.desk-elsewhere, .popout-chip'), r = chip?.getBoundingClientRect()
       if (!r) return null
