@@ -21,7 +21,13 @@ dismissal is the user's m84e04d547421 ruling.
   (USER 2026-11-03 m84db138f69e6): incomplete known identities keep pattern and
   known-value masks with a banner note; an unsupported Highlight API withholds text
   paint only (`streamer-textless`), leaving layout, controls and Turn off usable.
-  Known values under three characters are ignored. Only content surfaces
+  Known values under three characters are ignored.
+  Closed native selects show their value unless it matches a known identity or a
+  sensitive pattern (hidden when unreadable or identities are unloaded). Media under
+  48 px in both dimensions is hidden without a cover. Cost bound (USER 2026-11-03
+  mb94508a32503 freeze): every pattern must be linear on long unspaced runs (the email
+  pattern carries a lookbehind; a 40 KB token took 7 s), and mutation-driven rescans
+  are paced after any scan of 16 ms or more (min(4T, 250) ms); update() scans at once. Only content surfaces
   (iframe, img, video, object, embed) get covers; canvas/svg are app chrome. A cover
   is its element's next sibling, absolutely placed in the same stacking context,
   never a fixed topmost layer (4.5.5-alpha.1 drew one over the whole canvas).

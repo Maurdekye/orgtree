@@ -267,3 +267,20 @@ test('masking cost stays bounded: long unspaced runs are linear and mutation sto
     assert.ok(walks - first < 100, `300 separate mutations caused ${walks - first} full-document scans`)
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+// Coordinator m442e92f40bc8: media under 48 px in both dimensions is hidden
+// silently, with no cover or button; larger media keeps its cover.
+test('icon-sized images are hidden without a cover; larger images keep one', async () => {
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
+  doc.body.innerHTML = '<img id="avatar" alt="a"><img id="logo" alt="b"><img id="big" alt="c">'
+  const size = (id: string, w: number, h: number) => { doc.getElementById(id)!.getBoundingClientRect = () => ({ width: w, height: h, left: 0, top: 0, right: w, bottom: h, x: 0, y: 0, toJSON() {} }) as DOMRect }
+  size('avatar', 20, 20); size('logo', 47, 47); size('big', 200, 120)
+  try {
+    boundary.update(true, [])
+    await flush()
+    assert.equal(doc.querySelectorAll('[data-streamer-cover]').length, 1, 'only the large image is covered')
+    assert.equal(doc.getElementById('big')!.nextElementSibling?.hasAttribute('data-streamer-cover'), true)
+    assert.equal(doc.getElementById('avatar')!.nextElementSibling?.hasAttribute('data-streamer-cover'), false)
+    assert.deepEqual(hidingRules(doc, doc.getElementById('avatar')!).length > 0, true, 'the tiny image is still hidden')
+  } finally { boundary.dispose(); dom.window.close() }
+})

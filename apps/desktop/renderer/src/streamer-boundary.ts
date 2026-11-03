@@ -34,7 +34,11 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
   let active = false, known: readonly string[] = [], ready = true, originalTitle = doc.title, frame = 0
   let lastEnd = 0, lastCost = 0, timer = 0
-  const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>()
+  const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>(), tinyEls = new Set<Element>()
+  // Icon-sized media (avatars, logos, glyph images) is hidden without a cover:
+  // a bordered box with a label and a button would not fit and would be noise.
+  const TINY = 48
+  const isTiny = (el: Element) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.width < TINY && r.height < TINY }
   const attributes = new Map<Element, Map<string, string>>()
   const autocomplete = new Map<Element, string | null>()
   const banner = doc.createElement('div'); banner.dataset.streamerUi = ''; banner.dataset.streamerBanner = ''; banner.setAttribute('role', 'status')
@@ -46,7 +50,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       el.removeAttribute('data-streamer-revealed'); revealed.delete(el); reopened = true
     }
     if (reopened) scan()
-    for (const [el, cover] of covered) place(el as HTMLElement, cover)
+    let rescan = false
+    for (const [el, cover] of covered) {
+      if (isTiny(el)) { cover.remove(); covered.delete(el); tinyEls.add(el) } else place(el as HTMLElement, cover)
+    }
+    for (const el of tinyEls) if (!el.isConnected) tinyEls.delete(el); else if (el.getClientRects().length && !isTiny(el)) { tinyEls.delete(el); rescan = true }
+    if (rescan) scan()
     if (active && win?.requestAnimationFrame) frame = win.requestAnimationFrame(position)
   }
   // A cover is the hidden element's next sibling, in the same stacking context:
@@ -70,7 +79,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     for (const cover of covered.values()) cover.remove()
     covered.clear()
     for (const el of revealed) el.removeAttribute('data-streamer-revealed')
-    revealed.clear()
+    revealed.clear(); tinyEls.clear()
     for (const [el, attrs] of attributes) for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
     attributes.clear(); banner.remove()
     for (const [el, value] of autocomplete) if (el.getAttribute('autocomplete') === 'off') {
@@ -146,6 +155,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     for (const el of revealed) if (!el.isConnected) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
     for (const el of doc.querySelectorAll(OPAQUE)) {
       if (el.closest('[data-streamer-ui]') || revealed.has(el) || covered.has(el) || el.parentElement?.closest(OPAQUE)) continue
+      if (isTiny(el)) { tinyEls.add(el); continue }
       const cover = doc.createElement('div'); cover.dataset.streamerUi = ''; cover.dataset.streamerCover = ''
       const label = doc.createElement('span'); label.textContent = STREAMER_HIDDEN
       const dismiss = doc.createElement('button'); dismiss.type = 'button'; dismiss.className = 'icon-btn'; dismiss.dataset.streamerDismiss = ''
