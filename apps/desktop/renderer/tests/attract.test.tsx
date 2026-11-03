@@ -11,7 +11,10 @@ import {
 } from '../src/attract/attract'
 import type { AttractInput, AttractRoutes, AttractTarget } from '../src/attract/attract'
 import { scrollMs, SCROLL_MAX_MS, SCROLL_PAUSE_MS, SCROLL_PX_PER_S } from '../src/attract/scroll'
-import { ATTRACT_KEY, setAttractMode, watchAttract } from '../src/attract/pref'
+import {
+  ATTRACT_IDLE_KEY, ATTRACT_IDLE_EVENT, DEFAULT_ATTRACT_IDLE_SECONDS, ATTRACT_KEY, setAttractIdleSeconds,
+  setAttractMode, watchAttract, watchAttractIdle,
+} from '../src/attract/pref'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { canvasAttractRoutes } from '../src/attract/canvas'
 import { markDocViewed } from '../src/canvas/docviewed'
@@ -76,8 +79,8 @@ test('§4 dwell is 8-15 s, a presentation at least its scroll; the scroll paces 
 
 // ------------------------------------------------------------- the cycle
 interface Log { calls: string[] }
-function Cycle({ enabled, routes, log }: { enabled: boolean; routes: AttractRoutes; log: Log }) {
-  const running = useAttractCycle(enabled, routes, () => 0)
+function Cycle({ enabled, routes, log, idleMs }: { enabled: boolean; routes: AttractRoutes; log: Log; idleMs?: number }) {
+  const running = useAttractCycle(enabled, routes, () => 0, idleMs)
   log.calls.push(`render:${running}`)
   return <span data-running={String(running)} />
 }
@@ -231,6 +234,101 @@ test('§9 only the canvas stops a run: pointer down, drag, wheel, focused key; p
       await advance(120_000, 10_000)
       assert.equal(idle.el.querySelector('span')!.dataset.running, 'true')
     } finally { await idle.unmount() }
+    sc.root.remove()
+  } finally { realClock() }
+  await flush()
+})
+
+// USER 2026-11-03 10:30:13Z me67326548f6c "also allow attract mode's idle timeout
+// to be configurable, as low as 0"
+test('§10 the start-after setting: default 300 s, whole seconds from 0 up with no maximum, one app-wide preference', async () => {
+  assert.equal(DEFAULT_ATTRACT_IDLE_SECONDS, 300)
+  assert.equal(ATTRACT_IDLE_MS, 300_000, "the default is today's five minutes")
+  assert.equal('attractIdleSeconds' in DEFAULT_PREFERENCES, false, 'absent means the default: nothing stored on a fresh install')
+  for (const ok of [0, 1, 300, 86_400, 10_000_000]) assert.deepEqual(preferencesPatch({ attractIdleSeconds: ok }), { attractIdleSeconds: ok })
+  for (const bad of [-1, 1.5, '300', null, NaN, Infinity, {}, true]) assert.throws(() => preferencesPatch({ attractIdleSeconds: bad }), String(bad))
+  localStorage.removeItem(ATTRACT_IDLE_KEY)
+  const seen: number[] = []
+  const stop = watchAttractIdle(n => seen.push(n))
+  try {
+    await setAttractIdleSeconds(0)
+    assert.equal(localStorage.getItem(ATTRACT_IDLE_KEY), '0')
+    await setAttractIdleSeconds(45)
+    await setAttractIdleSeconds(-3)    // refused: nothing stored, nothing announced
+    await setAttractIdleSeconds(2.5)
+    assert.deepEqual(seen, [300, 0, 45])
+    localStorage.setItem(ATTRACT_IDLE_KEY, 'junk')
+    window.dispatchEvent(new Event(ATTRACT_IDLE_EVENT))
+    assert.equal(seen.at(-1), 300, 'junk reads as the default')
+  } finally { stop(); localStorage.removeItem(ATTRACT_IDLE_KEY) }
+})
+
+test('§11 the delay is read live: a custom value, a change while waiting, and 0 starting at once', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    key()
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routesFor(log, [])} log={log} idleMs={60_000} />, el => el)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      await advance(59_000, 5_000)
+      assert.equal(running(), 'false', 'a 60 s delay is not over at 59 s')
+      await advance(2_000, 500)
+      assert.equal(running(), 'true', 'and is at 61 s')
+    } finally { await view.unmount() }
+    // changed while waiting: 10 minutes becomes 30 seconds without a restart
+    key()
+    const l2: Log = { calls: [] }
+    const v2 = await mountView(<Cycle enabled routes={routesFor(l2, [])} log={l2} idleMs={600_000} />, el => el)
+    try {
+      await advance(20_000, 5_000)
+      assert.equal(v2.el.querySelector('span')!.dataset.running, 'false')
+      await v2.render(<Cycle enabled routes={routesFor(l2, [])} log={l2} idleMs={30_000} />)
+      await advance(15_000, 5_000)
+      assert.equal(v2.el.querySelector('span')!.dataset.running, 'true', 'the shorter delay applies to the quiet time already passed')
+    } finally { await v2.unmount() }
+    // 0: as soon as there is no input
+    key()
+    const l3: Log = { calls: [] }
+    const v3 = await mountView(<Cycle enabled routes={routesFor(l3, [])} log={l3} idleMs={0} />, el => el)
+    try {
+      await advance(50, 10)
+      assert.equal(v3.el.querySelector('span')!.dataset.running, 'true', '0 starts at once')
+    } finally { await v3.unmount() }
+  } finally { realClock() }
+  await flush()
+})
+
+test('§12 at 0 a canvas stop restarts as soon as the interaction ends (a held press waits for its release); panel input never stops it', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    const sc = scene()
+    key()
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routesFor(log, [])} log={log} idleMs={0} />, el => el)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      await advance(50, 10)
+      assert.equal(running(), 'true')
+      await inAct(() => { fire(sc.panels.field, 'keydown', { key: 'q' }) })
+      await advance(50, 10)
+      assert.equal(running(), 'true', 'typing in a panel neither stops nor restarts it')
+      // a click: stops, then runs again right after
+      await inAct(() => { fire(sc.node, 'pointerdown') })
+      assert.equal(running(), 'false', 'the canvas press stops it')
+      await advance(2_000, 100)
+      assert.equal(running(), 'false', 'and it stays stopped while the press is held (a drag)')
+      await inAct(() => { fire(sc.node, 'pointerup') })
+      await advance(50, 10)
+      assert.equal(running(), 'true', 'it is back right after the release')
+      // a wheel is over at once
+      await inAct(() => { fire(sc.viewport, 'wheel', { deltaY: 30 }) })
+      assert.equal(running(), 'false')
+      await advance(50, 10)
+      assert.equal(running(), 'true')
+    } finally { await view.unmount() }
     sc.root.remove()
   } finally { realClock() }
   await flush()

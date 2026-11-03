@@ -284,3 +284,44 @@ test('icon-sized images are hidden without a cover; larger images keep one', asy
     assert.deepEqual(hidingRules(doc, doc.getElementById('avatar')!).length > 0, true, 'the tiny image is still hidden')
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+test('App settings › Display › Modes has an Attract "start after" seconds field next to the toggle: default 300, whole seconds from 0, applied on commit', async (t) => {
+  const { WebSocket } = g
+  g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
+  t.after(() => { g.WebSocket = WebSocket })
+  const bridge = installBridge(t)
+  stubFetch()
+  const stop = startStreamerMode()
+  t.after(() => { stop(); delete g.fetch })
+  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(10) })
+  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+  const row = host.querySelector<HTMLElement>('[data-settings-field="attractIdleSeconds"]')
+  assert.ok(row, 'the start-after row')
+  assert.equal(row!.classList.contains('set-row'), true, "the Display tab's own row")
+  const toggle = host.querySelector<HTMLElement>('[data-settings-field="attractMode"]')!
+  assert.equal(toggle.nextElementSibling, row, 'directly under the Attract mode toggle')
+  const input = row!.querySelector<HTMLInputElement>('input[type="number"]')!
+  assert.equal(input.min, '0')
+  assert.equal(input.hasAttribute('max'), false, 'no maximum')
+  assert.equal(input.value, '300')
+  const type = async (v: string, commit: 'blur' | 'enter') => {
+    await inAct(async () => {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+      set.call(input, v); input.dispatchEvent(new window.Event('input', { bubbles: true }))
+      if (commit === 'enter') input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      else input.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }))
+      await flush(8)
+    })
+  }
+  await type('0', 'blur')
+  await type('90', 'enter')
+  await type('-5', 'blur')      // refused: flagged, nothing written
+  assert.equal(input.getAttribute('aria-invalid'), 'true')
+  await type('2.5', 'enter')
+  await type('abc', 'blur')
+  assert.deepEqual(bridge.writes, [{ attractIdleSeconds: 0 }, { attractIdleSeconds: 90 }])
+  await inAct(async () => { bridge.elsewhere({ attractIdleSeconds: 12 }); await flush(8) })
+  assert.equal(input.value, '12', 'follows other windows')
+})
