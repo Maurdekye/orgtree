@@ -4373,7 +4373,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             <div key={f.event_id ?? f.n ?? 'f' + i} className="reply-event" data-reply-event={f.event_id} data-reply-quote={f.text} onContextMenu={e => openReply(e, f)}>
             {f.kind === 'thought'
               ? <div key={f.n ?? 'f' + i} className="msg assistant live">
-                  <ThoughtLine text={f.text} secs={f.secs}
+                  <ThoughtLine text={f.text} secs={f.secs} refs={deskRefs} imgBase={fileBase(slug, node.id)}
                     foldKey={thoughtFoldKey(f.event_id)} /></div>
               : f.kind === 'tool'
                 ? <div key={f.n ?? 'f' + i} className="msg live tools"><DotIcon fontSize="inherit" className="tooldot" /> {f.text}</div>
@@ -4418,7 +4418,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             {row.kind === 'tool_writing' ? <ToolChip t={row.tool ?? { id: row.tool_id, name: row.text, writing_started_at: row.started_at }}
               slug={slug} nid={node.id} onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc} /> : ['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.text
-                ? <ThoughtBody text={row.text} live />
+                ? <ThoughtBody text={row.text} live refs={deskRefs} imgBase={fileBase(slug, node.id)} />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
                     {thinkSecs !== null && thinkSecs > 0 ? ` for ${formatSeconds(thinkSecs)}` : ''}</div>)
               // render-inline-html-custom-responses: these transient rows are
@@ -5367,7 +5367,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     // A row without a timed header shows no token count (user 2026-10-27 m4bad9bdbd3a1).
     if (decodeEventRow(m, 'operator').kind !== 'legacy') return <EventCard row={m} profile="operator" org={slug}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />} />
-    return <SysLine m={m} />
+    return <SysLine m={m} refs={refs} imgBase={fileBase(slug, nid)} />
   }
   const profile = 'operator'
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
@@ -5395,7 +5395,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
         data-reply-quote={thought}><ThoughtLine text={thought} secs={block.think_secs ?? (m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.think_secs : undefined)}
           tokens={m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.thinking_tokens : undefined}
           unreported={!!m.tokens}
-          sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>,thought,[...(m.thinking??'').slice(0,block.start)].length)}</Fragment>
+          sealed={block.sealed} refs={refs} imgBase={fb} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>,thought,[...(m.thinking??'').slice(0,block.start)].length)}</Fragment>
     }
     const chip = m.tools?.find(tool => tool.id === block.id)
     return chip ? <ToolChip key={index} t={chip} slug={slug} nid={nid}
@@ -5408,7 +5408,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       {(m.thinking || m.thinking_sealed) &&
         selectThought(<div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
           tokens={m.thinking_tokens} unreported={!!m.tokens}
-          sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>)}
+          sealed={m.thinking_sealed} refs={refs} imgBase={fb} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>)}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}
       {(m.tools ?? []).map((t, i) => (typeof t === 'string'
@@ -5453,19 +5453,20 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     Boolean(a.replyAvailable?.(r)) === Boolean(b.replyAvailable?.(r))))
 })
 
-function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
+function ThoughtBody({ text, live = false, refs, imgBase }: { text: string; live?: boolean; refs?: RefRoutes; imgBase?: string }) {
   // Identical block/paragraph whitespace while streaming and after attachment.
   // pre-wrap on the old live root also rendered Markdown's HTML separator
   // newlines, adding blank lines between paragraphs only while live.
-  return <div className={'thoughtbody md' + (live ? ' live' : '')}
-    dangerouslySetInnerHTML={md(text, undefined, false, live)} />
+  // one shared pipeline (R1): Markdown, LaTeX AND mention chips, like the message text
+  return <RefMdBody className={'thoughtbody md' + (live ? ' live' : '')} html={md(text, imgBase, false, live)}
+    world={refs?.world} onOpen={refs?.onOpen} />
 }
 
 /** A row of one element shows its count once, on that element: a thought alone
  *  (Codex, Muse and Antigravity give each its own row) on its thought line, or that
  *  it was not reported; a lone tool call, estimated from its input, on its chip. */
-function ThoughtLine({ text, secs, sealed, foldKey, tokens, unreported = false }:
-{ text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number; unreported?: boolean }) {
+function ThoughtLine({ text, secs, sealed, foldKey, tokens, unreported = false, refs, imgBase }:
+{ text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number; unreported?: boolean; refs?: RefRoutes; imgBase?: string }) {
   const [open, toggleOpen] = useFold(foldKey)
   const dur = typeof secs === 'number' && Number.isFinite(secs) && secs >= 0 ? formatSeconds(Math.floor(secs)) : 'a moment'
   if (sealed || !text) {
@@ -5487,7 +5488,7 @@ function ThoughtLine({ text, secs, sealed, foldKey, tokens, unreported = false }
         {' '}thought for {dur} {open ? '▾' : '▸'}
       </button>
       {tokens === undefined && unreported ? <UnreportedThinking /> : <TokenCount count={tokens} thinking />}
-      {open && <ThoughtBody text={text} />}
+      {open && <ThoughtBody text={text} refs={refs} imgBase={imgBase} />}
     </div>
   )
 }
@@ -5498,14 +5499,14 @@ const STATE_LABELS: Record<string, string> = {
 
 // №5: the compaction boundary carries its summary behind a click — never a
 // 20 KB bubble in the user's voice
-function SysLine({ m }: { m: ChatMessage }) {
+function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBase?: string }) {
   const [open, toggleOpen] = useFold(sysFoldKey(m))
   // slash-command output (/context…): the output IS the point — an always-
   // visible markdown block, fixed from the flash-then-vanish live-only bug
   if (m.cmd_out) {
     return (
       <div className="msg sys cmdout">
-        <div className="msgtext md" dangerouslySetInnerHTML={md(m.cmd_out)} />
+        <RefMdBody className="msgtext md" html={md(m.cmd_out, imgBase)} world={refs?.world} onOpen={refs?.onOpen} />
       </div>
     )
   }
@@ -5521,7 +5522,11 @@ function SysLine({ m }: { m: ChatMessage }) {
       {m.compact_state
         ? <CompactingLine text={m.text} state={m.compact_state} startedAt={m.compact_started_at} endedAt={m.compact_ended_at} />
         : m.text}{m.summary && !open ? ' · summary ▶' : ''}
-      {open && m.summary && <CopyablePre><pre className="filepre">{m.summary}</pre></CopyablePre>}
+      {open && m.summary && <div className="compaction-summary-wrap" onClick={e => e.stopPropagation()}>
+        <RefMdBody className="compaction-summary md" html={md(m.summary, imgBase)} world={refs?.world} onOpen={refs?.onOpen} />
+        <button type="button" className="link compaction-summary-copy" aria-label="Copy summary" title="Copy the summary text"
+          onClick={e => { void copyToClipboard(e.currentTarget, m.summary ?? '') }}>Copy</button>
+      </div>}
     </div>
   )
 }
