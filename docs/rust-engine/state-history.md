@@ -112,3 +112,36 @@ prev_secs, text, ts, tokens: not counted (not sent to the agent)}`.
 Rows never fold into the system-notice pile (that fold is for
 `@system` mail), carry no token count, and are part of the transcript
 agents read back with `orgtree_read_transcript`.
+
+## The States tab in node settings (2026-11-03, 4.5.5)
+
+USER 2026-11-03 09:25:37Z (`md2ffcbe7266e`): "also was hoping to see
+idle/active/state times in the node seytinfs history tab, or a new
+adjacent tab". An agent's settings window has a **States** tab directly
+after History (agents only; a project has no states). It reads the same
+`kind = "state"` conversation rows, so nothing new is recorded.
+
+**Placement: a new tab, not rows in History.** The History tab is the
+retained *event* feed (`ot.events`, one capped record-subscription window,
+only shown when events exist). State spans come from the conversation
+table, need their own paging and totals, and would have grown that
+window; a separate tab keeps History's reads and meaning unchanged.
+
+What it shows, newest first: a totals line (time per state over the last
+24 hours and the last 7 days; a state with no time is left out), then one
+entry per span — state, start, end (or **now** for the current span) and
+duration in the desk's age words. Times show in the user's display zone
+like every other time. The inline transcript rows are unchanged.
+
+Read: `GET /api/orgs/{slug}/nodes/{nid}/states?limit=1..100&before=<cursor>`
+→ `{node, states:[{state, start, end|null, secs}], next_cursor, totals?}`.
+Spans are the rows between neighbours: a span ends where the next newer
+row begins; the newest row's span is open. `totals` ride on the first page
+only (rows back to the 7 day cut plus the one before it, read in bounded
+pages). Time before the first recorded row is unknown and counts for no
+state, so totals can sum to less than the window. The newest row is
+what the actor last recorded: a transition no actor has noted yet shows at
+the next actor start (the reconcile above). Migration `0082` adds a partial
+index on the state rows so every read touches only them, never the
+agent's whole transcript. Pure span/totals logic: `state_history::spans`
+and `state_history::totals`.
