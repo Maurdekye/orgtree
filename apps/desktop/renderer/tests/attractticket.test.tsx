@@ -65,7 +65,7 @@ test('§3 the snapshot store: rev kept, refreshed on every show, LRU by item cou
   clearTicketSnapshots()
   for (let i = 0; i < SNAPSHOT_MAX_ITEMS + 5; i++) {
     recordTicketSnapshot('acme', item({ slug: 's' + i }))
-    if (i === 2) ticketSnapshot('acme', 's0')   // a read counts as use
+    if (i >= 2) ticketSnapshot('acme', 's0')   // a read counts as use
   }
   assert.ok(ticketSnapshot('acme', 's0'), 'recently read: kept')
   assert.equal(ticketSnapshot('acme', 's1'), null, 'oldest unread: dropped')
