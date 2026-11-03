@@ -81,8 +81,8 @@ test('no App settings tab opens with an intro paragraph, and the app description
   await inAct(async()=>{await loadAppsMenu('tab-intros-app');await tick()})
   await mounted(<AppSettings slug="tab-intros-app" app={app} close={()=>{}}/>,async()=>{
     const settings=dialog('App settings')
-    const description=settings.querySelector('p.dim'),tabs=settings.querySelector('[role="tablist"]')!
-    assert.equal(description?.textContent,'Saved notes',"the app's own description stays")
+    const description=settings.querySelector('.app-description'),tabs=settings.querySelector('[role="tablist"]')!
+    assert.equal(description?.textContent?.trim(),'Saved notes',"the app's own description stays")
     assert.ok(description!.compareDocumentPosition(tabs)&Node.DOCUMENT_POSITION_FOLLOWING,'above the tabs')
     assert.deepEqual(await paragraphLeads(settings,['General','Events','Permissions','History','Permission history']),{},'tabs that open on a paragraph')
     assert.deepEqual(INTROS.filter(s=>settings.textContent!.includes(s)),[],'no intro text anywhere in the window')
