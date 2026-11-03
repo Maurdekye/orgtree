@@ -16,6 +16,7 @@
 // Native child windows need the app's window.open handling; a plain Electron
 // page allows it. The card-desk route (DeskSlot) is NOT in this fixture.
 import { createRoot } from 'react-dom/client'
+import { createPortal } from 'react-dom'
 import { useState } from 'react'
 import { MovableSurface, PopoutButton, useSurface } from '../src/popout'
 
@@ -62,8 +63,11 @@ function Fixture() {
       <button>Zoom −</button><button>Fit</button><button>Zoom +</button>
     </div>
     {open.map(k => <MovableSurface key={k} kind={k} title={TITLES[k]} org="demo"><Panel kind={k} /></MovableSurface>)}
-    {menu && <div className="ctxmenu" style={{ position: 'fixed', left: 440, top: 52, zIndex: 1600, width: 160,
-      background: 'var(--panel)', border: '1px solid var(--line)', padding: 6 }}>menu overlay</div>}
+    {/* portalled to <body>, where the app's real context menu lives: inside this
+        fixed root its z 1600 would be trapped in the root's stacking context, under the
+        body-level notice host (z 12) */}
+    {menu && createPortal(<div className="ctxmenu" style={{ position: 'fixed', left: 440, top: 52, zIndex: 1600, width: 160,
+      background: 'var(--panel)', border: '1px solid var(--line)', padding: 6 }}>menu overlay</div>, document.body)}
   </div>
 }
 document.body.style.cssText = 'margin:0;background:var(--bg);color:var(--ink);font:14px sans-serif'
