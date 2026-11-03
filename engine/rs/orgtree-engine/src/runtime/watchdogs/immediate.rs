@@ -3,7 +3,7 @@
 use super::*;
 
 #[nolog]
-fn ready_lines(kind: &str, target: &str, smoke: &Value, lines: &[String]) -> Vec<String> {
+pub(super) fn ready_lines(kind: &str, target: &str, smoke: &Value, lines: &[String]) -> Vec<String> {
     match kind {
         "command" => lines.to_vec(),
         "process" if smoke["up"] == false => vec![format!("{target} is already DOWN")],

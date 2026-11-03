@@ -174,14 +174,16 @@ pub async fn capture(engine: &Engine, org: i64, rows: &[Row], inc: &Include, t: 
     let mut warnings = Vec::new();
     let client = engine.db.get().await?;
     if inc.watchdogs {
-        let mut dogs = Vec::new(); let mut after = 0_i64;
+        let mut dogs = Vec::new(); let mut after = 0_i64; let mut skipped_project = 0_usize;
         loop {
             let page = client.query("SELECT w.id, to_jsonb(w) || jsonb_build_object('owner', a.name) FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id=w.owner_agent_id WHERE w.org_id=$1 AND w.id>$2 AND w.state IN ('armed','paused') ORDER BY w.id LIMIT 200", &[&org, &after]).await?;
             if page.is_empty() { break; }
-            for r in page { after = r.get(0); if let Some(d) = saved_dog(&r.get::<_, Value>(1), &names, inc, &mut warnings) { dogs.push(d); } }
+            skipped_project += page.iter().filter(|r| r.get::<_, Value>(1)["owner_kind"] == "project").count();
+            for r in page { after = r.get(0); if r.get::<_, Value>(1)["owner_kind"] == "project" { continue; } if let Some(d) = saved_dog(&r.get::<_, Value>(1), &names, inc, &mut warnings) { dogs.push(d); } }
             t["watchdogs"] = json!(dogs);
             size(t)?;
         }
+        if skipped_project > 0 { warnings.push(format!("project watchdogs are not included in templates yet ({skipped_project} skipped)")); }
     }
     if inc.audiences {
         let mut grants = Vec::new(); let mut after = 0_i64;

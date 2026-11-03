@@ -90,6 +90,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0080_mention_recency_outside", include_str!("../migrations/0080_mention_recency_outside.sql")),
     ("0081_batch_client_op", include_str!("../migrations/0081_batch_client_op.sql")),
     ("0082_convo_state_rows", include_str!("../migrations/0082_convo_state_rows.sql")),
+    ("0083_project_watchdogs", include_str!("../migrations/0083_project_watchdogs.sql")),
 ];
 
 #[cfg(test)]

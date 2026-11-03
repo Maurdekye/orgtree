@@ -92,6 +92,36 @@ pub fn handle(owner: &str, uid: &str) -> String {
     format!("{owner}/{uid}")
 }
 
+/// Who created a project dog, as `list` shows it: the agent's name or `user`.
+#[nolog]
+pub fn created_by_label(memo: &Value) -> Value {
+    match memo["created_by"]["kind"].as_str() {
+        Some("agent") => memo["created_by"]["name"].clone(),
+        Some("user") => Value::String("user".into()),
+        _ => Value::Null,
+    }
+}
+
+/// The keeper of a project dog (spec D12): its creator while that is a live
+/// agent still reaching the project, else the project's nearest live superior.
+/// `None` is the user. Returns (agent id, name).
+#[logged]
+pub async fn keeper(client: &impl tokio_postgres::GenericClient, project: i64, memo: &Value) -> anyhow::Result<Option<(i64, String)>> {
+    if memo["created_by"]["kind"] == "agent" {
+        if let Some(id) = memo["created_by"]["id"].as_i64() {
+            if let Some(r) = client.query_opt("SELECT name FROM ot.agents WHERE id = $1 AND kind = 'agent' AND state = 'live'", &[&id]).await? {
+                if crate::domain::projects::reaches(client, id, project).await? {
+                    return Ok(Some((id, r.get(0))));
+                }
+            }
+        }
+    }
+    Ok(client
+        .query_opt("SELECT a.id, a.name FROM ot.agents a WHERE a.id = ot.live_superior_of($1) AND a.kind = 'agent'", &[&project])
+        .await?
+        .map(|r| (r.get(0), r.get(1))))
+}
+
 /// A dog as a history row names it, for a chip drawn after the dog is
 /// spent or removed (the desk's tables, user 2026-10-20 06:22Z): its handle,
 /// owner, name, kind and mode, and `gone` once it is no longer armed or
@@ -138,6 +168,10 @@ pub fn view(w: &Value, owner: &str) -> Value {
     }
     o.insert("id".into(), json!(handle(owner, w["uid"].as_str().unwrap_or_default())));
     o.insert("owner".into(), json!(owner));
+    if w["owner_kind"] == "project" {
+        o.insert("owner_kind".into(), json!("project"));
+        o.insert("created_by".into(), created_by_label(&w["memo"]));
+    }
     if let Some(why) = w["memo"]["paused_why"].as_str().filter(|_| w["state"] == "paused") {
         o.insert("template_warning".into(), json!(why));
     }

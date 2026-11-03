@@ -1858,6 +1858,9 @@ async fn restore_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Act
         fx.reconfigure.push(a.id);
         fx.reconfigure.extend(subtree(tx, a.id).await?);
     }
+    // the project's own watchdogs the retire paused come back (spec D13)
+    let woke = crate::runtime::watchdogs::resume_owned(tx, n.id).await?;
+    fx.dogs_on.extend(woke.into_iter().map(|(id, _)| id));
     event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": name, "kind": "project", "parent": parent.as_ref().map(|p| &p.name),
         "above":anchor.as_ref().map(|a| &a.name) }), fx).await?;
     fx.agents.insert(n.id);

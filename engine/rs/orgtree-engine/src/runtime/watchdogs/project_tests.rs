@@ -82,10 +82,10 @@ impl World {
         self.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}',to_jsonb($2::boolean)) WHERE id=$1", &[&self.project, &on]).await;
     }
 
-    /// A project command dog (`echo hi` matching `hi`, polled hourly).
+    /// A project command dog (`echo hi` never matching its pattern, so only the test's own fires happen).
     #[nolog]
     async fn dog_args(name: &str) -> Value {
-        json!({"kind":"command","target":"echo hi","pattern":"hi","name":name,"project":"stream","interval_s":3600})
+        json!({"kind":"command","target":"echo hi","pattern":"never-matches-zzz","name":name,"project":"stream","interval_s":3600})
     }
 
     #[nolog]
@@ -147,6 +147,7 @@ fn err(r: Result<Value>) -> String {
 #[nolog]
 async fn t01_member_creates_a_project_dog() {
     let w = world().await;
+    w.listeners_on(true).await;
     let out = w.put_dog(w.member, "feed").await.unwrap();
     assert_eq!(out["project"], "stream", "{out}");
     assert_eq!(out["handle"], "stream/feed", "{out}");
@@ -163,11 +164,16 @@ async fn t01_member_creates_a_project_dog() {
 #[nolog]
 async fn t02_who_may_create() {
     let w = world().await;
+    w.listeners_on(true).await;
     w.put_dog(w.boss, "by-boss").await.unwrap();
-    create_as(&w.e, w.org.id, None, &World::dog_args("by-user").await).await.unwrap();
+    let mut other = World::dog_args("by-user").await;
+    other["target"] = json!("echo ho");
+    create_as(&w.e, w.org.id, None, &other).await.unwrap();
     assert_eq!(w.dog("by-user").await.3["created_by"], json!({"kind":"user"}));
     let before = w.count("SELECT count(*) FROM ot.watchdogs", &[]).await;
-    let e = err(w.put_dog(w.stranger, "nope").await);
+    let mut third = World::dog_args("nope").await;
+    third["target"] = json!("echo hu");
+    let e = err(create(&w.e, w.org.id, w.stranger, &third).await);
     assert!(e.contains("you are neither above nor below project stream, so you cannot put a watchdog on it"), "{e}");
     assert_eq!(before, w.count("SELECT count(*) FROM ot.watchdogs", &[]).await, "a refused create inserts nothing");
 }
@@ -192,7 +198,7 @@ async fn t03_a_fire_goes_to_the_listeners_and_never_to_the_project() {
     for a in [m1, m2] {
         let mail = w.mail(a).await;
         assert_eq!(mail.len(), 1, "{mail:?}");
-        assert!(mail[0].contains("watchdog @boss/feed (\"feed\", command · echo hi) fired the event on project @stream"), "{}", mail[0]);
+        assert!(mail[0].contains("watchdog @stream/feed (\"feed\", command · echo hi) fired the event on project @stream"), "{}", mail[0]);
         assert!(mail[0].contains("hello from the feed"), "{}", mail[0]);
     }
     assert!(w.mail(m3).await.is_empty(), "a paused listener gets nothing");
@@ -310,7 +316,7 @@ async fn t09_the_creator_retires() {
     w.listen(w.id("member2").await, None).await;
     w.put_dog(w.member, "feed").await.unwrap();
     let row = w.dog("feed").await.5;
-    w.sql("UPDATE ot.agents SET state='retired' WHERE id=$1", &[&w.member]).await;
+    w.sql("UPDATE ot.agents SET state='archived' WHERE id=$1", &[&w.member]).await;
     assert_eq!(w.dog("feed").await.2, "armed");
     w.fire(row, &["still firing"]).await;
     assert_eq!(w.mail(w.id("member2").await).await.len(), 1);

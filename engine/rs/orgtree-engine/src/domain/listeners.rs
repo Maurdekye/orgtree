@@ -80,6 +80,8 @@ pub const MAX_COUNT: i64 = 1024;
 pub const MAX_MESSAGE: usize = 8000;
 /// Kept fires one page of the project's Recently Fired history shows.
 const HISTORY_PAGE: usize = 30;
+/// Characters of a watchdog-sourced message a history page carries.
+const HISTORY_MESSAGE: usize = 2000;
 
 /// The memo key a switch-off writes on each dog it disables; a switch-on
 /// re-arms exactly the dogs carrying it. A dog its owner paused never
@@ -120,6 +122,8 @@ pub struct SwitchedDog {
     pub owner: Option<i64>,
     pub owner_name: String,
     pub owner_live: bool,
+    /// the handle (`P/uid`) of a project's own dog, whose notice names it
+    pub project_handle: Option<String>,
 }
 
 /// What a switch did: whether the setting changed, and the dogs it
@@ -133,7 +137,7 @@ pub struct Switched {
 #[nolog]
 fn switched_dogs(rows: &[tokio_postgres::Row]) -> Vec<SwitchedDog> {
     let mut dogs: Vec<SwitchedDog> = rows.iter().map(|r| SwitchedDog {
-        row: r.get(0), owner: r.get(1), owner_name: r.get(2), name: r.get(3), uid: r.get(4), owner_live: r.get(5),
+        row: r.get(0), owner: r.get(1), owner_name: r.get(2), name: r.get(3), uid: r.get(4), owner_live: r.get(5), project_handle: None,
     }).collect();
     dogs.sort_by_key(|d| d.row);
     dogs
@@ -172,7 +176,34 @@ pub async fn switch_on(tx: &Transaction<'_>, project: i64) -> Result<Switched> {
             &[&project],
         )
         .await?;
-    Ok(Switched { changed: true, dogs: switched_dogs(&rows) })
+    let mut dogs = switched_dogs(&rows);
+    // the project's own watchdogs (spec D14), told through their keeper
+    let own = tx
+        .query(
+            &format!("UPDATE ot.watchdogs w SET state = 'armed', memo = w.memo - 'paused_why' - '{OFF_MARK}',
+                    next_check_at = CASE WHEN w.kind IN ('file','command','process') THEN now() END
+                WHERE w.owner_kind = 'project' AND w.owner_agent_id = $1 AND w.state = 'paused' AND w.memo ? '{OFF_MARK}'
+              RETURNING w.id, w.name, w.uid, w.memo"),
+            &[&project],
+        )
+        .await?;
+    dogs.extend(own_dogs(tx, project, &own).await?);
+    Ok(Switched { changed: true, dogs })
+}
+
+/// The project's own dogs a switch changed, each told through its keeper.
+#[logged]
+async fn own_dogs(tx: &Transaction<'_>, project: i64, rows: &[tokio_postgres::Row]) -> Result<Vec<SwitchedDog>> {
+    let mut out = Vec::new();
+    for r in rows {
+        let memo: Value = r.get(3);
+        let keeper = crate::domain::watchdogs::keeper(tx, project, &memo).await?;
+        let project_name: String = tx.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&project]).await?.get(0);
+        out.push(SwitchedDog { row: r.get(0), name: r.get(1), uid: r.get(2), project_handle: Some(crate::domain::watchdogs::handle(&project_name, &r.get::<_, String>(2))),
+            owner: keeper.as_ref().map(|k| k.0), owner_live: keeper.is_some(),
+            owner_name: keeper.map(|k| k.1).unwrap_or_else(|| USER.to_string()) });
+    }
+    Ok(out)
 }
 
 /// Switch the project's event listeners OFF inside `tx` (a superior's
@@ -212,7 +243,18 @@ pub async fn switch_off(tx: &Transaction<'_>, project: i64, by: &str) -> Result<
             &[&project, &off_reason(&name, by)],
         )
         .await?;
-    Ok(Switched { changed: was_on || !rows.is_empty(), dogs: switched_dogs(&rows) })
+    let mut dogs = switched_dogs(&rows);
+    let own = tx
+        .query(
+            &format!("UPDATE ot.watchdogs w SET state = 'paused',
+                     memo = w.memo || jsonb_build_object('paused_why', $2::text, '{OFF_MARK}', true)
+                WHERE w.owner_kind = 'project' AND w.owner_agent_id = $1 AND w.state = 'armed'
+              RETURNING w.id, w.name, w.uid, w.memo"),
+            &[&project, &off_reason(&name, by)],
+        )
+        .await?;
+    dogs.extend(own_dogs(tx, project, &own).await?);
+    Ok(Switched { changed: was_on || !dogs.is_empty(), dogs })
 }
 
 /// A listener or watch arming on a project whose event listeners are off
@@ -255,7 +297,20 @@ pub async fn guard(engine: &Arc<Engine>, org_id: i64, row: i64, project: i64) ->
 #[logged]
 pub async fn tell_owners(engine: &Arc<Engine>, org_id: i64, project: &str, on: bool, how: &str, dogs: &[SwitchedDog]) {
     let mut owners: Vec<(String, Vec<String>)> = Vec::new();
-    for d in dogs.iter().filter(|d| d.owner_live) {
+    // a project's own dogs: told to their keeper, naming each dog (spec D12/D14)
+    for d in dogs.iter().filter(|d| d.owner_live && d.project_handle.is_some()) {
+        let h = d.project_handle.as_deref().unwrap_or_default();
+        let what = if on { format!("re-armed: project {project}'s event listeners are on again ({how})") }
+                   else { format!("disabled: project {project}'s event listeners were turned off by {how}") };
+        let body = format!("Project {project}'s watchdog {h} (\"{}\") was {what}.\nYou get this as its keeper: its creator, or the nearest live agent above project {project}.", d.name);
+        let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, &d.owner_name, &body);
+        out.notice = true;
+        out.grant_reply_audience = false;
+        if let Err(e) = Box::pin(crate::domain::mail::send(engine, org_id, out)).await {
+            tracing::warn!(project = %project, to = %d.owner_name, error = %format!("{e:#}"), "telling a project dog's keeper of the event-listeners switch failed");
+        }
+    }
+    for d in dogs.iter().filter(|d| d.owner_live && d.project_handle.is_none()) {
         match owners.iter_mut().find(|(o, _)| *o == d.owner_name) {
             Some((_, names)) => names.push(d.name.clone()),
             None => owners.push((d.owner_name.clone(), vec![d.name.clone()])),
@@ -475,8 +530,14 @@ fn project_fire_notice(
     fired: i32,
     once: bool,
     message: Option<&str>,
+    source: Option<&Value>,
 ) -> (String, Vec<String>) {
-    let line = format!("@{} fired the event on project @{pname}", by.trim_start_matches('@'));
+    let line = match source.filter(|s| s["kind"] == "watchdog") {
+        Some(src) => format!("watchdog @{} (\"{}\", {} · {}) fired the event on project @{pname}",
+            src["handle"].as_str().unwrap_or(by.trim_start_matches('@')), src["name"].as_str().unwrap_or(""),
+            src["dog_kind"].as_str().unwrap_or(""), src["target"].as_str().unwrap_or("")),
+        None => format!("@{} fired the event on project @{pname}", by.trim_start_matches('@')),
+    };
     let mut body = format!(
         "Watchdog \"{name}\" fired — PROJECT EVENT — (project_listener · {pname}), fire #{}:\n  {line}\n",
         fired + 1
@@ -495,10 +556,19 @@ fn project_fire_notice(
     (body, lines)
 }
 
-/// The `project.event` engine event's payload (spec D18). RED STUB.
+/// The `project.event` engine event's payload (spec D18): who fired and how
+/// many listeners it reached, never the message text. A watchdog's fire adds
+/// its handle and kind.
 #[nolog]
-pub fn project_event_payload(_pname: &str, _project: i64, _by: &str, _delivered: i32, _fire_id: i64, _has_message: bool, _source: Option<&Value>) -> Value {
-    json!({})
+pub fn project_event_payload(pname: &str, project: i64, by: &str, delivered: i32, fire_id: i64, has_message: bool, source: Option<&Value>) -> Value {
+    let mut v = json!({ "project": pname, "project_id": project, "by": by, "delivered": delivered, "fire_id": fire_id,
+                        "has_message": has_message, "source": "manual" });
+    if let Some(src) = source.filter(|s| s["kind"] == "watchdog") {
+        v["source"] = json!("watchdog");
+        v["dog"] = json!(by);
+        v["dog_kind"] = src["dog_kind"].clone();
+    }
+    v
 }
 
 /// What one fire did, for the tool result.
@@ -524,6 +594,48 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     if message.map(|m| m.chars().count()).unwrap_or(0) > MAX_MESSAGE {
         crate::refuse!(BadRequest, "a project event message is at most {MAX_MESSAGE} characters");
     }
+    match fire_inner(engine, org_id, project, by, message, None).await? {
+        FireOutcome::Fired(f) => Ok(f),
+        FireOutcome::Off(pname) => crate::refuse!(Conflict, "{}", off_refusal(&pname)),
+        FireOutcome::NoListeners => unreachable!("a manual fire records zero-listener fires"),
+    }
+}
+
+/// The longest text a watchdog's fire may carry into the project's event.
+pub const MAX_DOG_MESSAGE: usize = 20_000;
+
+/// What a watchdog's fire did to the project event.
+#[derive(Debug)]
+pub enum FireOutcome {
+    Fired(Fired),
+    /// no armed listener: nothing was recorded or dispatched
+    NoListeners,
+    /// the project's event listeners are off (the project's name)
+    Off(String),
+}
+
+/// Cut `text` at the last newline before `MAX_DOG_MESSAGE` characters and say so.
+#[nolog]
+pub fn cap_dog_message(text: &str) -> String {
+    if text.chars().count() <= MAX_DOG_MESSAGE {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(MAX_DOG_MESSAGE).collect();
+    let kept = cut.rfind('\n').map(|i| &cut[..i]).unwrap_or(&cut);
+    format!("{kept}\n  … truncated: this fire's text exceeded {MAX_DOG_MESSAGE} characters\n")
+}
+
+/// A project watchdog's fire as the project's event (spec D9/D10): `handle` is
+/// the dog's `P/uid`, `source` what a listener and the history show of it.
+/// No armed listener records nothing; listeners off disables the caller's dog.
+#[logged]
+pub async fn fire_from_dog(engine: &Arc<Engine>, org_id: i64, project: i64, handle: &str, message: &str, source: &Value) -> Result<FireOutcome> {
+    let message = cap_dog_message(message.trim());
+    fire_inner(engine, org_id, project, handle, Some(&message).filter(|m| !m.is_empty()).map(String::as_str), Some(source)).await
+}
+
+#[logged]
+async fn fire_inner(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, message: Option<&str>, source: Option<&Value>) -> Result<FireOutcome> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let Some(p) = tx
@@ -540,11 +652,14 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
         crate::refuse!(Conflict, "project {} is retired; its event cannot be fired", pname);
     }
     if !enabled(&p.get::<_, Value>(2)) {
-        crate::refuse!(Conflict, "{}", off_refusal(&pname));
+        return Ok(FireOutcome::Off(pname));
+    }
+    if source.is_some() && armed_count(&*tx, org_id, project).await? == 0 {
+        return Ok(FireOutcome::NoListeners);
     }
     let fire_id: i64 = tx.query_one(
-        "INSERT INTO ot.project_fires(org_id,project_id,kind,fired_by,message) VALUES($1,$2,'event',$3,$4) RETURNING id",
-        &[&org_id,&project,&by,&message]).await?.get(0);
+        "INSERT INTO ot.project_fires(org_id,project_id,kind,fired_by,message,source) VALUES($1,$2,'event',$3,$4,$5) RETURNING id",
+        &[&org_id,&project,&by,&message,&source]).await?.get(0);
     let high:i64=tx.query_one(EVENT_HIGH_WATER,&[&org_id,&project]).await?.get(0);
     tx.execute("INSERT INTO ot.project_event_dispatch(fire_id,org_id,project_id,high_water) VALUES($1,$2,$3,$4)",
         &[&fire_id,&org_id,&project,&high]).await?;
@@ -554,8 +669,8 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     let c=engine.db.get().await?;
     let heard: Value=c.query_one("SELECT listeners FROM ot.project_fires WHERE id=$1",&[&fire_id]).await?.get(0);
     let heard=heard.as_array().cloned().unwrap_or_default();
-    Ok(Fired { project:pname, delivered:heard.iter().filter_map(|v|v["agent"].as_str().map(str::to_string)).collect(),
-        dogs:heard.iter().filter_map(|v|v["dog"].as_str().map(str::to_string)).collect() })
+    Ok(FireOutcome::Fired(Fired { project:pname, delivered:heard.iter().filter_map(|v|v["agent"].as_str().map(str::to_string)).collect(),
+        dogs:heard.iter().filter_map(|v|v["dog"].as_str().map(str::to_string)).collect() }))
 }
 
 /// Commit bounded pages of the oldest pending event first. A page's cursor,
@@ -601,10 +716,11 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     let Some(p)=tx.query_opt("SELECT name,state,scope FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await? else{return Ok(None)};
     if !recovery_org_open(engine,&*tx,org_id).await? {return Ok(None)}
     let pname:String=p.get(0);
-    let Some(job)=tx.query_opt("SELECT d.fire_id,d.after_id,d.high_water,f.fired_by,f.message FROM ot.project_event_dispatch d JOIN ot.project_fires f ON f.id=d.fire_id WHERE d.project_id=$1 AND NOT d.done ORDER BY d.fire_id LIMIT 1 FOR UPDATE OF d",&[&project]).await? else{return Ok(None)};
+    let Some(job)=tx.query_opt("SELECT d.fire_id,d.after_id,d.high_water,f.fired_by,f.message,f.source FROM ot.project_event_dispatch d JOIN ot.project_fires f ON f.id=d.fire_id WHERE d.project_id=$1 AND NOT d.done ORDER BY d.fire_id LIMIT 1 FOR UPDATE OF d",&[&project]).await? else{return Ok(None)};
     let (fire_id,after,high):(i64,i64,i64)=(job.get(0),job.get(1),job.get(2));
     let by:String=job.get(3);let by=by.as_str();
     let message:Option<String>=job.get(4);let message=message.as_deref();
+    let source:Option<Value>=job.get(5);let source=source.as_ref();
     if p.get::<_,String>(1)!="live" || !enabled(&p.get::<_,Value>(2)) {
         tx.execute("UPDATE ot.project_event_dispatch SET done=true,after_id=high_water WHERE fire_id=$1",&[&fire_id]).await?;
         tx.commit().await?;return Ok(Some(fire_id));
@@ -612,7 +728,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     let rows = tx
         .query(
             &format!("SELECT w.id, w.uid, w.name, w.owner_agent_id, coalesce(a.name, '{USER}'), w.once,
-                    coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}
+                    coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}, w.pattern
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND w.id > $4 AND w.id <= $5 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
@@ -635,8 +751,17 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
                 continue;
             }
         }
+        let (body, lines) = project_fire_notice(&name, &pname, by, fired, once, message, source);
+        // an optional listener pattern filters the event text (spec D17): a
+        // fire it does not match reaches this listener not at all
+        if let Some(pat) = r.get::<_, Option<String>>(10) {
+            let text = format!("{}
+{}", lines[0], message.unwrap_or(""));
+            if !crate::runtime::watchdogs::pattern_takes(Some(&pat), &text) {
+                continue;
+            }
+        }
         let mail = uid("m");
-        let (body, lines) = project_fire_notice(&name, &pname, by, fired, once, message);
         let ev = crate::events::watchdog_fired(&org_slug, &dog_uid, &name, &owner_name, "PROJECT EVENT —", &lines, once, None);
         // an agent's mail lands in its mailbox; the user's in their inbox
         // (recipient_kind 'user', named '@user', as mail to the user is stored)
@@ -690,8 +815,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     if done { ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
         crate::runtime::watchdogs::events::PROJECT_EVENT,
         crate::runtime::watchdogs::events::Scope::Agent(org_id, project),
-        json!({ "project": pname, "project_id": project, "by": by, "delivered": total, "fire_id": fire_id,
-                "has_message": message.is_some() }),
+        project_event_payload(&pname, project, by, total, fire_id, message.is_some(), source),
     )));
     }
     changes::notify_id(engine, org_id, ch);
@@ -840,7 +964,7 @@ pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name
     let rows = client
         .query(
             "SELECT w.uid, w.kind, coalesce(a.name, 'user'), w.state, w.once, coalesce((w.memo->>'notice')::boolean, false),
-                    w.fired, w.last_fired, (w.memo->>'count')::bigint, w.memo->'fire_actions'
+                    w.fired, w.last_fired, (w.memo->>'count')::bigint, w.memo->'fire_actions', w.pattern
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind IN ('project_listener', 'listener_watch')
                 AND w.state IN ('armed', 'paused') AND (w.memo->>'target_id')::bigint = $2
@@ -863,6 +987,9 @@ pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name
             "once": r.get::<_, bool>(4), "notice": r.get::<_, bool>(5), "fired": r.get::<_, i32>(6),
             "last_fired": r.get::<_, Option<DateTime<Utc>>>(7).map(iso), "fire_actions": tools(r),
         });
+        if let Some(p) = r.get::<_, Option<String>>(10) {
+            v["pattern"] = json!(p);
+        }
         if r.get::<_, String>(1) == WATCH_KIND {
             v["count"] = json!(r.get::<_, Option<i64>>(8));
             watches.push(v);
@@ -871,8 +998,22 @@ pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name
         }
     }
     let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&project]).await?.get(0);
-    Ok(json!({ "project": name, "event_listeners": enabled(&scope), "listeners_armed": armed_count(client, org_id, project).await?,
-               "listeners": listeners, "watches": watches }))
+    // the project's own watchdogs: the sources of its event
+    let own = client.query(
+        "SELECT w.uid, w.name, w.kind, w.target, w.state, w.fired, w.last_fired, w.memo FROM ot.watchdogs w
+          WHERE w.owner_agent_id = $1 AND w.owner_kind = 'project' AND w.state IN ('armed', 'paused') ORDER BY w.id LIMIT 51",
+        &[&project]).await?;
+    let sources: Vec<Value> = own.iter().take(50).map(|r| {
+        let memo: Value = r.get(7);
+        json!({ "handle": crate::domain::watchdogs::handle(name, &r.get::<_, String>(0)), "name": r.get::<_, String>(1),
+                "kind": r.get::<_, String>(2), "target": r.get::<_, String>(3), "state": r.get::<_, String>(4),
+                "fired": r.get::<_, i32>(5), "last_fired": r.get::<_, Option<DateTime<Utc>>>(6).map(iso),
+                "created_by": crate::domain::watchdogs::created_by_label(&memo), "paused_why": memo["paused_why"] })
+    }).collect();
+    let mut out = json!({ "project": name, "event_listeners": enabled(&scope), "listeners_armed": armed_count(client, org_id, project).await?,
+               "listeners": listeners, "watches": watches, "sources": sources });
+    if own.len() > 50 { out["sources_more"] = json!(true); }
+    Ok(out)
 }
 
 /// A history cursor: the id of the last row a page showed. `what` names
@@ -895,7 +1036,7 @@ pub fn page_cursor(before: Option<&str>, what: &str) -> Result<Option<i64>> {
 pub async fn history(client: &impl GenericClient, project: i64, before: Option<&str>) -> Result<Value> {
     let before = page_cursor(before, "listener history")?;
     let limit = HISTORY_PAGE as i64 + 1;
-    let cols = "id, at, kind, fired_by, message, watch, listeners";
+    let cols = "id, at, kind, fired_by, message, watch, listeners, source";
     let rows = match before {
         Some(b) => client.query(
             &format!("SELECT {cols} FROM ot.project_fires WHERE project_id = $1 AND id < $2 ORDER BY id DESC LIMIT $3"),
@@ -925,6 +1066,17 @@ pub async fn history(client: &impl GenericClient, project: i64, before: Option<&
         if let Some(w) = r.get::<_, Option<Value>>(5) {
             v["watch"] = w;
         }
+        if let Some(src) = r.get::<_, Option<Value>>(7) {
+            // a watchdog's text can be long: the page keeps its first 2000
+            // characters; the full text is in each listener's fire mail
+            if src["kind"] == "watchdog" {
+                if let Some(m) = v["message"].as_str().filter(|m| m.chars().count() > HISTORY_MESSAGE) {
+                    v["message"] = json!(m.chars().take(HISTORY_MESSAGE).collect::<String>());
+                    v["message_truncated"] = json!(true);
+                }
+            }
+            v["source"] = src;
+        }
         v
     }).collect();
     let next = if more { history.last().and_then(|v| v["id"].as_i64()).map(|id| id.to_string()) } else { None };
@@ -938,7 +1090,7 @@ mod tests {
     #[test]
     fn project_fire_mentions_agent_and_project_in_mail_and_event() {
         let (body, lines) =
-            project_fire_notice("ready", "listener-smoke", "worker", 2, false, None);
+            project_fire_notice("ready", "listener-smoke", "worker", 2, false, None, None);
         assert!(
             body.contains("  @worker fired the event on project @listener-smoke\n"),
             "{body}"
@@ -959,6 +1111,7 @@ mod tests {
             0,
             true,
             Some("payload stays unchanged"),
+            None,
         );
         assert!(
             body.contains(
@@ -979,7 +1132,7 @@ mod tests {
 
     #[test]
     fn project_fire_empty_payload_and_already_mentioned_agent_are_preserved() {
-        let (body, lines) = project_fire_notice("ready", "sync", "@worker", 4, false, Some(""));
+        let (body, lines) = project_fire_notice("ready", "sync", "@worker", 4, false, Some(""), None);
         assert!(
             body.contains("  @worker fired the event on project @sync\n\n\n"),
             "{body}"
