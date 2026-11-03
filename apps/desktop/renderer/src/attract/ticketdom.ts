@@ -35,7 +35,11 @@ const MARK_MS = 6_000
 export const HIGHLIGHT = 'attract-change'
 const LEAD = 24
 
-const norm = (s: string) => s.replace(/[*_`#>~]/g, '').replace(/\s+/g, ' ').trim()
+/** characters ignored on BOTH sides when the changed text is looked up in the drawn text: whitespace (the drawn text has
+ *  no newline where the markdown had a paragraph break, and none between two block elements) and the markdown marks
+ *  that are not drawn. A mark that IS drawn (a snake_case name) is skipped on the drawn side too, so it still matches. */
+const SKIP = /[\s*_`#>~-]/
+const compact = (s: string) => Array.from(s).filter(c => !SKIP.test(c)).join('')
 
 /** the heading of a section, by the names ticketsnap uses (STATE is whichever state reason the pane shows) */
 function sectionByName(root: ParentNode, name: string): HTMLElement | null {
@@ -55,25 +59,35 @@ function fieldEl(root: ParentNode, id: string): HTMLElement | null {
   return root.querySelector<HTMLElement>(sel)
 }
 
-/** the characters `needle` spans inside `el`, found in the text as drawn (whitespace collapsed) */
+/** The characters `needle` spans inside `el`, found in the drawn text. The whole changed span is covered however long:
+ *  a short one is searched whole; a long one by its first and its last 30 characters (so a list marker or a mark in the
+ *  middle that the drawn text does not have cannot break the match), the Range running from the first to the last. */
 function locate(el: Element, needle: string): Range | null {
-  const want = norm(needle).slice(0, 60)
+  const want = compact(needle)
   if (!want) return null
   const doc = el.ownerDocument
   const walker = doc.createTreeWalker(el, 4 /* SHOW_TEXT */)
   let text = ''
   const map: Array<[Text, number]> = []
-  let lastSpace = true
   for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
     for (let i = 0; i < n.data.length; i++) {
       const c = n.data[i]!
-      if (/\s/.test(c)) { if (lastSpace) continue; text += ' '; map.push([n, i]); lastSpace = true }
-      else { text += c; map.push([n, i]); lastSpace = false }
+      if (SKIP.test(c)) continue
+      text += c; map.push([n, i])
     }
   }
-  const at = text.indexOf(want)
-  if (at < 0) return null
-  const a = map[at]!, b = map[at + want.length - 1]!
+  const A = 30
+  let start: number, last: number
+  if (want.length <= 2 * A) {
+    start = text.indexOf(want)
+    last = start + want.length - 1
+  } else {
+    start = text.indexOf(want.slice(0, A))
+    const tail = start < 0 ? -1 : text.indexOf(want.slice(-A), start + A)
+    last = tail < 0 ? -1 : tail + A - 1
+  }
+  if (start < 0 || last < start) return null
+  const a = map[start]!, b = map[last]!
   const r = doc.createRange()
   r.setStart(a[0], a[1]); r.setEnd(b[0], b[1] + 1)
   return r

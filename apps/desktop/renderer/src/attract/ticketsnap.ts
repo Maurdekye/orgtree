@@ -36,7 +36,7 @@ export interface TicketField {
 
 export type TicketChange =
   | { kind: 'text'; field: string; section: string; offset: number; length: number
-      /** the changed characters (at most 80), or for a pure deletion the text next to the cut: what the DOM is searched for */
+      /** the changed characters (at most 2000), or for a pure deletion the text next to the cut: what the DOM is searched for */
       snippet: string }
   | { kind: 'section'; section: string }
 
@@ -65,7 +65,7 @@ export function firstTextChange(before: TicketField[], after: TicketField[]): Ti
   const old = new Map(before.map(f => [f.id, f]))
   for (const f of after) {
     const b = old.get(f.id)
-    if (!b) return { kind: 'text', field: f.id, section: f.section, offset: 0, length: f.text.length, snippet: f.text.slice(0, 80) }
+    if (!b) return { kind: 'text', field: f.id, section: f.section, offset: 0, length: f.text.length, snippet: f.text.slice(0, 2000) }
     if (b.text === f.text) continue
     const limit = Math.min(b.text.length, f.text.length)
     let p = 0
@@ -73,7 +73,7 @@ export function firstTextChange(before: TicketField[], after: TicketField[]): Ti
     let s = 0
     while (s < limit - p && b.text[b.text.length - 1 - s] === f.text[f.text.length - 1 - s]) s++
     const length = f.text.length - s - p
-    const snippet = length > 0 ? f.text.slice(p, p + Math.min(length, 80))
+    const snippet = length > 0 ? f.text.slice(p, p + Math.min(length, 2000))
       : f.text.slice(p, p + 40) || f.text.slice(Math.max(0, p - 40), p)
     return { kind: 'text', field: f.id, section: f.section, offset: p, length, snippet }
   }
