@@ -120,7 +120,7 @@ test('real desk groups settled notices across turns and keeps assistant, tools, 
   let scrolls = 0
   observeTranscriptCenter(scroller, target, () => { assert.equal(first.open, true); scrolls++ })
   await inAct(async () => {
-    view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-head button')!.click()
+    view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-jump')!.click()
     await new Promise(resolve => setTimeout(resolve, 5))
   })
   assert.equal(scrolls, 1)
