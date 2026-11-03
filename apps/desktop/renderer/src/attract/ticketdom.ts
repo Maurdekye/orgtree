@@ -3,7 +3,7 @@
    USER 2026-11-03 m73037cb0a404 / m472583486fbb: expand the section holding the
    change, scroll to its exact first position at the presentation reading pace
    (attract/scroll.ts SCROLL_PX_PER_S), highlight the changed text, and put the
-   sections back as they were when attract moves on. Works on the DOM the pane
+   sections (and a clipped description's fold) back as they were when attract moves on. Works on the DOM the pane
    already draws, the way scroll.ts does for the presentation reader:
      - a section is a `section` with an `h4.docket-detail-section-title` and a
        `.docket-detail-toggle` button (canvas/docket.tsx DocketSection); expanding
@@ -116,8 +116,15 @@ export function showTicketChange(change: TicketChange | null, root: ParentNode =
       const toggle = section.querySelector<HTMLElement>('.docket-detail-toggle')
       const opening = toggle?.getAttribute('aria-expanded') === 'false'
       if (opening && toggle) { toggle.click(); expanded.push(toggle) }
+      // a long DESCRIPTION is clipped to ten lines behind its own 'show all N lines' control
+      // (canvas/docketdesc.tsx): a change in the clipped part would stay hidden, so open that fold too
+      // (the marked field WRAPS the description component, so its fold is inside the field; a field drawn inside a fold is covered too)
+      const fold = target.querySelector<HTMLElement>('.docket-desc-fold.folded') ?? target.closest<HTMLElement>('.docket-desc-fold.folded')
+      const more = fold?.querySelector<HTMLElement>('.docket-desc-toggle')
+      const unfolding = more?.getAttribute('aria-expanded') === 'false'
+      if (unfolding && more) { more.click(); expanded.push(more) }
       // the pane draws the opened body on its next render: measure after it
-      wait = setTimeout(() => go(target, section), opening ? 120 : 0)
+      wait = setTimeout(() => go(target, section), opening || unfolding ? 120 : 0)
     }
     const go = (target: HTMLElement, section: HTMLElement) => {
       if (!alive) { resolve(0); return }

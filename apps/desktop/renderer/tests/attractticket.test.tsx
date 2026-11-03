@@ -142,8 +142,11 @@ function pane() {
         const fold = d.createElement('div'); fold.className = 'docket-desc-fold folded'
         const more = d.createElement('button'); more.className = 'docket-desc-toggle'; more.setAttribute('aria-expanded', 'false')
         more.addEventListener('click', () => { const open = more.getAttribute('aria-expanded') !== 'true'; more.setAttribute('aria-expanded', String(open)); fold.classList.toggle('folded', !open) })
-        fold.append(fieldEl, more)
-        body.append(fold)
+        // the marked field WRAPS the description component, and so its fold (DocketSelection around DocketDescription)
+        const clip = d.createElement('span'); clip.textContent = field.text; fieldEl.textContent = ''
+        fold.append(clip, more)
+        fieldEl.append(fold)
+        body.append(fieldEl)
       } else body.append(fieldEl)
     }
     root.append(section)
@@ -285,6 +288,84 @@ test('§8 the capture fixture contract: the real DocketModal, fed the way attrac
       assert.ok(view.el.querySelector(`[data-docket-field="${sel}"]`), 'the pane marks ' + sel)
     assert.ok(view.el.querySelector('.overlay .docket-modal.settings'), 'an ordinary unpinned docket is an .overlay .docket-modal.settings')
   } finally { await view.unmount(); globalThis.fetch = realFetch }
+})
+
+test('§10 REAL pane: a change deep in a long, clipped description opens the fold, is highlighted and is scrolled to; moving on folds it back', async () => {
+  clearTicketSnapshots()
+  const realFetch = globalThis.fetch
+  const g = globalThis as any
+  const para = (n: number) => `Paragraph ${n}: the problem statement, then the solution, then the cases it must handle.`
+  const OLD = Array.from({ length: 14 }, (_, i) => para(i + 1)).join('\n\n')
+  const NEW = OLD.replace(para(9), para(9) + ' ADDED LATER: the delay goes down to zero.')
+  const base = {
+    slug: 'long-ticket', title: 'A long ticket', kind: 'code', status: 'in_progress', archived: false, owner: null, participants: [],
+    at: '2026-11-03T08:00:00Z', updated_at: '2026-11-03T11:00:00Z', docket_at: '2026-11-03T11:00:00Z', done_so_far: [], working_on_next: [],
+    questions: [], dependencies: [], history: [], dismissals: [], acceptance: [], effective_attention: false, attention_sources: [], evidence: [],
+  }
+  const oldItem = { ...base, rev: 3, objective: OLD }, full = { ...base, rev: 4, objective: NEW }
+  // the window last showed rev 3; the diff is taken BEFORE the docket mounts, as the route does (the pane records what it shows)
+  recordTicketSnapshot('fixture', oldItem as never)
+  const change = locateChange(ticketSnapshot('fixture', 'long-ticket'), full as never, 0)
+  assert.equal((change as any)?.field, 'objective')
+  assert.match((change as any).snippet, /ADDED LATER/)
+  const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { 'Content-Type': 'application/json' } })
+  globalThis.fetch = compatibilityWorkFixture((async (input: RequestInfo | URL) => {
+    if (String(input).includes('/work-items/long-ticket')) return json({ item: full })
+    return json({ items: [full], archived: [], backlogged: [] })
+  }) as typeof fetch)
+  // jsdom has no layout: give the description a box and one row per text node, so it measures as long and folds
+  const E = window.Element.prototype as any, H = window.HTMLElement.prototype as any, R = (window as any).Range.prototype
+  const saved = { rect: E.getBoundingClientRect, ow: Object.getOwnPropertyDescriptor(H, 'offsetWidth'), rects: R.getClientRects }
+  const rows = new Map<Node, number>()
+  E.getBoundingClientRect = function () {
+    const top = this.getAttribute?.('data-docket-field') === 'objective' ? 1500 : 0
+    return { top, bottom: top + 20, left: 0, right: 100, width: 100, height: 20, x: 0, y: top }
+  }
+  Object.defineProperty(H, 'offsetWidth', { configurable: true, get: () => 100 })
+  R.getClientRects = function () {
+    const n = this.startContainer
+    if (!rows.has(n)) rows.set(n, rows.size)
+    const top = rows.get(n)! * 20
+    return [{ top, bottom: top + 18, left: 0, right: 100, width: 100, height: 18, x: 0, y: top }]
+  }
+  const marks: string[] = []
+  const hadCSS = g.CSS
+  g.CSS = { ...(hadCSS ?? {}), highlights: { set: (_n: string, h: any) => marks.push('set:' + h.text), delete: () => marks.push('delete') } }
+  g.Highlight = class { text: string; constructor(r: any) { this.text = r.toString() } }
+  const tree = { slug: 'fixture', name: 'Fixture', roots: [], asks: [], epoch: 1, rev: 1 } as never
+  const view = await mountView(<CurrentOrg.Provider value="fixture"><DocketModal slug="fixture" tree={tree} toast={() => {}} close={() => {}}
+    jumpTo="long-ticket" jumpSeq={1} /></CurrentOrg.Provider>, el => el)
+  let show: ReturnType<typeof showTicketChange> | null = null
+  try {
+    await inAct(async () => { await flush(12) })
+    const more = () => view.el.querySelector<HTMLElement>('.docket-desc-toggle')
+    assert.ok(more(), 'the description is long enough to fold: there is a "show all N lines" control')
+    assert.equal(more()!.getAttribute('aria-expanded'), 'false', 'and it starts folded, so paragraph 9 is clipped')
+    // the pane's scroll container, as the real stylesheet makes it
+    const pane = view.el.querySelector<HTMLElement>('.docket-pane-head')!.parentElement as HTMLElement
+    pane.style.overflowY = 'auto'
+    Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 5000 })
+    Object.defineProperty(pane, 'clientHeight', { configurable: true, value: 400 })
+    show = showTicketChange(change, document)
+    const len = await show.length
+    await inAct(async () => { await flush(6) })
+    assert.equal(more()!.getAttribute('aria-expanded'), 'true', 'the clipped description is opened')
+    assert.ok(len > 3000, 'a scroll to the change is scheduled (' + len + ' ms)')
+    assert.ok(marks.some(m => /ADDED LATER/.test(m)), 'the added text is highlighted: ' + marks.join('|'))
+    show.restore()
+    await inAct(async () => { await flush(6) })
+    assert.equal(more()!.getAttribute('aria-expanded'), 'false', 'folded back on moving on')
+    assert.ok(marks.includes('delete'))
+  } finally {
+    show?.restore()
+    await view.unmount()
+    E.getBoundingClientRect = saved.rect
+    if (saved.ow) Object.defineProperty(H, 'offsetWidth', saved.ow); else delete H.offsetWidth
+    if (saved.rects) R.getClientRects = saved.rects; else delete R.getClientRects
+    g.CSS = hadCSS; delete g.Highlight
+    globalThis.fetch = realFetch
+    clearTicketSnapshots()
+  }
 })
 
 declare const __SRC_DIR__: string

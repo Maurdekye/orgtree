@@ -54,14 +54,15 @@ window.fetch = compatibilityWorkFixture((async (input: RequestInfo | URL, init?:
 // the window "last showed" rev 3
 recordTicketSnapshot('fixture', oldItem as unknown as WorkItem)
 let current: TicketShow | null = null
+// the diff is taken NOW, before the docket mounts: the pane records the current text of what it shows on mount (and
+// attract's own route diffs before it opens the docket, for the same reason)
+const located = locateChange(ticketSnapshot('fixture', 'changed-ticket'), newItem as unknown as WorkItem, 0)
 const api = {
   theme: (contrast: string, accent = 'claude') => { applyContrast(contrast); applyTheme(accent) },
-  change: null as unknown,
+  change: located as unknown,
   show: () => {
-    const change = locateChange(ticketSnapshot('fixture', 'changed-ticket'), newItem as unknown as WorkItem, 0)
-    api.change = change
     current?.restore()
-    current = showTicketChange(change)
+    current = showTicketChange(located)
     return current.length
   },
   restore: () => { current?.restore(); current = null },
