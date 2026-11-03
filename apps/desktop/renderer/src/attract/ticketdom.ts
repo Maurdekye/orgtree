@@ -2,7 +2,7 @@
 
    USER 2026-11-03 m73037cb0a404 / m472583486fbb: expand the section holding the
    change, scroll to its exact first position at the presentation reading pace
-   (attract/scroll.ts SCROLL_PX_PER_S), highlight the changed text, and put the
+   (attract/scroll.ts SCROLL_PX_PER_S) and put the
    sections (and a clipped description's fold) back as they were when attract moves on. Works on the DOM the pane
    already draws, the way scroll.ts does for the presentation reader:
      - a section is a `section` with an `h4.docket-detail-section-title` and a
@@ -10,9 +10,8 @@
        is clicking that button, so the pane's own state stays the one truth;
      - a text field is the element DocketSelection stamps with
        `data-docket-field` (+ `data-docket-entry`).
-   The highlight is the browser's Custom Highlight (no DOM change); without it the
-   field (or section) gets `.attract-changed`, which styles.css draws like the
-   docket's own link-flash (`.docket-row.docket-flash`). Setting scrollTop is no
+   Nothing is drawn on the change itself (USER 2026-11-03 m786d6661d885: "dont highlight the
+   actual changed passage, just scroll down to where it is"). Setting scrollTop is no
    user input (attract.ts listens for none of it). */
 import { SCROLL_MAX_MS, SCROLL_PAUSE_MS, scrollMs } from './scroll'
 import type { TicketChange } from './ticketsnap'
@@ -20,19 +19,16 @@ import type { TicketChange } from './ticketsnap'
 export interface TicketShow {
   /** resolves to the scroll's length in ms once the pane is found and expanded (0 = nothing to scroll) */
   length: Promise<number>
-  /** moving on: sections back as they were, highlight off, scroll stopped */
+  /** moving on: sections back as they were, scroll stopped */
   restore: () => void
   /** the user took the pane over (touched, or canvas interaction ended the run): the sections stay as
-   *  they are; the highlight goes, the scroll stops, and a later restore changes nothing */
+   *  they are; the scroll stops, and a later restore changes nothing */
   release: () => void
 }
 
 const NONE: TicketShow = { length: Promise.resolve(0), restore() {}, release() {} }
 /** how long to wait for the pane to draw the change */
 const FIND_MS = 4_000
-/** the highlight stays this long after the scroll arrives */
-const MARK_MS = 6_000
-export const HIGHLIGHT = 'attract-change'
 const LEAD = 24
 
 /** characters ignored on BOTH sides when the changed text is looked up in the drawn text: whitespace (the drawn text has
@@ -106,12 +102,9 @@ export function showTicketChange(change: TicketChange | null, root: ParentNode =
   let alive = true, released = false
   let frame = 0
   let wait: ReturnType<typeof setTimeout> | undefined
-  let mark: ReturnType<typeof setTimeout> | undefined
   const expanded: HTMLElement[] = []      // toggles this opened
-  let marked: { clear: () => void } | null = null
   let settle: (ms: number) => void = () => {}
 
-  const clearMark = () => { clearTimeout(mark); marked?.clear(); marked = null }
   const stopMotion = () => { alive = false; if (frame) cancelAnimationFrame(frame); clearTimeout(wait); settle(0) }
 
   const length = new Promise<number>((done) => {
@@ -148,23 +141,13 @@ export function showTicketChange(change: TicketChange | null, root: ParentNode =
         range = locate(target, change.snippet)
         if (!range) { range = target.ownerDocument.createRange(); range.selectNodeContents(target) }
       }
-      const H = (globalThis as { Highlight?: new (...r: Range[]) => unknown }).Highlight
-      const reg = (globalThis as { CSS?: { highlights?: { set: (n: string, h: unknown) => void; delete: (n: string) => void } } }).CSS?.highlights
-      const styled = change.kind === 'text' ? target : section
-      if (range && H && reg) {
-        reg.set(HIGHLIGHT, new H(range))
-        marked = { clear: () => reg.delete(HIGHLIGHT) }
-      } else {
-        styled.classList.add('attract-changed')
-        marked = { clear: () => styled.classList.remove('attract-changed') }
-      }
       const pane = scrollParent(target)
       const rect = (range?.getBoundingClientRect?.() ?? null)
       const box = rect && rect.height > 0 ? rect : target.getBoundingClientRect()
       const here = pane ? pane.getBoundingClientRect().top : 0
       const room = pane ? Math.max(0, pane.scrollHeight - pane.clientHeight) : 0
       const to = pane ? Math.max(0, Math.min(room, box.top - here + pane.scrollTop - LEAD)) : 0
-      if (!pane || to <= 0) { resolve(0); mark = setTimeout(clearMark, MARK_MS); return }
+      if (!pane || to <= 0) { resolve(0); return }
       const total = Math.min(SCROLL_MAX_MS, scrollMs(to))
       resolve(total)
       pane.scrollTop = 0
@@ -179,7 +162,6 @@ export function showTicketChange(change: TicketChange | null, root: ParentNode =
         }
         frame = requestAnimationFrame(tick)
       }, SCROLL_PAUSE_MS)
-      mark = setTimeout(clearMark, total + MARK_MS)
     }
     find()
   })
@@ -187,11 +169,11 @@ export function showTicketChange(change: TicketChange | null, root: ParentNode =
   return {
     length,
     restore() {
-      stopMotion(); clearMark()
+      stopMotion()
       if (released) return
       for (const t of expanded) if (t.getAttribute('aria-expanded') === 'true') t.click()
       expanded.length = 0
     },
-    release() { released = true; stopMotion(); clearMark() },
+    release() { released = true; stopMotion() },
   }
 }

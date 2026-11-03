@@ -157,7 +157,7 @@ function pane() {
   return { root, sections, add, scrollTop: () => top, remove: () => root.remove() }
 }
 
-test('§6 the pane: a collapsed section is expanded, the first change scrolled to and highlighted, and everything put back', async () => {
+test('§6 the pane: a collapsed section is expanded, the first change scrolled to and NOTHING drawn on it (USER m786d6661d885), and everything put back', async () => {
   const p = pane()
   p.add('DESCRIPTION', false, { name: 'objective', text: 'Problem: x. NEW SENTENCE. Solution: y.', y: 100 })
   p.add('DONE SO FAR', false, { name: 'done_so_far', entry: 2, text: 'three', y: 900 })
@@ -173,16 +173,16 @@ test('§6 the pane: a collapsed section is expanded, the first change scrolled t
     assert.ok(len > 0, 'a scroll has a length: ' + len)
     assert.equal(p.sections['EVIDENCE NOTES']!.body.hidden, false, 'the section holding the change is expanded')
     assert.equal(p.sections['DESCRIPTION']!.body.hidden, false, 'others are left alone')
-    assert.ok(marks.some(m => m === 'set:ev one'), 'the changed text is highlighted: ' + marks.join('|'))
+    assert.deepEqual(marks, [], 'no Custom Highlight is set: ' + marks.join('|'))
+    assert.equal(document.querySelectorAll('.attract-changed, [class*="attract-chang"]').length, 0, 'no highlight class on any element')
     show.restore()
     assert.equal(p.sections['EVIDENCE NOTES']!.body.hidden, true, 'put back as it was')
-    assert.ok(marks.includes('delete'), 'highlight cleared')
     // a section that was already open stays open when restoring
     const open = showTicketChange({ kind: 'text', field: 'objective', section: 'DESCRIPTION', offset: 12, length: 14, snippet: 'NEW SENTENCE.' }, document)
     await open.length
     open.restore()
     assert.equal(p.sections['DESCRIPTION']!.body.hidden, false, 'a section the user had open is not collapsed')
-    // released (the user touched the pane or interrupted): the expansion stays, the highlight goes
+    // released (the user touched the pane or interrupted): the expansion stays
     const rel = showTicketChange({ kind: 'section', section: 'EVIDENCE NOTES' }, document)
     await rel.length
     assert.equal(p.sections['EVIDENCE NOTES']!.body.hidden, false)
@@ -214,7 +214,7 @@ test('§6c a change inside the clipped description opens the description fold, a
   } finally { p.remove() }
 })
 
-test('§6d the highlight covers the WHOLE changed span, however long (not its first 60 characters)', async () => {
+test('§6d the located change is the WHOLE inserted span, however long, and still nothing is drawn on it', async () => {
   const p = pane()
   const added = 'ADDED LATER: the user asked for the start-after delay to go down to zero, and then asked for the same thing again in other words.'
   const text = 'Paragraph 9: the cases it must handle. ' + added + ' Paragraph 10: the next thing.'
@@ -231,13 +231,12 @@ test('§6d the highlight covers the WHOLE changed span, however long (not its fi
     assert.ok(at > 0)
     const show = showTicketChange(change, document)
     await show.length
-    assert.ok(marks.includes('set:' + added), 'the whole sentence is highlighted, not a prefix: ' + marks.join('|'))
+    assert.deepEqual(marks, [], 'no highlight, however long the span: ' + marks.join('|'))
     show.restore()
   } finally { g.CSS = hadCSS; delete g.Highlight; p.remove() }
 })
 
-test('§6e rendered markdown: the highlighted Range is exactly the inserted text across paragraphs, inline formatting and a list', async () => {
-  const strip = (t: string) => t.replace(/[\s*_`#>~-]/g, '')
+test('§6e rendered markdown (inline formatting, a paragraph break, a list): the change is found and scrolled to with nothing drawn', async () => {
   const g = globalThis as any
   const hadCSS = g.CSS
   const marks: string[] = []
@@ -262,7 +261,8 @@ test('§6e rendered markdown: the highlighted Range is exactly the inserted text
       marks.length = 0
       const show = showTicketChange({ kind: 'text', field: 'objective', section: 'DESCRIPTION', offset: 0, length: c.snippet.length, snippet: c.snippet }, document)
       await show.length
-      assert.equal(strip(marks.at(-1) ?? ''), strip(c.expect), c.name + ': highlighted ' + JSON.stringify(marks.at(-1)))
+      assert.deepEqual(marks, [], c.name + ': no highlight set')
+      assert.equal(document.querySelectorAll('.attract-changed').length, 0, c.name + ': no highlight class')
       show.restore(); p.remove()
     }
   } finally { g.CSS = hadCSS; delete g.Highlight }
@@ -344,7 +344,7 @@ test('§8 the capture fixture contract: the real DocketModal, fed the way attrac
   } finally { await view.unmount(); globalThis.fetch = realFetch }
 })
 
-test('§10 REAL pane: a change deep in a long, clipped description opens the fold, is highlighted and is scrolled to; moving on folds it back', async () => {
+test('§10 REAL pane: a change deep in a long, clipped description opens the fold and is scrolled to with nothing drawn; moving on folds it back', async () => {
   clearTicketSnapshots()
   const realFetch = globalThis.fetch
   const g = globalThis as any
@@ -405,11 +405,11 @@ test('§10 REAL pane: a change deep in a long, clipped description opens the fol
     await inAct(async () => { await flush(6) })
     assert.equal(more()!.getAttribute('aria-expanded'), 'true', 'the clipped description is opened')
     assert.ok(len > 3000, 'a scroll to the change is scheduled (' + len + ' ms)')
-    assert.ok(marks.some(m => /ADDED LATER/.test(m)), 'the added text is highlighted: ' + marks.join('|'))
+    assert.deepEqual(marks, [], 'nothing is highlighted: ' + marks.join('|'))
+    assert.equal(view.el.querySelectorAll('.attract-changed').length, 0, 'no highlight class')
     show.restore()
     await inAct(async () => { await flush(6) })
     assert.equal(more()!.getAttribute('aria-expanded'), 'false', 'folded back on moving on')
-    assert.ok(marks.includes('delete'))
   } finally {
     show?.restore()
     await view.unmount()

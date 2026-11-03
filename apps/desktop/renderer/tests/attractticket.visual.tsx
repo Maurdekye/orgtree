@@ -6,7 +6,7 @@
 //   window.attractTicketVisual.theme('light' | 'charcoal' | 'obsidian-black' | 'solarized-light')
 //   window.attractTicketVisual.show()      -> the change attract finds, driven on the open pane; resolves to its length (ms)
 //   window.attractTicketVisual.change      -> the located change (field, offset, snippet)
-//   window.attractTicketVisual.restore()   -> moving on: sections back, highlight off
+//   window.attractTicketVisual.restore()   -> moving on: sections back
 // Browser-only data: no engine, bridge or live org; the clipboard is refused; writes are blocked.
 import { createRoot } from 'react-dom/client'
 import { DocketModal } from '../src/canvas/docket'
