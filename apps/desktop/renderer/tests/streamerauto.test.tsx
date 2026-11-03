@@ -8,9 +8,12 @@ import { spawn, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { JSDOM, flush } from './harness'
+import { JSDOM, flush, inAct, mountView } from './harness'
 import { StreamerAuto, STREAMING_APPS, STREAMING_APP_LABEL, detectStreamingApp, listProcessNames, parsePs, parseTasklist, streamingAppRunning, type AutoPrefs } from '../../main/streamer-auto'
-import { preferencesPatch } from '../../main/policy'
+import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
+import { AccountsPanel } from '../src/canvas/accounts'
+import type { NativePreferences } from '../src/desktop'
+import { startStreamerMode } from '../src/streamer'
 import { installStreamerBoundary } from '../src/streamer-boundary'
 
 /** A StreamerAuto over a fake preference store; `user` plays hand-made toggles
@@ -176,4 +179,71 @@ test('real process listing sees a stand-in obs64.exe and loses it after it exits
     try { execFileSync('taskkill', ['/F', '/IM', 'obs64.exe', '/FI', `PID eq ${child.pid}`], { windowsHide: true, stdio: 'ignore' }) } catch { /* not running */ }
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// App settings > Display and the banner, through the app's own components with a fake preferences
+// bridge (kept here, not in streamerblank.test.tsx, so the two files stop colliding at their ends).
+const g = globalThis as unknown as Record<string, unknown>
+const native = window as unknown as { orgtreeDesktop?: unknown }
+function stubFetch(): void {
+  g.fetch = (url: string, init?: RequestInit) => {
+    const p = new URL(String(url), 'http://localhost').pathname
+    const method = init?.method ?? 'GET'
+    const payload = p === '/api/accounts' ? { version: 2, primary: null, keys: [], assignments: {}, accounts: [] }
+      : p === '/api/providers' ? { providers: [] }
+        : p === '/api/app-settings/runtime' && method === 'GET'
+          ? { warming_enabled: true, verbose_logging: false, verbose_logging_pinned: false }
+          : p === '/api/app/records' ? { type: 'app_snapshot', epoch: 'e', seq: 1, registry: { type: 'registry_snapshot', epoch: 'e', cursor: { app_uuid: 't', incarnation: 'e', rev: 1 }, records: [] }, summaries: {}, notices: {}, runtime: { orgs: {}, values: {} } }
+            : null
+    if (!payload) return Promise.reject(new Error(`unexpected ${method} ${p}`))
+    return Promise.resolve(new Response(JSON.stringify(payload)))
+  }
+}
+function installBridge(t: TestContext) {
+  const previous = native.orgtreeDesktop
+  let saved: NativePreferences = { ...DEFAULT_PREFERENCES }
+  const writes: Partial<NativePreferences>[] = []
+  const listeners = new Set<(e: { type: string; data: unknown }) => void>()
+  const broadcast = () => { for (const fn of [...listeners]) fn({ type: 'preferences', data: saved }) }
+  native.orgtreeDesktop = {
+    getPreferences: async () => saved,
+    setPreferences: async (patch: Partial<NativePreferences>) => {
+      writes.push(patch); saved = { ...saved, ...preferencesPatch(patch) }; broadcast(); return saved
+    },
+    onEvent: (fn: (e: { type: string; data: unknown }) => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+  }
+  t.after(() => { native.orgtreeDesktop = previous })
+  /** another window (or App menu › Modes) changes the same preference */
+  const elsewhere = (patch: Partial<NativePreferences>) => { saved = { ...saved, ...patch }; broadcast() }
+  return { writes, elsewhere }
+}
+
+test('App settings › Display › Modes has "Turn on automatically while OBS is running", default on, and the banner note follows the automation', async (t) => {
+  const { WebSocket } = g
+  g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
+  t.after(() => { g.WebSocket = WebSocket })
+  const bridge = installBridge(t)
+  stubFetch()
+  const stop = startStreamerMode()
+  t.after(() => { stop(); delete g.fetch })
+  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(10) })
+  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+  const row = host.querySelector<HTMLElement>('[data-settings-field="streamerAuto"]')
+  assert.equal(row === null, false, 'the row exists beside Streamer mode')
+  assert.equal(row!.querySelector('.set-label')!.textContent, 'Turn on automatically while OBS is running')
+  assert.equal(row!.classList.contains('set-row'), true)
+  const box = row!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+  assert.equal(box.checked, true, 'default ON (an absent preference reads as on)')
+  await inAct(async () => { box.click(); await flush(8) })
+  assert.deepEqual(bridge.writes, [{ streamerAuto: false }])
+  assert.equal(row!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked, false)
+  // the automation turned the mode on: the banner says why; a manual on does not
+  await inAct(async () => { bridge.elsewhere({ streamerMode: true, streamerAutoActive: true }); await flush(8) })
+  assert.match(document.querySelector('[data-streamer-banner]')!.textContent!, /turned on because OBS is running/)
+  await inAct(async () => { bridge.elsewhere({ streamerMode: true, streamerAutoActive: true, streamerAutoApp: 'XSplit' }); await flush(8) })
+  assert.match(document.querySelector('[data-streamer-banner]')!.textContent!, /turned on because XSplit is running/, 'names the detected app')
+  await inAct(async () => { bridge.elsewhere({ streamerMode: true, streamerAutoActive: false, streamerAutoApp: '' }); await flush(8) })
+  assert.doesNotMatch(document.querySelector('[data-streamer-banner]')!.textContent!, /is running/)
 })
