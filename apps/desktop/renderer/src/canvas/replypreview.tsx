@@ -209,7 +209,9 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
     }
   }
 
-  const jump = <button className={'reply-preview-jump'+(reply.docId?' reply-presentation-link':'')} type="button" onClick={onLocate} disabled={!reachable}
+  // the jump control wears the ref chip's look (`ref-chip ref-message ref-ready`: small mono label, ink colour, no underline at
+  // rest, underline on hover) like the subject chip in a mail reply's head (USER m64286c099254; coordinator m15519009534b)
+  const jump = <button className={'reply-preview-jump ref-chip ref-message ref-ready'+(reply.docId?' reply-presentation-link':'')} type="button" onClick={onLocate} disabled={!reachable}
         {...(reply.docId && reachable ? objectNavProps('document', reply.docId, reply.org)
           : mailId && reachable ? mailLinkProps({ org: reply.org, id: mailId, box: 'node', node: reply.agent }) : {})}
         aria-label={reply.docId?doc.label:'jump to message'} title={actionTitle}>
