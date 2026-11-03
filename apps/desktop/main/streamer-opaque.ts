@@ -36,5 +36,15 @@ export function protectOpaqueWindow(window: BrowserWindow, create: () => WebCont
   update()
   return dispose
 }
-/** Red-test scaffold: the holding-page cover is not yet tied to its document. */
-export const protectOpaqueDocument = protectOpaqueWindow
+/** A cover for ONE native document in an app window (the recovery holding
+ * page). It ends as soon as the window commits any other document, whichever
+ * path loaded it: an app window itself is never covered (USER 2026-11-03
+ * m84db138f69e6). Only data: documents are holding pages. */
+export function protectOpaqueDocument(window: BrowserWindow, create: () => WebContentsView) {
+  const stop = protectOpaqueWindow(window, create), contents = window.webContents
+  const navigated = (_event: unknown, url: string) => { if (!url.startsWith('data:')) end() }
+  let ended = false
+  const end = () => { if (ended) return; ended = true; contents.removeListener('did-navigate', navigated); stop() }
+  contents.on('did-navigate', navigated)
+  return end
+}

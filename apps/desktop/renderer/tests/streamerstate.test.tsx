@@ -25,10 +25,11 @@ test('startup fails closed, newer preferences beat late loads, popouts follow to
   globals.fetch=async(url:unknown)=>new Response(JSON.stringify(String(url)==='/api/app/records'?snapshot:{accounts:[{id:'private-account',name:'Private Account'}]}))
   const stop=startStreamerMode(), stopChild=protectStreamerDocument(child.window.document)
   try {
-    assert.ok(document.documentElement.classList.contains('streamer-covered'))
+    // unknown preferences mask values from the start; the window itself stays visible
+    assert.ok(document.documentElement.classList.contains('streamer-on'))
     receive({type:'preferences',data:{streamerMode:true}}); complete({streamerMode:false}); await flush(12)
     assert.ok(document.documentElement.classList.contains('streamer-on'))
-    assert.equal(document.documentElement.classList.contains('streamer-covered'),false)
+    assert.equal(document.documentElement.classList.contains('streamer-textless'),false)
     assert.ok(child.window.document.documentElement.classList.contains('streamer-on'))
     await setStreamerMode(false); await flush()
     assert.equal(child.window.document.documentElement.classList.contains('streamer-on'),false)

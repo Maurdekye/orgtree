@@ -4,7 +4,10 @@ export interface StreamerBoundary {
   update(on: boolean, known?: readonly string[], ready?: boolean): void
   dispose(): void
 }
-const OPAQUE = 'iframe,img,video,canvas,object,embed,svg:not(.MuiSvgIcon-root)'
+// Content surfaces only. The canvas's wire <canvas>, its edges <svg> and every
+// icon are app chrome: covering them hid the whole canvas behind one opaque
+// slab (USER 2026-11-03 m84db138f69e6 "i cant see anything at all").
+const OPAQUE = 'iframe,img,video,object,embed'
 const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:#686868!important;text-shadow:none!important}
 html.streamer-on ::selection{color:transparent!important;text-shadow:none!important;background:#686868!important}
@@ -16,12 +19,12 @@ html.streamer-on input[type=color]::-webkit-color-swatch{background:#686868!impo
 html.streamer-on *{background-image:none!important}
 html.streamer-on *::before,html.streamer-on *::after{content:none!important}
 html.streamer-on :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
-html.streamer-covered body>*:not([data-streamer-ui]){visibility:hidden!important}
+html.streamer-textless body :not([data-streamer-ui],[data-streamer-ui] *){color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}
 [data-streamer-ui]{font:13px system-ui!important;color:#fff!important;-webkit-text-fill-color:#fff!important;background:#292929!important;text-shadow:none!important;box-sizing:border-box!important}
 [data-streamer-ui] button{color:var(--ink)!important;-webkit-text-fill-color:currentColor!important;background:var(--input)!important;border:1px solid var(--line)!important;border-radius:4px;cursor:pointer}
 [data-streamer-ui] button:hover{border-color:var(--button-accent)!important}
 [data-streamer-ui] button:focus-visible{outline:2px solid var(--button-accent);outline-offset:2px}
-[data-streamer-cover]{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;border:1px solid #888}
+[data-streamer-cover]{position:absolute;z-index:1;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;border:1px solid #888}
 [data-streamer-banner]{position:fixed;z-index:2147483647;right:8px;bottom:8px;padding:7px 10px;border:1px solid #888;border-radius:4px}
 `
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
@@ -42,14 +45,25 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       el.removeAttribute('data-streamer-revealed'); revealed.delete(el); reopened = true
     }
     if (reopened) scan()
-    for (const [el, cover] of covered) {
-      const r = el.getBoundingClientRect()
-      Object.assign(cover.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` })
-    }
+    for (const [el, cover] of covered) place(el as HTMLElement, cover)
     if (active && win?.requestAnimationFrame) frame = win.requestAnimationFrame(position)
   }
+  // A cover is the hidden element's next sibling, in the same stacking context:
+  // whatever the app draws above that surface (menus, settings, modals) stays
+  // above its cover. It never becomes a window-wide topmost layer.
+  function place(el: HTMLElement, cover: HTMLElement) {
+    if (cover.previousSibling !== el) el.after(cover)
+    if (!el.getClientRects().length) { cover.style.display = 'none'; return }
+    cover.style.display = ''
+    let left = el.offsetLeft, top = el.offsetTop
+    if (el.offsetParent !== cover.offsetParent) {
+      const r = el.getBoundingClientRect(), base = (cover.offsetParent ?? doc.documentElement).getBoundingClientRect()
+      left = r.left - base.left; top = r.top - base.top
+    }
+    Object.assign(cover.style, { left: `${left}px`, top: `${top}px`, width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px` })
+  }
   function restore() {
-    doc.documentElement.classList.remove('streamer-on', 'streamer-covered')
+    doc.documentElement.classList.remove('streamer-on', 'streamer-textless')
     win?.CSS?.highlights?.delete('streamer-sensitive')
     for (const cover of covered.values()) cover.remove()
     covered.clear()
@@ -78,8 +92,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     }
     doc.documentElement.classList.add('streamer-on')
     const supported = !!win?.Highlight && !!win.CSS?.highlights
-    doc.documentElement.classList.toggle('streamer-covered', !supported || !ready)
-    bannerLabel.textContent = supported && ready ? 'Streamer mode' : 'Streamer mode — content hidden until protection is ready'
+    // Masking fails per value, never per window: unready identities keep the
+    // pattern and known-value masks; without the Highlight API only text paint
+    // is withheld, and layout, controls and the Turn off button stay usable.
+    doc.documentElement.classList.toggle('streamer-textless', !supported)
+    bannerLabel.textContent = !supported ? 'Streamer mode — text hidden: this window cannot mask single values'
+      : ready ? 'Streamer mode' : 'Streamer mode — some account names may still be visible'
     if (!banner.isConnected) doc.body.appendChild(banner)
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
     for (const el of doc.querySelectorAll('input,textarea,select')) {
@@ -106,7 +124,9 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       dismiss.textContent = '×'; dismiss.setAttribute('aria-label', 'Dismiss cover for this surface')
       dismiss.title = 'Reveal this surface until it closes or Streamer mode restarts'
       dismiss.onclick = () => { revealed.add(el); el.setAttribute('data-streamer-revealed', ''); cover.remove(); covered.delete(el) }
-      cover.append(label, dismiss); covered.set(el, cover); doc.body.appendChild(cover)
+      // Inside a link or button, a click on the cover must not activate the hidden surface's owner.
+      cover.addEventListener('click', e => { e.preventDefault(); e.stopPropagation() })
+      cover.append(label, dismiss); covered.set(el, cover); place(el as HTMLElement, cover)
     }
     if (!frame) position()
     if (!supported || !ready) return

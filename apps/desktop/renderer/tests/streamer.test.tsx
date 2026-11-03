@@ -84,13 +84,14 @@ test('opaque surfaces stay mounted, each cover dismisses independently and retur
     const original = [...doc.body.children]
     boundary.update(true, known)
     const covers = [...doc.querySelectorAll<HTMLButtonElement>('[data-streamer-dismiss]')]
-    assert.equal(covers.length, 6)
+    // five content surfaces; the <canvas> is app chrome (streamerblank.test.tsx)
+    assert.equal(covers.length, 5)
     covers[0]!.click()
     assert.equal(doc.querySelectorAll('[data-streamer-revealed]').length, 1)
     assert.ok(original.every(el => el.isConnected), 'runtime DOM remains mounted')
     boundary.update(false); boundary.update(true, known)
     assert.equal(doc.querySelectorAll('[data-streamer-revealed]').length, 0)
-    assert.equal(doc.querySelectorAll('[data-streamer-dismiss]').length, 6)
+    assert.equal(doc.querySelectorAll('[data-streamer-dismiss]').length, 5)
     doc.querySelector<HTMLButtonElement>('[data-streamer-dismiss]')!.click()
     original[0]!.remove(); await flush(); doc.body.appendChild(original[0]!); await flush()
     assert.equal(original[0]!.hasAttribute('data-streamer-revealed'), false)
@@ -101,14 +102,14 @@ test('opaque surfaces stay mounted, each cover dismisses independently and retur
     assert.equal(doc.querySelector('.md')!.textContent, 'Safe Markdown')
   } finally { boundary.dispose(); dom.window.close() }
 })
-test('unknown readiness or unavailable masking fails closed; native picker values are not changed', () => {
+test('unavailable masking withholds text paint, never the window; native picker values are not changed', () => {
   const { dom, doc } = fixture(false), boundary = installStreamerBoundary(doc)
   doc.body.innerHTML = '<div id="root">reader@example.test</div><input type="file">'
   try {
     boundary.update(true, known)
-    assert.ok(doc.documentElement.classList.contains('streamer-covered'))
+    assert.ok(doc.documentElement.classList.contains('streamer-textless'))
     boundary.update(false)
-    assert.equal(doc.documentElement.classList.contains('streamer-covered'), false)
+    assert.equal(doc.documentElement.classList.contains('streamer-textless'), false)
     assert.equal(doc.querySelector('input')!.disabled, false)
   } finally { boundary.dispose(); dom.window.close() }
 })

@@ -4,7 +4,7 @@ import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
 import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
-import { protectOpaqueWindow } from './streamer-opaque'
+import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
 const dialog = protectNativeDialogs(rawDialog), Menu = protectNativeMenus(rawMenu)
@@ -2723,7 +2723,7 @@ else {
           showHolding: html => {
             if (window.isDestroyed()) return Promise.resolve()
             stopHoldingCover?.()
-            stopHoldingCover = protectOpaqueWindow(window, () => new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false, webviewTag: false } }))
+            stopHoldingCover = protectOpaqueDocument(window, () => new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false, webviewTag: false } }))
             return window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
           },
           suspended: () => quitting || installerUpgradeShutdown,

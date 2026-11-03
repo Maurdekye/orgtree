@@ -28,7 +28,9 @@ export function sensitiveSpans(text: string, known: readonly string[] = []): Sen
   }
   const folded = text.toLowerCase()
   for (const value of known) {
-    if (!value) continue
+    // A one- or two-character identity ("." as a path, "ab" as an id) would
+    // mask every occurrence in ordinary prose; it identifies no one.
+    if (!value || value.trim().length < 3) continue
     const needle = value.toLowerCase()
     let at = 0
     while ((at = folded.indexOf(needle, at)) !== -1) { spans.push({ start: at, end: at + value.length }); at += value.length }
