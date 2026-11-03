@@ -100,9 +100,9 @@ test('message previews preserve markdown past the saved excerpt without includin
   const view = await mountView(desk(), el => el)
   try {
     await refresh()
-    const content = view.el.querySelector<HTMLElement>('.reply-preview-content')!
-    assert.equal(content.getAttribute('role'), 'region')
-    assert.equal(content.tabIndex, 0, 'bounded source is keyboard-scrollable')
+    // an agent message is quoted in the mail reply's clamped blockquote (USER m64286c099254); the whole text stays in it
+    const content = view.el.querySelector<HTMLElement>('.reply-preview > blockquote')!
+    assert.equal(content.querySelector('[role="region"]')?.getAttribute('aria-label'), 'Referenced event')
     assert.equal(content.querySelectorAll('li').length, 2)
     assert.match(content.querySelector('pre code')!.textContent!, /const answer = 42/)
     assert.match(content.textContent!, /full source tail/)
@@ -226,7 +226,7 @@ test('nested preview names and titles keep copy menus while text selection and l
     for (const [selector, label] of [
       ['[data-copy-agent-name]', 'Copy mention'], ['[data-copy-ticket-title]', 'Copy ticket title'],
     ]) {
-      const object = view.el.querySelector('.reply-preview-content ' + selector)!
+      const object = view.el.querySelector('.reply-preview blockquote ' + selector)!
       assert.ok(object)
       assert.equal(await context(object), true)
       const choices = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
@@ -238,7 +238,7 @@ test('nested preview names and titles keep copy menus while text selection and l
     }
     assert.deepEqual(writes, ['@writer', title])
     assert.deepEqual(feedback, [['copied mention'], ['copied ticket title']])
-    const name = view.el.querySelector('.reply-preview-content [data-copy-agent-name]')!
+    const name = view.el.querySelector('.reply-preview blockquote [data-copy-agent-name]')!
     const range = document.createRange(); range.selectNodeContents(name)
     window.getSelection()!.removeAllRanges()
     window.getSelection()!.addRange(range)
@@ -248,7 +248,7 @@ test('nested preview names and titles keep copy menus while text selection and l
     assert.equal(await context(view.el.querySelector('a[href="https://example.invalid"]')!), false)
     // Reply-link menus gained Copy contents / Sender in 98959de. The quote
     // body uses that menu, while selected text and ordinary links stay native.
-    assert.equal(await context(view.el.querySelector('.reply-preview-content')!), true)
+    assert.equal(await context(view.el.querySelector('.reply-preview > blockquote')!), true)
     const choices = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
     const copy = choices.find(choice => choice.textContent === 'Copy contents')!
     assert.ok(copy)

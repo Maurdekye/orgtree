@@ -11,25 +11,29 @@ import type { ReplyContext } from '../src/eventReply'
 const reply: ReplyContext = { org: 'org', agent: 'writer', generation: 2, eventId: 'source', quote: 'Saved excerpt' }
 const sources = indexReplySources({ messages: [{ role: 'assistant', event_id: 'source', text: 'The quoted answer.',
   ts: '2026-11-03T13:16:30Z' }] })
+const cardSources = indexReplySources({ messages: [{ role: 'assistant', event_id: 'src', text: 'x', thinking: 'A thought', thinking_event_id: 'card', ts: '2026-11-03T13:16:30Z' } as never] })
+const cardReply: ReplyContext = { ...reply, eventId: 'card' }
+const withCard = (node: React.ReactNode) =>
+  <ReplySourceProvider value={r => <ReplySourceContent source={cardSources.get(r.eventId)!} slug="org" nid="writer" profile="operator" />}>
+    {node}
+  </ReplySourceProvider>
 const withSource = (node: React.ReactNode) =>
   <ReplySourceProvider value={r => <ReplySourceContent source={sources.get(r.eventId)!} slug="org" nid="writer" profile="operator" />}>
     {node}
   </ReplySourceProvider>
 
-test('with a loaded source the jump link is inside the quoted header row, after its time', async t => {
+test('a quote of a CARD (a thought) keeps the jump link inside the quoted header row, after its time', async t => {
   let located = 0
-  const view = await mountView(withSource(<ReplyPreview reply={reply} available onLocate={() => { located++ }} />), el => el)
+  const view = await mountView(withCard(<ReplyPreview reply={cardReply} available onLocate={() => { located++ }} />), el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(2) })
   const jumps = view.el.querySelectorAll('.reply-preview-jump')
   assert.equal(jumps.length, 1, 'one jump link')
   const jump = jumps[0] as HTMLButtonElement
   const header = jump.closest('.reply-source-meta')
-  assert.ok(header, 'the link lives inside the quoted block\'s header row')
-  assert.ok(header!.closest('.reply-preview-content'), 'that header is the quote\'s own')
-  assert.equal(header!.querySelector('time') !== null, true)
-  assert.ok(header!.querySelector('time')!.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING,
-    'at the right end: after the time')
+  assert.ok(header, 'the link lives inside the quoted block header row')
+  assert.ok(header!.closest('.reply-preview-content'), 'that header is the quote own')
+  assert.ok(header!.querySelector('time')!.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING, 'at the right end: after the time')
   assert.equal(jump.textContent?.trim(), 'jump to message', 'icon, text and style kept')
   assert.equal(view.el.querySelector('.reply-preview-head'), null, 'no separate head line above the quote')
   await inAct(async () => { jump.click(); await flush(1) })
@@ -50,9 +54,9 @@ test('a quote with no header of its own keeps the link in the block head', async
   assert.ok(head!.querySelector('.reply-preview-jump') && head!.querySelector('button[aria-label="Remove reply"]'))
 })
 
-test('a composer draft with a loaded source: link in the quoted header row, x alone at the block corner', async t => {
+test('a composer draft of a CARD quote: link in the quoted header row, x alone at the block corner', async t => {
   let removed = 0, located = 0
-  const draft = await mountView(withSource(<ReplyPreview reply={reply} available
+  const draft = await mountView(withCard(<ReplyPreview reply={cardReply} available
     onLocate={() => { located++ }} onRemove={() => { removed++ }} />), el => el)
   t.after(() => draft.unmount())
   await inAct(async () => { await flush(2) })
@@ -69,10 +73,10 @@ test('a composer draft with a loaded source: link in the quoted header row, x al
 })
 
 test('the link keeps one place across re-renders and the header it joins pushes it to the right end', async t => {
-  const view = await mountView(withSource(<ReplyPreview reply={reply} available onLocate={() => {}} />), el => el)
+  const view = await mountView(withCard(<ReplyPreview reply={cardReply} available onLocate={() => {}} />), el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(2) })
-  await view.render(withSource(<ReplyPreview reply={{ ...reply, quote: 'Changed' }} available onLocate={() => {}} />))
+  await view.render(withCard(<ReplyPreview reply={{ ...cardReply, quote: 'Changed' }} available onLocate={() => {}} />))
   await inAct(async () => { await flush(2) })
   assert.equal(view.el.querySelectorAll('.reply-preview-jump').length, 1, 'still exactly one link')
   assert.equal(view.el.querySelectorAll('.reply-jump-slot').length, 1, 'one slot in the header')
