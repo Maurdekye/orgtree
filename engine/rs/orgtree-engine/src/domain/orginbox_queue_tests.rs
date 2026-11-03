@@ -274,7 +274,8 @@ async fn t22_an_org_reply_carries_the_message_id_and_threads_back_to_the_sending
 #[ignore = "requires an isolated orginbox_queue_fixture database"]
 #[nolog]
 async fn t1_t2_t3_a_project_holds_the_audience_like_an_agent_and_its_members_inherit_nothing() {
-    use crate::domain::audiences::{grant, Actor};
+    use crate::domain::audiences::grant;
+    use crate::domain::ops::Actor;
     for multi in [false, true] {
         let w = world(multi).await;
         let org = crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into());
