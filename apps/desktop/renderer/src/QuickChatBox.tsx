@@ -29,6 +29,7 @@ import { getProviders, sendMessage, uploadFile } from './api'
 import { ActiveAgentsFilter, AgentTray, SwitchboardMark, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
 import { TierChip, nodeTierOf } from './canvas/identity'
+import { ProjectMark } from './canvas/projecttheme'
 import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
 import { staffingOptions, tierEffortLevels, type StaffingOptions } from './canvas/staffingoptions'
@@ -223,7 +224,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
           {...agentNavProps(superior)}
           aria-expanded={pop?.kind === 'superior'} onClick={go('superior')}>
           {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
-          {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} agentName={superior ?? undefined} />}
+          {superior === null ? <SwitchboardMark /> : (nodeTierOf(supNode) === 'project' ? <ProjectMark name={superior ?? undefined} /> : <TierChip tier={nodeTierOf(supNode)} />)}
           <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
         </button>
       ),
