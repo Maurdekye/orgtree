@@ -4651,6 +4651,10 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Turn on automatically while OBS is running"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Attract mode"
     },
     {

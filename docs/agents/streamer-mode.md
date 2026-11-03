@@ -78,3 +78,24 @@ must attempt one isolated, muted capture of real Highlight rendering, selected
 text, editor masking, opaque/native covers and their dismiss/reset behavior. If
 startup fails, record NOT_EXECUTED and seek coordinator disposition; do not claim
 visual privacy was verified.
+
+## Automatic on/off while a streaming app runs (USER 2026-11-03 m66c298e7345c; Discord model)
+
+`apps/desktop/main/streamer-auto.ts`. Main process, one `tasklist` image listing every 5 s
+(`ps -A -o comm=` off Windows); an unreadable listing is no verdict. Detected image names are
+Discord's own Streamer Mode list (liaison m3669936358cc): obs, obs.exe, obs32.exe, obs64.exe,
+XSplit.Gamecaster.exe, XSplit.Core.exe, Gamecaster.exe, bebo.exe, Streamlabs OBS.exe,
+Streamlabs Desktop.exe, TwitchStudio.exe (case-insensitive, whole image name).
+- Preferences: `streamerAuto` (Display switch; absent = ON) and `streamerAutoActive` (set only
+  while the automation, not the user, turned the mode on). Any hand-made `streamerMode` write
+  clears `streamerAutoActive` in `setPreferences`, so only the automation's own writes keep it.
+- Start (or first sample at startup) with the mode off and the setting on turns it ON and flags it.
+  The renderer banner then reads "Streamer mode — turned on because OBS is running".
+- Exit needs two consecutive clear samples (no flapping on an OBS restart); it turns the mode OFF
+  only when the flag is set. A mode the user had on, or turned on later, stays on.
+- A manual off while a streaming app runs suppresses the automation until the app has exited and
+  started again (in memory: an Orgtree restart during that run turns it on again).
+- Startup: `app.whenReady` awaits the first sample (2.5 s bound) before `setNativeStreamer` reads the
+  preference and before any window exists; native masking is on by default until then, so nothing
+  paints unmasked first. A persisted flag whose app is gone is released at that first sample.
+- Turning the setting OFF leaves the mode as it is (the user then owns it).
