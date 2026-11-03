@@ -8386,7 +8386,7 @@ label.set-row { cursor: pointer; }
 .desk-elsewhere-holder { background: none; overflow: visible; pointer-events: none; animation: none; }
 /* a card whose desk is in another window wears its normal face (cards.tsx
    cardIsDeskLayout), so the chip sits in the body UNDER the header rows */
-.sq:not(.desk) > .desk-elsewhere-holder { top: 58px; }
+.sq:not(.desk) .desk-elsewhere-holder { top: 58px; }   /* .sq > .desk-slot (display: contents) > holder: a descendant, never a child */
 .pin-placeholder {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 4px; cursor: pointer;
