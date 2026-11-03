@@ -6,15 +6,20 @@
 //   the worker acks (the ack sends nothing outside) and can no longer reply about the job
 //   a follow-up from the peer before hand-out is bundled with the job and handed to the same listener
 //   a member of the holding project cannot start an outside conversation (outside_top_level)
-// Run: node tools/rig/rig.mjs run tools/rig/proofs/org-inbox-queue.mjs
+// Run: node tools/rig/rig.mjs run tools/rig/proofs/org-inbox-queue.mjs [--hub <orgtree-mailhub.exe>]
 // Written without a live run (the author may not run builds); the integrator measures it. The worker's
 // reply row gets its hub id by SQL below, standing in for the hub transport the offline rig lacks.
 
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
-export async function setup() {
-  return { recover: true }
+// The worker's outside reply is a real @net: send, which the engine refuses in a safe-start (paused-network) run. This
+// run hosts the rig's LOOPBACK mail hub (ORGTREE_RIG_HUB=1, the rig's own hub binary: ORGTREE_RIG_HUB_BIN or --hub <exe>,
+// exactly as question-options.mjs); the fake peer 'peer.rig' is only ever a name in rows, nothing is registered, no real
+// hub, identity or network is reached, and no isolation is removed. A send that the loopback hub cannot deliver to the
+// unregistered 'peer.rig' still leaves its queued ot.org_inbox row, which is all this proof reads.
+export async function setup(flags) {
+  return { recover: true, hub: flags.hub ?? true }
 }
 
 export default async function (rig) {
@@ -28,6 +33,7 @@ export default async function (rig) {
   const mailTo = name => rig.sql(`SELECT id, uid, sender, state, body, extra FROM ot.mail WHERE recipient_agent_id=${node(name).id} ORDER BY id`)
   const tryTool = (who, tool, args) => rig.tool(who, tool, args).then(r => ({ ok: !!r.ok, v: r.json ?? r.text, error: r.ok ? '' : String(r.text ?? '') }), e => ({ ok: false, error: String(e.message ?? e) }))
 
+  await rig.waitFor(async () => (await rig.api('GET', '/api/desktop/hub')).status?.healthy || null, { what: 'the hosted loopback hub to answer', timeout: 120000 })
   // ------------------------------------------------------------ the front door: a project with two workers
   await rig.op({ op: 'create_project', name: 'door', parent: null, description: 'Front door.' })
   await rig.op({ op: 'hire', name: 'wa', parent: 'door', tier: 'haiku', grant: 0, title: 'Worker A' })
@@ -52,6 +58,7 @@ export default async function (rig) {
   p.check('the worker replies to the sender about its job before acking', reply1.ok, reply1)
   const out = rig.one("SELECT uid, via_job, sender_agent_id FROM ot.org_inbox WHERE dir='out' AND by_name='wa' ORDER BY id DESC LIMIT 1")
   p.check('the reply row remembers the job', out?.via_job === copy.extra.outside_job, out)
+  if (!out) return p.summary() // no queued reply row: the rest depends on it; report instead of throwing
   const reply2 = await tryTool('wa', 'orgtree_message', { metadata: { to: '@net:peer.rig', reply_to: copy.uid }, body: 'Also, a second note.' })
   p.check('several replies are allowed before the ack', reply2.ok, reply2)
 
