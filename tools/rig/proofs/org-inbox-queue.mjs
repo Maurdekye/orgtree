@@ -34,6 +34,10 @@ export default async function (rig) {
   const tryTool = (who, tool, args) => rig.tool(who, tool, args).then(r => ({ ok: !!r.ok, v: r.json ?? r.text, error: r.ok ? '' : String(r.text ?? '') }), e => ({ ok: false, error: String(e.message ?? e) }))
 
   await rig.waitFor(async () => (await rig.api('GET', '/api/desktop/hub')).status?.healthy || null, { what: 'the hosted loopback hub to answer', timeout: 120000 })
+  // the org connects to THAT hosted hub (as question-options.mjs and conversation-recall.mjs do): its own loopback hub only
+  await rig.api('POST', `/api/orgs/${rig.org}/settings`, { net_autoconnect: true })
+  await rig.waitFor(async () => ((await rig.api('GET', `/api/orgs/${rig.org}`)).net?.hubs ?? []).some(h => h.connected) || null,
+    { what: 'the org to connect to the hosted loopback hub', timeout: 90000 })
   // ------------------------------------------------------------ the front door: a project with two workers
   await rig.op({ op: 'create_project', name: 'door', parent: null, description: 'Front door.' })
   await rig.op({ op: 'hire', name: 'wa', parent: 'door', tier: 'haiku', grant: 0, title: 'Worker A' })
