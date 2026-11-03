@@ -11,6 +11,12 @@ dismissal is the user's m84e04d547421 ruling.
 
 - `packages/contracts/streamer.ts` owns detection, known structured values and
   the conservative native text policy. It never rewrites domain payloads.
+  Over-masking guard (USER 2026-11-03 m73a2e0a527ec, alpha.2): ordinary text stays visible. Paths start at a
+  boundary (never inside `orgtree/build-slot`, `integ/4.5.5`); IPv6 needs eight groups or `::` (a clock time is
+  not one); phones need a `+`, grouped digits or a bare 7-15 digit run (dates and `GMT+2` are not); a 20+ character
+  run is a secret only if `tokenLike` says so (not a git SHA, not a slug/branch of words and short numbers, not a
+  plain camelCase name); known identities match whole words; `address`/`path`/bare `key` fields teach only values
+  that look personal (agent names arrive under `*_address`). Pinned by `streamerovermask.test.tsx`.
 - `streamer-boundary.ts` walks displayed DOM text and installs CSS Highlight
   ranges. The original text nodes stay intact, including native selection/copy.
   Blocks delimit labelled secrets; inline fragments are scanned together.
