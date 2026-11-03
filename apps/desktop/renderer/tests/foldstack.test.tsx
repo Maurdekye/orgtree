@@ -102,21 +102,21 @@ test('the tucked stack is drawn like the retired pile, offset straight DOWN (USE
   const pileRadius = /border-radius:\s*(\d+)px/.exec(pile)![1]
   const pileStep = Number(/translate\((\d+)px, -px\)/.exec(rule(css, '.pile-layer.l1'))![1])
   const tuck = rule(css, '.fold-tuck')
-  assert.match(tuck, new RegExp(`border-radius:\s*0 0 ${pileRadius}px ${pileRadius}px`), 'the pile's corner radius, bottom corners (the part below the card)')
-  assert.match(tuck, /border:\s*1px solid var\(--line-soft\)/, 'the pile's border')
-  assert.match(tuck, /width:\s*100%/, 'the node's own silhouette: same width, not a narrower strip')
+  assert.match(tuck, new RegExp(`border-radius:\s*0 0 ${pileRadius}px ${pileRadius}px`), 'the pile corner radius, bottom corners (the part below the card)')
+  assert.match(tuck, /border:\s*1px solid var\(--line-soft\)/, 'the pile border')
+  assert.match(tuck, /width:\s*100%/, 'the node own silhouette: same width, not a narrower strip')
   assert.doesNotMatch(tuck, /translateX|left:\s*50%/, 'no sideways offset: straight down')
   const h = /height:\s*calc\(var\(--fold-step\) \* \(var\(--tuck-i, 0\) \+ 1\)\)/.exec(tuck)
   assert.ok(h, 'each layer reaches one more step lower')
-  assert.equal(Number(/--fold-step:\s*(\d+)px/.exec(rule(css, '.fold-stack'))![1]), pileStep, 'the pile's own spacing')
+  assert.equal(Number(/--fold-step:\s*(\d+)px/.exec(rule(css, '.fold-stack'))![1]), pileStep, 'the pile own spacing')
   for (const [i, n] of [[0, 1], [1, 2], [2, 3]] as const)
-    assert.match(rule(css, `.fold-tuck.t${i}`), new RegExp(`background:\s*var\(--pile-${n}\)`), `layer ${n} wears the pile's fill ${n}`)
+    assert.match(rule(css, `.fold-tuck.t${i}`), new RegExp(`background:\s*var\(--pile-${n}\)`), `layer ${n} wears the pile fill ${n}`)
   const z = /z-index:\s*calc\((\d+) - var\(--tuck-i, 0\)\)/.exec(tuck)
   assert.ok(z, 'the shallow layer draws in front of the deeper ones')
-  assert.match(rule(css, '.fold-stack .fold-count'), /font-family:\s*var\(--mono\)[^}]*font-weight:\s*700|font-weight:\s*700[^}]*font-family:\s*var\(--mono\)/, 'the pile's count style')
+  assert.match(rule(css, '.fold-stack .fold-count'), /font-family:\s*var\(--mono\)[^}]*font-weight:\s*700|font-weight:\s*700[^}]*font-family:\s*var\(--mono\)/, 'the pile count style')
 })
 
-test('the stack never has more than the pile's three layers', async () => {
+test('the stack never has more than the pile three layers', async () => {
   const v = await mount('norm', fold({ count: 9, tucks: Array.from({ length: 5 }, (_, i) => ({ id: 'k' + i, project: false, tier: 'sonnet' })) }), noopFn)
   assert.ok(v.el.querySelectorAll('.fold-tuck').length <= 3)
   assert.ok(v.el.querySelector('.fold-tuck.t0'), 'layers carry t0..t2 for the pile fills')
