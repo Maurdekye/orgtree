@@ -119,14 +119,18 @@ test('R4 a watchdog-sourced fire shows the dog\'s link; a removed dog shows the 
     { id: 2, at: '2026-11-03T10:05:00Z', kind: 'event', by: 'stream/stream-chat', message: 'hello', listeners: [],
       source: { kind: 'watchdog', handle: 'stream/stream-chat', dog: 'stream-chat', name: 'stream-chat', dog_kind: 'websocket' } },
     { id: 1, at: '2026-11-03T10:00:00Z', kind: 'event', by: 'stream/gone-dog', message: 'old', message_truncated: true, listeners: [],
-      source: { kind: 'watchdog', handle: 'stream/gone-dog', dog: 'gone-dog', name: 'gone-dog', dog_kind: 'command' } },
+      source: { kind: 'watchdog', handle: 'stream/gone-dog', dog: 'gone-dog', name: 'gone-dog', dog_kind: 'command', gone: true } },
+    { id: 3, at: '2026-11-03T10:06:00Z', kind: 'event', by: 'stream/beyond', message: 'x', listeners: [],
+      source: { kind: 'watchdog', handle: 'stream/beyond', dog: 'beyond', name: 'beyond', dog_kind: 'command', gone: false } },
   ]
   const v = await listeners(t, [feed('stream-chat')], history)
   const rows = [...v.el.querySelectorAll<HTMLTableRowElement>('tr.fired-row.event')]
-  assert.equal(rows.length, 2)
+  assert.equal(rows.length, 3)
+  const beyond = rows.find((r) => /beyond/.test(r.textContent ?? ''))!
+  assert.ok(!beyond.querySelector('.gone'), 'a dog beyond the preview that the engine does not report gone is not drawn as gone')
   assert.ok(rows[0]!.querySelector('[data-object-id="stream/stream-chat"], .watchdog-link'), 'a live dog is a watchdog link')
-  assert.ok(rows[1]!.querySelector('.history-dog.gone, .gone'), 'a removed dog is the copy-only stale chip')
-  assert.match(rows[1]!.textContent ?? '', /…|truncated/, 'a truncated message says so')
+  assert.ok(rows.find((r) => /gone-dog/.test(r.textContent ?? ''))!.querySelector('.history-dog.gone, .gone'), 'a removed dog is the copy-only stale chip')
+  assert.match(rows.find((r) => /gone-dog/.test(r.textContent ?? ''))!.textContent ?? '', /…|truncated/, 'a truncated message says so')
 })
 
 /* ─── R5 the detail card ─────────────────────────────────────────────────── */
@@ -142,4 +146,17 @@ test('R5 the detail card names the project and who created the dog', async (t) =
   const text = v.el.textContent ?? ''
   assert.match(text, /project\s*@?stream/, 'the owner line reads project @stream')
   assert.match(text, /created by\s*@?member/)
+})
+
+test('R3 past eight sources the section ends with the group card', async (t) => {
+  const list = Array.from({ length: 8 }, (_, i) => feed('d' + i))
+  const map = new Map(['member', 'boss'].map((id) => [id, node(id)] as [string, CanvasNode]))
+  const v = await mountView(<DeskDogsProvider value={{ org: 'org', dogs: list, counts: { stream: { total: 12, kept: 12, one_shot: 0 } }, open: noop }}>
+    <ListenersView node={project()} dogs={list} map={map} op={(() => Promise.resolve({ history: [] })) as never} toast={noop} />
+  </DeskDogsProvider>, (el) => el)
+  t.after(() => v.unmount())
+  await inAct(() => flush(3))
+  const rows = v.el.querySelectorAll('tbody.listeners-sources tr.source-row').length
+  assert.equal(rows, 7, 'seven rows and then the group card')
+  assert.match(v.el.querySelector('tbody.listeners-sources [data-watchdog-group]')?.textContent ?? '', /12 watchdogs/)
 })

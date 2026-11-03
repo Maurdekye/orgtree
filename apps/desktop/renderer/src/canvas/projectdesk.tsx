@@ -69,8 +69,7 @@ import { MailListenersView } from './maillisteners'
 import { MailQueueJoin } from './mailqueuejoin'
 import { InboxNoListeners, inboxListened } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
-import { DogChip, useDeskDogs } from './deskdogs'
-import { WatchdogGroup, WATCHDOG_CARD_LIMIT } from './watchdoggroup'
+import { useDeskDogs } from './deskdogs'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
 import { deskReaderVisible, useDeskReaderAvailability, useDeskReaderTeam } from './deskreaders'
@@ -747,12 +746,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   </div> : null
   // the project's OWN watchdogs, as cards in a jump row like an agent desk's (spec §5.2)
   const deskDogs = useDeskDogs(node.id)
-  const dogRow = deskDogs ? <div className="desk-nav">
-    <DeskJumpCards ids={deskDogs.total > WATCHDOG_CARD_LIMIT ? ['dogs'] : deskDogs.dogs.map((w) => 'd:' + w.id)} label="watchdogs" render={(k) =>
-      k === 'dogs'
-        ? <span key={k}><WatchdogGroup owner={node.id} dogs={deskDogs.dogs} total={deskDogs.total} org={deskDogs.org} onOpen={deskDogs.open} kept/></span>
-        : <DogChip key={k} dog={deskDogs.dogs.find((x) => x.id === k.slice(2))!} onOpen={deskDogs.open} />} />
-  </div> : null
   // the tabs it offers now, by the rules the card's shortcuts share
   const deadLetters = node.dead_letters ?? 0
   const tabs = projectDeskTabs(node, map).filter(v =>
@@ -841,7 +834,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
           <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
         </DeskMetaRow>} />
       {upRow}
-      {dogRow}
       {/* Own-only header chips (user 2026-10-20 18:58Z), matching its Presented tab. */}
       {onOpenDoc && (node.documents?.length ?? 0) > 0 && (
         <DeskDocsStrip slug={slug} docs={node.documents!} toast={toast} onOpen={onOpenDoc} onReply={live ? replyToDoc : undefined} replyLabel="Reply" />
@@ -897,7 +889,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
           same for project tabs"), in the agent desk's own row: nested
           projects' members too, retired ones behind its retired controls; the
           superior's cards are the up row under the header */}
-      <DeskReportRow node={node} map={map} onJump={onJump} org={slug} />
+      <DeskReportRow node={node} map={map} onJump={onJump} dogs={deskDogs} org={slug} />
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={broadcastRecipients.length} recipients={broadcastRecipients} bare={bare} focusRequest={replyFocus}

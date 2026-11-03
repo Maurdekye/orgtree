@@ -2243,7 +2243,7 @@ fn created_by_name(memo: &Value, owner_name: &str) -> String {
 /// caller must hold what the dog uses (no borrowing the project's), and so
 /// must the project's own line. Returns the `created_by` record.
 #[logged]
-async fn project_create_hands(engine: &Arc<Engine>, org_id: i64, project: i64, pc: &ProjectCreate, kind: &str, args: &Value) -> Result<Value> {
+async fn project_create_hands(engine: &Arc<Engine>, org_id: i64, project: i64, pc: &ProjectCreate, kind: &str, args: &Value, project_scratch: &Path) -> Result<Value> {
     let mut created = json!({ "kind": "user" });
     if let Some(c) = pc.caller {
         let client = engine.db.get().await?;
@@ -2268,7 +2268,8 @@ async fn project_create_hands(engine: &Arc<Engine>, org_id: i64, project: i64, p
                 let (cname, cdir): (String, Option<String>) = (r.get(0), r.get(1));
                 drop(client);
                 let cscratch = owner_scratch(engine, org_id, &cname, cdir.as_deref());
-                if !file_contained(engine, org_id, c, &cscratch, &file_target(&cscratch, path)).await? {
+                // the running dog reads a relative path from the PROJECT's folder: check that same file
+                if !file_contained(engine, org_id, c, &cscratch, &file_target(project_scratch, path)).await? {
                     refuse!(Forbidden, "cannot read credentials from {path} — only files in your working folder, the workspace, or a folder you hold are readable (orgtree_request_scope can ask for more); use inline credentials instead");
                 }
             }
@@ -2384,7 +2385,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let scratch = owner_scratch(engine, org_id, &owner_name, owner_dir.as_deref());
     let mut created_by = Value::Null;
     if let Some(pc) = &on_project {
-        created_by = project_create_hands(engine, org_id, owner, pc, &kind, args).await?;
+        created_by = project_create_hands(engine, org_id, owner, pc, &kind, args, &scratch).await?;
     }
     let mut mqtt_new: Option<mqtt::Created> = None;
     if kind == "mqtt" {

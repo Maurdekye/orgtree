@@ -40,7 +40,8 @@ import type { ReactNode, UIEvent } from 'react'
 import type { ToastFn, Watchdog } from '../types'
 import type { CanvasNode, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
-import { WatchdogRow } from './deskdogs'
+import { WatchdogRow, useDogRoute } from './deskdogs'
+import { WatchdogGroup, WATCHDOG_CARD_LIMIT } from './watchdoggroup'
 import { WatchdogLink } from './watchdoglink'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import { fireActionTools, listeningSince, listenersLive, projectListenerState } from './listeners'
@@ -68,7 +69,7 @@ export interface FiredRow {
   /** a watchdog-sourced message is cut to 2000 characters (the full text is in each listener's fire mail) */
   message_truncated?: boolean
   /** what fired it: absent for a manual fire */
-  source?: { kind: 'watchdog'; handle: string; dog: string; name?: string; dog_kind?: Watchdog['kind'] }
+  source?: { kind: 'watchdog'; handle: string; dog: string; name?: string; dog_kind?: Watchdog['kind']; gone?: boolean }
   watch?: { agent: string; dog: string; name?: string; count: number; armed: number; since?: string }
   listeners: FiredListener[]
 }
@@ -168,7 +169,10 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
   const firing = [...state.listeners, ...state.watches].some((w) => fireActionTools(w).length > 0)
   // the user's own registrations, ended by them from an Action column
   // the project's own watchdogs: the sources of its event (spec §5.3)
+  const route = useDogRoute()
   const sources = dogs.filter((w) => w.owner === node.id && w.owner_kind === 'project' && !w.spent && (w.state === 'armed' || w.state === 'paused'))
+  // more than eight: the section ends with the group card, which opens the paged list
+  const sourceTotal = Math.max(sources.length, route?.counts?.[node.id]?.kept ?? 0)
   const myListener = state.listeners.find((w) => isUserName(w.owner))
   const myWatch = state.watches.find((w) => isUserName(w.owner))
   const ownRows = !!myListener || !!myWatch
@@ -290,9 +294,14 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
       <tr key={f.id} className="slot-row listener-row fired-row event" data-fire={f.id}>
         <td className="slot-position"><span className="dim">event</span></td>
         <th scope="row" className="slot-agent">{f.source?.kind === 'watchdog'
-          ? <HistoryDog className="listener-dog" dog={{ id: f.source.handle, owner: f.source.handle.split('/')[0] ?? node.id,
-              name: f.source.name ?? f.source.dog, kind: f.source.dog_kind ?? 'command',
-              gone: !dogs.some((w) => w.id === f.source!.handle && !w.spent && (w.state === 'armed' || w.state === 'paused')) }} />
+          ? (f.source.gone
+            ? <HistoryDog className="listener-dog" dog={{ id: f.source.handle, owner: f.source.handle.split('/')[0] ?? node.id,
+                name: f.source.name ?? f.source.dog, kind: f.source.dog_kind ?? 'command', gone: true }} />
+            // a dog beyond the tree's preview is not gone: its link comes from the recorded identity and opens by handle
+            : <WatchdogLink className="listener-dog" onOpen={route?.open} dog={dogs.find((w) => w.id === f.source!.handle) ?? {
+                id: f.source.handle, owner: f.source.handle.split('/')[0] ?? node.id, name: f.source.name ?? f.source.dog,
+                kind: f.source.dog_kind ?? 'command', target: '', interval_s: 0, state: 'armed', at: '', fired: 0, once: false, spent: false,
+                owner_kind: 'project', metadata_only: true } as Watchdog} />)
           : firer(f.by)}</th>
         <td className="slot-wait"/>
         <td className="slot-ended" title={`fired ${fmtFull(f.at)}`}><SlotTime from={f.at} ended /></td>
@@ -331,7 +340,9 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
           <thead><tr>{cols.map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
           {sources.length > 0 && <tbody className="listeners-sources">
             <tr className="slot-section"><th colSpan={n} scope="rowgroup"><h4>Event sources</h4></th></tr>
-            {sources.map(sourceRow)}
+            {(sourceTotal > WATCHDOG_CARD_LIMIT ? sources.slice(0, WATCHDOG_CARD_LIMIT - 1) : sources).map(sourceRow)}
+            {sourceTotal > WATCHDOG_CARD_LIMIT && <tr className="slot-row listener-row source-group"><td colSpan={n}>
+              <WatchdogGroup owner={node.id} dogs={sources} total={sourceTotal} org={route?.org} onOpen={route?.open ?? (() => {})} kept /></td></tr>}
           </tbody>}
           <tbody className="listeners-events">
             <tr className="slot-section"><th colSpan={n} scope="rowgroup"><h4>Event listeners</h4></th></tr>

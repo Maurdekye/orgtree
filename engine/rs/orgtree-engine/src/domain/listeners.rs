@@ -1056,6 +1056,11 @@ pub async fn history(client: &impl GenericClient, project: i64, before: Option<&
     let kept: std::collections::HashSet<String> = if mails.is_empty() { Default::default() } else {
         client.query("SELECT uid FROM ot.mail WHERE uid = ANY($1)", &[&mails]).await?.iter().map(|r| r.get(0)).collect()
     };
+    // a watchdog-sourced fire names a dog the tree preview may not hold: say only whether the dog is gone
+    let dog_ids: Vec<i64> = rows.iter().filter_map(|r| r.get::<_, Option<Value>>(7).and_then(|s| s["dog_id"].as_i64())).collect();
+    let alive: std::collections::HashSet<i64> = if dog_ids.is_empty() { Default::default() } else {
+        client.query("SELECT id FROM ot.watchdogs WHERE id = ANY($1) AND state IN ('armed', 'paused', 'exited')", &[&dog_ids]).await?.iter().map(|r| r.get(0)).collect()
+    };
     let history: Vec<Value> = rows.iter().map(|r| {
         let mut listeners = r.get::<_, Value>(6);
         for l in listeners.as_array_mut().into_iter().flatten() {
@@ -1076,6 +1081,10 @@ pub async fn history(client: &impl GenericClient, project: i64, before: Option<&
                     v["message"] = json!(m.chars().take(HISTORY_MESSAGE).collect::<String>());
                     v["message_truncated"] = json!(true);
                 }
+            }
+            let mut src = src;
+            if src["kind"] == "watchdog" {
+                src["gone"] = json!(!src["dog_id"].as_i64().is_some_and(|id| alive.contains(&id)));
             }
             v["source"] = src;
         }

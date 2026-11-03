@@ -694,3 +694,42 @@ async fn r9_duplicate_urls_are_normalised() {
     assert!(e.contains("already has this watchdog"), "{e}");
     server.stop();
 }
+
+/// Review follow-up (D5): a RELATIVE credentials path is judged against the project's folder,
+/// the base the running dog reads it from, not the caller's own folder.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r10_relative_credentials_are_checked_against_the_project_folder() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    let dir = std::path::PathBuf::from(std::env::var("ORGTREE_PROJDOGS_TEST_ROOT").unwrap()).join("project-folder");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("creds.json"), r#"{"bearer":"x"}"#).unwrap();
+    // the project's folder is held by its line (boss) only
+    w.sql("UPDATE ot.agents SET scratch_dir=$2 WHERE id=$1", &[&w.project, &dir.to_string_lossy().to_string()]).await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_build_object('add_dirs',jsonb_build_array(jsonb_build_object('path',$2::text,'mode','rw'))) WHERE id=$1",
+        &[&w.boss, &dir.to_string_lossy().to_string()]).await;
+    let e = err(create(&w.e, w.org.id, w.member, &json!({"kind":"websocket","target":"ws://127.0.0.1:9/x","name":"rel","project":"stream","credentials":"creds.json"})).await);
+    assert!(e.contains("folder"), "{e}");
+}
+
+/// Review follow-up (§5.4): a fire's recorded source says whether its dog is gone.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r11_history_says_whether_the_source_dog_is_gone() {
+    let w = world().await;
+    w.listen(w.member, None).await;
+    w.put_dog(w.boss, "feed").await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["one"]).await;
+    let c = w.e.db.get().await.unwrap();
+    let h = crate::domain::listeners::history(&**c, w.project, None).await.unwrap();
+    assert_eq!(h["history"][0]["source"]["gone"], false, "{h}");
+    drop(c);
+    act(&w.e, w.org.id, None, "stream/feed", "remove", None).await.unwrap();
+    let c = w.e.db.get().await.unwrap();
+    let h = crate::domain::listeners::history(&**c, w.project, None).await.unwrap();
+    assert_eq!(h["history"][0]["source"]["gone"], true, "{h}");
+}
