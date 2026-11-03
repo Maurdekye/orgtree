@@ -84,7 +84,7 @@ export default async function (rig) {
     while (Date.now() < end) {
       const t = await rig.api('GET', `/api/orgs/${rig.org}?view=delta`).catch(() => null)
       const text = typeof t === 'string' ? t : JSON.stringify(t ?? '')
-      if (text.includes('user_mention') && text.includes('the proof wants your attention')) { mention = { at: Date.now(), inTree: true, waitedMs: Date.now() - sent }; break }
+      if (text.includes('user_mention') && text.includes('please look at this when you can')) { mention = { at: Date.now(), inTree: true, waitedMs: Date.now() - sent }; break }
       await sleep(1000)
     }
     fs.writeFileSync(flags.mentioned, JSON.stringify({ ...mention, sentAt: sent }))
