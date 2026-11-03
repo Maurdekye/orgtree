@@ -4660,6 +4660,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Attract mode starts after"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Refuse questions to the user while attract mode runs"
     }
    ],
    "key_sources": [
