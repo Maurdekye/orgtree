@@ -7,6 +7,7 @@ import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
+import { listProcessNames, StreamerAuto } from './streamer-auto'
 const dialog = protectNativeDialogs(rawDialog), Menu = protectNativeMenus(rawMenu)
 import path from 'node:path'
 import os from 'node:os'
@@ -716,6 +717,9 @@ else {
     // ephemeral value so a newly explicit choice is reflected immediately.
     effectiveTheme = undefined
     const beforeStreamer = nativeStreamerOn()
+    // A hand-made Streamer mode change takes the mode away from the OBS automation:
+    // only the automation's own writes (which name streamerAutoActive) keep the flag.
+    if (patch && typeof patch === 'object' && 'streamerMode' in patch && !('streamerAutoActive' in patch)) patch = { ...(patch as object), streamerAutoActive: false }
     const next = preferences.set(patch); setNativeStreamer(next.streamerMode === true)
     if (beforeStreamer !== nativeStreamerOn()) closeTrayPopup()
     loginPreference(); rebuildTray()
@@ -1913,7 +1917,14 @@ else {
   })
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
+    // Streamer mode while a streaming app (OBS, Streamlabs, XSplit) runs, decided
+    // BEFORE any window exists, so nothing can paint unmasked first. Native
+    // masking stays on (its default) until this first verdict is in.
+    const streamerAuto = new StreamerAuto({ list: listProcessNames, prefs: () => preferences.get(), apply: patch => { setPreferences(patch) } })
+    await Promise.race([streamerAuto.startup(), new Promise(resolve => setTimeout(resolve, 2500))])
     setNativeStreamer(preferences.get().streamerMode === true)
+    streamerAuto.start()
+    app.on('will-quit', () => streamerAuto.stop())
     loginPreference()
     void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())

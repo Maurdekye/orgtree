@@ -20,6 +20,12 @@ import type { CanvasBackgroundPreference } from './canvas-background'
 export interface DesktopPreferences extends NotificationPreferences {
   /** Screen-only privacy; absent means off. */
   streamerMode?: boolean
+  /** Settings › Display › "Turn on automatically while OBS is running"
+   *  (USER 2026-11-03 m66c298e7345c). Absent means ON. */
+  streamerAuto?: boolean
+  /** True only while the automation (not the user) turned Streamer mode on;
+   *  the banner then says why, and only then may the automation turn it off. */
+  streamerAutoActive?: boolean
   visualTheme: VisualTheme
   contrastTheme: ContrastTheme
   agentColorSource: AgentColorSource
