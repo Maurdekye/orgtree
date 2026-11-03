@@ -656,3 +656,6 @@ mod project_audiences_tests {
         assert_eq!(o["audiences_inherited"].as_array().unwrap().len(), 1);
     }
 }
+
+#[cfg(test)]
+mod descendant_tests;
