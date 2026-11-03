@@ -1,9 +1,0 @@
-Set-Location : Cannot find path 'C:\orgtree-build\state-history-opus\logs6\g2.log\apps\desktop\renderer\tests' because 
-it does not exist.
-At C:\Users\ncola_k8bx\AppData\Roaming\Orgtree v2\data\scratch\orgtree\state-history-opus\jobrun.ps1:36 char:1
-+ Set-Location $WorkDir
-+ ~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (C:\orgtree-buil...\renderer\tests:String) [Set-Location], ItemNotFoundE 
-   xception
-    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.SetLocationCommand
- 
