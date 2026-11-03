@@ -2941,6 +2941,15 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   sets `held` until pointerup/pointercancel/blur/a button-less move, and the start timer waits for the release, so at 0 a drag
   does not restart mid-gesture. `setTimeout` waits are clamped to 2^31-1 ms. Proof: `tests/attract.test.tsx` §10-§12,
   `tests/streamerblank.test.tsx` (Display field).  The tests' pointerdown scenes must send a pointerup, or `held` stays set.
+- **A changed ticket opens at its first change (USER 2026-11-03 m73037cb0a404, m472583486fbb; @coordinator-opus mf102bc2f510a).**
+  The engine keeps no old text and no last-seen marker (it records only field NAMES per revision, `docket.rs` `record_changes`,
+  and not on the wire), so `attract/ticketsnap.ts` keeps an in-memory text snapshot per ticket (LRU 200 items / 2 MB) that the
+  docket pane records as it shows one and attract records after its own showing. `canvasAttractRoutes.show('ticket')` reads
+  the snapshot and the current item BEFORE opening the docket, takes `firstTextChange` (common-prefix/suffix scan in the pane's order),
+  and `attract/ticketdom.ts` expands that section by clicking its own toggle, scrolls at `SCROLL_PX_PER_S`, highlights with the
+  Custom Highlight (`attract-change`) or `.attract-changed`, and clicks the toggles back on move-on. `DocketSelection` stamps
+  `data-docket-field`/`-entry` for it. Fallbacks: no snapshot -> an evidence history row since the last input points at EVIDENCE NOTES;
+  else the top. A release or interrupt keeps the sections open. Proof: `tests/attractticket.test.tsx`.
 - **Canvas interaction = pointerdown/touchstart, wheel, or a key, whose target is inside `.viewport` and outside the panel
   carve-outs (`NOT_CANVAS` in attract.ts: `.overlay`, `.desk-over`, `.tray`, `.pinwin`, `.custom-app-window`, fields).** Mouse moves
   never stop a run. Keep `NOT_CANVAS` in step with OrgCanvas's wheel handler carve-outs. Proof: `tests/attract.test.tsx` §9.

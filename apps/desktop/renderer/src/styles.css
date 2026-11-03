@@ -5484,6 +5484,17 @@ span.ref-chip.ref-chip {
     background: color-mix(in srgb, var(--accent) 22%, var(--bg));
   }
 }
+/* attract mode scrolled a changed ticket to its first change (attract/ticketdom.ts): the browser's
+   Custom Highlight marks the changed text in the same accent mix the docket's link-flash uses; without it
+   the field or section carries .attract-changed instead. */
+::highlight(attract-change) {
+  background-color: color-mix(in srgb, var(--accent) 30%, var(--bg));
+  color: inherit;
+}
+[data-docket-field].attract-changed { display: block; }
+.attract-changed {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg));
+}
 /* "Copied!", from where the pointer was (user 2026-09-07 15:41Z). Anchored to
    the ROW, not the viewport: this modal also renders in a portal and in a
    popped-out window, and inside the canvas under a `transform: scale()`,

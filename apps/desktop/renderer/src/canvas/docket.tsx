@@ -50,6 +50,7 @@ import { AskCard } from './asks'
 import { DocReader } from './docs'
 import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
+import { recordTicketSnapshot } from '../attract/ticketsnap'
 import { lastReaderItem, openingWork, readerScope, rememberReaderItem, useReaderResume } from './readeropening'
 import { AgentName, nodeTierOf } from './identity'
 import { DocketSelection, DocketSelectionContext } from './docketselection'
@@ -2760,6 +2761,9 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
   refresh: () => void
 }) {
   const refIndex = useProseAgentIndex(slug, item, panelIndex)
+  // what this window has shown of the ticket, for attract mode to diff against the next time it opens it
+  // changed (attract/ticketsnap.ts; in memory only)
+  useEffect(() => { recordTicketSnapshot(slug, item) }, [slug, item.slug, item.rev])  // eslint-disable-line react-hooks/exhaustive-deps
   const attention = flaggedForUser(item)
   const didInitialAttentionScroll = useRef(false)
   const paneHead = useRef<HTMLDivElement>(null)

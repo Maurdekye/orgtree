@@ -1,0 +1,176 @@
+/* attract/ticketdom.ts - drives the open ticket pane to a change.
+
+   USER 2026-11-03 m73037cb0a404 / m472583486fbb: expand the section holding the
+   change, scroll to its exact first position at the presentation reading pace
+   (attract/scroll.ts SCROLL_PX_PER_S), highlight the changed text, and put the
+   sections back as they were when attract moves on. Works on the DOM the pane
+   already draws, the way scroll.ts does for the presentation reader:
+     - a section is a `section` with an `h4.docket-detail-section-title` and a
+       `.docket-detail-toggle` button (canvas/docket.tsx DocketSection); expanding
+       is clicking that button, so the pane's own state stays the one truth;
+     - a text field is the element DocketSelection stamps with
+       `data-docket-field` (+ `data-docket-entry`).
+   The highlight is the browser's Custom Highlight (no DOM change); without it the
+   field (or section) gets `.attract-changed`, which styles.css draws like the
+   docket's own link-flash (`.docket-row.docket-flash`). Setting scrollTop is no
+   user input (attract.ts listens for none of it). */
+import { SCROLL_MAX_MS, SCROLL_PAUSE_MS, scrollMs } from './scroll'
+import type { TicketChange } from './ticketsnap'
+
+export interface TicketShow {
+  /** resolves to the scroll's length in ms once the pane is found and expanded (0 = nothing to scroll) */
+  length: Promise<number>
+  /** moving on: sections back as they were, highlight off, scroll stopped */
+  restore: () => void
+  /** the user took the pane over (touched, or canvas interaction ended the run): the sections stay as
+   *  they are; the highlight goes, the scroll stops, and a later restore changes nothing */
+  release: () => void
+}
+
+const NONE: TicketShow = { length: Promise.resolve(0), restore() {}, release() {} }
+/** how long to wait for the pane to draw the change */
+const FIND_MS = 4_000
+/** the highlight stays this long after the scroll arrives */
+const MARK_MS = 6_000
+export const HIGHLIGHT = 'attract-change'
+const LEAD = 24
+
+const norm = (s: string) => s.replace(/[*_`#>~]/g, '').replace(/\s+/g, ' ').trim()
+
+/** the heading of a section, by the names ticketsnap uses (STATE is whichever state reason the pane shows) */
+function sectionByName(root: ParentNode, name: string): HTMLElement | null {
+  for (const h of root.querySelectorAll<HTMLElement>('.docket-detail-section-title')) {
+    const t = (h.textContent ?? '').trim()
+    const hit = name === 'STATE'
+      ? t.startsWith('BLOCKED BECAUSE') || t.startsWith('ENDED WITHOUT COMPLETING') || t === 'WAITING FOR'
+      : t === name
+    if (hit) return h.closest<HTMLElement>('section')
+  }
+  return null
+}
+
+function fieldEl(root: ParentNode, id: string): HTMLElement | null {
+  const [field, entry] = id.split('#')
+  const sel = `[data-docket-field="${field}"]` + (entry === undefined ? '' : `[data-docket-entry="${entry}"]`)
+  return root.querySelector<HTMLElement>(sel)
+}
+
+/** the characters `needle` spans inside `el`, found in the text as drawn (whitespace collapsed) */
+function locate(el: Element, needle: string): Range | null {
+  const want = norm(needle).slice(0, 60)
+  if (!want) return null
+  const doc = el.ownerDocument
+  const walker = doc.createTreeWalker(el, 4 /* SHOW_TEXT */)
+  let text = ''
+  const map: Array<[Text, number]> = []
+  let lastSpace = true
+  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+    for (let i = 0; i < n.data.length; i++) {
+      const c = n.data[i]!
+      if (/\s/.test(c)) { if (lastSpace) continue; text += ' '; map.push([n, i]); lastSpace = true }
+      else { text += c; map.push([n, i]); lastSpace = false }
+    }
+  }
+  const at = text.indexOf(want)
+  if (at < 0) return null
+  const a = map[at]!, b = map[at + want.length - 1]!
+  const r = doc.createRange()
+  r.setStart(a[0], a[1]); r.setEnd(b[0], b[1] + 1)
+  return r
+}
+
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY
+    if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p
+  }
+  return null
+}
+
+export function showTicketChange(change: TicketChange | null, root: ParentNode = document): TicketShow {
+  if (!change) return NONE
+  let alive = true, released = false
+  let frame = 0
+  let wait: ReturnType<typeof setTimeout> | undefined
+  let mark: ReturnType<typeof setTimeout> | undefined
+  const expanded: HTMLElement[] = []      // toggles this opened
+  let marked: { clear: () => void } | null = null
+  let settle: (ms: number) => void = () => {}
+
+  const clearMark = () => { clearTimeout(mark); marked?.clear(); marked = null }
+  const stopMotion = () => { alive = false; if (frame) cancelAnimationFrame(frame); clearTimeout(wait); settle(0) }
+
+  const length = new Promise<number>((done) => {
+    let settled = false
+    const resolve = settle = (ms: number) => { if (!settled) { settled = true; done(ms) } }
+    const started = Date.now()
+    const find = () => {
+      if (!alive) { resolve(0); return }
+      const field = change.kind === 'text' ? fieldEl(root, change.field) : null
+      const section = field ? field.closest<HTMLElement>('section') : sectionByName(root, change.section)
+      const target = field ?? section
+      if (!target || !section) {
+        if (Date.now() - started >= FIND_MS) { resolve(0); return }
+        wait = setTimeout(find, 200); return
+      }
+      const toggle = section.querySelector<HTMLElement>('.docket-detail-toggle')
+      const opening = toggle?.getAttribute('aria-expanded') === 'false'
+      if (opening && toggle) { toggle.click(); expanded.push(toggle) }
+      // the pane draws the opened body on its next render: measure after it
+      wait = setTimeout(() => go(target, section), opening ? 120 : 0)
+    }
+    const go = (target: HTMLElement, section: HTMLElement) => {
+      if (!alive) { resolve(0); return }
+      // the exact span when it can be found in the drawn text, else the whole field or section
+      let range: Range | null = null
+      if (change.kind === 'text') {
+        range = locate(target, change.snippet)
+        if (!range) { range = target.ownerDocument.createRange(); range.selectNodeContents(target) }
+      }
+      const H = (globalThis as { Highlight?: new (...r: Range[]) => unknown }).Highlight
+      const reg = (globalThis as { CSS?: { highlights?: { set: (n: string, h: unknown) => void; delete: (n: string) => void } } }).CSS?.highlights
+      const styled = change.kind === 'text' ? target : section
+      if (range && H && reg) {
+        reg.set(HIGHLIGHT, new H(range))
+        marked = { clear: () => reg.delete(HIGHLIGHT) }
+      } else {
+        styled.classList.add('attract-changed')
+        marked = { clear: () => styled.classList.remove('attract-changed') }
+      }
+      const pane = scrollParent(target)
+      const rect = (range?.getBoundingClientRect?.() ?? null)
+      const box = rect && rect.height > 0 ? rect : target.getBoundingClientRect()
+      const here = pane ? pane.getBoundingClientRect().top : 0
+      const room = pane ? Math.max(0, pane.scrollHeight - pane.clientHeight) : 0
+      const to = pane ? Math.max(0, Math.min(room, box.top - here + pane.scrollTop - LEAD)) : 0
+      if (!pane || to <= 0) { resolve(0); mark = setTimeout(clearMark, MARK_MS); return }
+      const total = Math.min(SCROLL_MAX_MS, scrollMs(to))
+      resolve(total)
+      pane.scrollTop = 0
+      const run = Math.max(0, total - 2 * SCROLL_PAUSE_MS)
+      wait = setTimeout(() => {
+        const t0 = performance.now()
+        const tick = (now: number) => {
+          if (!alive) return
+          const k = run > 0 ? Math.min(1, (now - t0) / run) : 1
+          pane.scrollTop = to * k
+          if (k < 1) frame = requestAnimationFrame(tick)
+        }
+        frame = requestAnimationFrame(tick)
+      }, SCROLL_PAUSE_MS)
+      mark = setTimeout(clearMark, total + MARK_MS)
+    }
+    find()
+  })
+
+  return {
+    length,
+    restore() {
+      stopMotion(); clearMark()
+      if (released) return
+      for (const t of expanded) if (t.getAttribute('aria-expanded') === 'true') t.click()
+      expanded.length = 0
+    },
+    release() { released = true; stopMotion(); clearMark() },
+  }
+}

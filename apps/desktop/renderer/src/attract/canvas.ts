@@ -5,7 +5,7 @@
    marks it viewed), and mail and tickets through the shell's inbox and docket
    jumps, handed up via `onPanel` because App owns those two panels. */
 import { useRef } from 'react'
-import { getInbox, getWorkItems, markRead } from '../api'
+import { getInbox, getWorkItem, getWorkItems, markRead } from '../api'
 import { markReadNow, readLocally } from '../mailread'
 import { docUnread } from '../canvas/docviewed'
 import { deskOpenElsewhere } from '../canvas/deskhosts'
@@ -13,6 +13,9 @@ import { useAttractCycle } from './attract'
 import type { AttractAgent, AttractRoutes, AttractTarget } from './attract'
 import { scrollThrough } from './scroll'
 import type { Scroll } from './scroll'
+import { locateChange, recordTicketSnapshot, ticketSnapshot } from './ticketsnap'
+import { showTicketChange } from './ticketdom'
+import type { TicketShow } from './ticketdom'
 import type { CanvasNode } from '../canvas/shared'
 import type { TreePayload } from '../types'
 
@@ -51,10 +54,14 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     return null
   }
   /** what attract opened now belongs to the user: it closes nothing of it later */
-  const release = () => { openedReader.current = null; deps.current.onPanel?.('release') }
+  const release = () => { openedReader.current = null; ticket.current?.release(); ticket.current = null; deps.current.onPanel?.('release') }
   const endScroll = () => { scroll.current?.cancel(); scroll.current = null }
+  /** the changed ticket the docket pane is being driven to, and the window's last input (what "new" is measured from) */
+  const ticket: { current: TicketShow | null } = { current: null }
+  let since = 0
   return {
-    collect: async () => {
+    collect: async (from) => {
+      since = from
       const { slug, tree, map, pinnedIds } = deps.current
       const pinned = pinnedIds()
       const agents: AttractAgent[] = []
@@ -91,7 +98,20 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
           // "3 yes": showing it marks it read, through the inbox's own read path
           void markReadNow(c.slug, { id: t.id, urgent: t.urgent }, () => markRead(c.slug, [t.id])).catch(() => {})
           return
-        case 'ticket': c.onPanel?.({ kind: 'docket', item: t.slug }); return
+        case 'ticket': {
+          // USER 2026-11-03 m73037cb0a404: a changed ticket opens at its first change. The diff is taken
+          // BEFORE the docket opens (the pane records what it shows, which would hide the change)
+          let change = null
+          try {
+            const { item } = await getWorkItem(c.slug, t.slug)
+            change = locateChange(ticketSnapshot(c.slug, t.slug), item, since)
+            recordTicketSnapshot(c.slug, item)
+          } catch { /* unreadable: the top, as before */ }
+          ticket.current?.restore()
+          c.onPanel?.({ kind: 'docket', item: t.slug })
+          ticket.current = showTicketChange(change)
+          return ticket.current.length
+        }
         case 'doc': {
           const before = c.readerIds()
           c.openDoc(t.id)   // the reader marks it viewed as it loads
@@ -105,6 +125,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     },
     hide: (t: AttractTarget) => {
       const c = deps.current
+      if (t.kind === 'ticket') { ticket.current?.restore(); ticket.current = null }
       if (t.kind === 'mail' || t.kind === 'ticket') c.onPanel?.(null)
       if (t.kind === 'doc') {
         endScroll()
