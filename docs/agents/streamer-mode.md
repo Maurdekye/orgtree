@@ -17,6 +17,10 @@ dismissal is the user's m84e04d547421 ruling.
   run is a secret only if `tokenLike` says so (not a git SHA, not a slug/branch of words and short numbers, not a
   plain camelCase name); known identities match whole words; `address`/`path`/bare `key` fields teach only values
   that look personal (agent names arrive under `*_address`). Pinned by `streamerovermask.test.tsx`.
+  Blur (USER 2026-11-03 m4f8233662107): masked values are blurred in place, never boxed. Text and form values are
+  transparent glyphs with two stacked `0 0 0.7em` shadows (`BLUR_EM`; `::highlight` accepts no `filter`); media gets
+  `filter: blur(24px)` clipped to its box (`html.streamer-blur`). A window without `CSS.supports('filter')` keeps the
+  opaque cover and hidden-visibility rule (fail closed). Per-surface dismissal exists only on that fallback cover.
 - `streamer-boundary.ts` walks displayed DOM text and installs CSS Highlight
   ranges. The original text nodes stay intact, including native selection/copy.
   Blocks delimit labelled secrets; inline fragments are scanned together.
