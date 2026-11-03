@@ -138,7 +138,7 @@ test('§3 the Apps list\'s app rows show the same three states, and follow a pow
 
 test('§4 the stylesheet draws the run state as the unread edge (one rule), accent for running, dark grey for dead, no background', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const body = (selector: string) => { const at = css.indexOf(selector + ' {'); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)) }
+  const body = (selector: string) => { const at = css.indexOf(selector + ' {') >= 0 ? css.indexOf(selector + ' {') : css.indexOf(selector + ', '); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)) }   // the run-state token rules are shared with the Apps rows (appsrunedge)
   assert.doesNotMatch(css, /\.ref-flare[^{]*\.run-(on|dead)[^{]*::before/, 'no dot before the chip')
   const edge = body(':is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare')
   assert.match(edge, /box-shadow:\s*inset 3px 0 0 var\(--ref-flare-color/, 'the one edge rule (the unread edge) draws it')
@@ -149,8 +149,7 @@ test('§4 the stylesheet draws the run state as the unread edge (one rule), acce
   assert.match(css, /\.ref-flare:is\(\.doc-new, \.mail-new\)\s*\{\s*--ref-flare-color:\s*var\(--accent\)/, 'unread shares the run edge colour, the provider-tinted accent')
   const apps = readFileSync(path.join(__SRC_DIR__, 'canvas', 'apps', 'apps.css'), 'utf8').replace(/\r\n/g, '\n')
   assert.doesNotMatch(apps, /\.custom-app-state\.run-/, 'the app row has no dot any more')
-  assert.match(apps, /\.custom-apps-menu-app\.run-on[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--accent\)/, 'the app row is tinted like the chip')
-  assert.match(apps, /\.custom-apps-menu-app\.run-dead[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--dim\)/)
-  assert.match(apps, /\.custom-apps-saved-row\.run-on[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--accent\)/, 'and so is a panel row')
-  assert.match(apps, /\.custom-apps-saved-row\.run-dead[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--dim\)/)
+  // 2026-11-03 (USER m434296c947cf): the Apps rows wear the same edge instead of a fill (appsrunedge.test.tsx)
+  assert.match(apps, /\.custom-apps-menu-app\.run-on[^{]*\{[^}]*box-shadow:\s*inset 3px 0 0 var\(--ref-flare-color\)/, 'the app row wears the chip edge')
+  assert.match(apps, /\.custom-apps-saved-row\.run-dead[^{]*\{[^}]*box-shadow:\s*inset 3px 0 0 var\(--ref-flare-color\)/, 'and so is a panel row')
 })
