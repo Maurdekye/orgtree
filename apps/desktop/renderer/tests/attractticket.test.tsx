@@ -123,7 +123,7 @@ function pane() {
   Object.defineProperty(root, 'clientHeight', { configurable: true, value: 400 })
   Object.defineProperty(root, 'scrollHeight', { configurable: true, value: 2400 })
   const sections: Record<string, { section: HTMLElement; body: HTMLElement; toggle: HTMLButtonElement; field?: HTMLElement }> = {}
-  const add = (title: string, collapsed: boolean, field?: { name: string; entry?: number; text: string; y: number }) => {
+  const add = (title: string, collapsed: boolean, field?: { name: string; entry?: number; text: string; y: number; folded?: boolean }) => {
     const section = d.createElement('section')
     const h = d.createElement('h4'); h.className = 'docket-detail-section-title'; h.textContent = title
     const toggle = d.createElement('button'); toggle.className = 'docket-detail-toggle'
@@ -137,7 +137,14 @@ function pane() {
       if (field.entry !== undefined) fieldEl.setAttribute('data-docket-entry', String(field.entry))
       fieldEl.textContent = field.text
       fieldEl.getBoundingClientRect = () => rect(field.y - top)
-      body.append(fieldEl)
+      if (field.folded) {
+        // DocketDescription's fold: a clipped body with its own 'show all N lines' toggle (canvas/docketdesc.tsx)
+        const fold = d.createElement('div'); fold.className = 'docket-desc-fold folded'
+        const more = d.createElement('button'); more.className = 'docket-desc-toggle'; more.setAttribute('aria-expanded', 'false')
+        more.addEventListener('click', () => { const open = more.getAttribute('aria-expanded') !== 'true'; more.setAttribute('aria-expanded', String(open)); fold.classList.toggle('folded', !open) })
+        fold.append(fieldEl, more)
+        body.append(fold)
+      } else body.append(fieldEl)
     }
     root.append(section)
     sections[title] = { section, body, toggle, ...(fieldEl ? { field: fieldEl } : {}) }
@@ -180,6 +187,28 @@ test('§6 the pane: a collapsed section is expanded, the first change scrolled t
     rel.restore()
     assert.equal(p.sections['EVIDENCE NOTES']!.body.hidden, false, 'released: restore no longer collapses it')
   } finally { g.CSS = hadCSS; delete g.Highlight; p.remove() }
+})
+
+test('§6c a change inside the clipped description opens the description fold, and moving on folds it back', async () => {
+  const p = pane()
+  p.add('DESCRIPTION', false, { name: 'objective', text: 'Problem: x. NEW SENTENCE. Solution: y.', y: 900, folded: true })
+  const more = p.root.querySelector<HTMLElement>('.docket-desc-toggle')!
+  const fold = p.root.querySelector<HTMLElement>('.docket-desc-fold')!
+  try {
+    const show = showTicketChange({ kind: 'text', field: 'objective', section: 'DESCRIPTION', offset: 12, length: 14, snippet: 'NEW SENTENCE.' }, document)
+    await show.length
+    assert.equal(more.getAttribute('aria-expanded'), 'true', 'the description fold is opened so the text is not clipped')
+    assert.equal(fold.classList.contains('folded'), false)
+    show.restore()
+    assert.equal(more.getAttribute('aria-expanded'), 'false', 'folded back as it was')
+    assert.equal(fold.classList.contains('folded'), true)
+    // a fold the user had open is left open
+    more.click()
+    const again = showTicketChange({ kind: 'text', field: 'objective', section: 'DESCRIPTION', offset: 12, length: 14, snippet: 'NEW SENTENCE.' }, document)
+    await again.length
+    again.restore()
+    assert.equal(more.getAttribute('aria-expanded'), 'true', 'not folded by attract when the user had it open')
+  } finally { p.remove() }
 })
 
 test('§6b no change means the top: nothing expands, nothing scrolls, length 0', async () => {
