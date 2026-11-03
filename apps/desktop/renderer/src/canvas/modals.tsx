@@ -281,7 +281,10 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
               : 'One-shot dog — it will fire once and then disappear.'}
         </div>}
         <div className="field-label">owner</div>
-        <div className="chip mono">{dog.owner}</div>
+        {dog.owner_kind === 'project'
+          ? <><div className="chip mono">project @{dog.owner}</div>
+              <div className="dim wd-created-by">created by {dog.created_by === 'user' ? 'you' : '@' + (dog.created_by ?? 'unknown')}</div></>
+          : <div className="chip mono">{dog.owner}</div>}
         {dog.kind !== 'app_listener' && <div className="field-label">{description.targetLabel}</div>}
         {dog.kind === 'usage' && <div className="wd-usage-filters">
           <div>Accounts: {dog.accounts?.join(', ') || 'any visible account'}</div>

@@ -65,6 +65,10 @@ export interface FiredListener {
 /** One kept fire: an event, or a listener watch reaching its count. */
 export interface FiredRow {
   id: number; at: string; kind: 'event' | 'watch'; by?: string | null; message?: string | null
+  /** a watchdog-sourced message is cut to 2000 characters (the full text is in each listener's fire mail) */
+  message_truncated?: boolean
+  /** what fired it: absent for a manual fire */
+  source?: { kind: 'watchdog'; handle: string; dog: string; name?: string; dog_kind?: Watchdog['kind'] }
   watch?: { agent: string; dog: string; name?: string; count: number; armed: number; since?: string }
   listeners: FiredListener[]
 }
@@ -163,6 +167,8 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
   const mailing = fires.some((f) => f.listeners.some((l) => l.mail))
   const firing = [...state.listeners, ...state.watches].some((w) => fireActionTools(w).length > 0)
   // the user's own registrations, ended by them from an Action column
+  // the project's own watchdogs: the sources of its event (spec §5.3)
+  const sources = dogs.filter((w) => w.owner === node.id && w.owner_kind === 'project' && !w.spent && (w.state === 'armed' || w.state === 'paused'))
   const myListener = state.listeners.find((w) => isUserName(w.owner))
   const myWatch = state.watches.find((w) => isUserName(w.owner))
   const ownRows = !!myListener || !!myWatch
@@ -193,6 +199,24 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
       .then(() => { toast([`your ${w.kind === 'listener_watch' ? 'listener watch' : 'event listener'} on project ${node.id} removed`]); setBump((b) => b + 1) })
       .catch(() => {})
   }
+  const sourceRow = (w: Watchdog) => {
+    const by = w.created_by
+    const cells = (<>
+      <td className="slot-position" title={w.state === 'paused' ? (w.paused_why ?? 'its watchdog is paused') : undefined}>
+        {w.state === 'paused' ? <span className="dim">{w.paused_why && /event listeners/.test(w.paused_why) ? '⊘ disabled' : 'paused'}</span> : null}</td>
+      <th scope="row" className="slot-agent">{!by ? <span className="dim">—</span> : isUserName(by) || by === 'user' ? <span className="you">you</span>
+        : map.has(by) ? agentLink(by) : <span className="dim fired-by" title={`${by} is no longer in the tree`}>{by}</span>}</th>
+      <td className="slot-wait">{w.state === 'armed' && <Waited from={listeningSince(w)} />}</td>
+      <td className="slot-ended listener-last">{w.last_fired ? <SlotTime from={w.last_fired} ended /> : <span className="dim">—</span>}</td>
+      {mailing && <td className="listener-mail"/>}
+      {watching && <td className="listener-count"/>}
+      <td className="listener-fired">{w.fired}</td>
+      {firing && <td className="listener-actions"/>}
+      <td className="listener-dog-cell"><WatchdogLink dog={w} className="listener-dog" /></td>
+      {ownRows && <td className="slot-action"/>}
+    </>)
+    return <WatchdogRow as="tr" key={w.id} id={w.id} className={'slot-row listener-row source-row' + (w.state === 'paused' ? ' out' : '')}>{cells}</WatchdogRow>
+  }
   const row = (w: Watchdog, watch: boolean) => {
     const tools = fireActionTools(w)
     const mine = isUserName(w.owner)
@@ -212,7 +236,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
         {firing && <td className="listener-actions"
           title={tools.length ? 'tool calls this watchdog runs as its owner when it fires; results ride its fire mail' : undefined}>
           {tools.join(', ')}</td>}
-        <td className="listener-dog-cell"><WatchdogLink dog={w} className="listener-dog" atDestination={mine} />
+        <td className="listener-dog-cell" title={w.pattern ? `filter: ${w.pattern}` : undefined}><WatchdogLink dog={w} className="listener-dog" atDestination={mine} />
           {w.notice && <span className="dim"> passive</span>}</td>
         {ownRows && <td className="slot-action">{mine && <button type="button" data-action="remove-registration"
           title={`remove this ${watch ? 'listener watch' : 'event listener'}: it stops listening on project ${node.id}`}
@@ -263,10 +287,15 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
     ) : (
       <tr key={f.id} className="slot-row listener-row fired-row event" data-fire={f.id}>
         <td className="slot-position"><span className="dim">event</span></td>
-        <th scope="row" className="slot-agent">{firer(f.by)}</th>
+        <th scope="row" className="slot-agent">{f.source?.kind === 'watchdog'
+          ? <HistoryDog className="listener-dog" dog={{ id: f.source.handle, owner: f.source.handle.split('/')[0] ?? node.id,
+              name: f.source.name ?? f.source.dog, kind: f.source.dog_kind ?? 'command',
+              gone: !dogs.some((w) => w.id === f.source!.handle && !w.spent && (w.state === 'armed' || w.state === 'paused')) }} />
+          : firer(f.by)}</th>
         <td className="slot-wait"/>
         <td className="slot-ended" title={`fired ${fmtFull(f.at)}`}><SlotTime from={f.at} ended /></td>
         <td colSpan={afterLast} className={'fired-message' + (expanded ? ' open' : '')}>
+          {f.message_truncated && <span className="dim" title="the first 2000 characters; the whole text is in each listener's fire mail"> …</span>}
           {f.message
             ? <button type="button" className="fired-message-text" aria-expanded={expanded}
                 title={expanded ? 'click to fold the message' : 'click to read the whole message'} onClick={toggle}>{f.message}</button>
@@ -298,6 +327,10 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
             {firing && <col className="listener-col-actions"/>}<col className="listener-col-dog"/>
             {ownRows && <col className="slot-col-action"/>}</colgroup>
           <thead><tr>{cols.map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+          {sources.length > 0 && <tbody className="listeners-sources">
+            <tr className="slot-section"><th colSpan={n} scope="rowgroup"><h4>Event sources</h4></th></tr>
+            {sources.map(sourceRow)}
+          </tbody>}
           <tbody className="listeners-events">
             <tr className="slot-section"><th colSpan={n} scope="rowgroup"><h4>Event listeners</h4></th></tr>
             {state.listeners.length === 0 && <tr><td colSpan={n} className="dim slot-empty">No agent listens on this

@@ -74,7 +74,7 @@ test('R2 the project desk lists its own dogs as cards in the jump row', async (t
   t.after(() => v.unmount())
   await inAct(() => flush(4))
   const chips = [...v.el.querySelectorAll<HTMLElement>('.desk-nav .desk-dog-chip')]
-  assert.deepEqual(chips.map((c) => c.textContent?.replace(/[◉◫✕]|1×/g, '').trim()), ['stream-chat', 'stream-control'],
+  assert.deepEqual(chips.map((c) => c.textContent?.replace(/^[^A-Za-z0-9]+|1×/g, '').trim()), ['stream-chat', 'stream-control'],
     "only the project's own dogs, in the tree's order")
   await inAct(async () => { chips[1]!.click() })
   assert.deepEqual(opened, ['stream/stream-control'])

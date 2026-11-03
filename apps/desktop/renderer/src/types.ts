@@ -798,6 +798,12 @@ export interface AskTab {
 
 /** FR-18: a watchdog — a free persistent pet (ledger `watchdogs`) */
 export interface Watchdog {
+  /** `project`: owned by a project node, firing its event (spec D1); absent/`agent` otherwise */
+  owner_kind?: 'agent' | 'project'
+  /** a project dog's creator: an agent's name, or `user` */
+  created_by?: string
+  /** why a paused dog is paused */
+  paused_why?: string
   template_warning?: string
   needs_credentials?: boolean
   /** Lightweight project relationship; read exact detail for retained events. */
