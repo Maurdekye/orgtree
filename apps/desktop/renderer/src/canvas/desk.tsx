@@ -1,4 +1,4 @@
-import { stateMarkerText } from './statemarker'
+import { gapDividerText, stateMarkerText } from './statemarker'
 import { effectiveReports } from './shared'
 import { Fragment } from 'react'
 import { focusComposerAutomatically, focusComposerBackground } from '../composerfocus'
@@ -4320,8 +4320,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             renderMessage={({ message: m, sourceIndex: i, first, key }) => {
             // №15: one dim divider per idle gap — never per-message timestamps
             const prev = viewMessages[i - 1]
-            const gapMs = first && prev?.ts && m.ts
-              ? Date.parse(m.ts) - Date.parse(prev.ts) : 0
+            const gap = gapDividerText(prev, m, Boolean(first))
             return (
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
@@ -4342,10 +4341,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                     if (el) userRowEls.current.set(seq, el)
                     else userRowEls.current.delete(seq)
                   } : undefined}>
-                {gapMs > 5 * 60e3 && (
-                  <div className="msg sys" data-reply-event="">— {gapMs > 5400e3
-                    ? `${Math.round(gapMs / 3600e3)} h`
-                    : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
+                {gap && <div className="msg sys" data-reply-event="">— {gap} later —</div>}
                 {/* a sent multi-reply folds as the sent previews do (UX symmetry #37) */}
                 {first && (m.replies?.length
                   ? <ReplyPreviewDisclosure count={m.replies.length}>{visible =>
