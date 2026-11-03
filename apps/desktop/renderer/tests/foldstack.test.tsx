@@ -93,39 +93,40 @@ test('the node menus carry Collapse / Expand subtree', () => {
   }
 })
 
-test('the peek fits the 8px clearance under a node (projectbunch card + 8)', () => {
-  const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
-  const stack = css.slice(css.indexOf('.fold-stack {'), css.indexOf('}', css.indexOf('.fold-stack {')))
-  assert.match(stack, /top:\s*100%/)
-  assert.match(stack, /height:\s*8px/, 'the stack ends within the 8px gap')
-  assert.doesNotMatch(stack, /margin-top:\s*-/, 'it never starts above the node edge')
-  const tuck = css.slice(css.indexOf('.fold-tuck {'), css.indexOf('}', css.indexOf('.fold-tuck {')))
-  assert.doesNotMatch(tuck, /translateY/, 'and none is pushed below it')
+const sheet = () => readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+const rule = (css: string, sel: string) => { const at = css.indexOf(sel + ' {'); assert.ok(at >= 0, sel + ' exists'); return css.slice(at, css.indexOf('}', at)) }
+
+test('the tucked stack is drawn like the retired pile, offset straight DOWN (USER m05ca05916042)', () => {
+  const css = sheet()
+  const pile = rule(css, '.pile-layer')
+  const pileRadius = /border-radius:\s*(\d+)px/.exec(pile)![1]
+  const pileStep = Number(/translate\((\d+)px, -px\)/.exec(rule(css, '.pile-layer.l1'))![1])
+  const tuck = rule(css, '.fold-tuck')
+  assert.match(tuck, new RegExp(`border-radius:\s*0 0 ${pileRadius}px ${pileRadius}px`), 'the pile's corner radius, bottom corners (the part below the card)')
+  assert.match(tuck, /border:\s*1px solid var\(--line-soft\)/, 'the pile's border')
+  assert.match(tuck, /width:\s*100%/, 'the node's own silhouette: same width, not a narrower strip')
+  assert.doesNotMatch(tuck, /translateX|left:\s*50%/, 'no sideways offset: straight down')
+  const h = /height:\s*calc\(var\(--fold-step\) \* \(var\(--tuck-i, 0\) \+ 1\)\)/.exec(tuck)
+  assert.ok(h, 'each layer reaches one more step lower')
+  assert.equal(Number(/--fold-step:\s*(\d+)px/.exec(rule(css, '.fold-stack'))![1]), pileStep, 'the pile's own spacing')
+  for (const [i, n] of [[0, 1], [1, 2], [2, 3]] as const)
+    assert.match(rule(css, `.fold-tuck.t${i}`), new RegExp(`background:\s*var\(--pile-${n}\)`), `layer ${n} wears the pile's fill ${n}`)
+  const z = /z-index:\s*calc\((\d+) - var\(--tuck-i, 0\)\)/.exec(tuck)
+  assert.ok(z, 'the shallow layer draws in front of the deeper ones')
+  assert.match(rule(css, '.fold-stack .fold-count'), /font-family:\s*var\(--mono\)[^}]*font-weight:\s*700|font-weight:\s*700[^}]*font-family:\s*var\(--mono\)/, 'the pile's count style')
 })
 
-test('each tucked colour keeps a visible band: deeper tucks are narrower, behind and reach lower', () => {
-  const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
-  const tuck = css.slice(css.indexOf('.fold-tuck {'), css.indexOf('}', css.indexOf('.fold-tuck {')))
-  const h = /height:\s*calc\((\d+)px \+ var\(--tuck-i, 0\) \* (\d+)px\)/.exec(tuck)
-  const w = /width:\s*calc\(100% - var\(--tuck-i, 0\) \* (\d+)%\)/.exec(tuck)
-  const z = /z-index:\s*calc\((\d+) - var\(--tuck-i, 0\)\)/.exec(tuck)
-  assert.ok(h && w && z, 'height, width and z-index are all functions of the tuck index')
-  const base = Number(h![1]), step = Number(h![2])
-  assert.ok(step > 0, 'each deeper tuck reaches lower than the one before it')
-  assert.ok(Number(w![1]) > 0, 'and is narrower')
-  const bottoms = [0, 1, 2].map((i) => base + i * step)
-  const zs = [0, 1, 2].map((i) => Number(z![1]) - i)
-  assert.ok(zs[0]! > zs[1]! && zs[1]! > zs[2]!, 'the shallower tuck draws in front of the deeper one')
-  assert.ok(bottoms[0]! >= 3, 'the first tuck shows a band of its own')
-  for (let i = 1; i < 3; i++) assert.ok(bottoms[i]! - bottoms[i - 1]! >= 2, `tuck ${i} shows a band of at least 2px below the one in front`)
-  assert.ok(bottoms[2]! <= 8, 'the deepest tuck still ends within the 8px gap')
+test('the stack never has more than the pile's three layers', async () => {
+  const v = await mount('norm', fold({ count: 9, tucks: Array.from({ length: 5 }, (_, i) => ({ id: 'k' + i, project: false, tier: 'sonnet' })) }), noopFn)
+  assert.ok(v.el.querySelectorAll('.fold-tuck').length <= 3)
+  assert.ok(v.el.querySelector('.fold-tuck.t0'), 'layers carry t0..t2 for the pile fills')
 })
 
 test('the bottom hire strip clears the stack so a click on the stack reaches it', () => {
   const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
   const rule = /\.sq:has\(> \.fold-stack\) > \.hsof:not\(\.side\) \{ top: calc\(100% \+ (\d+)px\); \}/.exec(css)
   assert.ok(rule, 'a folded node pushes its bottom hire strip down')
-  assert.ok(Number(rule![1]) >= 7, 'at least past the 8px stack minus the strip own 1px overlap')
+  assert.ok(Number(rule![1]) >= 14, 'at least past the 15px stack minus the strip own 1px overlap')
   assert.match(css, /\.hsof \{\s*position: absolute; left: 50%;/, 'and the base strip rule it overrides still exists')
   // specificity (.sq + :has(.fold-stack) + .hsof + :not) beats the base .hsof rule wherever it sits
 })
