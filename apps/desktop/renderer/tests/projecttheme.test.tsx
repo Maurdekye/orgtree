@@ -250,7 +250,10 @@ test('§9 settings: Upload icon… sends a PNG/JPEG/WebP to the project-icon rou
   assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'a GIF is refused')
   assert.match(document.body.textContent!, /PNG, JPEG, WebP or SVG/, 'naming the accepted formats')
   const png = Uint8Array.from(atob(PNG_B64), (c) => c.charCodeAt(0))
-  await inAct(async () => { pickFile(input, new File([png], 'logo.png', { type: 'image/png' })); await flush(10) })
+  await inAct(async () => { pickFile(input, new File([png], 'logo.png', { type: 'image/png' })); await flush(4) })
+  // FileReader answers on a timer in jsdom
+  for (let i = 0; i < 50 && !calls.some((c) => c.method === 'POST'); i++)
+    await inAct(async () => { await new Promise((r) => setTimeout(r, 10)); await flush(2) })
   const post = calls.find((c) => c.method === 'POST')
   assert.ok(post, 'a PNG is uploaded')
   assert.deepEqual(post!.body, { node: 'website', data: PNG_B64 }, 'the raw bytes, base64: the engine normalises them')

@@ -105,7 +105,10 @@ test('§1c the shipped stylesheet draws it as a square in the project card\'s th
   // USER 2026-10-17 21:23:44Z: "styled with the theme color, same as how
   // project nodes themselves are" (it replaces the light grey of 21:02Z)
   const card = rule('.sq.project')
-  const cardBg = card.match(/background:\s*([^;]+);/)![1]!.trim()
+  // the card reads --provider-accent, which .sq defaults to --accent and a theme
+  // colour overrides (@item:orgtree/project-themes-colour-the-whole-project-node-by-i);
+  // the token sits on an agent card, so it names the default accent itself
+  const cardBg = card.match(/background:\s*([^;]+);/)![1]!.trim().replace('var(--provider-accent)', 'var(--accent)')
   assert.equal(own.match(/background:\s*([^;]+);/)?.[1]?.trim(), cardBg, 'the card\'s own background')
   assert.match(own, /border-style:\s*dashed/, 'the card\'s dashed border')
   assert.match(own, /color:\s*var\(--accent\)/, 'the folder in the theme accent, as on the card')

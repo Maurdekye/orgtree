@@ -41,13 +41,13 @@ export async function projectIconUpload(file: File): Promise<string> {
   if (!PROJECT_ICON_UPLOAD_TYPES.includes(type)) throw new Error(FORMATS_MESSAGE)
   if (file.size > PROJECT_ICON_MAX_BYTES) throw new Error('That file is over 2 MB. ' + FORMATS_MESSAGE)
   if (type === 'image/svg+xml') return rasterise(file)
-  const url = await new Promise<string>((ok, fail) => {
-    const r = new FileReader()
-    r.onload = () => ok(String(r.result))
-    r.onerror = () => fail(new Error('That file could not be read.'))
-    r.readAsDataURL(file)
-  })
-  return url.slice(url.indexOf(',') + 1)
+  let bytes: Uint8Array
+  try { bytes = new Uint8Array(await file.arrayBuffer()) }
+  catch { throw new Error('That file could not be read.') }
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
 }
 
 async function rasterise(file: File): Promise<string> {
