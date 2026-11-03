@@ -51,7 +51,7 @@ const picked = () => document.getSelection()?.toString() ?? ''
 
 test('a selected passage survives an arriving event and a re-keyed row', async () => {
   const m = await desk([{ role: 'user', text: 'go', seq: 0, event_id: 'ask-1' },
-    { role: 'assistant', text: 'the quick brown fox', seq: 1, assistant_id: 'as-1',
+    { role: 'assistant', text: 'the quick brown fox', seq: 1, assistant_id: 'as-1', event_id: 'reply-1',
       assistant_revision: 1, assistant_state: 'partial', assistant_pending: true, assistant_scope: 'turn' }])
   try {
     const row = m.el.querySelector('[data-transcript-row][data-assistant-id="as-1"]') as HTMLElement
@@ -59,7 +59,7 @@ test('a selected passage survives an arriving event and a re-keyed row', async (
     assert.equal(picked(), 'quick')
     // the streaming row is re-keyed to its final row AND a new event arrives
     m.server.messages[1] = { role: 'assistant', text: 'the quick brown fox', seq: 1,
-      assistant_id: 'as-1', native_event_id: 'nat-1', event_id: 'reply-1' }
+      native_event_id: 'nat-1', event_id: 'reply-1' }
     m.server.assistantMsg('a new event', { event_id: 'reply-2' })
     await m.poll()
     assert.equal(picked(), 'quick', 'the selection was lost when the event arrived')
