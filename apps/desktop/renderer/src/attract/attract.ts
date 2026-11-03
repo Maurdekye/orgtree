@@ -47,6 +47,21 @@ export type AttractTarget =
   | { kind: 'mail'; id: string; urgent?: boolean }
   | { kind: 'doc'; id: string; node: string | null }
   | { kind: 'ticket'; slug: string; mark: string }
+  | AttentionTarget
+
+/** Something that needs the user (USER 2026-11-03 m0962694602bd "if anything needing attention appears, it is
+ *  immediately focused with zero delay"), from the sources the Attention view already lists (attention/feed.ts):
+ *  an open question, a docket item with a raised flag, urgent mail, an @user mention. Never picked at random:
+ *  it arrives (routes.watch) and is shown at once. `key` is the feed row's key, `id` the slug, mail id, ask id or
+ *  mention id, `agent` the node it is about. */
+export interface AttentionTarget {
+  kind: 'attention'
+  key: string
+  what: 'ticket' | 'mail' | 'question' | 'mention'
+  agent: string | null
+  id: string
+  urgent?: boolean
+}
 
 /** The identity "shown this run" is kept by. An agent's and a ticket's carry
  *  the activity they were shown for, so a LATER turn or update is new again. */
@@ -57,6 +72,7 @@ export const targetKey = (t: AttractTarget): string => {
     case 'mail': return `mail:${t.id}`
     case 'doc': return `doc:${t.id}`
     case 'ticket': return `ticket:${t.slug}:${t.mark}`
+    case 'attention': return `attn:${t.key}`
   }
 }
 
@@ -230,6 +246,11 @@ export interface AttractRoutes {
   hide: (t: AttractTarget) => void
   /** canvas interaction ended the run: stop anything still moving, leave the rest on screen */
   stop?: () => void
+  /** Listen for things needing attention for as long as the run lasts; `arrive` takes the NEW ones, in arrival order.
+   *  What was already waiting when the listener started is not an arrival. Returns the stop function. */
+  watch?: (arrive: (items: AttentionTarget[]) => void) => () => void
+  /** look for arrivals now (the canvas calls it whenever the tree changes); a no-op when nobody watches */
+  poll?: () => Promise<void>
   /** the user touched a panel attract opened (a press, wheel or key in it): it is theirs now,
    *  and the run goes on without closing it */
   release?: () => void
@@ -284,26 +305,45 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     /** targets since the last fit-the-whole-org step, and this cycle's gap jitter (fitGap) */
     let run = 0
     let jitter = 0.8 + 0.4 * rngRef.current()
+    /** things needing attention that have arrived and are waiting their step, in arrival order */
+    const queue: AttentionTarget[] = []
+    let busy = false
     const step = async () => {
       if (!alive) return
-      let input: Omit<AttractInput, 'since'>
-      try { input = await routesRef.current.collect(since) }
-      catch { input = { agents: [], mail: [], docs: [], tickets: [] } }
-      if (!alive) return
-      const next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter)
+      busy = true
+      let next: AttractTarget
+      if (queue.length) next = queue.shift()!    // attention first, whatever the cadence says
+      else {
+        let input: Omit<AttractInput, 'since'>
+        try { input = await routesRef.current.collect(since) }
+        catch { input = { agents: [], mail: [], docs: [], tickets: [] } }
+        if (!alive) return
+        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter)
+      }
       if (next.kind === 'org') { run = 0; jitter = 0.8 + 0.4 * rngRef.current() } else run++
       if (current) routesRef.current.hide(current)
       current = next
       shown.add(targetKey(next))
       let need = 0
       try { need = Number(await routesRef.current.show(next)) || 0 } catch { need = 0 }
+      busy = false
       if (!alive) return
+      // an arrival that came in while this step was starting does not wait out a dwell
+      if (queue.length && next.kind !== 'attention') { void step(); return }
       timer = setTimeout(() => { void step() }, attractDwell(rngRef.current, need))
     }
+    // anything needing attention: queued in arrival order; it interrupts an ordinary dwell at once, and waits behind
+    // an attention item that is on screen (which gets its dwell)
+    const stopWatching = routesRef.current.watch?.((items) => {
+      if (!alive || !items.length) return
+      queue.push(...items)
+      if (!busy && current?.kind !== 'attention') { clearTimeout(timer); void step() }
+    })
     void step()
     return () => {
       alive = false
       clearTimeout(timer)
+      stopWatching?.()
       routesRef.current.stop?.()
     }
   }, [running, enabled])

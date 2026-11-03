@@ -2955,6 +2955,13 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   targets, N = the new targets waiting (recomputed each step), jitter 0.8-1.2 drawn once per cycle by `useAttractCycle`; never twice in a row;
   nothing new is Fit only. Fit goes through `hide` like every step, so an attract-opened panel closes first. Proof: `tests/attract.test.tsx`
   §16-§16e (the user's three examples: 1 waiting alternates, 4 waiting every third, 49 waiting every 10th-15th).
+- **Attention arrives at once (USER 2026-11-03 m0962694602bd).** While a run lasts, `routes.watch` reports ARRIVALS of the Attention
+  view's own rows (`attention/feed.ts buildAttentionRows`: open questions, manual-attention tickets, urgent mail, @user mentions). The first
+  poll after the run starts is the baseline (what already waited is not an arrival); `useCanvasAttract` polls on every new tree, so the
+  delay is the app's own tree cadence. `useAttractCycle` queues them in arrival order, interrupts an ORDINARY dwell at once (`clearTimeout` +
+  `step`), waits behind an attention item on screen, and shows each through its kind's route (ticket -> docket + diff scroll, mail -> inbox,
+  question/mention -> `goToAgent`; a pinned or popped-out desk -> `fitAll`). A key that leaves the list and returns is a new arrival.
+  Proof: `tests/attract.test.tsx` §17-§17c.
 - **Canvas interaction = pointerdown/touchstart, wheel, or a key, whose target is inside `.viewport` and outside the panel
   carve-outs (`NOT_CANVAS` in attract.ts: `.overlay`, `.desk-over`, `.tray`, `.pinwin`, `.custom-app-window`, fields).** Mouse moves
   never stop a run. Keep `NOT_CANVAS` in step with OrgCanvas's wheel handler carve-outs. Proof: `tests/attract.test.tsx` §9.

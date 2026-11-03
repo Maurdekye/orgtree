@@ -4,13 +4,15 @@
    whole org through Fit, a presentation through the reader opening (which
    marks it viewed), and mail and tickets through the shell's inbox and docket
    jumps, handed up via `onPanel` because App owns those two panels. */
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { getInbox, getWorkItem, getWorkItems, markRead } from '../api'
+import { attentionNodes, buildAttentionRows } from '../attention/feed'
+import type { AttentionRow } from '../attention/feed'
 import { markReadNow, readLocally } from '../mailread'
 import { docUnread } from '../canvas/docviewed'
 import { deskOpenElsewhere } from '../canvas/deskhosts'
 import { useAttractCycle } from './attract'
-import type { AttractAgent, AttractRoutes, AttractTarget } from './attract'
+import type { AttentionTarget, AttractAgent, AttractRoutes, AttractTarget } from './attract'
 import { scrollThrough } from './scroll'
 import type { Scroll } from './scroll'
 import { locateChange, recordTicketSnapshot, ticketSnapshot } from './ticketsnap'
@@ -59,7 +61,50 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
   /** the changed ticket the docket pane is being driven to, and the window's last input (what "new" is measured from) */
   const ticket: { current: TicketShow | null } = { current: null }
   let since = 0
+  // ---- things needing attention (USER 2026-11-03 m0962694602bd): the Attention view's own rows, watched for arrivals
+  let listener: ((items: AttentionTarget[]) => void) | null = null
+  let known: Set<string> | null = null
+  let polling = false, dirty = false
+  const asTarget = (r: AttentionRow): AttentionTarget => r.kind === 'ticket'
+    ? { kind: 'attention', key: r.key, what: 'ticket', agent: r.agent, id: r.item!.slug }
+    : r.kind === 'mail'
+      ? { kind: 'attention', key: r.key, what: 'mail', agent: r.agent, id: r.mail!.id, ...(r.mail!.urgent ? { urgent: true } : {}) }
+      : r.kind === 'question'
+        ? { kind: 'attention', key: r.key, what: 'question', agent: r.agent, id: r.ask!.id }
+        : { kind: 'attention', key: r.key, what: 'mention', agent: r.agent, id: r.mention!.id }
+  const poll = async (): Promise<void> => {
+    if (!listener) return
+    if (polling) { dirty = true; return }
+    polling = true
+    try {
+      do {
+        dirty = false
+        const { slug, tree } = deps.current
+        const [box, work] = await Promise.all([
+          getInbox(slug).catch(() => null), getWorkItems(slug).catch(() => null),
+        ])
+        if (!listener) return
+        const rows = buildAttentionRows({
+          items: work?.items, archived: (work as { archived?: never[] } | null)?.archived,
+          backlogged: (work as { backlogged?: never[] } | null)?.backlogged,
+          pending: box?.pending, nodes: attentionNodes(tree), asks: tree.asks, slug,
+        })
+        const now = new Set(rows.map(r => r.key))
+        // the first look is the baseline: what was already waiting when the run began is not an arrival
+        const arrived = known ? rows.filter(r => !known!.has(r.key)).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)) : []
+        known = now
+        if (arrived.length) listener(arrived.map(asTarget))
+      } while (dirty && listener)
+    } finally { polling = false }
+  }
+  /** attention shown through the route its kind already has; a desk that is pinned or open elsewhere gets the whole
+   *  org instead (the node is in view), never a window moved */
+  const underlying = (t: AttentionTarget): AttractTarget | null =>
+    t.what === 'ticket' ? { kind: 'ticket', slug: t.id, mark: '' }
+      : t.what === 'mail' ? { kind: 'mail', id: t.id, ...(t.urgent ? { urgent: true } : {}) } : null
   return {
+    watch: (cb) => { listener = cb; known = null; return () => { listener = null; known = null } },
+    poll,
     collect: async (from) => {
       since = from
       const { slug, tree, map, pinnedIds } = deps.current
@@ -88,9 +133,18 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
       ])
       return { agents, mail, docs, tickets }
     },
-    show: async (t: AttractTarget) => {
+    show: async function show(t: AttractTarget): Promise<number | void> {
       const c = deps.current
       switch (t.kind) {
+        case 'attention': {
+          const next = underlying(t)
+          if (next) return show(next)
+          const node = t.agent ? c.map.get(t.agent) : undefined
+          const taken = !!t.agent && (c.pinnedIds().has(t.agent) || (!!node && deskOpenElsewhere(c.slug, node)))
+          if (!t.agent || taken) c.fitAll()
+          else c.goToAgent(t.agent)
+          return
+        }
         case 'org': c.fitAll(); return
         case 'agent': c.goToAgent(t.id); return
         case 'mail':
@@ -123,8 +177,13 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
         }
       }
     },
-    hide: (t: AttractTarget) => {
+    hide: function hide(t: AttractTarget): void {
       const c = deps.current
+      if (t.kind === 'attention') {
+        const next = underlying(t)
+        if (next) hide(next)
+        return
+      }
       if (t.kind === 'ticket') { ticket.current?.restore(); ticket.current = null }
       if (t.kind === 'mail' || t.kind === 'ticket') c.onPanel?.(null)
       if (t.kind === 'doc') {
@@ -145,5 +204,7 @@ export function useCanvasAttract(d: CanvasAttractDeps): boolean {
   deps.current = d
   const routes = useRef<AttractRoutes | null>(null)
   routes.current ??= canvasAttractRoutes(() => deps.current)
+  // the tree is polled by the app: every new one is a chance for something needing attention to have appeared
+  useEffect(() => { void routes.current?.poll?.() }, [d.tree])
   return useAttractCycle(d.enabled, routes.current)
 }
