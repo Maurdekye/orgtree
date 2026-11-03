@@ -36,6 +36,9 @@ pub struct Rooms {
     agents: papaya::HashMap<i64, Arc<ArcSwap<Vec<Member>>>>,
     /// socket → agents it watches, so a disconnect leaves every room
     watching: papaya::HashMap<SocketId, Arc<Vec<i64>>>,
+    /// socket → the "refuse questions to the user" setting, present only while that
+    /// window's attract mode runs. Live state, never persisted: a disconnect drops it.
+    attract: papaya::HashMap<SocketId, bool>,
 }
 
 #[logged]
@@ -50,6 +53,7 @@ impl Rooms {
 
     pub fn leave(&self, id: SocketId) {
         self.org.rcu(|cur| cur.iter().filter(|x| x.id != id).cloned().collect::<Vec<_>>());
+        self.attract.pin().remove(&id);
         let prev = self.watching.pin().remove(&id).cloned();
         if let Some(agents) = prev {
             for a in agents.iter() {
@@ -122,6 +126,21 @@ impl Rooms {
     #[nolog]
     pub fn socket_count(&self) -> usize {
         self.org.load().len()
+    }
+
+    /// A window reports its attract mode: `Some(refuse_setting)` while it runs, `None` once it stops.
+    #[nolog]
+    pub fn set_attract(&self, id: SocketId, refuse: Option<bool>) {
+        match refuse {
+            Some(r) => { self.attract.pin().insert(id, r); }
+            None => { self.attract.pin().remove(&id); }
+        }
+    }
+
+    /// Some window runs attract mode with the refuse-questions setting on.
+    #[nolog]
+    pub fn attract_refusing(&self) -> bool {
+        self.attract.pin().iter().any(|(_, r)| *r)
     }
 
     #[nolog]

@@ -506,6 +506,17 @@ pub fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     }
 }
 
+/// Attract mode running (with the "refuse questions to the user" setting on) refuses a NEW
+/// question to the user. Withdrawing is not a question, and a question routed to the superior
+/// is not user-facing; open questions are untouched. USER 2026-11-03 13:10:58Z m46c12a448a66.
+#[nolog]
+fn attract_gate(rooms: &crate::feed::rooms::Rooms, tool: &str, asks_user: bool) -> Result<()> {
+    if asks_user && tool != "orgtree_withdraw_ask" && rooms.attract_refusing() {
+        crate::refuse!(Forbidden, "Attract mode is running, so questions to the user are refused; message the user on Hubchat instead (@net address from org.md)");
+    }
+    Ok(())
+}
+
 /// orgtree_ask / request_credits / request_scope / withdraw_ask.
 #[logged]
 async fn ask_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
@@ -514,6 +525,7 @@ async fn ask_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         crate::refuse!(NotFound, "organization not open");
     };
     let a = asks::asker(engine, caller.org_id, caller.agent_id).await?;
+    attract_gate(&org.rooms, name, a.may_ask_user)?;
     let text = match name {
         "orgtree_ask" => asks::ask(engine, &org, &a, args).await?,
         "orgtree_request_credits" => {

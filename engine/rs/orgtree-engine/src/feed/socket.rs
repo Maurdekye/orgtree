@@ -68,6 +68,11 @@ async fn run(engine: Arc<Engine>, org: Arc<OrgHandle>, socket: WebSocket) {
                                 .map(|(id, _, _)| *id)
                                 .collect();
                             org.rooms.watch(&member, ids);
+                        } else if v["type"] == "attract" {
+                            // this window's attract mode started or stopped; `refuse` is the app-wide
+                            // "refuse questions to the user" setting (absent = on)
+                            let running = v["running"].as_bool().unwrap_or(false);
+                            org.rooms.set_attract(id, running.then(|| v["refuse"].as_bool().unwrap_or(true)));
                         } else {
                             org.feed.socket_msg(id, v);
                         }
