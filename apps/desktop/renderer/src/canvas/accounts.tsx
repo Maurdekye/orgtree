@@ -38,6 +38,8 @@ import {
   SetToggle, useSettingsTarget,
 } from './settingskit'
 import type { SettingsTab, SettingsTarget } from './settingskit'
+import { setStreamerMode, useStreamerMode } from '../streamer'
+import { setAttractMode, useAttractMode } from '../attract/pref'
 import { OpenRouterSection } from './openrouter'
 import { HarnessesSection } from './harnesses'
 import { LanguageServerSection } from './langserver'
@@ -354,6 +356,23 @@ export function ProjectBunchRearrangeSetting() {
   return <SetToggle label="Rearrange projects in a bunch" checked={on}
     onChange={setProjectBunchRearrangeOn}
     hint="Drag within a bunch to change project order; off keeps ordinary subtree dragging" />
+}
+
+/** App menu › Modes, mirrored in Display (USER 2026-11-03 09:24:13Z
+ *  m6164da08f4fa "also put the toggles in the display tab of app settings").
+ *  Both places read and write the same native preference, so they always agree. */
+function ModeToggles() {
+  const streamer = useStreamerMode(), attract = useAttractMode()
+  return (
+    <SetGroup title="Modes">
+      <SetToggle label="Streamer mode" field="streamerMode" checked={streamer.enabled}
+        onChange={v => { void setStreamerMode(v) }}
+        hint="Hides private values on screen (email addresses, account names, paths, keys and addresses) while you share it. Copying, links and agents still use the originals." />
+      <SetToggle label="Attract mode" field="attractMode" checked={attract}
+        onChange={v => { void setAttractMode(v) }}
+        hint="After five minutes without input, an organization window shows its own new activity by itself. Any input stops it." />
+    </SetGroup>
+  )
 }
 
 function CrowdStackToggle() {
@@ -965,6 +984,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
+      <ModeToggles />
       <SetGroup title="Text">
         <SetToggle label="Wrap object mentions" checked={(wrapMentions ?? runtime?.wrap_object_mentions) === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWrapObjectMentions, v)}
