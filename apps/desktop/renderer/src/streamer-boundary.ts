@@ -129,7 +129,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       cover.append(label, dismiss); covered.set(el, cover); place(el as HTMLElement, cover)
     }
     if (!frame) position()
-    if (!supported || !ready) return
+    if (!supported) return
     const nodes: { node: Text; start: number; end: number }[] = []
     let text = '', block: Element | null = null
     const walker = doc.createTreeWalker(doc.body, 4)
