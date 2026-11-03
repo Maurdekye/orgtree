@@ -6,7 +6,7 @@ import '../src/styles.css'
 // document.documentElement.classList.add('contrast-light') before capture.
 // Older states load by themselves as the list scrolls: three pages (12, 4 and 4 rows), so a capture scrolls the
 // settings list to its end to see the appended pages and the end of the history. The window width comes from
-// the page URL (?w=420 and ?w=760 are the two captured widths). All data synthetic.
+// the page URL (?w=420 and ?w=760 are the two captured widths); ?provider=claude|openai picks the Active colour. All data synthetic.
 const zero = { active: 0, idle: 0, blocked: 0, halted: 0, frozen: 0 }
 const kinds = ['idle', 'active', 'blocked', 'active', 'frozen', 'active', 'halted', 'idle'] as const
 // Durations spread over the whole 1 s .. 7 d log scale so the bars differ. All 20
@@ -39,6 +39,6 @@ const width = Number(new URLSearchParams(location.search).get('w')) || 560
 createRoot(document.getElementById('root')!).render(
   <div className="settings cfg" style={{ width, height: 520, margin: 24, display: 'flex', flexDirection: 'column' }}>
     <div className="app-settings-panel agent-history-tab" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <AgentStatesView slug="fixture" nid="builder" />
+      <AgentStatesView slug="fixture" nid="builder" provider={new URLSearchParams(location.search).get('provider') ?? 'claude'} />
     </div>
   </div>)
