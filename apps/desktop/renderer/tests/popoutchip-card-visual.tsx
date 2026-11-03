@@ -53,6 +53,18 @@ function Fixture() {
     focus: (id: string) => setFocus(id),
     children: () => frames.map(f => ({ name: f.getAttribute('data-synthetic-child'), connected: f.isConnected })),
     closeAll: () => { for (const f of frames) f.contentWindow?.close() },
+    /** resolves true once the FOCUSED desk is on its card (`.sq.desk .desk-inner`,
+     *  DeskChat openIn="card": the counter-scaled, non-bare desk whose pop-out
+     *  leaves `.desk-elsewhere`), with its pop-out button; false after `ms` */
+    waitCardDesk: async (ms = 10000) => {
+      const t0 = Date.now()
+      while (Date.now() - t0 < ms) {
+        const b = document.querySelector('.sq.desk .desk-inner button[aria-label="Open in new window"]')
+        if (b) return true
+        await new Promise(r => setTimeout(r, 100))
+      }
+      return false
+    },
     /** programmatic click of the first visible "Open in new window" button:
      *  no pointer geometry, so a moving camera cannot make it miss */
     clickPopout: (which = 0) => {
@@ -73,6 +85,9 @@ function Fixture() {
           onCard: c.classList.contains('desk-elsewhere'), inNotices: !!c.closest('.popout-notices') })),
         iframes: frames.map(f => ({ name: f.getAttribute('data-synthetic-child'), connected: f.isConnected })),
         deskSlots: document.querySelectorAll('.desk-slot').length,
+        cardDesk: !!document.querySelector('.sq.desk .desk-inner'),
+        deskElsewhere: document.querySelectorAll('.desk-elsewhere').length,
+        bareChips: document.querySelectorAll('.desk-slot .popout-chip:not(.desk-elsewhere)').length,
         cards: [...document.querySelectorAll('.sq')].slice(0, 6).map(c => ({ cls: c.className, ...rect(c) })),
       }
     },
