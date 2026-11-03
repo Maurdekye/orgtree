@@ -4644,6 +4644,14 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Wrap object mentions"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Streamer mode"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Attract mode"
     }
    ],
    "key_sources": [

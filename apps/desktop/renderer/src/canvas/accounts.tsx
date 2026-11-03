@@ -370,7 +370,7 @@ function ModeToggles() {
         hint="Hides private values on screen (email addresses, account names, paths, keys and addresses) while you share it. Copying, links and agents still use the originals." />
       <SetToggle label="Attract mode" field="attractMode" checked={attract}
         onChange={v => { void setAttractMode(v) }}
-        hint="After five minutes without input, an organization window shows its own new activity by itself. Any input stops it." />
+        hint="After five minutes without input, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
     </SetGroup>
   )
 }

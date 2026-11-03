@@ -7,6 +7,10 @@ Up: [orgtree-app-settings](../SKILL.md)
 
 # Appearance
 
+## Modes
+
+Display > Modes holds **Streamer mode** and **Attract mode**, the same two switches as the App menu's Modes group; either place changes the one app-wide setting, and the other follows at once. What each mode does is in [orgtree-org-header-and-menu](../../app-shell/org-header-and-menu/SKILL.md).
+
 ## Object mentions
 
 Display > Text > **Wrap object mentions** is off by default. Turn it on to let
