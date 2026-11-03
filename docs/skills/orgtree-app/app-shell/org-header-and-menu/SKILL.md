@@ -30,8 +30,8 @@ App settings affect the application; Organization settings affect the selected o
 
 ## Streamer mode
 
-The App menu's **Modes** group contains a **Streamer mode** on/off toggle; App settings ›
-Display › Modes has the same Streamer mode and Attract mode switches, and both places stay in sync. Only Display has the **Attract mode starts after** field.
+The App menu has no Modes section: **Streamer mode** and **Attract mode** are switched only in App settings ›
+Display › Modes, which also has the **Attract mode starts after** field.
 A visible Streamer mode indicator remains on screen while protection is enabled,
 including in popped-out windows. The choice persists and synchronizes across windows.
 

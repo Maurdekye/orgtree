@@ -158,7 +158,7 @@ function installBridge(t: TestContext) {
     onEvent: (fn: (e: { type: string; data: unknown }) => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
   }
   t.after(() => { native.orgtreeDesktop = previous })
-  /** another window (or App menu › Modes) changes the same preference */
+  /** another window (or another window's Display toggle) changes the same preference */
   const elsewhere = (patch: Partial<NativePreferences>) => { saved = { ...saved, ...patch }; broadcast() }
   return { writes, elsewhere }
 }

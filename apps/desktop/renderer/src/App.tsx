@@ -1,5 +1,4 @@
 import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
-import { setStreamerMode, useStreamerMode } from './streamer'
 import type { HireDefaultsRequest, SettingsRequest } from './types'
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
 import { useHireAutoFocus } from './hirefocus'
@@ -66,8 +65,6 @@ import { MentionNavigator, readMention } from './shell/mentionnavigation'
 import type { NavigationMention } from './shell/mentionnavigation'
 import { requestMentionLanding } from './canvas/mentionlanding'
 import { OrgtreeMenu } from './shell/menu'
-import type { ShellMenuMode } from './shell/menu'
-import { setAttractMode, useAttractMode } from './attract/pref'
 import type { AttractPanel } from './attract/canvas'
 import { createAttractPanels } from './attract/panels'
 import type { OrgtreeMenuActions } from './shell/menu'
@@ -429,7 +426,6 @@ const slugFromPath = () => {
 }
 
 export default function App() {
-  const streamer = useStreamerMode()
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
   const identity = useWindowIdentity()
@@ -1652,14 +1648,8 @@ export default function App() {
     void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
       toast([`could not open the creation window: ${e.message}`]))
   }, [toast])
-  // App-wide Modes use symmetric siblings: Streamer first, then Attract.
-  const attractOn = useAttractMode()
-  const menuModes: ShellMenuMode[] = [
-    { id: 'streamer', label: 'Streamer mode', on: streamer.enabled, onToggle: () => { void setStreamerMode(!streamer.enabled) } },
-    { id: 'attract', label: 'Attract mode', on: attractOn, onToggle: () => { void setAttractMode(!attractOn) } },
-  ]
   const shellMenu = (
-    <OrgtreeMenu orgs={orgs} modes={menuModes} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
+    <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
       error={orgStatus.error} currentOrg={slug}
       onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
       onUsage={() => toggleSurface('usage', showUsage, setShowUsage, true)}

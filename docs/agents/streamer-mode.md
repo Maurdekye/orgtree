@@ -2,8 +2,8 @@
 
 User scope: on-screen only (2026-11-02 m2656d00014b4), all listed sensitive
 categories and surfaces (mc8e118c58de9), implementation authorized m0103b81de013.
-The App menu placement and visible indicator follow the coordinator's provisional
-default and remain flagged for user confirmation. Native-picker exclusion is the
+The toggles live only in App settings > Display (the App menu's Modes section was removed, USER 2026-11-03
+mb2d765cb0aa7); the visible indicator follows the coordinator's provisional default and remains flagged for user confirmation. Native-picker exclusion is the
 coordinator's explicit 2026-11-02 me7e21312f674 decision. Per-surface opaque-cover
 dismissal is the user's m84e04d547421 ruling.
 
@@ -77,7 +77,7 @@ checks each category across six DOM surface classes, split text/live changes,
 original copy/editor/link data, fallback and cover lifetime. `streamernative.test.tsx`
 checks native sinks/actions, picker exclusion, existing notices and native-view
 covers. `streamerstate.test.tsx` covers preference races and popup synchronization.
-`menumodes.test.tsx` is the shared menu contract from the attract-mode author.
+`menumodes.test.tsx` pins that the App menu has no Modes section; the Display toggles are in `streamerblank.test.tsx`.
 
 These DOM tests prove ranges and state, not actual Chromium paint. Integration
 must attempt one isolated, muted capture of real Highlight rendering, selected
