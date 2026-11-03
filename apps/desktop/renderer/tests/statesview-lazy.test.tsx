@@ -223,4 +223,22 @@ test('Active takes the provider colour for each provider; the other states keep 
   }
 })
 
+test('opened while the agent is queued or compacting (no recorded state), the tab still follows it: active then idle add two rows', async t => {
+  mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.parse('2026-11-02T12:30:00Z') })
+  t.after(() => mock.timers.reset())
+  fakeObserver(t)
+  globalThis.fetch = (async () => response(PAGE1)) as typeof fetch
+  const view = await mountView(<AgentStatesView slug="fixture" nid="w" liveState={undefined} />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(3) })
+  assert.deepEqual(rowsOf(view.el), ['idle', 'active'])
+  mock.timers.tick(30_000)
+  await view.render(<AgentStatesView slug="fixture" nid="w" liveState="active" />)
+  await inAct(async () => { await flush(2) })
+  mock.timers.tick(30_000)
+  await view.render(<AgentStatesView slug="fixture" nid="w" liveState="idle" />)
+  await inAct(async () => { await flush(2) })
+  assert.deepEqual(rowsOf(view.el), ['idle', 'active', 'idle', 'active'], 'two rows were added at the top')
+})
+
 declare const __SRC_DIR__: string

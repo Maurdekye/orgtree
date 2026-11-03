@@ -117,6 +117,8 @@ export function AgentStatesView({ slug, nid, provider, liveState }: { slug: stri
   nextRef.current = next
   // what the node showed when the page arrived: only a CHANGE from there is a new state
   const lastLive = useRef<AgentStateWord | null | undefined>(undefined)
+  // set once the first page has been read (lastLive may legitimately be undefined: a queued or compacting agent shows no state)
+  const liveReady = useRef(false)
   const loadFirst = useCallback(async () => {
     const request = identity.current
     setBusy(true); setError('')
@@ -124,7 +126,7 @@ export function AgentStatesView({ slug, nid, provider, liveState }: { slug: stri
       const page = await getAgentStates(slug, nid)
       if (request !== identity.current) return
       setFirst(page); setFetchedAt(Date.now()); setNext(page.next_cursor); setLive([])
-      lastLive.current = liveStateRef.current
+      lastLive.current = liveStateRef.current; liveReady.current = true
     } catch (e) {
       if (request === identity.current) setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -156,12 +158,12 @@ export function AgentStatesView({ slug, nid, provider, liveState }: { slug: stri
   useEffect(() => {
     ++identity.current
     setFirst(null); setOlder([]); setNext(null); setOlderError(''); setLoadingOlder(false); setLive([]); olderInFlight.current = false
-    lastLive.current = undefined
+    lastLive.current = undefined; liveReady.current = false
     void loadFirst()
     return () => { ++identity.current }
   }, [slug, nid])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!first || lastLive.current === undefined) return
+    if (!first || !liveReady.current) return
     if (!liveState || liveState === lastLive.current) return
     lastLive.current = liveState
     setLive(prev => [...prev, { state: liveState, at: Date.now() }])
