@@ -5,13 +5,12 @@
 //     and the deliveries are recorded (ot.project_fires + each listener's mail); the first line names the dog; the
 //     project itself is mailed nothing
 //   a RELATIVE credentials path is read from the PROJECT's folder, and only a caller that holds that folder may
-//     name it (a member without it is refused); the mock bearer reaches the local server
+//     name it (a member does; an agent above the project does not); the mock bearer reaches the local server
 //   templates omit project dogs and say so
 //   list shows owner_kind/created_by/handle; a caller that does not reach the project is refused
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-watchdogs.mjs
 // Written without a live run (its author may not build); the integrator measures it. Assumptions to check first:
 //   (1) the project's scratch folder is ot.agents.scratch_dir of the project (or scratch/<org>/<project>);
-//   (2) boss reads it once ot.agents.scope.add_dirs names it (the engine's own r10 test does the same).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -95,20 +94,22 @@ async function flow(rig, p, ws) {
   p.check('a duplicate on the same project is refused', !dup.ok && /already has this watchdog/.test(dup.error ?? ''), dup)
 
   // ------------------------------------------------------------ relative credentials against the PROJECT's folder
+  // Measured by the integrator (build-sol 2026-11-03): every MEMBER of a project reads the project's folder, an agent ABOVE
+  // it does not (and its scope.add_dirs is not re-read from SQL). So the positive caller is the member lb (it holds web),
+  // and the refused caller is boss, who is above the project and holds neither the folder nor a grant to it.
   const proj = node('stream')
   const folder = proj.scratch_dir || path.join(rig.data, 'scratch', rig.org, 'stream')
   fs.mkdirSync(folder, { recursive: true })
   fs.writeFileSync(path.join(folder, 'ws-secure.json'), JSON.stringify({ bearer: BEARER }))
-  const addDirs = JSON.stringify([{ path: folder, mode: 'rw' }]).replaceAll("'", "''")
-  rig.exec(`UPDATE ot.agents SET scope = coalesce(scope, '{}'::jsonb) || jsonb_build_object('add_dirs', '${addDirs}'::jsonb) WHERE name = 'boss'`)
-  const secure = await tryTool('boss', { action: 'create', project: 'stream', name: 'secure', kind: 'websocket', target: ws.url('/secure'),
+  const secure = await tryTool('lb', { action: 'create', project: 'stream', name: 'secure', kind: 'websocket', target: ws.url('/secure'),
     pattern: '^event:', credentials: 'ws-secure.json', hello: ['subscribe secure'] })
-  p.check('boss, who holds the project folder, may name a RELATIVE credentials file; the dog dials with the mock bearer',
+  await rig.waitFor(() => ws.st.upgrades.some(u => u.url === '/secure'), { what: 'the credentialed dog dials', timeout: 20000 }).catch(() => {})
+  p.check('lb, a member who holds the project folder, may name a RELATIVE credentials file; the dog dials with the mock bearer',
     secure.ok && ws.st.upgrades.some(u => u.url === '/secure' && u.headers.authorization === `Bearer ${BEARER}`), { secure: said(secure), upgrades: ws.st.upgrades.map(u => u.url) })
-  const refused = await tryTool('lb', { action: 'create', project: 'stream', name: 'secure2', kind: 'websocket', target: ws.url('/secure'),
+  const refused = await tryTool('boss', { action: 'create', project: 'stream', name: 'secure2', kind: 'websocket', target: ws.url('/secure'),
     pattern: '^event:', credentials: 'ws-secure.json', hello: ['another hello'] })
-  p.check('a member that does not hold that folder is refused for the same relative path',
-    !refused.ok && /cannot read credentials|folder/i.test(refused.error ?? ''), refused)
+  p.check('boss, above the project and holding neither its folder nor a grant to it, is refused for the same relative path',
+    !refused.ok && /cannot read credentials|working folder|folder you hold/i.test(refused.error ?? ''), refused)
   ws.push('event: door open')
   await rig.waitFor(() => mails('la', 'event: door open').length >= 1, { what: 'the credentialed dog fires too', timeout: 40000 }).catch(() => {})
   p.check('the credentialed dog also reaches the listeners', mails('la', 'event: door open').length >= 1 && mails('lb', 'event: door open').length >= 1)
