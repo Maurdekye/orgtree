@@ -495,6 +495,12 @@ fn project_fire_notice(
     (body, lines)
 }
 
+/// The `project.event` engine event's payload (spec D18). RED STUB.
+#[nolog]
+pub fn project_event_payload(_pname: &str, _project: i64, _by: &str, _delivered: i32, _fire_id: i64, _has_message: bool, _source: Option<&Value>) -> Value {
+    json!({})
+}
+
 /// What one fire did, for the tool result.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Fired {

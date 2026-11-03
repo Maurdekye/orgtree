@@ -72,6 +72,8 @@ mod websocket;
 mod usage_eval;
 mod immediate;
 pub mod usage;
+#[cfg(test)]
+mod project_tests;
 
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
@@ -2090,6 +2092,14 @@ async fn listener_watch_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domai
 #[nolog]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
     crate::util::boxed(|| create_mode(engine, org_id, owner, args, None)).await
+}
+
+/// `orgtree_watchdog create` as `caller` (`None` is the user): with `project`, a
+/// watchdog owned by that project (docs/rust-engine/project-watchdogs.md).
+/// RED STUB: replaced by the implementation commit.
+#[nolog]
+pub async fn create_as(_engine: &Arc<Engine>, _org_id: i64, _caller: Option<i64>, _args: &Value) -> Result<Value> {
+    refuse!(BadRequest, "project watchdogs are not implemented yet");
 }
 
 /// Internal restore mode only: validate through the normal creation path, but
