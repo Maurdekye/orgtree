@@ -22,7 +22,8 @@
      set them.
    - Every target reuses an existing route (go-to-agent, the inbox jump, the
      reader, the docket jump, Fit). A panel attract opened closes when it moves
-     on; input stops the cycle and leaves the screen as it is.
+     on; canvas interaction (and only that, USER 2026-11-03 m6b0b27e6288f) stops the
+     cycle and leaves the screen as it is.
    - One app-wide toggle (pref.ts); each organization window runs its own idle
      timer and cycle.
 
@@ -120,15 +121,37 @@ export const attractDwell = (rng: () => number, atLeast = 0): number =>
   Math.max(atLeast, DWELL_MIN_MS + Math.floor(rng() * (DWELL_MAX_MS - DWELL_MIN_MS + 1)))
 
 // ---------------------------------------------------------------- input
-/* The window's last user input. Any of these is input; attract mode's own
-   camera moves, panel opens and scrolls are none of them. A pointermove
-   counts only when the pointer really moved: Chromium sends a mousemove at an
-   unmoved cursor when the content under it changes, which every glide does. */
+/* Two questions about an input event.
+   1. Is it INPUT? Then it restarts the five quiet minutes before a run may
+      start ("never while the user is working in a panel"). Any of these is
+      input; attract mode's own camera moves, panel opens and scrolls are none
+      of them. A pointermove counts only when the pointer really moved:
+      Chromium sends a mousemove at an unmoved cursor when the content under it
+      changes, which every glide does.
+   2. Is it CANVAS INTERACTION? Only that stops a run (USER 2026-11-03
+      m6b0b27e6288f "only interacting with the canvas should interrupt attract
+      mode"): a press (pointerdown or touchstart, which starts every click and
+      drag), a wheel (scroll or zoom), or a key while focus is on the canvas.
+      Moving the mouse never does. Input in a desk, panel, menu, settings or
+      field, or in another window, never does. */
 const INPUT_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const
+/** what sits inside the canvas viewport but is not the canvas: the same list
+ *  OrgCanvas's wheel handler and the .viewport text-selection rule carve out,
+ *  plus every text field */
+const NOT_CANVAS = '.overlay, .desk-over, .tray, .tray-wrap, .pinwin, .custom-app-window, .eff-pop, '
+  + 'input, textarea, select, [contenteditable]'
 let lastInput = Date.now()
 let lastPointer: { x: number; y: number } | null = null
 let installed = false
-const inputSubs = new Set<() => void>()
+const inputSubs = new Set<(canvas: boolean) => void>()
+
+/** An event aimed at the org canvas itself (its background, nodes and
+ *  controls), not at a panel that merely sits inside it. */
+export function isCanvasEvent(e: Event): boolean {
+  const t = e.target as Element | null
+  if (e.type === 'pointermove' || !t || typeof t.closest !== 'function') return false
+  return !!t.closest('.viewport') && !t.closest(NOT_CANVAS)
+}
 
 function onInput(e: Event): void {
   if (e.type === 'pointermove') {
@@ -139,11 +162,13 @@ function onInput(e: Event): void {
     if (!moved) return
   }
   lastInput = Date.now()
-  for (const fn of [...inputSubs]) fn()
+  const canvas = isCanvasEvent(e)
+  for (const fn of [...inputSubs]) fn(canvas)
 }
 
-/** Follow user input in this window; also starts the window's tracker. */
-export function watchInput(fn: () => void): () => void {
+/** Follow user input in this window (`canvas`: it was canvas interaction);
+ *  also starts the window's tracker. */
+export function watchInput(fn: (canvas: boolean) => void): () => void {
   if (!installed && typeof window !== 'undefined') {
     installed = true
     for (const type of INPUT_EVENTS) window.addEventListener(type, onInput, { capture: true, passive: true })
@@ -161,12 +186,13 @@ export interface AttractRoutes {
   show: (t: AttractTarget) => number | void | Promise<number | void>
   /** take down what `show` opened for it (a panel), when the cycle moves on */
   hide: (t: AttractTarget) => void
-  /** input ended the run: stop anything still moving, leave the rest on screen */
+  /** canvas interaction ended the run: stop anything still moving, leave the rest on screen */
   stop?: () => void
 }
 
 /** Runs the cycle while `enabled` and the window has had no input for more
- *  than ATTRACT_IDLE_MS. Any input ends the run at once; the next run starts
+ *  than ATTRACT_IDLE_MS (any input counts). Only canvas interaction ends the run
+ *  at once, input in a panel does not; the next run starts
  *  after the next five quiet minutes, with a fresh "new" and a fresh "shown".
  *  Returns whether a run is going. */
 export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
@@ -189,7 +215,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
         else arm()
       }, wait)
     }
-    const stop = watchInput(() => { setRunning(false); arm() })
+    const stop = watchInput(canvas => { if (canvas) setRunning(false); arm() })
     arm()
     return () => { clearTimeout(timer); stop() }
   }, [enabled])
