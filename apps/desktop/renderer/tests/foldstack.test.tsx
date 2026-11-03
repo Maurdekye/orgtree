@@ -127,5 +127,5 @@ test('the bottom hire strip clears the stack so a click on the stack reaches it'
   assert.ok(rule, 'a folded node pushes its bottom hire strip down')
   assert.ok(Number(rule![1]) >= 7, 'at least past the 8px stack minus the strip own 1px overlap')
   assert.match(css, /\.hsof \{\s*position: absolute; left: 50%;/, 'and the base strip rule it overrides still exists')
-  assert.ok(css.indexOf('.sq:has(> .fold-stack) > .hsof:not(.side)') > css.indexOf('.hsof {'), 'declared after the base rule so it wins')
+  // specificity (.sq + :has(.fold-stack) + .hsof + :not) beats the base .hsof rule wherever it sits
 })
