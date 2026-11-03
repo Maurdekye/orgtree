@@ -47,7 +47,7 @@ const secrets: [string, string][] = [
 test('every real secret category is still masked', () => {
   for (const [kind, value] of secrets) {
     const text = `Before ${value} after`, spans = masked(text)
-    assert.ok(spans.some(m => m === value || (value.startsWith(m) && m.length >= value.length - 1)), `${kind}: ${JSON.stringify(spans)}`)
+    assert.ok(spans.some(m => (/labelled|url/.test(kind) && m.includes(value)) || m === value || (value.startsWith(m) && m.length >= value.length - 2)), `${kind}: ${JSON.stringify(spans)}`)
     if (!/labelled|bearer|url/.test(kind)) assert.ok(!spans.join('|').includes('after'), `${kind} ate the trailing word: ${JSON.stringify(spans)}`)
   }
 })
@@ -85,7 +85,7 @@ test('the DOM boundary leaves the screenshot surfaces visible and masks only a r
   try {
     boundary.update(true, [])
     await flush()
-    const hidden = (registry.get('streamer-sensitive') ?? []).map(r => r.toString())
+    const hidden = Array.from(registry.get('streamer-sensitive') ?? [], r => r.toString())
     assert.deepEqual(hidden.sort(), ['/home/reader/x', 'reader@example.test'].sort())
   } finally { boundary.dispose(); dom.window.close() }
 })

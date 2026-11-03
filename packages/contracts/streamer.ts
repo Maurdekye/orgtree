@@ -11,7 +11,7 @@ const patterns = [
   // the run rescans to its end (a 40 KB token took 7 s and froze the window).
   /(?<![\p{L}\p{N}.!#$%&'*+/=?^`{|}~-])[\p{L}\p{N}.!#$%&'*+/=?^`{|}~-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu,
   /@net:[^\s<>"']+/gi,
-  /\b[a-z]:[\\/][^\r\n<>"']*/gi,
+  /\b[a-z]:[\\/](?:[^\\/\r\n<>"']{1,64}[\\/])*[^\s\\/<>"']*/gi,
   /\\\\[^\s\\]+\\[^\r\n<>"']*/g,
   // A path starts at a boundary (never inside "orgtree/build-slot", "integ/4.5.5" or "and/or"); a space belongs
   // to it only inside a segment that a later separator follows ("/Users/John Smith/x"), never after the last one.
