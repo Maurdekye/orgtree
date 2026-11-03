@@ -2352,7 +2352,7 @@ function DocketSection({ title, summary, children }: {
   )
 }
 
-function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
+export function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   refWorld, onOpenRef }: {
   heading: string
   items: string[]
@@ -2386,6 +2386,34 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   )
 }
 
+/** The blocked / waiting / dropped reason. */
+export function DocketStateReason({ field, text, refWorld, onOpenRef }: {
+  field: string; text: string; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void
+}) {
+  return <DocketSelection field={field} text={text}><div className="docket-desc-body">{text}</div></DocketSelection>
+}
+
+/** Evidence notes (item pane). */
+export function DocketEvidenceNotes({ item, refWorld, onOpenRef }: {
+  item: WorkItem; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void
+}) {
+  if (!(item.evidence ?? []).some(ev => ev.note)) return null
+  return <DocketSection title="EVIDENCE NOTES"><ul>{(item.evidence ?? []).map((ev, i) => ev.note
+    ? <li key={i}><code>{ev.ref}</code>{' · '}<DocketSelection field="evidence.note" text={ev.note} entry={i}>{ev.note}</DocketSelection></li> : null)}</ul></DocketSection>
+}
+
+/** The manually raised attention reason. */
+export function DocketAttentionReason({ reason, refWorld, onOpenRef, refIndex, onGoToItem }: {
+  reason: string; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void
+  refIndex: MentionIndex; onGoToItem?: (id: string) => void
+}) {
+  return (
+    <div className="docket-attention-body">
+      <RefProse text={reason} world={refWorld} onOpen={onOpenRef} index={refIndex} onPick={onGoToItem} />
+    </div>
+  )
+}
+
 /** THE SUMMARY WAS CORRECTED AFTER THE WORK WAS FINISHED (ledger
  *  `work_addendum`).
  *
@@ -2398,7 +2426,7 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
  *  It says nothing about the OUTCOME, because an addendum changes none of it:
  *  the status, the acceptance record, the checks and the evidence on this pane
  *  are still exactly the ones the completion wrote. */
-function DocketPostCompletion({ item }: { item: WorkItem }) {
+export function DocketPostCompletion({ item }: { item: WorkItem }) {
   const pc = item.post_completion
   if (!pc) return null
   const who = typeof pc.by === 'string' ? pc.by : pc.by?.node
@@ -2425,7 +2453,7 @@ function DocketPostCompletion({ item }: { item: WorkItem }) {
  * classification and retain the complete check sequence for auditability.
  * In particular, a crash and an expected blocked-request control must not
  * collapse into a generic green check. */
-function DocketAcceptance({ item }: { item: WorkItem }) {
+export function DocketAcceptance({ item }: { item: WorkItem }) {
   if (!item.acceptance?.length) return null
   return (
     <DocketSection title="ACCEPTANCE CONDITIONS">
@@ -2463,7 +2491,7 @@ function DocketAcceptance({ item }: { item: WorkItem }) {
 /** The latest integration verdict and review packet are deliberately shown
  * separately from status/acceptance: approving a candidate does not complete
  * the docket item, and a packet belongs only to the current review cycle. */
-function DocketReviewState({ item }: { item: WorkItem }) {
+export function DocketReviewState({ item }: { item: WorkItem }) {
   const verdict = item.candidate_verdict
   const packet = item.review_packet
   if (!verdict && !packet) return null
@@ -2515,7 +2543,7 @@ function DocketReviewState({ item }: { item: WorkItem }) {
  *  recorded it (the recorder is who a `named` grant authorizes against), so
  *  the user downloads and reads here but does not add — unlike ATTACHMENTS
  *  just below, which are the user's own files on the ticket. */
-function DocketVerification({ slug, item }: { slug: string; item: WorkItem }) {
+export function DocketVerification({ slug, item }: { slug: string; item: WorkItem }) {
   const receipts = (item.evidence ?? [])
     .map((e, i) => ({ i, e, rc: e.receipt }))
     .filter((r): r is { i: number; e: typeof r.e; rc: WorkReceipt } => !!r.rc)
@@ -2932,7 +2960,8 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
       {stateInfo && (
         <DocketSection title={stateInfo.heading}>
           {stateInfo.text
-            ? <DocketSelection field={item.status==='blocked'?'blocked_reason':'dropped_reason'} text={stateInfo.text}><div className="docket-desc-body">{stateInfo.text}</div></DocketSelection>
+            ? <DocketStateReason field={item.status==='blocked'?'blocked_reason':'dropped_reason'} text={stateInfo.text}
+                refWorld={refWorld} onOpenRef={onOpenRef} />
             : <div className="dim docket-list-empty">
                 not recorded — this item entered {item.status} before the rule
                 that the state says why
@@ -2948,7 +2977,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
         mark="next" refIndex={refIndex} onGoToItem={onGoToItem}
         onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
-      {(item.evidence??[]).some(ev=>ev.note) && <DocketSection title="EVIDENCE NOTES"><ul>{(item.evidence??[]).map((ev,i)=>ev.note ? <li key={i}><code>{ev.ref}</code>{' · '}<DocketSelection field="evidence.note" text={ev.note} entry={i}>{ev.note}</DocketSelection></li>:null)}</ul></DocketSection>}
+      <DocketEvidenceNotes item={item} refWorld={refWorld} onOpenRef={onOpenRef} />
       <DocketAcceptance item={item} />
       <DocketVerification slug={slug} item={item} />
       <DocketAttachments slug={slug} item={item} toast={toast}
@@ -2970,10 +2999,8 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
               )}
             </div>
           {/* the reason is written as several lines; a plain <div> ran them together */}
-          <div className="docket-attention-body">
-            <RefProse text={manualAttn.reason} world={refWorld}
-              onOpen={onOpenRef} index={refIndex} onPick={onGoToItem} />
-          </div>
+          <DocketAttentionReason reason={manualAttn.reason} refWorld={refWorld}
+            onOpenRef={onOpenRef} refIndex={refIndex} onGoToItem={onGoToItem} />
           </div>
         </DocketSection>
       )}
