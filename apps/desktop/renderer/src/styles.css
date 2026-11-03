@@ -10468,14 +10468,20 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .agent-states-totals { display: flex; flex-direction: column; gap: 2px; font-size: 12px; padding: 4px 0 6px; border-bottom: 1px solid rgba(128,128,128,.16); }
 .agent-states-window b { font-weight: 600; margin-right: 6px; }
 .agent-states-list { list-style: none; padding: 0; margin: 0; }
-.agent-states-list li { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 30px; border-bottom: 1px solid rgba(128,128,128,.16); }
+.agent-states-list li { display: grid; grid-template-columns: 96px minmax(0, 1fr) 90px 60px; align-items: center; gap: 8px; min-height: 30px; border-bottom: 1px solid rgba(128,128,128,.16); }
 .agent-states-when { font-size: 11px; min-width: 0; }
-.agent-states-dur { font-size: 12px; white-space: nowrap; }
+.agent-states-dur { font-size: 12px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .agent-states-name { display: inline-flex; align-items: center; gap: 6px; }
-.agent-states .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); display: inline-block; }
-.agent-states .state-dot.active { background: var(--ok); }
-.agent-states .state-dot.blocked, .agent-states .state-dot.halted { background: var(--bad); }
-.agent-states .state-dot.frozen { background: var(--ice); }
+/* one status colour per state, read by the dot and the duration bar alike */
+.agent-states [data-state] { --state-colour: var(--dim); }
+.agent-states [data-state="active"] { --state-colour: var(--ok); }
+.agent-states [data-state="blocked"] { --state-colour: var(--bad); }
+.agent-states [data-state="halted"] { --state-colour: var(--bad); }
+.agent-states [data-state="frozen"] { --state-colour: var(--ice); }
+.agent-states .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-colour); display: inline-block; }
+/* the duration bar: a fixed track (so every bar starts at one left edge and lengths compare across rows) with a log-length fill */
+.agent-states-bar { display: block; width: 90px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--dim) 18%, transparent); overflow: hidden; }
+.agent-states .state-bar { display: block; height: 100%; border-radius: 4px; background: var(--state-colour); }
 .agent-states-more { align-self: flex-start; }
 
 /* the jump link joins the quoted block's own header row at its right end

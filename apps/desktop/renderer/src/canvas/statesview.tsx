@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { getAgentStates, type AgentStateSpan, type AgentStateTotals, type AgentStateWord, type AgentStatesPage } from '../api'
 import { onLiveBump } from '../livebus'
 import { useOrgRecordCursor } from '../recordsession'
 import { fmtAge, fmtFull } from '../timefmt'
+import { ageClockNow, subscribeAgeClock } from './desk'
 
 const WORDS: AgentStateWord[] = ['active', 'idle', 'blocked', 'halted', 'frozen']
 const LABEL: Record<AgentStateWord, string> = {
@@ -22,10 +23,25 @@ function TotalsLine({ label, totals }: { label: string; totals: AgentStateTotals
 /** Bar length (percent of the track) for a span, on a FIXED log scale so rows
  *  stay comparable across pages and agents: 1 s or less is the minimum, 7 days
  *  or more the full bar, length proportional to log(duration) between. */
-export const barWidthPct = (secs: number): number => { void secs; return 0 }
+const SCALE_MAX_SECS = 7 * 86400
+const BAR_MIN_PCT = 2
+export const barWidthPct = (secs: number): number => {
+  if (!(secs > 1)) return BAR_MIN_PCT
+  if (secs >= SCALE_MAX_SECS) return 100
+  return Math.max(BAR_MIN_PCT, 100 * Math.log(secs) / Math.log(SCALE_MAX_SECS))
+}
 
 /** The exact duration for a hover: "1d 1h 1m 1s", zero parts left out. */
-export const fmtExact = (secs: number): string => { void secs; return '' }
+export const fmtExact = (secs: number): string => {
+  let rest = Math.floor(Math.max(0, secs))
+  const parts: string[] = []
+  for (const [unit, size] of [['d', 86400], ['h', 3600], ['m', 60], ['s', 1]] as const) {
+    const n = Math.floor(rest / size)
+    rest -= n * size
+    if (n) parts.push(`${n}${unit}`)
+  }
+  return parts.length ? parts.join(' ') : '0s'
+}
 
 /** The agent's state history in node settings: time per state over the last
  *  24 hours and 7 days, then each span newest first in pages by cursor. The
@@ -80,6 +96,10 @@ export function AgentStatesView({ slug, nid }: { slug: string; nid: string }) {
     const off = onLiveBump(() => { void loadFirst() })
     return () => { ++identity.current; off() }
   }, [slug, nid])  // eslint-disable-line react-hooks/exhaustive-deps
+  // the shared second: the open span grows with the clock, never shrinks below the server's reading
+  const nowSec = useSyncExternalStore(subscribeAgeClock, ageClockNow)
+  const secsOf = (s: AgentStateSpan) => s.end ? s.secs
+    : Math.max(s.secs, nowSec - Math.floor(Date.parse(s.start) / 1000))
   const seen = useRef(cursor)
   useEffect(() => {
     if (cursor && seen.current && seen.current !== cursor) void loadFirst()
@@ -96,15 +116,21 @@ export function AgentStatesView({ slug, nid }: { slug: string; nid: string }) {
     {error && <p role="alert">Could not load state history: {error}</p>}
     {busy && !first && <p role="status" className="dim">Loading state history…</p>}
     {first && spans.length === 0 && <p className="dim">No state changes recorded yet.</p>}
-    <ol className="agent-states-list">{spans.map(s => <li key={s.start} data-state={s.state}>
-      <span className="agent-states-name"><i className={`state-dot ${s.state}`} aria-hidden="true" />{LABEL[s.state]}</span>
-      <span className="agent-states-when dim">
-        <time dateTime={s.start} title={s.start}>{fmtFull(s.start)}</time>
-        {' → '}
-        {s.end ? <time dateTime={s.end} title={s.end}>{fmtFull(s.end)}</time> : <b>now</b>}
-      </span>
-      <span className="agent-states-dur">{fmtSpan(s.secs)}</span>
-    </li>)}</ol>
+    <ol className="agent-states-list">{spans.map(s => {
+      const secs = secsOf(s)
+      return <li key={s.start} data-state={s.state}>
+        <span className="agent-states-name"><i className={`state-dot ${s.state}`} aria-hidden="true" />{LABEL[s.state]}</span>
+        <span className="agent-states-when dim">
+          <time dateTime={s.start} title={s.start}>{fmtFull(s.start)}</time>
+          {' → '}
+          {s.end ? <time dateTime={s.end} title={s.end}>{fmtFull(s.end)}</time> : <b>now</b>}
+        </span>
+        <span className="agent-states-bar" title={`${LABEL[s.state]} for ${fmtExact(secs)}`}>
+          <i className={`state-bar ${s.state}`} style={{ width: `${barWidthPct(secs)}%` }} />
+        </span>
+        <span className="agent-states-dur">{fmtSpan(secs)}</span>
+      </li>
+    })}</ol>
     {next && <button className="agent-states-more" disabled={busy} onClick={() => void loadOlder()}>Load older</button>}
   </section>
 }
