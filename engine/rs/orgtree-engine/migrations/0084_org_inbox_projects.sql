@@ -5,6 +5,11 @@ ALTER TABLE ot.org_inbox ADD COLUMN IF NOT EXISTS via_job text;
 CREATE INDEX IF NOT EXISTS mail_org_inbox_job
   ON ot.mail (recipient_agent_id, (extra->'org_inbox'->>'uid'))
   WHERE extra ? 'org_inbox';
+-- D13/D14: the carry lookup (one outside peer's message by its hub id, in one recipient's mailbox) must not grow with that
+-- peer's history: keyed by net_id, unlike mail_from_outside (recipient, sender, created_at).
+CREATE INDEX IF NOT EXISTS mail_outside_net
+  ON ot.mail (recipient_agent_id, net_id)
+  WHERE sender_agent_id IS NULL AND net_id IS NOT NULL;
 -- D14: hand-out of the follow-ups bundled with a job.
 CREATE INDEX IF NOT EXISTS mail_bundled_with
   ON ot.mail ((extra->>'bundled_with'))

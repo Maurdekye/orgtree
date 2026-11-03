@@ -199,7 +199,7 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<
                 let carry: Option<String> = match &o_net {
                     Some(n) => tx
                         .query_opt(
-                            "SELECT extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND net_id=$3 AND sender=$4 AND sender_agent_id IS NULL ORDER BY id DESC LIMIT 1",
+                            "SELECT extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND net_id=$3 AND sender=$4 AND sender_agent_id IS NULL AND net_id IS NOT NULL ORDER BY id DESC LIMIT 1",
                             &[&org, &nid, n, &peer],
                         )
                         .await?

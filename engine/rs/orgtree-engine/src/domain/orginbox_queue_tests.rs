@@ -520,13 +520,15 @@ async fn t3_i_ii_a_paused_grant_still_restricts_members_and_a_retired_project_re
 async fn t30_the_hand_out_and_carry_lookups_use_their_partial_indexes() {
     let w = world(true).await;
     let proj = w.project("intake", true).await;
-    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
-                 SELECT 'seed'||g, $1, '@net:x.'||g, 'agent', $2, 'intake', 'b', 'read', '{}'::jsonb FROM generate_series(1,10000) g", &[&w.org, &proj]).await.unwrap();
+    // WORST CASE: one outside peer's long history in one project mailbox (same recipient, same sender, a hub id each)
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,net_id,extra)
+                 SELECT 'seed'||g, $1, '@net:x.1', 'agent', $2, 'intake', 'b', 'read', 'n'||g, '{}'::jsonb FROM generate_series(1,10000) g", &[&w.org, &proj]).await.unwrap();
     w.c.batch_execute("ANALYZE ot.mail").await.unwrap();
     let explain = |sql: String| { let c = &w.c; async move {
         c.query(&format!("EXPLAIN {sql}"), &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>().join("\n") } };
     let handout = explain(format!("SELECT id FROM ot.mail WHERE extra ? 'bundled_with' AND extra->>'bundled_with' = 'u' AND recipient_agent_id = {proj} AND NOT (extra ? 'bundled_handed')")).await;
     assert!(handout.contains("mail_bundled_with") && !handout.contains("Seq Scan on mail"), "the bundled hand-out uses mail_bundled_with: {handout}");
-    let carry = explain(format!("SELECT extra->>'outside_job' FROM ot.mail WHERE org_id={} AND recipient_agent_id={proj} AND net_id='n' AND sender='@net:x.1' AND sender_agent_id IS NULL ORDER BY id DESC LIMIT 1", w.org)).await;
-    assert!(carry.contains("mail_from_outside") && !carry.contains("Seq Scan on mail"), "the carry lookup uses mail_from_outside: {carry}");
+    let carry = explain(format!("SELECT extra->>'outside_job' FROM ot.mail WHERE org_id={} AND recipient_agent_id={proj} AND net_id='n5' AND sender='@net:x.1' AND sender_agent_id IS NULL AND net_id IS NOT NULL ORDER BY id DESC LIMIT 1", w.org)).await;
+    assert!(carry.contains("mail_outside_net") && !carry.contains("Seq Scan on mail"), "the carry lookup uses mail_outside_net, however long one peer's history is: {carry}");
+    assert!(include_str!("orginbox_jobs.rs").contains("AND sender_agent_id IS NULL AND net_id IS NOT NULL ORDER BY id DESC LIMIT 1"), "the query matches the index predicate exactly");
 }
