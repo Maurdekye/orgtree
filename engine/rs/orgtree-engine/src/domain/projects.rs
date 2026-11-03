@@ -589,7 +589,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
     let waiting = tx
         .query(
             "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
-                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from', extra->'one_time'
+                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from', extra->'one_time', extra ? 'org_inbox'
                FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
                  AND (NOT $2 OR EXISTS (SELECT 1 FROM unnest($3::bigint[]) AS o(id) WHERE sender_agent_id IS DISTINCT FROM o.id)
                       OR ($4 AND sender <> '@user'))
@@ -602,7 +602,9 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         if steps.len() == limit { break; }
         let sender: Option<i64> = m.get(3);
         let sender_name: String = m.get(2);
-        let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || !is_sender(w, sender, &sender_name)).cloned().collect();
+        // outside mail (extra.org_inbox) is never handed to the user's desk listener: the desktop can't reply outside
+        let outside: bool = m.get(19);
+        let others: Vec<Watcher> = eligible.iter().filter(|w| (!skip_own || !is_sender(w, sender, &sender_name)) && !(outside && w.owner.is_none())).cloned().collect();
         // a mail the user took back from a holder goes to someone else first
         let taken_from: Vec<i64> = m.get::<_, Option<Value>>(17).and_then(|v| v.as_array().cloned()).unwrap_or_default()
             .iter().filter_map(Value::as_i64).collect();
@@ -617,6 +619,11 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         let mut via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
                                             "waited_from": iso(waited_from) } });
         if m.get::<_,Option<Value>>(18).is_some_and(|v|v==true) { via["one_time"]=json!(true); }
+        if outside {
+            // D8: the copy names its job, so the worker may reply to the sender until the ACK (D10)
+            via["via_project"]["outside"] = json!(true);
+            via["outside_job"] = json!(mail_uid);
+        }
         // an agent's copy lands in its mailbox; the user's in their inbox
         // (recipient_kind 'user', named '@user', as mail to the user is stored)
         tx.execute(
@@ -649,6 +656,28 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack, &waited_from],
         )
         .await?;
+        if outside {
+            // D14: follow-ups bundled with this job go to the same listener, in id order, in this transaction
+            let bundled = tx.query(
+                "SELECT id, uid, sender, kind, body, attachments, reply_to, ev, net_id, net_hub, replies FROM ot.mail
+                  WHERE extra->>'bundled_with' = $1 AND NOT (extra ? 'bundled_handed') ORDER BY id FOR UPDATE", &[&mail_uid]).await?;
+            for b in &bundled {
+                let b_copy = uid("m");
+                let b_via = json!({ "via_project": { "id": project, "name": pname, "mail": b.get::<_, String>(1), "dog": w.uid, "ack": ack,
+                                    "waited_from": iso(waited_from), "outside": true, "bundled": true, "job": mail_uid },
+                                    "outside_job": mail_uid });
+                tx.execute(
+                    "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body,
+                                          attachments, reply_to, ev, state, net_id, net_hub, replies, extra)
+                     VALUES ($1, $2, $3, 'agent', $4, $5, $6, $7, $8, $9, $10, $11, 'pending', $12, $13, $14, $15)",
+                    &[&b_copy, &org_id, &b.get::<_, String>(2), &w.owner, &w.owner_name, &b.get::<_, String>(3), &notice,
+                      &b.get::<_, String>(4), &b.get::<_, Value>(5), &b.get::<_, Option<Value>>(6), &b.get::<_, Option<Value>>(7),
+                      &b.get::<_, Option<String>>(8), &b.get::<_, Option<String>>(9), &b.get::<_, Value>(10), &b_via],
+                ).await?;
+                tx.execute("UPDATE ot.mail SET extra = extra || jsonb_build_object('bundled_handed', $2::text) WHERE id = $1",
+                    &[&b.get::<_, i64>(0), &b_copy]).await?;
+            }
+        }
         let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender_name}: {body}"), 200) }]);
         let served: DateTime<Utc> = if w.row == 0 {
             // No watchdog exists. Custody survives until its normal ACK,

@@ -33,6 +33,7 @@ pub struct Mail {
     pub via_project: Option<String>,
     /// handed in ack mode: the wrapper says how to ack it (user 2026-10-18 08:02Z)
     pub via_project_ack: bool,
+    pub via_project_outside: bool,
     /// Explicit bounded recovery when native mid-turn admission was uncertain.
     pub uncertain_mid_turn: bool,
     /// App content (`trace::private_app_content` of its row: the app's mail, a
@@ -288,7 +289,7 @@ mod token_part_tests {
     fn mail(uid: &str, sender: &str, body: &str) -> Mail {
         Mail { uid: uid.into(), sender: sender.into(), kind: "message".into(), body: body.into(),
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]), notice: false, one_time: false, urgent: false,
-            reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, uncertain_mid_turn: false, private_app: false }
+            reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, via_project_outside: false, uncertain_mid_turn: false, private_app: false }
     }
     /// User 2026-10-27 m7c48d80b13f4, m90b8a18987ea: each message counts as if it were
     /// sent alone, with its framing; the conditional parts sent with it are listed apart.
@@ -329,7 +330,7 @@ mod mail_size_tests {
     fn mail(body: String) -> Mail {
         Mail { uid: "large-mail".into(), sender: "sender".into(), kind: "message".into(), body,
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
-            notice: false, one_time: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, uncertain_mid_turn: false, private_app: false }
+            notice: false, one_time: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, via_project_outside: false, uncertain_mid_turn: false, private_app: false }
     }
 
     #[test]
@@ -554,7 +555,7 @@ mod phone_authority_tests {
                 at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
                 notice: false, one_time: false, urgent: false, reply_to: json!({"from":"@net:alex.123456","gist":note}), replies: json!([]), ev: json!({}),
                 via_project: None,
-                via_project_ack: false,
+                via_project_ack: false, via_project_outside: false,
                 uncertain_mid_turn: false,
                 private_app: false,
             };

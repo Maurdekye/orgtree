@@ -169,7 +169,7 @@ fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() 
         replies: json!([]),
         ev: json!({"variant":"runtime.restarted"}),
         via_project: None,
-        via_project_ack: false,
+        via_project_ack: false, via_project_outside: false,
         uncertain_mid_turn: true,
         private_app: false,
     };

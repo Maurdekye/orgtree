@@ -48,7 +48,7 @@ pub async fn read(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> 
     let tx=c.transaction().await?;
     let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE",&[&who.org_id]).await?.get(0);
     let multi=crate::feed::groups::effective_settings(&raw,&engine.settings.defaults())["org_inbox_multi_holder"].as_bool().unwrap_or(false);
-    if !orginbox::live_holders(&*tx,who.org_id,multi).await?.contains(&who.name) {
+    if !orginbox::holder_agents(&*tx,who.org_id,multi).await?.contains(&who.name) {
         crate::refuse!(Forbidden,"reading the org inbox requires its current extern audience; fallback delivery grants no audience");
     }
     if action=="settings" {return Done::json(&json!({"mode":orginbox::mode(&raw),"enabled":orginbox::enabled(&raw),"can_configure":false}));}

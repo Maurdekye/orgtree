@@ -11,7 +11,7 @@ async fn audience(e: &Engine, org: i64, actor: Option<i64>) -> Result<bool> {
         crate::refuse!(Forbidden,"agent is not live in this organization");
     };
     let settings = crate::feed::groups::effective_settings(&r.get::<_,Value>(1), &e.settings.defaults());
-    let holders = crate::domain::orginbox::live_holders(&**c, org, settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
+    let holders = crate::domain::orginbox::holder_agents(&**c, org, settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
     Ok(holders.contains(&r.get::<_,String>(0)))
 }
 

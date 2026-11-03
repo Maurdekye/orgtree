@@ -188,12 +188,27 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         crate::refuse!(NotFound, "organization not open");
     };
     let by = match &out.from { From::User => "user".to_string(), f => f.name() };
+    let mut via_job: Option<String> = None;
     if let From::Agent { id, name, .. } = &out.from {
-        ensure_holders(engine, org_id, Some((*id, name.as_str()))).await?;
+        match jobs::reply_right(engine, org_id, *id, out).await? {
+            jobs::Reply::Allowed(job) => via_job = Some(job),
+            jobs::Reply::NotApplicable => { ensure_holders(engine, org_id, Some((*id, name.as_str()))).await?; }
+            // a holder or top-level agent keeps its own right; anyone else gets the job-specific refusal
+            jobs::Reply::Refused => {
+                if ensure_holders(engine, org_id, Some((*id, name.as_str()))).await.is_err() {
+                    return Err(jobs::reply_refusal(to));
+                }
+            }
+        }
     }
     if let Some(peer) = to.strip_prefix("net:") {
         let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
         let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies).await?;
+        if let Some(job) = &via_job {
+            // D10: the reply remembers its job, so the peer's answer can route back into the worker's thread (D13)
+            let c = engine.db.get().await?;
+            c.execute("UPDATE ot.org_inbox SET via_job=$2 WHERE org_id=$3 AND uid=$1", &[&uid, job, &org_id]).await?;
+        }
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent { dnd_held: false,
             transfer_ids,
@@ -242,7 +257,8 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         )
         .await?;
     tx.execute("UPDATE ot.org_inbox SET kind=$2 WHERE uid=$1", &[&in_uid,&out.kind]).await?;
-    let (route, delivered, held, audience_changed) = publish_new(engine,&tx,dst.id,&in_uid).await?;
+    let (published, held) = publish_new(engine,&tx,dst.id,&in_uid).await?;
+    let jobs::Published { route, copies: delivered, jobs: queued, changed: audience_changed } = published;
     let holders = &route.to;
     let mut mention_rows=[(org_id,out_uid.as_str()),(dst.id,in_uid.as_str())];
     mention_rows.sort_by_key(|row|row.0);
@@ -256,32 +272,56 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
     if audience_changed { changes::notify(engine,&dst,vec![Change::Audiences,Change::Events]); }
     wake_copies(engine, dst.id, delivered);
-    if !held && (holders.is_empty() || route.waiting) {
+    let to_projects = !route.projects.is_empty();
+    jobs::wake_jobs(engine, dst.id, queued);
+    if !held && !to_projects && (holders.is_empty() || route.waiting) {
         if let Err(error) = super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body,holders).await {
             tracing::warn!(org_id = dst.id, %error, "outside mail committed; fallback notice failed");
         }
     }
+    let everyone: Vec<String> = holders.iter().chain(route.projects.iter()).cloned().collect();
     let delivery = if held {
         format!("Stored in {}'s org inbox under Do not disturb or its ordered release queue; no agent copy or wake. An extern-audience holder can pull it.",dst.slug)
-    } else if holders.is_empty() {
+    } else if everyone.is_empty() {
         format!("Stored in {}'s org inbox; it has no live agent to read it yet.", dst.slug)
     } else if route.waiting {
         format!("Delivered to {}'s org inbox and to {}; none of them can run now (halted or frozen), so it waits for them.", dst.slug, holders.join(", "))
     } else {
-        format!("Delivered to {}'s org inbox and to {}.", dst.slug, holders.join(", "))
+        format!("Delivered to {}'s org inbox and to {}.", dst.slug, everyone.join(", "))
     };
     resume_pending(engine,dst.id).await;
-    Ok(Sent { dnd_held: held, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: held || holders.is_empty() || route.waiting })
+    Ok(Sent { dnd_held: held, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: held || everyone.is_empty() || route.waiting })
 }
 
-/// Effective live audience holders; newest grant wins in single-holder mode.
+/// Effective live audience holders, agents AND projects (USER 2026-11-03 mdf5da6c51202: a project
+/// holds the org inbox "like an agent node"); newest grant wins in single-holder mode.
+/// Each is `(name, kind)`, kind `agent` or `project`.
+#[logged]
+pub async fn holder_rows<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<(String, String)>> {
+    let rows = client.query(
+        "SELECT au.grantee, a.kind FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+         WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND NOT au.paused AND a.state = 'live'
+         GROUP BY au.grantee, a.kind ORDER BY max(au.id) DESC LIMIT $2", &[&org_id, &(if multi { 10000i64 } else { 1i64 })]).await?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
+/// Every live holder's name, agents and projects, newest first. For the holders list and
+/// busy presence; anything that acts AS a holder (send, pull, read, notices) uses `holder_agents`.
 #[logged]
 pub async fn live_holders<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<String>> {
-    let rows = client.query(
-        "SELECT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
-         WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND NOT au.paused AND a.state = 'live'
-         GROUP BY au.grantee ORDER BY max(au.id) DESC LIMIT $2", &[&org_id, &(if multi { 10000i64 } else { 1i64 })]).await?;
-    Ok(rows.iter().map(|r| r.get(0)).collect())
+    Ok(holder_rows(client, org_id, multi).await?.into_iter().map(|r| r.0).collect())
+}
+
+/// The agent holders (the newest-wins cut in single-holder mode is made across both kinds first).
+#[logged]
+pub async fn holder_agents<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<String>> {
+    Ok(holder_rows(client, org_id, multi).await?.into_iter().filter(|r| r.1 == "agent").map(|r| r.0).collect())
+}
+
+/// The project holders: each gets one queued job per outside message.
+#[logged]
+pub async fn holder_projects<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<String>> {
+    Ok(holder_rows(client, org_id, multi).await?.into_iter().filter(|r| r.1 == "project").map(|r| r.0).collect())
 }
 
 /// Of these agents, the ones that can run a turn now (not halted, not frozen), in the same order.
@@ -308,8 +348,22 @@ pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
     if killed {
         return Ok(true);
     }
-    let holders = live_holders(client, org_id, multi).await?;
-    Ok(runnable(client, org_id, &holders).await?.is_empty())
+    let all = holder_rows(client, org_id, multi).await?;
+    let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
+    if !runnable(client, org_id, &agents).await?.is_empty() {
+        return Ok(false);
+    }
+    // a project holder is online while one of its armed fair_queue listeners belongs to an agent that can run
+    let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
+    if projects.is_empty() {
+        return Ok(true);
+    }
+    Ok(client.query_opt(
+        "SELECT 1 FROM ot.watchdogs w
+           JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL
+           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($2) AND p.id = (w.memo->>'target_id')::bigint
+          WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed' LIMIT 1",
+        &[&org_id, &projects]).await?.is_none())
 }
 
 #[cfg(test)]
@@ -324,6 +378,8 @@ mod busy_tests;
 struct Route {
     to: Vec<String>,
     waiting: bool,
+    /// project holders: each gets one queued job (D6); never auto-granted or fallen back past
+    projects: Vec<String>,
 }
 
 /// Whether `ensure_holders` would let this agent send outside mail now,
@@ -340,7 +396,7 @@ pub(crate) async fn may_send_extern(engine: &Arc<Engine>, org_id: i64, agent_id:
     }
     let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
     let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
-    if live_holders(client, org_id, multi).await?.iter().any(|h| h == name) {
+    if holder_agents(client, org_id, multi).await?.iter().any(|h| h == name) {
         return Ok(true);
     }
     Ok(client
@@ -368,14 +424,15 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
     defaults:&Map<String,Value>) -> Result<(Route,bool)> {
     let settings = crate::feed::groups::effective_settings(raw, defaults);
     let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
-    let mut holders = live_holders(&*tx, org_id, multi).await?;
+    let mut holders = holder_agents(&*tx, org_id, multi).await?;
+    let projects = holder_projects(&*tx, org_id, multi).await?;
     let target = if let Some((id, name)) = sender {
         if holders.iter().any(|h| h == name) { None } else {
             let top = tx.query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.superior_of(id) IS NULL", &[&id, &org_id]).await?.is_some();
             if !top { crate::refuse!(Forbidden, "outside mail needs the org-inbox audience; ask your superior"); }
             Some((id, name.to_string(), "auto-granted: top-level agent messaged an outside party"))
         }
-    } else if holders.is_empty() {
+    } else if holders.is_empty() && projects.is_empty() {
         // the first top-level agent who can run; when none can, the first live one
         tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND ot.superior_of(id) IS NULL AND state = 'live' AND kind = 'agent'
                        ORDER BY (halt IS NULL AND frozen IS NULL) DESC, sibling_order, id LIMIT 1", &[&org_id]).await?
@@ -393,11 +450,13 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
         holders.push(name);
         changed = true;
     }
-    let mut route = Route { to: holders.clone(), waiting: false };
+    let mut route = Route { to: holders.clone(), waiting: false, projects };
     if sender.is_none() && !holders.is_empty() {
         let ready = runnable(&*tx, org_id, &holders).await?;
         if !ready.is_empty() {
             route.to = ready;
+        } else if !route.projects.is_empty() {
+            // a project holder is a durable receiver: the unrunnable agent holders keep waiting copies, no fallback
         } else if let Some(r) = tx.query_opt(
             "SELECT name FROM ot.agents WHERE org_id = $1 AND ot.superior_of(id) IS NULL AND state = 'live' AND kind = 'agent' AND halt IS NULL AND frozen IS NULL
               ORDER BY sibling_order, id LIMIT 1", &[&org_id]).await? {
@@ -455,14 +514,17 @@ pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str
           &crate::util::pg_json_option(&stored).as_ref(), &json!(quotes)],
     ).await?;
     if n == 0 { return Ok(false); }
-    let (route, delivered, held, audience_changed) = publish_new(engine,&tx,org_id,&mention_mail_uid).await?;
+    let (published, held) = publish_new(engine,&tx,org_id,&mention_mail_uid).await?;
+    let jobs::Published { route, copies: delivered, jobs: queued, changed: audience_changed } = published;
     let holders = &route.to;
     super::mention_navigation::record_org_mail(&*tx,org_id,&mention_mail_uid,body).await?;
     tx.commit().await?;
     drop(client);
     wake_copies(engine, org_id, delivered);
+    let to_projects = !route.projects.is_empty();
+    jobs::wake_jobs(engine, org_id, queued);
     if audience_changed { changes::notify(engine,&org,vec![Change::Audiences,Change::Events]); }
-    if !held && (holders.is_empty() || route.waiting) {
+    if !held && !to_projects && (holders.is_empty() || route.waiting) {
         if let Err(error) = super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await {
             tracing::warn!(org_id, %error, "outside mail committed; fallback notice failed");
         }
@@ -474,18 +536,19 @@ pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str
 /// A held backlog also queues new Normal-mode arrivals, so none overtake it.
 #[logged]
 async fn publish_new(engine:&Engine,tx:&tokio_postgres::Transaction<'_>,org:i64,uid:&str)
-    -> Result<(Route,Vec<(i64,String,String,bool)>,bool,bool)> {
+    -> Result<(jobs::Published,bool)> {
     let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1",&[&org]).await?.get(0);
     let backlog=tx.query_opt("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND dnd_held LIMIT 1",&[&org]).await?.is_some();
     if mode(&raw)=="dnd" || backlog {
         tx.execute("UPDATE ot.org_inbox SET dnd_held=true WHERE uid=$1",&[&uid]).await?;
-        return Ok((Route{to:Vec::new(),waiting:false},Vec::new(),true,false));
+        return Ok((jobs::Published{route:Route{to:Vec::new(),waiting:false,projects:Vec::new()},copies:Vec::new(),jobs:Vec::new(),changed:false},true));
     }
-    let (route,changed)=route_tx(tx,org,None,&raw,&engine.settings.defaults()).await?;
     let row:Value=tx.query_one("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE uid=$1",&[&uid]).await?.get(0);
-    let copies=publish_row(tx,org,&route.to,&row).await?;
-    Ok((route,copies,false,changed))
+    Ok((jobs::publish(engine,tx,org,&raw,&row).await?,false))
 }
+
+#[path = "orginbox_jobs.rs"]
+mod jobs;
 
 #[logged]
 async fn publish_row(tx:&tokio_postgres::Transaction<'_>,org:i64,holders:&[String],row:&Value)
@@ -530,18 +593,24 @@ pub async fn release_page(engine:&Arc<Engine>,org:i64) -> Result<usize> {
     if mode(&raw)!="normal" {return Ok(0);}
     let rows=tx.query("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id=$1 AND dnd_held ORDER BY id LIMIT 100 FOR UPDATE",&[&org]).await?;
     if rows.is_empty() {return Ok(0);}
-    let (route,changed)=route_tx(&tx,org,None,&raw,&engine.settings.defaults()).await?;
-    if route.to.is_empty() {return Ok(0);}
+    let (route,_)=route_tx(&tx,org,None,&raw,&engine.settings.defaults()).await?;
+    if route.to.is_empty() && route.projects.is_empty() {return Ok(0);}
     let mut copies=Vec::new();
+    let mut queued=Vec::new();
+    let mut changed=false;
     for row in &rows {
         let row:Value=row.get(0);
-        copies.extend(publish_row(&tx,org,&route.to,&row).await?);
+        let p=jobs::publish(engine,&tx,org,&raw,&row).await?;
+        changed|=p.changed;
+        copies.extend(p.copies);
+        queued.extend(p.jobs);
         tx.execute("UPDATE ot.org_inbox SET dnd_held=false WHERE uid=$1",&[&row["uid"].as_str().unwrap()]).await?;
     }
     tx.commit().await?;
     drop(c);
     if changed {changes::notify_id(engine,org,vec![Change::Audiences,Change::Events]);}
     wake_copies(engine,org,copies);
+    jobs::wake_jobs(engine,org,queued);
     Ok(rows.len())
 }
 
@@ -692,8 +761,10 @@ mod delivered_to_tests {
         let publish_row = &publish_row[..publish_row.find("pub(crate) fn delivered_with").unwrap()];
         assert!(publish_row.contains("publish_copies(") && publish_row.contains("record_delivered(tx,row,&names)"),
             "the list is written by the call that made the copies, in its transaction");
-        assert!(source.contains("publish_row(&tx,org,&route.to,&row)"), "the release of held mail uses it");
-        assert!(source.contains("publish_row(tx,org,&route.to,&row)"), "so does a new arrival");
+        assert!(source.contains("jobs::publish(engine,&tx,org,&raw,&row)"), "the release of held mail routes through it");
+        assert!(source.contains("jobs::publish(engine,tx,org,&raw,&row)"), "so does a new arrival");
+        let jobs = include_str!("orginbox_jobs.rs");
+        assert!(jobs.contains("publish_row(tx, org, &route.to, row)"), "and the routing publishes the agent copies with it");
         let pull = include_str!("../tools/org_inbox.rs");
         assert!(pull.contains("delivered_to=$3") && pull.contains("orginbox::delivered_with(&row,&[who.name.as_str()])"),
             "a Do not disturb pull adds the pulling agent");

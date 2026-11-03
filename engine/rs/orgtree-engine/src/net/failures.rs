@@ -41,7 +41,7 @@ async fn recipients(e: &Engine, tx: &Transaction<'_>, org: i64, detail: &Value) 
     }
     let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&org]).await?.get(0);
     let settings = crate::feed::groups::effective_settings(&raw,&e.settings.defaults());
-    let names = crate::domain::orginbox::live_holders(tx,org,settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
+    let names = crate::domain::orginbox::holder_agents(tx,org,settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
     let rows = tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND name=ANY($2) ORDER BY id LIMIT 10000", &[&org,&names]).await?;
     Ok(rows.iter().map(|r|r.get(0)).collect())
 }

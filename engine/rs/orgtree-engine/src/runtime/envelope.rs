@@ -758,7 +758,18 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         }
         }
         // handed out by a project's fair mail queue (docs/rust-engine/PROJECT-NODES.md)
-        if let Some(p) = &m.via_project {
+        if let Some(p) = m.via_project.as_ref().filter(|_| m.via_project_outside) {
+            // outside mail queued in the project (spec D12): the worker answers the outside sender itself
+            b.push_str(&format!("\n↳ Via project {p}: outside mail to the org, handed to you as one of {p}'s fair_queue watchers. \
+                                 Reply to {s} with orgtree_message to={s} reply_to={u}; your reply goes out from the org inbox.",
+                                s = m.sender, u = m.uid));
+            if m.via_project_ack {
+                b.push_str(&format!(" ACK MODE: when done, ack it with orgtree_message to={p} reply_to={} (the ack sends nothing to {}). \
+                                     Once you ack it, you can no longer reply to {} about it.", m.uid, m.sender, m.sender));
+            } else {
+                b.push_str(" No ack is needed; you may reply as often as needed.");
+            }
+        } else if let Some(p) = &m.via_project {
             b.push_str(&format!("\n↳ Via project {p}: its fair mail queue handed this to you as one of its fair_queue watchers; it is \
                                  yours now (the project's copy is marked read). Answer the sender, not the project."));
             // whether it must be acked, and how (user 2026-10-18 08:02Z)

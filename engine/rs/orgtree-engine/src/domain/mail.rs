@@ -569,6 +569,15 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
 }
 
+/// Outside mail queued in a project nobody watches: the same nudge a user post gets (spec D8).
+#[logged]
+pub(crate) async fn nudge_unwatched(engine: &Arc<Engine>, org_id: i64, project: i64, name: &str) {
+    let p = crate::domain::projects::Project { id: project, name: name.to_string(), state: "live".into() };
+    if let Err(error) = Box::pin(nudge_project(engine, org_id, &p)).await {
+        tracing::warn!(org_id, project, %error, "outside job nudge skipped");
+    }
+}
+
 /// The user wrote to a project and no watcher took it (user 2026-10-18
 /// 07:46Z): when nobody watches the project at all, wake one agent directly
 /// under it (`projects::nudge_target`) and ask it to arm a fair_queue dog,

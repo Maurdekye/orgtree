@@ -164,9 +164,6 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     }
     let (my_id, _) = live(&**client, org.id, requester).await?;
     let my_name = requester;
-    if target == EXTERN && project_manager(&**client, org.id, my_name).await?.is_some() {
-        refuse!(Forbidden, "org-inbox audiences remain on real agents, not projects");
-    }
     let (_, my_parent) = live(&**client, org.id, my_name).await?;
     if target == my_name {
         refuse!(BadRequest, "you cannot ask yourself for an audience");
@@ -360,9 +357,6 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     };
     if grantor == grantee {
         refuse!(BadRequest, "an agent needs no audience with itself");
-    }
-    if grantor == EXTERN && project_manager(client, org.id, &grantee).await?.is_some() {
-        refuse!(Forbidden, "org-inbox audiences remain on real agents, not projects");
     }
     if grantor != USER && grantor != EXTERN {
         live(client, org.id, &grantor).await?;
