@@ -10381,9 +10381,9 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
    dot and then "Tint like unread"): the SAME narrow left edge as the unread highlight above (that rule draws it; these only set its
    colour). Running is --accent, which a provider-coloured desk re-points at its provider (the unread edge stays the theme's
    --org-accent), dead (an app with panels none of which runs, a panel that is off) a dark grey of the theme, none (an app with no
-   panels) no flare at all. The Apps list's rows keep their tints (apps.css). */
-.ref-flare.run-on { --ref-flare-color: var(--accent); }
-.ref-flare.run-dead { --ref-flare-color: color-mix(in srgb, var(--dim) 55%, black); }
+   panels) no flare at all. The Apps list rows wear the same edge (apps.css). */
+.ref-flare.run-on, .custom-apps-menu-app.run-on, .custom-apps-saved-row.run-on { --ref-flare-color: var(--accent); }
+.ref-flare.run-dead, .custom-apps-menu-app.run-dead, .custom-apps-saved-row.run-dead { --ref-flare-color: color-mix(in srgb, var(--dim) 55%, black); }
 /* Opt-in (user 2026-10-27): genuine inline fragments, not a multiline atomic
    button. Natural word/dash breaks win; an unbroken identifier can still fit. */
 .wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),
