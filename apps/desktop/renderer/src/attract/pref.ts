@@ -79,3 +79,80 @@ export function setAttractMode(on: boolean): Promise<void> {
   show(on)
   return saveAttract(on).catch(() => show(stored))
 }
+
+// ---------------------------------------------------------------- start after
+/* The idle delay (USER 2026-11-03 me67326548f6c "also allow attract mode's idle
+   timeout to be configurable, as low as 0"): `DesktopPreferences.attractIdleSeconds`,
+   whole seconds, 0 and up, no maximum, absent = 300. One app-wide value like
+   the toggle; each window's timer reads it live. In a plain browser it lives
+   in localStorage. */
+export const DEFAULT_ATTRACT_IDLE_SECONDS = 300
+export const ATTRACT_IDLE_KEY = 'orgtree-attract-idle'
+export const ATTRACT_IDLE_EVENT = 'orgtree:attract-idle-stored'
+
+/** a stored value is valid only as a whole number of seconds, 0 or more */
+export const validAttractIdle = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
+const idleOf = (v: unknown): number => validAttractIdle(v) ? v : DEFAULT_ATTRACT_IDLE_SECONDS
+const idleOfPrefs = (prefs: unknown): number =>
+  idleOf(prefs && typeof prefs === 'object' ? (prefs as Partial<DesktopPreferences>).attractIdleSeconds : undefined)
+
+/** Follow the stored delay: `accept` runs with the current value and again on
+ *  every change, whichever window made it. */
+export function watchAttractIdle(accept: (seconds: number) => void): () => void {
+  const bridge = desktop()
+  if (!bridge) {
+    const read = () => {
+      let n: unknown
+      try { const raw = localStorage.getItem(ATTRACT_IDLE_KEY); n = raw === null || raw.trim() === '' ? undefined : Number(raw) } catch { /* private mode */ }
+      accept(idleOf(n))
+    }
+    const storage = (e: StorageEvent) => { if (e.key === ATTRACT_IDLE_KEY || e.key === null) read() }
+    read()
+    window.addEventListener('storage', storage)
+    window.addEventListener(ATTRACT_IDLE_EVENT, read)
+    return () => { window.removeEventListener('storage', storage); window.removeEventListener(ATTRACT_IDLE_EVENT, read) }
+  }
+  let alive = true, revision = 0
+  const stop = bridge.onEvent(e => {
+    if (alive && e.type === 'preferences') { revision++; accept(idleOfPrefs(e.data)) }
+  })
+  const initial = revision
+  void bridge.getPreferences()
+    .then(p => { if (alive && revision === initial) accept(idleOfPrefs(p)) })
+    .catch(() => {})
+  return () => { alive = false; stop() }
+}
+
+let idleStored = DEFAULT_ATTRACT_IDLE_SECONDS
+let idleShown = DEFAULT_ATTRACT_IDLE_SECONDS
+let stopIdleShared: (() => void) | null = null
+const idleSubs = new Set<() => void>()
+const showIdle = (n: number) => { if (n !== idleShown) { idleShown = n; for (const s of [...idleSubs]) s() } }
+
+function subscribeIdle(fn: () => void): () => void {
+  idleSubs.add(fn)
+  if (!stopIdleShared) stopIdleShared = watchAttractIdle(n => { idleStored = n; showIdle(n) })
+  return () => {
+    idleSubs.delete(fn)
+    if (!idleSubs.size && stopIdleShared) { stopIdleShared(); stopIdleShared = null }
+  }
+}
+
+/** The delay in seconds, for React; 300 until the stored value has been read. */
+export const useAttractIdleSeconds = (): number =>
+  useSyncExternalStore(subscribeIdle, () => idleShown, () => DEFAULT_ATTRACT_IDLE_SECONDS)
+
+/** Store the delay. Anything but a whole number of seconds, 0 or more, is
+ *  refused: nothing is written or announced. A failed write puts back what is
+ *  really stored. */
+export async function setAttractIdleSeconds(seconds: number): Promise<void> {
+  if (!validAttractIdle(seconds)) return
+  showIdle(seconds)
+  const bridge = desktop()
+  try {
+    if (bridge) { await bridge.setPreferences({ attractIdleSeconds: seconds }); return }
+    try { localStorage.setItem(ATTRACT_IDLE_KEY, String(seconds)) } catch { /* private mode */ }
+    window.dispatchEvent(new Event(ATTRACT_IDLE_EVENT))
+  } catch { showIdle(idleStored) }
+}

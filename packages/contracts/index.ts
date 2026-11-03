@@ -35,6 +35,10 @@ export interface DesktopPreferences extends NotificationPreferences {
    *  organization window left without input for more than five minutes
    *  cycles through new activity on its own. Absent means off. */
   attractMode?: boolean
+  /** App settings > Display > Modes > Attract mode "Start after" (USER
+   *  2026-11-03 me67326548f6c): whole seconds of no input before a run may
+   *  start. 0 or more, no maximum. Absent means 300 (five minutes). */
+  attractIdleSeconds?: number
   /** Canvas background theme and per-theme intensities (App settings ›
    *  Display); absent means the original dot grid at full strength. */
   canvasBackground?: CanvasBackgroundPreference

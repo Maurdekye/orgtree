@@ -167,6 +167,7 @@ test('§6 a pointer that did not move is not input, and moving never stops a run
       const sc = scene()
       await inAct(() => { fire(sc.node, 'pointerdown') })
       assert.equal(running(), 'false')
+      await inAct(() => { fire(sc.node, 'pointerup') })
       sc.root.remove()
     } finally { await view.unmount() }
     key()
@@ -218,6 +219,7 @@ test('§9 only the canvas stops a run: pointer down, drag, wheel, focused key; p
           await inAct(() => { fire(type === 'pointerdown' ? sc.viewport : sc.node, type, init) })
           assert.equal(r(), 'false', 'canvas ' + type + ' stops it')
           assert.equal(shows(l).at(-1), 'stop')
+          await inAct(() => { fire(sc.node, 'pointerup') })   // the press ends
         } finally { await v.unmount() }
       }
     } finally { await view.unmount() }

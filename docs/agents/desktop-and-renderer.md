@@ -2935,6 +2935,12 @@ docket jumps (App's `onAttractPanel`, which closes only a panel attract itself o
 is read through `markReadNow`, presentations through the reader's own `markDocViewed`. "New" for agents and tickets
 means changed since the window's last input and not yet shown in this run; it is kept in window memory only. Desks
 that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
+- **Start-after delay (USER 2026-11-03 me67326548f6c).** `DesktopPreferences.attractIdleSeconds` (whole seconds, >= 0, no max,
+  absent = 300; `policy.ts` refuses anything else) read live by `useAttractCycle` through `pref.ts` `useAttractIdleSeconds`; the
+  Display › Modes row is `AttractIdleSetting` (accounts.tsx, TurnLimitSetting's number-field pattern). A press the canvas took
+  sets `held` until pointerup/pointercancel/blur/a button-less move, and the start timer waits for the release, so at 0 a drag
+  does not restart mid-gesture. `setTimeout` waits are clamped to 2^31-1 ms. Proof: `tests/attract.test.tsx` §10-§12,
+  `tests/streamerblank.test.tsx` (Display field).  The tests' pointerdown scenes must send a pointerup, or `held` stays set.
 - **Canvas interaction = pointerdown/touchstart, wheel, or a key, whose target is inside `.viewport` and outside the panel
   carve-outs (`NOT_CANVAS` in attract.ts: `.overlay`, `.desk-over`, `.tray`, `.pinwin`, `.custom-app-window`, fields).** Mouse moves
   never stop a run. Keep `NOT_CANVAS` in step with OrgCanvas's wheel handler carve-outs. Proof: `tests/attract.test.tsx` §9.

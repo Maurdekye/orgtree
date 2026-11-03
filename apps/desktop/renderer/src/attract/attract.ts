@@ -30,9 +30,13 @@
    This file is the pure part (what counts, which one next, how long) plus the
    idle tracker and the cycle hook; the canvas supplies the data and routes. */
 import { useEffect, useRef, useState } from 'react'
+import { DEFAULT_ATTRACT_IDLE_SECONDS, useAttractIdleSeconds } from './pref'
 
-/** "activates if no input for >5 minutes" */
-export const ATTRACT_IDLE_MS = 5 * 60_000
+/** "activates if no input for >5 minutes": the default; the user's setting
+ *  (App settings > Display, pref.ts) replaces it and may be 0 */
+export const ATTRACT_IDLE_MS = DEFAULT_ATTRACT_IDLE_SECONDS * 1000
+/** setTimeout holds at most 2^31-1 ms; a longer delay re-checks after this */
+const TIMER_MAX_MS = 2_147_483_647
 /** "2 good": about 8-15 s on each target */
 export const DWELL_MIN_MS = 8_000
 export const DWELL_MAX_MS = 15_000
@@ -135,6 +139,9 @@ export const attractDwell = (rng: () => number, atLeast = 0): number =>
       Moving the mouse never does. Input in a desk, panel, menu, settings or
       field, or in another window, never does. */
 const INPUT_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const
+const RELEASE_EVENTS = ['pointerup', 'pointercancel'] as const
+/** a canvas press is down: a drag or pan in progress, so the interaction has not ended */
+let held = false
 /** what sits inside the canvas viewport but is not the canvas: the same list
  *  OrgCanvas's wheel handler and the .viewport text-selection rule carve out,
  *  plus every text field */
@@ -156,6 +163,9 @@ export function isCanvasEvent(e: Event): boolean {
 function onInput(e: Event): void {
   if (e.type === 'pointermove') {
     const p = e as PointerEvent
+    // a move with no button down means the press ended without a pointerup
+    // reaching us (released outside the window, say): never stay held
+    if (held && p.buttons === 0) onRelease()
     const at = { x: p.screenX, y: p.screenY }
     const moved = !lastPointer || lastPointer.x !== at.x || lastPointer.y !== at.y
     lastPointer = at
@@ -163,7 +173,16 @@ function onInput(e: Event): void {
   }
   lastInput = Date.now()
   const canvas = isCanvasEvent(e)
+  if (canvas && (e.type === 'pointerdown' || e.type === 'touchstart')) held = true
   for (const fn of [...inputSubs]) fn(canvas)
+}
+/** The press ended: the interaction is over, so the quiet time counts from now.
+ *  (Only a press the canvas took; a release elsewhere is not input.) */
+function onRelease(): void {
+  if (!held) return
+  held = false
+  lastInput = Date.now()
+  for (const fn of [...inputSubs]) fn(false)
 }
 
 /** Follow user input in this window (`canvas`: it was canvas interaction);
@@ -172,6 +191,8 @@ export function watchInput(fn: (canvas: boolean) => void): () => void {
   if (!installed && typeof window !== 'undefined') {
     installed = true
     for (const type of INPUT_EVENTS) window.addEventListener(type, onInput, { capture: true, passive: true })
+    for (const type of RELEASE_EVENTS) window.addEventListener(type, onRelease, { capture: true, passive: true })
+    window.addEventListener('blur', onRelease)
   }
   inputSubs.add(fn)
   return () => { inputSubs.delete(fn) }
@@ -191,12 +212,15 @@ export interface AttractRoutes {
 }
 
 /** Runs the cycle while `enabled` and the window has had no input for more
- *  than ATTRACT_IDLE_MS (any input counts). Only canvas interaction ends the run
+ *  than the Start-after delay (default ATTRACT_IDLE_MS; any input counts). Only canvas interaction ends the run
  *  at once, input in a panel does not; the next run starts
  *  after the next five quiet minutes, with a fresh "new" and a fresh "shown".
  *  Returns whether a run is going. */
 export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
-  rng: () => number = Math.random): boolean {
+  rng: () => number = Math.random, idleOverride?: number): boolean {
+  // the user's "Start after" setting, read live; tests pass the delay in ms
+  const storedIdle = useAttractIdleSeconds()
+  const idleMs = idleOverride ?? storedIdle * 1000
   const [running, setRunning] = useState(false)
   const routesRef = useRef(routes)
   routesRef.current = routes
@@ -209,16 +233,17 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     let timer: ReturnType<typeof setTimeout> | undefined
     const arm = () => {
       clearTimeout(timer)
-      const wait = Math.max(0, lastInputAt() + ATTRACT_IDLE_MS - Date.now()) + 1
+      const wait = Math.min(TIMER_MAX_MS, Math.max(0, lastInputAt() + idleMs - Date.now()) + 1)
       timer = setTimeout(() => {
-        if (Date.now() - lastInputAt() > ATTRACT_IDLE_MS) setRunning(true)
-        else arm()
+        // a held canvas press is an interaction still going: its release re-arms
+        if (!held && Date.now() - lastInputAt() > idleMs) setRunning(true)
+        else if (!held) arm()
       }, wait)
     }
     const stop = watchInput(canvas => { if (canvas) setRunning(false); arm() })
     arm()
     return () => { clearTimeout(timer); stop() }
-  }, [enabled])
+  }, [enabled, idleMs])
 
   // the run itself
   useEffect(() => {

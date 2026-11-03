@@ -39,7 +39,9 @@ import {
 } from './settingskit'
 import type { SettingsTab, SettingsTarget } from './settingskit'
 import { setStreamerMode, useStreamerMode } from '../streamer'
-import { setAttractMode, useAttractMode } from '../attract/pref'
+import {
+  setAttractIdleSeconds, setAttractMode, useAttractIdleSeconds, useAttractMode, validAttractIdle,
+} from '../attract/pref'
 import { OpenRouterSection } from './openrouter'
 import { HarnessesSection } from './harnesses'
 import { LanguageServerSection } from './langserver'
@@ -361,6 +363,33 @@ export function ProjectBunchRearrangeSetting() {
 /** App menu › Modes, mirrored in Display (USER 2026-11-03 09:24:13Z
  *  m6164da08f4fa "also put the toggles in the display tab of app settings").
  *  Both places read and write the same native preference, so they always agree. */
+/** Attract mode's quiet time, in whole seconds: 0 starts it as soon as there is
+ *  no input (and again right after each canvas interaction), no maximum.
+ *  The same number field as TurnLimitSetting: it commits on blur or Enter,
+ *  and a value that is not a whole number of seconds from 0 up is flagged and
+ *  never written. */
+function AttractIdleSetting() {
+  const live = useAttractIdleSeconds()
+  const [draft, setDraft] = useState(String(live))
+  useEffect(() => { setDraft(String(live)) }, [live])
+  const n = Number(draft)
+  const valid = draft.trim() !== '' && validAttractIdle(n)
+  const commit = () => {
+    if (!valid) return
+    if (n !== live) void setAttractIdleSeconds(n)
+  }
+  return <SetRow label="Attract mode starts after" field="attractIdleSeconds"
+    hint={'Seconds without any input (including in panels) before attract mode begins. '
+      + 'Default 300. 0 starts it as soon as there is no input, and again right after '
+      + 'each canvas interaction; turn the Attract mode switch off to stop it.'}>
+    <input id="app-settings-attract-idle" type="number" min={0} step={1}
+      aria-label="Attract mode starts after, in seconds" value={draft} aria-invalid={!valid}
+      onChange={e => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit() }} />
+    <span className="dim"> seconds</span>
+  </SetRow>
+}
+
 function ModeToggles() {
   const streamer = useStreamerMode(), attract = useAttractMode()
   return (
@@ -370,7 +399,8 @@ function ModeToggles() {
         hint="Hides private values on screen (email addresses, account names, paths, keys and addresses) while you share it. Copying, links and agents still use the originals." />
       <SetToggle label="Attract mode" field="attractMode" checked={attract}
         onChange={v => { void setAttractMode(v) }}
-        hint="After five minutes without input, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
+        hint="After the quiet time below, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
+      <AttractIdleSetting />
     </SetGroup>
   )
 }

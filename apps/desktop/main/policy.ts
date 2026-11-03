@@ -59,6 +59,10 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       // optional and absent by default: an untouched install stores nothing
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key] = val
+    } else if (key === 'attractIdleSeconds') {
+      // whole seconds, 0 and up, no maximum (the renderer's timer clamps to what setTimeout can hold)
+      if (typeof val !== 'number' || !Number.isSafeInteger(val) || val < 0) throw new Error('Invalid preference')
+      result.attractIdleSeconds = val
     } else if (key === 'activeAgentsOnly' || key === 'quickChatActiveAgentsOnly' || key === 'attentionDeskActiveAgentsOnly') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key] = val

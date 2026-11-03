@@ -9,7 +9,7 @@ Up: [orgtree-app-settings](../SKILL.md)
 
 ## Modes
 
-Display > Modes holds **Streamer mode** and **Attract mode**, the same two switches as the App menu's Modes group; either place changes the one app-wide setting, and the other follows at once. What each mode does is in [orgtree-org-header-and-menu](../../app-shell/org-header-and-menu/SKILL.md).
+Display > Modes holds **Streamer mode** and **Attract mode**, the same two switches as the App menu's Modes group; either place changes the one app-wide setting, and the other follows at once. Under the Attract mode switch, **Attract mode starts after** sets, in whole seconds, how long a window must have no input before attract mode begins. The default is 300 (five minutes), the minimum is 0 and there is no maximum; it applies at once with no restart, and a value that is not a whole number from 0 up is not saved. At 0 attract mode starts as soon as there is no input, and again right after each click, drag, wheel turn or canvas key press ends; turn the Attract mode switch off to stop it. What each mode does is in [orgtree-org-header-and-menu](../../app-shell/org-header-and-menu/SKILL.md).
 
 ## Object mentions
 
