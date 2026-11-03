@@ -427,6 +427,8 @@ Recorded with them:
 
 - An installed build that cannot read its boot tasks refuses (`sessionlaunch.ts` `UNREADABLE_TASKS`) and never starts the desktop's own engine.
 
+- An installed build that cannot read its boot tasks refuses (`sessionlaunch.ts` `UNREADABLE_TASKS`) and never starts the desktop's own engine.
+
 - **1.** Every restart, update and recovery starts the engine through the
   boot task ("Orgtree Background Engine", S4U, Session 0). The desktop's
   restart (`sessionlaunch.ts` `launchBackground`, route `boot` whenever the
