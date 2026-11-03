@@ -249,31 +249,87 @@ export function PopoutChip({ className = '', children }: { className?: string; c
   return <div className={('popout-placeholder popout-chip ' + className).trim()} onPointerDown={stop} onClick={stop}>{children}</div>
 }
 
+interface PRect { l: number; t: number; r: number; b: number }
+export interface StripPlan { mode: 'chip' | 'badge'; top: number; left: number }
+const STRIP_TOP = 52, STRIP_MARGIN = 12, BADGE = { w: 44, h: 28 }
+const rectsHit = (a: PRect, b: PRect) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t
+
+/** Where the global strip sits so it never covers a desk (@coordinator-opus
+ *  m50194ab90648 fallback A: the canvas is a transformed layer, so neither
+ *  z-index nor a sibling mount can put a CLICKABLE chip under a desk). The
+ *  first free spot wins: under the opener button (a lone notice), top-centre,
+ *  top-left, top-right, bottom-left, bottom-right. With none free the notice
+ *  collapses to a 44x28 count badge in the first free corner, else top-left, so
+ *  the way back never disappears. Pure: tests pass fake rects. */
+export function placeStrip(vw: number, vh: number, obstacles: PRect[], chip: { w: number; h: number },
+  opener?: PRect | null): StripPlan {
+  const spots = (s: { w: number; h: number }, withOpener: boolean) => [
+    ...(withOpener && opener ? [{ top: opener.b + 4, left: Math.max(8, Math.min(opener.l, vw - s.w - 8)) }] : []),
+    { top: STRIP_TOP, left: (vw - s.w) / 2 },
+    { top: STRIP_TOP, left: STRIP_MARGIN },
+    { top: STRIP_TOP, left: vw - s.w - STRIP_MARGIN },
+    { top: vh - s.h - STRIP_MARGIN, left: STRIP_MARGIN },
+    { top: vh - s.h - STRIP_MARGIN, left: vw - s.w - STRIP_MARGIN },
+  ]
+  const free = (sp: { top: number; left: number }, s: { w: number; h: number }) =>
+    !obstacles.some(o => rectsHit({ l: sp.left, t: sp.top, r: sp.left + s.w, b: sp.top + s.h }, o))
+  for (const sp of spots(chip, true)) if (free(sp, chip)) return { mode: 'chip', top: Math.round(sp.top), left: Math.round(sp.left) }
+  for (const sp of spots(BADGE, false)) if (free(sp, BADGE)) return { mode: 'badge', top: Math.round(sp.top), left: Math.round(sp.left) }
+  return { mode: 'badge', top: STRIP_MARGIN, left: STRIP_MARGIN }
+}
+
 function NoticeStrip({ home, items }: { home: Document; items: PopoutNotice[] }) {
   const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const [plan, setPlan] = useState<StripPlan | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const full = useRef({ w: 280, h: 38 })
+  const planRef = useRef<StripPlan | null>(null)
   const lone = items.length === 1 ? items[0]! : null
-  useLayoutEffect(() => {
-    const opener = lone ? [...home.querySelectorAll<HTMLElement>('[data-popout-opener]')]
-      .find(el => el.getAttribute('data-popout-opener') === lone.kind) ?? null : null
-    const r = opener?.getBoundingClientRect()
+  const loneKind = lone?.kind
+  const place = () => {
+    const el = ref.current, view = home.defaultView
+    if (!el || !view) return
+    if (planRef.current?.mode !== 'badge') {
+      const r = el.firstElementChild?.getBoundingClientRect()
+      if (r && r.width) full.current = { w: r.width, h: r.height }
+    }
+    const box = (e: Element): PRect => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom } }
+    const obstacles = [...home.querySelectorAll('.sq.desk, .desk-bare')].map(box).filter(r => r.r > r.l && r.b > r.t)
+    const openerEl = loneKind ? [...home.querySelectorAll<HTMLElement>('[data-popout-opener]')]
+      .find(e => e.getAttribute('data-popout-opener') === loneKind) : undefined
+    const op = openerEl ? box(openerEl) : null
+    const next = placeStrip(view.innerWidth, view.innerHeight, obstacles, full.current, op && op.r > op.l ? op : null)
+    const cur = planRef.current
+    if (!cur || cur.mode !== next.mode || cur.top !== next.top || cur.left !== next.left) { planRef.current = next; setPlan(next) }
+  }
+  useLayoutEffect(place)
+  useEffect(() => {
     const w = home.defaultView
-    if (!r || !w || !r.width || !r.height) { setPos(null); return }
-    setPos({ top: Math.round(r.bottom + 4), left: Math.max(8, Math.min(Math.round(r.left), w.innerWidth - 288)) })
-  }, [home, lone?.kind, lone?.id])
-  useEffect(() => { if (items.length < 2) setOpen(false) }, [items.length])
+    if (!w) return
+    const timer = w.setInterval(place, 300)   // the camera moves a desk without any React commit
+    w.addEventListener('resize', place)
+    return () => { w.clearInterval(timer); w.removeEventListener('resize', place) }
+  })
+  useEffect(() => { if (items.length < 2 && plan?.mode !== 'badge') setOpen(false) }, [items.length, plan?.mode])
   const rowActions = (n: PopoutNotice) => <>
     <button onClick={n.show}>Show window</button>
     <button onClick={n.back}>Return here</button>
   </>
-  return <div className="popout-strip" style={pos ? { position: 'fixed', top: pos.top, left: pos.left } : undefined}>
-    {lone
-      ? <PopoutChip><span>{lone.title} is in another window.</span>{rowActions(lone)}</PopoutChip>
-      : <PopoutChip className="multi">
-          <button className="popout-chip-count" aria-expanded={open} onClick={() => setOpen(v => !v)}>
-            {items.length} panels in other windows</button>
-        </PopoutChip>}
-    {!lone && open && <div className="popout-chip-list" role="list">
+  const badge = plan?.mode === 'badge'
+  const style = plan ? { top: plan.top, left: plan.left } : { top: STRIP_TOP, left: 0, visibility: 'hidden' as const }
+  return <div ref={ref} className="popout-strip" style={style}>
+    {badge
+      ? <PopoutChip className="badge">
+          <button className="popout-chip-count" aria-expanded={open} aria-label={`${items.length} panel${items.length === 1 ? '' : 's'} in other windows`}
+            onClick={() => setOpen(v => !v)}>⧉ {items.length}</button>
+        </PopoutChip>
+      : lone
+        ? <PopoutChip><span>{lone.title} is in another window.</span>{rowActions(lone)}</PopoutChip>
+        : <PopoutChip className="multi">
+            <button className="popout-chip-count" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+              {items.length} panels in other windows</button>
+          </PopoutChip>}
+    {(badge || !lone) && open && <div className="popout-chip-list" role="list">
       {items.map((n, i) => <div key={i} className="popout-chip-row" role="listitem"
         onPointerDown={stop} onClick={stop}>
         <span>{n.title}</span>{rowActions(n)}</div>)}
@@ -281,47 +337,18 @@ function NoticeStrip({ home, items }: { home: Document; items: PopoutNotice[] })
   </div>
 }
 
-const canvasHosts = new WeakMap<Element, HTMLElement>()
-/** The canvas window's mount point (@coordinator-opus m50194ab90648): an
- *  UNTRANSFORMED sibling placed just before `.space` in the canvas world, so
- *  it paints above the backdrop and below every node, desk and wire, and never
- *  pans or zooms. z-index alone cannot do this from `<body>`: `.space` is a
- *  transformed layer, so anything fixed outside it is above ALL of it. Null in
- *  a window with no org canvas (pop-outs, settings): the body host stays. */
-function canvasHost(home: Document): HTMLElement | null {
-  const space = home.querySelector<HTMLElement>('.viewport .space')
-  const parent = space?.parentElement
-  if (!space || !parent) return null
-  let host = canvasHosts.get(space)
-  if (!host) {
-    host = home.createElement('div'); host.className = 'popout-notices in-canvas'
-    canvasHosts.set(space, host)
-  }
-  if (host.parentElement !== parent || host.nextElementSibling !== space) parent.insertBefore(host, space)
-  return host
-}
-
-function bodyHost(home: Document): HTMLElement {
+function StripPortal({ home, items }: { home: Document; items: PopoutNotice[] }) {
   let host = noticeHosts.get(home)
   if (!host) {
     host = home.createElement('div'); host.className = 'popout-notices'
     noticeHosts.set(home, host)
   }
-  return host
-}
-
-function StripPortal({ home, items }: { home: Document; items: PopoutNotice[] }) {
-  const [target, setTarget] = useState<HTMLElement>(() => canvasHost(home) ?? bodyHost(home))
-  useLayoutEffect(() => {
-    // re-resolved every commit: the canvas can mount, unmount or re-key
-    const want = canvasHost(home) ?? bodyHost(home)
-    if (want !== target) setTarget(want)
-  })
+  const target = host
   useLayoutEffect(() => {
     if (!target.isConnected) home.body.appendChild(target)
     return () => {
       // React removes this portal's children during the same commit.
-      queueMicrotask(() => { if (!target.childElementCount && !target.classList.contains('in-canvas')) target.remove() })
+      queueMicrotask(() => { if (!target.childElementCount) target.remove() })
     }
   }, [home, target])
   return createPortal(<NoticeStrip home={home} items={items} />, target)

@@ -8986,18 +8986,15 @@ html.mobile .popout-button { display: none; }
 .popout-mount .git-workspace .git-viewport { min-width: 0; min-height: 0; }
 
 /* Detached controls belong to the owning window, outside application flow. */
-.popout-notices { position: fixed; top: 52px; left: 0; right: 0; display: flex; justify-content: center;
-  /* no CSS matrix on the host: such an ancestor would turn the opener-anchored
-     strip's position: fixed into host-relative. Below the focused desk (.sq.desk,
-     z 5 in cards.tsx): a normal desk paints OVER the chip, as do pinned windows,
-     menus (1600) and overlays (60+). Pointer events only on the chip. */
-  z-index: 4; pointer-events: none; }
+.popout-notices { position: fixed; top: 0; left: 0; width: 0; height: 0;
+  /* above the canvas (a scaled layer: only a body-level fixed host is
+     clickable over it), below menus (1600) and overlays (60+). The strip places
+     itself clear of every desk (popout.tsx placeStrip). Pointer events only on
+     the chip. */
+  z-index: 12; pointer-events: none; }
 .popout-notices:empty { display: none; }
-/* In a canvas window the strip is mounted by popout.tsx (canvasHost) as an
-   untransformed sibling BEFORE .space: positioned, no z-index, so DOM order puts
-   it above the backdrop and below the nodes, desks and wires. */
-.popout-notices.in-canvas { position: absolute; top: 12px; z-index: auto; }
-.popout-notices > .popout-strip { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.popout-chip.badge { padding: 2px 8px; }
+.popout-notices > .popout-strip { position: fixed; display: flex; flex-direction: column; gap: 4px; align-items: stretch; width: max-content; max-width: 280px; }
 .popout-chip { pointer-events: auto; min-width: 0; max-width: 280px; box-sizing: border-box;
   padding: 4px 8px; gap: 6px; border: 1px solid var(--line); border-radius: 6px;
   box-shadow: 0 2px 8px #0003; width: max-content; }
