@@ -41,6 +41,7 @@ import type { SettingsTab, SettingsTarget } from './settingskit'
 import { setStreamerAuto, setStreamerMode, useStreamerMode } from '../streamer'
 import {
   setAttractIdleSeconds, setAttractMode, useAttractIdleSeconds, useAttractMode, validAttractIdle,
+  setAttractRefuseQuestions, useAttractRefuseQuestions,
 } from '../attract/pref'
 import { OpenRouterSection } from './openrouter'
 import { HarnessesSection } from './harnesses'
@@ -391,7 +392,7 @@ function AttractIdleSetting() {
 }
 
 function ModeToggles() {
-  const streamer = useStreamerMode(), attract = useAttractMode()
+  const streamer = useStreamerMode(), attract = useAttractMode(), refuse = useAttractRefuseQuestions()
   return (
     <SetGroup title="Modes">
       <SetToggle label="Streamer mode" field="streamerMode" checked={streamer.enabled}
@@ -404,6 +405,9 @@ function ModeToggles() {
         onChange={v => { void setAttractMode(v) }}
         hint="After the quiet time below, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
       <AttractIdleSetting />
+      <SetToggle label="Refuse questions to the user while attract mode runs" field="attractRefuseQuestions" checked={refuse}
+        onChange={v => { void setAttractRefuseQuestions(v) }}
+        hint="While attract mode runs in any window, new questions agents ask you are refused and they are told to message you on Hubchat instead. Mail to you is not affected; questions already open stay." />
     </SetGroup>
   )
 }

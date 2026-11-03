@@ -156,3 +156,69 @@ export async function setAttractIdleSeconds(seconds: number): Promise<void> {
     window.dispatchEvent(new Event(ATTRACT_IDLE_EVENT))
   } catch { showIdle(idleStored) }
 }
+
+// ------------------------------------------------------- refuse questions
+/* USER 2026-11-03 13:10:58Z m46c12a448a66: while attract mode runs the engine refuses new
+   questions to the user. `DesktopPreferences.attractRefuseQuestions`, absent = ON; one app-wide
+   value like the toggle. In a plain browser it lives in localStorage ('0' = off). The engine
+   learns it from each running window (streamrooms.reportAttract). */
+export const ATTRACT_REFUSE_KEY = 'orgtree-attract-refuse'
+export const ATTRACT_REFUSE_EVENT = 'orgtree:attract-refuse-stored'
+const refuseOfPrefs = (prefs: unknown): boolean =>
+  !(prefs && typeof prefs === 'object' && (prefs as Partial<DesktopPreferences>).attractRefuseQuestions === false)
+
+/** Follow the stored setting: `accept` runs with the current value and again on every change. */
+export function watchAttractRefuse(accept: (on: boolean) => void): () => void {
+  const bridge = desktop()
+  if (!bridge) {
+    const read = () => {
+      let on = true
+      try { on = localStorage.getItem(ATTRACT_REFUSE_KEY) !== '0' } catch { /* private mode */ }
+      accept(on)
+    }
+    const storage = (e: StorageEvent) => { if (e.key === ATTRACT_REFUSE_KEY || e.key === null) read() }
+    read()
+    window.addEventListener('storage', storage)
+    window.addEventListener(ATTRACT_REFUSE_EVENT, read)
+    return () => { window.removeEventListener('storage', storage); window.removeEventListener(ATTRACT_REFUSE_EVENT, read) }
+  }
+  let alive = true, revision = 0
+  const stop = bridge.onEvent(e => {
+    if (alive && e.type === 'preferences') { revision++; accept(refuseOfPrefs(e.data)) }
+  })
+  const initial = revision
+  void bridge.getPreferences()
+    .then(p => { if (alive && revision === initial) accept(refuseOfPrefs(p)) })
+    .catch(() => {})
+  return () => { alive = false; stop() }
+}
+
+let refuseStored = true
+let refuseShown = true
+let stopRefuseShared: (() => void) | null = null
+const refuseSubs = new Set<() => void>()
+const showRefuse = (on: boolean) => { if (on !== refuseShown) { refuseShown = on; for (const s of [...refuseSubs]) s() } }
+
+function subscribeRefuse(fn: () => void): () => void {
+  refuseSubs.add(fn)
+  if (!stopRefuseShared) stopRefuseShared = watchAttractRefuse(on => { refuseStored = on; showRefuse(on) })
+  return () => {
+    refuseSubs.delete(fn)
+    if (!refuseSubs.size && stopRefuseShared) { stopRefuseShared(); stopRefuseShared = null }
+  }
+}
+
+/** The setting for React; on until the stored value has been read. */
+export const useAttractRefuseQuestions = (): boolean =>
+  useSyncExternalStore(subscribeRefuse, () => refuseShown, () => true)
+
+/** Store the setting; a failed write puts back what is really stored. */
+export async function setAttractRefuseQuestions(on: boolean): Promise<void> {
+  showRefuse(on)
+  const bridge = desktop()
+  try {
+    if (bridge) { await bridge.setPreferences({ attractRefuseQuestions: on }); return }
+    try { localStorage.setItem(ATTRACT_REFUSE_KEY, on ? '1' : '0') } catch { /* private mode */ }
+    window.dispatchEvent(new Event(ATTRACT_REFUSE_EVENT))
+  } catch { showRefuse(refuseStored) }
+}

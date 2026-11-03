@@ -10,6 +10,8 @@ type Send = (msg: unknown) => void
 const watched = new Map<string, Map<string, number>>()
 const senders = new Map<string, Send>()
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
+/** slug → this window's attract mode as last reported (USER 2026-11-03 m46c12a448a66) */
+const attract = new Map<string, { running: boolean; refuse: boolean }>()
 
 function flush(slug: string): void {
   timers.delete(slug)
@@ -49,7 +51,21 @@ export function bindRoomSocket(slug: string, send: Send | null): void {
   if (send) {
     senders.set(slug, send)
     flush(slug)
+    // the engine keeps this per connection: a running window tells the new socket at once
+    const a = attract.get(slug)
+    if (a?.running) send({ type: 'attract', running: true, refuse: a.refuse })
   } else {
     senders.delete(slug)
   }
+}
+
+/** This window's attract mode started or stopped (or its refuse-questions setting
+ *  changed while running). The engine refuses new questions to the user while any
+ *  window of the org reports running with `refuse` on; a closed socket clears it. */
+export function reportAttract(slug: string, running: boolean, refuse: boolean): void {
+  const prev = attract.get(slug)
+  const next = { running, refuse: running ? refuse : false }
+  if (prev ? prev.running === next.running && prev.refuse === next.refuse : !running) return
+  attract.set(slug, next)
+  senders.get(slug)?.({ type: 'attract', running, refuse })
 }

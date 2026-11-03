@@ -24,6 +24,8 @@ import type { WindowRestore } from '../windowlayout'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modalkinds'
 import { placedInstance, useModalInstances } from './modalinstances'
 import { useCanvasAttract } from '../attract/canvas'
+import { useAttractRefuseQuestions } from '../attract/pref'
+import { reportAttract } from '../streamrooms'
 import type { AttractPanel } from '../attract/canvas'
 import { detachedPanel, revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
@@ -3768,11 +3770,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }, [map, setFront, centerOn])
   // ATTRACT MODE (attract/attract.ts): this window's own idle timer and cycle,
   // through the routes above and the shell's inbox/docket jumps
-  useCanvasAttract({
+  const attractRunning = useCanvasAttract({
     enabled: attract, slug, tree, map, pinnedIds: () => pinnedIdsRef.current,
     goToAgent, fitAll: () => fitAll(), openDoc: openDocView,
     readerIds: () => agentReaderIds, closeReader: closeAgentReader, onPanel: onAttractPanel,
   })
+  // tell the engine this window's attract mode runs, so it can refuse new questions to the user
+  const attractRefuse = useAttractRefuseQuestions()
+  useEffect(() => { reportAttract(slug, attractRunning, attractRefuse) }, [slug, attractRunning, attractRefuse])
+  useEffect(() => () => reportAttract(slug, false, false), [slug])
 
   const trayRowMenu = (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,

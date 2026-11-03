@@ -48,6 +48,10 @@ export interface DesktopPreferences extends NotificationPreferences {
    *  2026-11-03 me67326548f6c): whole seconds of no input before a run may
    *  start. 0 or more, no maximum. Absent means 300 (five minutes). */
   attractIdleSeconds?: number
+  /** App settings > Display > Modes "Refuse questions to the user while attract
+   *  mode runs" (USER 2026-11-03 13:10:58Z m46c12a448a66). Absent means ON; a
+   *  window running attract reports it to the engine, which refuses new questions. */
+  attractRefuseQuestions?: boolean
   /** Canvas background theme and per-theme intensities (App settings ›
    *  Display); absent means the original dot grid at full strength. */
   canvasBackground?: CanvasBackgroundPreference

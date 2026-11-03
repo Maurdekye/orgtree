@@ -55,7 +55,7 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     } else if (key === 'visualThemeExplicit') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.visualThemeExplicit = val
-    } else if (key === 'epicMode' || key === 'epicMuted' || key === 'streamerMode' || key === 'streamerAuto' || key === 'streamerAutoActive' || key === 'attractMode') {
+    } else if (key === 'epicMode' || key === 'epicMuted' || key === 'streamerMode' || key === 'streamerAuto' || key === 'streamerAutoActive' || key === 'attractMode' || key === 'attractRefuseQuestions') {
       // optional and absent by default: an untouched install stores nothing
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key] = val
