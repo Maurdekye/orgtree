@@ -10466,3 +10466,10 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .agent-states .state-dot.blocked, .agent-states .state-dot.halted { background: var(--bad); }
 .agent-states .state-dot.frozen { background: var(--ice); }
 .agent-states-more { align-self: flex-start; }
+
+/* the jump link joins the quoted block's own header row at its right end
+   (USER 2026-11-03 m3db1ac4251e4); a header with a time already pushes it
+   right, so the link follows the time and only a timeless header pushes */
+.reply-jump-slot { display: inline-flex; align-items: center; flex: none; margin-left: auto; }
+.reply-source-meta time ~ .reply-jump-slot { margin-left: 8px; }
+.reply-jump-slot .reply-preview-jump { padding: 0 4px; }

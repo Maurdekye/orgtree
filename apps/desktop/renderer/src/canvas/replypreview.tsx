@@ -1,6 +1,7 @@
 import { SelectionReplyPreview } from './selectionpreview'
-import { createContext, isValidElement, useContext, useState } from 'react'
-import type { ReactNode } from 'react'
+import { createContext, isValidElement, useContext, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode, Ref } from 'react'
+import { createPortal } from 'react-dom'
 import { getDocument } from '../api'
 import type { ReplyContext } from '../eventReply'
 import { useAgentNavRegistry } from './agentnav'
@@ -48,14 +49,14 @@ export function ReplyPreviewDisclosure({ count, counted = false, children }: {
 }
 
 /** The same annotation frame for transcript references and stored mail snapshots. */
-export function ReplyPreviewFrame({ label, action, onRemove, children, unavailable, onActivate, actionTitle, menuEntries, onOpenMenu }: {
-  label: string; action: ReactNode; onRemove?: () => void; children: ReactNode; unavailable?: string
+export function ReplyPreviewFrame({ label, action, onRemove, children, unavailable, onActivate, actionTitle, menuEntries, onOpenMenu, frameRef }: {
+  label: string; action: ReactNode; frameRef?: Ref<HTMLElement>; onRemove?: () => void; children: ReactNode; unavailable?: string
   onActivate?:()=>void; actionTitle?:string
   menuEntries?: MenuEntry[] | ((anchor: HTMLElement) => MenuEntry[])
   onOpenMenu?: (anchor: HTMLElement, opening: number, menu: ContextMenuHandle) => void
 }) {
   const menu = useContextMenu()
-  return <aside className={'reply-preview' + (onRemove ? ' reply-preview-composing' : '')} aria-label={label}
+  return <aside ref={frameRef} className={'reply-preview' + (onRemove ? ' reply-preview-composing' : '')} aria-label={label}
     role={onActivate?'link':undefined} tabIndex={onActivate?0:undefined} title={actionTitle}
     onClick={onActivate?e=>{
       if(e.defaultPrevented||e.button!==0)return
@@ -73,10 +74,10 @@ export function ReplyPreviewFrame({ label, action, onRemove, children, unavailab
       e.stopPropagation()
       if (opening !== undefined) onOpenMenu?.(anchor, opening, menu)
     } : e => e.stopPropagation()}>
-    <div className="reply-preview-head">
+    {(action || onRemove) && <div className="reply-preview-head">
       {action}
       {onRemove && <button type="button" aria-label="Remove reply" onClick={onRemove}>×</button>}
-    </div>
+    </div>}
     {children}
     {unavailable && <span className="dim">{unavailable}</span>}
     {menu.node}
@@ -111,6 +112,29 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
     presentationTitle&&reply.docId?{org:reply.org,docs:new Map([[reply.docId,presentationTitle]])}:undefined)
   const reachable=available&&(!reply.docId||doc.ready)
   const actionTitle=reply.docId?doc.why:available?'Jump to the original message':'Original event is not in this loaded conversation'
+
+  // With a loaded source the jump link rides in the quoted block's own header
+  // row, at its right end (USER 2026-11-03 m3db1ac4251e4), instead of a line
+  // above it. The header is the source card's (`.reply-source-meta` or
+  // `.event-head`); a slot is appended to it and the link portalled in. A
+  // composer draft keeps its control strip (jump + remove together) and a
+  // quote with no header of its own keeps the link in the block's head row.
+  const frameRef = useRef<HTMLElement>(null)
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  const inline = Boolean(source) && !onRemove
+  useLayoutEffect(() => {
+    const header = inline ? frameRef.current?.querySelector<HTMLElement>(
+      '.reply-preview-content .reply-source-meta, .reply-preview-content .event-head') : null
+    if (!header) { setSlot(null); return }
+    let el = [...header.children].find(c => c.classList.contains('reply-jump-slot')) as HTMLElement | undefined
+    if (!el) {
+      el = header.ownerDocument.createElement('span')
+      el.className = 'reply-jump-slot'
+      header.appendChild(el)
+    }
+    setSlot(el)
+  })
+  useLayoutEffect(() => () => { slot?.remove() }, [slot])
 
   const mailId = reply.mailId
     || (reply.eventId.startsWith('mail:') ? reply.eventId.slice(5) : undefined)
@@ -180,19 +204,20 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
     }
   }
 
-  return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove}
-    onActivate={reachable?onLocate:undefined} actionTitle={actionTitle}
-    menuEntries={buildMenu} onOpenMenu={onOpenMenu}
-    unavailable={reply.docId?(!doc.ready?doc.why:undefined):!available ? (source ? 'Original event is not visible in this conversation.'
-      : 'Original event unavailable here; quoted context is retained.') : undefined}
-    action={
-      <button className={'reply-preview-jump'+(reply.docId?' reply-presentation-link':'')} type="button" onClick={onLocate} disabled={!reachable}
+  const jump = <button className={'reply-preview-jump'+(reply.docId?' reply-presentation-link':'')} type="button" onClick={onLocate} disabled={!reachable}
         {...(reply.docId && reachable ? objectNavProps('document', reply.docId, reply.org)
           : mailId && reachable ? mailLinkProps({ org: reply.org, id: mailId, box: 'node', node: reply.agent }) : {})}
         aria-label={reply.docId?doc.label:'jump to message'} title={actionTitle}>
         <ReplyIcon className="reply-preview-jump-icon" aria-hidden="true" focusable="false" fontSize="inherit" />
         <span>{reply.docId?doc.label:'jump to message'}</span>
-      </button>}>
+      </button>
+  return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef}
+    onActivate={reachable?onLocate:undefined} actionTitle={actionTitle}
+    menuEntries={buildMenu} onOpenMenu={onOpenMenu}
+    unavailable={reply.docId?(!doc.ready?doc.why:undefined):!available ? (source ? 'Original event is not visible in this conversation.'
+      : 'Original event unavailable here; quoted context is retained.') : undefined}
+    action={slot ? null : jump}>
+    {slot && createPortal(jump, slot)}
     {source ? <ObjectMenuBoundary className="reply-preview-content" role="region" aria-label="Referenced event" tabIndex={0}>{source}</ObjectMenuBoundary>
       : <blockquote>{reply.quote || '(event without visible text)'}</blockquote>}
   </ReplyPreviewFrame>
