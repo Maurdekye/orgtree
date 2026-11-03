@@ -97,7 +97,11 @@ Streamlabs Desktop.exe, TwitchStudio.exe (case-insensitive, whole image name).
   only when the flag is set. A mode the user had on, or turned on later, stays on.
 - A manual off while a streaming app runs suppresses the automation until the app has exited and
   started again (in memory: an Orgtree restart during that run turns it on again).
-- Startup: `app.whenReady` awaits the first sample (2.5 s bound) before `setNativeStreamer` reads the
-  preference and before any window exists; native masking is on by default until then, so nothing
-  paints unmasked first. A persisted flag whose app is gone is released at that first sample.
+- Startup: `app.whenReady` calls `settleStartupVerdict` before any window exists. Native masking
+  (on by default) is released with `setNativeStreamer` only AFTER a definitive first verdict, a
+  readable process list. Null, timed-out (4.5 s guard), thrown or slow listings are retried every
+  0.5 s for at most 10 s (`STARTUP_CAP_MS`); at the cap the stored preference stands and
+  `streamer auto: no readable process list ...` is logged. The automation's own write turns the
+  mode on before native masking is evaluated. A persisted flag whose app is gone is released at
+  the first verdict (coordinator maf0e03d7007b, from @build-sol's source read).
 - Turning the setting OFF leaves the mode as it is (the user then owns it).
