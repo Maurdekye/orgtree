@@ -1,5 +1,6 @@
 import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { ghostAim, nextGhosts, springAtRest, stepSpring } from './foldghost'
 import { expandCollapsedSubtrees, getCollapsedSubtrees, pruneCollapsedView, subtreeFoldInfo, toggleCollapsedSubtree, useCollapsedSubtrees } from './subtreefold'
 import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { hireAutoFocusOn } from '../hirefocus'
@@ -1315,6 +1316,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return h
   }, [vroot, piles, collapsedView])
   const hidden = hiddenMemo
+  // COLLAPSE ANIMATION (USER mf5c66ee4352a; foldghost.ts): members a fold just pruned stay drawn as ghosts, their springs kept
+  // and aimed at the collapsed node's stack, until every one is at rest — expand's glide, reversed, same springs.
+  const foldGhosts = useRef(new Map<string, string>())
+  const prevFoldHidden = useRef(collapsedView.hiddenBy)
+  useLayoutEffect(() => {
+    const reduced = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const next = nextGhosts(prevFoldHidden.current, collapsedView.hiddenBy, foldGhosts.current,
+      { reduced, seen: (id) => springs.current.has(id) })
+    prevFoldHidden.current = collapsedView.hiddenBy
+    const same = next.size === foldGhosts.current.size && [...next].every(([k, v]) => foldGhosts.current.get(k) === v)
+    foldGhosts.current = next
+    if (!same) setFrame((f) => f + 1)
+  }, [collapsedView])
   const chartLayout = useChartLayout()
   const bunchProjects = useProjectBunches()
   const rearrangeBunches = useProjectBunchRearrange()
@@ -1970,8 +1984,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         if (!atRest(s, tgt)) active = true
         else { s.x = tgt.x; s.y = tgt.y; s.vx = 0; s.vy = 0 }
       }
+      // a collapsing member glides to its collapsed node's stack on its kept spring, then goes (foldghost.ts)
+      let ghostGone = false
+      for (const [id, standing] of foldGhosts.current) {
+        const st = targetRef.current.get(standing), gs = springs.current.get(id)
+        if (!st || !gs) { foldGhosts.current.delete(id); ghostGone = true; continue }
+        const aim = ghostAim(st)
+        stepSpring(gs, aim, dt)
+        if (springAtRest(gs, aim)) { foldGhosts.current.delete(id); springs.current.delete(id); ghostGone = true }
+        else active = true
+      }
+      if (ghostGone) active = true
       for (const id of [...springs.current.keys()]) {
-        if (!targetRef.current.has(id)) springs.current.delete(id)
+        if (!targetRef.current.has(id) && !foldGhosts.current.has(id)) springs.current.delete(id)
       }
       for (const [id, sd] of seedRef.current) {   // a hire that never landed
         if (t - sd.at > 10000) seedRef.current.delete(id)
@@ -4351,7 +4376,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return dy ? { ...s, pts: s.pts.map((p) => ({ x: p.x, y: p.y + dy })) } as Seg : s
   }
   for (const n of map.values()) {
-    if (!n.parent || n.isBearerOf || hidden.has(n.id)) continue
+    if (!n.parent || n.isBearerOf || (hidden.has(n.id) && !foldGhosts.current.has(n.id))) continue
     if (!posOf(n.parent) || !posOf(n.id)) continue
     wires.push({ key: n.id, seg: treeSeg(n.parent, n.id), svgOnly: inSameBunch(n.parent, n.id),
       cls: 'edge' + (n.state === 'archived' ? ' faded' : '')
@@ -4653,7 +4678,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
             })}
         </svg>
-        {[...map.values()].map((n, index) => {
+        {[...map.values()].sort((a, b) => Number(foldGhosts.current.has(b.id)) - Number(foldGhosts.current.has(a.id))).map((n, index) => {   // ghosts first: drawn UNDER the collapsed node they sink into
           const p = posOf(n.id)
           if (!p) return null
           // Keep the single eye (its credit bar extends beyond its card), the draft,
@@ -4766,7 +4791,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onGrant={setDraftGrant} form={draftForm ?? undefined}
               onFormChange={update => setDraftForm(current => current ? update(current) : current)} />
           }
-          if (hidden.has(n.id)) return null   // piled-away: no card, no space
+          if (hidden.has(n.id) && !foldGhosts.current.has(n.id)) return null   // piled-away: no card, no space (a collapsing member is still drawn)
           const pileHere = pileByFront.get(n.id)
           const square = isProject(n)
             ? <ProjectSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} fold={foldInfo.get(n.id)} onToggleFold={() => toggleFold(n.id)} key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
