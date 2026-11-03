@@ -196,3 +196,46 @@ test('App settings › Display has Streamer mode and Attract mode toggles bound 
   await inAct(async () => { bridge.elsewhere({ streamerMode: false, attractMode: false }); await flush(8) })
   assert.deepEqual([box('streamerMode')!.checked, box('attractMode')!.checked], [false, false], 'follows the menu and other windows')
 })
+
+// USER 2026-11-03 10:11:58Z m761e635eb242 "Yes, only sensitive": a closed
+// native select shows its value unless that value matches a known identity or
+// a sensitive pattern (same detector as text); unsure (unreadable, identities
+// not loaded) stays hidden.
+function paintHidden(doc: Document, el: Element): boolean {
+  for (const sheet of [...doc.styleSheets]) for (const rule of [...sheet.cssRules]) {
+    if (!('selectorText' in rule)) continue
+    const style = (rule as CSSStyleRule).style
+    if (style.color !== 'transparent' && style.getPropertyValue('-webkit-text-fill-color') !== 'transparent') continue
+    let hit = false
+    try { hit = el.matches((rule as CSSStyleRule).selectorText) } catch { /* selector jsdom cannot parse */ }
+    if (hit) return true
+  }
+  return false
+}
+
+test('a closed select is masked only when its value is sensitive, and follows value changes', async () => {
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
+  doc.body.innerHTML = '<select id="bg"><option>Charcoal</option><option>Light</option></select>'
+    + '<select id="acct"><option>Private Account</option><option>Other</option></select>'
+    + '<select id="mail"><option>reader@example.test</option></select><select id="empty"></select>'
+  const get = (id: string) => doc.getElementById(id) as HTMLSelectElement
+  try {
+    boundary.update(true, ['Private Account'])
+    await flush()
+    assert.equal(paintHidden(doc, get('bg')), false, 'a harmless value is shown')
+    assert.equal(paintHidden(doc, get('acct')), true, 'a known account name is masked')
+    assert.equal(paintHidden(doc, get('mail')), true, 'an email pattern is masked')
+    assert.equal(paintHidden(doc, get('empty')), true, 'an unreadable value is hidden')
+    get('acct').selectedIndex = 1
+    get('acct').dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    await flush()
+    assert.equal(paintHidden(doc, get('acct')), false, 'switching to a harmless value reveals it')
+    get('bg').options[0]!.textContent = 'Private Account'
+    get('bg').dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    await flush()
+    assert.equal(paintHidden(doc, get('bg')), true, 'switching to a sensitive value masks it')
+    boundary.update(true, ['Private Account'], false)
+    await flush()
+    assert.equal(paintHidden(doc, get('acct')), true, 'identities not loaded: unsure, hidden')
+  } finally { boundary.dispose(); dom.window.close() }
+})
