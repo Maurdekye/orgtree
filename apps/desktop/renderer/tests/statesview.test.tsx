@@ -1,5 +1,5 @@
 import { flush, inAct, mountView } from './harness'
-import test from 'node:test'
+import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { AgentStatesView } from '../src/canvas/statesview'
 
@@ -19,6 +19,9 @@ const older = {
 }
 
 test('states tab lists spans newest first with an open span reading now, and a totals line', async t => {
+  // the open span grows with the clock, so the clock is the fixture's own: 30 min after it began
+  mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.parse('2026-11-02T12:30:00Z') })
+  t.after(() => mock.timers.reset())
   const urls: string[] = []
   globalThis.fetch = (async (url: string) => { urls.push(String(url)); return response(first) }) as typeof fetch
   const view = await mountView(<AgentStatesView slug="fixture" nid="worker" />, el => el)
