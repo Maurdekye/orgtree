@@ -17,7 +17,7 @@ const long = 'One more for the fold (18:22:52Z, verbatim): "also i want the node
 const sources = indexReplySources({ messages: [{ role: 'assistant', event_id: 'a1', text: 'Got it, they already animate out when you expand, so that part needs no work. The only change is collapsing: the nodes will slide into the stack using the same motion and timing as the expand animation, the reverse of what you see now. It is on the fold ticket with the new stack look, and the coordinator has it.', ts: '2026-11-03T18:23:09Z' }] })
 window.fetch = (async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } })) as typeof fetch
 createRoot(document.getElementById('root')!).render(
-  <main className="settings" style={{ width: 760, maxWidth: 'none', position: 'static', transform: 'none', margin: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+  <div className="desk" style={{ width: 760, margin: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
     <section data-scene="mail"><h4>Mail reply (reference)</h4>
       <MailReplyPreview row={{ reply_to: { id: 'm1', kind: 'mail', box: 'user', from: 'liaison-opus', at: '2026-11-03T18:23:01Z', gist: long } }} org={org} world={world} onOpen={() => {}} /></section>
     <section data-scene="docket"><h4>Docket reply (reference)</h4>
@@ -26,4 +26,4 @@ createRoot(document.getElementById('root')!).render(
       <ReplySourceProvider value={r => <ReplySourceContent source={sources.get(r.eventId)!} slug={org} nid="coordinator-opus" profile="operator" />}>
         <ReplyPreview reply={{ org, agent: 'coordinator-opus', generation: 1, eventId: 'a1', quote: 'Got it' }} available onLocate={() => {}} />
       </ReplySourceProvider></section>
-  </main>)
+  </div>)

@@ -7,6 +7,10 @@ import assert from 'node:assert/strict'
 import { ReplyPreview, ReplySourceProvider } from '../src/canvas/replypreview'
 import { indexReplySources, ReplySourceContent } from '../src/canvas/replysource'
 import type { ReplyContext } from '../src/eventReply'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
+declare const __SRC_DIR__: string
 
 const reply: ReplyContext = { org: 'org', agent: 'coordinator-opus', generation: 1, eventId: 'source', quote: 'Saved excerpt' }
 const sources = indexReplySources({ messages: [{ role: 'assistant', event_id: 'source', text: 'Got it, **bold** answer.',
@@ -35,6 +39,22 @@ test('the agent-message quote has the mail reply\'s structure: head with the jum
   assert.match(quote!.textContent ?? '', /Got it, bold answer\./)
   await inAct(async () => { jump.click(); await flush(1) })
   assert.equal(located, 1, 'the link still jumps to the original')
+})
+
+test('the jump control wears the ref chip look: chip classes, no underline at rest, still a focusable button', async t => {
+  const view = await mountView(withSource(<ReplyPreview reply={reply} available onLocate={() => {}} />), el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(2) })
+  const jump = view.el.querySelector('.reply-preview-head .reply-preview-jump') as HTMLButtonElement
+  assert.ok(jump.classList.contains('ref-chip') && jump.classList.contains('ref-message') && jump.classList.contains('ref-ready'), 'the subject chip classes')
+  assert.equal(jump.tagName, 'BUTTON', 'still keyboard-focusable and clickable')
+  assert.equal(jump.disabled, false)
+  assert.match(jump.textContent ?? '', /jump to message/)
+  assert.ok(jump.querySelector('svg'), 'the reply arrow icon is kept')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const rule = /^\.ref-chip\.ref-chip\.ref-ready:is\(\.ref-item, \.ref-doc, \.ref-app, \.ref-panel, \.ref-message\),[^{]*\{([^}]*)\}/m.exec(css)?.[1] ?? ''
+  assert.match(rule, /text-decoration: none/, 'the chip rule that now applies has no underline at rest')
+  assert.match(rule, /display: inline-flex/)
 })
 
 test('no title, no right-aligned timestamp and no far-right link element remain', async t => {
