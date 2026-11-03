@@ -236,6 +236,38 @@ test('§6d the highlight covers the WHOLE changed span, however long (not its fi
   } finally { g.CSS = hadCSS; delete g.Highlight; p.remove() }
 })
 
+test('§6e rendered markdown: the highlighted Range is exactly the inserted text across paragraphs, inline formatting and a list', async () => {
+  const strip = (t: string) => t.replace(/[\s*_`#>~-]/g, '')
+  const g = globalThis as any
+  const hadCSS = g.CSS
+  const marks: string[] = []
+  g.CSS = { ...(hadCSS ?? {}), highlights: { set: (_n: string, h: any) => marks.push(h.text), delete: () => {} } }
+  g.Highlight = class { text: string; constructor(r: any) { this.text = r.toString() } }
+  const cases: Array<{ name: string; html: string; snippet: string; expect: string }> = [
+    { name: 'inline formatting inside the span', snippet: 'ADDED LATER: the **user** asked for the `delay` to go down to zero, and then asked again in other words.',
+      html: '<p>Paragraph 8.</p><p>Paragraph 9: it must handle <em>cases</em>. ADDED LATER: the <strong>user</strong> asked for the <code>delay</code> to go down to zero, and then asked again in other words.</p><p>Paragraph 10</p>',
+      expect: 'ADDED LATER: the user asked for the delay to go down to zero, and then asked again in other words.' },
+    { name: 'the span crosses a paragraph break', snippet: ['goes down to zero.', '', 'Paragraph 10: a whole new paragraph that was inserted, and more words to make it long enough to need anchors.'].join('\n'),
+      html: '<p>Paragraph 9: the delay goes down to zero.</p><p>Paragraph 10: a whole new paragraph that was inserted, and more words to make it long enough to need anchors.</p><p>Paragraph 11</p>',
+      expect: 'goes down to zero.Paragraph 10: a whole new paragraph that was inserted, and more words to make it long enough to need anchors.' },
+    { name: 'a list item inserted (markers are not in the rendered text)', snippet: ['- the third item, which is new and fairly long as list items go in a real ticket description', '- the fourth, also new'].join('\n'),
+      html: '<ul><li>the first</li><li>the second</li><li>the third item, which is new and fairly long as list items go in a real ticket description</li><li>the fourth, also new</li></ul>',
+      expect: 'the third item, which is new and fairly long as list items go in a real ticket descriptionthe fourth, also new' },
+  ]
+  try {
+    for (const c of cases) {
+      const p = pane()
+      p.add('DESCRIPTION', false, { name: 'objective', text: 'x', y: 300 })
+      p.sections['DESCRIPTION']!.field!.innerHTML = c.html
+      marks.length = 0
+      const show = showTicketChange({ kind: 'text', field: 'objective', section: 'DESCRIPTION', offset: 0, length: c.snippet.length, snippet: c.snippet }, document)
+      await show.length
+      assert.equal(strip(marks.at(-1) ?? ''), strip(c.expect), c.name + ': highlighted ' + JSON.stringify(marks.at(-1)))
+      show.restore(); p.remove()
+    }
+  } finally { g.CSS = hadCSS; delete g.Highlight }
+})
+
 test('§6b no change means the top: nothing expands, nothing scrolls, length 0', async () => {
   const p = pane()
   p.add('EVIDENCE NOTES', true, { name: 'evidence.note', entry: 0, text: 'ev', y: 1500 })
