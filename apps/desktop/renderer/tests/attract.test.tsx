@@ -372,7 +372,7 @@ test('§13 panels attract opens close when it moves on, including one target of 
   assert.deepEqual(sh.open(), { inbox: false, docket: false })
 })
 
-test('§13b a panel the user opened or already had open is never closed; one the user closes is not reopened as attract\'s', () => {
+test('§13b a panel the user opened or already had open is never closed', async () => {
   const sh = shell()
   const panels = createAttractPanels(sh.host)
   sh.user('inbox', true)                       // already open before attract
@@ -384,6 +384,7 @@ test('§13b a panel the user opened or already had open is never closed; one the
   panels.apply({ kind: 'docket', item: 'x' }); sh.render()
   panels.apply(null); sh.render()
   assert.equal(sh.open().docket, false, 'a docket attract opened itself closes')
+  await Promise.resolve()   // the tick attract's own close is remembered for has ended
   sh.user('docket', true)
   panels.apply({ kind: 'docket', item: 'y' }); sh.render()
   panels.apply(null); sh.render()
