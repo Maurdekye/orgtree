@@ -29,12 +29,19 @@ module.exports = async (page, { org, args }) => {
   const pinKey = `orgtree-pins-${org}`
   await page.waitFor('.viewport', { timeout: 60000 })
   await page.eval((k) => localStorage.setItem(k, JSON.stringify([{ id: 'bea', rect: { x: 100, y: 100, w: 520, h: 360 }, z: 0, snap: null }])), pinKey)
+  // bea's pinned desk must NOT show the chat: a desk whose chat is visible acknowledges a new @user mention the moment it
+  // arrives (desk.tsx: the effect with historyVisible && view === 'chat' calls dismissUserMention; in browser mode the page counts
+  // as focused), which removes it from the tree before it can be an attention arrival. A desk reopens on the tab last picked
+  // on it (canvas/desktabs.ts, localStorage 'orgtree-desk-tabs:<org>' -> { bea: { tab } }), so seed the Inbox tab.
+  await page.eval((o) => localStorage.setItem('orgtree-desk-tabs:' + o, JSON.stringify({ bea: { tab: 'inbox' } })), org)
   await page.goto(`/o/${org}`)
   await page.waitFor('.pinwin[data-id="bea"]', { timeout: 60000 })
   await page.waitFor('.viewport', { timeout: 60000 })
   await sleep(2500)
   const pinned = await state()
+  let phase0 = null
   page.log('bea pinned', pinned.pin)
+  phase0 = { pin: pinned.pin, chatVisible: await page.eval(() => !!document.querySelector('.pinwin[data-id="bea"] .msgs')) }
   await page.screenshot('01-bea-pinned')
   fs.writeFileSync(args.flags.ready, new Date().toISOString())
   const endSeed = Date.now() + 120000
@@ -140,5 +147,5 @@ module.exports = async (page, { org, args }) => {
   phase2.zoomSeries = [...new Set(zooms.map((z) => z.zoom))]
   phase2.observed = zooms
 
-  return { samples, moves, phase1, phase2, stillRunning: (await state()).running }
+  return { samples, moves, phase0, phase1, phase2, stillRunning: (await state()).running }
 }

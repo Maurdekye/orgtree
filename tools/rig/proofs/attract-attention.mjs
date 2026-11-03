@@ -15,7 +15,8 @@
 // Phase 2 (pinned desk): agent bea's desk is pinned (a pin seeded in localStorage, as pin-resize.cjs does) and bea says '@user ...'
 //   (rig.userMail triggers a scripted turn). PASS facts: bea's pinned window is untouched (still there, same rect), no second
 //   desk was opened, and bea's card is inside the viewport (the whole-org fit has the node in view); the zoom HUD reading is
-//   recorded before and after. The page is told to start observing only after the mention is in the org tree (measured), and
+//   recorded before and after. bea's pinned desk is seeded on its Inbox tab, because a desk showing its chat acknowledges a new
+//   @user mention at once (desk.tsx), which would remove it before it could arrive as attention. The page is told to start observing only after the mention is in the org tree (measured), and
 //   observes for 30 s after that; bea's CLI is warmed first (a cold one took ~49 s).
 
 import fs from 'node:fs'
@@ -101,6 +102,7 @@ export default async function (rig) {
   p.check('phase 1: within one tree poll (<= 12 s) of the flag being raised', a.latencyMs != null && a.latencyMs <= 12000, a.latencyMs)
   p.check('phase 1: the previous dwell was cut short (shown < 8 s after the previous step began, the shortest dwell)', a.sincePrevStartMs != null && a.sincePrevStartMs < 8000, a.sincePrevStartMs)
   p.check('phase 1: an attract-opened inbox from the previous step is closed (or none was open)', a.inboxClosedAfter === true || a.prevOpen?.includes('inbox') === false, a)
+  p.check('phase 0: the pinned desk of bea is not showing its chat (so it cannot acknowledge the mention)', v.phase0?.chatVisible === false, v.phase0)
   const b = v.phase2 ?? {}
   p.check('phase 2: the @user mention of bea really reached the org tree (user_mention) before the observation window', mention.inTree === true, mention)
   p.check('phase 2: bea\'s pinned desk window is untouched (still there, same rect)', b.pinSame === true, b)
