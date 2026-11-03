@@ -4652,6 +4652,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Attract mode"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Attract mode starts after"
     }
    ],
    "key_sources": [
