@@ -742,7 +742,7 @@ function AgentWorkstateBody({ node, turn, live = true }: {
   }
   return (
     <>
-      <span className={'sq-idle ' + visual.normalClass}
+      <span className={'sq-idle ' + visual.normalClass} data-streamer-freeform=""
         title={node.last_status?.summary ?? undefined}>
         {visual.normalLabel}
       </span>
@@ -836,7 +836,7 @@ export function TrayStatus({ node, turn, live = true }: {
   const recorded = node.last_status?.status ?? 'idle'
   return (
     <span className="tray-status">
-      <span className={'statusdot ' + recorded}
+      <span className={'statusdot ' + recorded} data-streamer-freeform=""
         title={node.last_status?.summary ?? undefined} />
       <span className={'tray-status-label ' + recorded}>
         {stateLabel(recorded)}
@@ -877,7 +877,7 @@ export function MapModeIndicator({ node }: { node: CanvasNode }) {
     return <span className="map-off">{node.state}</span>
   }
   return (
-    <span className={'statusdot ' + (node.last_status?.status ?? 'idle')}
+    <span className={'statusdot ' + (node.last_status?.status ?? 'idle')} data-streamer-freeform=""
       title={node.last_status?.summary ?? undefined} />
   )
 }
@@ -3972,7 +3972,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           readinessReason={mcpReadinessReason} />}
         <CacheForecastMark forecast={node.cache_forecast} busy={processActive} />
         {node.last_status && !bannerDuplicatesStatus &&
-          <span className={'statuschip ' + node.last_status.status}
+          <span className={'statuschip ' + node.last_status.status} data-streamer-freeform=""
             title={node.last_status.summary}>{isUsageFrozen(node) ? 'Reported ' : ''}{stateLabel(node.last_status.status)}</span>}
         {node.halt && <HaltStatus halt={node.halt} />}
         {node.frozen &&

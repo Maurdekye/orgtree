@@ -1961,7 +1961,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               <AgentWorkstate node={node} turn={lastTurn} live={live} />
             ) : (
               <>
-                <span className={'sq-idle ' + deriveAgentVisualState(node).normalClass}
+                <span className={'sq-idle ' + deriveAgentVisualState(node).normalClass} data-streamer-freeform=""
                   title={node.last_status?.summary ?? undefined}>
                   {deriveAgentVisualState(node).normalLabel}
                 </span>

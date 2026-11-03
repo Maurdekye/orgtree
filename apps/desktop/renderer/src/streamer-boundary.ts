@@ -24,7 +24,9 @@ export interface StreamerBoundary {
  *    type is on, and wholly visible while it is off; never pattern-matched. */
 export const STREAMER_ZONES = {
   freeform: ['.md', '.msg', '.msgtext', '.mailer-body', '.turn-mail-body', '.docket-desc-body', '.event-prose', '.compaction-summary',
-    '.thoughtbody', '.ask-q', '.answered-qbody', 'pre', 'code', '.tool-live-output', '.filepre', '.typed-input', '.trunc-note', '[data-streamer-freeform]'].join(','),
+    '.thoughtbody', '.ask-q', '.answered-qbody', 'pre', 'code', '.tool-live-output', '.filepre', '.typed-input', '.trunc-note',
+    // agent status summaries (agent-written free-form): tray / attention rows, the progress line, and any element that carries one in a tooltip
+    '.tray-sum', '.progress-summary', '[data-streamer-freeform]'].join(','),
   always: { email: 'emails', path: 'paths', ip: 'ips', secret: 'secrets', external: 'externals', org: 'orgs' } as Record<string, StreamerType>,
 } as const
 // Content surfaces that cannot be pattern-matched: sandboxed HTML apps, HTML presentations, video. Images are NOT hidden.
@@ -95,6 +97,11 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       left = r.left - base.left; top = r.top - base.top
     }
     Object.assign(cover.style, { left: `${left}px`, top: `${top}px`, width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px` })
+  }
+  // A changed configuration may un-hide a label (a type switched off): restore them all, the scan hides what still qualifies.
+  function restoreAttributes() {
+    for (const [el, attrs] of attributes) for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
+    attributes.clear()
   }
   function restore() {
     doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-nocover')
@@ -247,7 +254,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   doc.addEventListener('change', onChange, true)
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {
-    update(on, config) { if (!on) { active = false; restore(); return } active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; scan() },
+    update(on, config) { if (!on) { active = false; restore(); return } if (active) restoreAttributes(); active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; scan() },
     dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); restore(); style.remove() },
   }
 }

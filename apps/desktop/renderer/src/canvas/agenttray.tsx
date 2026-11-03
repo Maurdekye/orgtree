@@ -221,7 +221,7 @@ export function AgentTray({
                 one fact beside it that the summary does not contain. */}
               {/* Projects without an agent status have no second line. Keep
                   ordinary agent placeholders and any supplied summary. */}
-              {(nodeTierOf(n) !== 'project' || stat?.summary) && <div className={'tray-sum' + (stat?._stale ? ' stale' : '')}
+              {(nodeTierOf(n) !== 'project' || stat?.summary) && <div data-streamer-freeform="" className={'tray-sum' + (stat?._stale ? ' stale' : '')}
                 title={stat?.summary || undefined}>
                 {stat?.summary ? <>
                 <span className="tray-sum-text">
