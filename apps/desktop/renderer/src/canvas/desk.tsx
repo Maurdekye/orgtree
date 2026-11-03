@@ -5506,7 +5506,8 @@ function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBa
   if (m.cmd_out) {
     return (
       <div className="msg sys cmdout">
-        <RefMdBody className="msgtext md" html={md(m.cmd_out, imgBase)} world={refs?.world} onOpen={refs?.onOpen} />
+        {/* C2 awaits the spec author's ruling: deskrefs.test §7 keeps command output mention-inert */}
+        <div className="msgtext md" dangerouslySetInnerHTML={md(m.cmd_out, imgBase)} />
       </div>
     )
   }

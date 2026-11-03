@@ -68,7 +68,7 @@ const shownResults = (m: Mounted) =>
 const shownThoughts = (m: Mounted) =>
   [...m.el.querySelectorAll('.thoughtbody')].map(p => (p.textContent ?? '').trim())
 const shownSummaries = (m: Mounted) =>
-  [...m.el.querySelectorAll('.msg.sys .filepre')].map(p => p.textContent ?? '')
+  [...m.el.querySelectorAll('.msg.sys .compaction-summary')].map(p => (p.textContent ?? '').trim())
 
 async function click(el: Element | undefined, what: string): Promise<void> {
   assert.ok(el, `nothing to click for ${what}`)
