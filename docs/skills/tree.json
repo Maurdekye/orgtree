@@ -5900,7 +5900,7 @@
    "covers": [
     "screen:agent-history"
    ],
-   "purpose": "The History tab in agent settings: retained event records (kind, actor, detail and time), not the conversation. It appears only when records exist.",
+   "purpose": "The History tab in agent settings: retained event records (kind, actor, detail and time), not the conversation. It appears only when records exist. The States tab beside it shows the agent's state spans and 24 h / 7 d totals.",
    "must_cover": [
     "what kinds of records appear",
     "difference from the Chat tab",
@@ -5908,7 +5908,8 @@
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/modals.tsx#AgentConfig",
-    "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView"
+    "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView",
+    "apps/desktop/renderer/src/canvas/statesview.tsx#AgentStatesView"
    ],
    "see_also": [
     "agent-config",
@@ -5918,7 +5919,8 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView",
-    "apps/desktop/renderer/src/canvas/historyview.tsx#AgentHistoryView"
+    "apps/desktop/renderer/src/canvas/historyview.tsx#AgentHistoryView",
+    "apps/desktop/renderer/src/canvas/statesview.tsx#AgentStatesView"
    ]
   },
   {
