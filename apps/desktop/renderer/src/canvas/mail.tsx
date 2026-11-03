@@ -1688,7 +1688,8 @@ interface QueueLabel {
 function queueLabel(q: MailQueueState): QueueLabel {
   const naming = (before: string, id: string | undefined, after: string, title: string): QueueLabel =>
     ({ text: before + (id ?? '?') + after, title, named: id ? [before, id, after] : undefined })
-  return q.ack_of ? { text: `ack of ${q.ack_of}`, title: `the completion record that acks mail ${q.ack_of}` }
+  return q.follow_up_to ? { text: `follow-up to ${q.follow_up_to}`, title: `the sender's follow-up to their earlier message, queued with job ${q.follow_up_to}` }
+    : q.ack_of ? { text: `ack of ${q.ack_of}`, title: `the completion record that acks mail ${q.ack_of}` }
     : q.dead_letter ? { text: 'dead letter', title: `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
       + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.` }
     : q.purged ? { text: 'purged', title: `purged from the queue by ${q.purged.by ?? '?'} before anyone took it` }

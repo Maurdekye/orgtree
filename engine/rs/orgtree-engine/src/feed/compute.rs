@@ -321,6 +321,14 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(a) = x.get("ack_of").filter(|v| v.is_string()) {
         q.insert("ack_of".into(), a.clone());
     }
+    // an org-inbox follow-up: bundled with a job (the stored row) or handed alongside it (the copy)
+    let follows = x.get("bundled_with").and_then(Value::as_str).or_else(|| {
+        let v = &x["via_project"];
+        (v["followup"] == true || v["bundled"] == true).then(|| v["job"].as_str()).flatten()
+    });
+    if let Some(job) = follows {
+        q.insert("follow_up_to".into(), json!(job));
+    }
     if let Some(d) = x.get("dead_letter").filter(|v| v.is_object()) {
         q.insert("dead_letter".into(), json!({ "by": d["by"], "why": d["why"], "attempts": d["attempts"] }));
     }
@@ -488,4 +496,20 @@ pub async fn asks(client: &Client, org_id: i64) -> Result<Vec<Value>> {
         )
         .await?;
     Ok(rows.into_iter().map(|r| ask_card(&r.get::<_, Value>(0), &r.get::<_, String>(1))).collect())
+}
+
+#[cfg(test)]
+mod follow_up_tests {
+    use super::*;
+    #[test]
+    fn a_bundled_row_and_a_handed_follow_up_name_the_job_they_follow() {
+        let bundled = mail_entry(&json!({"uid":"b1","sender":"@net:bob.1","body":"more","recipient_kind":"agent","state":"read","extra":{"bundled_with":"job1"}}));
+        assert_eq!(bundled["queue"]["follow_up_to"], "job1");
+        let copy = mail_entry(&json!({"uid":"c1","sender":"@net:bob.1","body":"more","recipient_kind":"agent","extra":{"via_project":{"id":3,"name":"p","job":"job1","bundled":true}}}));
+        assert_eq!(copy["queue"]["follow_up_to"], "job1");
+        let direct = mail_entry(&json!({"uid":"c2","sender":"@net:bob.1","body":"more","recipient_kind":"agent","extra":{"via_project":{"id":3,"name":"p","job":"job1","followup":true}}}));
+        assert_eq!(direct["queue"]["follow_up_to"], "job1");
+        let plain = mail_entry(&json!({"uid":"c3","sender":"x","body":"hi","recipient_kind":"agent","extra":{"via_project":{"id":3,"name":"p","mail":"j"}}}));
+        assert!(plain["queue"].get("follow_up_to").is_none(), "an ordinary job is not a follow-up");
+    }
 }

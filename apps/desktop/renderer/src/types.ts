@@ -231,6 +231,8 @@ export interface MailQueueState {
   ack_waived_at?: string
   released?: { by?: string; why?: string }
   ack_of?: string
+  /** an org-inbox follow-up: the queue job (project mail uid) it follows */
+  follow_up_to?: string
   dead_letter?: { by?: string; why?: string; attempts?: number }
   purged?: { by?: string }
   attempts?: number

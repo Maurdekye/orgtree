@@ -3,7 +3,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { HeldAudienceChips } from '../src/canvas/desk'
-import { AudienceHolderRows } from '../src/canvas/mail'
+import { AudienceHolderRows, QueueChip, showsQueueState } from '../src/canvas/mail'
 import { InboxReplaceConfirm } from '../src/canvas/inboxreplace'
 import { audienceGrantTooltip, EXTERN, type CanvasNode } from '../src/canvas/shared'
 
@@ -55,4 +55,13 @@ test('R2 the single-holder replacement confirm names both holders and confirms o
   await inAct(() => { replace.click() })
   assert.equal(confirmed, 1)
   assert.ok(closed >= 0)
+})
+
+test('R5 a follow-up row in a project Mail tab shows "follow-up to <job>"', async t => {
+  assert.equal(showsQueueState({ follow_up_to: 'job1' }), true)
+  const view = await mountView(<QueueChip q={{ follow_up_to: 'job1' }} />, el => el)
+  t.after(() => view.unmount())
+  const chip = view.el.querySelector<HTMLElement>('.queuekind')!
+  assert.equal(chip.textContent, 'follow-up to job1')
+  assert.match(chip.title, /follow-up/)
 })
