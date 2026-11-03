@@ -9114,6 +9114,10 @@ html.mobile .popout-button { display: none; }
   white-space: pre-wrap; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
 }
+/* an agent message quoted in the mail reply's frame: its Markdown sits in the same clamped blockquote, paragraphs without the
+   block's own spacing so three lines mean three lines */
+.reply-preview blockquote .md { white-space: normal; }
+.reply-preview blockquote .md > :is(p, ul, ol, pre) { margin: 0; }
 .reply-preview[role="link"] { cursor:pointer; }
 .reply-preview[role="link"]:hover { background:color-mix(in srgb,var(--accent) 5%,var(--bg)); }
 .reply-preview[role="link"]:focus-visible { outline:2px solid var(--button-accent); outline-offset:2px; }

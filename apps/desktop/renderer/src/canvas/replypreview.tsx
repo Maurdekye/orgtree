@@ -1,5 +1,5 @@
 import { SelectionReplyPreview } from './selectionpreview'
-import { createContext, isValidElement, useContext, useLayoutEffect, useRef, useState } from 'react'
+import { cloneElement, createContext, isValidElement, useContext, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode, Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { getDocument } from '../api'
@@ -13,8 +13,9 @@ import { senderMenuAction } from './objectactions'
 import { objectNavProps, useObjectNavRegistry } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { ReplyIcon } from '../icons'
+import { fmtFull } from '../timefmt'
 import { usePresentationTitle } from './presentationtitle'
-import { replySourceCopyText, replySourceMailRow, replySourceSender } from './replysource'
+import { assistantQuote, replySourceCopyText, replySourceMailRow, replySourceSender } from './replysource'
 import type { ReplySource } from './replysource'
 import { ObjectReplyDraft } from './composerobjects'
 
@@ -123,7 +124,9 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
   // (and a draft its x) in the block's head row.
   const frameRef = useRef<HTMLElement>(null)
   const [slot, setSlot] = useState<HTMLElement | null>(null)
-  const inline = Boolean(source)
+  // an agent's own message is quoted in the MAIL reply's frame (head + clamped text): no card header to carry the link
+  const agentQuote = assistantQuote(sourceData)
+  const inline = Boolean(source) && !agentQuote
   useLayoutEffect(() => {
     const header = inline ? frameRef.current?.querySelector<HTMLElement>(
       '.reply-preview-content .reply-source-meta, .reply-preview-content .event-head') : null
@@ -213,6 +216,19 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
         <ReplyIcon className="reply-preview-jump-icon" aria-hidden="true" focusable="false" fontSize="inherit" />
         <span>{reply.docId?doc.label:'jump to message'}</span>
       </button>
+  if (agentQuote && isValidElement<{ bare?: boolean }>(source)) {
+    return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef}
+      onActivate={reachable ? onLocate : undefined} actionTitle={actionTitle}
+      menuEntries={buildMenu} onOpenMenu={onOpenMenu}
+      unavailable={!available ? 'Original event is not visible in this conversation.' : undefined}
+      action={<>
+        <ReplyIcon fontSize="inherit" aria-hidden="true" />
+        <span>In reply to{reply.agent ? ` ${reply.agent}` : ''}{agentQuote.at ? ` · ${fmtFull(agentQuote.at)}` : ''}</span>
+        {jump}
+      </>}>
+      <blockquote><ObjectMenuBoundary role="region" aria-label="Referenced event">{cloneElement(source, { bare: true })}</ObjectMenuBoundary></blockquote>
+    </ReplyPreviewFrame>
+  }
   return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef} floatRemove={Boolean(slot)}
     onActivate={reachable?onLocate:undefined} actionTitle={actionTitle}
     menuEntries={buildMenu} onOpenMenu={onOpenMenu}

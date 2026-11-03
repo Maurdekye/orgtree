@@ -159,15 +159,38 @@ export function replySourceSender(source: ReplySource | undefined, reply: ReplyC
 
 /** Shares the transcript's validated event rendering and human-context filter.
  * It has no message anchors, nested reply annotations, or delivery actions. */
-export function ReplySourceContent({ source, slug, nid, profile, refs, actor }: {
+/** The agent's own message as a quote: its text and when it was said, or null for any other source (a thought, a tool, a
+ *  mail, a plan, a user turn...). Such a quote wears the MAIL reply's frame (head "In reply to <agent> · <time>" with the
+ *  jump link beside it, then the text clamped like a mail quote) instead of a card with a title of its own. */
+export function assistantQuote(source: ReplySource | undefined): { text: string; at: string | null } | null {
+  if (!source) return null
+  if (source.kind === 'message') {
+    const m = source.message
+    return m.role === 'assistant' && !m.codexPlan ? { text: m.text ?? '', at: m.ts ?? null } : null
+  }
+  if (source.kind === 'live') {
+    const r = source.row
+    return r.kind === 'text' && !r.cmd_output && !r.plan && !r.todos ? { text: r.text ?? '', at: r.at ?? null } : null
+  }
+  if (source.kind === 'transient') {
+    const r = source.row
+    return r.role === 'assistant' && r.kind !== 'error' && !['thinking', 'thinking_start', 'thought'].includes(r.kind)
+      ? { text: r.text ?? '', at: null } : null
+  }
+  return null
+}
+
+export function ReplySourceContent({ source, slug, nid, profile, refs, actor, bare }: {
   source: ReplySource; slug: string; nid: string; profile: EventProfile
   refs?: RefRoutes; actor?: (id: string) => ReactNode
+  /** only the text: the caller supplies the header (an agent-message quote in the mail reply's frame) */
+  bare?: boolean
 }) {
   const props = { slug, nid, profile, world: refs?.world, onOpen: refs?.onOpen, actor, annotation: true }
   const prose = (text: string) => text
     ? <RefMdBody className="md" html={md(text, fileBase(slug, nid))} world={refs?.world} onOpen={refs?.onOpen} />
     : <span className="dim">(event without visible text)</span>
-  const header = (label: string, at?: string | null, icon: ReactNode = <DotIcon fontSize="inherit" />) =>
+  const header = (label: string, at?: string | null, icon: ReactNode = <DotIcon fontSize="inherit" />) => bare ? null :
     <div className="reply-source-meta">{icon}<strong>{label}</strong>
       {at && <time dateTime={at}>{fmtFull(at)}</time>}</div>
   const thought = (text: string, sealed?: boolean, secs?: number, at?: string | null) => <>
