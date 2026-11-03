@@ -1565,6 +1565,11 @@ button.badge.audience-fold.alert {
 /* an uploaded icon (projecttheme.tsx ProjectIconGlyph): a normalised square
    PNG drawn at the glyph's size, in its own colours */
 .project-icon-img { display: block; width: 1em; height: 1em; object-fit: contain; flex: none; }
+/* Small marks (chips, autocomplete, lists): the WHOLE icon, scaled to fit the rounded-square mark box, never cropped to a
+   circle (USER 2026-11-03 md6daf92d99de). Same surfaces as the 16px mark rule below. */
+:is(.agent-mention-item, .ref-chip, .node-link, .event-actor, .event-change-agent, .doc-pane-head, .sender, .docket-actor,
+  .docket-group-agent, .docket-question-head, .mail-from, .tray-main) .project-mark > .project-icon-img {
+  width: 100%; height: 100%; object-fit: contain; border-radius: 0; }
 .project-icon-actions { display: flex; align-items: center; gap: 6px; }
 .project-icon-actions input[type="search"] { flex: 1; min-width: 0; }
 .project-icon-error { color: var(--danger, #e5484d); font-size: 12px; }

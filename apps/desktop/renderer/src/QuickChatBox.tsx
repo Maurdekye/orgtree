@@ -223,7 +223,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
           {...agentNavProps(superior)}
           aria-expanded={pop?.kind === 'superior'} onClick={go('superior')}>
           {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
-          {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} />}
+          {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} agentName={superior ?? undefined} />}
           <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
         </button>
       ),

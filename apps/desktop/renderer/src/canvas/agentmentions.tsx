@@ -769,7 +769,7 @@ export function useAgentMentions({
                     ? <span className="mention-net-mark" aria-hidden="true"><NetMark info={netMention(mentionText(c))} /></span>
                   : c.kind === 'app' || c.kind === 'panel'
                     ? <span className={`mention-${c.kind}-mark`} aria-hidden="true"><RefMark kind={c.kind} /></span>
-                    : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
+                    : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} agentName={c.kind === 'project' ? c.id : undefined} />}
               {/* a ticket (by its full title, USER 2026-10-27 m3eb804e5023a), presentation, app or panel is shown by
                   its name; completing it inserts its slug's reference */}
               <span className="agent-mention-name">{c.kind === 'agent' || c.kind === 'project' ? '@' + c.id : c.title || c.id}</span>
