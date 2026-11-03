@@ -51,18 +51,22 @@ export function redactScreenText(text: string, known: readonly string[] = []): s
   for (const span of sensitiveSpans(text, known)) { result += text.slice(at, span.start) + '[hidden]'; at = span.end }
   return result + text.slice(at)
 }
+// Provider and selector names are product vocabulary shown on every surface
+// ("Claude Terracotta", provider chips); an account id equal to one of them
+// identifies no one, and learning it masked those words window-wide.
+const PRODUCT_WORDS = new Set(['claude', 'anthropic', 'openai', 'codex', 'google', 'gemini', 'antigravity', 'muse', 'openrouter', 'langserver', 'opencode', 'primary', 'default', 'host'])
 /** Only structured identity/secret fields, never an agent's narrative or payload mutation. */
 export function knownScreenValues(value: unknown): string[] {
   const values = new Set<string>(), seen = new Set<object>()
   function visit(v: unknown, sensitive = false, account = false, depth = 0) {
     if (depth > 20 || values.size > 10_000) return
-    if (typeof v === 'string') { if (sensitive && v.trim()) values.add(v); return }
+    if (typeof v === 'string') { if (sensitive && v.trim() && !PRODUCT_WORDS.has(v.trim().toLowerCase())) values.add(v); return }
     if (!v || typeof v !== 'object' || seen.has(v)) return
     seen.add(v)
     if (Array.isArray(v)) { for (const child of v) visit(child, sensitive, account, depth + 1); return }
     for (const [key, child] of Object.entries(v)) {
       const identity = account || /account|identity|credential/i.test(key)
-      visit(child, sensitive || /email|secret|token|password|phone|address|username|path|config_dir|authorization|identity|(?:^|_)key(?:$|_)/i.test(key)
+      visit(child, sensitive || /email|secret|token|password|phone|address|username|path|config_dir|authorization|identity|(?:^|_)key(?:$|_(?!behavior|binding|mode|hint|label))/i.test(key)
         || (identity && /^(name|label|id|primary)$/i.test(key)), identity, depth + 1)
     }
   }
