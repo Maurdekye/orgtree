@@ -39,3 +39,36 @@ export function nextGhosts(prev: ReadonlyMap<string, string>, next: ReadonlyMap<
   if (!opts.reduced) for (const [id, st] of next) if (!prev.has(id) && opts.seen(id)) out.set(id, st)
   return out
 }
+
+/** ONE frame of the whole spring engine (OrgCanvas runs this each rAF): every laid-out id springs to its layout target,
+ *  EXCEPT a collapsing ghost, which springs only to its collapsed node's stack and is removed once it rests there.
+ *  ⚠ The layout still lists a folded-away member in `targets` (canvaslayout.ts puts every hidden member at its parent's
+ *  position), so the ordinary pass MUST skip ghosts: two passes pulling one spring toward two points settle at the midpoint
+ *  and the ghost is never at rest (build-sol R5: stuck 4px short, never removed). `birth` makes a spring for an id with none
+ *  (a hire's seed, its parent's spring); `frozen` holds an id (a node being dragged). */
+export function advanceSprings(a: {
+  targets: ReadonlyMap<string, Pt>; springs: Map<string, SpringState>; ghosts: Map<string, string>; dt: number
+  birth: (id: string, tgt: Pt) => SpringState; frozen?: (id: string) => boolean
+}): { active: boolean; ghostGone: boolean } {
+  let active = false, ghostGone = false
+  for (const [id, tgt] of a.targets) {
+    if (a.ghosts.has(id)) continue
+    let s = a.springs.get(id)
+    if (!s) { s = a.birth(id, tgt); a.springs.set(id, s); active = true }
+    if (a.frozen?.(id)) continue
+    stepSpring(s, tgt, a.dt)
+    if (!springAtRest(s, tgt)) active = true
+    else { s.x = tgt.x; s.y = tgt.y; s.vx = 0; s.vy = 0 }
+  }
+  for (const [id, standing] of [...a.ghosts]) {
+    const st = a.targets.get(standing), gs = a.springs.get(id)
+    if (!st || !gs) { a.ghosts.delete(id); ghostGone = true; continue }
+    const aim = ghostAim(st)
+    stepSpring(gs, aim, a.dt)
+    if (springAtRest(gs, aim)) { a.ghosts.delete(id); a.springs.delete(id); ghostGone = true }
+    else active = true
+  }
+  if (ghostGone) active = true
+  for (const id of [...a.springs.keys()]) if (!a.targets.has(id) && !a.ghosts.has(id)) a.springs.delete(id)
+  return { active, ghostGone }
+}

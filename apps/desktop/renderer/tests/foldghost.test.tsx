@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join as joinPath } from 'node:path'
-import { ghostAim, nextGhosts, springAtRest, stepSpring } from '../src/canvas/foldghost'
+import { advanceSprings, ghostAim, nextGhosts, springAtRest, stepSpring } from '../src/canvas/foldghost'
 import type { SpringState } from '../src/canvas/foldghost'
 
 declare const __SRC_DIR__: string
@@ -56,7 +56,33 @@ test('an interrupted collapse (expand mid-way) keeps the ghost\'s spring and con
 test('OrgCanvas keeps ghosts drawn and their springs alive until every one is at rest', () => {
   const src = readFileSync(joinPath(__SRC_DIR__, 'canvas/OrgCanvas.tsx'), 'utf8')
   assert.match(src, /nextGhosts\(/)
-  assert.match(src, /ghostAim\(/)
+  assert.match(src, /advanceSprings\(/, 'the engine frame is the shared pure function the tests run')
   assert.match(src, /prefers-reduced-motion/)
   assert.match(src, /foldGhosts\.current\.has\(/, 'the reaper and the card/wire filters know ghosts')
+})
+
+test('THE ENGINE FRAME: a ghost the layout still lists at its parent springs to the stack only, rests there and is removed (build-sol R5: it used to stall 4px short)', () => {
+  // canvaslayout.ts keeps every folded-away member in the target map, at its parent's position: exactly this input
+  const parent = { x: 147.4, y: 367 }
+  const targets = new Map([['parent', parent], ['a1', { ...parent }], ['a2', { ...parent }], ['stay', { x: 400, y: 200 }]])
+  const springs = new Map([
+    ['parent', { ...parent, vx: 0, vy: 0 }], ['a1', { x: 300, y: 500, vx: 0, vy: 0 }], ['a2', { x: 320, y: 520, vx: 0, vy: 0 }],
+    ['stay', { x: 380, y: 190, vx: 0, vy: 0 }]])
+  const ghosts = new Map([['a1', 'parent'], ['a2', 'parent']])
+  const aim = ghostAim(parent)
+  let frames = 0, sawMiddle = false
+  const birth = (_id: string, t: { x: number; y: number }) => ({ x: t.x, y: t.y, vx: 0, vy: 0 })
+  for (; frames < 600 && ghosts.size; frames++) {
+    advanceSprings({ targets: targets, springs, ghosts, dt: 1 / 60, birth })
+    const a = springs.get('a1')
+    if (a && Math.hypot(a.x - 300, a.y - 500) > 5 && Math.hypot(a.x - aim.x, a.y - aim.y) > 5) sawMiddle = true
+  }
+  assert.equal(ghosts.size, 0, 'every ghost was removed once at rest (it stalled at the midpoint of two targets before)')
+  assert.ok(frames < 200, 'in about the expand glide time: ' + frames)
+  assert.ok(sawMiddle, 'and it was seen between its start and the stack')
+  assert.equal(springs.has('a1'), false, 'its spring goes with it')
+  advanceSprings({ targets, springs, ghosts, dt: 1 / 60, birth })
+  for (let i = 0; i < 300; i++) advanceSprings({ targets, springs, ghosts, dt: 1 / 60, birth })
+  const stay = springs.get('stay')!
+  assert.ok(Math.abs(stay.x - 400) < 0.5 && Math.abs(stay.y - 200) < 0.5, 'an ordinary node still reaches its layout target')
 })

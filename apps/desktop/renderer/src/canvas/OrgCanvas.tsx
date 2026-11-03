@@ -1,6 +1,6 @@
 import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
-import { ghostAim, nextGhosts, springAtRest, stepSpring } from './foldghost'
+import { advanceSprings, nextGhosts } from './foldghost'
 import { expandCollapsedSubtrees, getCollapsedSubtrees, pruneCollapsedView, subtreeFoldInfo, toggleCollapsedSubtree, useCollapsedSubtrees } from './subtreefold'
 import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { hireAutoFocusOn } from '../hirefocus'
@@ -1963,41 +1963,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const tick = (t: number) => {
       const dt = Math.min(0.033, (t - last) / 1000); last = t
       let active = false
-      for (const [id, tgt] of targetRef.current) {
-        let s = springs.current.get(id)
-        if (!s) {
+      // one engine frame (foldghost.ts advanceSprings): ordinary springs to their layout targets; a collapsing member glides to
+      // its collapsed node's stack on its kept spring and goes once at rest — and is NOT also pulled to its layout target
+      const frame = advanceSprings({
+        targets: targetRef.current, springs: springs.current, ghosts: foldGhosts.current, dt,
+        birth: (id, tgt) => {
           const seed = seedRef.current.get(id)
           if (seed) seedRef.current.delete(id)
           const par = mapRef.current.get(id)?.parent
           const ps = !seed && par && springs.current.get(par)
-          s = seed ? { x: seed.x, y: seed.y, vx: 0, vy: 0 }
+          return seed ? { x: seed.x, y: seed.y, vx: 0, vy: 0 }
             : ps ? { x: ps.x, y: ps.y, vx: 0, vy: 0 }
                  : { x: tgt.x, y: tgt.y, vx: 0, vy: 0 }
-          springs.current.set(id, s)
-          active = true
-        }
-        if (nodeDrag.current?.moved && nodeDrag.current.bases?.has(id)) continue
-        const ax = SPRING_K * (tgt.x - s.x) - SPRING_C * s.vx
-        const ay = SPRING_K * (tgt.y - s.y) - SPRING_C * s.vy
-        s.vx += ax * dt; s.vy += ay * dt
-        s.x += s.vx * dt; s.y += s.vy * dt
-        if (!atRest(s, tgt)) active = true
-        else { s.x = tgt.x; s.y = tgt.y; s.vx = 0; s.vy = 0 }
-      }
-      // a collapsing member glides to its collapsed node's stack on its kept spring, then goes (foldghost.ts)
-      let ghostGone = false
-      for (const [id, standing] of foldGhosts.current) {
-        const st = targetRef.current.get(standing), gs = springs.current.get(id)
-        if (!st || !gs) { foldGhosts.current.delete(id); ghostGone = true; continue }
-        const aim = ghostAim(st)
-        stepSpring(gs, aim, dt)
-        if (springAtRest(gs, aim)) { foldGhosts.current.delete(id); springs.current.delete(id); ghostGone = true }
-        else active = true
-      }
-      if (ghostGone) active = true
-      for (const id of [...springs.current.keys()]) {
-        if (!targetRef.current.has(id) && !foldGhosts.current.has(id)) springs.current.delete(id)
-      }
+        },
+        frozen: (id) => !!(nodeDrag.current?.moved && nodeDrag.current.bases?.has(id)),
+      })
+      if (frame.active) active = true
       for (const [id, sd] of seedRef.current) {   // a hire that never landed
         if (t - sd.at > 10000) seedRef.current.delete(id)
       }
