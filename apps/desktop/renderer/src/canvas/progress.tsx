@@ -47,7 +47,8 @@ import { fmtAge } from '../timefmt'
 import { ageTitle } from './listage'
 import type { Convo } from '../convo'
 import type { ChatMessage } from '../types'
-import { Written } from './reflinks'
+import { RefMdBody } from './refmd'
+import { inlineMd } from './shared'
 import type { RefRoutes } from './reflinks'
 
 // ------------------------------------------------------------------ model
@@ -472,7 +473,7 @@ function TodoSection({ v, historical, refs }:
           {v.items.map((t, i) => (
             <li key={i} className={'todo-item ' + t.status}>
               <span className="todo-glyph" aria-hidden="true">{GLYPH[t.status]}</span>
-              <span className="todo-text"><Written text={t.content} refs={refs} /></span>
+              <span className="todo-text"><RefMdBody el="span" className="md md-inline" html={inlineMd(t.content)} world={refs?.world} onOpen={refs?.onOpen} /></span>
             </li>
           ))}
         </ul>
@@ -511,7 +512,7 @@ export function ProgressView({ model, refs }:
           <div className="progress-reported-row">
             <span className={'statuschip ' + m.reported.status}>{stateLabel(m.reported.status)}</span>
             {m.reported.summary && <span className="progress-summary">
-              <Written text={m.reported.summary} refs={refs} /></span>}
+              <RefMdBody el="span" className="md md-inline" html={inlineMd(m.reported.summary)} world={refs?.world} onOpen={refs?.onOpen} /></span>}
           </div>
         )}
         <div className={'progress-note' + (m.reported.stale ? ' stale' : '')}>{m.reported.note}</div>

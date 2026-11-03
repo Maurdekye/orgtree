@@ -21,7 +21,8 @@ import { fmtAge } from '../timefmt'
 import { ageTitle } from './listage'
 import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
-import { Written } from './reflinks'
+import { RefMdBody } from './refmd'
+import { inlineMd } from './shared'
 import { charterLine } from '../archived'
 import { agentTooltipProps } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
@@ -220,7 +221,7 @@ export function AgentTray({
                 title={stat?.summary || undefined}>
                 {stat?.summary ? <>
                 <span className="tray-sum-text">
-                  {stat.status}: <Written text={stat.summary} refs={refs} />
+                  {stat.status}: <RefMdBody el="span" className="md md-inline" html={inlineMd(stat.summary)} world={refs?.world} onOpen={refs?.onOpen} />
                 </span>
                 {stat.at && <span className="tray-sum-at" title={ageTitle(stat.at)} aria-label={ageTitle(stat.at)}> · {fmtAge(stat.at)} ago</span>}
                 </> : <span className="tray-sum-text" aria-hidden="true">&nbsp;</span>}
