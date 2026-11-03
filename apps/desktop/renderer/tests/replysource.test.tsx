@@ -82,7 +82,7 @@ test('composing, pending and sent replies retain the same structured source, met
     list.scrollTop = 0
     let escaped = false
     original.scrollIntoView = () => { escaped = true }
-    await inAct(() => view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-head button')!.click())
+    await inAct(() => view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-jump')!.click())
     assert.equal(list.scrollTop, 320, 'the original source is centered in its transcript')
     assert.equal(escaped, false, 'navigation never scrolls the desk ancestors')
   } finally { await view.unmount(); resetConvos() }
