@@ -24,7 +24,7 @@ import { DocketAcceptance, DocketAttentionReason, DocketEvidenceNotes, DocketLis
 import { DocketDescription } from '../src/canvas/docketdesc'
 import { applyTheme } from '../src/themes'
 import { applyContrast } from '../src/contrast'
-import { RICH, ORG, onOpen, refs, world } from './fixtures/richformat'
+import { RICH, ORG, onOpen, refs, world } from './fixtures/richdata'
 import '../src/styles.css'
 import '../src/shell.css'
 
