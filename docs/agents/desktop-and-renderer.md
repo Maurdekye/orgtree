@@ -2919,10 +2919,14 @@ reader display state with no engine field and no agent-tool surface. The rollup 
 `asking` aura, the mini node's Active far icon — through the same submitted-ask and unseen-mention suppression as the card
 itself. An explicit `centerOn` jump to a folded-away member unfolds its collapsed ancestors (the hide-retired reveal
 precedent); attention alone never does. Folding over an open hire draft is refused with a toast rather than stranding the
-draft card inside the pruned subtree. The desk-open card and the mobile map locator carry no chevron (the control lives on
-the overview forms, as the retired token does), while the prune and the rollup classes still apply in both. Proof:
-`tests/subtreefold.test.tsx` (prune, summaries, bearer exclusion, reflow in both layouts, the per-org set).
-[decided: user 2026-10-28 mde8be641d7b3, liaison spec 2026-11-01; verified: `canvas/{subtreefold,foldbadge}.ts(x)`, `canvas/{cards,projectcard,OrgCanvas,moveghost}.tsx`, `styles.css`]
+draft card inside the pruned subtree. CHEVRON REPLACED (USER 2026-11-03 mb215418dd87d + m580523a2f5d6): mini and norm nodes have NO fold button. A collapsed node
+draws `FoldStack` (`foldbadge.tsx`): up to 3 (`MAX_TUCKS`) tucked shapes under its bottom edge, one per direct child in the child's own
+colour (provider class for agents, project theme colour for projects), wearing the hidden count and the working/attention rollup;
+clicking it expands. Collapse is the node menu's `Collapse subtree` entry (`onToggleFold`/`foldCollapsed` on `AgentMenuHandlers`,
+both menus); an expanded node or a leaf draws nothing. `FoldSummary.tucks` carries the children. Desk-open cards and the mobile map
+locator draw no stack, while the prune and rollup classes still apply. Proof: `tests/subtreefold.test.tsx` (prune, summaries,
+bearer exclusion, reflow, the per-org set), `tests/foldstack.test.tsx` (stack, click, menu entry, tucks).
+[decided: user 2026-10-28 mde8be641d7b3, liaison spec 2026-11-01; verified: `canvas/{subtreefold,foldbadge,agentmenu}.ts(x)`, `canvas/{cards,projectcard,OrgCanvas,moveghost}.tsx`, `styles.css`]
 
 ## Attract mode: idle input, "new", and the routes it reuses (2026-11-02, 4.5.5)
 

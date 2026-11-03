@@ -1,6 +1,6 @@
 import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
-import { FoldBadge } from './foldbadge'
+import { FoldStack } from './foldbadge'
 import type { FoldInfo } from './subtreefold'
 // canvas/projectcard.tsx — the canvas card of a PROJECT NODE
 // (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16): a node that stands
@@ -218,6 +218,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onOpenTemporary,
     onPopout,
     onSettings: () => onSettings?.(true),
+    onToggleFold: fold && onToggleFold ? onToggleFold : undefined,
+    foldCollapsed: fold?.collapsed,
     onToggleUserAudience: () => audienceAction(slug,
       (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
       .catch((e: Error) => toast(['error: ' + e.message])),
@@ -259,7 +261,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
         {fold?.collapsed && fold.working
           ? <span className="project-mini" {...agentTooltipProps(node.id)}><AutorenewIcon className="sq-far-icon active cc-spin" titleAccess="Active" /></span>
           : <span className="project-mini" style={theme?.color ? { color: theme.color } : undefined} {...agentTooltipProps(node.id)}><ProjectIconGlyph theme={theme} /></span>}
-        {fold && onToggleFold && <FoldBadge mini id={node.id} fold={fold} onToggle={onToggleFold} />}
+        {fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
         {farEligible && <span className="sq-far-tier" aria-hidden="true"><span className="sq-far-scaler">
           {farIcon}<span className="sq-far-name">{node.id}</span>
         </span></span>}
@@ -300,7 +302,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               aria-label={`mailbox of project ${node.id}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onInbox(true, mailQueueFolder(queue)) }}>{queue.text}</button>}
-            {!deskOpen && fold && onToggleFold && <FoldBadge id={node.id} fold={fold} onToggle={onToggleFold} />}
+            {!deskOpen && fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
             {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
 
             </div>

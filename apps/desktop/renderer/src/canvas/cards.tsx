@@ -1,6 +1,6 @@
 import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
-import { FoldBadge } from './foldbadge'
+import { FoldStack } from './foldbadge'
 import type { FoldInfo } from './subtreefold'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
@@ -1697,6 +1697,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ? () => onOpenAgentGallery(node.id, { team: true, keepOpen: true }) : undefined,
       onLineage: () => onLineage(true),
       onSettings: () => onConfig(true),
+      onToggleFold: fold && onToggleFold ? onToggleFold : undefined,
+      foldCollapsed: fold?.collapsed,
       onToggleUserAudience: () => audienceAction(slug,
         (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
         .catch((e: Error) => toast([`error: ${e.message}`])),
@@ -1934,7 +1936,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         {/* the fold chevron at far zoom: a small corner chip like the hire
             strips' edge-anchored tokens, not a hover row over the body —
             it stops its own press, so aiming anywhere else still focuses */}
-        {fold && onToggleFold && <FoldBadge mini id={node.id} fold={fold} onToggle={onToggleFold} />}
+        {fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
       </>)}
       {!focused && lod !== 'mini' && <CardFace>
       {/* the whole world-scaled head disappears at focus — the desk renders its
@@ -2159,7 +2161,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {/* the subtree fold chevron, wearing the hidden count while
               folded — before the retired token, which stays last in both
               header rows (2026-10-21) */}
-          {fold && onToggleFold && <FoldBadge id={node.id} fold={fold} onToggle={onToggleFold} />}
+          {fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
           {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
 
         </div>

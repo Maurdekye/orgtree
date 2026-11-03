@@ -1,5 +1,5 @@
-// subtreefold-visual.tsx — capture fixture for the subtree fold chevron
-// (tests/subtreefold.test.tsx holds the behavior). Renders agent and
+// subtreefold-visual.tsx — capture fixture for the subtree fold tucked stack
+// (tests/subtreefold.test.tsx and foldstack.test.tsx hold the behavior). Renders agent and
 // project cards in every fold state at one lod: expanded, folded with a
 // count, folded while a hidden member works, folded while a hidden member
 // needs attention, and a leaf with no chevron. The capture driver calls
@@ -15,9 +15,9 @@ import type { FoldInfo } from '../src/canvas/subtreefold'
 const noop = () => {}, op = async () => ({ ok: true } as never)
 const hire = { enabled: true, installed: true, reason: null }
 const EXPANDED: FoldInfo = { collapsed: false, count: 0, working: false, attention: false }
-const FOLDED: FoldInfo = { collapsed: true, count: 5, working: false, attention: false }
-const WORKING: FoldInfo = { collapsed: true, count: 12, working: true, attention: false }
-const ATTENTION: FoldInfo = { collapsed: true, count: 3, working: false, attention: true }
+const FOLDED: FoldInfo = { collapsed: true, count: 5, working: false, attention: false, tucks: [{ id: 'a', project: false, tier: 'sonnet' }, { id: 'b', project: false, tier: 'sol' }, { id: 'c', project: true }] }
+const WORKING: FoldInfo = { collapsed: true, count: 12, working: true, attention: false, tucks: [{ id: 'a', project: false, tier: 'sonnet' }, { id: 'b', project: false, tier: 'sol' }, { id: 'c', project: true }] }
+const ATTENTION: FoldInfo = { collapsed: true, count: 3, working: false, attention: true, tucks: [{ id: 'a', project: false, tier: 'sonnet' }, { id: 'b', project: false, tier: 'sol' }, { id: 'c', project: true }] }
 
 function Row({ label, y, children }: { label: string; y: number; children: React.ReactNode }) {
   return <>

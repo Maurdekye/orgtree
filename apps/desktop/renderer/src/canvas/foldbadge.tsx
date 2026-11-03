@@ -1,39 +1,43 @@
 import { useContextMenu } from './contextmenu'
-import type { FoldInfo } from './subtreefold'
+import { providerOf } from './shared'
+import { useProjectTheme } from './projecttheme'
+import type { FoldInfo, FoldTuck } from './subtreefold'
 
-/** The subtree fold control (liaison spec 2026-11-01): one chevron on every
- *  agent or project that has members — a badge in the norm node's badge row
- *  (the RetiredBadge shape, its own gesture, its own one-item menu) and a
- *  corner chip on the mini node. Collapsed, it carries the hidden count and
- *  summarises the hidden members: `working` while any is mid-turn,
- *  `attention` while any has an open question or an unseen mention — the
- *  same words the card's own busy ring and asking glow already wear. */
-export function FoldBadge({ id, fold, onToggle, mini = false }: {
-  id: string; fold: FoldInfo; onToggle: () => void; mini?: boolean
+/** One tucked shape: the child's own colour, a project's from its theme. */
+function Tuck({ tuck, i }: { tuck: FoldTuck; i: number }) {
+  const theme = useProjectTheme(tuck.project ? tuck.id : null)
+  const cls = 'fold-tuck' + (tuck.project ? ' project' : ' prov-' + providerOf(tuck.tier ?? ''))
+  return <span className={cls} data-tuck={tuck.id}
+    style={{ '--tuck-i': i, ...(theme?.color ? { '--provider-accent': theme.color } : {}) } as React.CSSProperties} />
+}
+
+/** The subtree fold's only visible sign (USER 2026-11-03 mb215418dd87d +
+ *  m580523a2f5d6, replacing the chevron button on mini and norm nodes): a
+ *  short stack of up to three small shapes tucked under a COLLAPSED node's
+ *  bottom edge, each in its direct child's own colour, wearing the hidden
+ *  count and the hidden members' working / attention rollup. Clicking it
+ *  expands; collapsing is the node menu's "Collapse subtree" entry. An
+ *  expanded node, and a node with no members, draw nothing. */
+export function FoldStack({ id, fold, onToggle }: {
+  id: string; fold: FoldInfo; onToggle: () => void
 }) {
   const menu = useContextMenu()
-  const label = fold.collapsed
-    ? `Expand subtree of ${id} (${fold.count} hidden)`
-    : `Collapse subtree of ${id}`
-  const facts = fold.collapsed && (fold.working || fold.attention)
+  if (!fold.collapsed) return null
+  const label = `Expand subtree of ${id} (${fold.count} hidden)`
+  const facts = fold.working || fold.attention
     ? ` — ${[fold.working && 'a hidden member is working',
         fold.attention && 'a hidden member needs your attention']
         .filter(Boolean).join(', ')}`
     : ''
-  const cls = (mini ? 'sq-fold-mini' : 'badge subtree-fold')
-    + (fold.collapsed ? ' folded' : '')
-    + (fold.collapsed && fold.working ? ' working' : '')
-    + (fold.collapsed && fold.attention ? ' attention' : '')
+  const cls = 'fold-stack folded' + (fold.working ? ' working' : '')
+    + (fold.attention ? ' attention' : '')
+  const tucks = fold.tucks ?? []
   return <><button type="button" className={cls} data-fold-for={id}
-    title={label + facts}
-    aria-label={label}
-    aria-expanded={!fold.collapsed}
+    title={label + facts} aria-label={label} aria-expanded={false}
     onPointerDown={e => e.stopPropagation()}
     onClick={e => { e.stopPropagation(); onToggle() }}
-    onContextMenu={e => menu.open(e, [{
-      label: fold.collapsed ? 'Expand subtree' : 'Collapse subtree',
-      onSelect: onToggle,
-    }])}>{fold.collapsed
-      ? (mini ? `▸${fold.count}` : `▸ ${fold.count} hidden`)
-      : '▾'}</button>{menu.node}</>
+    onContextMenu={e => menu.open(e, [{ label: 'Expand subtree', onSelect: onToggle }])}>
+    {tucks.map((t, i) => <Tuck key={t.id} tuck={t} i={i} />)}
+    <span className="fold-count">{fold.count}</span>
+  </button>{menu.node}</>
 }

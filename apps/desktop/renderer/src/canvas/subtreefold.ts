@@ -12,6 +12,17 @@ import { useSyncExternalStore } from 'react'
 import type { CanvasNode } from './shared'
 
 /** what a collapsed node reports about the members it hides */
+/** one direct child a collapsed node tucks under its bottom edge */
+export interface FoldTuck {
+  id: string
+  /** a project child wears its theme colour; an agent child its provider's */
+  project: boolean
+  tier?: string
+}
+
+/** at most this many tucked shapes peek out under a collapsed node */
+export const MAX_TUCKS = 3
+
 export interface FoldSummary {
   /** every hidden descendant, agents and projects alike */
   count: number
@@ -19,6 +30,8 @@ export interface FoldSummary {
   working: boolean
   /** some hidden member needs the user's attention — collapsing never hides it */
   attention: boolean
+  /** the first MAX_TUCKS direct children, in child order (the tucked stack) */
+  tucks?: FoldTuck[]
 }
 
 /** the fold control's view of one card that has members */
@@ -67,6 +80,8 @@ export function pruneCollapsedView(root: CanvasNode,
         ;(d.children ?? []).forEach(collect)
       }
       kids.forEach(collect)
+      summary.tucks = kids.filter((k) => !k.isBearerOf).slice(0, MAX_TUCKS)
+        .map((k) => ({ id: k.id, project: k.kind === 'project', tier: k.tier ?? undefined }))
       if (summary.count) summaries.set(n.id, summary)
       return { ...n, children: [] }
     }

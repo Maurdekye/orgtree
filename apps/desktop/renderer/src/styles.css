@@ -932,25 +932,41 @@ button.badge.audience-fold.alert {
    summarises the hidden members in the card states' own colours: `working`
    in the workstate green (.sq-idle.working), `attention` in the asking
    accent, so folding a branch never makes its state unreadable. */
-button.badge.subtree-fold { cursor: pointer; font: inherit; font-size: inherit; }
-button.badge.subtree-fold:hover { border-color: var(--button-accent); }
-button.badge.subtree-fold.working { color: var(--work); }
-button.badge.subtree-fold.attention {
+/* subtree fold: the tucked stack under a collapsed node's bottom edge
+   (replaces the chevron button; foldbadge.tsx FoldStack) */
+.fold-stack {
+  position: absolute; left: 50%; top: 100%; z-index: 0;
+  transform: translateX(-50%); margin-top: -2px;
+  display: flex; align-items: flex-start; justify-content: center;
+  width: 78%; height: 16px; padding: 0; cursor: pointer;
+  border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 10px; line-height: 1;
+}
+.fold-tuck {
+  position: absolute; top: 0; height: 12px; border-radius: 0 0 6px 6px;
+  border: 1px solid var(--line); border-top: 0;
+  background: color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, var(--panel-2));
+  width: calc(100% - var(--tuck-i, 0) * 12%);
+  transform: translateY(calc(var(--tuck-i, 0) * 4px));
+  z-index: calc(3 - var(--tuck-i, 0));
+}
+.fold-tuck.prov-claude { --provider-accent: var(--prov-claude); }
+.fold-tuck.prov-openai { --provider-accent: var(--prov-openai); }
+.fold-tuck.prov-google { --provider-accent: var(--prov-google); }
+.fold-tuck.prov-openrouter { --provider-accent: var(--prov-openrouter); }
+.fold-stack .fold-count {
+  position: relative; z-index: 4; margin-top: 1px; padding: 0 5px;
+  border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 10px;
+}
+.fold-stack:hover .fold-count { border-color: var(--button-accent); }
+.fold-stack.working .fold-count { color: var(--work); border-color: var(--work); }
+.fold-stack.attention .fold-count {
   color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
-.sq-fold-mini {
-  position: absolute; right: 4px; bottom: 4px; z-index: 3;
-  padding: 1px 6px; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
-  font: inherit; font-size: 11px; line-height: 1.3;
-}
-.sq-fold-mini:hover { border-color: var(--button-accent); }
-.sq-fold-mini.working { color: var(--work); }
-.sq-fold-mini.attention {
-  color: var(--agent-accent-text, var(--accent));
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-}
+.fold-stack.working .fold-tuck { box-shadow: 0 0 6px color-mix(in srgb, var(--work) 60%, transparent); }
+.fold-stack.attention .fold-tuck { box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent); }
 .resume-all {
   /* resume = thaw: ice-tinted, matching what it resumes (was haiku-green,
      which made a frozen-org control wear a model tier's color) */

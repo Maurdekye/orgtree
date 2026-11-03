@@ -81,6 +81,10 @@ export interface AgentMenuHandlers {
   onTeamPresentations?: () => void
   onLineage?: () => void
   onSettings: () => void
+  /** subtree fold (subtreefold.ts): the node's only Collapse control now the
+   *  chevron button is gone; absent for a node with no members */
+  onToggleFold?: () => void
+  foldCollapsed?: boolean
   /** grant or revoke this agent's user audience through the audited API */
   onToggleUserAudience?: () => void
   /** pin this agent's desk as a window / raise the one already pinned */
@@ -284,6 +288,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       onSelect: () => dismiss(),
     })
   }
+  if (h.onToggleFold) entries.push({ label: h.foldCollapsed ? 'Expand subtree' : 'Collapse subtree', onSelect: h.onToggleFold })
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
   if (live && !node.isBearerOf && h.onToggleUserAudience) {
     const hasUserAudience = (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ?? false
@@ -453,6 +458,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     const dismiss = h.onDismiss
     entries.push({ label: 'Dismiss', title: 'hide this retired project again', onSelect: () => dismiss() })
   }
+  if (h.onToggleFold) entries.push({ label: h.foldCollapsed ? 'Expand subtree' : 'Collapse subtree', onSelect: h.onToggleFold })
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
   if (live && h.onToggleUserAudience) {
     const explicit = (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ?? false
