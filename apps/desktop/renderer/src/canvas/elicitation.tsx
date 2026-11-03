@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import type { AskInfo, ToastFn } from '../types'
-import { answerAsk } from '../api'
+import { answerAsk, fileBase } from '../api'
+import { RefMdBody } from './refmd'
+import { md } from './shared'
+import type { RefRoutes } from './reflinks'
 import { useQuestionVisibility } from '../notification-visibility'
 
 type Schema = { type?: string; title?: string; description?: string; default?: unknown;
@@ -15,7 +18,7 @@ const options = (s: Schema) => s.enum?.map((value, i) => ({ value, label: s.enum
   ?? (s.oneOf ?? s.anyOf)?.map(o => ({ value: o.const, label: o.title ?? o.const }))
 
 /** Drafts remain in this mounted card; no answer mail or persistent permissions. */
-export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: string; toast: ToastFn }) {
+export function ElicitationAsk({ ask, slug, toast, refs }: { ask: AskInfo; slug: string; toast: ToastFn; refs?: Partial<RefRoutes> | null }) {
   const e = ask.elicitation!
   const visibility = useQuestionVisibility(slug, ask.id)
   const fields = Object.entries(e.schema?.properties ?? {})
@@ -48,7 +51,7 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
   return <form ref={visibility} className="askcard elicitation-card" data-elicitation-id={ask.id} tabIndex={-1}
     onSubmit={ev => { ev.preventDefault(); void submit('accept') }}>
     <div className="ask-head"><strong>{e.native_tool ? e.server : `MCP permission · ${e.server}`}</strong></div>
-    <p className="ask-q">{e.message}</p>
+    <RefMdBody className="ask-q md" html={md(e.message, fileBase(slug, ask.node))} world={refs?.world} onOpen={refs?.onOpen} />
     <div className="ask-rows elicitation-fields">{e.mode === 'url' ? <p><a href={e.url ?? undefined} target="_blank" rel="noopener noreferrer">{e.url}</a></p>
       : fields.map(([key, s], i) => {
         const id = `${ask.id}-field-${i}`, required = e.schema?.required?.includes(key)

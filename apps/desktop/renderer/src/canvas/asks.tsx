@@ -52,6 +52,11 @@ const OTHER = '\0other'          // sentinel — no label can collide with it
  *  written. A missing `onOpen` draws the chips inert. */
 export type AskRefs = Partial<RefRoutes> | null
 
+/** A credit / scope request's reason: the same pipeline as the question text. */
+function AskReason({ text, base, refs }: { text: string; base: string; refs?: AskRefs }) {
+  return <RefMdBody className="ask-q dim md" html={md(text, base)} world={refs?.world} onOpen={refs?.onOpen} />
+}
+
 /** A question's text: the transcript's renderer, with the surface's chips. */
 function QuestionBody({ text, base, refs }: { text: string; base: string; refs?: AskRefs }) {
   return <RefMdBody className="ask-q md" html={md(text, base)}
@@ -263,7 +268,7 @@ export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
   // point 31: a submitted card is gone on the click, in every view
   if (live && askHidden(slug, ask.id)) return null
   if (!live) return <NulledAsk ask={ask} credit={credit} slug={slug} refs={refs} />
-  if (ask.kind === 'elicitation' && ask.elicitation) return <ElicitationAsk key={ask.id} ask={ask} slug={slug} toast={toast} />
+  if (ask.kind === 'elicitation' && ask.elicitation) return <ElicitationAsk key={ask.id} ask={ask} slug={slug} toast={toast} refs={refs} />
   // FR-14: the composed batch — mixed tabs, one submit. Legacy open cards
   // (a rolling deploy's pre-batch payload) fall through to the old forms.
   if (ask.kind === 'batch' && ask.tabs?.length) {
@@ -274,7 +279,7 @@ export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
   return credit
     ? <CreditAsk ask={ask} slug={slug} toast={toast}
         seat={seat} committed={committed} maxTop={maxTop}
-        segments={segments} pxc={pxc} />
+        segments={segments} pxc={pxc} refs={refs} />
     : <QuestionAsk ask={ask} slug={slug} toast={toast} refs={refs} />
 }
 
@@ -548,7 +553,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
             <div className="ask-credit-side">
               <div className="ask-q"><b>{oldG} → {t.new}</b>
                 <span className="dim"> (+{(t.new ?? 0) - oldG} asked)</span></div>
-              {t.reason && <div className="ask-q dim">{t.reason}</div>}
+              {t.reason && <AskReason text={t.reason} base={fileBase(slug, ask.node)} refs={refs} />}
               <div className="dim">{isMobile ? 'step the offer with − / ＋'
                 : 'drag the bar (or alt+↑/↓)'}, then pick an outcome — it
                 commits with the batch submit</div>
@@ -571,7 +576,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         )}
         {t.kind === 'scope' && (<>
           <div className="ask-q"><b>{t.label}</b></div>
-          {t.reason && <div className="ask-q dim">{t.reason}</div>}
+          {t.reason && <AskReason text={t.reason} base={fileBase(slug, ask.node)} refs={refs} />}
           <div className="ask-rows">
             {([['approve', 'approve — live from its next turn'],
                ['deny', 'deny'],
@@ -881,8 +886,8 @@ function QuestionAsk({ ask, slug, toast, refs }: {
  *  warnings surface on release, BEFORE the commit. Same form family as the
  *  question card: header chip, ✕ = deny. */
 function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
-  pxc: orgScale }: {
-  ask: AskInfo; slug: string; toast: ToastFn
+  pxc: orgScale, refs }: {
+  ask: AskInfo; slug: string; toast: ToastFn; refs?: AskRefs
   seat: number; committed: number; maxTop?: number
   segments: { seat: number; grant: number }[]
   pxc?: number
@@ -987,7 +992,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
                 {' '}· offering {g}</span>}
             </div>
             {typeof ask.reason === 'string' && ask.reason &&
-              <div className="ask-q dim">{ask.reason}</div>}
+              <AskReason text={ask.reason} base={fileBase(slug, ask.node)} refs={refs} />}
             <div className="dim">{isMobile
               ? <>step the offer with − / ＋ (floor: {committed} committed)</>
               : <>drag the bar or alt+↑/↓ — grant less, more, or claw back

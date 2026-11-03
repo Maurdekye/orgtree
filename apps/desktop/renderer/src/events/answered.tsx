@@ -76,7 +76,7 @@ function Question({ q, dismissed, refs, foldKey }: { q: MiniQuestion; dismissed:
       {q.options.map(o => row(o.label, o.description, q.selected.includes(o.label)))}
       {extra.map(s => row(s, undefined, true))}
     </ul>}
-    {q.typed !== null && <div className="answered-typed">{q.typed}</div>}
+    {q.typed !== null && <div className="answered-typed"><RefMdBody className="md" html={md(q.typed, refs.imgBase)} world={refs.world} onOpen={refs.onOpen} /></div>}
     {skipped && q.options.length === 0 && <div className="answered-skipped dim">Skipped</div>}
   </div>
 }
@@ -90,7 +90,8 @@ export function AnsweredCard({ questions, dismissed, note, foldKey, ...refs }: {
     <summary>{head}</summary>
     {questions.map((q, i) => <Question key={i} q={q} dismissed={dismissed} refs={refs}
       foldKey={keys?.length ? keys.filter(Boolean).map(k => k + '#q' + i) : undefined} />)}
-    {note && <div className="answered-note"><span className="dim">Note: </span>{note}</div>}
+    {note && <div className="answered-note"><span className="dim">Note: </span>
+      <RefMdBody el="span" className="md md-inline" html={md(note, refs.imgBase)} world={refs.world} onOpen={refs.onOpen} /></div>}
   </details>
 }
 
