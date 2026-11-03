@@ -2959,6 +2959,9 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   targets, N = the new targets waiting (recomputed each step), jitter 0.8-1.2 drawn once per cycle by `useAttractCycle`; never twice in a row;
   nothing new is Fit only. Fit goes through `hide` like every step, so an attract-opened panel closes first. Proof: `tests/attract.test.tsx`
   §16-§16e (the user's three examples: 1 waiting alternates, 4 waiting every third, 49 waiting every 10th-15th).
+- **A desk open elsewhere is never touched (USER 2026-11-03 m7efd38ca3400).** `canvas.ts` `taken(id)` (pinned ids or `deskOpenElsewhere`, the pin/pop-out
+  registry, no parallel tracker) is checked when a step RUNS, not only at collect: an `agent` step, an `attention` step and a `doc` step
+  (the reader opens on the owner's desk) on a taken desk only `fitAll()`; collect drops presentations of taken desks. Proof: `tests/attract.test.tsx` §8b.
 - **Attention arrives at once (USER 2026-11-03 m0962694602bd).** While a run lasts, `routes.watch` reports ARRIVALS of the Attention
   view's own rows (`attention/feed.ts buildAttentionRows`: open questions, manual-attention tickets, urgent mail, @user mentions). The first
   poll after the run starts is the baseline (what already waited is not an arrival); `useCanvasAttract` polls on every new tree, so the

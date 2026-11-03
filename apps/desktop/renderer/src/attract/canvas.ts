@@ -98,6 +98,13 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
       } while (dirty && listener)
     } finally { polling = false }
   }
+  /** this agent's desk is already open somewhere (pinned, or in a window of its own), checked when the step RUNS: one pinned
+   *  after the candidates were collected is just as taken (USER 2026-11-03 m7efd38ca3400). Attract then only fits the org. */
+  const taken = (id: string | null | undefined): boolean => {
+    if (!id) return false
+    const c = deps.current
+    return c.pinnedIds().has(id) || deskOpenElsewhere(c.slug, c.map.get(id))
+  }
   /** attention shown through the route its kind already has; a desk that is pinned or open elsewhere gets the whole
    *  org instead (the node is in view), never a window moved */
   const underlying = (t: AttentionTarget): AttractTarget | null =>
@@ -114,7 +121,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
       const docs: { id: string; node: string | null }[] = []
       for (const n of map.values()) {
         for (const doc of n.documents ?? [])
-          if (docUnread(slug, doc.id, doc.at) !== null) docs.push({ id: doc.id, node: n.id })
+          if (docUnread(slug, doc.id, doc.at) !== null && !pinned.has(n.id) && !deskOpenElsewhere(slug, n)) docs.push({ id: doc.id, node: n.id })
         // a real, live agent seat: no project, draft, pseudo-card or retiree
         if (!n.tier || n.kind === 'project' || n.isBearerOf || n.state === 'archived' || n.state === 'draft') continue
         agents.push({
@@ -142,14 +149,12 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
         case 'attention': {
           const next = underlying(t)
           if (next) return show(next)
-          const node = t.agent ? c.map.get(t.agent) : undefined
-          const taken = !!t.agent && (c.pinnedIds().has(t.agent) || (!!node && deskOpenElsewhere(c.slug, node)))
-          if (!t.agent || taken) c.fitAll()
+          if (!t.agent || taken(t.agent)) c.fitAll()
           else c.goToAgent(t.agent)
           return
         }
         case 'org': c.fitAll(); return
-        case 'agent': c.goToAgent(t.id); return
+        case 'agent': if (taken(t.id)) c.fitAll(); else c.goToAgent(t.id); return
         case 'mail':
           c.onPanel?.({ kind: 'inbox', mail: t.id })
           // "3 yes": showing it marks it read, through the inbox's own read path
@@ -170,6 +175,8 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
           return ticket.current.length
         }
         case 'doc': {
+          // a presentation opens in its agent's reader: not on a desk that is already open elsewhere
+          if (taken(ownerOf(t.id) ?? t.node)) { c.fitAll(); return }
           const before = c.readerIds()
           c.openDoc(t.id)   // the reader marks it viewed as it loads
           const owner = ownerOf(t.id) ?? t.node

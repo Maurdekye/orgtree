@@ -772,6 +772,31 @@ test('§8 the canvas routes: pinned or popped-out desks are skipped, real read m
   } finally { globalThis.fetch = realFetch; resetLocalReads(); localStorage.clear() }
 })
 
+// USER 2026-11-03 17:57:15Z m7efd38ca3400 "attract mode focused your desk even though it's open in the pinned agent desk already"
+test('§8b a desk open elsewhere is never touched, even when it was pinned after the candidates were collected; its presentations are not opened on it', async () => {
+  const node = (id: string, extra: Record<string, unknown> = {}) =>
+    [id, { id, tier: 'opus', state: 'idle', generation: 1, busy: true, turn_started_at: before, ...extra }] as const
+  const map = new Map<string, any>([node('late'), node('pinned', { documents: [{ id: 'pd', title: 'p', at: later }] })])
+  resetLocalReads(); localStorage.clear()
+  try {
+    let pinned = new Set<string>(['pinned'])
+    const calls: string[] = []
+    const routes = canvasAttractRoutes(() => ({
+      enabled: true, slug: 'acme', tree: { user_inbox_count: 0 } as any, map, pinnedIds: () => pinned,
+      goToAgent: (id) => calls.push('go:' + id), fitAll: () => calls.push('fit'), openDoc: (id) => calls.push('doc:' + id),
+      readerIds: () => [], closeReader: (id) => calls.push('close-reader:' + id),
+    }))
+    const got = await routes.collect(SINCE)
+    assert.deepEqual(got.docs, [], 'a presentation of a pinned desk is not a candidate')
+    // chosen while free, pinned before its step runs
+    pinned = new Set(['pinned', 'late'])
+    await routes.show({ kind: 'agent', id: 'late', mark: before })
+    await routes.show({ kind: 'agent', id: 'pinned', mark: before })
+    await routes.show({ kind: 'doc', id: 'pd', node: 'pinned' })
+    assert.deepEqual(calls, ['fit', 'fit', 'fit'], 'only the canvas moves; no desk is focused and no reader opened: ' + calls.join(','))
+  } finally { resetLocalReads(); localStorage.clear() }
+})
+
 // USER 2026-11-03 13:10:58Z m46c12a448a66 "any user facing questions while attract mode is on should
 // be outright refused (optional extra toggle default on)"
 test('§12 refuse-questions setting: on when absent, one app-wide boolean preference', async () => {
