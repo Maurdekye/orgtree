@@ -337,3 +337,24 @@ async fn t21_purge_takes_bundled_follow_ups_and_the_follow_up_lookup_uses_its_in
 ");
     assert!(!plan.contains("Seq Scan on mail"), "no sequential scan of the project mailbox: {plan}");
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t23_retrying_a_dead_letter_bundles_its_follow_ups_again() {
+    let mut w = world(true).await;
+    let proj = w.project("intake", true).await;
+    w.grant("intake").await;
+    let (first, p) = w.arrive("n30", "@net:bob.1", "original", json!([])).await;
+    let job = p.jobs[0].mail.clone();
+    let quote = json!({ "kind": "mail", "box": "org", "id": first, "peer": "@net:bob.1", "net_id": "n30", "gist": "original" });
+    w.arrive("n31", "@net:bob.1", "more", json!([quote])).await;
+    // handed out once (bundled_handed set), then dead-lettered
+    w.c.execute("UPDATE ot.mail SET extra = extra || '{\"bundled_handed\":\"c1\"}'::jsonb WHERE recipient_agent_id=$1 AND extra ? 'bundled_with'", &[&proj]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || '{\"dead_letter\":{\"by\":\"w\",\"why\":\"x\",\"attempts\":3}}'::jsonb WHERE uid=$1", &[&job]).await.unwrap();
+    let tx = w.c.transaction().await.unwrap();
+    crate::domain::dead_letters::retry(&tx, proj, "intake", &job, "tester").await.unwrap();
+    tx.commit().await.unwrap();
+    let again: bool = w.c.query_one("SELECT NOT (extra ? 'bundled_handed') FROM ot.mail WHERE recipient_agent_id=$1 AND extra ? 'bundled_with'", &[&proj]).await.unwrap().get(0);
+    assert!(again, "the follow-up is ready to be handed out with the retried job");
+}
