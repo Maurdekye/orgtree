@@ -432,7 +432,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - An org inbox row's `delivered_to` records who got its copies, written at delivery, never recomputed [decided: user 2026-10-29]; it stays inside the org: no hub payload, receipt, ack or reply quote carries it [decided: user 2026-10-30]. [doc](docs/agents/mail-and-hub.md)
 - An org is busy on its hubs while no org-inbox holder can run (`orginbox::busy`), DND while its org-inbox mode is dnd; a person's hour is the hub's. One `--busy`/`--dnd` token each; offline > DND > busy. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03Z-10-31 09:03Z]
 - Follow the [Windows machine-traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md) before shell/file edits: preserve UTF-8/CRLF, write escape-heavy scripts as files, do not treat JSON quoting as shell escaping, and verify resolved paths/activity before authorized cleanup. [decided: user/coordinator 2026-10-16]
-- Project-owned watchdogs (`owner_kind='project'`) fire the project's event, never mail it; filter `a.kind='agent'` on `owner_agent_id` joins. [decided: user 2026-11-03; doc](docs/rust-engine/project-watchdogs.md)
+- Project-owned watchdogs (`owner_kind='project'`) fire the project's event, never mail it; filter `a.kind='agent'` on owner joins. [decided: user 2026-11-03; doc](docs/rust-engine/project-watchdogs.md)
 
 ## Find the detailed rule
 
