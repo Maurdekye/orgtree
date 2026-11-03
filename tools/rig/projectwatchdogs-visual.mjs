@@ -1,7 +1,8 @@
 // Project watchdog captures (docket project-watchdogs-a-watchdog-owned-by-a-project-f). Bundles
 // apps/desktop/renderer/tests/projectwatchdogs.visual.tsx with an EXPLICIT tsconfigRaw/nodePaths (no local tsconfig
 // discovery; team note C CAPTURE CONFIG COLLISION), asserts ONE copy of React in the bundle, then runs Electron in
-// Session 0 (tools/rig/desktop/projectwatchdogs-visual.cjs): offscreen, muted, network and clipboard refused.
+// Session 0 (tools/rig/desktop/projectwatchdogs-visual.cjs, which uses the shared chipcapture-guard.cjs): index.html is INERT
+// (no script); the guard attests Session 0, mute and the clipboard guard before fixture.js is injected.
 //   node tools/rig/projectwatchdogs-visual.mjs --out <empty artifact folder> --deps-root <node_modules>
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
@@ -31,7 +32,7 @@ try {
 const reacts = new Set(Object.keys(meta.inputs).map(f => f.replaceAll('\\', '/')).filter(f => /node_modules\/react\/index\.js$/.test(f)))
 fs.writeFileSync(path.join(out, 'bundle-react.json'), JSON.stringify([...reacts], null, 2))
 if (reacts.size !== 1) throw new Error(`expected exactly one React in the bundle, found ${reacts.size}`)
-fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script src="fixture.js"></script>')
+fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><body style="margin:0"><div id="root"></div></html>')
 fs.mkdirSync(path.join(out, 'tmp'), { recursive: true })
 const electron = args.electron ?? path.join(deps, 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron')
 const env = { ...process.env, TMP: path.join(out, 'tmp'), TEMP: path.join(out, 'tmp') }
