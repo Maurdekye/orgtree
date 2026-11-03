@@ -17,6 +17,8 @@ import {
 } from '../src/attract/pref'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { canvasAttractRoutes } from '../src/attract/canvas'
+import { createAttractPanels } from '../src/attract/panels'
+import type { PanelKind } from '../src/attract/panels'
 import { markDocViewed } from '../src/canvas/docviewed'
 import { readLocally, resetLocalReads } from '../src/mailread'
 
@@ -336,6 +338,137 @@ test('§12 at 0 a canvas stop restarts as soon as the interaction ends (a held p
   await flush()
 })
 
+// USER 2026-11-03 10:56:41Z m25dcebcbace4 "also it seems the panels that attract mode
+// opens dont close automatically"
+/** a stand-in for the shell: two panels whose open state only updates on the next
+ *  "render", like React state (a ref read right after a close still says open) */
+function shell() {
+  const committed: Record<PanelKind, boolean> = { inbox: false, docket: false }
+  const pending: Record<PanelKind, boolean> = { inbox: false, docket: false }
+  const log: string[] = []
+  const host = {
+    isOpen: (k: PanelKind) => committed[k],
+    show: (k: PanelKind, id: string) => { pending[k] = true; log.push(`show:${k}:${id}`) },
+    close: (k: PanelKind) => { pending[k] = false; log.push(`close:${k}`) },
+  }
+  const render = () => { committed.inbox = pending.inbox; committed.docket = pending.docket }
+  const user = (k: PanelKind, open: boolean) => { pending[k] = open; render() }
+  return { host, render, user, log, open: () => ({ ...pending }) }
+}
+
+test('§13 panels attract opens close when it moves on, including one target of the same kind right after another', () => {
+  const sh = shell()
+  const panels = createAttractPanels(sh.host)
+  panels.apply({ kind: 'docket', item: 'a' }); sh.render()
+  assert.deepEqual(sh.open(), { inbox: false, docket: true })
+  // the cycle moves ticket -> ticket: hide closes, show opens again in the same tick
+  panels.apply(null); panels.apply({ kind: 'docket', item: 'b' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.deepEqual(sh.open(), { inbox: false, docket: false }, 'the second ticket\'s docket is still attract\'s and closes')
+  // the inbox, then a ticket, then nothing left open
+  panels.apply({ kind: 'inbox', mail: 'm' }); sh.render()
+  panels.apply(null); panels.apply({ kind: 'docket', item: 'c' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.deepEqual(sh.open(), { inbox: false, docket: false })
+})
+
+test('§13b a panel the user opened or already had open is never closed; one the user closes is not reopened as attract\'s', () => {
+  const sh = shell()
+  const panels = createAttractPanels(sh.host)
+  sh.user('inbox', true)                       // already open before attract
+  panels.apply({ kind: 'inbox', mail: 'm' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().inbox, true, 'an inbox the user had open stays')
+  assert.ok(!sh.log.includes('close:inbox'))
+  // the user opens the docket while attract is on the inbox: attract moving to a ticket shares it, never closes it
+  panels.apply({ kind: 'docket', item: 'x' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().docket, false, 'a docket attract opened itself closes')
+  sh.user('docket', true)
+  panels.apply({ kind: 'docket', item: 'y' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().docket, true, 'a docket the user opened stays')
+})
+
+test('§13c the screen stays when attract is interrupted, and a panel the user touched becomes theirs', () => {
+  const sh = shell()
+  const panels = createAttractPanels(sh.host)
+  panels.apply({ kind: 'docket', item: 'a' }); sh.render()
+  panels.apply('release')                       // canvas interaction ends the run, or the panel was touched
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().docket, true, 'released panels are the user\'s: nothing closes them')
+  // and a later run treats a docket that is open as not its own
+  panels.apply({ kind: 'docket', item: 'b' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().docket, true)
+})
+
+test('§14 the reader attract opened closes (the node that owns the document), unless the user had it open or touched it', async () => {
+  localStorage.clear(); resetLocalReads()
+  try {
+    // 'fresh' is listed on two nodes: the shell opens it on the FIRST one (OrgCanvas docOwner)
+    const doc = { id: 'fresh', title: 'f', at: later }
+    const map = new Map<string, any>([
+      ['first', { id: 'first', tier: 'opus', state: 'idle', documents: [doc] }],
+      ['second', { id: 'second', tier: 'opus', state: 'idle', documents: [doc] }],
+    ])
+    const run = async (open: string[], act: (r: ReturnType<typeof canvasAttractRoutes>) => void | Promise<void>) => {
+      const calls: string[] = []
+      const routes = canvasAttractRoutes(() => ({
+        enabled: true, slug: 'acme', tree: { user_inbox_count: 0 } as any, map, pinnedIds: () => new Set(),
+        goToAgent: () => {}, fitAll: () => {}, openDoc: (id) => calls.push('doc:' + id),
+        readerIds: () => open, closeReader: (id) => calls.push('close-reader:' + id),
+        onPanel: (p) => calls.push('panel:' + (p === 'release' ? 'release' : p ? p.kind : 'close')),
+      }))
+      const t = { kind: 'doc' as const, id: 'fresh', node: 'second' }
+      const shown = routes.show(t)
+      await act(routes)
+      routes.hide(t)
+      await shown
+      return calls
+    }
+    assert.deepEqual(await run([], () => {}), ['doc:fresh', 'close-reader:first'], 'closes the reader that was opened, not the listing node\'s')
+    assert.deepEqual(await run(['first'], () => {}), ['doc:fresh'], 'a reader the user already had open stays')
+    assert.deepEqual(await run([], r => r.release?.()), ['doc:fresh', 'panel:release'], 'touched: the user\'s now')
+    assert.deepEqual(await run([], r => r.stop?.()), ['doc:fresh', 'panel:release'], 'interrupted: the screen stays, nothing is attract\'s any more')
+  } finally { localStorage.clear(); resetLocalReads() }
+})
+
+test('§15 touching a panel hands it to the user and the run goes on; a canvas interaction ends the run and releases too', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    const sc = scene()
+    key()
+    const calls: string[] = []
+    const routes: AttractRoutes = {
+      collect: async () => ({ agents: [], mail: [], docs: [], tickets: [] }),
+      show: () => {}, hide: () => {},
+      release: () => { calls.push('release') }, stop: () => { calls.push('stop') },
+    }
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routes} log={log} idleMs={0} />, el => el)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      await advance(50, 10)
+      assert.equal(running(), 'true')
+      await inAct(() => { fire(sc.panels.overlay, 'pointerdown') })
+      assert.deepEqual(calls, ['release'], 'a press in a panel releases it')
+      assert.equal(running(), 'true', 'and the run goes on')
+      await inAct(() => { fire(sc.panels.overlay, 'wheel', { deltaY: 10 }); fire(sc.panels.pin, 'keydown', { key: 'x' }) })
+      assert.deepEqual(calls, ['release', 'release', 'release'], 'wheel and keys in a panel count too')
+      await inAct(() => { fire(sc.panels.tray, 'pointerdown') })
+      assert.deepEqual(calls, ['release', 'release', 'release'], 'the agents tray is not an attract panel')
+      await inAct(() => { fire(sc.node, 'pointerdown') })
+      assert.equal(running(), 'false')
+      assert.equal(calls.at(-1), 'stop')
+      await inAct(() => { fire(sc.node, 'pointerup') })
+    } finally { await view.unmount() }
+    sc.root.remove()
+  } finally { realClock() }
+  await flush()
+})
+
 test('§7 one app-wide toggle: off by default, flips through the shared store, and the main process accepts only a boolean', async () => {
   assert.equal('attractMode' in DEFAULT_PREFERENCES, false, 'absent means off: nothing stored on a fresh install')
   assert.deepEqual(preferencesPatch({ attractMode: true }), { attractMode: true })
@@ -382,7 +515,7 @@ test('§8 the canvas routes: pinned or popped-out desks are skipped, real read m
       enabled: true, slug: 'acme', tree: { user_inbox_count: 2 } as any, map, pinnedIds: () => new Set(['pinned']),
       goToAgent: (id) => calls.push('go:' + id), fitAll: () => calls.push('fit'), openDoc: (id) => calls.push('doc:' + id),
       readerIds: () => [], closeReader: (id) => calls.push('close-reader:' + id),
-      onPanel: (p) => calls.push('panel:' + (p ? `${p.kind}:${'mail' in p ? p.mail : p.item}` : 'close')),
+      onPanel: (p) => calls.push('panel:' + (p === 'release' ? 'release' : p ? `${p.kind}:${'mail' in p ? p.mail : p.item}` : 'close')),
     }))
     const got = await routes.collect(SINCE)
     assert.deepEqual(got.agents.map(a => `${a.id}:${a.deskTaken}`), ['free:false', 'pinned:true', 'old:false'])
