@@ -227,6 +227,9 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
         // the default colour
         o.insert("theme_color".into(), super::projects::theme_color(&configured).map(|v| json!(v)).unwrap_or(Value::Null));
         o.insert("theme_icon".into(), super::projects::theme_icon(&configured).map(|v| json!(v)).unwrap_or(Value::Null));
+        // an uploaded icon: only its hash (the desktop's cache key); the image
+        // is read by its own route, never carried on the tree
+        o.insert("theme_icon_custom".into(), super::projects::theme_icon_custom(&configured).map(|v| json!(v)).unwrap_or(Value::Null));
     }
     o.insert("limit_locked".into(), json!(raw["limit_locked"].as_bool().unwrap_or(false)));
     let resumable = state == "live" && !frozen.is_null() && !halted;

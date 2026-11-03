@@ -125,6 +125,33 @@ pub fn theme_icon(scope: &Value) -> Option<String> {
     scope.get("theme_icon").and_then(Value::as_str).filter(|v| valid_theme_icon(v)).map(str::to_string)
 }
 
+/// An uploaded icon (@item:orgtree/project-themes-colour-the-whole-project-
+/// node-by-i; USER 2026-11-03 mc4fd305e1c09) is named in the scope by the
+/// SHA-256 of its normalised PNG (`scope.theme_icon_custom`): the tree carries
+/// only that cache key. The bytes live in their own bounded record (ot.meta
+/// `icon_key`), read by `GET /api/orgs/{slug}/project-icon` alone, so no
+/// tree read grows with them. While set, it is drawn instead of `theme_icon`.
+#[nolog]
+pub fn valid_theme_icon_custom(v: &str) -> bool {
+    v.len() == 64 && v.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+#[nolog]
+pub fn theme_icon_custom(scope: &Value) -> Option<String> {
+    scope.get("theme_icon_custom").and_then(Value::as_str).filter(|v| valid_theme_icon_custom(v)).map(str::to_string)
+}
+
+/// The one record holding a project's uploaded icon.
+#[nolog]
+pub fn icon_key(org: i64, project: i64) -> String { format!("project.icon.{org}.{project}") }
+
+/// Uploads normalised by the HTTP route and waiting for their `set_theme`
+/// (which stores them in its own transaction). Only the route stages, so no
+/// agent can name bytes it did not upload; op arguments carry the hash alone
+/// and never the image (automatic tracing logs op requests).
+pub(crate) static STAGED_ICONS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, crate::profile_pictures::wire::PictureRecord>>>
+    = std::sync::LazyLock::new(Default::default);
+
 /// Does the project keep its own mail from being handed back to its sender
 /// (its `scope.mail_queue_exclude_sender`; off by default, user 08:08Z)?
 #[nolog]

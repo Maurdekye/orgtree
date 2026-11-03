@@ -2517,6 +2517,7 @@ async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
         "max_attempts":super::projects::max_attempts(&n.scope),"ack_reminders":super::projects::ack_reminders(&n.scope),
         "turn_end_reminder":super::projects::turn_end_reminder(&n.scope),"slots":super::slots::capacity(&n.scope),
         "theme_color":super::projects::theme_color(&n.scope),"theme_icon":super::projects::theme_icon(&n.scope),
+        "theme_icon_custom":super::projects::theme_icon_custom(&n.scope),
         "event_listeners":super::listeners::enabled(&n.scope)
     }}))
 }
@@ -2667,11 +2668,41 @@ async fn set_theme(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, re
             None => refuse!(BadRequest, "theme_icon is a built-in icon name like rocket, or null for the folder icon"),
         },
     };
-    if colour.is_none() && icon.is_none() {
+    // an uploaded icon (USER 2026-11-03 mc4fd305e1c09) is named by the hash
+    // the project-icon route staged; null removes it. Choosing a built-in
+    // icon (theme_icon, null included) replaces an upload.
+    let custom = match req.get("theme_icon_custom") {
+        None => if icon.is_some() { Some(None) } else { None },
+        Some(Value::Null) => Some(None),
+        Some(v) => match v.as_str().filter(|s| super::projects::valid_theme_icon_custom(s)) {
+            Some(s) => Some(Some(s.to_string())),
+            None => refuse!(BadRequest, "theme_icon_custom is the hash of an icon uploaded in the project's settings, or null"),
+        },
+    };
+    if colour.is_none() && icon.is_none() && custom.is_none() {
         refuse!(BadRequest, "set_theme needs theme_color or theme_icon (null clears either)");
     }
     let before: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR UPDATE", &[&n.id]).await?.get(0);
     let mut next = if before.is_object() { before } else { json!({}) };
+    if let Some(c) = &custom {
+        let key = super::projects::icon_key(org.id, n.id);
+        match c {
+            Some(sha) if super::projects::theme_icon_custom(&next).as_deref() == Some(sha.as_str()) => {}
+            Some(sha) => {
+                let staged = super::projects::STAGED_ICONS.lock().unwrap_or_else(|p| p.into_inner()).get(sha).cloned();
+                let Some(record) = staged else {
+                    refuse!(BadRequest, "upload the icon in the project's settings first");
+                };
+                tx.execute("INSERT INTO ot.meta(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    &[&key, &serde_json::to_value(&record)?]).await?;
+                next["theme_icon_custom"] = json!(sha);
+            }
+            None => {
+                tx.execute("DELETE FROM ot.meta WHERE key = $1", &[&key]).await?;
+                next.as_object_mut().unwrap().remove("theme_icon_custom");
+            }
+        }
+    }
     if let Some(c) = &colour {
         match c { Some(v) => next["theme_color"] = json!(v), None => { next.as_object_mut().unwrap().remove("theme_color"); } }
     }
@@ -2679,10 +2710,11 @@ async fn set_theme(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, re
         match i { Some(v) => next["theme_icon"] = json!(v), None => { next.as_object_mut().unwrap().remove("theme_icon"); } }
     }
     tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &next]).await?;
-    event(tx, org.id, "set_theme", actor, Some(n.id),
-        json!({ "node": n.name, "theme_color": super::projects::theme_color(&next), "theme_icon": super::projects::theme_icon(&next) }), fx).await?;
+    let out = json!({ "node": n.name, "theme_color": super::projects::theme_color(&next), "theme_icon": super::projects::theme_icon(&next),
+        "theme_icon_custom": super::projects::theme_icon_custom(&next) });
+    event(tx, org.id, "set_theme", actor, Some(n.id), out.clone(), fx).await?;
     fx.agents.insert(n.id);
-    Ok(json!({ "node": n.name, "theme_color": super::projects::theme_color(&next), "theme_icon": super::projects::theme_icon(&next) }))
+    Ok(out)
 }
 
 /// Set a project's slot count (domain/slots.rs; user 2026-10-18 08:42Z: a

@@ -29,6 +29,7 @@ pub mod orgops;
 pub mod undo;
 pub mod orgs;
 pub mod pictures;
+pub mod projecticon;
 pub mod settings;
 pub mod templates;
 pub mod tree;
@@ -100,6 +101,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/profile-picture", get(pictures::get).post(pictures::set).layer(axum::extract::DefaultBodyLimit::max(7*1024*1024)))
         .route("/api/orgs/{slug}/profile-picture/preview", post(pictures::preview).layer(axum::extract::DefaultBodyLimit::max(7*1024*1024)))
         .route("/api/orgs/{slug}/net/profile-picture", get(pictures::mention))
+        // a project's uploaded icon (project settings; base64 of up to 2 MB)
+        .route("/api/orgs/{slug}/project-icon", get(projecticon::get).post(projecticon::set).layer(axum::extract::DefaultBodyLimit::max(4*1024*1024)))
         .route("/api/orgs/{slug}/accounts-allowed", get(settings::accounts_allowed))
         .route("/api/orgs/{slug}/asks/{aid}/answer", post(asks::answer))
         .route("/api/orgs/{slug}/credit-requests", post(asks::credit))

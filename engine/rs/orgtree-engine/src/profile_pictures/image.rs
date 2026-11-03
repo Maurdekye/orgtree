@@ -113,6 +113,47 @@ pub fn normalize(bytes:&[u8], crop:Crop)->Result<(Vec<u8>,u32)> {
     Ok((png,w))
 }
 
+/// A project's uploaded icon (@item:orgtree/project-themes-colour-the-whole-
+/// project-node-by-i; USER 2026-11-03 mc4fd305e1c09): the same bounded static
+/// decode as a Logo, then fitted inside a 256 square (aspect kept, centred on
+/// transparency) and re-encoded as a stripped PNG. SVG is never decoded here:
+/// the desktop rasterises it to PNG first, so no markup is ever stored.
+pub const ICON_SIZE: u32 = 256;
+pub const MAX_ICON_INPUT_BYTES: usize = 2 * 1024 * 1024;
+
+#[nolog]
+fn icon_invalid()->Error { Error::Invalid("Choose a static PNG, JPEG, WebP or SVG icon up to 2 MB".into()) }
+
+/// Base64 from the desktop, refused past the 2 MB input cap before decoding.
+#[nolog]
+pub fn decode_icon_input(data:&str)->Result<Vec<u8>> {
+    if data.len()>(MAX_ICON_INPUT_BYTES+2)/3*4 { return Err(icon_too_big()); }
+    let bytes=B64.decode(data).map_err(|_|icon_invalid())?;
+    if bytes.len()>MAX_ICON_INPUT_BYTES { return Err(icon_too_big()); }
+    Ok(bytes)
+}
+#[nolog]
+fn icon_too_big()->Error { Error::Invalid("That icon is over 2 MB: choose a PNG, JPEG, WebP or SVG up to 2 MB".into()) }
+
+#[nolog]
+pub fn normalize_icon(bytes:&[u8])->Result<Vec<u8>> {
+    if bytes.len()>MAX_ICON_INPUT_BYTES { return Err(icon_too_big()); }
+    let image=decoded(bytes).map_err(|_|icon_invalid())?;
+    let fitted=image.resize(ICON_SIZE,ICON_SIZE,image::imageops::FilterType::Lanczos3).to_rgba8();
+    let mut square=image::RgbaImage::new(ICON_SIZE,ICON_SIZE);
+    let (x,y)=((ICON_SIZE-fitted.width())/2,(ICON_SIZE-fitted.height())/2);
+    image::imageops::overlay(&mut square,&fitted,i64::from(x),i64::from(y));
+    let mut out=Vec::new();
+    { let mut enc=png::Encoder::new(&mut out,ICON_SIZE,ICON_SIZE);
+      enc.set_depth(png::BitDepth::Eight);enc.set_color(png::ColorType::Rgba);enc.set_compression(png::Compression::Best);
+      enc.write_header().map_err(|_|icon_invalid())?.write_image_data(&square).map_err(|_|icon_invalid())?; }
+    if out.len()>MAX_BYTES {
+        return Err(Error::Invalid("That picture is too detailed to keep as an icon: choose a simpler one".into()));
+    }
+    super::wire::validate_png(&out,ICON_SIZE)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
