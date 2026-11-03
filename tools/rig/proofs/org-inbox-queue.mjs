@@ -38,6 +38,15 @@ export default async function (rig) {
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { net_autoconnect: true })
   await rig.waitFor(async () => ((await rig.api('GET', `/api/orgs/${rig.org}`)).net?.hubs ?? []).some(h => h.connected) || null,
     { what: 'the org to connect to the hosted loopback hub', timeout: 90000 })
+  // the outside sender 'peer.rig' (the rig's hub-mail inbound sender) must be KNOWN on this hub, or the send tool refuses a reply
+  // before queueing it (net.rs knows_peer reads the hub's roster). Register a synthetic person under that exact slug on the
+  // run's OWN loopback hub over HTTP, as question-options.mjs registers its person; random secret, nothing outside the run.
+  const crypto = await import('node:crypto')
+  const peerAuth = { slug: 'peer.rig', secret: crypto.randomBytes(32).toString('hex') }
+  const regRes = await fetch(`${rig.hubUrl}/api/register`, { method: 'POST', signal: AbortSignal.timeout(60000),
+    headers: { 'X-Org-Auth': `${peerAuth.slug}:${peerAuth.secret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: peerAuth.slug, org_name: 'Rig Peer', username: 'peer', kind: 'person' }) })
+  p.check("the synthetic outside peer 'peer.rig' registers on the run's own loopback hub", regRes.status === 200, { status: regRes.status, body: await regRes.text().catch(() => '') })
   // ------------------------------------------------------------ the front door: a project with two workers
   await rig.op({ op: 'create_project', name: 'door', parent: null, description: 'Front door.' })
   await rig.op({ op: 'hire', name: 'wa', parent: 'door', tier: 'haiku', grant: 0, title: 'Worker A' })
