@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join as joinPath } from 'node:path'
 import { DetachedNotice } from '../src/popout'
+import { cardIsDeskLayout } from '../src/canvas/deskhosts'
 import { flush, inAct, mountView } from './harness'
 
 declare const __SRC_DIR__: string
@@ -93,4 +94,15 @@ test('stylesheet: chip bounds, z-order and pointer pass-through', () => {
   assert.doesNotMatch(desk, /padding:\s*28px/)
   const holder = css().slice(css().indexOf('.desk-elsewhere-holder { background'))
   assert.match(holder.slice(0, holder.indexOf('}')), /pointer-events:\s*none/, 'the card stays clickable around the chip')
+})
+
+test('a focused card whose desk is in another window is NOT laid out as the desk', () => {
+  assert.equal(cardIsDeskLayout(true, false, false), true, 'the open desk keeps the desk layout')
+  assert.equal(cardIsDeskLayout(true, false, true), false, 'desk elsewhere: the normal face (header, name, badges) returns')
+  assert.equal(cardIsDeskLayout(false, true, false), true, 'a pinned desk placeholder is unchanged')
+  assert.equal(cardIsDeskLayout(false, false, false), false)
+  const cards = readFileSync(joinPath(__SRC_DIR__, 'canvas', 'cards.tsx'), 'utf8')
+  assert.match(cards, /const focused = cardIsDeskLayout\(/, 'the card derives its layout from that rule')
+  const holder = css().match(/\.sq:not\(\.desk\) > \.desk-elsewhere-holder \{ top: (\d+)px; \}/)
+  assert.ok(holder, 'the chip sits below the face rows on a face-up card')
 })

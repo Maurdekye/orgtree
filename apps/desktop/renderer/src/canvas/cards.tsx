@@ -60,7 +60,7 @@ import { scratchFolderAction } from '../scratch-folder'
 import { PickerPopover } from './pickerpopover'
 import type { RetireKind } from './agentmenu'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
-import { useDeskActionsNow } from './deskhosts'
+import { cardIsDeskLayout, useDeskActionsNow, useDeskElsewhere } from './deskhosts'
 import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
 import { CardName } from './cardname'
@@ -1645,7 +1645,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // Active speed, never a queued preference: unknown running evidence is silent.
   const activeFast = supportsFast && (node.busy
     ? node.fast_mode_current === true : node.scope?.fast_mode === true)
-  const focused = deskOpen || !!pinnedFocus
+  const deskElsewhere = useDeskElsewhere(slug, node, !!deskOpen)
+  const focused = cardIsDeskLayout(!!deskOpen, !!pinnedFocus, deskElsewhere)
   // pile fronts zoom on a plain CENTER click (user spec) — track the
   // pointer-down point so a drag's trailing click doesn't re-zoom
   const downAt = useRef<Pt | null>(null)

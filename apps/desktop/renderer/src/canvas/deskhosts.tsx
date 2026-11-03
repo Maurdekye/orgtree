@@ -621,6 +621,25 @@ export function useDeskActionsNow(slug: string):
   return (node) => deskActionsOf(desks, mapReady, slug, node)
 }
 
+const NEVER = () => () => {}
+/** The card's own desk is open as a native window right now. Subscribes ONLY
+ *  while `watch` (the card holds the open desk): every other card keeps the
+ *  no-subscription cost useDeskActionsNow promises. Drives the focused card's
+ *  face: a card whose desk is elsewhere shows exactly what the same card shows
+ *  unfocused (@item:orgtree/x-is-in-another-window-placeholder-covers-parts-o,
+ *  @coordinator-opus m1033e120df5d). */
+export function useDeskElsewhere(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>, watch: boolean): boolean {
+  const desks = useContext(DeskContext)
+  const mapReady = useContext(DeskMapReady)
+  useSyncExternalStore(watch && desks ? desks.subscribe : NEVER, watch && desks ? desks.snapshot : () => 0)
+  return watch ? deskActionsOf(desks, mapReady, slug, node).detached : false
+}
+
+/** The card is laid out as the focused desk (desk-sized, head hidden) only
+ *  while it shows the desk: not when its desk is in another window. */
+export const cardIsDeskLayout = (deskOpen: boolean, pinnedFocus: boolean, deskElsewhere: boolean): boolean =>
+  (deskOpen && !deskElsewhere) || pinnedFocus
+
 function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }) {
   const id = useRef({}).current
   const anchor = useRef<HTMLDivElement>(null)
