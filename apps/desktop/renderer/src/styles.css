@@ -4537,6 +4537,9 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .cbar-tip .dim { color: var(--dim); }
 /* the hovered card (and its tip) must clear a neighbouring open desk (z 5) */
 .sq:hover { z-index: 6; }
+/* a hovered FOLDED node goes under its neighbours, as at mini (.sq.mini:hover above): the raise above would lift its whole card,
+   tucked stack included, over a neighbour in a tight gap (build-sol controlled stress); the stack must stay behind them. */
+.space > .sq:has(> .fold-stack):hover { z-index: 0; }
 
 /* --------------------------------------------------------- uninitialized box */
 .sq.draft {
