@@ -2988,3 +2988,25 @@ windows" chip whose list holds each panel's Show window / Return here. The strip
 `.desk-elsewhere` (`deskhosts.tsx` `InDesksPlace`) is the same chip, counter-scaled at the top of the card body; its holder no longer
 paints or catches the card. A focused card whose desk is in another window wears its normal face (`cardIsDeskLayout` in `deskhosts.tsx`: `deskOpen && !deskElsewhere`; `useDeskElsewhere` snapshots a boolean, never the registry version, or `put()` loops), and the chip sits under the header rows (`.sq:not(.desk) .desk-elsewhere-holder`, top 58px) [decided: coordinator m1033e120df5d]. No surface sets `data-popout-opener` yet, so lone notices currently use the strip. Proof:
 `tests/popoutchip.test.tsx`. [decided: user 2026-11-03; coordinator; verified: `popout.tsx`, `canvas/deskhosts.tsx`, `styles.css`]
+
+## Rich text: one path (2026-11-03, 4.5.5)
+
+USER 2026-11-03 11:27:45Z mcda202b207b6: "every place with rich formatting should support markdown, latex, mentions."
+Spec: @doc:orgtree/rich-formatting-spec (rev 1.2). Every surface that shows agent- or user-authored free text in read mode renders it
+through `RefMdBody html={md(text) | inlineMd(text)} world onOpen` (Markdown, KaTeX and mention chips through DOMPurify), with the
+surface's own `RefRoutes`:
+
+- No surface writes `md()`/`inlineMd()` output into the DOM itself, and none renders prose through `RefProse`, `Written` or
+  `TypedRefText`. `tests/richformat-audit.test.ts` fails on both; its allowlist holds only the definitions (`refmd.tsx`,
+  `reflinks.tsx`), the sandboxed agent response (`htmlresponse.ts`) and slash-command output (`cmd_out`: CLI machine output stays
+  mention-inert, spec D1; `deskrefs.test.tsx` section 7).
+- Text drawn inside a line or list entry uses `inlineMd` with `el="span"` and the class `md md-inline`
+  (`display: inline-block` so a list or display formula wraps below the entry). Docket prose uses `DocketRich`.
+- Plain by design (spec P1-P10): inputs while editing, single-line titles and labels, one-line previews and clamps, native tooltips
+  and notifications, code and tool output, engine-written status lines, release notes (no org, so inert), app panels.
+- The project Summary keeps click-to-edit around `RefMdBody`: a click on a chip, link or button inside it is that control's own
+  and never opens the editor (`inChip`, `tests/richformat-summary.test.tsx`).
+- Verified, no code needed: Streamer masking reads a KaTeX formula's text nodes as one run, and popouts clone the app stylesheets
+  (the KaTeX CSS is imported by `styles.css`) with chips bound per host element (`tests/richformat-streamer.test.tsx`,
+  `richformat-popout.test.tsx`).
+- Proofs: `tests/richformat-*.test.tsx` with the shared fixture `tests/fixtures/richformat.ts`.
