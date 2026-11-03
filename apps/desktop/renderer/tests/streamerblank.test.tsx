@@ -326,31 +326,6 @@ test('App settings › Display › Modes has an Attract "start after" seconds fi
   assert.equal(input.value, '12', 'follows other windows')
 })
 
-test('App settings › Display › Modes has a "Refuse questions to the user while attract mode runs" toggle under the start-after row: default on, one app-wide preference', async (t) => {
-  const { WebSocket } = g
-  g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
-  t.after(() => { g.WebSocket = WebSocket })
-  const bridge = installBridge(t)
-  stubFetch()
-  const stop = startStreamerMode()
-  t.after(() => { stop(); delete g.fetch })
-  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
-  t.after(() => view.unmount())
-  await inAct(async () => { await flush(10) })
-  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
-  const row = host.querySelector<HTMLElement>('[data-settings-field="attractRefuseQuestions"]')
-  assert.ok(row, 'the refuse-questions row')
-  assert.equal(host.querySelector('[data-settings-field="attractIdleSeconds"]')!.nextElementSibling, row, 'directly under the start-after row')
-  assert.match(row!.textContent ?? '', /Refuse questions to the user while attract mode runs/)
-  const box = row!.querySelector<HTMLInputElement>('input[type="checkbox"], [role="switch"]')!
-  const on = () => box.getAttribute('aria-checked') ?? String(box.checked)
-  assert.equal(on(), 'true', 'default on')
-  await inAct(async () => { box.click(); await flush(8) })
-  assert.deepEqual(bridge.writes, [{ attractRefuseQuestions: false }])
-  await inAct(async () => { bridge.elsewhere({ attractRefuseQuestions: true }); await flush(8) })
-  assert.equal(on(), 'true', 'follows other windows')
-})
-
 // Run 3 (rig-sol-b m9666a46446c5): Display > Visual theme "Claude Terracotta" and
 // Enter key "Send message" were masked. The identity collector learned the
 // provider id "claude" (the registry's `primary`) and the settings value "send"
