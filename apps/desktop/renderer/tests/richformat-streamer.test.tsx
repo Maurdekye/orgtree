@@ -60,8 +60,27 @@ test('RT-S a sensitive string typeset in math (a hyphen becomes a minus sign) is
   assert.ok(visible.length > 0, 'the visible half has glyphs')
   for (const el of visible) {
     const node = el.firstChild as Text
-    assert.ok(ranges.some(r => { try { return r.intersectsNode(node) } catch { return false } }),
+    // the glyph must lie INSIDE a mask range, not merely touch one (a range over the first
+    // glyph only is how the real-Chromium capture failed)
+    assert.ok(ranges.some(r => { try { return r.comparePoint(node, 0) === 0 && r.comparePoint(node, node.data.length) === 0 } catch { return false } }),
       `the visible glyph "${el.textContent}" is under a mask range (visible text: ${visible.map(v => v.textContent).join('')})`)
   }
+  boundary.dispose()
+})
+
+test('RT-S an sk-ant style key typeset as a formula is masked over ALL its visible glyphs (real-Chromium capture C6)', () => {
+  const key = 'sk-ant-api03-TESTSECRET'
+  const html = md(`Sensitive formula $${key}$`).__html
+  const { doc, registry } = fixture(`<div class="md">${html}</div>`)
+  const boundary = installStreamerBoundary(doc)
+  boundary.update(true, [])
+  const ranges = registry.get('streamer-sensitive') ?? []
+  const visible = [...doc.querySelectorAll('.katex-html *')].filter(el => el.children.length === 0 && (el.textContent ?? '').length > 0)
+  assert.ok(visible.length > 5, 'the visible half has glyphs')
+  const unmasked = visible.filter(el => {
+    const node = el.firstChild as Text
+    return !ranges.some(r => { try { return r.comparePoint(node, 0) === 0 && r.comparePoint(node, node.data.length) === 0 } catch { return false } })
+  }).map(el => el.textContent)
+  assert.deepEqual(unmasked, [], `visible glyphs outside every mask range: ${unmasked.join('')}; ranges: ${JSON.stringify(ranges.map(r => r.toString()))}`)
   boundary.dispose()
 })
