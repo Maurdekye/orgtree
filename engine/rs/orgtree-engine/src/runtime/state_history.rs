@@ -24,6 +24,11 @@ pub enum AgentState {
 
 #[logged]
 impl AgentState {
+    /// every state, in the order the settings totals list them
+    pub const ALL: [AgentState; 5] = [
+        AgentState::Active, AgentState::Idle, AgentState::Blocked, AgentState::Halted, AgentState::Frozen,
+    ];
+
     /// the stored word (`state` / `prev_state` in the row)
     #[nolog]
     pub fn as_str(self) -> &'static str {
@@ -212,6 +217,41 @@ pub fn row(t: &Transition) -> Value {
             "tokens": crate::runtime::token_counts::not_counted(crate::runtime::token_counts::NOT_SENT) })
 }
 
+/// One recorded state row, read back: the state entered and its start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub state: AgentState,
+    pub at: DateTime<Utc>,
+}
+
+/// One span of an agent's state history: `state` from `start` until `end`
+/// (None = still the current state), `secs` long (an open span measures to
+/// the reading instant).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub state: AgentState,
+    pub start: DateTime<Utc>,
+    pub end: Option<DateTime<Utc>>,
+    pub secs: i64,
+}
+
+/// Spans from state marks given NEWEST FIRST. Each mark's span ends where
+/// the next newer mark begins; the newest mark's span ends at `newest_end`
+/// (None while it is the agent's current state, so it reads "now").
+#[logged]
+pub fn spans(marks: &[Mark], newest_end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Vec<Span> {
+    todo!("spans")
+}
+
+/// Seconds spent in each state (indexed like `AgentState::ALL`) inside the
+/// `window_secs` ending at `now`, from marks NEWEST FIRST that reach back
+/// to at least the window's start (plus the one mark before it). Time
+/// before the first recorded mark is unknown and counts for no state.
+#[logged]
+pub fn totals(marks: &[Mark], now: DateTime<Utc>, window_secs: i64) -> [i64; 5] {
+    todo!("totals")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,4 +393,67 @@ mod tests {
         assert_eq!(AgentState::Active.as_str(), "active");
         assert_eq!(AgentState::parse("working"), None);
     }
+    fn mark(state: AgentState, t: &str) -> Mark {
+        Mark { state, at: at(t) }
+    }
+
+    #[test]
+    fn spans_end_where_the_next_newer_mark_begins() {
+        let marks = [
+            mark(AgentState::Idle, "2026-11-01T12:00:00Z"),
+            mark(AgentState::Active, "2026-11-01T11:48:00Z"),
+            mark(AgentState::Frozen, "2026-11-01T10:00:00Z"),
+        ];
+        let now = at("2026-11-01T12:30:00Z");
+        let out = spans(&marks, None, now);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0], Span { state: AgentState::Idle, start: at("2026-11-01T12:00:00Z"), end: None, secs: 1800 },
+            "the newest span is the current state: open, measured to now");
+        assert_eq!(out[1], Span { state: AgentState::Active, start: at("2026-11-01T11:48:00Z"),
+            end: Some(at("2026-11-01T12:00:00Z")), secs: 720 });
+        assert_eq!(out[2].end, Some(at("2026-11-01T11:48:00Z")));
+        assert_eq!(out[2].secs, 6480);
+    }
+
+    #[test]
+    fn an_older_page_ends_its_newest_span_at_the_neighbour_mark() {
+        let marks = [mark(AgentState::Active, "2026-11-01T11:48:00Z")];
+        let out = spans(&marks, Some(at("2026-11-01T12:00:00Z")), at("2026-11-01T12:30:00Z"));
+        assert_eq!(out[0].end, Some(at("2026-11-01T12:00:00Z")));
+        assert_eq!(out[0].secs, 720, "a closed span never grows with the clock");
+        assert!(spans(&[], None, at("2026-11-01T12:30:00Z")).is_empty());
+    }
+
+    #[test]
+    fn a_backwards_clock_never_makes_a_negative_span() {
+        let marks = [mark(AgentState::Idle, "2026-11-01T12:00:00Z"), mark(AgentState::Active, "2026-11-01T12:00:05Z")];
+        let out = spans(&marks, None, at("2026-11-01T11:59:00Z"));
+        assert_eq!(out[0].secs, 0);
+        assert_eq!(out[1].secs, 0);
+    }
+
+    #[test]
+    fn totals_sum_each_state_inside_the_window_only() {
+        let now = at("2026-11-02T12:00:00Z");
+        // newest first; the 24h window starts 2026-11-01T12:00
+        let marks = [
+            mark(AgentState::Idle, "2026-11-02T11:00:00Z"),    // 1h to now
+            mark(AgentState::Active, "2026-11-02T10:00:00Z"),  // 1h
+            mark(AgentState::Blocked, "2026-11-02T06:00:00Z"), // 4h
+            mark(AgentState::Active, "2026-11-01T18:00:00Z"),  // 12h
+            mark(AgentState::Frozen, "2026-11-01T06:00:00Z"),  // 6h of 12h falls inside the window
+        ];
+        let t = totals(&marks, now, 86_400);
+        assert_eq!(t[0], 13 * 3600, "active: 1h + 12h");
+        assert_eq!(t[1], 3600, "idle");
+        assert_eq!(t[2], 4 * 3600, "blocked");
+        assert_eq!(t[3], 0, "halted");
+        assert_eq!(t[4], 6 * 3600, "frozen is clipped to the window start");
+        let week = totals(&marks, now, 7 * 86_400);
+        assert_eq!(week[4], 12 * 3600, "the same mark in full inside a 7 day window");
+        assert_eq!(week.iter().sum::<i64>(), 30 * 3600,
+            "unknown time before the first mark counts for nothing");
+        assert_eq!(totals(&[], now, 86_400), [0; 5]);
+    }
+
 }

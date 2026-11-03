@@ -1006,6 +1006,17 @@ export const markRead = (slug: string, ids: string[]): Promise<{ read: number }>
   })
 export const getHistory = (slug: string, nid: string): Promise<HistoryPayload> =>
     req(`/api/orgs/${slug}/nodes/${nid}/history`)
+/** One span of an agent's state history (engine `GET .../nodes/{nid}/states`). */
+export type AgentStateWord = 'active' | 'idle' | 'blocked' | 'halted' | 'frozen'
+export interface AgentStateSpan { state: AgentStateWord; start: string; end: string | null; secs: number }
+export type AgentStateTotals = Record<AgentStateWord, number>
+export interface AgentStatesPage {
+  node: string; states: AgentStateSpan[]; next_cursor: string | null
+  /** seconds per state over the last 24 hours and 7 days; first page only */
+  totals?: { h24: AgentStateTotals; d7: AgentStateTotals }
+}
+export const getAgentStates = (slug: string, nid: string, before?: string): Promise<AgentStatesPage> =>
+  req(`/api/orgs/${slug}/nodes/${encodeURIComponent(nid)}/states?limit=50${before ? `&before=${encodeURIComponent(before)}` : ''}`)
 export interface DeliveredFile {
   delivery_id: string; name: string; path: string; bytes: number; note: string | null; at: string
 }
