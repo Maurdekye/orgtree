@@ -36,3 +36,5 @@ export function protectOpaqueWindow(window: BrowserWindow, create: () => WebCont
   update()
   return dispose
 }
+/** Red-test scaffold: the holding-page cover is not yet tied to its document. */
+export const protectOpaqueDocument = protectOpaqueWindow
