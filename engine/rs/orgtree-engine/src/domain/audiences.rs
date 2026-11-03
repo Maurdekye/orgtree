@@ -90,6 +90,32 @@ async fn descends(client: &impl tokio_postgres::GenericClient, root: i64, node: 
         .get(0))
 }
 
+/// Is `m` a common ancestor of agents `a` and `b`: both are distinct agents (not projects) strictly
+/// below `m` in the physical parent chain, at any depth and through projects? The one predicate behind
+/// an agent's grant, deny and revoke between two agents of its subtree (USER 2026-11-03 m6b316c65b4ab,
+/// "staff that please"). Liveness is the caller's: grant looks both up as live, revoke and deny accept
+/// any state so a leftover row or request can still be cleaned up.
+#[logged]
+pub(crate) async fn common_ancestor(client: &impl tokio_postgres::GenericClient, m: i64, a: i64, b: i64) -> Result<bool> {
+    if a == b || a == m || b == m {
+        return Ok(false);
+    }
+    let both_agents: bool = client
+        .query_one("SELECT count(*) = 2 FROM ot.agents WHERE id IN ($1, $2) AND kind = 'agent'", &[&a, &b])
+        .await?
+        .get(0);
+    Ok(both_agents && descends(client, m, a).await? && descends(client, m, b).await?)
+}
+
+/// An agent's id by name in any state: the live one, else the newest generation.
+#[logged]
+async fn agent_id_any(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<Option<i64>> {
+    Ok(client
+        .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 ORDER BY (state = 'live') DESC, generation DESC LIMIT 1", &[&org_id, &name])
+        .await?
+        .map(|r| r.get(0)))
+}
+
 /// The top-level agent above (or at) `node`.
 #[logged]
 async fn top_of(client: &impl tokio_postgres::GenericClient, node: i64) -> Result<String> {
@@ -343,8 +369,10 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                     let relation=client.query_one("SELECT a.parent_id,b.parent_id,ot.superior_of(a.id),ot.superior_of(b.id)
                         FROM ot.agents a JOIN ot.agents b ON b.id=$2 WHERE a.id=$1", &[&gid,&oid]).await?;
                     let delegated=super::peer_mail::delegate(*id,relation.get(0),relation.get(1),relation.get(2),relation.get(3));
-                    if !(peer || superior || delegated) {
-                        refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level), the org inbox, or between direct tree siblings whose nearest agent superior is you");
+                    // any agent above both endpoints, at any depth and across projects (spec D1/D3)
+                    let in_subtree = common_ancestor(client, *id, gid, oid).await?;
+                    if !(peer || superior || delegated || in_subtree) {
+                        refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level), the org inbox, or between two live agents in your subtree");
                     }
                     if !below {
                         refuse!(Forbidden, "{grantee} is not in your subtree");
@@ -456,17 +484,35 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
         Actor::Agent { name, .. } => name.clone(),
     };
     let client = engine.db.get().await?;
+    // an agent above both the requester and the target may decline it too (spec D7); the same predicate as grant
+    let mut as_ancestor: Vec<String> = Vec::new();
+    if let Actor::Agent { id, .. } = actor {
+        let waiting = client
+            .query("SELECT DISTINCT target FROM ot.audience_requests WHERE org_id = $1 AND requester = $2 AND status = 'pending' AND ($3::text IS NULL OR target = $3)",
+                &[&org.id, &requester, &target.map(|t| party(Some(t)))])
+            .await?;
+        if let Some(from) = agent_id_any(&**client, org.id, &requester).await? {
+            for w in &waiting {
+                let sought: String = w.get(0);
+                if let Some(to) = agent_id_any(&**client, org.id, &sought).await? {
+                    if common_ancestor(&**client, *id, from, to).await? {
+                        as_ancestor.push(sought);
+                    }
+                }
+            }
+        }
+    }
     let rows = client
         .query(
             "UPDATE ot.audience_requests q SET status = 'denied', resolved_at = now()
               WHERE org_id = $1 AND requester = $2 AND status = 'pending'
-                AND CASE WHEN EXISTS (SELECT 1 FROM ot.agents p WHERE p.org_id=q.org_id AND p.name=q.target AND p.kind='project')
+                AND (CASE WHEN EXISTS (SELECT 1 FROM ot.agents p WHERE p.org_id=q.org_id AND p.name=q.target AND p.kind='project')
                   THEN EXISTS (SELECT 1 FROM ot.agents p LEFT JOIN ot.agents s ON s.id=ot.superior_of(p.id)
                     WHERE p.org_id=q.org_id AND p.name=q.target AND p.state='live' AND coalesce(s.name,'@user')=$3)
-                  ELSE holder=$3 END
+                  ELSE holder=$3 END OR target = ANY($5::text[]))
                 AND ($4::text IS NULL OR target = $4)
               RETURNING target",
-            &[&org.id, &requester, &holder, &target.map(|t| party(Some(t)))],
+            &[&org.id, &requester, &holder, &target.map(|t| party(Some(t))), &as_ancestor],
         )
         .await?;
     if rows.is_empty() {
@@ -537,11 +583,17 @@ async fn revoke_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, 
                 Some(g) => descends(client, *id, g).await?,
                 None => false,
             }
+        } else if project_manager(client, org.id, &grantor).await?.as_deref() == Some(name.as_str()) {
+            true
         } else {
-            project_manager(client, org.id, &grantor).await?.as_deref() == Some(name.as_str())
+            // any agent above both: no granted-by record, so the right is the placement now (spec D6/D8)
+            match (agent_id_any(client, org.id, &grantee).await?, agent_id_any(client, org.id, &grantor).await?) {
+                (Some(a), Some(b)) => common_ancestor(client, *id, a, b).await?,
+                _ => false,
+            }
         };
         if !allowed {
-            refuse!(Forbidden, "you can rescind only audiences you granted (and, top-level, user and org-inbox grants in your subtree)");
+            refuse!(Forbidden, "you can rescind audiences with yourself, audiences between two agents in your subtree, and (top-level) user and org-inbox grants in your subtree");
         }
     }
     let inherited_before = super::audience_notices::snapshot(client, org.id).await?;

@@ -54,6 +54,8 @@ pub async fn audience_allows(client: &impl tokio_postgres::GenericClient, org: i
 
 /// A manager may connect two direct tree siblings that both report to it,
 /// including siblings directly under a transparent project it owns.
+/// Superseded in `grant_tx` by `audiences::common_ancestor`; kept so the sibling
+/// rule stays covered by its own test.
 #[nolog]
 pub fn delegate(actor: i64, from_parent: Option<i64>, to_parent: Option<i64>,
     from_superior: Option<i64>, to_superior: Option<i64>) -> bool {

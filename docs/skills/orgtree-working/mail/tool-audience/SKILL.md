@@ -11,7 +11,7 @@ Save as template can capture active explicit grants among its saved nodes, plus 
 
 ## Call contract
 
-Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). A project may hold the org-inbox (`extern`) audience like an agent node (single-holder replacement and multi-holder grants apply); its members inherit nothing from it, and each outside message becomes one job in its queue. Requests do not grant access.
+Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). A project may hold the org-inbox (`extern`) audience like an agent node (single-holder replacement and multi-holder grants apply); its members inherit nothing from it, and each outside message becomes one job in its queue. An agent above both may grant, deny or revoke between two agents in its subtree. Requests do not grant access.
 
 Use when the missing permission is **who may communicate**, rather than a folder/tool grant. An audience lets the grantee write to the grantor; it is directional and does not change reporting lines, tool groups or file authority. Required tool group: `messaging`, inherited through the ancestor chain.
 
@@ -23,7 +23,7 @@ Ordinary [mail reach](../tool-message/SKILL.md) already includes the nearest age
 | --- | --- | --- |
 | `request` | `target`: agent, project, `user`, or `extern`. | `reason`, default empty; `from` may name a project you manage. Named agent/user decides directly; a project’s manager decides for it; an extern request goes to your top-level agent. The answer arrives as mail. |
 | `grant` | `from`: grantee. | `target` is the grantor when not yourself; `reason` defaults empty. For `target: extern`, omitting from selects yourself. Handler also accepts `grantee` as a from alias, but prefer the schema's from field. |
-| `deny` | `from`: pending requester. | Optional `target` selects a request; without it, the handler resolves pending requests from that requester that wait on you. |
+| `deny` | `from`: pending requester. | Optional `target` selects a request; without it, the handler resolves pending requests from that requester that wait on you, or, as an agent above both, a request between two agents in your subtree. |
 | `revoke` | `grantee`: current holder. | Optional `target` names the grantor instead of you; from is accepted as a grantee alias. |
 
 `action` is required. Public party spellings are `user`/`extern`; the engine also normalizes `@user`, `@extern`, `org-inbox` and `org_inbox`. Agent and project targets must be live. Reasons are explanatory text, not an authority source.
@@ -40,7 +40,7 @@ Send the request and end your turn if its answer blocks further work. Requests n
 
 - With yourself: grant to a descendant, or to an agent whose audience request waits on you.
 - With a live peer or your direct superior: grant to a descendant in your subtree.
-- Between two direct tree siblings: their shared nearest agent superior may grant `from=A target=B`. This includes agents directly under one project. The grant permits A to write to B, including when their parent has turned peer mail OFF; a reverse route needs a separate audience.
+- Between two agents in your subtree: any agent above both (at any depth, across projects and past sub-coordinators) may grant `from=A target=B`. The grant lets A write to B, including where peer mail is OFF; a reverse route needs its own grant. Project endpoints follow the project rules below.
 - With `user`: only a top-level agent can grant this to its descendants. A top-level agent already has direct user access and need not request it.
 - With `extern`: a top-level agent can grant to itself, descendants, or a live requester whose audience request waits on it, including one outside its subtree. A lower existing holder can pass extern only to descendants. A lower non-holder cannot grant itself outside access.
 
@@ -52,7 +52,7 @@ Grants to a waiting requester resolve its request and wake it with the answer. A
 
 In the default single-holder org-inbox mode, a new extern grant revokes previous holders. Multi-holder mode allows several. This consequence matters when assigning outside correspondence: an extern grant can replace someone else's routing role. Agents explain/suggest settings changes rather than changing the setting themselves.
 
-You can revoke audiences with yourself, an extern holder can revoke its own extern access, and a top-level agent can revoke user/extern grants in its subtree. Other grants are not yours to rescind. Deny is for a pending request; revoke is for an existing grant. Neither deletes correspondence.
+You can revoke audiences with yourself, audiences between two agents in your subtree, and (top-level) user and org-inbox grants in your subtree; an extern holder can revoke its own extern access. Grants survive moves: after A or B leaves your subtree you can no longer rescind it, and only a current common ancestor, the grantor or the user can. Other grants are not yours to rescind. Deny is for a pending request; revoke is for an existing grant. Neither deletes correspondence.
 
 Revoke removes only the explicit grant, not an audience inherited through a
 project. A remaining project route stays usable and its source is named in the

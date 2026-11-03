@@ -152,6 +152,8 @@ Template watchdog import stages paused without smoke or immediate effects, then 
 
 Template node creation records one net inherited-audience delta around all canonical node steps, before the unchanged explicit-grant restore phase. Keep notices in the transaction and publish Effects only after commit. See [template portability](docs/rust-engine/template-portability.md). [verified: `domain/templates.rs::create_nodes`, `http/orgops.rs::create`;2026-10-23]
 
+Agent-to-agent audiences: any live agent ancestor of both endpoints may grant, deny or revoke (`audiences::common_ancestor`, agents only; projects keep the manager rule); there is no granted-by column and grants survive moves. [decided: user 2026-11-03 m6b316c65b4ab; verified: `domain/audiences.rs`, 2026-11-03]
+
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
 AGY auth proof runtime counts use positively correlated PID/cwd/agent ownership;
