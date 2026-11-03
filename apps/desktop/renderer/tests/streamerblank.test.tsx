@@ -12,7 +12,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { installStreamerBoundary } from '../src/streamer-boundary'
-import { sensitiveSpans } from '../../../../packages/contracts/streamer'
+import { knownScreenValues, sensitiveSpans } from '../../../../packages/contracts/streamer'
 import { setNativeStreamer } from '../../main/streamer-native'
 import { protectOpaqueDocument } from '../../main/streamer-opaque'
 import { AccountsPanel } from '../src/canvas/accounts'
@@ -324,4 +324,25 @@ test('App settings › Display › Modes has an Attract "start after" seconds fi
   assert.deepEqual(bridge.writes, [{ attractIdleSeconds: 0 }, { attractIdleSeconds: 90 }])
   await inAct(async () => { bridge.elsewhere({ attractIdleSeconds: 12 }); await flush(8) })
   assert.equal(input.value, '12', 'follows other windows')
+})
+
+// Run 3 (rig-sol-b m9666a46446c5): Display > Visual theme "Claude Terracotta" and
+// Enter key "Send message" were masked. The identity collector learned the
+// provider id "claude" (the registry's `primary`) and the settings value "send"
+// (enter_key_behavior matched the `_key_` secret rule): product vocabulary,
+// not identities, which also masked every "Send" and "Claude" in the window.
+test('settings enums and provider ids are never learned as identities', async () => {
+  const known = knownScreenValues({ accounts: { primary: 'claude', accounts: [{ id: 'claude-5', provider: 'claude', email: 'owner@example.test' }] },
+    runtime_settings: { enter_key_behavior: 'send', api_key: 'live-secret-value', private_key: 'pem-secret-value' } })
+  assert.ok(!known.some(v => v.toLowerCase() === 'claude'), `provider id learned: ${JSON.stringify(known)}`)
+  assert.ok(!known.includes('send'), `settings enum learned: ${JSON.stringify(known)}`)
+  for (const v of ['claude-5', 'owner@example.test', 'live-secret-value', 'pem-secret-value']) assert.ok(known.includes(v), `${v} is still learned`)
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
+  doc.body.innerHTML = '<select id="theme"><option>Claude Terracotta</option></select><select id="enter"><option>Send message</option></select><p>Send</p>'
+  try {
+    boundary.update(true, known)
+    await flush()
+    assert.equal(paintHidden(doc, doc.getElementById('theme')!), false, 'Claude Terracotta is shown')
+    assert.equal(paintHidden(doc, doc.getElementById('enter')!), false, 'Send message is shown')
+  } finally { boundary.dispose(); dom.window.close() }
 })
