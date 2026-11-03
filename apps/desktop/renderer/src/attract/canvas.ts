@@ -11,6 +11,7 @@ import type { AttentionRow } from '../attention/feed'
 import { markReadNow, readLocally } from '../mailread'
 import { docUnread } from '../canvas/docviewed'
 import { deskOpenElsewhere } from '../canvas/deskhosts'
+import { setAttractQuiet } from '../composerfocus'
 import { useAttractCycle } from './attract'
 import type { AttentionTarget, AttractAgent, AttractRoutes, AttractTarget } from './attract'
 import { scrollThrough } from './scroll'
@@ -135,6 +136,8 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     },
     show: async function show(t: AttractTarget): Promise<number | void> {
       const c = deps.current
+      // attract mode moves the view only: a desk it brings up does not take the caret from a field the user is typing in
+      setAttractQuiet(true)
       switch (t.kind) {
         case 'attention': {
           const next = underlying(t)
@@ -179,6 +182,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     },
     hide: function hide(t: AttractTarget): void {
       const c = deps.current
+      setAttractQuiet(false)
       if (t.kind === 'attention') {
         const next = underlying(t)
         if (next) hide(next)
@@ -194,7 +198,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     },
     // canvas interaction ended the run: the scroll stops where it is and every
     // panel stays on screen - as the user's
-    stop: () => { endScroll(); release() },
+    stop: () => { setAttractQuiet(false); endScroll(); release() },
     release,
   }
 }

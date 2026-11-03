@@ -11,7 +11,13 @@ export function navigationAutofocusedEditor(doc: Document): HTMLElement | null {
   const editor = navigationFocus.get(doc)
   return editor?.isConnected && doc.activeElement === editor ? editor : null
 }
+/** Attract mode moves the VIEW only and never keyboard focus (USER 2026-11-03 m65dc30c3f45a: "when attract mode focuses an
+ *  agent desk, it defocuses whatever messagebox i may have been typing in"). While one of its targets is on screen, a desk
+ *  that mounts does not take the caret; a desk the user opens when attract is not driving keeps today's behaviour. */
+let attractQuiet = false
+export function setAttractQuiet(on: boolean): void { attractQuiet = on }
 export function focusComposerAutomatically(el: HTMLTextAreaElement): void {
+  if (attractQuiet) return
   if (navigationFocus.has(el.ownerDocument)) navigationFocus.set(el.ownerDocument, el)
   el.focus({ preventScroll: true })
 }
