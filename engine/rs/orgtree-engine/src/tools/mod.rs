@@ -764,3 +764,42 @@ async fn slug_hint(engine: &Arc<Engine>, org: &Arc<crate::orgs::OrgHandle>, who:
         _ => e,
     }
 }
+
+#[cfg(test)]
+mod attract_gate_tests {
+    use super::*;
+    use crate::feed::rooms::{Member, Rooms};
+
+    fn running() -> Rooms {
+        let rooms = Rooms::default();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        rooms.join_org(Member { id: 1, out: tx });
+        rooms.set_attract(1, Some(true));
+        rooms
+    }
+
+    #[test]
+    fn questions_to_the_user_are_refused_while_attract_runs() {
+        let rooms = running();
+        for tool in ["orgtree_ask", "orgtree_request_credits", "orgtree_request_scope"] {
+            let e = attract_gate(&rooms, tool, true).unwrap_err();
+            let m = e.to_string();
+            assert!(matches!(e.downcast_ref::<crate::domain::UserError>(), Some(crate::domain::UserError::Forbidden(_))), "{tool}");
+            assert!(m.contains("Attract mode is running, so questions to the user are refused"), "{m}");
+            assert!(m.contains("message the user on Hubchat instead (@net address from org.md)"), "{m}");
+        }
+    }
+
+    #[test]
+    fn attract_gate_leaves_everything_else_alone() {
+        let rooms = running();
+        assert!(attract_gate(&rooms, "orgtree_withdraw_ask", true).is_ok(), "withdrawing an open question is not a new question");
+        assert!(attract_gate(&rooms, "orgtree_ask", false).is_ok(), "a question routed to the superior is not user-facing");
+        assert!(attract_gate(&Rooms::default(), "orgtree_ask", true).is_ok(), "attract stopped");
+        let off = Rooms::default();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        off.join_org(Member { id: 1, out: tx });
+        off.set_attract(1, Some(false));
+        assert!(attract_gate(&off, "orgtree_ask", true).is_ok(), "setting off");
+    }
+}

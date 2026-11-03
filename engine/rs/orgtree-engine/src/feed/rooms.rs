@@ -129,3 +129,42 @@ impl Rooms {
         self.watching.pin().iter().map(|(k, v)| (*k, v.len())).collect()
     }
 }
+
+#[cfg(test)]
+mod attract_tests {
+    use super::*;
+
+    fn member(id: SocketId) -> Member {
+        let (tx, _rx) = mpsc::channel::<Arc<str>>(4);
+        Member { id, out: tx }
+    }
+
+    #[test]
+    fn attract_refusal_is_live_state_of_connected_windows() {
+        let rooms = Rooms::default();
+        assert!(!rooms.attract_refusing(), "no window reports attract: nothing is refused");
+        rooms.join_org(member(1));
+        rooms.join_org(member(2));
+        rooms.set_attract(1, Some(true));
+        assert!(rooms.attract_refusing(), "one window running with the setting on refuses");
+        rooms.set_attract(1, None);
+        assert!(!rooms.attract_refusing(), "stopped: allowed again");
+        rooms.set_attract(1, Some(false));
+        assert!(!rooms.attract_refusing(), "running with the setting off: allowed");
+        rooms.set_attract(2, Some(true));
+        assert!(rooms.attract_refusing(), "any window running counts");
+        rooms.leave(2);
+        assert!(!rooms.attract_refusing(), "a disconnect clears that window's flag");
+        rooms.set_attract(1, Some(true));
+        rooms.leave(1);
+        assert!(!rooms.attract_refusing());
+    }
+
+    #[test]
+    fn attract_report_from_a_departed_socket_is_not_kept() {
+        let rooms = Rooms::default();
+        rooms.set_attract(9, Some(true));
+        rooms.leave(9);
+        assert!(!rooms.attract_refusing());
+    }
+}
