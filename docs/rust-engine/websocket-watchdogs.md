@@ -313,3 +313,7 @@ contract. [verified: `runtime/mod.rs`, `runtime/message_log_tests.rs`; 2026-10-2
   (`watchdogfire-visual.tsx`, `watchdogfire-capture.cjs`).
 - **Rig proof:** `tools/rig/proofs/websocket-watchdogs.mjs`, against the debug engine
   with a loopback Node WebSocket server.
+
+## On a project (`project=P`)
+
+A websocket dog may be owned by a project ([project watchdogs](project-watchdogs.md)): one row, one socket, however many agents listen. It runs with the project's hands (the project's line must hold web), and the creator must hold web and any credentials folder too. Prefer inline credentials: the project folder is readable by every member. `send` and `configure` work for the user and every agent above or below the project, and `send` needs the caller's web tool. Connection mail goes to the dog's keeper (its creator, else the project's nearest live superior), not to a recipient project; its fires are the project's event. Two dogs with the same URL (scheme and host compared in lower case, no trailing slash), pattern and hello are one feed and the second create is refused.

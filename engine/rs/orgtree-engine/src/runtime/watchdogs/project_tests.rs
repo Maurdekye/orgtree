@@ -567,3 +567,130 @@ async fn t21_templates_skip_project_dogs() {
     let warnings = root["warnings"].to_string();
     assert!(warnings.contains("project watchdogs are not included in templates yet (1 skipped)"), "{warnings}");
 }
+
+/// Review 1 (D5): the CALLER must hold a credentials path too, not only the project.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r1_the_caller_must_hold_the_credentials_path() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    let dir = std::path::PathBuf::from(std::env::var("ORGTREE_PROJDOGS_TEST_ROOT").unwrap()).join("secret-dir");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("creds.json");
+    std::fs::write(&file, r#"{"bearer":"x"}"#).unwrap();
+    // the project's line (boss) holds the folder; the member below does not
+    w.sql("UPDATE ot.agents SET scope=jsonb_build_object('add_dirs',jsonb_build_array(jsonb_build_object('path',$2::text,'mode','rw'))) WHERE id=$1",
+        &[&w.boss, &dir.to_string_lossy().to_string()]).await;
+    let e = err(create(&w.e, w.org.id, w.member, &json!({"kind":"websocket","target":"ws://127.0.0.1:9/x","name":"leak","project":"stream","credentials":file.to_string_lossy()})).await);
+    assert!(e.contains("folder"), "a member without the folder is refused: {e}");
+    assert_eq!(w.count("SELECT count(*) FROM ot.watchdogs WHERE uid='leak'", &[]).await, 0);
+}
+
+/// Review 2: after listeners go off and on, a dog with NO keeper is armed again (runner running).
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r2_switch_on_arms_a_dog_without_a_keeper() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.put_dog(w.member, "feed").await.unwrap();
+    let row = w.dog("feed").await.5;
+    // no creator, no live superior: no keeper
+    w.sql("UPDATE ot.agents SET state='archived' WHERE id=ANY($1)", &[&vec![w.member, w.boss, w.top]]).await;
+    let req = |on: bool| json!({"op":"set_event_listeners","node":"stream","enabled":on});
+    crate::domain::ops::run(&w.e, &w.org, crate::domain::ops::Actor::User, &req(false)).await.unwrap();
+    assert_eq!(w.dog("feed").await.2, "paused");
+    disarm(&w.e, row);
+    crate::domain::ops::run(&w.e, &w.org, crate::domain::ops::Actor::User, &req(true)).await.unwrap();
+    assert_eq!(w.dog("feed").await.2, "armed");
+    for _ in 0..30 {
+        if w.e.dogs.runners.pin().get(&row).is_some_and(|t| !t.is_cancelled()) { return; }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("the re-armed project dog has no runner");
+}
+
+/// Review 4: a silence dog re-armed by a switch-on does not fire WENT QUIET straight away.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r4_switch_on_resets_silence_timing() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    let mut a = World::dog_args("quiet").await;
+    a["fire_mode"] = json!("silence");
+    a["quiet_period_s"] = json!(600);
+    create(&w.e, w.org.id, w.boss, &a).await.unwrap();
+    let row = w.dog("quiet").await.5;
+    w.sql("UPDATE ot.watchdogs SET next_silence_at = now() - interval '1 hour', silence_since = now() - interval '2 hours' WHERE id=$1", &[&row]).await;
+    let req = |on: bool| json!({"op":"set_event_listeners","node":"stream","enabled":on});
+    crate::domain::ops::run(&w.e, &w.org, crate::domain::ops::Actor::User, &req(false)).await.unwrap();
+    crate::domain::ops::run(&w.e, &w.org, crate::domain::ops::Actor::User, &req(true)).await.unwrap();
+    assert_eq!(w.count("SELECT count(*) FROM ot.watchdogs WHERE id=$1 AND next_silence_at > now()", &[&row]).await, 1, "the quiet clock restarts");
+}
+
+/// Review 5: a stream exit with nobody listening does not rewrite the previous fire's ring entry.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r5_stream_exit_leaves_the_previous_ring_entry_alone() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.put_dog(w.boss, "feed").await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.sql("UPDATE ot.watchdogs SET events=jsonb_build_array(jsonb_build_object('at','2026-11-03T00:00:00Z','gist','earlier fire')) WHERE id=$1", &[&row]).await;
+    let dog = load(&w.e, row).await.unwrap().unwrap();
+    fire_exited(&w.e, &dog, &["exit 1".to_string()]).await.unwrap();
+    let gist: String = w.e.db.get().await.unwrap().query_one("SELECT events->-1->>'gist' FROM ot.watchdogs WHERE id=$1", &[&row]).await.unwrap().get(0);
+    assert_eq!(gist, "earlier fire");
+}
+
+/// Review 6: the keeper learns when a project dog disables itself because listeners are off.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r6_the_keeper_is_told_of_a_listeners_off_disable() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.put_dog(w.member, "feed").await.unwrap();
+    let row = w.dog("feed").await.5;
+    disarm(&w.e, row);
+    w.listeners_on(false).await;
+    let dog = load(&w.e, row).await.unwrap().unwrap();
+    run(&w.e, dog, &CancellationToken::new(), false).await.unwrap();
+    assert_eq!(w.dog("feed").await.2, "paused");
+    assert!(w.notices(w.member).await.iter().any(|b| b.contains("stream/feed") && b.contains("event listeners are off")), "{:?}", w.notices(w.member).await);
+}
+
+/// Review 7 (A6): keeper notices name the project and the dog's handle.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r7_keeper_notice_wording() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.put_dog(w.member, "feed").await.unwrap();
+    let dog = load(&w.e, w.dog("feed").await.5).await.unwrap().unwrap();
+    pause(&w.e, &dog, "its owner no longer holds bash").await.unwrap();
+    let n = w.notices(w.member).await.join("\n");
+    assert!(n.contains("Project stream's watchdog stream/feed (\"feed\") was paused"), "{n}");
+    assert!(n.contains("You get this as its keeper: its creator, or the nearest live agent above project stream."), "{n}");
+}
+
+/// Review 9 (D16): a trailing slash or a different case of scheme/host is the same feed.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn r9_duplicate_urls_are_normalised() {
+    use crate::ws::testserver::{Opts, TestServer};
+    let w = world().await;
+    w.listeners_on(true).await;
+    let server = TestServer::start(Opts::default()).await;
+    let url = server.url("/feed");
+    create(&w.e, w.org.id, w.boss, &json!({"kind":"websocket","target":url,"name":"one","project":"stream"})).await.unwrap();
+    let again = url.replacen("ws://", "WS://", 1).replacen("127.0.0.1", "127.0.0.1", 1) + "/";
+    let e = err(create(&w.e, w.org.id, w.member, &json!({"kind":"websocket","target":again,"name":"two","project":"stream"})).await);
+    assert!(e.contains("already has this watchdog"), "{e}");
+    server.stop();
+}

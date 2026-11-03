@@ -201,9 +201,11 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
   }
   const sourceRow = (w: Watchdog) => {
     const by = w.created_by
+    // the engine's list view sends a paused dog's reason as template_warning
+    const why = w.paused_why ?? w.template_warning
     const cells = (<>
-      <td className="slot-position" title={w.state === 'paused' ? (w.paused_why ?? 'its watchdog is paused') : undefined}>
-        {w.state === 'paused' ? <span className="dim">{w.paused_why && /event listeners/.test(w.paused_why) ? '⊘ disabled' : 'paused'}</span> : null}</td>
+      <td className="slot-position" title={w.state === 'paused' ? (why ?? 'its watchdog is paused') : undefined}>
+        {w.state === 'paused' ? <span className="dim">{why && /event listeners/.test(why) ? '⊘ disabled' : 'paused'}</span> : null}</td>
       <th scope="row" className="slot-agent">{!by ? <span className="dim">—</span> : isUserName(by) || by === 'user' ? <span className="you">you</span>
         : map.has(by) ? agentLink(by) : <span className="dim fired-by" title={`${by} is no longer in the tree`}>{by}</span>}</th>
       <td className="slot-wait">{w.state === 'armed' && <Waited from={listeningSince(w)} />}</td>

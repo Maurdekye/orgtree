@@ -441,6 +441,9 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying
     }
     // a project's dog armed while its event listeners are off disables itself (spec D14)
     if dog.project_owned() && !crate::domain::listeners::guard(engine, dog.org_id, dog.row, dog.owner).await? {
+        let body = format!("Project {p}'s watchdog {p}/{u} (\"{n}\") was disabled: project {p}'s event listeners are off. It arms again when they are turned on (registering a listener turns them on).\n",
+            p = dog.owner_name, u = dog.uid, n = dog.name);
+        keeper_notice(engine, &dog, body, None, false).await;
         return Ok(());
     }
     // an imported pattern this engine cannot compile pauses the dog rather
@@ -1410,7 +1413,7 @@ async fn fire_with(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefi
     if dog.project_owned() {
         // the fire is the project's event; fire_actions are refused at create (spec D8)
         debug_assert!(dog.memo["fire_actions"].as_array().is_none_or(|a| a.is_empty()));
-        fire_project(engine, dog, &body).await;
+        fire_project(engine, dog, &body, true).await;
         if once {
             disarm(engine, dog.row);
         }
@@ -1450,7 +1453,7 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     let mut body = fire_body(dog, events, " STREAM EXITED —", false, fired);
     body.push_str("The stream is not restarted; resume the watchdog to start it again.\n");
     if dog.project_owned() {
-        fire_project(engine, dog, &body).await;
+        fire_project(engine, dog, &body, false).await;
         return Ok(());
     }
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, "STREAM EXITED —", events, false, None));
@@ -1714,19 +1717,20 @@ async fn keeper_notice(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option
 /// A project dog's fire is the project's event (spec D9/D10): record it and
 /// hand it to every armed listener. A dog nobody listens to keeps no fire.
 #[logged]
-async fn fire_project(engine: &Arc<Engine>, dog: &Dog, body: &str) {
+async fn fire_project(engine: &Arc<Engine>, dog: &Dog, body: &str, ring: bool) {
     let handle = crate::domain::watchdogs::handle(&dog.owner_name, &dog.uid);
     let source = json!({ "kind": "watchdog", "dog_id": dog.row, "dog": dog.uid, "handle": handle, "name": dog.name,
                          "dog_kind": dog.kind, "target": dog.target });
     match crate::domain::listeners::fire_from_dog(engine, dog.org_id, dog.owner, &handle, body, &source).await {
         Ok(crate::domain::listeners::FireOutcome::Fired(_)) => {}
-        Ok(crate::domain::listeners::FireOutcome::NoListeners) => {
+        Ok(crate::domain::listeners::FireOutcome::NoListeners) if ring => {
             if let Ok(client) = engine.db.get().await {
                 let _ = client.execute(
                     "UPDATE ot.watchdogs SET events = jsonb_set(events, '{-1,gist}', to_jsonb((events->-1->>'gist') || ' (no listeners armed)'))
                       WHERE id = $1 AND jsonb_array_length(events) > 0", &[&dog.row]).await;
             }
         }
+        Ok(crate::domain::listeners::FireOutcome::NoListeners) => {}
         Ok(crate::domain::listeners::FireOutcome::Off(_)) => {
             // listeners off: the dog disables itself as a listener runner does
             if let Err(e) = crate::domain::listeners::guard(engine, dog.org_id, dog.row, dog.owner).await {
@@ -1857,6 +1861,8 @@ async fn alert(engine: &Arc<Engine>, dog: &Dog, lost: &Lost) -> Result<()> {
         .await?;
     drop(client);
     if dog.project_owned() {
+        let body = body.replacen(&format!("Watchdog \"{}\" went quiet", dog.name),
+            &format!("Project {p}'s watchdog {p}/{u} (\"{n}\") went quiet", p = dog.owner_name, u = dog.uid, n = dog.name), 1);
         keeper_notice(engine, dog, body, ev, false).await;
         return Ok(());
     }
@@ -1877,8 +1883,9 @@ async fn pause(engine: &Arc<Engine>, dog: &Dog, why: &str) -> Result<()> {
     drop(client);
     // the keeper learns of a project dog's pause, except an archive's (its project left)
     if dog.project_owned() && why != ARCHIVE_PAUSE {
-        let body = format!("Watchdog \"{}\" on project {} was paused: {why}.\nResume it with orgtree_watchdog action=resume id={} once that is fixed.\n",
-            dog.name, dog.owner_name, crate::domain::watchdogs::handle(&dog.owner_name, &dog.uid));
+        let handle = crate::domain::watchdogs::handle(&dog.owner_name, &dog.uid);
+        let body = format!("Project {}'s watchdog {handle} (\"{}\") was paused: {why}.\nResume it with orgtree_watchdog action=resume id={handle} once that is fixed.\n",
+            dog.owner_name, dog.name);
         keeper_notice(engine, dog, body, None, false).await;
     }
     changes::notify_id(engine, dog.org_id, vec![Change::Watchdogs]);
@@ -2237,7 +2244,6 @@ fn created_by_name(memo: &Value, owner_name: &str) -> String {
 /// must the project's own line. Returns the `created_by` record.
 #[logged]
 async fn project_create_hands(engine: &Arc<Engine>, org_id: i64, project: i64, pc: &ProjectCreate, kind: &str, args: &Value) -> Result<Value> {
-    let _ = (org_id, args);
     let mut created = json!({ "kind": "user" });
     if let Some(c) = pc.caller {
         let client = engine.db.get().await?;
@@ -2253,6 +2259,20 @@ async fn project_create_hands(engine: &Arc<Engine>, org_id: i64, project: i64, p
                 "a {kind} watchdog reaches the network with YOUR hands — it needs the web tool you do not hold; ask for it (orgtree_request_scope)"),
             _ => {}
         }
+        // a credentials FILE must be in a folder the caller holds too (spec D5): the project's
+        // hands alone would let a member read a manager's secrets through its own server
+        if matches!(kind, "websocket" | "mqtt") {
+            if let Some(path) = args["credentials"].as_str().map(str::trim).filter(|p| !p.is_empty()) {
+                let client = engine.db.get().await?;
+                let r = client.query_one("SELECT name, scratch_dir FROM ot.agents WHERE id = $1", &[&c]).await?;
+                let (cname, cdir): (String, Option<String>) = (r.get(0), r.get(1));
+                drop(client);
+                let cscratch = owner_scratch(engine, org_id, &cname, cdir.as_deref());
+                if !file_contained(engine, org_id, c, &cscratch, &file_target(&cscratch, path)).await? {
+                    refuse!(Forbidden, "cannot read credentials from {path} — only files in your working folder, the workspace, or a folder you hold are readable (orgtree_request_scope can ask for more); use inline credentials instead");
+                }
+            }
+        }
     }
     let lacking = match kind {
         "command" | "stream" => !holds_bash(engine, project).await?,
@@ -2265,6 +2285,23 @@ async fn project_create_hands(engine: &Arc<Engine>, org_id: i64, project: i64, p
     Ok(created)
 }
 
+/// A target as the duplicate check compares it: a network URL has its scheme and host in
+/// lower case and no trailing slash; anything else is compared as written.
+#[nolog]
+fn same_target(kind: &str, target: &str) -> String {
+    if !matches!(kind, "websocket" | "mqtt") {
+        return target.to_string();
+    }
+    let t = target.trim().trim_end_matches('/');
+    match t.split_once("://") {
+        Some((scheme, rest)) => {
+            let (host, path) = rest.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((rest, String::new()));
+            format!("{}://{}{}", scheme.to_lowercase(), host.to_lowercase(), path)
+        }
+        None => t.to_string(),
+    }
+}
+
 /// The uid of the project's armed or paused dog that watches the same thing
 /// (spec D16: same kind, target, pattern, shell, websocket hello and mqtt payload filter).
 #[logged]
@@ -2272,12 +2309,14 @@ async fn project_duplicate(client: &impl tokio_postgres::GenericClient, project:
     pattern: Option<&str>, shell: Option<&str>, memo: &Value) -> Result<Option<String>> {
     let hello = memo["websocket"]["hello"].clone();
     let payload = memo["mqtt"]["payload_pattern"].as_str().map(str::to_string);
-    Ok(client.query_opt(
-        "SELECT uid FROM ot.watchdogs WHERE owner_agent_id = $1 AND owner_kind = 'project' AND state IN ('armed', 'paused')
-            AND kind = $2 AND target = $3 AND coalesce(pattern, '') = coalesce($4, '') AND coalesce(shell, '') = coalesce($5, '')
-            AND coalesce(memo->'websocket'->'hello', 'null'::jsonb) = $6::jsonb
-            AND coalesce(memo->'mqtt'->>'payload_pattern', '') = coalesce($7, '') ORDER BY id LIMIT 1",
-        &[&project, &kind, &target, &pattern, &shell, &hello, &payload]).await?.map(|r| r.get(0)))
+    let rows = client.query(
+        "SELECT uid, target FROM ot.watchdogs WHERE owner_agent_id = $1 AND owner_kind = 'project' AND state IN ('armed', 'paused')
+            AND kind = $2 AND coalesce(pattern, '') = coalesce($3, '') AND coalesce(shell, '') = coalesce($4, '')
+            AND coalesce(memo->'websocket'->'hello', 'null'::jsonb) = $5::jsonb
+            AND coalesce(memo->'mqtt'->>'payload_pattern', '') = coalesce($6, '') ORDER BY id",
+        &[&project, &kind, &pattern, &shell, &hello, &payload]).await?;
+    let want = same_target(kind, target);
+    Ok(rows.iter().find(|r| same_target(kind, &r.get::<_, String>(1)) == want).map(|r| r.get(0)))
 }
 
 /// A create on a project: who asked (`None`: the user) and the project's name.

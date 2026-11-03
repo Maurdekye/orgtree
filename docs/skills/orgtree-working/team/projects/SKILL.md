@@ -180,3 +180,7 @@ orgtree_project settings/configure reads and patches every Project settings fiel
 - [orgtree-team-shape](../team-shape/SKILL.md)
 - [orgtree-credits](../credits/SKILL.md)
 While the slot view is visible, held durations, waiting durations and ended ages update every second using the shared age clock. These display ticks do not fetch slot status again.
+
+## Watchdogs a project owns
+
+A project can own watchdogs (`orgtree_watchdog create project=P`); a fire is the project's event for its armed `project_listener`s, which may filter it with a `pattern`. Any agent above or below the project can create and manage them. `orgtree_project action=listeners` lists them as `sources`. See [orgtree-tool-watchdog](../../watchdogs/tool-watchdog/SKILL.md).

@@ -133,3 +133,7 @@ Memory is browser-local (`orgtree-desk-tabs:<org>`); when local storage cannot b
 - [orgtree-docket-screens](../docket-screens/SKILL.md)
 - [orgtree-presentations](../presentations/SKILL.md)
 - [orgtree-agents-list](../../canvas/agents-list/SKILL.md)
+
+## Event sources
+
+A project that owns watchdogs shows them as cards in the desk's jump row and as an **Event sources** section above Event listeners on the Listeners tab (creator, waited, last fired, fired, watchdog). Recently Fired names the watchdog that fired an event; a disabled source shows a dim ⊘ chip with the reason.

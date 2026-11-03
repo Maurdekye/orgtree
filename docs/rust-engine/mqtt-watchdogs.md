@@ -257,3 +257,7 @@ claim a shared connection alert; notice/wake dogs deduplicate independently per
 owner and transition, so one preference cannot suppress another. Server
 payload matching, retained rules and data-fire semantics stay unchanged.
 [decided: user 2026-10-22 13:01Z/13:02:30Z; coordinator 13:03:54Z]
+
+## On a project (`project=P`)
+
+An mqtt dog may be owned by a project ([project watchdogs](project-watchdogs.md)): the same rules as for a websocket dog. It runs with the project's hands, the creator must hold web and any credentials folder, publishing needs the caller's web tool and is open to every agent above or below the project, connection mail goes to its keeper, and a duplicate (same broker, topic filter, payload filter) is refused. Its fires are the project's event.

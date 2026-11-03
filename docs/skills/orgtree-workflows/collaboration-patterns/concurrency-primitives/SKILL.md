@@ -312,3 +312,7 @@ Repeat the last two calls with the watchdog target and fire_event name set to th
 - **No deadlock detection or atomic multi-project acquire:** use a common resource order, bounded work, explicit cancellation/lease cleanup and supervisor recovery. Check the current lease after reclaim/restart; never continue protected work on an ended lease.
 
 These recipes document existing features only. Source checked at `2ec8c0e`: `tools/{defs,treetools}.rs`, `domain/{slots,projects,listeners,ops,docket,watchdog_inventory}.rs` and `runtime/watchdogs.rs` in the Rust engine. Full tool mechanics remain in their named working-glossary pages.
+
+## One shared feed: a project watchdog and many listeners
+
+To give several agents one condition (a build finishing, a file, a websocket feed) create ONE watchdog on the project (`orgtree_watchdog create project=P ...`) and let each agent arm a `project_listener` on P, optionally with a `pattern` to pick its share. The connection runs once per project, every listener gets every matching fire, and the feed survives any one listener retiring.

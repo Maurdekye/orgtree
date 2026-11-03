@@ -181,7 +181,9 @@ pub async fn switch_on(tx: &Transaction<'_>, project: i64) -> Result<Switched> {
     let own = tx
         .query(
             &format!("UPDATE ot.watchdogs w SET state = 'armed', memo = w.memo - 'paused_why' - '{OFF_MARK}',
-                    next_check_at = CASE WHEN w.kind IN ('file','command','process') THEN now() END
+                    next_check_at = CASE WHEN w.kind IN ('file','command','process') THEN now() END,
+                    silence_since = CASE WHEN w.fire_mode = 'silence' THEN now() ELSE w.silence_since END,
+                    next_silence_at = CASE WHEN w.fire_mode = 'silence' THEN now() + greatest(coalesce(w.quiet_period_s, 600), 1) * interval '1 second' END
                 WHERE w.owner_kind = 'project' AND w.owner_agent_id = $1 AND w.state = 'paused' AND w.memo ? '{OFF_MARK}'
               RETURNING w.id, w.name, w.uid, w.memo"),
             &[&project],

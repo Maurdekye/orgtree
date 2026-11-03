@@ -97,11 +97,11 @@ async fn existing_dog(tx: &Transaction<'_>, org_id: i64, kind: &str, n: &Node) -
 async fn turn_events_on(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, n: &Node, dog: &str, fx: &mut Effects) -> Result<()> {
     let sw = crate::domain::listeners::switch_on(tx, n.id).await?;
     if sw.changed {
-        let handles: Vec<String> = sw.dogs.iter().map(|d| crate::domain::watchdogs::handle(&d.owner_name, &d.uid)).collect();
+        let handles: Vec<String> = sw.dogs.iter().map(|d| d.project_handle.clone().unwrap_or_else(|| crate::domain::watchdogs::handle(&d.owner_name, &d.uid))).collect();
         event(tx, org.id, "set_event_listeners", actor, Some(n.id),
             json!({ "node": n.name, "enabled": true, "by_listener": dog, "restored": handles }), fx).await?;
         // the user's own restored dogs are never armed in the runtime
-        fx.dogs_on.extend(sw.dogs.iter().filter(|d| d.owner.is_some()).map(|d| d.row));
+        fx.dogs_on.extend(sw.dogs.iter().filter(|d| d.owner.is_some() || d.project_handle.is_some()).map(|d| d.row));
         if !sw.dogs.is_empty() {
             fx.listener_switches.push((n.name.clone(), true, "the user registered a listener".into(), sw.dogs.clone()));
         }

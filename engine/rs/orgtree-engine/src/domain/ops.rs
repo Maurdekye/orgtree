@@ -2764,7 +2764,7 @@ async fn set_event_listeners(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: 
     } else {
         crate::domain::listeners::switch_off(tx, n.id, &who).await?
     };
-    let handles: Vec<String> = sw.dogs.iter().map(|d| crate::domain::watchdogs::handle(&d.owner_name, &d.uid)).collect();
+    let handles: Vec<String> = sw.dogs.iter().map(|d| d.project_handle.clone().unwrap_or_else(|| crate::domain::watchdogs::handle(&d.owner_name, &d.uid))).collect();
     let dogs_key = if on { "restored" } else { "disabled" };
     if sw.changed {
         let mut detail = json!({ "node": n.name, "enabled": on });
@@ -2775,7 +2775,7 @@ async fn set_event_listeners(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: 
     if on {
         // the user's own registrations are never armed in the watchdog runtime;
         // their restore changes the count the watches read, so evaluate once
-        fx.dogs_on.extend(sw.dogs.iter().filter(|d| d.owner.is_some()).map(|d| d.row));
+        fx.dogs_on.extend(sw.dogs.iter().filter(|d| d.owner.is_some() || d.project_handle.is_some()).map(|d| d.row));
         if sw.dogs.iter().any(|d| d.owner.is_none()) {
             fx.listener_evals.push(n.id);
         }
