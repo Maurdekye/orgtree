@@ -17,8 +17,14 @@ dismissal is the user's m84e04d547421 ruling.
   DOM updates are processed by a MutationObserver before the next paint.
   Form-value paint is hidden without changing `.value`; tooltip/accessible labels
   are temporarily generic and restored on disable. Background images and generated
-  content are hidden while enabled. Unsupported Highlight API or incomplete known
-  identities leaves the document covered with an accessible Turn off control.
+  content are hidden while enabled. Masking fails per value, never per window
+  (USER 2026-11-03 m84db138f69e6): incomplete known identities keep pattern and
+  known-value masks with a banner note; an unsupported Highlight API withholds text
+  paint only (`streamer-textless`), leaving layout, controls and Turn off usable.
+  Known values under three characters are ignored. Only content surfaces
+  (iframe, img, video, object, embed) get covers; canvas/svg are app chrome. A cover
+  is its element's next sibling, absolutely placed in the same stacking context,
+  never a fixed topmost layer (4.5.5-alpha.1 drew one over the whole canvas).
 - `streamer.ts` owns synchronized native preference/browser-storage state and
   all registered documents, including portal popouts. It ignores superseded
   preference loads/saves. `api.ts` and `appfeed.ts` collect known structured
@@ -28,7 +34,9 @@ dismissal is the user's m84e04d547421 ruling.
   viewers (which do not load React) receive a separate opaque WebContentsView
   before their content loads. It is an inert page with only a cancelled-navigation
   dismiss action and no app bridge. Dismissal affects that surface only and is
-  reset on reopen or mode cycle. Native holding/recovery pages use the same cover.
+  reset on reopen or mode cycle. Native holding/recovery pages use the same cover
+  through `protectOpaqueDocument`, which ends when the window commits any non-data:
+  document, however it was loaded.
 - `streamer-native.ts` owns native title, menu, dialog and notice policy. Generic
   notification/title text never contains the original content; enabling closes
   retained notices. Native menus/dialogs keep callbacks and stable safe actions;

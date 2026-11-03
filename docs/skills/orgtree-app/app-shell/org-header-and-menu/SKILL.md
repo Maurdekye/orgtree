@@ -30,7 +30,8 @@ App settings affect the application; Organization settings affect the selected o
 
 ## Streamer mode
 
-The App menu's **Modes** group contains a **Streamer mode** on/off toggle.
+The App menu's **Modes** group contains a **Streamer mode** on/off toggle; App settings ›
+Display › Modes has the same Streamer mode and Attract mode switches, and both places stay in sync.
 A visible Streamer mode indicator remains on screen while protection is enabled,
 including in popped-out windows. The choice persists and synchronizes across windows.
 
@@ -41,8 +42,11 @@ Uncertain long identifiers and URLs are hidden conservatively. Editors are visua
 masked while remaining editable. Canvas, desks, displayed transcripts, panels and
 Markdown presentations use the same text boundary.
 
-HTML apps/presentations, images, videos, canvas and embedded-document previews have
-a **Hidden in Streamer mode** cover. The underlying content continues running.
+HTML apps/presentations, images, videos and embedded-document previews have
+a **Hidden in Streamer mode** cover, drawn in place of that surface only; the canvas,
+its connection lines and icons stay visible, and menus and dialogs stay above any cover.
+The window itself is never blanked: values are masked one by one, and the indicator's
+**Turn off** button is always available. The underlying content continues running.
 Dismiss the cover with its close control to reveal only that surface; this choice
 lasts until the surface closes or Streamer mode is switched off and on again.
 Text masking has no per-value reveal. Native notifications and window titles use
