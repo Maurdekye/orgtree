@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 
 /** A TRANSCRIPT SELECTION SURVIVES ARRIVING EVENTS (user 2026-11-03 17:38:15Z
@@ -107,5 +107,4 @@ export function useTranscriptSelectionHold(scroller: RefObject<HTMLElement | nul
   }, [scroller.current])   // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-import { useRef } from 'react'
-function useHeld() { return useRef<{ value: Held | null }>({ value: null }) as { current: { value: Held | null } } }
+function useHeld() { return useRef<{ value: Held | null }>({ value: null }) }
