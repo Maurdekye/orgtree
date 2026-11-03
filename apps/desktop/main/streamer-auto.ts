@@ -30,7 +30,18 @@ export function parseTasklist(listing: string): Set<string> | null {
   }
   return names.size ? names : null
 }
-export const streamingAppRunning = (names: ReadonlySet<string>) => STREAMING_APPS.some(n => names.has(n))
+/** What the banner calls the app that was detected. */
+export const STREAMING_APP_LABEL: Readonly<Record<string, string>> = {
+  'obs': 'OBS', 'obs.exe': 'OBS', 'obs32.exe': 'OBS', 'obs64.exe': 'OBS',
+  'xsplit.gamecaster.exe': 'XSplit', 'xsplit.core.exe': 'XSplit', 'gamecaster.exe': 'Gamecaster', 'bebo.exe': 'Bebo',
+  'streamlabs obs.exe': 'Streamlabs', 'streamlabs desktop.exe': 'Streamlabs', 'twitchstudio.exe': 'Twitch Studio',
+}
+/** The first detected app's display name (list order), or null. */
+export const detectStreamingApp = (names: ReadonlySet<string>): string | null => {
+  const hit = STREAMING_APPS.find(n => names.has(n))
+  return hit ? STREAMING_APP_LABEL[hit] ?? 'OBS' : null
+}
+export const streamingAppRunning = (names: ReadonlySet<string>) => detectStreamingApp(names) !== null
 
 /** Non-Windows: `ps -A -o comm=` lines, reduced to their last path segment. */
 export function parsePs(listing: string): Set<string> | null {
@@ -46,12 +57,13 @@ export function listProcessNames(): Promise<Set<string> | null> {
   })
 }
 
-export interface AutoPrefs { streamerMode?: boolean; streamerAuto?: boolean; streamerAutoActive?: boolean }
+export interface AutoPrefs { streamerMode?: boolean; streamerAuto?: boolean; streamerAutoActive?: boolean; streamerAutoApp?: string }
+type AutoPatch = { streamerMode?: boolean; streamerAutoActive?: boolean; streamerAutoApp?: string }
 export interface StreamerAutoDeps {
   list: () => Promise<ReadonlySet<string> | null>
   prefs: () => AutoPrefs
   /** Writes through the one preference path (broadcast, native masking). */
-  apply: (patch: { streamerMode?: boolean; streamerAutoActive?: boolean }) => void
+  apply: (patch: AutoPatch) => void
 }
 
 /** Consecutive samples without a streaming app before it counts as exited: a
@@ -68,13 +80,16 @@ export class StreamerAuto {
   private timer: ReturnType<typeof setInterval> | undefined
   constructor(private deps: StreamerAutoDeps) {}
 
-  /** One transition for one observation. */
-  step(running: boolean) {
+  /** One transition for one observation: the detected app's display name, or
+   *  null/false for none (true = "OBS", for callers that only know "running"). */
+  step(observed: string | boolean | null) {
+    const app = typeof observed === 'string' ? observed : observed ? 'OBS' : null
+    const running = app !== null
     const p = this.deps.prefs()
     let mode = p.streamerMode === true
     const active = p.streamerAutoActive === true
     const enabled = p.streamerAuto !== false // default ON
-    const write = (patch: { streamerMode?: boolean; streamerAutoActive?: boolean }) => {
+    const write = (patch: AutoPatch) => {
       this.deps.apply(patch)
       if (patch.streamerMode !== undefined) mode = patch.streamerMode
     }
@@ -82,7 +97,7 @@ export class StreamerAuto {
       this.seen = true
       // Startup: the persisted auto flag outlives the app. If the streaming app
       // is gone, release what the automation turned on.
-      if (!running && active) write({ ...(mode ? { streamerMode: false } : {}), streamerAutoActive: false })
+      if (!running && active) write({ ...(mode ? { streamerMode: false } : {}), streamerAutoActive: false, streamerAutoApp: '' })
     }
     if (running) {
       this.absent = 0
@@ -90,14 +105,14 @@ export class StreamerAuto {
       else if (this.lastMode === true && !mode) {
         // Turned off by hand while the app runs: stays off until it exits and starts again.
         this.suppressed = true
-        if (active) write({ streamerAutoActive: false })
+        if (active) write({ streamerAutoActive: false, streamerAutoApp: '' })
       }
-      if (!this.suppressed && enabled && !mode) write({ streamerMode: true, streamerAutoActive: true })
+      if (!this.suppressed && enabled && !mode) write({ streamerMode: true, streamerAutoActive: true, streamerAutoApp: app })
     } else if (this.running) {
       if (++this.absent >= EXIT_SAMPLES) {
         this.running = false; this.absent = 0; this.suppressed = false
         const flag = this.deps.prefs().streamerAutoActive === true
-        if (flag) write({ ...(mode ? { streamerMode: false } : {}), streamerAutoActive: false })
+        if (flag) write({ ...(mode ? { streamerMode: false } : {}), streamerAutoActive: false, streamerAutoApp: '' })
       }
     }
     this.lastMode = mode
@@ -108,7 +123,7 @@ export class StreamerAuto {
     this.busy = true
     try {
       const names = await this.deps.list()
-      if (names) this.step(streamingAppRunning(names)) // unreadable: no verdict
+      if (names) this.step(detectStreamingApp(names)) // unreadable: no verdict
     } catch { /* a failed look changes nothing */ } finally { this.busy = false }
   }
   /** Before any window exists: the first verdict is in place before anything paints. */

@@ -90,7 +90,9 @@ Streamlabs Desktop.exe, TwitchStudio.exe (case-insensitive, whole image name).
   while the automation, not the user, turned the mode on). Any hand-made `streamerMode` write
   clears `streamerAutoActive` in `setPreferences`, so only the automation's own writes keep it.
 - Start (or first sample at startup) with the mode off and the setting on turns it ON and flags it.
-  The renderer banner then reads "Streamer mode — turned on because OBS is running".
+  The renderer banner then names the detected app from `STREAMING_APP_LABEL` ("turned on because
+  XSplit is running": OBS, XSplit, Gamecaster, Bebo, Streamlabs, Twitch Studio), kept in the
+  `streamerAutoApp` preference beside the flag.
 - Exit needs two consecutive clear samples (no flapping on an OBS restart); it turns the mode OFF
   only when the flag is set. A mode the user had on, or turned on later, stays on.
 - A manual off while a streaming app runs suppresses the automation until the app has exited and

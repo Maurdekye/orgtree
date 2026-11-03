@@ -719,7 +719,7 @@ else {
     const beforeStreamer = nativeStreamerOn()
     // A hand-made Streamer mode change takes the mode away from the OBS automation:
     // only the automation's own writes (which name streamerAutoActive) keep the flag.
-    if (patch && typeof patch === 'object' && 'streamerMode' in patch && !('streamerAutoActive' in patch)) patch = { ...(patch as object), streamerAutoActive: false }
+    if (patch && typeof patch === 'object' && 'streamerMode' in patch && !('streamerAutoActive' in patch)) patch = { ...(patch as object), streamerAutoActive: false, streamerAutoApp: '' }
     const next = preferences.set(patch); setNativeStreamer(next.streamerMode === true)
     if (beforeStreamer !== nativeStreamerOn()) closeTrayPopup()
     loginPreference(); rebuildTray()

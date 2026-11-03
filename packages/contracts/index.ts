@@ -26,6 +26,9 @@ export interface DesktopPreferences extends NotificationPreferences {
   /** True only while the automation (not the user) turned Streamer mode on;
    *  the banner then says why, and only then may the automation turn it off. */
   streamerAutoActive?: boolean
+  /** Display name of the streaming app that triggered the automation ("OBS",
+   *  "XSplit", ...); empty when none. The banner names it. */
+  streamerAutoApp?: string
   visualTheme: VisualTheme
   contrastTheme: ContrastTheme
   agentColorSource: AgentColorSource

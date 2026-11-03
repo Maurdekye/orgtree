@@ -63,6 +63,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       // whole seconds, 0 and up, no maximum (the renderer's timer clamps to what setTimeout can hold)
       if (typeof val !== 'number' || !Number.isSafeInteger(val) || val < 0) throw new Error('Invalid preference')
       result.attractIdleSeconds = val
+    } else if (key === 'streamerAutoApp') {
+      if (typeof val !== 'string' || val.length > 40) throw new Error('Invalid preference')
+      result.streamerAutoApp = val
     } else if (key === 'activeAgentsOnly' || key === 'quickChatActiveAgentsOnly' || key === 'attentionDeskActiveAgentsOnly') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key] = val

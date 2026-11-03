@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { JSDOM, flush } from './harness'
-import { StreamerAuto, STREAMING_APPS, listProcessNames, parsePs, parseTasklist, streamingAppRunning, type AutoPrefs } from '../../main/streamer-auto'
+import { StreamerAuto, STREAMING_APPS, STREAMING_APP_LABEL, detectStreamingApp, listProcessNames, parsePs, parseTasklist, streamingAppRunning, type AutoPrefs } from '../../main/streamer-auto'
 import { preferencesPatch } from '../../main/policy'
 import { installStreamerBoundary } from '../src/streamer-boundary'
 
@@ -38,6 +38,22 @@ test('process names: the streaming apps are matched case-insensitively from task
   assert.equal(streamingAppRunning(parseTasklist('"explorer.exe","1","Console","1","1 K"')!), false)
   assert.equal(parseTasklist(''), null, 'empty output is unreadable, never "nothing running"')
   assert.equal(parseTasklist('ERROR: Access denied'), null)
+})
+
+test('the banner names the detected app, from a display-name map that covers the whole list', () => {
+  for (const exe of STREAMING_APPS) assert.ok(STREAMING_APP_LABEL[exe], `${exe} has a display name`)
+  const label = (...names: string[]) => detectStreamingApp(new Set(names))
+  assert.equal(label('obs64.exe'), 'OBS')
+  assert.equal(label('xsplit.core.exe'), 'XSplit')
+  assert.equal(label('streamlabs desktop.exe'), 'Streamlabs')
+  assert.equal(label('twitchstudio.exe'), 'Twitch Studio')
+  assert.equal(label('bebo.exe'), 'Bebo')
+  assert.equal(label('explorer.exe'), null)
+  const { prefs, auto } = rig()
+  auto.step('XSplit')
+  assert.deepEqual([prefs.streamerMode, prefs.streamerAutoActive, prefs.streamerAutoApp], [true, true, 'XSplit'])
+  auto.step(null); auto.step(null)
+  assert.deepEqual([prefs.streamerMode, prefs.streamerAutoActive, prefs.streamerAutoApp], [false, false, ''], 'the app name is cleared with the flag')
 })
 
 test('start turns Streamer mode on and flags it; the last exit turns it off after two clear samples', () => {
@@ -128,7 +144,9 @@ test('the banner says why when the automation turned the mode on', async () => {
 })
 
 test('preferences accept the two booleans and nothing else', () => {
-  assert.deepEqual(preferencesPatch({ streamerAuto: false, streamerAutoActive: true }), { streamerAuto: false, streamerAutoActive: true })
+  assert.deepEqual(preferencesPatch({ streamerAuto: false, streamerAutoActive: true, streamerAutoApp: 'XSplit' }), { streamerAuto: false, streamerAutoActive: true, streamerAutoApp: 'XSplit' })
+  assert.throws(() => preferencesPatch({ streamerAutoApp: 7 }))
+  assert.throws(() => preferencesPatch({ streamerAutoApp: 'x'.repeat(41) }))
   assert.throws(() => preferencesPatch({ streamerAuto: 'yes' }))
   assert.throws(() => preferencesPatch({ streamerAutoActive: 1 }))
 })

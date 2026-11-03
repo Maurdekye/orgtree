@@ -10,13 +10,13 @@ const EVENT = 'orgtree:streamer-mode'
 const listeners = new Set<() => void>(), boundaries = new Map<Document, StreamerBoundary>()
 let enabled = false, ready = false, accountReady = false, error = '', started = false, revision = 0
 // `auto`: the OBS automation (not the user) turned the mode on; `autoSetting`: Display's switch (absent = on).
-let auto = false, autoSetting = true
+let auto = false, autoSetting = true, autoApp = ''
 let snapshot = { enabled, ready, error, auto, autoSetting }
-export const AUTO_NOTE = 'turned on because OBS is running'
-const prefsAuto = (p: unknown) => { const v = (p ?? {}) as { streamerMode?: boolean; streamerAuto?: boolean; streamerAutoActive?: boolean }; return { on: v.streamerMode === true, auto: v.streamerMode === true && v.streamerAutoActive === true, setting: v.streamerAuto !== false } }
+export const autoNote = (app: string) => `turned on because ${app || 'OBS'} is running`
+const prefsAuto = (p: unknown) => { const v = (p ?? {}) as { streamerMode?: boolean; streamerAuto?: boolean; streamerAutoActive?: boolean; streamerAutoApp?: string }; return { app: typeof v.streamerAutoApp === 'string' ? v.streamerAutoApp : '', on: v.streamerMode === true, auto: v.streamerMode === true && v.streamerAutoActive === true, setting: v.streamerAuto !== false } }
 function publish() {
   snapshot = { enabled, ready, error, auto, autoSetting }
-  for (const boundary of boundaries.values()) boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady(), enabled && auto ? AUTO_NOTE : '')
+  for (const boundary of boundaries.values()) boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady(), enabled && auto ? autoNote(autoApp) : '')
   for (const listener of listeners) listener()
 }
 function subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
@@ -25,12 +25,12 @@ export function protectStreamerDocument(doc: Document) {
   const existing = boundaries.get(doc)
   if (existing) return () => {}
   const boundary = installStreamerBoundary(doc, () => { void setStreamerMode(false) }); boundaries.set(doc, boundary)
-  boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady(), enabled && auto ? AUTO_NOTE : '')
+  boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady(), enabled && auto ? autoNote(autoApp) : '')
   return () => { boundary.dispose(); boundaries.delete(doc) }
 }
 function accept(on: boolean, prefs?: unknown) {
   revision++; enabled = on; ready = true; error = ''
-  if (prefs !== undefined) { const p = prefsAuto(prefs); auto = p.auto; autoSetting = p.setting }
+  if (prefs !== undefined) { const p = prefsAuto(prefs); auto = p.auto; autoSetting = p.setting; autoApp = p.app }
   if (!on) auto = false
   publish()
   if (on && !accountReady) void getAccountRegistry().then(value => {
