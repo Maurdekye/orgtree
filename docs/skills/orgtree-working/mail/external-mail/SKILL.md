@@ -27,6 +27,8 @@ When the trusted note is removed, replaced or removed by Unlink, the old delegat
 
 Outside mail is addressed to the organization, through [the org inbox](../org-inbox/SKILL.md). A Hubchat person sees the mail you actually send to their `@net:` address. A final response in your local turn does not reach that chat, even if the person is also the user. Use the [message tool](../tool-message/SKILL.md) for that reply and retain its thread references where available.
 
+A project queue adds no authority: every job and copy keeps the exact outside sender, a worker has exactly the authority a holder would for the same message, and its only new outside right is a reply to its own job's sender.
+
 ## See also
 
 - [orgtree-org-inbox](../org-inbox/SKILL.md)

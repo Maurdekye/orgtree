@@ -899,3 +899,7 @@ desk shows the user as the @user mention chip, user 13:50Z). The full list of ru
 ## Project watchdogs (USER 2026-11-03 10:33Z; migration 0083)
 
 A project can own watchdogs (`orgtree_watchdog create project=P`, kinds file/command/process/stream/websocket/mqtt). Each fire is the project's event, broadcast to its armed `project_listener`s; any agent above or below the project may create, pause, resume, remove and `send` on them. The listeners tab lists them as **Event sources**. Design and decisions: [project watchdogs](project-watchdogs.md).
+
+## Outside jobs (org inbox)
+
+A project that holds the org-inbox audience receives each outside message as one pending job (`extra.org_inbox = {uid, peer}`). The queue hands it out as usual, except that the user's desk listener is never offered it. The listener's copy carries `via_project.outside` and `extra.outside_job`; the worker may reply to the job's sender while it holds the job and (ACK mode) has not acked it. The ack sends nothing outside. A follow-up from the sender before hand-out is bundled (`extra.bundled_with`, state read) and handed to the same listener with the job; to a held unacked job it goes straight to the holder; otherwise it becomes a new job.

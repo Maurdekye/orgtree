@@ -56,6 +56,7 @@ Afterward, inspect the actual chart, pending changes and credit result. File/his
 
 ## See also
 
+- orgtree-front-door-queue (orgtree-workflows › collaboration-patterns): an alternative shape, a queue project in place of a coordinator.
 - [orgtree-tool-retire](../tool-retire/SKILL.md)
 - [orgtree-tool-rehire](../tool-rehire/SKILL.md)
 - [orgtree-tool-dissolve](../tool-dissolve/SKILL.md)

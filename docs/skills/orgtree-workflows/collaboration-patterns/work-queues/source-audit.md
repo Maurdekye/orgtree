@@ -31,3 +31,4 @@ It is not a manifest page served in the glossary bundles; cross-category
 navigation uses category names and breadcrumbs, not relative file links.
 Attributed historical records in `docs/agents` stay intact; their
 current guidance points here rather than silently rewriting old rulings.
+| Org-inbox project holders | A project holds `@extern` like an agent; each outside message is one job (`extra.org_inbox`, `domain/orginbox_jobs.rs`); a worker replies while it holds the job and, in ACK mode, has not acked it (`reply_right`). | `domain/orginbox_jobs.rs`, `domain/orginbox.rs`, `domain/projects.rs` |

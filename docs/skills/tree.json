@@ -704,7 +704,8 @@
     "tool-dissolve",
     "tool-move",
     "tool-swap",
-    "tool-self-subjugate"
+    "tool-self-subjugate",
+    "front-door-queue"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -1412,7 +1413,8 @@
    ],
    "see_also": [
     "external-mail",
-    "org-policies-inbox"
+    "org-policies-inbox",
+    "front-door-queue"
    ],
    "writer": "comms-sol",
    "status": "fixed"
@@ -3048,8 +3050,20 @@
     "ls:orgtree-streamer-mode"
    ],
    "key_sources": [
-    { "key": "np:streamerMode", "file": "apps/desktop/renderer/src/streamer.ts", "needles": ["streamerMode"] },
-    { "key": "ls:orgtree-streamer-mode", "file": "apps/desktop/renderer/src/streamer.ts", "needles": ["orgtree-streamer-mode"] }
+    {
+     "key": "np:streamerMode",
+     "file": "apps/desktop/renderer/src/streamer.ts",
+     "needles": [
+      "streamerMode"
+     ]
+    },
+    {
+     "key": "ls:orgtree-streamer-mode",
+     "file": "apps/desktop/renderer/src/streamer.ts",
+     "needles": [
+      "orgtree-streamer-mode"
+     ]
+    }
    ],
    "purpose": "The org window header and the Orgtree app menu: view toggle, Inbox, Work, Presentations, Org settings, and the menu items.",
    "must_cover": [
@@ -7502,7 +7516,8 @@
     "build-slots",
     "concurrency-primitives",
     "implement-integrate",
-    "queue-review"
+    "queue-review",
+    "front-door-queue"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7732,7 +7747,8 @@
     "tool-watchdog",
     "tool-message",
     "implement-integrate",
-    "queue-review"
+    "queue-review",
+    "front-door-queue"
    ],
    "writer": "project-nodes-opus",
    "status": "fixed"
@@ -8089,6 +8105,39 @@
      "line": 92
     }
    ]
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/front-door-queue",
+   "name": "orgtree-front-door-queue",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:front-door-queue"
+   ],
+   "purpose": "A project holding the org-inbox audience in place of a coordinator: the worker pool, what arrives, ACK on or off, conversations, when to choose it, limits and a setup recipe.",
+   "must_cover": [
+    "the shape: a top-level front-door project holds the org-inbox audience, workers below it listen with fair_queue, optional agent holder under multiple holders",
+    "what arrives: one job per outside message, the phone's user authority reaches every worker, DnD holds first",
+    "ACK on or off: custody and dead letters against fire-and-forget; reply right until the ack, unlimited without ACK mode; the ack sends nothing outside",
+    "conversations: a hub reply goes to the worker who wrote; a follow-up is bundled, sent to the holder, or a new job; @org: threads by message id",
+    "when to choose it and its limits",
+    "setup recipe"
+   ],
+   "sources": [
+    "User 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53, m63e16cf45188, m75a647c6e3d8 (org inbox project queue; document a queue project in place of a coordinator)",
+    "engine/rs/orgtree-engine/src/domain/orginbox_jobs.rs",
+    "engine/rs/orgtree-engine/src/domain/orginbox.rs",
+    "engine/rs/orgtree-engine/src/domain/projects.rs"
+   ],
+   "see_also": [
+    "work-queues",
+    "org-inbox",
+    "external-mail",
+    "team-shape"
+   ],
+   "writer": "project-dogs-sonnet",
+   "status": "fixed"
   }
  ],
  "exempt": {

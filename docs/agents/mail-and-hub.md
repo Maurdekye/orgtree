@@ -822,3 +822,11 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
 - Hub schemas 11, 12 and 13 are one-way: once a hub database has them, an Orgtree whose bundled hub lacks the newest
   refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 13 (Mail hub
   2.4.0) replaced 12 as the step to name in release notes.
+
+## Org inbox: project holders, job replies, hub threading
+
+- A project may hold `@extern` like an agent (`audiences::grant_tx`); `orginbox::holder_rows` returns agents and projects, `holder_agents` is what acts as a holder (send, pull, read, notices), `holder_projects` gets jobs. Busy presence counts a project holder with an armed fair_queue listener owned by a runnable agent.
+- Routing (`orginbox_jobs::publish`, called by `publish_new` and `release_page`): DnD first; then `threaded` (D13 reply to an agent's sent row, D14 follow-up to the sender's own row, by the quote's `box=org` id); then `route_tx` agents plus `publish_jobs`. The top-level fallback and auto-grant do not run while a project holder exists.
+- A job is an `ot.mail` row for the project with `sender` = the exact outside peer and `extra.org_inbox`; hand-out (`projects::hand_batch_in`) never offers it to the user's desk listener, stamps `via_project.outside` and `extra.outside_job` on the copy and hands bundled follow-ups (`extra.bundled_with`) to the same listener.
+- `orginbox::send_extern` accepts an agent's outside reply when `orginbox_jobs::reply_right` allows it (copy has `outside_job`, `out.to` = the copy's sender, the job is held by the agent, not acked in ACK mode); the sent row records `via_job` for D13. `via_job` never rides the hub wire.
+- `@org:` messages carry one id on both rows (`net_id`, hub NULL); a reply's quote is re-pointed at the receiver's own row so the same threading applies.
