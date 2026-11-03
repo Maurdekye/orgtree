@@ -50,11 +50,11 @@ const probe = function () {
 }
 
 app.whenReady().then(async () => {
-  const errors = []
+  const errors = [], harnessNoise = []
   try {
     const guard = createGuard({ electron: require('electron'), out, width: W, height: H, partition: 'project-watchdogs' })
     const { wc, js } = guard
-    wc.on('console-message', (_e, level, message) => { if (level >= 2) errors.push(message) })
+    wc.on('console-message', (_e, level, message) => { if (level >= 2) (/Electron Security Warning/.test(message) ? harnessNoise : errors).push(message) })
     await guard.emulate({ width: W, height: H, deviceScaleFactor: 1, mobile: false })
     await guard.load(path.join(out, 'index.html'), 'fixture.js', 'projectwatchdogs')
     const wait = selector => js(`new Promise((resolve,reject)=>{const end=Date.now()+8000;(function check(){if(document.querySelector(${JSON.stringify(selector)}))return resolve(true);if(Date.now()>end)return reject(Error('probe element missing: '+${JSON.stringify(selector)}));setTimeout(check,25)})()})`)
@@ -94,9 +94,9 @@ app.whenReady().then(async () => {
       && f.fired.find(r => /beyond the tree preview/.test(r.text))?.gone === false
       && f.fired.find(r => /removed dog/.test(r.text))?.gone === true
     const sized = shots.every(s => s.width === W && s.height === H)
-    const quiet = errors.length === 0
+    const quiet = errors.length === 0 // stock Electron CSP warnings (harnessNoise) are recorded, not failures
     const passed = checks.every(ok) && sized && quiet
-    fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ passed, sized, quiet, errors, shots, guard: receipt, checks }, null, 2))
+    fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ passed, sized, quiet, errors, harnessNoise, shots, guard: receipt, checks }, null, 2))
     console.log(JSON.stringify({ passed, sized, quiet }))
     app.exit(passed ? 0 : 1)
   } catch (error) {
