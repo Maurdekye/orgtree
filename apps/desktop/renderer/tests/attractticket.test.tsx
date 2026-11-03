@@ -214,6 +214,28 @@ test('§6c a change inside the clipped description opens the description fold, a
   } finally { p.remove() }
 })
 
+test('§6d the highlight covers the WHOLE changed span, however long (not its first 60 characters)', async () => {
+  const p = pane()
+  const added = 'ADDED LATER: the user asked for the start-after delay to go down to zero, and then asked for the same thing again in other words.'
+  const text = 'Paragraph 9: the cases it must handle. ' + added + ' Paragraph 10: the next thing.'
+  p.add('DESCRIPTION', false, { name: 'objective', text, y: 300 })
+  const marks: string[] = []
+  const g = globalThis as any
+  const hadCSS = g.CSS
+  g.CSS = { ...(hadCSS ?? {}), highlights: { set: (_n: string, h: any) => marks.push('set:' + h.text), delete: () => marks.push('delete') } }
+  g.Highlight = class { text: string; constructor(r: any) { this.text = r.toString() } }
+  try {
+    const at = text.indexOf(added)
+    const change = firstTextChange(ticketFields(item({ objective: text.replace(added + ' ', '') })), ticketFields(item({ objective: text })))
+    assert.equal((change as any).snippet.trim(), added, 'the located snippet is the whole inserted text: ' + JSON.stringify((change as any).snippet))
+    assert.ok(at > 0)
+    const show = showTicketChange(change, document)
+    await show.length
+    assert.ok(marks.includes('set:' + added), 'the whole sentence is highlighted, not a prefix: ' + marks.join('|'))
+    show.restore()
+  } finally { g.CSS = hadCSS; delete g.Highlight; p.remove() }
+})
+
 test('§6b no change means the top: nothing expands, nothing scrolls, length 0', async () => {
   const p = pane()
   p.add('EVIDENCE NOTES', true, { name: 'evidence.note', entry: 0, text: 'ev', y: 1500 })
