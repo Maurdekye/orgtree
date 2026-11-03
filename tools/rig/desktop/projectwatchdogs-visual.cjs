@@ -54,7 +54,7 @@ app.whenReady().then(async () => {
   try {
     const guard = createGuard({ electron: require('electron'), out, width: W, height: H, partition: 'project-watchdogs' })
     const { wc, js } = guard
-    wc.on('console-message', (_e, level, message) => { if (level >= 2) (/Electron Security Warning/.test(message) ? harnessNoise : errors).push(message) })
+    wc.on('console-message', (_e, level, message) => { if (level >= 2) (/Electron Security Warning.*(Content-Security-Policy|unsafe-eval)/s.test(message) ? harnessNoise : errors).push(message) })
     await guard.emulate({ width: W, height: H, deviceScaleFactor: 1, mobile: false })
     await guard.load(path.join(out, 'index.html'), 'fixture.js', 'projectwatchdogs')
     const wait = selector => js(`new Promise((resolve,reject)=>{const end=Date.now()+8000;(function check(){if(document.querySelector(${JSON.stringify(selector)}))return resolve(true);if(Date.now()>end)return reject(Error('probe element missing: '+${JSON.stringify(selector)}));setTimeout(check,25)})()})`)

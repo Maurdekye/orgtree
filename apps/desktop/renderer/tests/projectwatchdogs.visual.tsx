@@ -63,12 +63,12 @@ const listenerOp: OpFn = (async (req: { op: string }) => (req.op === 'listener_h
 function Scenes() {
   return <CurrentOrg.Provider value="org">
     <div style={{ display: 'flex', gap: 10, padding: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      <div data-fixture="few" style={{ width: 520, height: 600, display: 'flex' }}>
+      <div data-fixture="few" style={{ width: 520, height: 600, display: 'flex', flexDirection: 'column' }}>
         <DeskDogsProvider value={{ org: 'org', dogs: few, open: noop }}>
           <ProjectDesk node={stream} slug="org" tree={treeOf(few)} map={map} op={op} toast={noop} refs={refs} bare onJump={noop} onOpenDoc={noop} />
         </DeskDogsProvider>
       </div>
-      <div data-fixture="many" style={{ width: 520, height: 600, display: 'flex' }}>
+      <div data-fixture="many" style={{ width: 520, height: 600, display: 'flex', flexDirection: 'column' }}>
         <DeskDogsProvider value={{ org: 'org', dogs: many, counts, open: noop }}>
           <ProjectDesk node={stream} slug="org" tree={treeOf(many, counts)} map={map} op={op} toast={noop} refs={refs} bare
             onJump={noop} onOpenDoc={noop} />
