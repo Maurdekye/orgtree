@@ -49,7 +49,7 @@ export async function setup() {
 /** A minimal RFC 6455 server: records every upgrade and text message,
  * answers pings, echoes a `{"cmd"…}` message as `event: echo …`, refuses
  * `/secure` without the expected bearer, and can stop and listen again. */
-function wsServer({ bearer }) {
+export function wsServer({ bearer }) {
   const st = { upgrades: [], got: [], sockets: new Set(), server: null, port: 0 }
   const accept = key => crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
   const frame = (op, payload) => {
