@@ -140,3 +140,13 @@ for (const lod of ['mini', 'norm'] as const) {
     assert.ok(stack.parentElement!.classList.contains('sq'), 'its parent is the .sq card itself')
   })
 }
+
+test('a hovered folded node goes UNDER its neighbours, so its stack never paints over one (like the mini hover rule)', () => {
+  const css = sheet()
+  // the generic hover raise (.sq:hover z-index 6) would lift the whole card, stack included, over a neighbour
+  assert.match(css, /\.sq:hover \{ z-index: 6; \}/, 'the generic raise still exists for everything else')
+  const at = css.indexOf('.space > .sq:has(> .fold-stack):hover {')
+  assert.ok(at >= 0, 'a folded node has its own hover rule')
+  assert.match(css.slice(at, css.indexOf('}', at)), /z-index:\s*0/, 'layer 0, below every numbered card (.space > .sq is 1)')
+  assert.match(css, /\.space > \.sq \{ z-index: 1; \}/)
+})
