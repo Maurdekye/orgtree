@@ -33,6 +33,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
   let active = false, known: readonly string[] = [], ready = true, originalTitle = doc.title, frame = 0
+  let lastEnd = 0, lastCost = 0, timer = 0
   const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>()
   const attributes = new Map<Element, Map<string, string>>()
   const autocomplete = new Map<Element, string | null>()
@@ -79,9 +80,28 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (doc.title === 'Orgtree — Streamer mode') doc.title = originalTitle
     if (frame) win?.cancelAnimationFrame(frame)
     frame = 0
+    if (timer) win?.clearTimeout(timer)
+    timer = 0
+  }
+  // Mutation-driven rescans are paced by their own cost: a scan that took T ms
+  // of 16 ms or more is followed by at least min(4T, 250) ms before the next (cheap
+  // scans stay immediate, so new values are masked at once), so a page that
+  // mutates every frame cannot keep the main thread inside the scanner. A
+  // direct update() always scans at once.
+  const clock = () => (win?.performance ?? performance).now()
+  function requestScan() {
+    if (!active) return
+    const wait = lastCost < 16 ? 0 : lastEnd + Math.min(250, lastCost * 4) - clock()
+    if (wait <= 0) scan()
+    else if (!timer) timer = win!.setTimeout(() => { timer = 0; scan() }, wait)
   }
   function scan() {
     if (!active || !doc.body) return
+    if (timer) { win?.clearTimeout(timer); timer = 0 }
+    const began = clock()
+    try { scanNow() } finally { lastEnd = clock(); lastCost = lastEnd - began }
+  }
+  function scanNow() {
     // Virtualized transcripts must not retain detached history through our restoration maps.
     for (const [el, attrs] of attributes) if (!el.isConnected) {
       for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
@@ -167,10 +187,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       if (removed.contains(el)) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
     }
     if (records.every(r => (r.target.nodeType === 1 ? r.target as Element : r.target.parentElement)?.closest('[data-streamer-ui]'))) return
-    scan()
+    requestScan()
   })
   // A select's value changes without any DOM mutation.
-  const onChange = (e: Event) => { if (active && (e.target as Element | null)?.localName === 'select') scan() }
+  const onChange = (e: Event) => { if (active && (e.target as Element | null)?.localName === 'select') requestScan() }
   doc.addEventListener('change', onChange, true)
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {

@@ -239,3 +239,31 @@ test('a closed select is masked only when its value is sensitive, and follows va
     assert.equal(paintHidden(doc, get('acct')), true, 'identities not loaded: unsure, hidden')
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+// USER 2026-11-03 10:27:50Z mb94508a32503 "last time i enabled it my entire app
+// froze", 10:27:58Z mcb65b6eedf30 "i had to force restart". Measured cause: the
+// email pattern rescanned to the end of an unspaced run from every start
+// inside it (quadratic: a 40 KB token took 7 s per scan), and every DOM
+// mutation re-walked the whole document at once.
+test('masking cost stays bounded: long unspaced runs are linear and mutation storms are paced', async () => {
+  for (const run of ['{"a":"' + 'x1.'.repeat(7000) + '"}', 'abcdefghij'.repeat(2000), 'a/'.repeat(10000)]) {
+    const began = performance.now()
+    sensitiveSpans(run, [])
+    assert.ok(performance.now() - began < 300, `a ${run.length}-char unspaced run is masked in ${(performance.now() - began).toFixed(0)} ms`)
+  }
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
+  doc.body.innerHTML = '<div id="t"></div>'
+  const host = doc.getElementById('t')!
+  for (let i = 0; i < 4000; i++) { const p = doc.createElement('p'); p.textContent = `row ${i} mail reader${i}@example.test`; host.appendChild(p) }
+  let walks = 0
+  const create = doc.createTreeWalker.bind(doc)
+  doc.createTreeWalker = ((...args: Parameters<Document['createTreeWalker']>) => { walks++; return create(...args) }) as typeof doc.createTreeWalker
+  try {
+    boundary.update(true, [])
+    await flush()
+    const first = walks
+    for (let i = 0; i < 300; i++) { host.children[i]!.textContent = `changed ${i}`; await new Promise(r => setImmediate(r)) }
+    await flush()
+    assert.ok(walks - first < 100, `300 separate mutations caused ${walks - first} full-document scans`)
+  } finally { boundary.dispose(); dom.window.close() }
+})

@@ -7,7 +7,9 @@ const patterns = [
   /-----BEGIN [\w ]*PRIVATE KEY-----[\s\S]*?(?:-----END [\w ]*PRIVATE KEY-----|$)/g,
   /\b(?:password|passwd|secret|token|api[_ -]?key|authorization|credential)["']?\s*[:=]\s*[^\r\n]+/gi,
   /\bBearer\s+[^\s<>]+/gi,
-  /[\p{L}\p{N}.!#$%&'*+/=?^`{|}~-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu,
+  // The lookbehind keeps a long unspaced run linear: without it every start inside
+  // the run rescans to its end (a 40 KB token took 7 s and froze the window).
+  /(?<![\p{L}\p{N}.!#$%&'*+/=?^`{|}~-])[\p{L}\p{N}.!#$%&'*+/=?^`{|}~-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu,
   /@net:[^\s<>"']+/gi,
   /\b[a-z]:[\\/][^\r\n<>"']*/gi,
   /\\\\[^\s\\]+\\[^\r\n<>"']*/g,
