@@ -631,8 +631,12 @@ const NEVER = () => () => {}
 export function useDeskElsewhere(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>, watch: boolean): boolean {
   const desks = useContext(DeskContext)
   const mapReady = useContext(DeskMapReady)
-  useSyncExternalStore(watch && desks ? desks.subscribe : NEVER, watch && desks ? desks.snapshot : () => 0)
-  return watch ? deskActionsOf(desks, mapReady, slug, node).detached : false
+  // the snapshot is the BOOLEAN, not the registry version: the card re-renders
+  // only when its desk goes elsewhere or comes back. Subscribing to the version
+  // would re-render the card (and the DeskChat props it passes) on every
+  // registry change, and RegisteredSlot's put() changes the registry again.
+  return useSyncExternalStore(watch && desks ? desks.subscribe : NEVER,
+    () => watch ? deskActionsOf(desks, mapReady, slug, node).detached : false)
 }
 
 /** The card is laid out as the focused desk (desk-sized, head hidden) only
