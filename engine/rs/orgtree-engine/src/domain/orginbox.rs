@@ -777,7 +777,7 @@ mod delivered_to_tests {
     #[test] fn publication_release_and_pull_each_write_the_list_with_the_copies() {
         // publication and the release of held mail both go through publish_row
         let source = include_str!("orginbox.rs");
-        let source = &source[..source.find("#[cfg(test)]").unwrap()]; // this file's code, not these assertions
+        let source = &source[..source.find("mod org_dnd_tests").unwrap()]; // this file's code, not these assertions (the earlier test modules hold only paths)
         let publish_row = &source[source.find("async fn publish_row").unwrap()..];
         let publish_row = &publish_row[..publish_row.find("pub(crate) fn delivered_with").unwrap()];
         assert!(publish_row.contains("publish_copies(") && publish_row.contains("record_delivered(tx,row,&names)"),
