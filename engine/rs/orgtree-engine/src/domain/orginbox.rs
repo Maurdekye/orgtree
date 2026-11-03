@@ -421,7 +421,7 @@ pub(crate) async fn may_send_extern(engine: &Arc<Engine>, org_id: i64, agent_id:
         return Ok(true);
     }
     Ok(client
-        .query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.superior_of(id) IS NULL", &[&agent_id, &org_id])
+        .query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.outside_top_level(id)", &[&agent_id, &org_id])
         .await?
         .is_some())
 }
@@ -449,13 +449,13 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
     let projects = holder_projects(&*tx, org_id, multi).await?;
     let target = if let Some((id, name)) = sender {
         if holders.iter().any(|h| h == name) { None } else {
-            let top = tx.query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.superior_of(id) IS NULL", &[&id, &org_id]).await?.is_some();
+            let top = tx.query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.outside_top_level(id)", &[&id, &org_id]).await?.is_some();
             if !top { crate::refuse!(Forbidden, "outside mail needs the org-inbox audience; ask your superior"); }
             Some((id, name.to_string(), "auto-granted: top-level agent messaged an outside party"))
         }
     } else if holders.is_empty() && projects.is_empty() {
         // the first top-level agent who can run; when none can, the first live one
-        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND ot.superior_of(id) IS NULL AND state = 'live' AND kind = 'agent'
+        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND ot.outside_top_level(id) AND state = 'live' AND kind = 'agent'
                        ORDER BY (halt IS NULL AND frozen IS NULL) DESC, sibling_order, id LIMIT 1", &[&org_id]).await?
             .map(|r| (r.get(0), r.get(1), "auto-granted: outside mail arrived with no live org-inbox holder"))
     } else { None };
@@ -479,7 +479,7 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
         } else if !route.projects.is_empty() {
             // a project holder is a durable receiver: the unrunnable agent holders keep waiting copies, no fallback
         } else if let Some(r) = tx.query_opt(
-            "SELECT name FROM ot.agents WHERE org_id = $1 AND ot.superior_of(id) IS NULL AND state = 'live' AND kind = 'agent' AND halt IS NULL AND frozen IS NULL
+            "SELECT name FROM ot.agents WHERE org_id = $1 AND ot.outside_top_level(id) AND state = 'live' AND kind = 'agent' AND halt IS NULL AND frozen IS NULL
               ORDER BY sibling_order, id LIMIT 1", &[&org_id]).await? {
             route.to = vec![r.get(0)];
         } else {

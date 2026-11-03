@@ -300,5 +300,12 @@ async fn t1_t2_t3_a_project_holds_the_audience_like_an_agent_and_its_members_inh
         assert!(by_member.is_err(), "a member does not manage the project's grants");
         let out = Outgoing::new(From::Agent { id: worker, name: "worker".into(), generation: 1 }, "@net:bob.1", "hi");
         assert!(send_extern(&w.e, w.org, &out).await.is_err(), "no job, no outside right");
+        // control: a member of a top-level project that holds nothing keeps today's rights
+        let plain = w.project("plain", true).await;
+        let free = w.agent("free", Some(plain)).await;
+        assert!(may_send_extern(&w.e, w.org, free, "free").await.unwrap(), "no grant on its project: unchanged");
+        // and a revoked grant makes the first project's members top-level again for outside mail
+        w.c.execute("UPDATE ot.audiences SET revoked_at=now() WHERE org_id=$1 AND grantee='intake' AND grantor='@extern'", &[&w.org]).await.unwrap();
+        assert!(may_send_extern(&w.e, w.org, worker, "worker").await.unwrap(), "revoked: top-level again");
     }
 }
