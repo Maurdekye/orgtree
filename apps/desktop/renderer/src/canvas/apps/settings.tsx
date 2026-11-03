@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react'
+import {useContext,useEffect,useRef,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {SurfaceDocumentOwner,useSurfaceDocument} from '../../popout'
 import {SetRow,SettingsTabPanel,SettingsTabs,renameReady,useVisitedTabs} from '../settingskit'
@@ -9,7 +9,9 @@ import {changeApps,createdAt,useApps} from './store'
 import {AppDialog} from './dialog'
 import {AppPermissions} from './permissions'
 import {AppPermissionHistory} from './net-ui'
-import {AppEvents,PanelConnections,PanelFireEvent,PanelHistory} from './events'
+import {AppEvents,AppsRefRoutes,PanelConnections,PanelFireEvent,PanelHistory} from './events'
+import {RefMdBody} from '../refmd'
+import {md} from '../shared'
 import type {FireChoice} from './events'
 import {AppExport,saveAppJson} from './portable'
 import type {CustomApp,CustomPanel} from './types'
@@ -78,11 +80,11 @@ function AppHistory({slug,app}:{slug:string;app:CustomApp}){
 }
 
 export function AppSettings({slug,app,close,owner,confirmDelete=false}:{slug:string;app:CustomApp;close:()=>void;owner?:Document;confirmDelete?:boolean}){
-  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<AppTab>('general'),[view,setView]=useState<'delete-app'|null>(confirmDelete?'delete-app':null),[error,setError]=useState('')
+  const routes=useContext(AppsRefRoutes),currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<AppTab>('general'),[view,setView]=useState<'delete-app'|null>(confirmDelete?'delete-app':null),[error,setError]=useState('')
   const a=data.apps.find(a=>a.id===app.id)??app,document=owner??currentOwner,idBase='custom-app-settings-'+app.id
   const cancelDelete=()=>confirmDelete?close():setView(null)
   return <SurfaceDocumentOwner owner={document}><AppDialog title={a.name+' - App settings'} label="App settings" org={slug} kind={'custom-app-settings:'+app.id} pinnable close={close} owner={document}>
-    {a.description?.trim()&&<p className="dim">{a.description}</p>}
+    {a.description?.trim()&&<RefMdBody className="app-description dim md" html={md(a.description)} world={routes?.world} onOpen={routes?.onOpen}/>}
     {error&&<p role="alert">{error}</p>}
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase={idBase} label="App settings sections"/>
     <SettingsTabPanel id="general" idBase={idBase} active={tab==='general'}>
