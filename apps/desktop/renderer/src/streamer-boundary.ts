@@ -191,6 +191,15 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       if (!first || !last) continue
       const range = doc.createRange(); range.setStart(first.node, span.start - first.start); range.setEnd(last.node, span.end - last.start); ranges.push(range)
     }
+    // A formula is judged by its TeX source (the annotation), never by its drawn text: subscripts, superscripts, spacing and
+    // symbol swaps all change what is drawn. A sensitive match anywhere in the source masks the whole visible half (spec R10, D3).
+    for (const ann of doc.querySelectorAll('.katex annotation[encoding="application/x-tex"]')) {
+      const source = ann.textContent ?? ''
+      if (!source || ann.closest('[data-streamer-ui]') || !sensitiveSpans(source, known).length) continue
+      const html = ann.closest('.katex')?.querySelector('.katex-html')
+      if (!html) continue
+      const range = doc.createRange(); range.selectNodeContents(html); ranges.push(range)
+    }
     win!.CSS!.highlights!.set('streamer-sensitive', new win!.Highlight!(...ranges))
   }
   const observer = new win.MutationObserver(records => {

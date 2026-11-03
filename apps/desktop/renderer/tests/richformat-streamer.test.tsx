@@ -84,3 +84,27 @@ test('RT-S an sk-ant style key typeset as a formula is masked over ALL its visib
   assert.deepEqual(unmasked, [], `visible glyphs outside every mask range: ${unmasked.join('')}; ranges: ${JSON.stringify(ranges.map(r => r.toString()))}`)
   boundary.dispose()
 })
+
+test('RT-S2 a key with an underscore typeset as a formula (a subscript) is masked as a whole, judged by its TeX source', () => {
+  const html = md('see $ghp_abc123def456$ here').__html
+  const { doc, registry } = fixture(`<div class="md">${html}</div>`)
+  const boundary = installStreamerBoundary(doc)
+  boundary.update(true, [])
+  const ranges = registry.get('streamer-sensitive') ?? []
+  const visible = [...doc.querySelectorAll('.katex-html *')].filter(el => el.children.length === 0 && (el.textContent ?? '').length > 0)
+  assert.ok(visible.length > 3, 'the visible half has glyphs')
+  const unmasked = visible.filter(el => {
+    const node = el.firstChild as Text
+    return !ranges.some(r => { try { return r.comparePoint(node, 0) === 0 && r.comparePoint(node, node.data.length) === 0 } catch { return false } })
+  }).map(el => el.textContent)
+  assert.deepEqual(unmasked, [], `visible glyphs outside every mask range: ${unmasked.join('')}`)
+  boundary.dispose()
+})
+
+test('RT-S2 an ordinary formula is not masked', () => {
+  const { doc, registry } = fixture(`<div class="md">${md('$e^{i\pi}+1=0$').__html}</div>`)
+  const boundary = installStreamerBoundary(doc)
+  boundary.update(true, [])
+  assert.equal((registry.get('streamer-sensitive') ?? []).length, 0)
+  boundary.dispose()
+})
