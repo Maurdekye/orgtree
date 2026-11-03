@@ -18,7 +18,7 @@ Slots appears when capacity is positive, events while **Project events** is on, 
 
 ## Give a project its own icon and colour
 
-Open the project's settings and use **Icon** and **Theme colour**. Search the built-in icons and pick one, then pick a preset colour or your own. The icon replaces the folder everywhere the project shows one: zoomed out on the canvas, in the corner of its card and its desk, and next to its @project link. The colour tints that icon only. Pick the folder and **Default** colour to go back. A new project has no theme until you set one; agents cannot set it for you.
+Open the project's settings and use **Icon** and **Theme colour**. Search the built-in icons and pick one, then pick a preset colour or your own. The icon replaces the folder everywhere the project shows one: zoomed out on the canvas, in the corner of its card and its desk, and next to its @project link. The colour draws that icon and colours the project's node too, as an agent's node wears its colour; a busy or asking node still shows its state colour. To use your own picture, choose **Upload icon…** and pick a PNG, JPEG, WebP or SVG file up to 2 MB: it is fitted into a square and shown in its own colours. **Remove upload** goes back to the built-in icon. Pick the folder and **Default** colour to go back. A new project has no theme until you set one; agents cannot set it for you.
 
 ## Choose mailbox delivery or broadcast
 

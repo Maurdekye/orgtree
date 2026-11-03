@@ -290,8 +290,11 @@ project's settings the user picks an icon from the app's built-in set through
 a searchable picker and a theme colour from presets or a custom field. The
 icon replaces the folder mark on the mini and norm nodes, the desk head and
 title bar, and beside @project links (markdown DOM chips included), drawn in
-that colour; nothing else is tinted, and unset keeps the folder in the
-default colour. User-only this round: the `set_theme` op serves the settings
+that colour; the colour also colours the project node as an agent node wears
+its accent (busy/asking keep their state colours), and unset keeps the folder
+in the default colour. The user may upload an icon (PNG/JPEG/WebP/SVG up to
+2 MB, stored as a 256 PNG, SVG rasterised by the desktop) shown untinted
+wherever a built-in icon shows (USER 2026-11-03 mc4fd305e1c09). User-only this round: the `set_theme` op serves the settings
 panel, the settings read returns `theme_color`/`theme_icon`, and no agent
 tool sets them. See [project nodes](PROJECT-NODES.md).
 

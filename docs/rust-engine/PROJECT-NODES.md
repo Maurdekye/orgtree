@@ -271,7 +271,17 @@ the user alone sets them, in Project settings, through the `set_theme` op
 `theme_color` / `theme_icon` (no schema change), ride the tree record for
 `kind=project`, and read back on `project_settings`; `configure` and creation
 settings refuse the keys, so no agent tool sets them. The desktop draws the
-chosen icon in that colour at the one project mark every surface shares.
+chosen icon in that colour at the one project mark every surface shares, and
+the card sets the colour on `--provider-accent`, the variable an agent card's
+accent rides, so the project card's wash, border and mini glyph follow it while
+`.sq.project.busy` / `.asking` keep `--accent` (USER 2026-11-03 mc4fd305e1c09).
+An uploaded icon (same ruling) goes through `POST /api/orgs/{slug}/project-icon`:
+the Logo's bounded static decoder (PNG/JPEG/WebP; the desktop rasterises SVG)
+fits it in a 256 square and re-encodes a stripped PNG, the route stages it and
+`set_theme theme_icon_custom=<sha256>` stores it in its own `ot.meta` record
+(`project.icon.<org>.<id>`) inside the op's transaction. Op arguments, the
+scope and the tree carry only the hash; `GET` on the same route serves the
+verified image. A `theme_icon` pick (null included) or null removes it.
 
 **Creating one**: `create_project` (agents: `orgtree_project`). The parent defaults to the
 caller; agents must give `index`; only the user creates at the top level; an agent creates one
