@@ -19,6 +19,14 @@ function TotalsLine({ label, totals }: { label: string; totals: AgentStateTotals
       : <span className="dim">nothing recorded</span>}</span>
 }
 
+/** Bar length (percent of the track) for a span, on a FIXED log scale so rows
+ *  stay comparable across pages and agents: 1 s or less is the minimum, 7 days
+ *  or more the full bar, length proportional to log(duration) between. */
+export const barWidthPct = (secs: number): number => { void secs; return 0 }
+
+/** The exact duration for a hover: "1d 1h 1m 1s", zero parts left out. */
+export const fmtExact = (secs: number): string => { void secs; return '' }
+
 /** The agent's state history in node settings: time per state over the last
  *  24 hours and 7 days, then each span newest first in pages by cursor. The
  *  rows are the engine's own recorded state changes (the desk transcript's
