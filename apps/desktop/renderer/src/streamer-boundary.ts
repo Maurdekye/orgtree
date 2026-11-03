@@ -12,7 +12,7 @@ const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:#686868!important;text-shadow:none!important}
 html.streamer-on ::selection{color:transparent!important;text-shadow:none!important;background:#686868!important}
 html.streamer-on input:not([type=file]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),
-html.streamer-on textarea,html.streamer-on select,html.streamer-on [contenteditable=true]{color:transparent!important;text-shadow:none!important;-webkit-text-fill-color:transparent!important}
+html.streamer-on textarea,html.streamer-on select:not([data-streamer-safe]),html.streamer-on [contenteditable=true]{color:transparent!important;text-shadow:none!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on input::placeholder,html.streamer-on textarea::placeholder{color:transparent!important}
 html.streamer-on input::-webkit-datetime-edit{color:transparent!important}
 html.streamer-on input[type=color]::-webkit-color-swatch{background:#686868!important}
@@ -64,6 +64,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   }
   function restore() {
     doc.documentElement.classList.remove('streamer-on', 'streamer-textless')
+    for (const el of doc.querySelectorAll('select[data-streamer-safe]')) el.removeAttribute('data-streamer-safe')
     win?.CSS?.highlights?.delete('streamer-sensitive')
     for (const cover of covered.values()) cover.remove()
     covered.clear()
@@ -100,6 +101,13 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       : ready ? 'Streamer mode' : 'Streamer mode — some account names may still be visible'
     if (!banner.isConnected) doc.body.appendChild(banner)
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
+    // A closed select shows its value unless that value is sensitive (USER
+    // 2026-11-03 m761e635eb242 "Yes, only sensitive"); unreadable or unsure
+    // (identities not loaded) stays hidden.
+    for (const el of doc.querySelectorAll('select')) {
+      const text = [...(el as HTMLSelectElement).options].filter(o => o.selected).map(o => o.textContent ?? '').join('\n').trim()
+      el.toggleAttribute('data-streamer-safe', ready && !!text && sensitiveSpans(text, known).length === 0)
+    }
     for (const el of doc.querySelectorAll('input,textarea,select')) {
       const value = el.getAttribute('autocomplete')
       if (value !== 'off') { autocomplete.set(el, value); el.setAttribute('autocomplete', 'off') }
@@ -161,9 +169,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (records.every(r => (r.target.nodeType === 1 ? r.target as Element : r.target.parentElement)?.closest('[data-streamer-ui]'))) return
     scan()
   })
+  // A select's value changes without any DOM mutation.
+  const onChange = (e: Event) => { if (active && (e.target as Element | null)?.localName === 'select') scan() }
+  doc.addEventListener('change', onChange, true)
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {
     update(on, values = [], hydrated = true) { if (!on) { active = false; restore(); return } active = true; known = values; ready = hydrated; scan() },
-    dispose() { active = false; observer.disconnect(); restore(); style.remove() },
+    dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); restore(); style.remove() },
   }
 }
