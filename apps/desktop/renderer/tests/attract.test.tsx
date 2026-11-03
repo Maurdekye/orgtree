@@ -9,7 +9,7 @@ import {
   ATTRACT_IDLE_MS, DWELL_MAX_MS, DWELL_MIN_MS, FIT_GAP_CAP, attractCandidates, attractDwell, fitGap, pickAttract,
   targetKey, useAttractCycle, watchInput,
 } from '../src/attract/attract'
-import type { AttractInput, AttractRoutes, AttractTarget } from '../src/attract/attract'
+import type { AttentionTarget, AttractInput, AttractRoutes, AttractTarget } from '../src/attract/attract'
 import { scrollMs, SCROLL_MAX_MS, SCROLL_PAUSE_MS, SCROLL_PX_PER_S } from '../src/attract/scroll'
 import {
   ATTRACT_IDLE_KEY, ATTRACT_IDLE_EVENT, DEFAULT_ATTRACT_IDLE_SECONDS, ATTRACT_KEY, setAttractIdleSeconds,
@@ -580,6 +580,123 @@ test('§16c a fit step in the cycle closes what attract opened before it (the mo
     } finally { await view.unmount() }
   } finally { realClock() }
   await flush()
+})
+
+// USER 2026-11-03 13:10:21Z m0962694602bd "and if anything needing attention appears, it is immediately focused with
+// zero delay"; intent m459d9dd72005 "roughly mimic how i as the user might navigate the org to check on new things
+// during idle use"; scope @coordinator-opus mcd6bfb242dc4
+const attn = (key: string, what: AttentionTarget['what'] = 'question', agent: string | null = 'boss', id = key): AttentionTarget =>
+  ({ kind: 'attention', key, what, agent, id })
+
+test('§17 attention: an arrival interrupts the current dwell at once; several are shown in arrival order, one per step, before ordinary targets', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    key()
+    const calls: string[] = []
+    let arrive: ((items: AttentionTarget[]) => void) | null = null
+    const routes: AttractRoutes = {
+      collect: async () => ({ agents: [], mail: [], docs: [], tickets: [] }),
+      show: (t) => { calls.push('show:' + targetKey(t)) }, hide: (t) => { calls.push('hide:' + targetKey(t)) }, stop: () => {},
+      watch: (cb) => { arrive = cb; return () => { arrive = null } },
+    }
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routes} log={log} idleMs={0} />, el => el)
+    try {
+      await advance(50, 10)
+      assert.deepEqual(calls, ['show:org'], 'running: the first step is the whole org (nothing else is new)')
+      assert.ok(arrive, 'the cycle listens for attention while it runs')
+      // the org is dwelling (8-15 s): the arrival does not wait for it
+      await inAct(() => { arrive!([attn('q1')]) })
+      assert.deepEqual(calls, ['show:org', 'hide:org', 'show:attn:q1'], 'zero delay: no time has passed')
+      // two more arrive while q1 is shown: they wait their turn (q1 gets its dwell), in arrival order
+      await inAct(() => { arrive!([attn('q2', 'mail'), attn('q3', 'ticket')]) })
+      assert.deepEqual(calls, ['show:org', 'hide:org', 'show:attn:q1'], 'an attention item on screen is not cut short')
+      await advance(DWELL_MAX_MS + 100, 500)
+      assert.deepEqual(calls.slice(3, 5), ['hide:attn:q1', 'show:attn:q2'], 'next in arrival order')
+      await advance(DWELL_MAX_MS + 100, 500)
+      assert.deepEqual(calls.slice(5, 7), ['hide:attn:q2', 'show:attn:q3'])
+      await advance(DWELL_MAX_MS + 100, 500)
+      assert.deepEqual(calls.slice(7, 9), ['hide:attn:q3', 'show:org'], 'then the ordinary cycle resumes')
+    } finally { await view.unmount() }
+    assert.equal(arrive, null, 'the listener is removed when the run ends')
+  } finally { realClock() }
+  await flush()
+})
+
+test('§17b once per arrival: standing attention at the start of a run is the baseline, a new one is reported once, and a re-raised one is new again', async () => {
+  localStorage.clear(); resetLocalReads()
+  const realFetch = globalThis.fetch
+  const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const pending: any[] = [], items: any[] = [], asks: any[] = []
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = String(url)
+    if (u.includes('/work-items-view')) return json({ items, counts: { attention: items.length, active: items.length, archived: 0, backlogged: 0 }, now: later })
+    if (u.endsWith('/inbox')) return json({ pending, delivered: [], sent: [] })
+    return json({})
+  }) as typeof fetch
+  try {
+    const tree: any = { user_inbox_count: 0, roots: [], asks }
+    const routes = canvasAttractRoutes(() => ({
+      enabled: true, slug: 'acme', tree, map: new Map(), pinnedIds: () => new Set(),
+      goToAgent: () => {}, fitAll: () => {}, openDoc: () => {}, readerIds: () => [], closeReader: () => {}, onPanel: () => {},
+    }))
+    const got: AttentionTarget[][] = []
+    // something already waiting when the run starts
+    asks.push({ id: 'old', node: 'boss', status: 'open', question: 'standing?', at: '2026-11-03T08:00:00Z' })
+    const off = routes.watch!(a => got.push(a))
+    await routes.poll!()
+    assert.deepEqual(got, [], 'what was already waiting is not an arrival')
+    // three new things, raised in this order
+    asks.push({ id: 'q9', node: 'bea', status: 'open', question: 'which?', at: '2026-11-03T12:00:01Z' })
+    items.push({ slug: 'flagged', title: 'F', status: 'in_progress', rev: 1, updated_at: later, manual_attention: { at: '2026-11-03T12:00:02Z', by: { node: 'cy' }, reason: 'look' }, done_so_far: [], working_on_next: [] })
+    pending.push({ id: 'um1', from: 'dee', at: '2026-11-03T12:00:03Z', body: 'now', urgent: true, urgent_reason: 'fire' })
+    await routes.poll!()
+    assert.equal(got.length, 1)
+    assert.deepEqual(got[0]!.map(t => `${t.what}:${t.id}`), ['question:q9', 'ticket:flagged', 'mail:um1'], 'in arrival order')
+    assert.deepEqual(got[0]!.map(t => t.agent), ['bea', 'cy', 'dee'])
+    await routes.poll!(); await routes.poll!()
+    assert.equal(got.length, 1, 'shown once per arrival: polling again reports nothing')
+    // answered, then asked again: a new arrival
+    asks.splice(1, 1)
+    await routes.poll!()
+    asks.push({ id: 'q9', node: 'bea', status: 'open', question: 'which?', at: '2026-11-03T12:05:00Z' })
+    await routes.poll!()
+    assert.equal(got.length, 2)
+    assert.deepEqual(got[1]!.map(t => t.id), ['q9'], 'raised again')
+    off()
+    await routes.poll!()
+    assert.equal(got.length, 2, 'nobody listens: nothing is reported')
+  } finally { globalThis.fetch = realFetch; resetLocalReads(); localStorage.clear() }
+})
+
+test('§17c the attention routes: a question or mention goes to its node, a flagged ticket to the docket, urgent mail to the inbox; a pinned or popped-out desk fits the org instead; moving on closes the panels', async () => {
+  localStorage.clear(); resetLocalReads()
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({ read: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+  try {
+    const calls: string[] = []
+    const pinned = new Set<string>()
+    const routes = canvasAttractRoutes(() => ({
+      enabled: true, slug: 'acme', tree: { user_inbox_count: 1, roots: [], asks: [] } as any, map: new Map(), pinnedIds: () => pinned,
+      goToAgent: (id) => calls.push('go:' + id), fitAll: () => calls.push('fit'), openDoc: () => {}, readerIds: () => [], closeReader: () => {},
+      onPanel: (p) => calls.push('panel:' + (p === 'release' ? 'release' : p ? `${p.kind}:${'mail' in p ? p.mail : p.item}` : 'close')),
+    }))
+    await routes.show(attn('question:q1', 'question', 'bea', 'q1'))
+    await routes.show(attn('mention:bea:m1', 'mention', 'bea', 'm1'))
+    assert.deepEqual(calls, ['go:bea', 'go:bea'], 'its node, with the question')
+    calls.length = 0
+    pinned.add('bea')
+    await routes.show(attn('question:q2', 'question', 'bea', 'q2'))
+    assert.deepEqual(calls, ['fit'], 'a pinned desk: the whole org, with the node in view, no window juggling')
+    calls.length = 0
+    await routes.show(attn('ticket:flagged', 'ticket', 'cy', 'flagged'))
+    routes.hide(attn('ticket:flagged', 'ticket', 'cy', 'flagged'))
+    await routes.show(attn('mail:um1', 'mail', 'dee', 'um1'))
+    await flush()
+    routes.hide(attn('mail:um1', 'mail', 'dee', 'um1'))
+    assert.deepEqual(calls, ['panel:docket:flagged', 'panel:close', 'panel:inbox:um1', 'panel:close'])
+  } finally { globalThis.fetch = realFetch; resetLocalReads(); localStorage.clear() }
 })
 
 test('§7 one app-wide toggle: off by default, flips through the shared store, and the main process accepts only a boolean', async () => {
