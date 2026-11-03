@@ -36,7 +36,9 @@ const probe = function () {
       revoke: !!b.querySelector('button') })),
     chip: q('[data-fixture="chip"] .badge') ? { text: norm(q('[data-fixture="chip"] .badge').textContent), title: q('[data-fixture="chip"] .badge').title,
       revoke: !!q('[data-fixture="chip"] .badge button, [data-fixture="chip"] button') } : null,
-    followup: q('[data-fixture="followup"]') ? { text: norm(q('[data-fixture="followup"]').textContent), title: q('[data-fixture="followup"] [title]')?.title ?? '' } : null,
+    followup: q('[data-fixture="followup"] .mailrow') ? { text: norm(q('[data-fixture="followup"] .mailrow').textContent) } : null,
+    panel: q('[data-fixture="panel"]') ? { text: norm(q('[data-fixture="panel"]').textContent),
+      holders: [...document.querySelectorAll('[data-fixture="panel"] .aud-badge')].map(b => ({ text: norm(b.textContent), title: b.title, revoke: !!b.querySelector('button') })) } : null,
     dialog: dialog ? norm(dialog.textContent) : null,
   }
 }
@@ -63,9 +65,9 @@ app.whenReady().then(async () => {
     }
     for (const light of [false, true]) {
       const theme = light ? 'light' : 'charcoal'
-      for (const scene of ['holders', 'replace-project', 'replace-agent']) {
+      for (const scene of ['holders', 'panel', 'replace-project', 'replace-agent']) {
         await js(`window.oiVisual.show(${JSON.stringify(scene)}, ${light})`)
-        await wait(scene === 'holders' ? '[data-fixture="holders"] .aud-badge' : '[role="dialog"]')
+        await wait(scene === 'holders' ? '[data-fixture="holders"] .aud-badge' : scene === 'panel' ? '[data-fixture="panel"] .aud-badge' : '[role="dialog"]')
         await shot(`${theme}-${scene}`)
         checks.push({ theme, scene, facts: await js(`(${probe.toString()})()`) })
       }
@@ -77,7 +79,11 @@ app.whenReady().then(async () => {
           && /answer outside mail/.test(f.holders[0].title) && /in its queue/.test(f.holders[1].title)
           && f.holders.every(h => h.revoke)
           && f.chip && /org inbox/.test(f.chip.text) && /in its queue/.test(f.chip.title) && f.chip.revoke
-          && f.followup && /follow-up to u0123456789ab/.test(f.followup.text)
+          && f.followup && /one more detail/.test(f.followup.text) && /follow-up to u0123456789ab/.test(f.followup.text)
+        : scene === 'panel'
+          ? !!f.panel && f.panel.holders.length === 2 && /triage/.test(f.panel.holders[0].text) && /intake/.test(f.panel.holders[1].text)
+            && /in its queue/.test(f.panel.holders[1].title) && f.panel.holders.every(h => h.revoke)
+            && /drag an agent or a project onto the mailbox/.test(f.panel.text)
         : scene === 'replace-project'
           ? !!f.dialog && /Replace triage as the org inbox's holder with intake\?/.test(f.dialog) && /Replace/.test(f.dialog)
           : !!f.dialog && /Replace intake as the org inbox's holder with triage\?/.test(f.dialog) && /Replace/.test(f.dialog))
