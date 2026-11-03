@@ -11,7 +11,11 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { agent, project, bunchTree } from './projectbunch-fixture'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { FoldInfo } from '../src/canvas/subtreefold'
+import { noteProjectThemes } from '../src/projecttheme'
+import type { TreePayload } from '../src/types'
 
+// the project tuck 'c' gets an explicit theme colour, distinct from the provider tucks
+noteProjectThemes({ slug: 'fold-visual', roots: [{ ...project('c'), theme_color: '#c026d3' }] } as unknown as TreePayload)
 const noop = () => {}, op = async () => ({ ok: true } as never)
 const hire = { enabled: true, installed: true, reason: null }
 const EXPANDED: FoldInfo = { collapsed: false, count: 0, working: false, attention: false }

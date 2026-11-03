@@ -14,9 +14,12 @@ import type { CanvasNode, OpResult } from '../src/canvas/shared'
 import { pruneCollapsedView, subtreeFoldInfo } from '../src/canvas/subtreefold'
 import type { FoldInfo } from '../src/canvas/subtreefold'
 import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
+import { readFileSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
 import { mountView } from './harness'
 import { ProjectSquare } from '../src/canvas/projectcard'
 
+declare const __SRC_DIR__: string
 const rootOf = (nodes: Parameters<typeof bunchTree>[0]) =>
   withDraftTree(bunchTree(nodes), null) as CanvasNode
 const noopFn = () => {}
@@ -88,4 +91,15 @@ test('the node menus carry Collapse / Expand subtree', () => {
     assert.match(shut, /Expand subtree/)
     assert.doesNotMatch(labels(mk(n, { onInbox: noopFn })), /subtree/, 'no fold handler, no entry')
   }
+})
+
+test('the peek fits the 8px clearance under a node (projectbunch card + 8)', () => {
+  const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
+  const stack = css.slice(css.indexOf('.fold-stack {'), css.indexOf('}', css.indexOf('.fold-stack {')))
+  assert.match(stack, /top:\s*100%/)
+  assert.match(stack, /height:\s*8px/, 'the stack ends within the 8px gap')
+  assert.doesNotMatch(stack, /margin-top:\s*-/, 'it never starts above the node edge')
+  const tuck = css.slice(css.indexOf('.fold-tuck {'), css.indexOf('}', css.indexOf('.fold-tuck {')))
+  assert.match(tuck, /height:\s*calc\(8px/, 'no tuck is taller than the gap')
+  assert.doesNotMatch(tuck, /translateY/, 'and none is pushed below it')
 })
