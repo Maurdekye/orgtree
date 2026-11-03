@@ -32,8 +32,8 @@ test('the 50% line: exactly half hides it, just under keeps it', () => {
   assert.equal(gapDividerText(chat(0), marker(28, 14 * 60 - 1), true), '28 min')
 })
 
-test('the marker on the near side also counts, and a short gap never shows a divider', () => {
-  assert.equal(gapDividerText(marker(0, 60 * 60), chat(60), true), null)
+test('a marker BEFORE the divider never hides it (its ended span lies before that row); a short gap never shows one', () => {
+  assert.equal(gapDividerText(marker(0, 60 * 60), chat(60), true), '60 min')
   assert.equal(gapDividerText(chat(0), chat(4), true), null)
   assert.equal(gapDividerText(chat(0), chat(28), false), null, 'only the first row of a message gets one')
 })

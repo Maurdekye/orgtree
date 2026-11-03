@@ -26,15 +26,15 @@ export function stateMarkerText(m: Partial<Pick<ChatMessage, 'kind' | 'state' | 
 }
 
 /** The idle-gap divider ("— 28 min later —") above a row, or null for none. It is dropped when a state marker beside it
- *  says the same quiet time ("Idle for 28m"): an ADJACENT rendered marker (the row right after the divider, or right
- *  before it; a marker with nothing to say is not rendered, so it never counts) whose ended span is at least half the
- *  gap (USER 2026-11-03 19:16:01Z m7ce661ebe984 "…redundant, only one needs to show"). A marker covering only a few
+ *  says the same quiet time ("Idle for 28m"): the ADJACENT rendered marker right AFTER it (its ended span ends at that
+ *  row, so it is the one that covers the gap; a marker BEFORE the divider never hides it; a marker with nothing to say
+ *  is not rendered, so it never counts) whose ended span is at least half the gap (USER 2026-11-03 19:16:01Z m7ce661ebe984 "…redundant, only one needs to show"). A marker covering only a few
  *  seconds of a long gap does not explain it, and the divider stays. */
 export function gapDividerText(prev: Partial<ChatMessage> | undefined, m: Partial<ChatMessage>, first: boolean): string | null {
   const gapMs = first && prev?.ts && m.ts ? Date.parse(m.ts) - Date.parse(prev.ts) : 0
   if (!(gapMs > 5 * 60e3)) return null
   const explains = (row: Partial<ChatMessage> | undefined) =>
     !!row && typeof stateMarkerText(row) === 'string' && typeof row.prev_secs === 'number' && row.prev_secs * 1000 >= gapMs / 2
-  if (explains(m) || explains(prev)) return null
+  if (explains(m)) return null
   return gapMs > 5400e3 ? `${Math.round(gapMs / 3600e3)} h` : `${Math.round(gapMs / 60e3)} min`
 }
