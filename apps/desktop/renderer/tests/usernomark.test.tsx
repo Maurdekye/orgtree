@@ -6,6 +6,7 @@
 // real @mail: links.
 //
 // Run:  node apps/desktop/renderer/tests/run.mjs usernomark
+import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

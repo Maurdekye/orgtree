@@ -182,7 +182,8 @@ function chipEl(doc: Document, r: ResolvedRef,
   }
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)
   // the kind's mark on the left of a resolved chip, as `RefChip` draws it
-  if (r.outcome === 'ready' && hasRefMark(r.ref.kind)) el.appendChild(createRefMarkEl(doc, r.ref.kind))
+  // @user is a plain identity link, not a mail link: no envelope (USER 2026-11-03 m2ba1f3a2299a, m2157b88ea18e)
+  if (r.outcome === 'ready' && hasRefMark(r.ref.kind) && !(r.ref.kind === 'mail' && r.ref.id === '@user')) el.appendChild(createRefMarkEl(doc, r.ref.kind))
   // ⚠ APPENDED, NOT ASSIGNED: `textContent =` wipes the model icon above.
   //
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, the label only on a live one —
