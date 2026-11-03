@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
 import {
-  ATTRACT_IDLE_MS, DWELL_MAX_MS, DWELL_MIN_MS, attractCandidates, attractDwell, pickAttract,
+  ATTRACT_IDLE_MS, DWELL_MAX_MS, DWELL_MIN_MS, FIT_GAP_CAP, attractCandidates, attractDwell, fitGap, pickAttract,
   targetKey, useAttractCycle, watchInput,
 } from '../src/attract/attract'
 import type { AttractInput, AttractRoutes, AttractTarget } from '../src/attract/attract'
@@ -59,15 +59,15 @@ test('§2 shown this run is not shown again, until that agent or ticket moves ag
   assert.deepEqual(keys(attractCandidates(moved, shown)), [`agent:a:${again}`, 'mail:m2', `ticket:t:${again}`])
 })
 
-test('§3 nothing new: only fit the whole org; otherwise the org is one random choice among them', () => {
+test('§3 nothing new: only fit the whole org; with something new the first steps are the new things', () => {
   assert.deepEqual(pickAttract([], () => 0.99, null), { kind: 'org' })
   assert.deepEqual(pickAttract([], () => 0, { kind: 'org' }), { kind: 'org' }, 'repeats the org when it is all there is')
   const doc: AttractTarget = { kind: 'doc', id: 'd', node: null }
   const mail: AttractTarget = { kind: 'mail', id: 'm' }
   const picks = new Set([0, 0.4, 0.7, 0.99].map(r => targetKey(pickAttract([doc, mail], () => r, null))))
-  assert.deepEqual([...picks].sort(), ['doc:d', 'mail:m', 'org'])
+  assert.deepEqual([...picks].sort(), ['doc:d', 'mail:m'], 'two new things: one of them, at random, before the first fit step')
   // never the same target twice in a row
-  for (const r of [0, 0.5, 0.99]) assert.notEqual(targetKey(pickAttract([doc, mail], () => r, doc)), 'doc:d')
+  for (const r of [0, 0.5, 0.99]) assert.notEqual(targetKey(pickAttract([doc, mail], () => r, doc, 1)), 'doc:d')
 })
 
 test('§4 dwell is 8-15 s, a presentation at least its scroll; the scroll paces and caps', () => {
@@ -81,8 +81,9 @@ test('§4 dwell is 8-15 s, a presentation at least its scroll; the scroll paces 
 
 // ------------------------------------------------------------- the cycle
 interface Log { calls: string[] }
-function Cycle({ enabled, routes, log, idleMs }: { enabled: boolean; routes: AttractRoutes; log: Log; idleMs?: number }) {
-  const running = useAttractCycle(enabled, routes, () => 0, idleMs)
+// the default generator asks for the LAST of the new things and dwells the longest
+function Cycle({ enabled, routes, log, idleMs, rng = () => 0.99 }: { enabled: boolean; routes: AttractRoutes; log: Log; idleMs?: number; rng?: () => number }) {
+  const running = useAttractCycle(enabled, routes, rng, idleMs)
   log.calls.push(`render:${running}`)
   return <span data-running={String(running)} />
 }
@@ -136,7 +137,7 @@ test('§5 starts after more than five minutes without input; canvas input stops 
       assert.equal(running(), 'true')
       // with rng 0 the first pick is the first candidate: the unread mail
       assert.deepEqual(shows(log), ['show:mail:m1'])
-      await advance(DWELL_MIN_MS, 500)
+      await advance(DWELL_MAX_MS, 500)   // the default generator dwells the longest
       assert.deepEqual(shows(log), ['show:mail:m1', 'hide:mail:m1', 'show:org'], 'nothing new left: the org')
       const sc = scene()
       await inAct(() => { fire(sc.node, 'keydown', { key: 'a' }) })
@@ -466,6 +467,117 @@ test('§15 touching a panel hands it to the user and the run goes on; a canvas i
       await inAct(() => { fire(sc.node, 'pointerup') })
     } finally { await view.unmount() }
     sc.root.remove()
+  } finally { realClock() }
+  await flush()
+})
+
+// USER 2026-11-03 13:06:58Z m0dc876241ee7 "attract mode should still return to fitting the org at some regular, above
+// average portion of the time, even if there's new activity", REPLACED 13:08:49Z m6802501d1f0c "one in three on average, varies
+// depending on activity. if there's only a single agent working, then it would go back and forth between that agent and the
+// org. 2-3 agents and a new mail, every third change. 10+ agents, 5 changed tickets, 4 updated presentations, and 30 new
+// mails, and the org only gets fit every 10-15th transition": the targets between two fit steps are round(1 + N/4 * jitter),
+// jitter 0.8-1.2, at least 1, at most 15, N = the new targets waiting at that moment.
+/** a seeded generator, so the counts are fixed numbers */
+const seeded = (seed: number) => () => {
+  seed = (seed + 0x6d2b79f5) | 0
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+const waiting = (n: number): AttractTarget[] => Array.from({ length: n }, (_, i) => ({ kind: 'ticket', slug: 't' + i, mark: 'm' } as AttractTarget))
+/** the targets shown between consecutive fit steps over `steps` steps, with N new things always waiting */
+function gaps(n: number, seed: number, steps = 400): number[] {
+  const rng = seeded(seed)
+  const out: number[] = []
+  let last: AttractTarget | null = null, run = 0, jitter = 0.8 + 0.4 * rng()
+  for (let i = 0; i < steps; i++) {
+    const next = pickAttract(waiting(n), rng, last, run, jitter)
+    if (next.kind === 'org') { out.push(run); run = 0; jitter = 0.8 + 0.4 * rng() } else run++
+    last = next
+  }
+  return out.slice(1)   // the first cycle begins before any fit step
+}
+
+test('§16 the gap grows with the number of new things: fitGap(N, jitter) = clamp(round(1 + N/4 x jitter), 1, 15)', () => {
+  assert.equal(FIT_GAP_CAP, 15)
+  for (const j of [0.8, 1, 1.2]) {
+    assert.equal(fitGap(0, j), 1, 'at least 1')
+    assert.equal(fitGap(1, j), 1, 'one agent: alternate')
+    assert.equal(fitGap(4, j), 2, '3 agents + a mail: two targets, then the org, i.e. every third transition')
+    assert.equal(fitGap(1000, j), 15, 'capped')
+  }
+  assert.ok(fitGap(49, 0.8) >= 10 && fitGap(49, 1.2) <= 15 && fitGap(49, 0.8) < fitGap(49, 1.2), 'about 49 new things: 10-15')
+})
+
+test('§16a one new thing waiting: it goes back and forth between it and the whole org', () => {
+  for (const seed of [1, 2, 3, 42]) {
+    const rng = seeded(seed)
+    const seq: string[] = []
+    let last: AttractTarget | null = null, run = 0
+    const one = waiting(1)
+    for (let i = 0; i < 20; i++) {
+      // a real run drops what was shown from the waiting list; here the same agent stays new, but it is never twice in a row
+      const next = pickAttract(one, rng, last, run, 0.8 + 0.4 * rng())
+      run = next.kind === 'org' ? 0 : run + 1
+      seq.push(next.kind === 'org' ? 'O' : 'x'); last = next
+    }
+    assert.equal(seq.join(''), 'xOxOxOxOxOxOxOxOxOxO', 'seed ' + seed)
+  }
+})
+
+test('§16b 2-3 agents and a new mail (4 waiting): every third transition is the whole org', () => {
+  for (const seed of [1, 2, 3, 42, 2026]) {
+    const g = gaps(4, seed)
+    assert.ok(g.length > 50)
+    assert.ok(g.every(x => x === 2), `seed ${seed}: two targets between fit steps, saw ${[...new Set(g)]}`)
+  }
+})
+
+test('§16d 49 new things (10+ agents, 5 tickets, 4 presentations, 30 mails): the org only every 10th-15th transition, varying', () => {
+  const all: number[] = []
+  for (const seed of [1, 2, 3, 42, 2026]) all.push(...gaps(49, seed, 1500))
+  assert.ok(all.length > 40)
+  assert.ok(all.every(x => x >= 10 && x <= 15), 'gap within 10-15: ' + [...new Set(all)].sort((a, b) => a - b))
+  assert.ok(new Set(all).size >= 3, 'the +-20% jitter really varies the gap: ' + [...new Set(all)])
+  const mean = all.reduce((a, b) => a + b, 0) / all.length
+  assert.ok(mean > 11 && mean < 14, 'around 1 + 49/4 = 13: ' + mean)
+  // never more than the cap, however much is waiting; never the org twice in a row or a target twice in a row
+  assert.ok(gaps(500, 5, 600).every(x => x <= FIT_GAP_CAP))
+})
+
+test('§16e nothing new: only the whole org; the same single new thing is never shown twice in a row', () => {
+  const rng = seeded(7)
+  for (let i = 0; i < 50; i++) assert.deepEqual(pickAttract([], rng, { kind: 'org' }, 0, 1), { kind: 'org' })
+  const only: AttractTarget[] = [{ kind: 'mail', id: 'm' }]
+  let last: AttractTarget | null = null
+  for (let i = 0; i < 40; i++) {
+    const next = pickAttract(only, seeded(i), last, 0, 1)
+    if (last) assert.notEqual(targetKey(next), targetKey(last))
+    last = next
+  }
+})
+
+test('§16c a fit step in the cycle closes what attract opened before it (the move-on rule applies to the whole org too)', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    key()
+    const log: Log = { calls: [] }
+    // with one new thing the cycle alternates it and the whole org
+    const routes: AttractRoutes = {
+      collect: async () => ({ agents: [], mail: [{ id: 'm1' }], docs: [], tickets: [] }),
+      show: (t) => { log.calls.push('show:' + targetKey(t)) }, hide: (t) => { log.calls.push('hide:' + targetKey(t)) }, stop: () => {},
+    }
+    const view = await mountView(<Cycle enabled routes={routes} log={log} idleMs={0} />, el => el)
+    try {
+      await advance(60_000, 1_000)
+      const order = log.calls.filter(c => c.startsWith('show:') || c.startsWith('hide:'))
+      // every show of a non-org target is followed by its hide before the next show
+      order.forEach((c, i) => {
+        if (c.startsWith('show:') && !c.startsWith('show:org') && order[i + 1]) assert.equal(order[i + 1], 'hide:' + c.slice(5), 'the panel target is taken down before the next step: ' + order.join(' '))
+      })
+      assert.ok(order.some(c => c === 'show:org'), 'the whole org is shown: ' + order.join(' '))
+    } finally { await view.unmount() }
   } finally { realClock() }
   await flush()
 })
