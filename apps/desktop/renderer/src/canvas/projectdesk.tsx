@@ -33,6 +33,7 @@ import { setButtonAgent } from '../buttoncolours'
 import { fmtAge } from '../timefmt'
 import { ageTitle } from './listage'
 import { md, subtreeDocCount, subtreeDocs, upJumpTargets, USER } from './shared'
+import { RefMdBody } from './refmd'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
@@ -260,12 +261,17 @@ function shownBefore(root: HTMLElement, x: number, y: number): string | null {
   return before.toString()
 }
 
+/** a click on a mention chip or link inside the rendered Summary is that
+ *  control's own, never a request to edit */
+const inChip = (target: EventTarget | null) =>
+  !!(target as Element | null)?.closest?.('[data-ref-token],[data-hub-address],[data-user-identity],a,button')
+
 /** The description editor (user 2026-10-17 20:06Z): Markdown while it is not
  *  focused, raw monospace text while it is. A click opens the editor with the
  *  caret at about the clicked spot (user 2026-10-18 07:14Z). Leaving the editor saves a change
  *  with `set_description`; Escape drops the edit. */
-function DescriptionEditor({ node, op, toast, editable }: {
-  node: CanvasNode; op: OpFn; toast: ToastFn; editable: boolean
+export function DescriptionEditor({ node, op, toast, editable, refs }: {
+  node: CanvasNode; op: OpFn; toast: ToastFn; editable: boolean; refs?: RefRoutes
 }) {
   const saved = node.charter ?? ''
   const [editing, setEditing] = useState(false)
@@ -301,14 +307,15 @@ function DescriptionEditor({ node, op, toast, editable }: {
     role={editable ? 'textbox' : undefined} aria-label={`Summary of project ${node.id}`}
     title={editable ? 'click to edit the Summary; it is the standing charter of every agent under this project' : undefined}
     onMouseDown={(e) => {
-      if (!editable || empty || e.button !== 0) return
+      if (!editable || empty || e.button !== 0 || inChip(e.target)) return
       const shown = shownBefore(e.currentTarget, e.clientX, e.clientY)
       caret.current = shown === null ? null : sourceOffset(saved, shown)
     }}
-    onFocus={() => { if (editable) setEditing(true) }}
-    onClick={() => { if (editable) setEditing(true) }}
-    {...(empty ? { children: editable ? 'Add a Summary: every agent under this project gets it as a standing charter.' : 'No Summary.' }
-      : { dangerouslySetInnerHTML: md(saved) })} />
+    onFocus={(e) => { if (editable && e.target === e.currentTarget) setEditing(true) }}
+    onClick={(e) => { if (editable && !inChip(e.target)) setEditing(true) }}>
+    {empty ? (editable ? 'Add a Summary: every agent under this project gets it as a standing charter.' : 'No Summary.')
+      : <RefMdBody className="md" html={md(saved)} world={refs?.world} onOpen={refs?.onOpen} />}
+  </div>
 }
 
 /** The project desk's message box (user 2026-10-18 07:33Z, 07:43Z): the
@@ -838,7 +845,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
       {onOpenDoc && (node.documents?.length ?? 0) > 0 && (
         <DeskDocsStrip slug={slug} docs={node.documents!} toast={toast} onOpen={onOpenDoc} onReply={live ? replyToDoc : undefined} replyLabel="Reply" />
       )}
-      {shown === 'desk' && <DescriptionEditor node={node} op={op} toast={toast} editable={live} />}
+      {shown === 'desk' && <DescriptionEditor node={node} op={op} toast={toast} editable={live} refs={refs} />}
       {shown === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
         <ProjectInbox node={node} slug={slug} tree={tree} map={map} op={op} toast={toast} refs={refs} onJump={onJump}
