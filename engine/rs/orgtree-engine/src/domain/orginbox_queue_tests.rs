@@ -521,7 +521,7 @@ async fn t30_the_hand_out_and_carry_lookups_use_their_partial_indexes() {
     let w = world(true).await;
     let proj = w.project("intake", true).await;
     w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
-                 SELECT 'seed'||g, $1, '@net:x.1', 'agent', $2, 'intake', 'b', 'read', '{}'::jsonb FROM generate_series(1,10000) g", &[&w.org, &proj]).await.unwrap();
+                 SELECT 'seed'||g, $1, '@net:x.'||g, 'agent', $2, 'intake', 'b', 'read', '{}'::jsonb FROM generate_series(1,10000) g", &[&w.org, &proj]).await.unwrap();
     w.c.batch_execute("ANALYZE ot.mail").await.unwrap();
     let explain = |sql: String| { let c = &w.c; async move {
         c.query(&format!("EXPLAIN {sql}"), &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>().join("\n") } };
