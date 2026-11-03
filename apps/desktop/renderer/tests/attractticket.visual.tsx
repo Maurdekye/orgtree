@@ -2,7 +2,7 @@
 // (@item:orgtree/attract-mode-only-canvas-interaction-interrupts-i, points i-l).
 // The REAL <DocketModal/> on one long ticket, opened through its jump the way attract opens it. The
 // window has an older text snapshot of the ticket (rev 3); the ticket now is rev 4 with a sentence added
-// in the middle of the long DESCRIPTION and a new entry under EVIDENCE NOTES (a section that starts collapsed).
+// in the middle of the long DESCRIPTION and a new entry under EVIDENCE NOTES (NOTE: the Evidence notes section is open by default in the real pane, so the capture closes it before the first shot).
 //   window.attractTicketVisual.theme('light' | 'charcoal' | 'obsidian-black' | 'solarized-light')
 //   window.attractTicketVisual.show()      -> the change attract finds, driven on the open pane; resolves to its length (ms)
 //   window.attractTicketVisual.change      -> the located change (field, offset, snippet)
@@ -17,6 +17,7 @@ import { locateChange, recordTicketSnapshot, ticketSnapshot } from '../src/attra
 import { showTicketChange } from '../src/attract/ticketdom'
 import type { TicketShow } from '../src/attract/ticketdom'
 import type { TreePayload, WorkItem } from '../src/types'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import '../src/styles.css'
 import '../src/shell.css'
 
@@ -41,12 +42,14 @@ const oldItem = { ...base, rev: 3, objective: OLD_OBJECTIVE, evidence: [{ note: 
 const newItem = { ...base, rev: 4, objective,
   evidence: [...oldItem.evidence, { note: 'EVIDENCE ADDED AFTER YOU LAST SAW THIS', ref: 'r2', kind: 'note', at: '2026-11-03T10:30:00Z', by: 'a' }] }
 
-window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+// the docket reads through the paged route (useWorkItems -> getWorkPage); compatibilityWorkFixture answers it from the
+// legacy full-list body below as one complete page, and the foreground/reference routes as compatibility, as the suites do
+window.fetch = compatibilityWorkFixture((async (input: RequestInfo | URL, init?: RequestInit) => {
   if (init?.method && init.method !== 'GET') throw Error('Blocked fixture write')
   const u = String(input)
   if (u.includes('/work-items/changed-ticket')) return new Response(JSON.stringify({ item: newItem }), { headers: { 'Content-Type': 'application/json' } })
   return new Response(JSON.stringify({ items: [newItem], archived: [], backlogged: [] }), { headers: { 'Content-Type': 'application/json' } })
-}) as typeof fetch
+}) as typeof fetch)
 
 // the window "last showed" rev 3
 recordTicketSnapshot('fixture', oldItem as unknown as WorkItem)

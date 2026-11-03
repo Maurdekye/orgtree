@@ -8,6 +8,7 @@ import { CurrentOrg } from '../src/popout'
 import { applyTheme } from '../src/themes'
 import { applyContrast } from '../src/contrast'
 import type { TreePayload, WorkItem } from '../src/types'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import '../src/styles.css'
 import '../src/shell.css'
 
@@ -32,12 +33,14 @@ const oldItem = { ...base, rev: 3, objective: OLD_OBJECTIVE, evidence: [{ note: 
 const newItem = { ...base, rev: 4, objective,
   evidence: [...oldItem.evidence, { note: 'EVIDENCE ADDED AFTER YOU LAST SAW THIS', ref: 'r2', kind: 'note', at: '2026-11-03T10:30:00Z', by: 'a' }] }
 
-window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+// the docket reads through the paged route (useWorkItems -> getWorkPage); compatibilityWorkFixture answers it from the
+// legacy full-list body below as one complete page, and the foreground/reference routes as compatibility, as the suites do
+window.fetch = compatibilityWorkFixture((async (input: RequestInfo | URL, init?: RequestInit) => {
   if (init?.method && init.method !== 'GET') throw Error('Blocked fixture write')
   const u = String(input)
   if (u.includes('/work-items/changed-ticket')) return new Response(JSON.stringify({ item: newItem }), { headers: { 'Content-Type': 'application/json' } })
   return new Response(JSON.stringify({ items: [newItem], archived: [], backlogged: [] }), { headers: { 'Content-Type': 'application/json' } })
-}) as typeof fetch
+}) as typeof fetch)
 
 (window as unknown as { docketPlainVisual: unknown }).docketPlainVisual = {
   theme: (contrast: string, accent = 'claude') => { applyContrast(contrast); applyTheme(accent) },

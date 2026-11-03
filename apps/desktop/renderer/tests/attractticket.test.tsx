@@ -3,7 +3,11 @@
 // it should expand the relevant sections & scroll down to the content that's changed"; refinement
 // 11:15:22Z m472583486fbb "should observe the diff to locate where exactly that occurred at, first
 // position"; decision @coordinator-opus mf102bc2f510a (in-memory text snapshot, no engine storage).
-import { flush } from './harness'
+import { flush, inAct, mountView } from './harness'
+import React from 'react'
+import { compatibilityWorkFixture } from './workcompat.fixture'
+import { DocketModal } from '../src/canvas/docket'
+import { CurrentOrg } from '../src/popout'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -223,4 +227,31 @@ test('§7 the ticket route: the diff is taken BEFORE the docket opens, the pane 
     assert.equal(ticketSnapshot('acme', 't')!.rev, 9)
   } finally { globalThis.fetch = realFetch; p.remove(); clearTicketSnapshots(); localStorage.clear() }
   await flush()
+})
+
+test('§8 the capture fixture contract: the real DocketModal, fed the way attractticket/docketplain.visual feed it, shows the jumped-to ticket with its text fields marked', async () => {
+  const realFetch = globalThis.fetch
+  const full = {
+    slug: 'changed-ticket', title: 'A ticket that changed', kind: 'code', status: 'in_progress', archived: false, rev: 4,
+    owner: null, participants: [], at: '2026-11-03T08:00:00Z', updated_at: '2026-11-03T11:00:00Z', docket_at: '2026-11-03T11:00:00Z',
+    objective: 'Problem: x. Solution: y.', done_so_far: ['Wrote the red tests'], working_on_next: ['Post the job'],
+    questions: [], dependencies: [], history: [], dismissals: [], acceptance: [], effective_attention: false, attention_sources: [],
+    evidence: [{ note: 'first evidence', ref: 'r1', kind: 'note', at: '2026-11-03T08:30:00Z', by: 'a' }],
+  }
+  const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { 'Content-Type': 'application/json' } })
+  globalThis.fetch = compatibilityWorkFixture((async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method && init.method !== 'GET') throw Error('Blocked fixture write')
+    if (String(input).includes('/work-items/changed-ticket')) return json({ item: full })
+    return json({ items: [full], archived: [], backlogged: [] })
+  }) as typeof fetch)
+  const tree = { slug: 'fixture', name: 'Fixture', roots: [], asks: [], epoch: 1, rev: 1 } as never
+  const view = await mountView(<CurrentOrg.Provider value="fixture"><DocketModal slug="fixture" tree={tree} toast={() => {}} close={() => {}}
+    jumpTo="changed-ticket" jumpSeq={1} /></CurrentOrg.Provider>, el => el)
+  try {
+    await inAct(async () => { await flush(12) })
+    assert.match(view.el.querySelector('.docket-pane-head b')?.textContent ?? '', /A ticket that changed/, 'the pane head names the ticket')
+    for (const sel of ['objective', 'done_so_far', 'working_on_next', 'evidence.note'])
+      assert.ok(view.el.querySelector(`[data-docket-field="${sel}"]`), 'the pane marks ' + sel)
+    assert.ok(view.el.querySelector('.overlay .docket-modal.settings'), 'an ordinary unpinned docket is an .overlay .docket-modal.settings')
+  } finally { await view.unmount(); globalThis.fetch = realFetch }
 })
