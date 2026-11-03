@@ -42,6 +42,7 @@ import { resolveRef } from './reflinks'
 import { appendReplyTarget, objectReplyContext, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
 import { TranscriptSelection, TranscriptSelectionContext, useTranscriptSelectionReveal } from './transcriptselection'
 import { useSelectionComposer } from './selectioncomposer'
+import { useTranscriptSelectionHold } from './selectionhold'
 import { selectionReplyContext, displayReplyWire } from '../eventReply'
 import { useObjectComposer } from './composerobjects'
 import type { ReplyContext } from '../eventReply'
@@ -2678,6 +2679,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // store above — they were seven local cells and a pair of refs here, which
   // is exactly how two views of one node ended up with two different answers.)
   const scroller = useRef<HTMLDivElement | null>(null)
+  useTranscriptSelectionHold(scroller)   // a selected passage survives arriving events
   const loadedRef = useRef(false)     // first load always lands at the bottom
   const live = node.state === 'live'
   // Only user input releases bottom follow. Native scroll events also come
