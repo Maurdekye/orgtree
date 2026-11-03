@@ -110,6 +110,7 @@ import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
 import { noteProjectThemes } from '../src/projecttheme'
+import type { FoldInfo } from '../src/canvas/subtreefold'
 import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
 import { setAttentionLayout } from '../src/attention/mode'
 import { InboxView, MailRowView } from '../src/canvas/mail'
@@ -196,13 +197,16 @@ const themedCard = { ...card, id: 'launchpad', theme_color: '#e11d48', theme_ico
 /** an uploaded icon over the teal theme (@item:orgtree/project-themes-colour-the-whole-project-node-by-i) */
 const UPLOAD_SHA = 'c'.repeat(64)
 const uploadedCard = { ...card, id: 'brand-kit', theme_color: '#0f766e', theme_icon_custom: UPLOAD_SHA } as unknown as CanvasNode
-/** a themed project folded over a working member: the busy state colour wins */
-const busyThemedCard = { ...themedCard, id: 'launch-busy', busy: true } as unknown as CanvasNode
+/** a themed project folded over a working member (the real subtree-fold
+ *  props, as OrgCanvas passes them): the busy state colour wins */
+const busyThemedCard = { ...themedCard, id: 'launch-busy' } as unknown as CanvasNode
+const workingFold: FoldInfo = { collapsed: true, count: 2, working: true, attention: false }
 function ThemeCards() {
-  const sq = (nd: CanvasNode, lod: 'mini' | 'norm', x: number, y: number) =>
+  const sq = (nd: CanvasNode, lod: 'mini' | 'norm', x: number, y: number, fold?: FoldInfo) =>
     <ProjectSquare node={nd} pos={{ x, y }} lod={lod}
       dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
       zoom={lod === 'mini' ? 0.4 : 1.2} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
+      fold={fold} onToggleFold={fold ? noop : undefined}
       onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
   // the uploaded icon is read by hash from the project the tree names
   noteProjectThemes({ slug: 'org', roots: [uploadedCard] } as unknown as TreePayload)
@@ -213,7 +217,7 @@ function ThemeCards() {
       <div style={{ position: 'absolute', left: 40, top: 30, transform: 'scale(1.6)', transformOrigin: '0 0' }}>
         {sq(themedCard, 'mini', 0, 0)}
         {sq(themedCard, 'norm', 150, 0)}
-        {sq(busyThemedCard, 'norm', 300, 0)}
+        {sq(busyThemedCard, 'norm', 300, 0, workingFold)}
         {sq(uploadedCard, 'mini', 0, 140)}
         {sq(uploadedCard, 'norm', 150, 140)}
         {sq(card, 'mini', 0, 280)}
