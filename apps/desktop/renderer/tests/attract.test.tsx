@@ -14,7 +14,9 @@ import { scrollMs, SCROLL_MAX_MS, SCROLL_PAUSE_MS, SCROLL_PX_PER_S } from '../sr
 import {
   ATTRACT_IDLE_KEY, ATTRACT_IDLE_EVENT, DEFAULT_ATTRACT_IDLE_SECONDS, ATTRACT_KEY, setAttractIdleSeconds,
   setAttractMode, watchAttract, watchAttractIdle,
+  ATTRACT_REFUSE_KEY, ATTRACT_REFUSE_EVENT, setAttractRefuseQuestions, watchAttractRefuse,
 } from '../src/attract/pref'
+import { bindRoomSocket, reportAttract } from '../src/streamrooms'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { canvasAttractRoutes } from '../src/attract/canvas'
 import { createAttractPanels } from '../src/attract/panels'
@@ -768,4 +770,52 @@ test('§8 the canvas routes: pinned or popped-out desks are skipped, real read m
     assert.deepEqual(calls, ['fit', 'go:free', 'panel:inbox:m1', 'panel:close', 'panel:docket:moved', 'panel:close',
       'doc:fresh', 'close-reader:old'])
   } finally { globalThis.fetch = realFetch; resetLocalReads(); localStorage.clear() }
+})
+
+// USER 2026-11-03 13:10:58Z m46c12a448a66 "any user facing questions while attract mode is on should
+// be outright refused (optional extra toggle default on)"
+test('§12 refuse-questions setting: on when absent, one app-wide boolean preference', async () => {
+  assert.equal('attractRefuseQuestions' in DEFAULT_PREFERENCES, false, 'absent means on: nothing stored on a fresh install')
+  for (const ok of [true, false]) assert.deepEqual(preferencesPatch({ attractRefuseQuestions: ok }), { attractRefuseQuestions: ok })
+  for (const bad of [1, 'true', null, {}]) assert.throws(() => preferencesPatch({ attractRefuseQuestions: bad }), String(bad))
+  localStorage.removeItem(ATTRACT_REFUSE_KEY)
+  const seen: boolean[] = []
+  const stop = watchAttractRefuse(on => seen.push(on))
+  try {
+    await setAttractRefuseQuestions(false)
+    assert.equal(localStorage.getItem(ATTRACT_REFUSE_KEY), '0')
+    await setAttractRefuseQuestions(true)
+    assert.deepEqual(seen, [true, false, true])
+    localStorage.setItem(ATTRACT_REFUSE_KEY, 'junk')
+    window.dispatchEvent(new Event(ATTRACT_REFUSE_EVENT))
+    assert.equal(seen.at(-1), true, 'junk reads as the default, on')
+  } finally { stop(); localStorage.removeItem(ATTRACT_REFUSE_KEY) }
+})
+
+test('§13 the org socket is told attract started and stopped, with the setting, and again on reconnect', async () => {
+  const sent: unknown[] = []
+  bindRoomSocket('o1', m => sent.push(m))
+  sent.length = 0
+  reportAttract('o1', true, true)
+  reportAttract('o1', true, false)     // the setting changed while running
+  reportAttract('o1', true, false)     // unchanged: not repeated
+  reportAttract('o1', false, false)
+  assert.deepEqual(sent, [
+    { type: 'attract', running: true, refuse: true },
+    { type: 'attract', running: true, refuse: false },
+    { type: 'attract', running: false, refuse: false },
+  ])
+  // a running window that reconnects tells the new socket at once (the engine's flag is per connection)
+  reportAttract('o1', true, true)
+  bindRoomSocket('o1', null)
+  const again: unknown[] = []
+  bindRoomSocket('o1', m => again.push(m))
+  assert.deepEqual(again.filter(m => (m as { type: string }).type === 'attract'), [{ type: 'attract', running: true, refuse: true }])
+  // stopped: a reconnect says nothing
+  reportAttract('o1', false, true)
+  bindRoomSocket('o1', null)
+  const quiet: unknown[] = []
+  bindRoomSocket('o1', m => quiet.push(m))
+  assert.deepEqual(quiet.filter(m => (m as { type: string }).type === 'attract'), [])
+  bindRoomSocket('o1', null)
 })
