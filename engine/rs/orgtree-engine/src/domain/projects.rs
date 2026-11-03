@@ -1171,13 +1171,22 @@ pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &
 /// is untouched. Runs in the op's transaction; returns how many.
 #[logged]
 pub async fn purge_waiting(tx: &impl GenericClient, project: i64, by: &str) -> Result<u64> {
-    Ok(tx
+    let purged = tx
         .execute(
             "UPDATE ot.mail SET state = 'retracted', extra = extra || jsonb_build_object('purged', jsonb_build_object('by', $2::text, 'at', now()))
               WHERE recipient_agent_id = $1 AND state = 'pending'",
             &[&project, &by],
         )
-        .await?)
+        .await?;
+    // org-inbox follow-ups bundled with a purged job (not handed out) go with it
+    tx.execute(
+        "UPDATE ot.mail b SET state = 'retracted', extra = b.extra || jsonb_build_object('purged', jsonb_build_object('by', $2::text, 'at', now()))
+          WHERE b.recipient_agent_id = $1 AND b.extra ? 'bundled_with' AND NOT (b.extra ? 'bundled_handed') AND b.state = 'read'
+            AND EXISTS (SELECT 1 FROM ot.mail j WHERE j.uid = b.extra->>'bundled_with' AND j.extra ? 'purged')",
+        &[&project, &by],
+    )
+    .await?;
+    Ok(purged)
 }
 
 /// What an agent's mail to a project is when it answers mail the project

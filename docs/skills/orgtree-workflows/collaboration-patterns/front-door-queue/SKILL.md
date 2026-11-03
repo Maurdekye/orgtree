@@ -11,7 +11,7 @@ Most orgs put one coordinator agent between the outside world and the work. This
 
 ## The shape
 
-- A top-level project holds the org-inbox audience, exactly as an agent node would (drag it onto the org mailbox, or `orgtree_audience action=grant from=<project> target=extern`). Its members inherit nothing from the grant.
+- A top-level project holds the org-inbox audience, exactly as an agent node would (drag it onto the org mailbox, or `orgtree_audience action=grant from=<project> target=extern`). Its members inherit nothing from the grant. Workers under a holding project reply to outside people only through their jobs: for outside mail, members of a holding project are not top-level agents, so they cannot start an outside conversation or be auto-granted the audience.
 - Workers sit below the project and each arm a `fair_queue` listener on it.
 - Optionally an agent holder (the liaison) keeps its own copies of every message: turn on the org's multiple-holder option and grant both. With that option off, the newest grant wins, so granting the project replaces the agent holder (the drag asks first).
 

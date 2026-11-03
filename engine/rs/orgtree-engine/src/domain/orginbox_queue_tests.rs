@@ -309,3 +309,31 @@ async fn t1_t2_t3_a_project_holds_the_audience_like_an_agent_and_its_members_inh
         assert!(may_send_extern(&w.e, w.org, worker, "worker").await.unwrap(), "revoked: top-level again");
     }
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t21_purge_takes_bundled_follow_ups_and_the_follow_up_lookup_uses_its_index() {
+    let mut w = world(true).await;
+    let proj = w.project("intake", true).await;
+    w.grant("intake").await;
+    let (first, p) = w.arrive("n20", "@net:bob.1", "original", json!([])).await;
+    let quote = json!({ "kind": "mail", "box": "org", "id": first, "peer": "@net:bob.1", "net_id": "n20", "gist": "original" });
+    w.arrive("n21", "@net:bob.1", "bundled", json!([quote])).await;
+    let _ = p;
+    let tx = w.c.transaction().await.unwrap();
+    assert_eq!(crate::domain::projects::purge_waiting(&tx, proj, "tester").await.unwrap(), 1);
+    tx.commit().await.unwrap();
+    let left: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id=$1 AND state<>'retracted'", &[&proj]).await.unwrap().get(0);
+    assert_eq!(left, 0, "the bundled follow-up went with its job");
+    // the D14 lookup is index-driven on a seeded project mailbox
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
+                 SELECT 'seed'||g, $1, '@net:x.1', 'agent', $2, 'intake', 'b', 'read', '{}'::jsonb FROM generate_series(1,10000) g", &[&w.org, &proj]).await.unwrap();
+    w.c.batch_execute("ANALYZE ot.mail").await.unwrap();
+    let plan: Vec<String> = w.c.query(
+        "EXPLAIN SELECT uid FROM ot.mail WHERE recipient_agent_id=7 AND extra ? 'org_inbox' AND extra->'org_inbox'->>'uid'='u' AND NOT (extra ? 'bundled_with')", &[])
+        .await.unwrap().iter().map(|r| r.get(0)).collect();
+    let plan = plan.join("
+");
+    assert!(!plan.contains("Seq Scan on mail"), "no sequential scan of the project mailbox: {plan}");
+}
