@@ -238,3 +238,34 @@ async fn t19_busy_counts_a_project_holder_with_a_runnable_listener() {
     w.c.execute("UPDATE ot.agents SET halt='{\"why\":\"fixture\"}'::jsonb WHERE id=$1", &[&worker]).await.ok();
     assert!(busy(&w.c, w.org, true).await.unwrap(), "a halted listener does not");
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t22_an_org_reply_carries_the_message_id_and_threads_back_to_the_sending_agent() {
+    let w = world(true).await;
+    let a_boss = w.agent("boss", None).await;
+    let b: i64 = w.c.query_one("INSERT INTO ot.orgs(uuid,slug,name,settings) VALUES(gen_random_uuid(),'queue-b','b',$1) RETURNING id", &[&json!({ "org_inbox_multi_holder": true })]).await.unwrap().get(0);
+    let b_front: i64 = w.c.query_one("INSERT INTO ot.agents(org_id,name,tier,state,born) VALUES($1,'front','sol','live','2026-11-03') RETURNING id", &[&b]).await.unwrap().get(0);
+    w.c.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1,'front','@extern','fixture')", &[&b]).await.unwrap();
+    for (id, slug) in [(w.org, "queue-fixture"), (b, "queue-b")] {
+        w.e.orgs.insert(crate::orgs::provisional(id, slug.into(), slug.into(), slug.into()));
+    }
+    // A's boss writes to B
+    let sent = send_extern(&w.e, w.org, &Outgoing::new(From::Agent { id: a_boss, name: "boss".into(), generation: 1 }, "@org:queue-b", "question?")).await.unwrap();
+    let out = w.c.query_one("SELECT net_id, sender_agent_id FROM ot.org_inbox WHERE org_id=$1 AND uid=$2", &[&w.org, &sent.uid]).await.unwrap();
+    let id: String = out.get::<_, Option<String>>(0).expect("the sent row carries a message id");
+    assert_eq!(id.len(), 32, "the hub's id format");
+    assert_eq!(out.get::<_, Option<i64>>(1), Some(a_boss), "the sending agent is recorded");
+    let inc = w.c.query_one("SELECT uid, net_id, hub FROM ot.org_inbox WHERE org_id=$1 AND dir='in'", &[&b]).await.unwrap();
+    assert_eq!(inc.get::<_, Option<String>>(1).as_deref(), Some(id.as_str()), "the receiver's row has the same id");
+    assert_eq!(inc.get::<_, Option<String>>(2), None, "hub stays NULL: it did not come over a mail hub");
+    // B's front answers, quoting the message by its id
+    let mut back = Outgoing::new(From::Agent { id: b_front, name: "front".into(), generation: 1 }, "@org:queue-fixture", "answer");
+    back.reply_to = Some(json!({ "kind": "mail", "box": "org", "id": inc.get::<_, String>(0), "net_id": id, "peer": "@org:queue-fixture", "gist": "question?" }));
+    send_extern(&w.e, b, &back).await.unwrap();
+    // A's row of the answer points at A's own sent row, and the answer goes to the boss only
+    let got = w.c.query_one("SELECT reply_to, delivered_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in'", &[&w.org]).await.unwrap();
+    assert_eq!(got.get::<_, Value>(0)["id"], json!(sent.uid), "re-pointed at the receiver's own row");
+    assert_eq!(got.get::<_, Value>(1), json!(["boss"]));
+}
