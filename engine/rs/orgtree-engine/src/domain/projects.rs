@@ -660,10 +660,12 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             // D14: follow-ups bundled with this job go to the same listener, in id order, in this transaction
             let bundled = tx.query(
                 "SELECT id, uid, sender, kind, body, attachments, reply_to, ev, net_id, net_hub, replies FROM ot.mail
-                  WHERE extra->>'bundled_with' = $1 AND NOT (extra ? 'bundled_handed') ORDER BY id FOR UPDATE", &[&mail_uid]).await?;
+                  WHERE extra ? 'bundled_with' AND extra->>'bundled_with' = $1 AND recipient_agent_id = $2
+                    AND NOT (extra ? 'bundled_handed') ORDER BY id FOR UPDATE", &[&mail_uid, &project]).await?;
             for b in &bundled {
                 let b_copy = uid("m");
-                let b_via = json!({ "via_project": { "id": project, "name": pname, "mail": b.get::<_, String>(1), "dog": w.uid, "ack": ack,
+                // a follow-up never asks for its own ack: the worker acks the JOB, which closes its follow-ups
+                let b_via = json!({ "via_project": { "id": project, "name": pname, "mail": b.get::<_, String>(1), "dog": w.uid, "ack": false,
                                     "waited_from": iso(waited_from), "outside": true, "bundled": true, "job": mail_uid },
                                     "outside_job": mail_uid });
                 tx.execute(
@@ -1020,6 +1022,14 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
         )
         .await?;
     }
+    // org-inbox follow-ups that travelled with this job go out again with its next hand-out (the dead-letter retry does the
+    // same); without this the next worker would get the job and none of them. Uses `mail_bundled_with`.
+    tx.execute(
+        "UPDATE ot.mail SET extra = extra - 'bundled_handed'
+          WHERE extra->>'bundled_with' = $2 AND extra ? 'bundled_with' AND recipient_agent_id = $1 AND extra ? 'bundled_handed'",
+        &[&project, &uid],
+    )
+    .await?;
     if ending == "taken_back" {
         // the next hand-out prefers another listener (`pick_avoiding`)
         tx.execute(

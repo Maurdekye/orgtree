@@ -177,6 +177,20 @@ async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, p
     Ok(r.as_ref().map(inbox_quote))
 }
 
+/// A worker's job-scoped outside reply (D10): the send's own transaction re-checks the right `FOR SHARE` and writes
+/// `via_job` in the same insert, so a fast answer can always find its thread.
+pub struct JobReply<'a> {
+    pub agent: i64,
+    pub job: &'a str,
+    pub out: &'a Outgoing,
+}
+
+/// Inside the send's transaction: the right found by the early check must still hold (spec §5).
+#[logged]
+pub(crate) async fn recheck_job_reply(client: &impl tokio_postgres::GenericClient, org_id: i64, j: &JobReply<'_>) -> Result<()> {
+    jobs::recheck(client, org_id, j.agent, j.out, j.job, j.out.to.trim().trim_start_matches('@')).await
+}
+
 /// Mail to the outside: `@org:<slug>` (another org on this machine: one
 /// transaction into both inboxes, then the receiving org's holders are
 /// woken) or `@net:<slug>` (the mail hub).
@@ -203,12 +217,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     }
     if let Some(peer) = to.strip_prefix("net:") {
         let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
-        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies).await?;
-        if let Some(job) = &via_job {
-            // D10: the reply remembers its job, so the peer's answer can route back into the worker's thread (D13)
-            let c = engine.db.get().await?;
-            c.execute("UPDATE ot.org_inbox SET via_job=$2 WHERE org_id=$3 AND uid=$1", &[&uid, job, &org_id]).await?;
-        }
+        // D10: the reply remembers its job (written in the queueing transaction itself, after the right is re-checked
+        // there), so the peer's answer can route back into the worker's thread (D13)
+        let job_reply = match (&via_job, &out.from) { (Some(job), From::Agent { id, .. }) => Some(JobReply { agent: *id, job: job.as_str(), out }), _ => None };
+        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies, job_reply.as_ref()).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent { dnd_held: false,
             transfer_ids,
@@ -250,6 +262,9 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     let msg_id = uuid::Uuid::new_v4().simple().to_string();
     let tx = client.transaction().await?;
     admit(&tx, &[org_id, dst.id]).await?;
+    if let (Some(job), From::Agent { id, .. }) = (&via_job, &out.from) {
+        recheck_job_reply(&tx, org_id, &JobReply { agent: *id, job: job.as_str(), out }).await?;
+    }
     // a quote that names a message by its id is re-pointed at the receiver's own row of it (ids are per org)
     let mut reply_there = reply_there;
     for q in replies_there.iter_mut() {

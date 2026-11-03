@@ -358,3 +358,175 @@ async fn t23_retrying_a_dead_letter_bundles_its_follow_ups_again() {
     let again: bool = w.c.query_one("SELECT NOT (extra ? 'bundled_handed') FROM ot.mail WHERE recipient_agent_id=$1 AND extra ? 'bundled_with'", &[&proj]).await.unwrap().get(0);
     assert!(again, "the follow-up is ready to be handed out with the retried job");
 }
+
+// ---------------------------------------------------------------- review fixes of cac08dd (spec rev 2.3)
+
+/// A project, its worker, and a job handed to the worker the way the queue does it.
+#[nolog]
+async fn handed(w: &mut World, ack: bool) -> (i64, i64, String, String, String) {
+    let proj = w.project("intake", ack).await;
+    w.grant("intake").await;
+    let worker = w.agent("worker", Some(proj)).await;
+    let (first, p) = w.arrive("nh", "@net:bob.1", "original", json!([])).await;
+    let job = p.jobs[0].mail.clone();
+    let copy = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@net:bob.1','agent',$3,'worker','original','pending',$4)",
+        &[&copy, &w.org, &worker, &json!({ "outside_job": job, "via_project": { "id": proj, "name": "intake", "mail": job, "ack": ack, "outside": true } })]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": worker, "ack": ack, "copy": copy } })]).await.unwrap();
+    (proj, worker, first, job, copy)
+}
+
+#[nolog]
+fn quote_of(uid: &str, net_id: &str) -> Value {
+    json!({ "kind": "mail", "box": "org", "id": uid, "peer": "@net:bob.1", "net_id": net_id, "gist": "x" })
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t26_a_reclaimed_job_hands_its_bundled_follow_ups_out_again() {
+    let mut w = world(true).await;
+    let (proj, worker, first, job, copy) = handed(&mut w, true).await;
+    w.arrive("nh1", "@net:bob.1", "bundled", json!([quote_of(&first, "nh")])).await;
+    // a bundled follow-up was handed out with the job, then the worker let it go
+    w.c.execute("UPDATE ot.mail SET extra = extra || '{\"bundled_handed\":\"c1\"}'::jsonb WHERE recipient_agent_id=$1 AND extra ? 'bundled_with'", &[&proj]).await.unwrap();
+    let row: i64 = w.c.query_one("SELECT id FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
+    let tx = w.c.transaction().await.unwrap();
+    crate::domain::projects::reclaim_in(&tx, w.org, proj, row, worker, "tester", "let it go", "released", "taken_back", false, Some(&copy)).await.unwrap().expect("reclaimed");
+    tx.commit().await.unwrap();
+    let handed_again: bool = w.c.query_one("SELECT NOT (extra ? 'bundled_handed') FROM ot.mail WHERE recipient_agent_id=$1 AND extra ? 'bundled_with'", &[&proj]).await.unwrap().get(0);
+    assert!(handed_again, "the next worker gets the job AND its follow-ups");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t27_follow_up_copies_never_ask_for_an_ack() {
+    let mut w = world(true).await;
+    let (_, _, first, _, _) = handed(&mut w, true).await;
+    let (_, p) = w.arrive("nh2", "@net:bob.1", "direct follow-up", json!([quote_of(&first, "nh")])).await;
+    assert_eq!(p.copies.len(), 1, "sent straight to the holder");
+    let via = w.job_extra(&p.copies[0].2).await["via_project"].clone();
+    assert_eq!(via["ack"], json!(false), "the worker acks the JOB, which closes its follow-ups: {via}");
+    // source guard: the bundled copies made at hand-out say the same, and the lookup is bounded to the project
+    let src = include_str!("projects.rs");
+    assert!(src.contains("\"dog\": w.uid, \"ack\": false,"), "bundled copies never ask for an ack");
+    assert!(src.contains("AND recipient_agent_id = $2"), "the hand-out lookup names the project mailbox");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t28_a_follow_up_is_recorded_like_the_job_and_a_reply_to_it_follows_the_jobs_state() {
+    let mut w = world(true).await;
+    let proj = w.project("intake", true).await;
+    w.grant("intake").await;
+    let worker = w.agent("worker", Some(proj)).await;
+    let (first, p) = w.arrive("nj", "@net:bob.1", "original", json!([])).await;
+    let job = p.jobs[0].mail.clone();
+    // F1 while the job is pending: bundled; the project (not a worker) is where it was delivered
+    let (f1, _) = w.arrive("nj1", "@net:bob.1", "bundled one", json!([quote_of(&first, "nj")])).await;
+    let d1: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE uid=$1", &[&f1]).await.unwrap().get(0);
+    assert_eq!(d1, json!(["intake"]), "a bundled follow-up records its project");
+    // a reply quoting F1 while the job is still pending is bundled again: no copy, no new job
+    let (_, r1) = w.arrive("nj2", "@net:bob.1", "about bundled", json!([quote_of(&f1, "nj1")])).await;
+    assert!(r1.jobs.is_empty() && r1.copies.is_empty(), "it follows the pending job");
+    // the job is handed to the worker (unacked, ACK mode)
+    let copy = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@net:bob.1','agent',$3,'worker','original','pending','{}')", &[&copy, &w.org, &worker]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": worker, "ack": true, "copy": copy } })]).await.unwrap();
+    let (f2, p2) = w.arrive("nj3", "@net:bob.1", "direct", json!([quote_of(&first, "nj")])).await;
+    assert_eq!(p2.copies.len(), 1);
+    let d2: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE uid=$1", &[&f2]).await.unwrap().get(0);
+    assert_eq!(d2, json!(["intake"]), "a direct follow-up records the project, not the worker it was handed to");
+    // a reply quoting the direct follow-up still reaches the holder while the job is open ...
+    let (_, r2) = w.arrive("nj4", "@net:bob.1", "about direct", json!([quote_of(&f2, "nj3")])).await;
+    assert_eq!(r2.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["worker"]);
+    // ... and after the ACK it is a new job, not a copy to the old worker
+    w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
+    let (_, r3) = w.arrive("nj5", "@net:bob.1", "after the ack", json!([quote_of(&f2, "nj3")])).await;
+    assert!(r3.copies.is_empty(), "no copy to the old worker");
+    assert_eq!(r3.jobs.len(), 1, "a new job");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t25_a_worker_moved_out_of_the_project_loses_the_reply_right_and_regains_it_moving_back() {
+    for ack in [true, false] {
+        let mut w = world(true).await;
+        let (proj, worker, _, job, copy) = handed(&mut w, ack).await;
+        let mut out = Outgoing::new(From::Agent { id: worker, name: "worker".into(), generation: 1 }, "@net:bob.1", "reply");
+        out.reply_to = Some(json!({ "id": copy, "from": "@net:bob.1" }));
+        assert!(matches!(jobs::reply_right(&w.e, w.org, worker, &out).await.unwrap(), jobs::Reply::Allowed(j) if j == job), "a member, ack={ack}");
+        w.c.execute("UPDATE ot.agents SET parent_id=NULL WHERE id=$1", &[&worker]).await.unwrap();
+        assert!(matches!(jobs::reply_right(&w.e, w.org, worker, &out).await.unwrap(), jobs::Reply::Refused), "moved out, ack={ack}");
+        w.c.execute("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&worker, &proj]).await.unwrap();
+        assert!(matches!(jobs::reply_right(&w.e, w.org, worker, &out).await.unwrap(), jobs::Reply::Allowed(_)), "moved back, ack={ack}: the still-valid claim works again");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t29_the_send_rechecks_the_right_on_its_own_transaction() {
+    let mut w = world(true).await;
+    let (_, worker, _, job, copy) = handed(&mut w, true).await;
+    let mut out = Outgoing::new(From::Agent { id: worker, name: "worker".into(), generation: 1 }, "@net:bob.1", "reply");
+    out.reply_to = Some(json!({ "id": copy, "from": "@net:bob.1" }));
+    let tx = w.c.transaction().await.unwrap();
+    jobs::recheck(&tx, w.org, worker, &out, &job, "net:bob.1").await.expect("allowed while the claim is open");
+    tx.rollback().await.unwrap();
+    w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
+    let tx = w.c.transaction().await.unwrap();
+    assert!(jobs::recheck(&tx, w.org, worker, &out, &job, "net:bob.1").await.is_err(), "an ack between the early check and the send is caught");
+    tx.rollback().await.unwrap();
+    // source guards: the job is read FOR SHARE, and the @net: row gets via_job in its own INSERT
+    assert!(include_str!("orginbox_jobs.rs").contains("FOR SHARE OF j"));
+    let net = include_str!("../net.rs");
+    assert!(net.contains("recheck_job_reply(&tx, org_id, j)") && net.contains("sender_generation, replies, via_job)"), "queue_row checks and writes via_job in one transaction");
+    assert!(!include_str!("orginbox.rs").contains("UPDATE ot.org_inbox SET via_job=$2"), "no after-the-fact UPDATE of via_job");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t3_i_ii_a_paused_grant_still_restricts_members_and_a_retired_project_restricts_nobody() {
+    let w = world(true).await;
+    let proj = w.project("intake", false).await;
+    w.grant("intake").await;
+    let worker = w.agent("worker", Some(proj)).await;
+    // (i) paused: delivery stops, the restriction and the auto-grant block stay; the member's send changes nothing
+    w.c.execute("UPDATE ot.audiences SET paused=true WHERE org_id=$1 AND grantee='intake' AND grantor='@extern'", &[&w.org]).await.unwrap();
+    assert!(!may_send_extern(&w.e, w.org, worker, "worker").await.unwrap(), "a paused grant still restricts its members");
+    let out = Outgoing::new(From::Agent { id: worker, name: "worker".into(), generation: 1 }, "@net:bob.1", "hi");
+    assert!(send_extern(&w.e, w.org, &out).await.is_err(), "refused");
+    let auto: i64 = w.c.query_one("SELECT count(*) FROM ot.audiences WHERE org_id=$1 AND grantee='worker'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(auto, 0, "nothing was auto-granted");
+    let kept: (bool, bool) = { let r = w.c.query_one("SELECT paused, revoked_at IS NULL FROM ot.audiences WHERE org_id=$1 AND grantee='intake' AND grantor='@extern'", &[&w.org]).await.unwrap(); (r.get(0), r.get(1)) };
+    assert_eq!(kept, (true, true), "the project's grant is unchanged: still paused, not revoked");
+    // (ii) retired project: its members send as top-level, and the grant row is left as it is
+    w.c.execute("UPDATE ot.agents SET state='deleted' WHERE id=$1", &[&proj]).await.unwrap();
+    assert!(may_send_extern(&w.e, w.org, worker, "worker").await.unwrap(), "a retired project restricts nobody");
+    let row_kept: bool = w.c.query_one("SELECT revoked_at IS NULL FROM ot.audiences WHERE org_id=$1 AND grantee='intake' AND grantor='@extern'", &[&w.org]).await.unwrap().get(0);
+    assert!(row_kept, "the grant row is not revoked on retire");
+    w.c.execute("UPDATE ot.agents SET state='live' WHERE id=$1", &[&proj]).await.unwrap();
+    assert!(!may_send_extern(&w.e, w.org, worker, "worker").await.unwrap(), "a rehire restores the restriction");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t30_the_hand_out_and_carry_lookups_use_their_partial_indexes() {
+    let w = world(true).await;
+    let proj = w.project("intake", true).await;
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
+                 SELECT 'seed'||g, $1, '@net:x.1', 'agent', $2, 'intake', 'b', 'read', '{}'::jsonb FROM generate_series(1,10000) g", &[&w.org, &proj]).await.unwrap();
+    w.c.batch_execute("ANALYZE ot.mail").await.unwrap();
+    let explain = |sql: String| { let c = &w.c; async move {
+        c.query(&format!("EXPLAIN {sql}"), &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>().join("\n") } };
+    let handout = explain(format!("SELECT id FROM ot.mail WHERE extra ? 'bundled_with' AND extra->>'bundled_with' = 'u' AND recipient_agent_id = {proj} AND NOT (extra ? 'bundled_handed')")).await;
+    assert!(handout.contains("mail_bundled_with") && !handout.contains("Seq Scan on mail"), "the bundled hand-out uses mail_bundled_with: {handout}");
+    let carry = explain(format!("SELECT extra->>'outside_job' FROM ot.mail WHERE org_id={} AND recipient_agent_id={proj} AND net_id='n' AND sender='@net:x.1' AND sender_agent_id IS NULL ORDER BY id DESC LIMIT 1", w.org)).await;
+    assert!(carry.contains("mail_from_outside") && !carry.contains("Seq Scan on mail"), "the carry lookup uses mail_from_outside: {carry}");
+}

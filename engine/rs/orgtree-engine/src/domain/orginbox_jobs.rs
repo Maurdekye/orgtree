@@ -191,13 +191,15 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<
         let mut copies = Vec::new();
         let mut jobs = Vec::new();
         let mut reached: Vec<String> = Vec::new();
+        let mut agent_names: Vec<String> = Vec::new();
+        let mut project_names: Vec<String> = Vec::new();
         for name in names {
             let Some((nid, kind)) = live_by_name(tx, org, &name).await? else { continue };
             if kind == "agent" {
                 let carry: Option<String> = match &o_net {
                     Some(n) => tx
                         .query_opt(
-                            "SELECT extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND net_id=$3 AND sender=$4 ORDER BY id DESC LIMIT 1",
+                            "SELECT extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND net_id=$3 AND sender=$4 AND sender_agent_id IS NULL ORDER BY id DESC LIMIT 1",
                             &[&org, &nid, n, &peer],
                         )
                         .await?
@@ -209,10 +211,19 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<
                     stamp_outside_job(tx, &c, job).await?;
                 }
                 copies.extend(c);
+                agent_names.push(name.clone());
             } else {
                 follow_up(tx, org, nid, &name, row, &o_uid, &mut copies, &mut jobs).await?;
+                project_names.push(name.clone());
             }
             reached.push(name);
+        }
+        if !project_names.is_empty() {
+            // The follow-up is recorded like the original job: the agents, then the projects. The worker a direct
+            // follow-up was handed to is a detail of the job, not a recipient (a reply routes by the job's state).
+            let all: Vec<&str> = agent_names.iter().chain(project_names.iter()).map(String::as_str).collect();
+            let blank = json!({ "uid": row["uid"], "delivered_to": row["delivered_to"] });
+            record_delivered(tx, &blank, &all).await?;
         }
         if reached.is_empty() {
             return Ok(None);
@@ -229,13 +240,19 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<
 async fn follow_up(tx: &Transaction<'_>, org: i64, project: i64, name: &str, row: &Value, o_uid: &str,
     copies: &mut Vec<(i64, String, String, bool)>, jobs: &mut Vec<Job>) -> Result<()> {
     tx.execute("SELECT 1 FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE", &[&project]).await?;
-    let job = tx
+    let mut job = tx
         .query_opt(
             "SELECT uid, state, extra FROM ot.mail WHERE recipient_agent_id=$1 AND extra ? 'org_inbox'
-                AND extra->'org_inbox'->>'uid'=$2 AND NOT (extra ? 'bundled_with') ORDER BY id LIMIT 1 FOR UPDATE",
+                AND extra->'org_inbox'->>'uid'=$2 ORDER BY id LIMIT 1 FOR UPDATE",
             &[&project, &o_uid],
         )
         .await?;
+    // a reply quoting a follow-up that travelled with a job follows that JOB's state
+    if let Some(parent) = job.as_ref().and_then(|j| j.get::<_, Value>(2)["bundled_with"].as_str().map(str::to_string)) {
+        job = tx
+            .query_opt("SELECT uid, state, extra FROM ot.mail WHERE recipient_agent_id=$1 AND uid=$2 FOR UPDATE", &[&project, &parent])
+            .await?;
+    }
     if let Some(j) = &job {
         let (j_uid, state, extra): (String, String, Value) = (j.get(0), j.get(1), j.get(2));
         if state == "pending" {
@@ -251,7 +268,7 @@ async fn follow_up(tx: &Transaction<'_>, org: i64, project: i64, name: &str, row
             } {
                 let c = publish_row(tx, org, std::slice::from_ref(&holder_name), row).await?;
                 let own = insert_job(tx, org, project, name, row, "read", json!({ "bundled_with": j_uid })).await?;
-                let via = json!({ "id": project, "name": name, "mail": own, "dog": claim["dog"], "ack": true, "outside": true, "followup": true, "job": j_uid });
+                let via = json!({ "id": project, "name": name, "mail": own, "dog": claim["dog"], "ack": false, "outside": true, "followup": true, "job": j_uid });
                 let uids: Vec<&str> = c.iter().map(|x| x.2.as_str()).collect();
                 tx.execute(
                     "UPDATE ot.mail SET extra = extra || jsonb_build_object('outside_job', $2::text, 'via_project', $3::jsonb) WHERE uid = ANY($1)",
@@ -321,17 +338,25 @@ fn bare(peer: &str) -> &str {
 }
 
 /// D10: an agent that is neither a holder nor top-level may still reply to the exact outside sender of a job
-/// its project queue handed it: before the ACK in ACK mode, without limit otherwise. The right comes from the
-/// copy's `extra.outside_job` and the job's claim, never from the caller's arguments.
+/// its project queue handed it: before the ACK in ACK mode, without limit otherwise, and only while it is still
+/// a member of the job's project (D10a). The right comes from the copy's `extra.outside_job` and the job's claim,
+/// never from the caller's arguments.
 #[logged]
 pub(super) async fn reply_right(engine: &Engine, org: i64, agent: i64, out: &Outgoing) -> Result<Reply> {
+    let client = engine.db.get().await?;
+    reply_right_tx(&**client, org, agent, out).await
+}
+
+/// The same check on the caller's own transaction: the job row is read `FOR SHARE`, so a concurrent ack,
+/// reclaim or move cannot slip between this check and the send that relies on it (spec §5).
+#[logged]
+pub(super) async fn reply_right_tx(client: &impl tokio_postgres::GenericClient, org: i64, agent: i64, out: &Outgoing) -> Result<Reply> {
     if out.replies.len() > 1 {
         return Ok(Reply::NotApplicable);
     }
     let Some(id) = out.reply_to.as_ref().and_then(|q| q["id"].as_str()).or_else(|| out.replies.first().and_then(|q| q["id"].as_str())) else {
         return Ok(Reply::NotApplicable);
     };
-    let client = engine.db.get().await?;
     let Some(copy) = client
         .query_opt("SELECT sender, extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND uid=$2 AND recipient_agent_id=$3", &[&org, &id, &agent])
         .await?
@@ -345,24 +370,39 @@ pub(super) async fn reply_right(engine: &Engine, org: i64, agent: i64, out: &Out
     }
     let Some(j) = client
         .query_opt(
-            "SELECT j.state, j.extra->'claimed' FROM ot.mail j JOIN ot.agents p ON p.id = j.recipient_agent_id AND p.kind = 'project' AND p.state = 'live'
-              WHERE j.org_id=$1 AND j.uid=$2 AND j.extra ? 'org_inbox'",
-            &[&org, &job],
+            "SELECT j.state, j.extra->'claimed',
+                    EXISTS (WITH RECURSIVE up(id, parent_id) AS (
+                              SELECT a.id, a.parent_id FROM ot.agents a WHERE a.id = $3
+                              UNION
+                              SELECT a.id, a.parent_id FROM ot.agents a JOIN up ON a.id = up.parent_id)
+                            SELECT 1 FROM up WHERE up.id = j.recipient_agent_id) AS member
+               FROM ot.mail j JOIN ot.agents p ON p.id = j.recipient_agent_id AND p.kind = 'project' AND p.state = 'live'
+              WHERE j.org_id=$1 AND j.uid=$2 AND j.extra ? 'org_inbox' FOR SHARE OF j",
+            &[&org, &job, &agent],
         )
         .await?
     else {
         return Ok(Reply::Refused);
     };
-    let (state, claim): (String, Option<Value>) = (j.get(0), j.get(1));
+    let (state, claim, member): (String, Option<Value>, bool) = (j.get(0), j.get(1), j.get(2));
     let claim = claim.unwrap_or(Value::Null);
     let held = state == "read" && claim["by_id"].as_i64() == Some(agent);
     let open = claim["ack"] != true || claim["acked_at"].is_null();
-    Ok(if held && open { Reply::Allowed(job) } else { Reply::Refused })
+    Ok(if held && open && member { Reply::Allowed(job) } else { Reply::Refused })
+}
+
+/// Inside the send's own transaction: the right the early check found must still hold, and is now locked.
+#[logged]
+pub(super) async fn recheck(client: &impl tokio_postgres::GenericClient, org: i64, agent: i64, out: &Outgoing, job: &str, to: &str) -> Result<()> {
+    match reply_right_tx(client, org, agent, out).await? {
+        Reply::Allowed(j) if j == job => Ok(()),
+        _ => Err(reply_refusal(to)),
+    }
 }
 
 /// The refusal for a failed D10 check.
 #[nolog]
 pub(super) fn reply_refusal(peer: &str) -> anyhow::Error {
     anyhow::Error::new(crate::domain::UserError::Forbidden(format!(
-        "you may reply to {peer} only about outside mail a project queue handed you: name it with reply_to, and in ACK mode reply before you ack it (this one is acked / no longer yours)")))
+        "you may reply to {peer} only about outside mail a project queue handed you: name it with reply_to, and in ACK mode reply before you ack it (this one is acked / no longer yours / you are no longer in its project)")))
 }

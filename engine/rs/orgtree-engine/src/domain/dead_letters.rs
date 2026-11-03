@@ -126,7 +126,7 @@ pub async fn retry(tx: &impl GenericClient, project: i64, pname: &str, uid: &str
     .await?;
     // org-inbox follow-ups that travelled with the job are handed out with it again
     tx.execute(
-        "UPDATE ot.mail SET extra = extra - 'bundled_handed' WHERE recipient_agent_id = $1 AND extra->>'bundled_with' = $2 AND extra ? 'bundled_handed'",
+        "UPDATE ot.mail SET extra = extra - 'bundled_handed' WHERE recipient_agent_id = $1 AND extra ? 'bundled_with' AND extra->>'bundled_with' = $2 AND extra ? 'bundled_handed'",
         &[&project, &uid],
     )
     .await?;

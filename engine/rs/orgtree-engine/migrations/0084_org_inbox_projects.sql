@@ -9,9 +9,9 @@ CREATE INDEX IF NOT EXISTS mail_org_inbox_job
 CREATE INDEX IF NOT EXISTS mail_bundled_with
   ON ot.mail ((extra->>'bundled_with'))
   WHERE extra ? 'bundled_with';
--- D3a (rev 2.2): "top-level" for OUTSIDE mail only. No agent superior AND no project above the agent
--- (itself included) currently holds an active org-inbox grant: members of a holding project get only the
--- job-scoped reply right. User mail and everything else keep ot.superior_of.
+-- D3a (rev 2.2) + D3b (rev 2.3): "top-level" for OUTSIDE mail only. No agent superior AND no LIVE project above the
+-- agent (itself included) holds an unrevoked org-inbox grant, PAUSED OR NOT (pausing stops delivery only; a retired
+-- project restricts nobody and its grant row is kept): members of a holding project get only the job-scoped reply right. User mail and everything else keep ot.superior_of.
 CREATE OR REPLACE FUNCTION ot.outside_top_level(agent bigint) RETURNS boolean
 LANGUAGE sql STABLE AS $$
   SELECT ot.superior_of(agent) IS NULL AND NOT EXISTS (
@@ -19,7 +19,7 @@ LANGUAGE sql STABLE AS $$
       SELECT a.id, a.parent_id FROM ot.agents a WHERE a.id = agent
       UNION
       SELECT a.id, a.parent_id FROM ot.agents a JOIN up ON a.id = up.parent_id)
-    SELECT 1 FROM up JOIN ot.agents p ON p.id = up.id AND p.kind = 'project'
+    SELECT 1 FROM up JOIN ot.agents p ON p.id = up.id AND p.kind = 'project' AND p.state = 'live'
       JOIN ot.audiences au ON au.org_id = p.org_id AND au.grantee = p.name AND au.grantor = '@extern'
-       AND au.revoked_at IS NULL AND NOT au.paused)
+       AND au.revoked_at IS NULL)
 $$;
