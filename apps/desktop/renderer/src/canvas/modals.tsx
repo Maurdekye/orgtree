@@ -3,7 +3,7 @@ import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
 import { AppDogFields } from './appdog'
-import { setWatchdogConnectionMessages } from '../api'
+import { setProjectIcon, setWatchdogConnectionMessages } from '../api'
 import { WatchdogLink } from './watchdoglink'
 import {useDogRoute} from './watchdogroute'
 import {slotClaimLeaseState} from './slotclaim'
@@ -67,7 +67,7 @@ import { useRecordHistory } from '../recordpanelhooks'
 import { slotCount } from './slots'
 import { ProjectPolicyFields } from './projectpolicy'
 import { projectThemeFromNode } from '../projecttheme'
-import { ProjectMark, ProjectThemeFields } from './projecttheme'
+import { ProjectMark, ProjectThemeFields, projectIconUpload } from './projecttheme'
 import type { ProjectPolicySettings } from '../types'
 import { eventListenersOn } from './listeners'
 import { getRetiredPage, useRetiredPages } from './retiredpages'
@@ -1224,6 +1224,31 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const [themeIconEdit, setThemeIconEdit] = useState<string | null | undefined>()
   const themeColor = themeColorEdit === undefined ? savedThemeColor : themeColorEdit
   const themeIcon = themeIconEdit === undefined ? savedThemeIcon : themeIconEdit
+  // an uploaded icon (@item:orgtree/project-themes-colour-the-whole-project-
+  // node-by-i): uploading and removing apply at once, as the org Logo does
+  // (the file is the edit); `customEdit` holds the answer until the tree
+  // brings it. A built-in pick still waits for Save, and replaces the upload.
+  const [customEdit, setCustomEdit] = useState<string | null | undefined>()
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const savedCustom = customEdit === undefined ? savedTheme?.custom ?? null : customEdit
+  const customShown = themeIconEdit === undefined ? savedCustom : null
+  const upload = async (file: File) => {
+    setUploadError(null)
+    let data: string
+    try { data = await projectIconUpload(file) } catch (e) { setUploadError((e as Error).message); return }
+    setBusy(true)
+    try {
+      const r = await setProjectIcon(slug, node.id, data)
+      setCustomEdit(r?.theme_icon_custom ?? null)
+      setThemeIconEdit(undefined)
+    } catch (e) { setUploadError((e as Error).message) } finally { setBusy(false) }
+  }
+  const removeUpload = async () => {
+    setUploadError(null)
+    setBusy(true)
+    try { await setProjectIcon(slug, node.id, null); setCustomEdit(null) }
+    catch (e) { setUploadError((e as Error).message) } finally { setBusy(false) }
+  }
   const [listenersEdit, setListenersEdit] = useState<boolean | undefined>()
   const listenersOn = listenersEdit ?? savedListeners
   const mode = modeEdit ?? savedMode
@@ -1250,17 +1275,20 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           ...(turnEnd !== savedTurnEnd ? { turn_end_reminder: turnEnd } : {}) })
       if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       if (listenersOn !== savedListeners) await op({ op: 'set_event_listeners', node: node.id, enabled: listenersOn })
-      if (themeColor !== savedThemeColor || themeIcon !== savedThemeIcon)
+      // a built-in pick over an upload is sent even when it equals the stored
+      // built-in: set_theme's theme_icon is what drops the upload
+      const iconChanged = themeIcon !== savedThemeIcon || (themeIconEdit !== undefined && !!savedCustom)
+      if (themeColor !== savedThemeColor || iconChanged)
         await op({ op: 'set_theme', node: node.id,
           ...(themeColor !== savedThemeColor ? { theme_color: themeColor } : {}),
-          ...(themeIcon !== savedThemeIcon ? { theme_icon: themeIcon } : {}) })
+          ...(iconChanged ? { theme_icon: themeIcon } : {}) })
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
   }
   return <PinFrame kind={instanceKind('node-config', node.id)} restore={{agent:node.id,generation:node.generation}}
     title={`${node.id}: project settings`} panel="settings cfg" close={close}>
     <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
-      <span className="agent-config-title"><ProjectMark theme={{ color: themeColor ?? undefined, icon: themeIcon ?? undefined }} /> {node.id}: project settings</span>
+      <span className="agent-config-title"><ProjectMark theme={{ color: themeColor ?? undefined, icon: themeIcon ?? undefined, custom: customShown ?? undefined }} /> {node.id}: project settings</span>
       {(live || node.state === 'archived') && onScratchFolder && <span className="agent-settings-header-actions">
         <button type="button" onClick={onScratchFolder}>Open project folder</button>
       </span>}
@@ -1289,7 +1317,8 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       <SetBlock label="Summary" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
         <textarea rows={10} className="charterbox" aria-label="Project Summary" value={description}
           onChange={(e) => setDescription(e.target.value)} /></SetBlock>
-      <ProjectThemeFields icon={themeIcon} color={themeColor} busy={busy}
+      <ProjectThemeFields icon={themeIcon} color={themeColor} custom={customShown} busy={busy}
+        uploadError={uploadError} onUpload={upload} onRemoveUpload={removeUpload}
         onIcon={setThemeIconEdit} onColor={setThemeColorEdit} />
       <ProjectPolicyFields value={{ peer_mail: on, mail_queue: mode, exclude_sender: exclude, slots, event_listeners: listenersOn,
         turn_end_reminder: turnEnd, ack_timeout: timeout, max_attempts: attempts, ack_reminders: reminders }}

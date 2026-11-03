@@ -1462,8 +1462,10 @@ button.badge.subtree-fold.attention {
    a dashed outline in the line colour, a folder mark, its description and its
    waiting mail. The card keeps the agent card's size and grid so the tree
    layout, drags and drops treat it like any node. */
-.sq.project { border-style: dashed; border-top-width: 1px; background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%); }
-.sq.project.norm { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* the theme colour rides --provider-accent (projectcard.tsx; .sq defaults it
+   to --accent, so an unthemed project draws exactly as before) */
+.sq.project { border-style: dashed; border-top-width: 1px; background: color-mix(in srgb, var(--panel) 88%, var(--provider-accent) 12%); }
+.sq.project.norm { border-color: color-mix(in srgb, var(--provider-accent) 45%, var(--line)); }
 /* a folded project summarising hidden members (subtree fold) wears the
    agent card's own busy and asking borders: equal specificity with the
    norm border above and later in the sheet, so the state wins exactly
@@ -1472,12 +1474,12 @@ button.badge.subtree-fold.attention {
    (Session 0 capture, 2026-11-02) */
 .sq.project.busy { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .sq.project.asking { border-color: color-mix(in srgb, var(--accent) 80%, var(--line)); }
-.sq.project .project-mark { flex: none; display: inline-flex; color: var(--accent); font-size: 15px; }
+.sq.project .project-mark { flex: none; display: inline-flex; color: var(--provider-accent); font-size: 15px; }
 .sq.project .project-meta { gap: 4px; }
 .sq.project .project-actions { opacity: 1; }
 /* the project desk (projectdesk.tsx): the agent desk's frame with a project's tabs */
 .project-desk .cc-head-left { display: inline-flex; align-items: center; gap: 6px; }
-.project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
+.project-desk .cc-head-left .project-mark { color: var(--provider-accent, var(--accent)); display: inline-flex; }
 .project-desk .cc-head-left .name { font-weight: 600; white-space: nowrap; }
 /* under a title bar that names the project, the desk does not name it again:
    the temporary and pinned desk (user 2026-10-18 11:14Z), as an agent's desk
@@ -1532,7 +1534,13 @@ button.badge.subtree-fold.attention {
    stripe on the left edge, and the folder fills the card */
 .sq.project.mini::before { display: none; }
 .sq.project .project-mini { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
-  color: var(--accent); font-size: 84px; line-height: 1; }
+  color: var(--provider-accent); font-size: 84px; line-height: 1; }
+/* an uploaded icon (projecttheme.tsx ProjectIconGlyph): a normalised square
+   PNG drawn at the glyph's size, in its own colours */
+.project-icon-img { display: block; width: 1em; height: 1em; object-fit: contain; flex: none; }
+.project-icon-actions { display: flex; align-items: center; gap: 6px; }
+.project-icon-actions input[type="search"] { flex: 1; min-width: 0; }
+.project-icon-error { color: var(--danger, #e5484d); font-size: 12px; }
 /* Its in-card name group (projectcard.tsx: folder, then name) is the hover/focus
    reveal wherever the floating plate does not apply (USER 2026-10-26 "Never hide
    on hover"). At rest the name is already invisible, so only the small folder

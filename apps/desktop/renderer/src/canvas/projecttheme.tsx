@@ -4,7 +4,7 @@
 // through canvas/identity.tsx; `ProjectThemeFields` is the settings pair:
 // a searchable grid over the built-in icon set, and the colour row (preset
 // swatches plus the custom colour field, as themes.tsx's own picker).
-import { useState, useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, HTMLAttributes } from 'react'
 import {
   AppsIcon, BoltIcon, BookIcon, BriefcaseIcon, BugIcon,
@@ -18,13 +18,59 @@ import {
   WrenchIcon,
 } from '../icons'
 import {
-  PROJECT_ICONS, PROJECT_THEME_COLORS, projectIconId, projectThemeKeyOf,
-  subscribeProjectThemes,
+  PROJECT_ICONS, PROJECT_THEME_COLORS, projectIconId, projectIconImage, projectThemeKeyOf,
+  subscribeProjectIcons, subscribeProjectThemes, themeOfKey,
 } from '../projecttheme'
 import type { ProjectTheme } from '../projecttheme'
 import { SetBlock, SetRow } from './settingskit'
 
 type Glyph = typeof FolderIcon
+
+/** What the Upload icon… field takes; the engine re-checks the bytes. */
+export const PROJECT_ICON_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']
+export const PROJECT_ICON_MAX_BYTES = 2 * 1024 * 1024
+const FORMATS_MESSAGE = 'Choose a PNG, JPEG, WebP or SVG image up to 2 MB.'
+
+/** Check a picked file and turn it into the base64 the engine takes: PNG,
+ *  JPEG and WebP as they are (the engine decodes and normalises them), an
+ *  SVG rasterised here to a 256 PNG through an <img> (which runs no script
+ *  and loads nothing external), so no markup ever leaves the renderer.
+ *  Rejects with the message to show. */
+export async function projectIconUpload(file: File): Promise<string> {
+  const type = file.type || (/\.svg$/i.test(file.name) ? 'image/svg+xml' : '')
+  if (!PROJECT_ICON_UPLOAD_TYPES.includes(type)) throw new Error(FORMATS_MESSAGE)
+  if (file.size > PROJECT_ICON_MAX_BYTES) throw new Error('That file is over 2 MB. ' + FORMATS_MESSAGE)
+  if (type === 'image/svg+xml') return rasterise(file)
+  const url = await new Promise<string>((ok, fail) => {
+    const r = new FileReader()
+    r.onload = () => ok(String(r.result))
+    r.onerror = () => fail(new Error('That file could not be read.'))
+    r.readAsDataURL(file)
+  })
+  return url.slice(url.indexOf(',') + 1)
+}
+
+async function rasterise(file: File): Promise<string> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, fail) => {
+      const i = new Image()
+      i.onload = () => ok(i)
+      i.onerror = () => fail(new Error('That SVG could not be drawn. ' + FORMATS_MESSAGE))
+      i.src = url
+    })
+    const side = 256
+    const w = img.naturalWidth || side, h = img.naturalHeight || side
+    const scale = Math.min(side / w, side / h)
+    const canvas = document.createElement('canvas')
+    canvas.width = side; canvas.height = side
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('That SVG could not be drawn. ' + FORMATS_MESSAGE)
+    ctx.drawImage(img, (side - w * scale) / 2, (side - h * scale) / 2, w * scale, h * scale)
+    const png = canvas.toDataURL('image/png')
+    return png.slice(png.indexOf(',') + 1)
+  } finally { URL.revokeObjectURL(url) }
+}
 
 const GLYPHS: Record<string, Glyph> = {
   folder: FolderIcon, apps: AppsIcon, bell: NotificationsIcon, bolt: BoltIcon,
@@ -43,8 +89,17 @@ const GLYPHS: Record<string, Glyph> = {
   translate: TranslateIcon, tree: CanvasIcon, wrench: WrenchIcon,
 }
 
-/** The chosen icon's glyph alone (the mini node sizes its own span). */
+/** An uploaded icon's image, live: re-renders once its read lands. */
+export function useProjectIconImage(sha?: string | null): string | undefined {
+  return useSyncExternalStore(subscribeProjectIcons, () => projectIconImage(sha))
+}
+
+/** The chosen icon's glyph alone (the mini node sizes its own span): an
+ *  uploaded icon as a PNG image in its own colours (never tinted, never
+ *  markup), else the built-in glyph, which also stands in while it loads. */
 export function ProjectIconGlyph({ theme }: { theme?: ProjectTheme | null }) {
+  const src = useProjectIconImage(theme?.custom)
+  if (src) return <img className="project-icon-img" src={src} alt="" draggable={false} />
   const Icon = GLYPHS[projectIconId(theme)] ?? FolderIcon
   return <Icon fontSize="inherit" />
 }
@@ -52,12 +107,7 @@ export function ProjectIconGlyph({ theme }: { theme?: ProjectTheme | null }) {
 /** One name's theme, live: re-renders when a tree carrying it arrives. */
 export function useProjectTheme(name?: string | null): ProjectTheme | undefined {
   const key = useSyncExternalStore(subscribeProjectThemes, () => projectThemeKeyOf(name))
-  if (!key) return undefined
-  const [color, icon] = key.split('|')
-  const theme: ProjectTheme = {}
-  if (color) theme.color = color
-  if (icon) theme.icon = icon
-  return theme
+  return themeOfKey(key)
 }
 
 export interface ProjectMarkProps extends HTMLAttributes<HTMLSpanElement> {
@@ -83,25 +133,47 @@ export function ProjectMark({ name, theme, className, style, ...rest }: ProjectM
 
 /** The settings pair (modals.tsx ProjectConfig): fully controlled, values
  *  are the edited picks; null icon = the folder, null colour = default. */
-export function ProjectThemeFields({ icon, color, busy = false, onIcon, onColor }: {
+export function ProjectThemeFields({ icon, color, custom = null, busy = false, uploadError = null,
+  onIcon, onColor, onUpload, onRemoveUpload }: {
   icon: string | null
   color: string | null
+  /** the uploaded icon's hash while it is the chosen icon */
+  custom?: string | null
   busy?: boolean
+  /** why the last upload was refused, shown under the grid */
+  uploadError?: string | null
   onIcon: (icon: string | null) => void
   onColor: (color: string | null) => void
+  onUpload?: (file: File) => void
+  onRemoveUpload?: () => void
 }) {
   const [query, setQuery] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = PROJECT_ICONS.filter((i) =>
     !q || i.label.toLowerCase().includes(q) || i.id.includes(q) || i.keywords.includes(q))
-  const chosen = icon ?? 'folder'
+  const chosen = custom ? null : icon ?? 'folder'
   return <>
-    <SetBlock label="Icon" hint="Replaces the folder icon on the mini node, in the corner of the normal node and the desk, and next to its link.">
+    <SetBlock label="Icon" hint="Replaces the folder icon on the mini node, in the corner of the normal node and the desk, and next to its link. An uploaded PNG, JPEG, WebP or SVG (up to 2 MB) shows in its own colours.">
       <span className="project-icon-picker">
-        <input type="search" aria-label="Search icons" placeholder="Search icons" value={query}
-          disabled={busy} onChange={(e) => setQuery(e.target.value)} />
+        <span className="project-icon-actions">
+          <input type="search" aria-label="Search icons" placeholder="Search icons" value={query}
+            disabled={busy} onChange={(e) => setQuery(e.target.value)} />
+          {onUpload && <button type="button" aria-label="Upload icon…" disabled={busy}
+            onClick={() => fileRef.current?.click()}>Upload icon…</button>}
+          {onRemoveUpload && custom && <button type="button" aria-label="Remove uploaded icon" disabled={busy}
+            onClick={onRemoveUpload}>Remove upload</button>}
+          {onUpload && <input ref={fileRef} type="file" hidden aria-label="Upload icon file"
+            accept={PROJECT_ICON_UPLOAD_TYPES.join(',')}
+            onChange={(e) => { const file = e.currentTarget.files?.[0]; if (file) onUpload(file); e.currentTarget.value = '' }} />}
+        </span>
+        {uploadError && <span className="project-icon-error" role="alert">{uploadError}</span>}
         <span className="project-icon-grid" role="group" aria-label="Project icon"
           style={color ? { color } : undefined}>
+          {custom && <button type="button" key="uploaded" className="project-icon-pick on"
+            aria-label="Icon: Uploaded" aria-pressed title="Uploaded icon" disabled={busy}>
+            <ProjectIconGlyph theme={{ custom }} />
+          </button>}
           {shown.map((i) => {
             const Glyph = GLYPHS[i.id] ?? FolderIcon
             return <button type="button" key={i.id}
@@ -116,7 +188,7 @@ export function ProjectThemeFields({ icon, color, busy = false, onIcon, onColor 
         </span>
       </span>
     </SetBlock>
-    <SetRow label="Theme colour" hint="Tints this project's icon wherever it appears, and nothing else.">
+    <SetRow label="Theme colour" hint="Colours this project's node, as an agent node wears its accent, and its built-in icon wherever it appears.">
       <span className="project-colour-row">
         <button type="button" className={'project-swatch default' + (!color ? ' on' : '')}
           aria-label="Colour: Default" aria-pressed={!color} title="Default colour" disabled={busy}

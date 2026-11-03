@@ -201,6 +201,11 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     zIndex: dragging ? 8 : undefined,
   }
   if (zoom > 0) Object.assign(style, { '--invzf': Math.max(1 / Z_MAX, 1 / zoom).toFixed(3) })
+  // the theme colour colours the node itself (USER 2026-11-03 mc4fd305e1c09
+  // "project nodes should be color-coded to their icons"), on the variable an
+  // agent card's provider/account accent rides (cards.tsx NodeSquare), so the
+  // same rules draw it; busy and asking keep their state colour (styles.css)
+  if (theme?.color) Object.assign(style, { '--provider-accent': theme.color })
   const menuEntries = () => projectMenuEntries(node, {
     onInbox: () => onInbox(true),
     onTeam: onTeam ? () => onTeam(true) : undefined,

@@ -473,6 +473,8 @@ export interface TreeNode {
    *  null/absent = the folder icon in the default colour */
   theme_color?: string | null
   theme_icon?: string | null
+  /** an uploaded icon's SHA-256 (its cache key); drawn instead of theme_icon */
+  theme_icon_custom?: string | null
   title: string
   tier: string
   model_id: string
@@ -2586,6 +2588,8 @@ export interface OpRequest {
   /** set_theme: a project's theme colour / icon; null clears either */
   theme_color?: string | null
   theme_icon?: string | null
+  /** an uploaded icon's SHA-256 (its cache key); drawn instead of theme_icon */
+  theme_icon_custom?: string | null
   peer_mail?: boolean
   op: string
   /** Batch halt/unhalt: validated together before parallel actor control. */

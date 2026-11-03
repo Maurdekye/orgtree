@@ -18,7 +18,7 @@
 
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { projectIconSvg, projectThemeOf } from '../projecttheme'
+import { projectIconImage, projectIconSvg, projectThemeOf } from '../projecttheme'
 import { ProjectIconGlyph, useProjectTheme } from './projecttheme'
 import { AGENT_NAV_ATTR, AGENT_TOOLTIP_ATTR, AGENT_TOOLTIP_NAME_FIRST_ATTR,
   agentNavProps, agentTooltipProps } from './agentnav'
@@ -78,6 +78,17 @@ export function createTierChipEl(
       span.setAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR, 'true')
     } else {
       span.title = 'Project'
+    }
+    // an uploaded icon, once read: a PNG image in its own colours
+    const uploaded = projectIconImage(theme?.custom)
+    if (uploaded) {
+      const img = doc.createElement('img')
+      img.className = 'project-icon-img'
+      img.alt = ''
+      img.draggable = false
+      img.src = uploaded
+      span.appendChild(img)
+      return span
     }
     const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('class', 'MuiSvgIcon-root MuiSvgIcon-fontSizeInherit')

@@ -1136,6 +1136,8 @@ export interface CanvasNode {
   /** TreeNode's theme fields, carried through by the spread in withDraftTree */
   theme_color?: string | null
   theme_icon?: string | null
+  /** an uploaded icon's SHA-256 (its cache key); drawn instead of theme_icon */
+  theme_icon_custom?: string | null
   hidden_retired_children?: number
   lineage_loaded?: boolean
   lineage_revision?: string

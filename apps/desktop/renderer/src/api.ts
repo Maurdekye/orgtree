@@ -1583,6 +1583,13 @@ export const previewOrgPicture = (slug: string, data: string): Promise<{ data: s
   req(`/api/orgs/${slug}/profile-picture/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })
 export const setOrgPicture = (slug: string, owner: number, data: string | null, crop?: OrgPictureCrop): Promise<OrgPicture> =>
   req(`/api/orgs/${slug}/profile-picture`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner, data, crop }) })
+/** A project's uploaded icon (@item:orgtree/project-themes-colour-the-whole-project-node-by-i):
+ *  the normalised 256 PNG, verified against the hash on its tree record; null when none. */
+export const getProjectIcon = (slug: string, node: string): Promise<{ picture: OrgPicture | null }> =>
+  req(`/api/orgs/${slug}/project-icon?node=${encodeURIComponent(node)}`)
+/** Upload (base64 PNG/JPEG/WebP, ≤ 2 MB; an SVG is rasterised to PNG first) or, with null, remove it. */
+export const setProjectIcon = (slug: string, node: string, data: string | null): Promise<{ node: string; theme_icon_custom: string | null }> =>
+  req(`/api/orgs/${slug}/project-icon`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node, data }) })
 // F-06: is a hub reachable at this address right now? (a HINT — the
 // checkbox never gates on it; a hub that is down still gets configured)
 export const probeHub = (

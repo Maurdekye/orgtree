@@ -13,6 +13,7 @@
 // arrives, in every window, and the mark subscribes. A name the store has
 // never seen draws as the folder, which is also the unset answer.
 import type { TreePayload } from './types'
+import { getProjectIcon } from './api'
 import { PROJECT_ICON_SVG } from './projecticonpaths'
 
 export interface ProjectTheme {
@@ -20,6 +21,10 @@ export interface ProjectTheme {
   color?: string
   /** a PROJECT_ICONS id; absent = the folder */
   icon?: string
+  /** an uploaded icon's SHA-256 (@item:orgtree/project-themes-colour-the-
+   *  whole-project-node-by-i): drawn in its own colours instead of `icon`
+   *  once its image is read (projectIconImage); until then, `icon` */
+  custom?: string
 }
 
 export interface ProjectIconMeta {
@@ -113,6 +118,9 @@ export const isProjectThemeColor = (v: unknown): v is string =>
 export const isProjectThemeIcon = (v: unknown): v is string =>
   typeof v === 'string' && ICON_IDS.has(v)
 
+export const isProjectIconHash = (v: unknown): v is string =>
+  typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
+
 /** The icon id to draw: the chosen one, or the folder when unset or one
  *  this build does not know (a newer engine's pick, say). */
 export const projectIconId = (theme?: ProjectTheme | null): string =>
@@ -129,6 +137,7 @@ type ThemedNode = {
   kind?: string | null
   theme_color?: unknown
   theme_icon?: unknown
+  theme_icon_custom?: unknown
   configured_scope?: unknown
 } &
   { children?: ThemedNode[] }
@@ -138,13 +147,15 @@ type ThemedNode = {
  *  engine reads them. */
 export function projectThemeFromNode(node?: ThemedNode | null): ProjectTheme | undefined {
   if (!node || node.kind !== 'project') return undefined
-  const scope = (node.configured_scope ?? {}) as { theme_color?: unknown; theme_icon?: unknown }
+  const scope = (node.configured_scope ?? {}) as { theme_color?: unknown; theme_icon?: unknown; theme_icon_custom?: unknown }
   const color = node.theme_color ?? scope.theme_color
   const icon = node.theme_icon ?? scope.theme_icon
+  const custom = node.theme_icon_custom ?? scope.theme_icon_custom
   const theme: ProjectTheme = {}
   if (isProjectThemeColor(color)) theme.color = color.toLowerCase()
   if (isProjectThemeIcon(icon)) theme.icon = icon
-  return theme.color || theme.icon ? theme : undefined
+  if (isProjectIconHash(custom)) theme.custom = custom
+  return theme.color || theme.icon || theme.custom ? theme : undefined
 }
 
 /* ── the by-name store the marks read ──────────────────────────────────── */
@@ -153,7 +164,18 @@ const byOrg = new Map<string, Map<string, string>>()
 let currentOrg = ''
 const listeners = new Set<() => void>()
 
-const themeKey = (t: ProjectTheme): string => `${t.color ?? ''}|${t.icon ?? ''}`
+const themeKey = (t: ProjectTheme): string => `${t.color ?? ''}|${t.icon ?? ''}|${t.custom ?? ''}`
+
+/** Parse a store key back (useProjectTheme shares it). */
+export function themeOfKey(key: string): ProjectTheme | undefined {
+  if (!key) return undefined
+  const [color, icon, custom] = key.split('|')
+  const theme: ProjectTheme = {}
+  if (color) theme.color = color
+  if (icon) theme.icon = icon
+  if (custom) theme.custom = custom
+  return theme
+}
 
 /** Note one tree's project themes (called from `hydrateTree`, so every
  *  tree in every window feeds it). A rename or clear replaces the org's
@@ -163,6 +185,7 @@ export function noteProjectThemes(tree: TreePayload): void {
   const walk = (n: ThemedNode) => {
     const theme = projectThemeFromNode(n)
     if (theme) next.set(n.id, themeKey(theme))
+    if (theme?.custom) iconSources.set(theme.custom, { org: tree.slug ?? '', name: n.id })
     for (const child of n.children ?? []) walk(child)
   }
   for (const root of tree.roots ?? []) walk(root as ThemedNode)
@@ -197,11 +220,39 @@ export function projectThemeKeyOf(name?: string | null): string {
 }
 
 export function projectThemeOf(name?: string | null): ProjectTheme | undefined {
-  const key = projectThemeKeyOf(name)
-  if (!key) return undefined
-  const [color, icon] = key.split('|')
-  const theme: ProjectTheme = {}
-  if (color) theme.color = color
-  if (icon) theme.icon = icon
-  return theme
+  return themeOfKey(projectThemeKeyOf(name))
+}
+
+/* ── uploaded icons: read once per hash, by their own route ─────────────── */
+
+/** where each hash can be read (the org and project whose tree named it) */
+const iconSources = new Map<string, { org: string; name: string }>()
+/** hash → PNG data URL, or null while reading / after a failed read */
+const iconImages = new Map<string, string | null>()
+const imageListeners = new Set<() => void>()
+
+export function subscribeProjectIcons(fn: () => void): () => void {
+  imageListeners.add(fn)
+  return () => { imageListeners.delete(fn) }
+}
+
+/** The uploaded image for a hash as a PNG data URL, or undefined until it
+ *  has been read (the first ask starts the read; the mark then draws its
+ *  built-in icon meanwhile). Only a picture whose engine-verified hash is
+ *  the one asked for is kept, and only ever as a PNG data URL. */
+export function projectIconImage(sha?: string | null): string | undefined {
+  if (!sha) return undefined
+  const known = iconImages.get(sha)
+  if (known !== undefined) return known ?? undefined
+  const source = iconSources.get(sha)
+  if (!source?.org) return undefined
+  iconImages.set(sha, null)
+  getProjectIcon(source.org, source.name).then((r) => {
+    const p = r?.picture
+    if (p?.data && p.sha256 === sha) {
+      iconImages.set(sha, 'data:image/png;base64,' + p.data)
+      for (const fn of imageListeners) fn()
+    } else iconImages.delete(sha)
+  }, () => { iconImages.delete(sha) })
+  return undefined
 }
