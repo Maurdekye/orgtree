@@ -133,6 +133,7 @@ async fn t8_a_worker_replies_until_it_acks_and_never_to_anyone_else() {
     w.agent("front", None).await;
     w.grant("front").await;
     let proj = w.project("intake", true).await;
+    w.grant("intake").await;
     let worker = w.agent("worker", Some(proj)).await;
     let (_, p) = w.arrive("n3", "@net:bob.1", "hello", json!([])).await;
     let job = p.jobs[0].mail.clone();

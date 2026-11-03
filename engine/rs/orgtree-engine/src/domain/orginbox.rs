@@ -829,7 +829,7 @@ mod delivered_to_stays_inside_the_org {
     #[test] fn only_the_delivery_and_the_local_views_name_the_column() {
         let (named, scanned) = files_naming_the_column();
         assert!(scanned > 100, "an empty scan is not a pass ({scanned} files)");
-        let allowed: BTreeSet<String> = ["domain/orginbox.rs", "migrate.rs", "tools/org_inbox.rs", "tools/treetools.rs"]
+        let allowed: BTreeSet<String> = ["domain/orginbox.rs", "domain/orginbox_jobs.rs", "domain/orginbox_queue_tests.rs", "migrate.rs", "tools/org_inbox.rs", "tools/treetools.rs"]
             .iter().map(|s| s.to_string()).collect();
         assert_eq!(named, allowed, "a new file naming `delivered_to` needs checking against USER 2026-10-30 mc1739129bbfa (opaque to outside listeners); treetools.rs has a watchdog result of the same name");
         for f in &named {
@@ -839,7 +839,7 @@ mod delivered_to_stays_inside_the_org {
     #[test] fn the_hub_wire_payload_names_no_delivery_record_and_keeps_its_keys() {
         let net = include_str!("../net.rs");
         let payload = between(net, "fn outgoing_payload", "    Ok(payload)");
-        assert!(!payload.contains("delivered_to"));
+        assert!(!payload.contains("delivered_to") && !payload.contains("via_job"), "the job a worker replied from never rides the hub wire");
         for key in ["\"id\": net_id", "\"to\":", "\"body\":", "\"kind\":", "\"sent_at\":", "\"from\": from", "\"attachments\": attachments"] {
             assert!(payload.contains(key), "the payload keeps {key}");
         }
@@ -855,11 +855,12 @@ mod delivered_to_stays_inside_the_org {
     }
     #[test] fn a_reply_quote_is_made_from_seven_named_columns_never_the_whole_row() {
         assert_eq!(QUOTE_COLS, "uid, dir, peer, by_name, at, body, net_id");
+        assert!(!QUOTE_COLS.contains("via_job"));
         let source = include_str!("orginbox.rs");
         let source = &source[..source.find("#[cfg(test)]").unwrap()]; // this file's code, not these assertions
         let quote = between(source, "fn inbox_quote", "pub async fn sent_quote");
         assert!(!quote.contains("delivered_to") && !quote.contains("to_jsonb"), "the quote is built from its columns, not a row dump");
-        assert_eq!(source.matches("SELECT {QUOTE_COLS} FROM ot.org_inbox").count(), 3, "every quote query selects only QUOTE_COLS");
+        assert_eq!(source.matches("SELECT {QUOTE_COLS} FROM ot.org_inbox").count(), 4, "every quote query selects only QUOTE_COLS (the fourth re-points an @org: reply at the receiver's own row, D19)");
     }
     #[test] fn the_local_wire_of_a_row_with_a_list_is_the_only_place_it_appears() {
         let row = json!({"uid":"x1","dir":"in","peer":"@net:alice.aa","body":"hello","at":"2026-10-29T12:00:00Z",
