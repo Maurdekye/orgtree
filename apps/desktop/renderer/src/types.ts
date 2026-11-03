@@ -1065,6 +1065,8 @@ export interface TreePayload {
     total?: number
     unread: number
     holders: string[]          // ledger.py extern_holders() -> list[str]
+    /** which of `holders` are projects (each queues one job per outside message) */
+    holder_projects?: string[]
     enabled?: boolean          // missing on older engines: enabled
     mode?: 'normal' | 'dnd' | 'closed'
     multi_holder_enabled: boolean

@@ -1567,6 +1567,7 @@ export const EXTERN = '@extern'      // the org-inbox audience grantor sentinel
 /** Plain-language explanation shown when hovering an audience grant chip. */
 export function audienceGrantTooltip(target: string, kind?: string): string {
   if (target === USER) return 'Can message you directly: send you mail and ask you questions'
+  if (target === EXTERN && kind === 'project') return 'Receives outside mail sent to the org inbox in its queue'
   if (target === EXTERN) return 'Can read and answer outside mail sent to the org inbox'
   const recipient = kind === 'project' ? 'project' : kind === 'agent' ? 'agent' : 'agent or project'
   return `Can message ${recipient} ${target} directly, even though it is outside your normal chain`

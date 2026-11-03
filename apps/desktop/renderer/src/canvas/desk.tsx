@@ -1936,7 +1936,7 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
     const inherited = node.audiences_inherited?.filter((a) => a.grantor === g) ?? []
     const explicit = (node.audiences_explicit ?? held).includes(g)
     const title = [...inherited.map((a) => `Inherited from project ${a.project}`),
-      audienceGrantTooltip(g, map.get(g)?.kind),
+      audienceGrantTooltip(g, g === EXTERN ? map.get(node.id)?.kind : map.get(g)?.kind),
       ...(inherited.length && explicit ? ['Also held explicitly'] : [])].join('\n')
     return <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
       title={title}

@@ -135,6 +135,7 @@ import { useWatchdogDetail } from './watchdogdetail'
 import { WatchdogLink } from './watchdoglink'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
+import { InboxReplaceConfirm } from './inboxreplace'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
 import { projectLineLanes, slotLinks } from './slots'
@@ -1373,6 +1374,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const edgesSvgRef = useRef<SVGSVGElement | null>(null)
   const glStylesRef = useRef<{ sig: string; styles: WireStyles } | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
+  const [replaceHolder, setReplaceHolder] = useState<{ id: string; current: string } | null>(null)
+  const surfaceBody = useSurfaceDocument().body
   useEffect(() => {
     if (tree.org_inbox?.enabled === false || !tree.org_inbox?.visible) {
       setDropId(current => current === INBOX ? null : current)
@@ -3165,6 +3168,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return out
   }
 
+  /** The mailbox drop: grant the org-inbox audience to an agent, or to a project (it queues the mail). */
+  const grantInbox = (id: string) => audienceAction(slug, 'grant', id, 'extern')
+    .then(() => toast([mapRef.current.get(id)?.kind === 'project'
+        ? `${id} now receives the org inbox's outside mail in its queue`
+        : `${id} now reads and answers the org inbox`],
+      () => audienceAction(slug, 'revoke', id, EXTERN).catch(() => {})))
+    .catch((err: Error) => toast([`error: ${err.message}`]))
+
   const dropTargetAt = (world: Pt, dragId: string): string | null => {
     const banned = descendantsOf(dragId); banned.add(dragId); banned.add(DRAFT)
     // C0: the org-inbox panel is a drop target too — dropping an agent on it
@@ -3363,12 +3374,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     if (drop === INBOX) {
       if (!targetRef.current.has(INBOX)) { finish(); return }
-      // dropping on the mailbox grants the org-inbox audience, never reparents
-      audienceAction(slug, 'grant', id, 'extern')
-        .then(() => toast([`${id} now reads and answers the org inbox`],
-          () => audienceAction(slug, 'revoke', id, EXTERN).catch(() => {})))
-        .catch((err: Error) => toast([`error: ${err.message}`]))
-        .finally(finish)
+      // dropping on the mailbox grants the org-inbox audience, never reparents. With one holder
+      // allowed, a different node would replace the current one: ask first (spec rev 2 §4.2).
+      const holders = tree.org_inbox?.holders ?? []
+      if (tree.org_inbox?.multi_holder_enabled !== true && holders.length > 0 && !holders.includes(id)) {
+        setReplaceHolder({ id, current: holders.join(', ') })
+        finish()
+        return
+      }
+      grantInbox(id).finally(finish)
       return
     }
     if (drop && drop !== parent) {
@@ -4504,6 +4518,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     <AgentNavProvider><ObjectNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <ForegroundViewContext.Provider value={tree.foreground}>
+    {replaceHolder && createPortal(<InboxReplaceConfirm id={replaceHolder.id} current={replaceHolder.current}
+      onConfirm={() => { const id = replaceHolder.id; setReplaceHolder(null); void grantInbox(id) }}
+      close={() => setReplaceHolder(null)} />, surfaceBody)}
     {/* THE ORG'S ORDINARY THINKING EFFORT, for the non-default effort card on
         the canvas cards and the desk headers. Provided once, here, because
         this subtree contains every mount site of both surfaces — canvas

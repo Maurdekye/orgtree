@@ -1595,7 +1595,7 @@ export function AudienceHolderRows({ ids, nodes, onRemove, audienceTarget = USER
   const retired = ids.filter((id) => nodes.get(id)?.state !== 'live')
   const render = (id: string, dim = false) => (
     <span key={id} className={'badge aud-badge ' + (dim ? 'dim' : 'free')}
-      title={audienceGrantTooltip(audienceTarget, audienceTargetKind)}>
+      title={audienceGrantTooltip(audienceTarget, audienceTarget === EXTERN ? nodes.get(id)?.kind : audienceTargetKind)}>
       <HearingIcon fontSize="inherit" />
       <AgentName id={id} tier={nodes.get(id)?.tier}
         onFocus={onFocusAgent ? (agentId: string) => onFocusAgent(agentId) : undefined} />
@@ -2306,8 +2306,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                 .catch((e: Error) => toast([`error: ${e.message}`]))} />
             <span className="dim" style={{ fontSize: 11.5 }}>
               {holders.length === 0
-                ? 'inbound mail auto-grants the senior top-level agent — or drag an agent onto the mailbox to choose who reads it'
-                : 'these agents read and answer outside mail — drag an agent onto the mailbox to add one'}
+                ? 'inbound mail auto-grants the senior top-level agent — or drag an agent or a project onto the mailbox to choose who gets it'
+                : 'agents read and answer outside mail, and a project queues each message as a job — drag an agent or a project onto the mailbox to add one'}
               {/* D-125 ④: granting stays drag-only by explicit ruling — the
                   tap path was offered and not taken, so the compact gap is
                   SURFACED here rather than papered over */}
