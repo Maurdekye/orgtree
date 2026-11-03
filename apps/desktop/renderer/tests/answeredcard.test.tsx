@@ -34,7 +34,7 @@ test('multi select ticks several; batched asks list each question', async t => {
 })
 test('free text answer shows the typed text; dismissed highlights nothing', async t => {
   let el = await render(t, ask([{ label: null, question: 'Why?', selected: [] }], { text: 'because' }))
-  assert.equal(el.querySelector('.answered-typed')!.textContent, 'because')
+  assert.equal(el.querySelector('.answered-typed')!.textContent!.trim(), 'because')
   el = await render(t, ask([{ label: null, question: 'Pick?', selected: [], options: opts, multi: false }], { dismissed: true }))
   assert.deepEqual(chosen(el), [])
   assert.match(el.querySelector('.answered-card > summary')!.textContent!, /^Dismissed/)

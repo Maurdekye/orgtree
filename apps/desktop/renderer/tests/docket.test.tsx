@@ -2068,8 +2068,12 @@ uiTest('§34 the attention reason keeps every line the user is asked to read',
     await flush()
     const body = pane(el)?.querySelector('.docket-attention-box .docket-attention-body')
     assert.ok(body, 'the reason has a body element of its own to style')
-    assert.equal(body?.textContent, reason, 'every line arrives, in order, verbatim')
-    assert.equal((body?.textContent ?? '').split('\n').length, 3)
+    // the reason is Markdown now (rich-formatting spec C12): its line breaks are
+    // <br> elements, so read the lines the way the reader sees them
+    const lines = [...(body?.querySelectorAll('br') ?? [])].length + 1
+    const shown = (body?.innerHTML ?? '').replace(/<br\s*\/?>\n?/g, '\n').replace(/<[^>]+>/g, '').trim()
+    assert.equal(shown, reason, 'every line arrives, in order, verbatim')
+    assert.equal(lines, 3)
 
     // CONTROL: an item with no flag draws no attention box at all, so the
     // assertions above are about this item's reason and not about a box the
