@@ -8987,7 +8987,7 @@ html.mobile .popout-button { display: none; }
 
 /* Detached controls belong to the owning window, outside application flow. */
 .popout-notices { position: fixed; top: 52px; left: 0; right: 0; display: flex; justify-content: center;
-  /* no transform here: a transformed ancestor would turn the opener-anchored
+  /* no CSS matrix on the host: such an ancestor would turn the opener-anchored
      strip's position: fixed into host-relative. Below the focused desk (.sq.desk,
      z 5 in cards.tsx): a normal desk paints OVER the chip, as do pinned windows,
      menus (1600) and overlays (60+). Pointer events only on the chip. */
