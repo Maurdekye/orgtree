@@ -346,3 +346,20 @@ test('settings enums and provider ids are never learned as identities', async ()
     assert.equal(paintHidden(doc, doc.getElementById('enter')!), false, 'Send message is shown')
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+// Coordinator m7b2a89c6895d: skipping product vocabulary must not unmask a real
+// identity. Only a value EXACTLY equal to a provider/selector word is skipped;
+// any name containing more (a person's name, a suffixed account id) and every
+// email or secret on the same row is still learned and masked.
+test('skipping product words never unmasks an identity that carries more than the word', async () => {
+  const known = knownScreenValues({ accounts: [
+    { id: 'claude', label: 'Claude', email: 'claude.owner@example.test' },
+    { id: 'claude-work', label: 'Claude Smith', username: 'muse_fan' },
+    { id: 'google', name: 'Default Gonzalez' },
+  ] })
+  for (const v of ['claude.owner@example.test', 'claude-work', 'Claude Smith', 'muse_fan', 'Default Gonzalez']) assert.ok(known.includes(v), `${v} is still learned: ${JSON.stringify(known)}`)
+  for (const v of ['claude', 'Claude', 'google']) assert.ok(!known.includes(v), `bare product word ${v} is not learned`)
+  const text = 'Signed in as Claude Smith (claude-work), mail claude.owner@example.test'
+  const masked = sensitiveSpans(text, known).map(s => text.slice(s.start, s.end))
+  for (const v of ['Claude Smith', 'claude-work', 'claude.owner@example.test']) assert.ok(masked.some(m => m.includes(v)), `${v} is masked in text: ${JSON.stringify(masked)}`)
+})
