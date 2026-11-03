@@ -64,6 +64,7 @@ import { AgentHistoryView } from './historyview'
 import { AgentDirectoryProvider, nodeTierOf, TierChip } from './identity'
 import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
+import { AgentStatesView } from './statesview'
 import { slotCount } from './slots'
 import { ProjectPolicyFields } from './projectpolicy'
 import { projectThemeFromNode } from '../projecttheme'
@@ -1122,7 +1123,7 @@ export function savePopups(
   return r?.warnings ?? []
 }
 
-type NodeConfigTab = 'charter' | 'model' | 'scope' | 'tools' | 'history'
+type NodeConfigTab = 'charter' | 'model' | 'scope' | 'tools' | 'history' | 'states'
 const NODE_CONFIG_TABS = [
   { id: 'charter', label: 'Charter' },
   { id: 'model', label: 'Model' },
@@ -1768,7 +1769,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             all. Eight identical subtitles would train the reader to skip
             them, and the org-wide ones are the expensive ones to miss. */}
         <p className="set-hint">Some changes restart the agent, as noted below.</p>
-        <SettingsTabs tabs={[...NODE_CONFIG_TABS, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]} tab={tab} setTab={setTab} stripRef={stripRef}
+        <SettingsTabs tabs={[...NODE_CONFIG_TABS, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : []), { id: 'states' as const, label: 'States' }]} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase={tabId} label="Agent settings" />
         {/* Keep every panel mounted: switching tabs preserves all draft fields.
             The shared save below still applies edits from every tab together. */}
@@ -1972,6 +1973,10 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             <AgentHistoryView slug={slug} nid={node.id} refs={refs} history={history} />
           </AgentDirectoryProvider>
         </SettingsTabPanel>}
+        <SettingsTabPanel id="states" idBase={tabId} active={tab === 'states'}
+          className="app-settings-panel agent-history-tab">
+          {tab === 'states' && <AgentStatesView slug={slug} nid={node.id} />}
+        </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
             grant is legal either way, so this warns, never blocks */}
         {cascade.length > 0 && (

@@ -10449,3 +10449,20 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .mention-navigation-highlight { background: color-mix(in srgb, var(--accent, #e9b949) 18%, transparent); outline: 2px solid var(--accent, #e9b949); outline-offset: 3px; border-radius: 4px; }
 .mention-landing { margin: 12px; padding: 10px; }
 .mention-landing .md > :first-child { margin-top: 6px; }
+
+/* node settings States tab: time per state, then each span newest first */
+.settings.cfg .agent-history-tab .agent-states { flex: 1; min-height: 0; overflow: auto; }
+.agent-states { padding: 8px 12px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.agent-states-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.agent-states-totals { display: flex; flex-direction: column; gap: 2px; font-size: 12px; padding: 4px 0 6px; border-bottom: 1px solid rgba(128,128,128,.16); }
+.agent-states-window b { font-weight: 600; margin-right: 6px; }
+.agent-states-list { list-style: none; padding: 0; margin: 0; }
+.agent-states-list li { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 30px; border-bottom: 1px solid rgba(128,128,128,.16); }
+.agent-states-when { font-size: 11px; min-width: 0; }
+.agent-states-dur { font-size: 12px; white-space: nowrap; }
+.agent-states-name { display: inline-flex; align-items: center; gap: 6px; }
+.agent-states .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); display: inline-block; }
+.agent-states .state-dot.active { background: var(--ok); }
+.agent-states .state-dot.blocked, .agent-states .state-dot.halted { background: var(--bad); }
+.agent-states .state-dot.frozen { background: var(--ice); }
+.agent-states-more { align-self: flex-start; }
