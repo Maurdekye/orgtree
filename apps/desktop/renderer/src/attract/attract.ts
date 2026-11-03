@@ -104,18 +104,28 @@ export function attractCandidates(input: AttractInput, shown: ReadonlySet<string
   return out
 }
 
-/** The next target. Nothing new: fit the whole org and nothing else. With
- *  something new, the whole org is one more choice among them, picked at
- *  random like the rest, never the same target twice in a row. */
+/** USER 2026-11-03 m0dc876241ee7 "attract mode should still return to fitting the org at some regular, above
+ *  average portion of the time, even if there's new activity", REPLACED m6802501d1f0c (13:08:49Z): "one in three on
+ *  average, varies depending on activity. if there's only a single agent working, then it would go back and forth between
+ *  that agent and the org. 2-3 agents and a new mail, every third change. 10+ agents, 5 changed tickets, 4 updated
+ *  presentations, and 30 new mails, and the org only gets fit every 10-15th transition".
+ *  The targets shown between two fit-the-whole-org steps: round(1 + N/4 x jitter), jitter 0.8-1.2 drawn once per cycle,
+ *  at least 1, at most FIT_GAP_CAP, N = the new targets waiting at that moment (recomputed every step). N=1 gives 1
+ *  (alternate), N=4 gives 2 (every third), N=49 gives 11-15. */
+export const FIT_GAP_CAP = 15
+export const fitGap = (n: number, jitter: number): number =>
+  Math.min(FIT_GAP_CAP, Math.max(1, Math.round(1 + (n / 4) * jitter)))
+
+/** The next target. Nothing new: fit the whole org and nothing else. With something new, the whole org comes after
+ *  `fitGap` targets (`run` of them so far; `jitter` is this cycle's draw), never twice in a row, and the other steps
+ *  pick at random among the new things, never the same one twice in a row (the only new thing just shown: the org). */
 export function pickAttract(candidates: AttractTarget[], rng: () => number,
-  last: AttractTarget | null): AttractTarget {
+  last: AttractTarget | null, run = 0, jitter = 1): AttractTarget {
   if (!candidates.length) return { kind: 'org' }
-  let pool: AttractTarget[] = [...candidates, { kind: 'org' }]
-  if (last) {
-    const lastKey = targetKey(last)
-    const rest = pool.filter(t => targetKey(t) !== lastKey)
-    if (rest.length) pool = rest
-  }
+  if (last?.kind !== 'org' && run >= fitGap(candidates.length, jitter)) return { kind: 'org' }
+  const lastKey = last ? targetKey(last) : null
+  const pool = candidates.filter(t => targetKey(t) !== lastKey)
+  if (!pool.length) return { kind: 'org' }
   const i = Math.min(pool.length - 1, Math.floor(rng() * pool.length))
   return pool[i]!
 }
@@ -271,13 +281,17 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     const since = lastInputAt()
     const shown = new Set<string>()
     let current: AttractTarget | null = null
+    /** targets since the last fit-the-whole-org step, and this cycle's gap jitter (fitGap) */
+    let run = 0
+    let jitter = 0.8 + 0.4 * rngRef.current()
     const step = async () => {
       if (!alive) return
       let input: Omit<AttractInput, 'since'>
       try { input = await routesRef.current.collect(since) }
       catch { input = { agents: [], mail: [], docs: [], tickets: [] } }
       if (!alive) return
-      const next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current)
+      const next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter)
+      if (next.kind === 'org') { run = 0; jitter = 0.8 + 0.4 * rngRef.current() } else run++
       if (current) routesRef.current.hide(current)
       current = next
       shown.add(targetKey(next))

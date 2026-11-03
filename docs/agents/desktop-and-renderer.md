@@ -2950,6 +2950,11 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   Custom Highlight (`attract-change`) or `.attract-changed`, and clicks the toggles back on move-on. `DocketSelection` stamps
   `data-docket-field`/`-entry` for it. Fallbacks: no snapshot -> an evidence history row since the last input points at EVIDENCE NOTES;
   else the top. A release or interrupt keeps the sections open. Proof: `tests/attractticket.test.tsx`.
+- **The whole org keeps a share of the steps, scaled by how much is new (USER 2026-11-03 m0dc876241ee7, REPLACED m6802501d1f0c).**
+  `pickAttract(candidates, rng, last, run, jitter)`: the whole org after `fitGap(N, jitter)` = clamp(round(1 + N/4 x jitter), 1, `FIT_GAP_CAP` 15)
+  targets, N = the new targets waiting (recomputed each step), jitter 0.8-1.2 drawn once per cycle by `useAttractCycle`; never twice in a row;
+  nothing new is Fit only. Fit goes through `hide` like every step, so an attract-opened panel closes first. Proof: `tests/attract.test.tsx`
+  §16-§16e (the user's three examples: 1 waiting alternates, 4 waiting every third, 49 waiting every 10th-15th).
 - **Canvas interaction = pointerdown/touchstart, wheel, or a key, whose target is inside `.viewport` and outside the panel
   carve-outs (`NOT_CANVAS` in attract.ts: `.overlay`, `.desk-over`, `.tray`, `.pinwin`, `.custom-app-window`, fields).** Mouse moves
   never stop a run. Keep `NOT_CANVAS` in step with OrgCanvas's wheel handler carve-outs. Proof: `tests/attract.test.tsx` §9.
