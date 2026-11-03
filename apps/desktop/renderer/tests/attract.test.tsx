@@ -90,8 +90,33 @@ const routesFor = (log: Log, mail: { id: string }[]): AttractRoutes => ({
 })
 const shows = (log: Log) => log.calls.filter(c => c.startsWith('show:') || c.startsWith('hide:') || c === 'stop')
 const key = () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a' }))
+// USER 2026-11-03 m6b0b27e6288f "only interacting with the canvas should interrupt
+// attract mode": a tiny stand-in for the org canvas (OrgCanvas's .viewport) with
+// a node on it, and the panels that live inside the viewport but are not canvas
+function scene() {
+  const d = window.document
+  const mk = (cls: string, parent: Element, tag = 'div') => {
+    const e = d.createElement(tag); if (cls) e.className = cls; parent.appendChild(e); return e
+  }
+  const root = mk('', d.body)
+  const viewport = mk('viewport', root)
+  const node = mk('node', viewport)
+  const desk = mk('desk-over', viewport), deskText = mk('', desk, 'span')
+  const overlay = mk('overlay', viewport)
+  const tray = mk('tray', viewport)
+  const pin = mk('pinwin', viewport)
+  const app = mk('custom-app-window', viewport)
+  const field = mk('', viewport, 'textarea')
+  const outside = mk('settings', root)   // a panel outside the viewport entirely
+  return { root, viewport, node, panels: { desk, deskText, overlay, tray, pin, app, field, outside } }
+}
+const fire = (el: Element | Window, type: string, init: Record<string, unknown> = {}) => {
+  const W = window as unknown as Record<string, new (t: string, i?: object) => Event>
+  const Ctor = type === 'keydown' ? W.KeyboardEvent : type === 'wheel' ? W.WheelEvent : W.MouseEvent
+  el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, ...init }))
+}
 
-test('§5 starts after more than five minutes without input; any input stops it and leaves the screen', async () => {
+test('§5 starts after more than five minutes without input; canvas input stops it and leaves the screen', async () => {
   useFakeClock()
   try {
     watchInput(() => {})()   // the tracker, installed
@@ -108,16 +133,18 @@ test('§5 starts after more than five minutes without input; any input stops it 
       assert.deepEqual(shows(log), ['show:mail:m1'])
       await advance(DWELL_MIN_MS, 500)
       assert.deepEqual(shows(log), ['show:mail:m1', 'hide:mail:m1', 'show:org'], 'nothing new left: the org')
-      await inAct(() => { key() })
+      const sc = scene()
+      await inAct(() => { fire(sc.node, 'keydown', { key: 'a' }) })
       assert.equal(running(), 'false')
-      assert.equal(shows(log).at(-1), 'stop', 'input stops it; nothing it showed is hidden')
+      assert.equal(shows(log).at(-1), 'stop', 'canvas input stops it; nothing it showed is hidden')
+      sc.root.remove()
       await advance(DWELL_MAX_MS * 2, 5_000)
       assert.equal(shows(log).at(-1), 'stop', 'and it stays stopped')
     } finally { await view.unmount() }
   } finally { realClock() }
 })
 
-test('§6 a pointer that did not move is not input; one that moved is; off never runs', async () => {
+test('§6 a pointer that did not move is not input, and moving never stops a run; off never runs', async () => {
   useFakeClock()
   try {
     watchInput(() => {})()
@@ -133,7 +160,11 @@ test('§6 a pointer that did not move is not input; one that moved is; off never
       await inAct(() => { move(1) })
       assert.equal(running(), 'true', 'Chromium\'s mousemove at an unmoved cursor is not input')
       await inAct(() => { move(9) })
+      assert.equal(running(), 'true', 'moving the mouse is not canvas interaction')
+      const sc = scene()
+      await inAct(() => { fire(sc.node, 'pointerdown') })
       assert.equal(running(), 'false')
+      sc.root.remove()
     } finally { await view.unmount() }
     key()
     const off: Log = { calls: [] }
@@ -143,6 +174,64 @@ test('§6 a pointer that did not move is not input; one that moved is; off never
       assert.equal(idle.el.querySelector('span')!.dataset.running, 'false')
       assert.deepEqual(shows(off), [])
     } finally { await idle.unmount() }
+  } finally { realClock() }
+  await flush()
+})
+
+test('§9 only the canvas stops a run: pointer down, drag, wheel, focused key; panels, fields and mouse moves do not', async () => {
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    const sc = scene()
+    const startRun = async (log: Log) => {
+      key()
+      const view = await mountView(<Cycle enabled routes={routesFor(log, [])} log={log} />, el => el)
+      await advance(ATTRACT_IDLE_MS + 1_000, 10_000)
+      return view
+    }
+    const log: Log = { calls: [] }
+    const view = await startRun(log)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      assert.equal(running(), 'true')
+      // input anywhere off the canvas leaves the run going
+      const p = sc.panels
+      for (const el of [p.desk, p.deskText, p.overlay, p.tray, p.pin, p.app, p.field, p.outside, sc.root]) {
+        await inAct(() => { fire(el, 'pointerdown'); fire(el, 'keydown', { key: 'b' }); fire(el, 'wheel', { deltaY: 40 }); fire(el, 'touchstart') })
+        assert.equal(running(), 'true', 'panel input does not stop it: ' + (el as Element).className)
+      }
+      await inAct(() => { fire(window, 'keydown', { key: 'c' }) })   // no focused element at all
+      assert.equal(running(), 'true', 'a key with no canvas focus does not stop it')
+      await inAct(() => { fire(sc.node, 'pointermove', { screenX: 3, screenY: 4 }); fire(sc.viewport, 'pointermove', { screenX: 8, screenY: 9 }) })
+      assert.equal(running(), 'true', 'mouse movement over the canvas does not stop it')
+      assert.ok(!shows(log).includes('stop'), 'nothing was stopped')
+      // each canvas gesture stops it
+      for (const [type, init] of [['pointerdown', {}], ['wheel', { deltaY: -40 }], ['keydown', { key: 'z' }], ['touchstart', {}]] as const) {
+        const l: Log = { calls: [] }
+        const v = await startRun(l)
+        try {
+          const r = () => v.el.querySelector('span')!.dataset.running
+          assert.equal(r(), 'true')
+          await inAct(() => { fire(type === 'pointerdown' ? sc.viewport : sc.node, type, init) })
+          assert.equal(r(), 'false', 'canvas ' + type + ' stops it')
+          assert.equal(shows(l).at(-1), 'stop')
+        } finally { await v.unmount() }
+      }
+    } finally { await view.unmount() }
+    // panel input still counts as input for the START rule: five quiet minutes
+    // are measured from the last input anywhere
+    key()
+    const quiet: Log = { calls: [] }
+    const idle = await mountView(<Cycle enabled routes={routesFor(quiet, [])} log={quiet} />, el => el)
+    try {
+      await advance(ATTRACT_IDLE_MS - 60_000, 10_000)
+      await inAct(() => { fire(sc.panels.field, 'keydown', { key: 'd' }) })
+      await advance(ATTRACT_IDLE_MS - 60_000, 10_000)
+      assert.equal(idle.el.querySelector('span')!.dataset.running, 'false', 'a panel keypress restarts the quiet time')
+      await advance(120_000, 10_000)
+      assert.equal(idle.el.querySelector('span')!.dataset.running, 'true')
+    } finally { await idle.unmount() }
+    sc.root.remove()
   } finally { realClock() }
   await flush()
 })
