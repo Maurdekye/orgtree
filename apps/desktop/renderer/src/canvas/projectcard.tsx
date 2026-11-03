@@ -302,7 +302,6 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               aria-label={`mailbox of project ${node.id}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onInbox(true, mailQueueFolder(queue)) }}>{queue.text}</button>}
-            {!deskOpen && fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
             {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
 
             </div>
@@ -364,6 +363,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
           </div>}
         </CardFace>
       )}
+      {/* the norm stack is the CARD's child, not the badge row's: that row sits in a scaled, inset .card-face whose transform
+          would become the stack's containing block (build-sol: it began 6px inside the card, 5.6px of 12 showing) */}
+      {lod !== 'mini' && !deskOpen && fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
       {node.state === 'live' && (
         <SpawnChips onSpawn={onHire} seats={seats}
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}

@@ -130,3 +130,13 @@ test('the bottom hire strip clears the stack so a click on the stack reaches it'
   assert.match(css, /\.hsof \{\s*position: absolute; left: 50%;/, 'and the base strip rule it overrides still exists')
   // specificity (.sq + :has(.fold-stack) + .hsof + :not) beats the base .hsof rule wherever it sits
 })
+
+for (const lod of ['mini', 'norm'] as const) {
+  test(`${lod}: the stack is a direct child of the card, so it spans the card edge to edge (not the inset scaled face)`, async () => {
+    const v = await mount(lod, fold(), noopFn)
+    const stack = v.el.querySelector<HTMLElement>('.fold-stack')!
+    assert.ok(stack)
+    assert.equal(stack.closest('.card-face'), null, 'a transformed, inset .card-face would become its containing block')
+    assert.ok(stack.parentElement!.classList.contains('sq'), 'its parent is the .sq card itself')
+  })
+}

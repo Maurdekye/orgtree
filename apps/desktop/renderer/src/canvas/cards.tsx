@@ -2162,12 +2162,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {/* the subtree fold chevron, wearing the hidden count while
               folded — before the retired token, which stays last in both
               header rows (2026-10-21) */}
-          {fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
           {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
 
         </div>
       )}
       </CardFace>}
+      {/* the norm stack is the card's child, not the badge row's (a scaled, inset .card-face is a containing block) */}
+      {!focused && lod !== 'mini' && fold && onToggleFold && <FoldStack id={node.id} fold={fold} onToggle={onToggleFold} />}
       {deskOpen && (
         <DeskChat node={node} map={map} op={op} slug={slug}
           eligible={deskEligible} openIn="card"
