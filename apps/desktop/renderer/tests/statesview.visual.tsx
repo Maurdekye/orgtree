@@ -7,11 +7,19 @@ import '../src/styles.css'
 // 'Load older' fetches the second page. All data synthetic.
 const zero = { active: 0, idle: 0, blocked: 0, halted: 0, frozen: 0 }
 const kinds = ['idle', 'active', 'blocked', 'active', 'frozen', 'active', 'halted', 'idle'] as const
-const spans = (from: number, n: number, openFirst: boolean) => Array.from({ length: n }, (_, i) => {
-  const k = from + i, end = Date.UTC(2026, 10, 2, 12, 0) - k * 47 * 60000, secs = (k % 5 + 1) * 11 * 60 + 5
-  return { state: kinds[k % kinds.length]!, start: new Date(end - secs * 1000).toISOString(),
-    end: openFirst && i === 0 ? null : new Date(end).toISOString(), secs }
-})
+// durations spread over the whole 1 s .. 7 d log scale so the bars differ; the
+// open first row starts relative to the real clock so its live bar is stable
+const LENGTHS = [1800, 5, 90, 7200, 86400, 400000, 30, 700000, 600, 45, 20000, 3 * 86400, 12, 2700, 9 * 86400, 300, 60, 150000, 8, 4000]
+const spans = (from: number, n: number, openFirst: boolean) => {
+  let end = Date.now() - 20 * 60000 - from * 3 * 3600000
+  return Array.from({ length: n }, (_, i) => {
+    const k = from + i, secs = LENGTHS[k % LENGTHS.length]!
+    const start = new Date((openFirst && i === 0 ? Date.now() - secs * 1000 : end - secs * 1000)).toISOString()
+    const out = { state: kinds[k % kinds.length]!, start, end: openFirst && i === 0 ? null : new Date(end).toISOString(), secs }
+    end -= secs * 1000 + 40 * 60000
+    return out
+  })
+}
 window.fetch = (async (url: string) => {
   const older = String(url).includes('before=')
   return new Response(JSON.stringify(older
