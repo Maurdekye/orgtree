@@ -38,7 +38,8 @@ import {
   SetToggle, useSettingsTarget,
 } from './settingskit'
 import type { SettingsTab, SettingsTarget } from './settingskit'
-import { setStreamerAuto, setStreamerMode, useStreamerMode } from '../streamer'
+import { setStreamerAuto, setStreamerCover, setStreamerMode, setStreamerType, useStreamerMode } from '../streamer'
+import type { StreamerType } from '../../../../packages/contracts/streamer'
 import {
   setAttractIdleSeconds, setAttractMode, useAttractIdleSeconds, useAttractMode, validAttractIdle,
   setAttractRefuseQuestions, useAttractRefuseQuestions,
@@ -289,7 +290,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
 }
 
 type AppSettingsTab = 'about' | 'providers' | 'harnesses' | 'runtime' | 'mailhub'
-  | 'display' | 'defaults' | 'developer' | 'shortcuts'
+  | 'display' | 'streamer' | 'defaults' | 'developer' | 'shortcuts'
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
 // Display, Default org settings, Mail hub, Developer, About. The panel OPENS
 // on Providers, the first tab (user 2026-09-30), unless the caller asks for a
@@ -303,6 +304,8 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'harnesses', label: 'Harnesses' },
   { id: 'runtime', label: 'Runtime' },
   { id: 'display', label: 'Display' },
+  // what Streamer mode hides, one switch per type (USER 2026-11-03 maad1c88abeba, m4c7b46b6cffb, m10c6278e1744)
+  { id: 'streamer', label: 'Streamer mode' },
   // Default org settings USED TO BE ITS OWN WINDOW, opened from the sidebar
   // that v3 removes. It is app-wide — every new organization is born with
   // these values — so it belongs here rather than in one organization's
@@ -391,16 +394,54 @@ function AttractIdleSetting() {
   </SetRow>
 }
 
-function ModeToggles() {
+/** Settings > Streamer mode: the types streamer mode may hide. One switch per type, each with a one-line description and an
+ *  example; the on/off state is shown read-only here (the switch lives in Display, so there is only one). */
+const STREAMER_SWITCHES: { type: StreamerType; label: string; hint: string }[] = [
+  { type: 'paths', label: 'Local file paths', hint: 'Absolute paths on this computer, e.g. C:\\Users\\you\\project or /home/you/notes. Off by default.' },
+  { type: 'ips', label: 'IP addresses', hint: 'IPv4 and IPv6 addresses, e.g. 192.168.1.20 or 2001:db8::1.' },
+  { type: 'emails', label: 'Email addresses', hint: 'Email addresses in text and the account email shown in the usage panel, e.g. you@example.com.' },
+  { type: 'secrets', label: 'Secrets and keys', hint: 'API keys, bearer and OAuth tokens, passwords and private keys, e.g. api_key=sk-live-… or password=hunter2.' },
+  { type: 'phones', label: 'Phone numbers', hint: 'International and grouped phone numbers, e.g. +1 (415) 555-0123.' },
+  { type: 'tokenUrls', label: 'Token URLs', hint: 'Links that carry a credential: a token, key, signature or auth parameter, an invite or magic link, or user:pass@ in the address.' },
+  { type: 'externals', label: 'External addresses', hint: 'Hub and organization addresses such as @net:name.id and @org:slug, and org-inbox senders and recipients.' },
+  { type: 'orgs', label: 'Other orgs', hint: 'The names of the other organizations on this installation, in text and in the org switcher. This org is always visible.' },
+]
+function StreamerSettings({ openDisplay }: { openDisplay: () => void }) {
+  const streamer = useStreamerMode()
+  return (
+    <>
+      <SetGroup title="Streamer mode">
+        <SetRow label="Status" field="streamerStatus">
+          <span>{streamer.enabled ? 'On' : 'Off'}</span>{' '}
+          <button type="button" className="link" onClick={openDisplay}>Change it in Display</button>
+        </SetRow>
+      </SetGroup>
+      <SetGroup title="What Streamer mode hides" note=" · agent, project, account and model names, timestamps and commit ids are never hidden">
+        {STREAMER_SWITCHES.map(sw => (
+          <SetToggle key={sw.type} label={sw.label} field={'streamer-' + sw.type} checked={streamer.types[sw.type]}
+            onChange={v => { void setStreamerType(sw.type, v) }} hint={sw.hint} />
+        ))}
+        <SetToggle label="Cover HTML apps, HTML presentations and video" field="streamerCover" checked={streamer.cover}
+          onChange={v => { void setStreamerCover(v) }}
+          hint="These cannot be searched for the types above, so while Streamer mode is on they sit behind a Hidden in Streamer mode cover you can dismiss per surface." />
+      </SetGroup>
+    </>
+  )
+}
+
+function ModeToggles({ openStreamerSettings }: { openStreamerSettings?: () => void }) {
   const streamer = useStreamerMode(), attract = useAttractMode(), refuse = useAttractRefuseQuestions()
   return (
     <SetGroup title="Modes">
       <SetToggle label="Streamer mode" field="streamerMode" checked={streamer.enabled}
         onChange={v => { void setStreamerMode(v) }}
-        hint="Hides private values on screen (email addresses, account names, paths, keys and addresses) while you share it. Copying, links and agents still use the originals." />
+        hint="Blurs the types of private information chosen in the Streamer mode settings (email addresses, secrets, IP addresses and more) while you share your screen. Copying, links and agents still use the originals." />
       {desktop() && <SetToggle label="Turn on automatically while OBS is running" field="streamerAuto" checked={streamer.autoSetting}
         onChange={v => { void setStreamerAuto(v) }}
         hint="Turns Streamer mode on when OBS, Streamlabs or XSplit starts and off again when the last one closes, unless you had it on yourself. Turning it off by hand while one runs keeps it off until it restarts." />}
+      {openStreamerSettings && <SetRow label="What Streamer mode hides" field="streamerHides">
+        <button type="button" className="link" onClick={openStreamerSettings}>What streamer mode hides…</button>
+      </SetRow>}
       <SetToggle label="Attract mode" field="attractMode" checked={attract}
         onChange={v => { void setAttractMode(v) }}
         hint="After the quiet time below, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
@@ -898,7 +939,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             {p.status.installed ? (p.status.connected === true ? 'Installed · connected' : p.status.connected === false ? 'Installed · sign-in required' : 'Installed · connection unknown') : 'Not installed'}
           </span>
           {p.status.version && <span className='acct-provider-meta'>version {p.status.version}</span>}
-          {p.status.email && <span className='acct-provider-meta'>account {p.status.email}</span>}
+          {p.status.email && <span className='acct-provider-meta'>account <span data-streamer-field="email">{p.status.email}</span></span>}
           {p.status.kind && <span className='acct-provider-meta'>sign-in {p.status.kind}</span>}
           {p.status.source && <span className='acct-provider-meta'>source {p.status.source}</span>}
         </div>
@@ -1018,10 +1059,13 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
       <MailHubSettings active={tab === 'mailhub'} />
     </SettingsTabPanel>
+    <SettingsTabPanel id="streamer" idBase="app-settings" active={tab === 'streamer'}>
+      <StreamerSettings openDisplay={() => setTab('display')} />
+    </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
-      <ModeToggles />
+      <ModeToggles openStreamerSettings={() => setTab('streamer')} />
       <SetGroup title="Text">
         <SetToggle label="Wrap object mentions" checked={(wrapMentions ?? runtime?.wrap_object_mentions) === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWrapObjectMentions, v)}

@@ -132,7 +132,7 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
         <HarnessesLink />
       </>}
       <label htmlFor="openrouter-key-secret">{keyRequired ? 'API key' : 'Replace the API key (optional)'}</label>
-      <input type="password" id="openrouter-key-secret" autoComplete="off" spellCheck={false}
+      <input data-streamer-field="secret" type="password" id="openrouter-key-secret" autoComplete="off" spellCheck={false}
         placeholder={keyRequired ? 'Paste an OpenRouter API key (sk-or-…)' : 'Leave empty to keep the current key'}
         aria-label="OpenRouter API key" value={key} disabled={busy}
         onChange={(e) => setKey(e.target.value)}

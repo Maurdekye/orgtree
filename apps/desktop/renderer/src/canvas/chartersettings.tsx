@@ -158,7 +158,7 @@ export function CharterTemplateDirsSetting() {
           </div>
         })}
         <div className="dirrow">
-          <input placeholder="Add an absolute folder path" aria-label="Add a charter template folder"
+          <input data-streamer-field="path" placeholder="Add an absolute folder path" aria-label="Add a charter template folder"
             value={newPath} disabled={busy || data === null}
             onChange={e => setNewPath(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') add(newPath) }} />

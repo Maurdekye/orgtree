@@ -376,7 +376,7 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
               <button key={o.slug} type="button" role="menuitem"
                 className={'shell-menu-org' + (o.slug === currentOrg ? ' current' : '')}
                 onClick={() => run(() => onOpenOrg(o.slug))}>
-                <span className="shell-menu-label">{o.name}</span>
+                <span className="shell-menu-label" data-streamer-field={o.slug === currentOrg ? undefined : 'org'}>{o.name}</span>
                 {elsewhere
                   ? <span className="shell-menu-value dim">Already open</span>
                   : <span className="shell-menu-value dim">

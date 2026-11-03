@@ -1,3 +1,4 @@
+import { setStreamerOrgs, useStreamerMode } from './streamer'
 import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
 import type { HireDefaultsRequest, SettingsRequest } from './types'
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
@@ -27,7 +28,7 @@ import type { Toast } from './toasts'
 import { HistorySurface, useUserHistory } from './historyui'
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
 import type { NativePreferences } from './desktop'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import {
   audienceAction, clearInbox, createOrg, deleteOrg, deleteUserMail,
@@ -105,7 +106,7 @@ import { orgFreshnessNote, useOrgStatus } from './orgstatus'
 import type { OrgFreshness } from './orgstatus'
 import { fmtAge, fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
-import { primaryEmail, usageIdentity } from './accountidentity'
+import { primaryEmail, usageIdentityPart, type UsagePart } from './accountidentity'
 import { onAppValue, useAppRead, useAppReadout } from './appfeed'
 import { groupByProvider } from './usagegroups'
 import { UsageHistoryModal } from './usagehistory'
@@ -950,8 +951,11 @@ export default function App() {
   // OrgtreeMenu's `onOrgListOpen`
   const [menuOrgsOpen, setMenuOrgsOpen] = useState(false)
   const orgListOpen = !slug || drawer || menuOrgsOpen
-  const orgStatus = useOrgStatus({ active: orgListOpen, onOk: fetchOk, onError: fetchErr })
+  // Streamer mode's "Other orgs" switch needs the live org list even while no org list is open (USER m10c6278e1744).
+  const streamerSnap = useStreamerMode()
+  const orgStatus = useOrgStatus({ active: orgListOpen || (streamerSnap.enabled && streamerSnap.types.orgs), onOk: fetchOk, onError: fetchErr })
   const orgs = orgStatus.orgs
+  useEffect(() => { setStreamerOrgs(orgs.filter(o => o.slug !== slug).flatMap(o => [o.name, o.slug])) }, [orgs, slug])
   // false until the FIRST successful /api/orgs: first-run setup must never
   // flash at an existing installation whose list simply hasn't loaded yet
   const orgsKnown = orgStatus.known
@@ -2481,15 +2485,16 @@ function UsageRefresh({ provider, state, disabledReason }: {
  *  can differ between two cards. */
 function UsageAcctHead({ label, parts, provider, state, disabledReason }: {
   label: string
-  parts: (string | null | undefined)[]
+  parts: (string | UsagePart | null | undefined)[]
   provider: string
   state: UsageReadoutState
   disabledReason?: string
 }) {
-  const detail = parts.filter(Boolean).map((part) => ` · ${part}`).join('')
+  const shown = parts.filter(Boolean) as (string | UsagePart)[]
   return <div className="usage-acct-head">
     <span className="usage-acct-who"><span className="acct-label">{label}</span>
-      {detail && <span className="dim">{detail}</span>}
+      {shown.length > 0 && <span className="dim">{shown.map((part, i) => typeof part === 'string' ? ` · ${part}`
+        : <Fragment key={i}>{part.id ? ` · ${part.id}` : ''} · <span data-streamer-field="email">{part.email}</span></Fragment>)}</span>}
     </span>
     <UsageRefresh provider={provider} state={state} disabledReason={disabledReason} />
   </div>
@@ -2513,7 +2518,7 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
   const u = state.value
   const provider = registryProviderName(row.provider)
   return <div className="usage-acct" data-account={row.id}>
-    <UsageAcctHead label={provider} parts={[usageIdentity(row.id, row.identity?.email, multiple)]}
+    <UsageAcctHead label={provider} parts={[usageIdentityPart(row.id, row.identity?.email, multiple)]}
       provider={row.id} state={state} disabledReason={usageRefreshDisabledReason(row.provider)} />
     {u
       ? <><UsageBars u={{ ...u, provider: registryPlanName(row.provider) }} />
@@ -2620,7 +2625,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
       {/* every account of a provider is named the same way, from
           registrylabels.ts, whatever id the readout carries (the engine
           sends "openai"/"google" for the default sign-ins, 2026-10-10) */}
-      <UsageAcctHead label={registryProviderName('claude')} parts={[usageIdentity('default',
+      <UsageAcctHead label={registryProviderName('claude')} parts={[usageIdentityPart('default',
         claude.value?.email || primaryEmail(registry ?? [], 'claude', hostIdentity),
         multipleAccounts('claude'))]}
         provider="Claude" state={claude} />
@@ -2638,7 +2643,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   if (shown.openai && (codex.value || codex.failure || codex.pending)) {
     cards.push({ provider: 'openai', lane: 'openai/primary', node: <div className="usage-acct" key={'host:openai:' + (codex.value?.account ?? 'codex')}>
       <UsageAcctHead label={registryProviderName('openai')}
-        parts={[usageIdentity('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
+        parts={[usageIdentityPart('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
         provider="Codex" state={codex} />
       {codex.value?.reauth_required && <ProviderSignIn provider="codex"
         connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
@@ -2650,7 +2655,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   if (shown.google && (agy.value || agy.failure || agy.pending)) {
     cards.push({ provider: 'google', lane: 'google/primary', node: <div className="usage-acct" key={'host:google:' + (agy.value?.account ?? 'antigravity')}>
       <UsageAcctHead label={registryProviderName('google')}
-        parts={[usageIdentity('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
+        parts={[usageIdentityPart('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
         provider="Antigravity" state={agy} />
       {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
           visible terminal running the CLI's own interactive entry
@@ -2667,7 +2672,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   if (shown.muse && (muse.value || muse.failure || muse.pending)) {
     cards.push({ provider: 'muse', lane: 'muse/primary', node: <div className="usage-acct" key={'host:muse:' + (muse.value?.account ?? 'muse')}>
       <UsageAcctHead label={registryProviderName('muse')}
-        parts={[usageIdentity('default', hostEmail('muse', muse.value), multipleAccounts('muse'))]}
+        parts={[usageIdentityPart('default', hostEmail('muse', muse.value), multipleAccounts('muse'))]}
         provider="Muse" state={muse} disabledReason={usageRefreshDisabledReason('muse')} />
       {/* Muse's own sign-in (`muse login`, a code approved in the browser)
           runs in a terminal it opens, like Antigravity's — see

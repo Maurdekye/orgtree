@@ -573,7 +573,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             )}
             {dirs.map((d, i) => (
               <div className="dirrow" key={d.path}>
-                <span className="chip mono grow">{d.path}</span>
+                <span className="chip mono grow" data-streamer-field="path">{d.path}</span>
                 <button type="button" className={'modebtn ' + d.mode}
                   title="Toggle read/write vs read-only"
                   onClick={() => setDirs(dirs.map((x, j) =>
@@ -586,7 +586,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               </div>
             ))}
             <div className="dirrow">
-              <input placeholder="Add a folder path"
+              <input data-streamer-field="path" placeholder="Add a folder path"
                 aria-label="Add a folder path"
                 value={newPath} onChange={(e) => setNewPath(e.target.value)} />
               <button type="button" className="iconbtn" title="Browse for a folder"
@@ -902,7 +902,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         <div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
-              <span className="chip mono grow">{d.path}</span>
+              <span className="chip mono grow" data-streamer-field="path">{d.path}</span>
               <button type="button" className={'modebtn ' + d.mode}
                 title="Toggle read/write vs read-only"
                 onClick={() => setDirs(dirs.map((x, j) =>
@@ -915,7 +915,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             </div>
           ))}
           <div className="dirrow">
-            <input placeholder="Add a folder path"
+            <input data-streamer-field="path" placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
             <button type="button" className="iconbtn" title="Browse for a folder"
               onClick={() => pickFolder().then((r) => {
@@ -1902,7 +1902,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         <SetBlock label="Folders" hint={FOLDERS_HINT}><div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
-              <span className="chip mono grow">{d.path}</span>
+              <span className="chip mono grow" data-streamer-field="path">{d.path}</span>
               <button type="button" className={'modebtn ' + d.mode}
                 title="Toggle read/write vs read-only"
                 onClick={() => setDirs(dirs.map((x, j) =>
@@ -1931,7 +1931,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               and the user asked for new DIRECTORIES specifically, so the
               control has to be able to express it at any depth. */}
           <div className="dirrow">
-              <input type="text" placeholder="Add a folder path"
+              <input type="text" data-streamer-field="path" placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
             <button type="button" className="iconbtn" title="Browse for a folder"
               onClick={() => pickFolder().then((r) => {

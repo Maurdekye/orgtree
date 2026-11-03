@@ -23,7 +23,7 @@ const covered = (registry: Map<string, Range[]>) => (registry.get('streamer-sens
 test('RT-S a sensitive string in plain rendered text is highlighted (control)', () => {
   const { doc, registry } = fixture(`<div class="md">${md('see ' + SECRET + ' now').__html}</div>`)
   const boundary = installStreamerBoundary(doc)
-  boundary.update(true, [])
+  boundary.update(true)
   assert.ok(covered(registry).some(t => t.includes(SECRET)), `ranges: ${JSON.stringify(covered(registry))}`)
   boundary.dispose()
 })
@@ -33,7 +33,7 @@ test('RT-S a sensitive string inside a KaTeX formula is masked as a whole, in th
   assert.ok(html.includes('katex'), 'the formula rendered as KaTeX')
   const { doc, registry } = fixture(`<div class="md">${html}</div>`)
   const boundary = installStreamerBoundary(doc)
-  boundary.update(true, [])
+  boundary.update(true)
   const ranges = registry.get('streamer-sensitive') ?? []
   assert.ok(ranges.length > 0, 'something was highlighted')
   // every text node that draws the secret in the visible half is inside some range
@@ -54,7 +54,7 @@ test('RT-S a sensitive string typeset in math (a hyphen becomes a minus sign) is
   assert.ok(html.includes('katex'))
   const { doc, registry } = fixture(`<div class="md">${html}</div>`)
   const boundary = installStreamerBoundary(doc)
-  boundary.update(true, [])
+  boundary.update(true)
   const ranges = registry.get('streamer-sensitive') ?? []
   const visible = [...doc.querySelectorAll('.katex-html *')].filter(el => el.children.length === 0 && (el.textContent ?? '').length > 0)
   assert.ok(visible.length > 0, 'the visible half has glyphs')
@@ -73,7 +73,7 @@ test('RT-S an sk-ant style key typeset as a formula is masked over ALL its visib
   const html = md(`Sensitive formula $${key}$`).__html
   const { doc, registry } = fixture(`<div class="md">${html}</div>`)
   const boundary = installStreamerBoundary(doc)
-  boundary.update(true, [])
+  boundary.update(true)
   const ranges = registry.get('streamer-sensitive') ?? []
   const visible = [...doc.querySelectorAll('.katex-html *')].filter(el => el.children.length === 0 && (el.textContent ?? '').length > 0)
   assert.ok(visible.length > 5, 'the visible half has glyphs')
@@ -89,7 +89,7 @@ test('RT-S2 a key with an underscore typeset as a formula (a subscript) is maske
   const html = md('see $ghp_abc123def456$ here').__html
   const { doc, registry } = fixture(`<div class="md">${html}</div>`)
   const boundary = installStreamerBoundary(doc)
-  boundary.update(true, [])
+  boundary.update(true)
   const ranges = registry.get('streamer-sensitive') ?? []
   const visible = [...doc.querySelectorAll('.katex-html *')].filter(el => el.children.length === 0 && (el.textContent ?? '').length > 0)
   assert.ok(visible.length > 3, 'the visible half has glyphs')
@@ -104,7 +104,7 @@ test('RT-S2 a key with an underscore typeset as a formula (a subscript) is maske
 test('RT-S2 an ordinary formula is not masked', () => {
   const { doc, registry } = fixture(`<div class="md">${md('$e^{i\pi}+1=0$').__html}</div>`)
   const boundary = installStreamerBoundary(doc)
-  boundary.update(true, [])
+  boundary.update(true)
   assert.equal((registry.get('streamer-sensitive') ?? []).length, 0)
   boundary.dispose()
 })

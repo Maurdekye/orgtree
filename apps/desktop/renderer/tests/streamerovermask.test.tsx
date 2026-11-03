@@ -1,91 +1,82 @@
-// 4.5.5-alpha.2 over-masking (USER 2026-11-03 17:18Z m73a2e0a527ec "way too much is being hidden here in
-// streamer mode"). Each ordinary surface from the user's screenshots must stay visible, and every real
-// secret category must still be masked. Fixtures use the real API shapes (mail rows carry *_address with
-// agent names; slugs, branches, SHAs and clock times are plain text).
+// 4.5.5-alpha.2 over-masking (USER 2026-11-03 m73a2e0a527ec "way too much is being hidden here in streamer mode") under the
+// DEFINITIVE list (m63438d6bebc3): only the listed types are ever blurred; every element from the user's three screenshots
+// stays visible, with EVERY switch on. Positives: samples per type in free-form text.
 import { JSDOM, flush } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { sensitiveSpans, knownScreenValues } from '../../../../packages/contracts/streamer'
+import { sensitiveSpans, tokenLike, type StreamerTypes } from '../../../../packages/contracts/streamer'
 import { installStreamerBoundary } from '../src/streamer-boundary'
 
-const masked = (text: string, known: readonly string[] = []) => sensitiveSpans(text, known).map(s => text.slice(s.start, s.end))
+const ON: StreamerTypes = { paths: true, ips: true, emails: true, secrets: true, phones: true, tokenUrls: true, externals: true, orgs: true }
+const OFF: StreamerTypes = { paths: false, ips: false, emails: false, secrets: false, phones: false, tokenUrls: false, externals: false, orgs: false }
+const masked = (text: string, types: StreamerTypes = ON) => sensitiveSpans(text, types).map(s => text.slice(s.start, s.end))
 const SHA = 'e1de8636a62548949d84637477687bbcc024ffa0', SHA256 = 'a'.repeat(32) + '0123456789abcdef0123456789abcdef'
 
 const visible: [string, string][] = [
-  ['agent name in a chart row', 'liaison-opus'], ['agent name', 'coordinator-opus'],
+  ['agent name in a chart row', 'liaison-opus'], ['agent name', 'coordinator-opus'], ['agent name', 'build-sol'],
+  ['account selector', 'claude/primary'], ['account id', 'claude-5'], ['model name', 'claude-opus-5-5'], ['chip', '@build-slot'],
   ['mention chip (project path)', 'orgtree/build-slot'], ['mention chip (docket item)', '@item:orgtree/streamer-mode-hide-sensitive-information-in-the-u'],
-  ['docket slug', 'streamer-mode-blanks-the-whole-window-in-4-5-5-a'],
+  ['docket slug', 'streamer-mode-blanks-the-whole-window-in-4-5-5-a'], ['relative path', 'apps/desktop/renderer/src/streamer.ts'], ['repo-relative path', 'docs/agents/streamer-mode.md'],
   ['branch', 'integ/4.5.5'], ['branch with words', 'feature/fix-streamer-over-masking-4-5-5'],
   ['full commit SHA', SHA], ['SHA-256', SHA256], ['short SHA in prose', 'Commit bd44dbc5bed8 restarted'],
   ['message-header time', '19:19:15'], ['12-hour time', '7:19:15 PM'], ['time with zone', '19:19:15 GMT+2'],
-  ['ISO timestamp', '2026-11-03T16:59:03.706Z'], ['date and time', '2026-11-03 18:59:03 GMT+2'],
-  ['version', '4.5.5-alpha.2'], ['token counts', '~661t +341t'], ['queued line', '1 queued'],
-  ['ordinary words after a slash', 'wait for and/or review, then merge'],
-  ['camelCase identifier', 'getProviderLoginStatus'],
+  ['ISO timestamp', '2026-11-03T16:59:03.706Z'], ['date and time', '2026-11-03 18:59:03 GMT+2'], ['epoch', '1762189200'],
+  ['version', '4.5.5-alpha.2'], ['four-part version', 'v4.5.5.2'], ['token counts', '~661t +341t'], ['queued line', '1 queued'],
+  ['PID', 'PID: 15532'], ['plain URL', 'https://github.com/Maurdekye/orgtree/issues/12'], ['plain URL with query', 'https://example.test/search?q=streamer&page=2'],
+  ['ordinary words after a slash', 'wait for and/or review, then merge'], ['camelCase identifier', 'getProviderLoginStatus'],
+  ['collapsed row', 'Con'], ['restart notice', 'Orgtree 4.5.5-alpha.2 restarted. Commit: ' + SHA + '. Started at: 2026-11-03T16:59:03.706Z'],
 ]
-test('agent names, slugs, branches, SHAs, times, versions and chips are not masked by any pattern', () => {
+test('agent names, account names, chips, timestamps, SHAs, branches, versions, relative paths and plain URLs are never blurred (every switch on)', () => {
   for (const [kind, value] of visible) {
     const text = `Backend ${value} Installed version: 4.5.5-alpha.2 notice`
     assert.deepEqual(masked(text), [], `${kind}: ${JSON.stringify(masked(text))}`)
   }
 })
-test('a slash path never swallows the ordinary words after it', () => {
-  assert.deepEqual(masked('see /tmp after the merge and then more words'), ['/tmp'])
-  assert.deepEqual(masked('open /Users/John Smith/Desktop/notes.txt then close'), ['/Users/John Smith/Desktop/notes.txt'])
-})
 
-const secrets: [string, string][] = [
-  ['unix path', '/home/reader/project/file.txt'], ['home path', '~/work/notes'], ['single-segment path', '/tmp'],
-  ['windows path', 'C:\\Users\\reader\\file.txt'], ['email', 'reader@example.test'], ['ipv4', '192.168.12.34'],
-  ['ipv6', '2001:db8::1234'], ['ipv6 full', '2001:0db8:85a3:0000:0000:8a2e:0370:7334'], ['ipv6 loopback', '::1'], ['ipv6 zone', 'fe80::1%eth0'],
-  ['phone plus', '+1 (415) 555-0123'], ['phone intl', '+44 20 7946 0958'], ['phone dashes', '415-555-0123'], ['phone dots', '415.555.0123'], ['phone local', '555-0123'], ['local digits', '5550123'],
-  ['sk key', 'sk_test_abcdefghijklmnopqrstuvwxyz123456'], ['gh token', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789'],
-  ['mixed token', 'abCD0123456789efGH0123456789'], ['base64', 'Zm9vYmFyMTIzNDU2Nzg5MGFiY2RlZg=='], ['uuid', '3f2b8c1e-9d4a-4e7b-8a61-5c0d2f9b7e14'],
-  ['letters-only random', 'XkQmPzRtLvWbNcJhYdFgSa'], ['hub address', '@net:private-reader.abc123'],
-  ['labelled secret', 'password=short-private'], ['bearer', 'Bearer abc.def'], ['url token', 'https://example.test/p?token=short-secret'],
+const positives: [keyof StreamerTypes, string, string][] = [
+  ['paths', 'drive path', 'C:\\Users\\reader\\project\\file.txt'], ['paths', 'drive path with spaces', 'C:\\Users\\John Smith\\Desktop\\notes.txt'],
+  ['paths', 'forward-slash drive', 'C:/Users/reader/file.txt'], ['paths', 'UNC', '\\\\private-server\\share\\x.txt'], ['paths', 'msys', '/c/Users/reader/code'], ['paths', 'unix home', '/home/reader/project/file.txt'],
+  ['ips', 'ipv4', '192.168.12.34'], ['ips', 'ipv4 port', '10.0.0.5:8080'], ['ips', 'ipv6', '2001:db8::1234'], ['ips', 'ipv6 full', '2001:0db8:85a3:0000:0000:8a2e:0370:7334'], ['ips', 'loopback', '::1'], ['ips', 'zone', 'fe80::1%eth0'],
+  ['emails', 'email', 'reader@example.test'],
+  ['secrets', 'password=', 'password=short-private'], ['secrets', 'token=', 'token=abc123'], ['secrets', 'api_key', 'api_key=k3Y9'], ['secrets', 'bearer', 'Bearer abc.def-ghi'], ['secrets', 'sk key', 'sk_test_abcdefghijklmnopqrstuvwxyz123456'],
+  ['secrets', 'gh token', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789'], ['secrets', 'mixed random', 'abCD0123456789efGH0123456789'], ['secrets', 'base64', 'Zm9vYmFyMTIzNDU2Nzg5MGFiY2RlZg'],
+  ['secrets', 'private key', '-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----'],
+  ['phones', '+ intl', '+44 20 7946 0958'], ['phones', 'paren', '+1 (415) 555-0123'], ['phones', 'dashes', '415-555-0123'], ['phones', 'dots', '415.555.0123'], ['phones', 'local', '555-0123'],
+  ['tokenUrls', 'token query', 'https://example.test/p?token=short-secret'], ['tokenUrls', 'sig', 'https://cdn.example.test/f.png?x=1&sig=abc123'], ['tokenUrls', 'fragment', 'https://app.example.test/#access_token=zzz'],
+  ['tokenUrls', 'userinfo', 'https://user:pass@example.test/repo'], ['tokenUrls', 'invite', 'https://discord.example.test/invite/AbC12'], ['tokenUrls', 'magic', 'https://app.example.test/magic/abc'],
+  ['externals', 'net', '@net:private-reader.abc123'], ['externals', 'org', '@org:other-org'],
 ]
-test('every real secret category is still masked', () => {
-  for (const [kind, value] of secrets) {
-    const text = `Before ${value} after`, spans = masked(text)
-    assert.ok(spans.some(m => (/labelled|url/.test(kind) && m.includes(value)) || m === value || (value.startsWith(m) && m.length >= value.length - 2)), `${kind}: ${JSON.stringify(spans)}`)
-    if (!/labelled|bearer|url/.test(kind)) assert.ok(!spans.join('|').includes('after'), `${kind} ate the trailing word: ${JSON.stringify(spans)}`)
+test('every type has positive samples in free-form text; each is hidden only by its own switch', () => {
+  for (const [type, kind, value] of positives) {
+    const text = `Before ${value} after`
+    const on = masked(text, { ...OFF, [type]: true })
+    assert.ok(on.some(m => m.includes(value) || (value.startsWith(m) && m.length >= value.length - 2)), `${type}/${kind}: ${JSON.stringify(on)}`)
+    assert.deepEqual(masked(text, OFF), [], `${kind} with every switch off`)
   }
 })
-
-test('mail and connection rows: agent addresses are not learned as identities, real addresses and keys still are', () => {
-  const known = knownScreenValues({
-    mail: [{ from_address: 'liaison-opus', to_address: 'coordinator-opus', path: 'orgtree', key: 'build-slot' }],
-    connections: [{ address: 'build-sol' }, { address: 'maurdekye.77ded7' }],
-    accounts: [{ id: 'claude-5', email: 'owner@example.test', credential: { path: '/home/reader/.config' } }],
-    settings: { api_key: 'live-secret-value' },
-  })
-  for (const name of ['liaison-opus', 'coordinator-opus', 'orgtree', 'build-slot', 'build-sol']) assert.ok(!known.includes(name), `${name} was learned: ${JSON.stringify(known)}`)
-  for (const v of ['maurdekye.77ded7', 'claude-5', 'owner@example.test', '/home/reader/.config', 'live-secret-value']) assert.ok(known.includes(v), `${v} is still learned`)
-  const text = 'liaison-opus wrote to coordinator-opus; sol replied. claude-5 by owner@example.test'
-  const m = masked(text, known)
-  assert.ok(!m.some(x => /opus/.test(x)), JSON.stringify(m))
-  assert.ok(m.includes('owner@example.test') && m.some(x => x.includes('claude-5')))
+test('a plain URL and a relative path next to a token URL are not swallowed; tokenLike skips SHAs and slugs', () => {
+  assert.deepEqual(masked('see https://github.com/x/y and https://a.test/?token=zz then apps/desktop/x.ts'), ['https://a.test/?token=zz'])
+  assert.equal(tokenLike(SHA), false); assert.equal(tokenLike('streamer-mode-blanks-the-whole-window-in-4-5-5-a'), false); assert.equal(tokenLike('abCD0123456789efGH0123456789'), true)
 })
-test('a known identity matches whole words only ("Con" never masks the start of "Context")', () => {
-  assert.deepEqual(masked('Context and Contents', ['Con']), [])
-  assert.deepEqual(masked('Signed in as Con, ok', ['Con']), ['Con'])
-  assert.deepEqual(masked('Private Account 2', ['Private Account']), ['Private Account'])
+test('a Windows path stops at the last segment; a labelled secret is one token, not the rest of the line', () => {
+  assert.deepEqual(masked('open C:\\Users\\reader\\notes.txt then close'), ['C:\\Users\\reader\\notes.txt'])
+  assert.deepEqual(masked('password=hunter2 and the rest stays'), ['password=hunter2'])
 })
 
-test('the DOM boundary leaves the screenshot surfaces visible and masks only a real secret beside them', async () => {
+test('the DOM boundary leaves the screenshot surfaces visible with every switch on, and blurs only real secrets in free-form text', async () => {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
   const registry = new Map<string, Range[]>()
   Object.defineProperty(dom.window, 'CSS', { value: { highlights: registry }, configurable: true })
   Object.defineProperty(dom.window, 'Highlight', { value: class extends Array<Range> { constructor(...r: Range[]) { super(...r) } }, configurable: true })
   const doc = dom.window.document, boundary = installStreamerBoundary(doc)
-  doc.body.innerHTML = `<div class="row"><span>liaison-opus</span> <span>idle 4m ago</span></div>
+  doc.body.innerHTML = `<div class="row"><span>liaison-opus</span> <span>idle 4m ago</span> <span>claude/primary</span> <span>reader@example.test</span></div>
     <div class="queued">1 queued <span class="chip">orgtree/build-slot</span> <span class="chip">integ/4.5.5</span></div>
-    <div class="msg"><b>Backend</b> <time>19:19:15 GMT+2</time> Installed version: 4.5.5-alpha.2 commit ${SHA} started 2026-11-03T16:59:03.706Z</div>
-    <div class="msg">mail me at reader@example.test or /home/reader/x</div>`
+    <div class="msg sys"><b>Backend</b> <time>19:19:15 GMT+2</time> Installed version: 4.5.5-alpha.2 commit ${SHA} started 2026-11-03T16:59:03.706Z</div>
+    <div class="msg"><details><summary>Con</summary></details> mail me at reader@example.test or password=k3Y9</div>`
   try {
-    boundary.update(true, [])
+    boundary.update(true, { types: ON, cover: true })
     await flush()
     const hidden = Array.from(registry.get('streamer-sensitive') ?? [], r => r.toString())
-    assert.deepEqual(hidden.sort(), ['/home/reader/x', 'reader@example.test'].sort())
+    assert.deepEqual(hidden.sort(), ['password=k3Y9', 'reader@example.test'].sort(), 'the structured chart-row email is NOT blurred; the free-form one is')
   } finally { boundary.dispose(); dom.window.close() }
 })

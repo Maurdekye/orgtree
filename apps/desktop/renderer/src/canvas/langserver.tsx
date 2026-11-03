@@ -361,7 +361,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
       </SetRow>
       <SetRow label="Address"
         hint={custom ? 'The server’s base address, e.g. https://models.example.net' : undefined}>
-        <input type="text" aria-label="Server address" spellCheck={false} value={address}
+        <input data-streamer-field="ip" type="text" aria-label="Server address" spellCheck={false} value={address}
           placeholder="http://127.0.0.1:11434" disabled={busy}
           onChange={(e) => { setAddress(e.target.value); setProbe(null); setBrowsing(false) }} />
       </SetRow>
@@ -395,7 +395,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             onChange={(e) => { setBasePath(e.target.value); setProbe(null) }} />
         </SetRow>
         <SetRow label="API key" hint="Optional. Stored on this machine and never shown again.">
-          <input type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={key}
+          <input data-streamer-field="secret" type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={key}
             disabled={busy} onChange={(e) => setKey(e.target.value)} />
         </SetRow>
         <SetRow label="Model ids" hint="As the server names them, separated by spaces or commas (or find them below).">
@@ -758,7 +758,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
               onChange={(e) => edit({ label: e.target.value })} />
           </SetRow>
           <SetRow label="Address">
-            <input type="text" aria-label="Server address" spellCheck={false} value={draft.address} disabled={busy}
+            <input data-streamer-field="ip" type="text" aria-label="Server address" spellCheck={false} value={draft.address} disabled={busy}
               onChange={(e) => edit({ address: e.target.value })} />
           </SetRow>
           {harnesses.length > 0 && <>
@@ -808,7 +808,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
           </SetRow>
           <SetRow label="API key"
             hint={s.key_set ? 'A key is stored (never shown). Paste a new one to replace it.' : 'Optional: only for servers that ask for one.'}>
-            <input type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={draft.key}
+            <input data-streamer-field="secret" type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={draft.key}
               placeholder={s.key_set ? 'Stored' : 'None'} disabled={busy || draft.forgetKey}
               onChange={(e) => edit({ key: e.target.value })} />
             {s.key_set && <label className="ls-check">

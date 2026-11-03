@@ -1046,6 +1046,7 @@ export function HubContactChip({ address, className }: { address: string; classN
       className={cls}
       onContextMenu={e => menu.open(e, hubAddressMenuEntries(e.currentTarget, address))}
       data-hub-address={address}
+      data-streamer-field="external"
       data-hub-ref={address}
       data-net-kind={info.kind}
       data-net-icon={info.icon}

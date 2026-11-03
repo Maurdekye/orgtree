@@ -79,6 +79,11 @@ export function providerAccounts(rows: AccountChoiceRow[], provider: string,
   ]
 }
 
+/** The same identity as `usageIdentity`, split so the account EMAIL can be its own element: Streamer mode blurs that field
+ *  always (it is always an email), and never touches the account id beside it (USER 2026-11-03 m63438d6bebc3). */
+export interface UsagePart { id?: string; email: string }
+export const usageIdentityPart = (id: string, email: string | null | undefined, multiple: boolean): UsagePart =>
+  ({ ...(multiple ? { id } : {}), email: accountEmail(email) })
 export function usageIdentity(id: string, email: string | null | undefined, multiple: boolean): string {
   return multiple ? accountIdentity(id, email) : accountEmail(email)
 }

@@ -13,6 +13,14 @@ Display > Modes holds **Streamer mode** and **Attract mode**, the only place to 
 
 Below Streamer mode, **Turn on automatically while OBS is running** (on by default, desktop app only) lets Orgtree switch Streamer mode on itself while OBS, Streamlabs, XSplit or another streaming app is running, the way Discord's Streamer Mode does, and switch it off again when the last one closes. It only switches off what it switched on: a Streamer mode you turned on yourself stays on. If you turn Streamer mode off by hand while a streaming app is running, it stays off until that app has closed and started again. The indicator then says "turned on because OBS is running".
 
+Between Streamer mode and Attract mode, **What streamer mode hides…** opens the **Streamer mode** category (next to Display in the App settings strip).
+
+## Streamer mode category
+
+App settings > **Streamer mode** chooses what Streamer mode blurs while it is on. The category shows the current on/off state as read-only text with a link back to Display, where the one on/off switch lives. One switch per type, each with a one-line description and an example: **Local file paths** (off by default), **IP addresses**, **Email addresses**, **Secrets and keys**, **Phone numbers**, **Token URLs**, **External addresses** (`@net:` and `@org:` addresses, org-inbox senders) and **Other orgs** (the names of other organizations on this installation; this org is always visible), all on by default. A ninth switch, **Cover HTML apps, HTML presentations and video**, controls the "Hidden in Streamer mode" cover over content that cannot be searched; images are never hidden. Changes apply at once in every window.
+
+Free-form content (messages, transcripts, tool output, mail, docket text, presentations) is searched for the enabled types and only the matching part is blurred. Fixed fields that always hold one type, such as the account email in the usage panel or a folder path field, are blurred whole while their type is on and visible while it is off. Agent, project, account and model names, times, commit ids and branch names are never blurred. Copying and links still use the original values. Turning every type off is allowed: Streamer mode stays on and only the cover (if on) applies.
+
 ## Object mentions
 
 Display > Text > **Wrap object mentions** is off by default. Turn it on to let

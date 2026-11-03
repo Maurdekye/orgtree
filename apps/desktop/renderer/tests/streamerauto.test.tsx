@@ -193,9 +193,9 @@ test('the banner says why when the automation turned the mode on', async () => {
   Object.defineProperty(dom.window, 'Highlight', { value: class extends Array {}, configurable: true })
   const boundary = installStreamerBoundary(dom.window.document, () => {})
   try {
-    boundary.update(true, [], true, 'turned on because OBS is running'); await flush()
+    boundary.update(true, { types: { paths: false, ips: true, emails: true, secrets: true, phones: true, tokenUrls: true, externals: true, orgs: true }, cover: true, note: 'turned on because OBS is running' }); await flush()
     assert.match(dom.window.document.querySelector('[data-streamer-banner]')!.textContent!, /Streamer mode — turned on because OBS is running/)
-    boundary.update(true, [], true, ''); await flush()
+    boundary.update(true); await flush()
     assert.doesNotMatch(dom.window.document.querySelector('[data-streamer-banner]')!.textContent!, /OBS/)
   } finally { boundary.dispose(); dom.window.close() }
 })

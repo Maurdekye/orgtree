@@ -29,6 +29,17 @@ export interface DesktopPreferences extends NotificationPreferences {
   /** Display name of the streaming app that triggered the automation ("OBS",
    *  "XSplit", ...); empty when none. The banner names it. */
   streamerAutoApp?: string
+  /** Settings > Streamer mode (USER 2026-11-03 maad1c88abeba): which of the six types streamer mode hides. Absent = default
+   *  (paths OFF, the rest ON); `streamerCover` = the cover over HTML apps/presentations/video (absent = ON). */
+  streamerPaths?: boolean
+  streamerIps?: boolean
+  streamerEmails?: boolean
+  streamerSecrets?: boolean
+  streamerPhones?: boolean
+  streamerTokenUrls?: boolean
+  streamerExternals?: boolean
+  streamerOrgs?: boolean
+  streamerCover?: boolean
   visualTheme: VisualTheme
   contrastTheme: ContrastTheme
   agentColorSource: AgentColorSource

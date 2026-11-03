@@ -4,7 +4,6 @@ import { AppFeedConnection } from '../../../../packages/contracts/app-feed-conne
 import type { AppSnapshot } from '../../../../packages/contracts/app-feed'
 import { req } from './api'
 import { onLiveBump } from './livebus'
-import { rememberScreenValues } from './streamer-known'
 
 const listeners = new Set<() => void>()
 let revision = 0
@@ -32,10 +31,6 @@ export function onAppValue(key: string, fn: (value: unknown) => void): void {
   valueHooks.push({ key, last: undefined, fn })
 }
 function runValueHooks() {
-  // Learn changed identities before any consumer can paint their new text.
-  for (const [key, entry] of connection.state.values) {
-    if (/account|settings|provider/i.test(key)) rememberScreenValues({ [key]: entry?.value?.value })
-  }
   for (const hook of valueHooks) {
     const entry = connection.state.values.get(hook.key)
     if (entry === hook.last) continue

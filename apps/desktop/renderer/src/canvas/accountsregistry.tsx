@@ -417,7 +417,7 @@ export function AddAccountDialog({ provider, onAdded, close }: {
       {provider !== 'muse' && <section className="account-add-option">
         <h4>Import a folder</h4>
         <p className="dim">Use an existing {LABELS[provider]} profile folder.</p>
-        <label>Profile folder<input aria-label="Profile folder" value={path} disabled={busy} onChange={e => setPath(e.target.value)} /></label>
+        <label>Profile folder<input data-streamer-field="path" aria-label="Profile folder" value={path} disabled={busy} onChange={e => setPath(e.target.value)} /></label>
         <div className="account-management">
           <button disabled={busy} onClick={() => { void browse() }}>Browse...</button>
           <button disabled={busy || !path.trim()} onClick={() => { void create('imported') }}>Import folder</button>

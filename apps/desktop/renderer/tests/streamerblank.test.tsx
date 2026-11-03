@@ -12,7 +12,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { installStreamerBoundary } from '../src/streamer-boundary'
-import { knownScreenValues, sensitiveSpans } from '../../../../packages/contracts/streamer'
+import { sensitiveSpans } from '../../../../packages/contracts/streamer'
 import { setNativeStreamer } from '../../main/streamer-native'
 import { protectOpaqueDocument } from '../../main/streamer-opaque'
 import { AccountsPanel } from '../src/canvas/accounts'
@@ -47,36 +47,36 @@ function hidingRules(doc: Document, el: Element): string[] {
 const CANVAS = '<main class="canvas-stage"><div class="viewport"><canvas class="glwires" aria-hidden="true"></canvas>'
   + '<svg class="edges" width="4000" height="3000"><path d="M0 0L10 10"></path></svg>'
   + '<div class="sq"><svg class="eye" viewBox="0 0 48 26"></svg><span class="name">Reviewer</span></div>'
-  + '<div class="desk"><img class="toolimg" alt="tool result"></div></div></main>'
+  + '<div class="desk"><iframe class="toolimg"></iframe></div></div></main>'
 
 test('canvas graphics are app chrome: only content media get covers, inside their own stacking context', async () => {
   const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
   doc.body.innerHTML = CANVAS
   try {
-    boundary.update(true, ['Private Account'])
+    boundary.update(true)
     await flush()
     const covers = [...doc.querySelectorAll<HTMLElement>('[data-streamer-cover]')]
-    assert.equal(covers.length, 1, 'one cover: the tool-result image, not the wire canvas, edges or card icons')
+    assert.equal(covers.length, 1, 'one cover: the embedded app, not the wire canvas, edges or card icons')
     for (const sel of ['canvas.glwires', 'svg.edges', 'svg.eye', '.sq .name']) {
       assert.deepEqual(hidingRules(doc, doc.querySelector(sel)!), [], `${sel} stays visible`)
     }
     // The cover sits beside the image it hides, so app menus, settings and
     // modals stacked above that surface stay above its cover too.
-    const img = doc.querySelector('img.toolimg')!
+    const img = doc.querySelector('.toolimg')!
     assert.equal(covers[0]!.parentElement, img.parentElement)
     assert.equal(covers[0]!.parentElement === doc.body, false, 'never a topmost body-level layer')
     assert.equal(img.isConnected, true)
   } finally { boundary.dispose(); dom.window.close() }
 })
 
-test('unready identities, an overflowing identity set or a missing Highlight API never hide the window', async () => {
-  for (const [label, highlights, ready] of [['identities not loaded', true, false], ['no Highlight API', false, true]] as const) {
+test('a missing Highlight API never hides the window', async () => {
+  for (const [label, highlights] of [['no Highlight API', false]] as const) {
     const { dom, doc, registry } = fixture(highlights)
     let turnedOff = 0
     const boundary = installStreamerBoundary(doc, () => { turnedOff++ })
-    doc.body.innerHTML = '<div id="root"><nav class="shell-menu">Modes <button>Streamer mode</button></nav><p>Mail from reader@example.test</p></div>'
+    doc.body.innerHTML = '<div id="root"><nav class="shell-menu">Modes <button>Streamer mode</button></nav><p class="md">Mail from reader@example.test</p></div>'
     try {
-      boundary.update(true, ['Private Account'], ready)
+      boundary.update(true)
       await flush()
       const root = doc.getElementById('root')!
       assert.deepEqual(hidingRules(doc, root), [], `${label}: the app stays on screen`)
@@ -90,12 +90,6 @@ test('unready identities, an overflowing identity set or a missing Highlight API
       }
     } finally { boundary.dispose(); dom.window.close() }
   }
-})
-
-test('a known identity too short to identify anyone never masks ordinary text', () => {
-  const text = 'Reviewed. See the plan at step 2 — ab'
-  assert.deepEqual(sensitiveSpans(text, ['.', 'ab', 'e']), [])
-  assert.equal(sensitiveSpans('Private Account here', ['Private Account']).length, 1)
 })
 
 test('a recovery holding page cover ends when the window shows any other document', () => {
@@ -197,49 +191,6 @@ test('App settings › Display has Streamer mode and Attract mode toggles bound 
   assert.deepEqual([box('streamerMode')!.checked, box('attractMode')!.checked], [false, false], 'follows the menu and other windows')
 })
 
-// USER 2026-11-03 10:11:58Z m761e635eb242 "Yes, only sensitive": a closed
-// native select shows its value unless that value matches a known identity or
-// a sensitive pattern (same detector as text); unsure (unreadable, identities
-// not loaded) stays hidden.
-function paintHidden(doc: Document, el: Element): boolean {
-  for (const sheet of [...doc.styleSheets]) for (const rule of [...sheet.cssRules]) {
-    if (!('selectorText' in rule)) continue
-    const style = (rule as CSSStyleRule).style
-    if (style.color !== 'transparent' && style.getPropertyValue('-webkit-text-fill-color') !== 'transparent') continue
-    let hit = false
-    try { hit = el.matches((rule as CSSStyleRule).selectorText) } catch { /* selector jsdom cannot parse */ }
-    if (hit) return true
-  }
-  return false
-}
-
-test('a closed select is masked only when its value is sensitive, and follows value changes', async () => {
-  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
-  doc.body.innerHTML = '<select id="bg"><option>Charcoal</option><option>Light</option></select>'
-    + '<select id="acct"><option>Private Account</option><option>Other</option></select>'
-    + '<select id="mail"><option>reader@example.test</option></select><select id="empty"></select>'
-  const get = (id: string) => doc.getElementById(id) as HTMLSelectElement
-  try {
-    boundary.update(true, ['Private Account'])
-    await flush()
-    assert.equal(paintHidden(doc, get('bg')), false, 'a harmless value is shown')
-    assert.equal(paintHidden(doc, get('acct')), true, 'a known account name is masked')
-    assert.equal(paintHidden(doc, get('mail')), true, 'an email pattern is masked')
-    assert.equal(paintHidden(doc, get('empty')), true, 'an unreadable value is hidden')
-    get('acct').selectedIndex = 1
-    get('acct').dispatchEvent(new dom.window.Event('change', { bubbles: true }))
-    await flush()
-    assert.equal(paintHidden(doc, get('acct')), false, 'switching to a harmless value reveals it')
-    get('bg').options[0]!.textContent = 'Private Account'
-    get('bg').dispatchEvent(new dom.window.Event('change', { bubbles: true }))
-    await flush()
-    assert.equal(paintHidden(doc, get('bg')), true, 'switching to a sensitive value masks it')
-    boundary.update(true, ['Private Account'], false)
-    await flush()
-    assert.equal(paintHidden(doc, get('acct')), true, 'identities not loaded: unsure, hidden')
-  } finally { boundary.dispose(); dom.window.close() }
-})
-
 // USER 2026-11-03 10:27:50Z mb94508a32503 "last time i enabled it my entire app
 // froze", 10:27:58Z mcb65b6eedf30 "i had to force restart". Measured cause: the
 // email pattern rescanned to the end of an unspaced run from every start
@@ -248,18 +199,18 @@ test('a closed select is masked only when its value is sensitive, and follows va
 test('masking cost stays bounded: long unspaced runs are linear and mutation storms are paced', async () => {
   for (const run of ['{"a":"' + 'x1.'.repeat(7000) + '"}', 'abcdefghij'.repeat(2000), 'a/'.repeat(10000)]) {
     const began = performance.now()
-    sensitiveSpans(run, [])
+    sensitiveSpans(run)
     assert.ok(performance.now() - began < 300, `a ${run.length}-char unspaced run is masked in ${(performance.now() - began).toFixed(0)} ms`)
   }
   const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
-  doc.body.innerHTML = '<div id="t"></div>'
+  doc.body.innerHTML = '<div id="t" class="md"></div>'
   const host = doc.getElementById('t')!
   for (let i = 0; i < 4000; i++) { const p = doc.createElement('p'); p.textContent = `row ${i} mail reader${i}@example.test`; host.appendChild(p) }
   let walks = 0
   const create = doc.createTreeWalker.bind(doc)
   doc.createTreeWalker = ((...args: Parameters<Document['createTreeWalker']>) => { walks++; return create(...args) }) as typeof doc.createTreeWalker
   try {
-    boundary.update(true, [])
+    boundary.update(true)
     await flush()
     const first = walks
     for (let i = 0; i < 300; i++) { host.children[i]!.textContent = `changed ${i}`; await new Promise(r => setImmediate(r)) }
@@ -270,13 +221,13 @@ test('masking cost stays bounded: long unspaced runs are linear and mutation sto
 
 // Coordinator m442e92f40bc8: media under 48 px in both dimensions is hidden
 // silently, with no cover or button; larger media keeps its cover.
-test('icon-sized images are hidden without a cover; larger images keep one', async () => {
+test('icon-sized embedded surfaces are hidden without a cover; larger ones keep one; images are never hidden', async () => {
   const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
-  doc.body.innerHTML = '<img id="avatar" alt="a"><img id="logo" alt="b"><img id="big" alt="c">'
+  doc.body.innerHTML = '<iframe id="avatar"></iframe><iframe id="logo"></iframe><iframe id="big"></iframe>'
   const size = (id: string, w: number, h: number) => { doc.getElementById(id)!.getBoundingClientRect = () => ({ width: w, height: h, left: 0, top: 0, right: w, bottom: h, x: 0, y: 0, toJSON() {} }) as DOMRect }
   size('avatar', 20, 20); size('logo', 47, 47); size('big', 200, 120)
   try {
-    boundary.update(true, [])
+    boundary.update(true)
     await flush()
     assert.equal(doc.querySelectorAll('[data-streamer-cover]').length, 1, 'only the large image is covered')
     assert.equal(doc.getElementById('big')!.nextElementSibling?.hasAttribute('data-streamer-cover'), true)
@@ -324,42 +275,4 @@ test('App settings › Display › Modes has an Attract "start after" seconds fi
   assert.deepEqual(bridge.writes, [{ attractIdleSeconds: 0 }, { attractIdleSeconds: 90 }])
   await inAct(async () => { bridge.elsewhere({ attractIdleSeconds: 12 }); await flush(8) })
   assert.equal(input.value, '12', 'follows other windows')
-})
-
-// Run 3 (rig-sol-b m9666a46446c5): Display > Visual theme "Claude Terracotta" and
-// Enter key "Send message" were masked. The identity collector learned the
-// provider id "claude" (the registry's `primary`) and the settings value "send"
-// (enter_key_behavior matched the `_key_` secret rule): product vocabulary,
-// not identities, which also masked every "Send" and "Claude" in the window.
-test('settings enums and provider ids are never learned as identities', async () => {
-  const known = knownScreenValues({ accounts: { primary: 'claude', accounts: [{ id: 'claude-5', provider: 'claude', email: 'owner@example.test' }] },
-    runtime_settings: { enter_key_behavior: 'send', api_key: 'live-secret-value', private_key: 'pem-secret-value' } })
-  assert.ok(!known.some(v => v.toLowerCase() === 'claude'), `provider id learned: ${JSON.stringify(known)}`)
-  assert.ok(!known.includes('send'), `settings enum learned: ${JSON.stringify(known)}`)
-  for (const v of ['claude-5', 'owner@example.test', 'live-secret-value', 'pem-secret-value']) assert.ok(known.includes(v), `${v} is still learned`)
-  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
-  doc.body.innerHTML = '<select id="theme"><option>Claude Terracotta</option></select><select id="enter"><option>Send message</option></select><p>Send</p>'
-  try {
-    boundary.update(true, known)
-    await flush()
-    assert.equal(paintHidden(doc, doc.getElementById('theme')!), false, 'Claude Terracotta is shown')
-    assert.equal(paintHidden(doc, doc.getElementById('enter')!), false, 'Send message is shown')
-  } finally { boundary.dispose(); dom.window.close() }
-})
-
-// Coordinator m7b2a89c6895d: skipping product vocabulary must not unmask a real
-// identity. Only a value EXACTLY equal to a provider/selector word is skipped;
-// any name containing more (a person's name, a suffixed account id) and every
-// email or secret on the same row is still learned and masked.
-test('skipping product words never unmasks an identity that carries more than the word', async () => {
-  const known = knownScreenValues({ accounts: [
-    { id: 'claude', label: 'Claude', email: 'claude.owner@example.test' },
-    { id: 'claude-work', label: 'Claude Smith', username: 'muse_fan' },
-    { id: 'google', name: 'Default Gonzalez' },
-  ] })
-  for (const v of ['claude.owner@example.test', 'claude-work', 'Claude Smith', 'muse_fan', 'Default Gonzalez']) assert.ok(known.includes(v), `${v} is still learned: ${JSON.stringify(known)}`)
-  for (const v of ['claude', 'Claude', 'google']) assert.ok(!known.includes(v), `bare product word ${v} is not learned`)
-  const text = 'Signed in as Claude Smith (claude-work), mail claude.owner@example.test'
-  const masked = sensitiveSpans(text, known).map(s => text.slice(s.start, s.end))
-  for (const v of ['Claude Smith', 'claude-work', 'claude.owner@example.test']) assert.ok(masked.some(m => m.includes(v)), `${v} is masked in text: ${JSON.stringify(masked)}`)
 })

@@ -1,33 +1,48 @@
-import { sensitiveSpans, STREAMER_HIDDEN } from '../../../../packages/contracts/streamer'
+import { DEFAULT_STREAMER_TYPES, sensitiveSpans, STREAMER_HIDDEN, type StreamerType, type StreamerTypes } from '../../../../packages/contracts/streamer'
 
+/** What the boundary hides right now (Settings > Streamer mode). */
+export interface StreamerConfig {
+  types?: StreamerTypes
+  /** the opaque cover over HTML apps, HTML presentations and video */
+  cover?: boolean
+  /** names and slugs of the OTHER orgs of this installation (never the current one), for the External switch */
+  orgNames?: readonly string[]
+  /** preferences read; false keeps the pre-load fail-closed banner wording */
+  ready?: boolean
+  note?: string
+}
 export interface StreamerBoundary {
-  update(on: boolean, known?: readonly string[], ready?: boolean, note?: string): void
+  update(on: boolean, config?: StreamerConfig): void
   dispose(): void
 }
-// Content surfaces only. The canvas's wire <canvas>, its edges <svg> and every
-// icon are app chrome: covering them hid the whole canvas behind one opaque
-// slab (USER 2026-11-03 m84db138f69e6 "i cant see anything at all").
-const OPAQUE = 'iframe,img,video,object,embed'
+/** THE ONE TABLE (USER 2026-11-03 m63438d6bebc3 + maad1c88abeba): where streamer mode looks, and what it does there.
+ *  - `freeform`: containers of variadic, user- or agent-written content. Only here is TEXT pattern-matched, and only the
+ *    matching span of an enabled type is blurred. Everything outside both lists is never hidden: names, chips, headers,
+ *    timestamps, queue lines, selects, chart rows, settings labels.
+ *  - `always`: structured fields, marked in the renderer with data-streamer-field="<kind>", that ALWAYS hold one type
+ *    (the usage panel's account email, folder/path fields, IP/host fields, API key fields). Wholly blurred while their
+ *    type is on, and wholly visible while it is off; never pattern-matched. */
+export const STREAMER_ZONES = {
+  freeform: ['.md', '.msg', '.msgtext', '.mailer-body', '.turn-mail-body', '.docket-desc-body', '.event-prose', '.compaction-summary',
+    '.thoughtbody', '.ask-q', '.answered-qbody', 'pre', 'code', '.tool-live-output', '.filepre', '.typed-input', '.trunc-note', '[data-streamer-freeform]'].join(','),
+  always: { email: 'emails', path: 'paths', ip: 'ips', secret: 'secrets', external: 'externals', org: 'orgs' } as Record<string, StreamerType>,
+} as const
+// Content surfaces that cannot be pattern-matched: sandboxed HTML apps, HTML presentations, video. Images are NOT hidden.
+// The canvas's wire <canvas>, its edges <svg> and every icon are app chrome: covering them hid the whole canvas behind one
+// opaque slab (USER 2026-11-03 m84db138f69e6 "i cant see anything at all").
+const OPAQUE = 'iframe,video,object,embed'
 // Masked values are BLURRED in place (USER 2026-11-03 m4f8233662107 "make it blur things"): same box, no reflow.
 // ::highlight takes no `filter`, so text is drawn as transparent glyphs plus a heavy blurred shadow of the glyphs;
 // the radius is in em so it scales with the text and with zoom (0.7em ~ 9 px at 13 px: a 4-character token is a
 // featureless smudge at 100% and 200% zoom, measured in the capture). Two stacked shadows keep a faint token visible.
 export const BLUR_EM = 0.7
 const SMUDGE = `0 0 ${BLUR_EM}em #686868,0 0 ${BLUR_EM}em #686868`
-// Media is blurred with `filter` (clipped to its own box). A window that cannot apply it falls back to the opaque cover.
-export const MEDIA_BLUR_PX = 24
 const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:transparent!important;text-shadow:${SMUDGE}!important}
 html.streamer-on ::selection{color:transparent!important;text-shadow:none!important;background:#686868!important}
-html.streamer-on input:not([type=file]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),
-html.streamer-on textarea,html.streamer-on select:not([data-streamer-safe]),html.streamer-on [contenteditable=true]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
-html.streamer-on input::placeholder,html.streamer-on textarea::placeholder{color:transparent!important}
-html.streamer-on input::-webkit-datetime-edit{color:transparent!important}
-html.streamer-on input[type=color]::-webkit-color-swatch{background:#686868!important}
-html.streamer-on *{background-image:none!important}
-html.streamer-on *::before,html.streamer-on *::after{content:none!important}
-html.streamer-on:not(.streamer-blur) :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
-html.streamer-on.streamer-blur :is(${OPAQUE}):not([data-streamer-revealed]){filter:blur(${MEDIA_BLUR_PX}px)!important;clip-path:inset(0)!important}
+html.streamer-on [data-streamer-blur]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
+html.streamer-on [data-streamer-blur]::placeholder{color:transparent!important}
+html.streamer-on:not(.streamer-nocover) :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
 html.streamer-textless body :not([data-streamer-ui],[data-streamer-ui] *){color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}
 [data-streamer-ui]{font:13px system-ui!important;color:#fff!important;-webkit-text-fill-color:#fff!important;background:#292929!important;text-shadow:none!important;box-sizing:border-box!important}
 [data-streamer-ui] button{color:var(--ink)!important;-webkit-text-fill-color:currentColor!important;background:var(--input)!important;border:1px solid var(--line)!important;border-radius:4px;cursor:pointer}
@@ -41,7 +56,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const win = doc.defaultView as HighlightWindow | null
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
-  let active = false, known: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
+  let active = false, types: StreamerTypes = { ...DEFAULT_STREAMER_TYPES }, coverOn = true, orgNames: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
   let lastEnd = 0, lastCost = 0, timer = 0
   const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>(), tinyEls = new Set<Element>()
   // Icon-sized media (avatars, logos, glyph images) is hidden without a cover:
@@ -82,8 +97,8 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     Object.assign(cover.style, { left: `${left}px`, top: `${top}px`, width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px` })
   }
   function restore() {
-    doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-blur')
-    for (const el of doc.querySelectorAll('select[data-streamer-safe]')) el.removeAttribute('data-streamer-safe')
+    doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-nocover')
+    for (const el of doc.querySelectorAll('[data-streamer-blur]')) el.removeAttribute('data-streamer-blur')
     win?.CSS?.highlights?.delete('streamer-sensitive')
     for (const cover of covered.values()) cover.remove()
     covered.clear()
@@ -130,43 +145,42 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       autocomplete.delete(el)
     }
     doc.documentElement.classList.add('streamer-on')
-    // Media blur needs `filter`; a window without it keeps the opaque cover (fail closed).
-    const blurOk = !!win?.CSS?.supports?.('filter', 'blur(1px)') && !!win.CSS.supports('clip-path', 'inset(0)')
-    doc.documentElement.classList.toggle('streamer-blur', blurOk)
+    doc.documentElement.classList.toggle('streamer-nocover', !coverOn)
+    const enabledType = (kind: string | undefined) => { const type = kind ? STREAMER_ZONES.always[kind] : undefined; return !!type && types[type] }
+    // Always-fields hold one type for sure: an input-like one is blurred through CSS (its value is not text), others by range below.
+    for (const el of doc.querySelectorAll('[data-streamer-field]')) {
+      const on = enabledType(el.getAttribute('data-streamer-field') ?? undefined)
+      if (el.matches('input,textarea,select,[contenteditable=true]')) el.toggleAttribute('data-streamer-blur', on)
+    }
     const supported = !!win?.Highlight && !!win.CSS?.highlights
     // Masking fails per value, never per window: unready identities keep the
     // pattern and known-value masks; without the Highlight API only text paint
     // is withheld, and layout, controls and the Turn off button stay usable.
     doc.documentElement.classList.toggle('streamer-textless', !supported)
-    bannerLabel.textContent = (!supported ? 'Streamer mode — text hidden: this window cannot mask single values'
-      : ready ? 'Streamer mode' : 'Streamer mode — some account names may still be visible') + (note ? ` — ${note}` : '')
+    bannerLabel.textContent = (!supported ? 'Streamer mode — text hidden: this window cannot mask single values' : 'Streamer mode') + (note ? ` — ${note}` : '')
     if (!banner.isConnected) doc.body.appendChild(banner)
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
-    // A closed select shows its value unless that value is sensitive (USER
-    // 2026-11-03 m761e635eb242 "Yes, only sensitive"); unreadable or unsure
-    // (identities not loaded) stays hidden.
-    for (const el of doc.querySelectorAll('select')) {
-      const text = [...(el as HTMLSelectElement).options].filter(o => o.selected).map(o => o.textContent ?? '').join('\n').trim()
-      el.toggleAttribute('data-streamer-safe', ready && !!text && sensitiveSpans(text, known).length === 0)
-    }
     for (const el of doc.querySelectorAll('input,textarea,select')) {
       const value = el.getAttribute('autocomplete')
       if (value !== 'off') { autocomplete.set(el, value); el.setAttribute('autocomplete', 'off') }
     }
     for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
       if (el.closest('[data-streamer-ui]')) continue
+      const field = el.closest('[data-streamer-field]')
+      const inFree = !field && !!el.closest(STREAMER_ZONES.freeform)
       for (const key of ['title', 'alt', 'aria-label']) {
         const value = el.getAttribute(key)
-        if (value && value !== STREAMER_HIDDEN) {
+        // a label inside an always-field is hidden with it; in free-form it is hidden only if it matches an enabled type
+        if (value && value !== STREAMER_HIDDEN && (field ? enabledType(field.getAttribute('data-streamer-field') ?? undefined) : inFree && sensitiveSpans(value, types, orgNames).length > 0)) {
           let attrs = attributes.get(el); if (!attrs) { attrs = new Map(); attributes.set(el, attrs) }
           attrs.set(key, value); el.setAttribute(key, STREAMER_HIDDEN)
         }
       }
     }
-    for (const [el, cover] of covered) if (!el.isConnected) { cover.remove(); covered.delete(el) }
+    for (const [el, box] of covered) if (!el.isConnected || !coverOn) { box.remove(); covered.delete(el) }
     for (const el of revealed) if (!el.isConnected) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
     for (const el of doc.querySelectorAll(OPAQUE)) {
-      if (blurOk) continue // blurred in place by CSS; no cover, no box
+      if (!coverOn) continue
       if (el.closest('[data-streamer-ui]') || revealed.has(el) || covered.has(el) || el.parentElement?.closest(OPAQUE)) continue
       if (isTiny(el)) { tinyEls.add(el); continue }
       const cover = doc.createElement('div'); cover.dataset.streamerUi = ''; cover.dataset.streamerCover = ''
@@ -181,12 +195,15 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     }
     if (!frame) position()
     if (!supported) return
-    const nodes: { node: Text; start: number; end: number }[] = []
+    const nodes: { node: Text; start: number; end: number }[] = [], whole: Text[] = []
     let text = '', block: Element | null = null
     const walker = doc.createTreeWalker(doc.body, 4)
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const node = n as Text, parent = node.parentElement
       if (!parent || parent.closest('script,style,textarea,select,[contenteditable=true],[data-streamer-ui]')) continue
+      const field = parent.closest('[data-streamer-field]')
+      if (field) { if (enabledType(field.getAttribute('data-streamer-field') ?? undefined)) whole.push(node); continue }
+      if (!parent.closest(STREAMER_ZONES.freeform)) continue
       // a KaTeX formula is two copies of its text (a hidden MathML half with the TeX annotation, then the visible HTML half):
       // each is its own run, or a key matches across the seam and the mask lands on the wrong glyphs (spec R10)
       const nextBlock = parent.closest('p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html')
@@ -196,7 +213,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     }
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
-    for (const span of sensitiveSpans(text, known)) {
+    for (const span of sensitiveSpans(text, types, orgNames)) {
       while (nodes[firstIndex] && nodes[firstIndex]!.end <= span.start) firstIndex++
       lastIndex = Math.max(firstIndex, lastIndex)
       while (nodes[lastIndex] && nodes[lastIndex]!.end < span.end) lastIndex++
@@ -208,11 +225,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     // symbol swaps all change what is drawn. A sensitive match anywhere in the source masks the whole visible half (spec R10, D3).
     for (const ann of doc.querySelectorAll('.katex annotation[encoding="application/x-tex"]')) {
       const source = ann.textContent ?? ''
-      if (!source || ann.closest('[data-streamer-ui]') || !sensitiveSpans(source, known).length) continue
+      if (!source || ann.closest('[data-streamer-ui]') || !ann.closest(STREAMER_ZONES.freeform) || !sensitiveSpans(source, types, orgNames).length) continue
       const html = ann.closest('.katex')?.querySelector('.katex-html')
       if (!html) continue
       const range = doc.createRange(); range.selectNodeContents(html); ranges.push(range)
     }
+    for (const node of whole) { if (!node.data.trim()) continue; const range = doc.createRange(); range.selectNodeContents(node); ranges.push(range) }
     win!.CSS!.highlights!.set('streamer-sensitive', new win!.Highlight!(...ranges))
   }
   const observer = new win.MutationObserver(records => {
@@ -229,7 +247,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   doc.addEventListener('change', onChange, true)
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {
-    update(on, values = [], hydrated = true, why = '') { if (!on) { active = false; restore(); return } active = true; known = values; ready = hydrated; note = why; scan() },
+    update(on, config) { if (!on) { active = false; restore(); return } active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; scan() },
     dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); restore(); style.remove() },
   }
 }
