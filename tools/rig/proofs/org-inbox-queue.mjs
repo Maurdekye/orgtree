@@ -26,7 +26,7 @@ export default async function (rig) {
   const hub = (op, args = {}) => rig.api('POST', '/api/rig/hub-mail', { org: rig.org, op, ...args })
   const node = name => rig.one(`SELECT id, name, kind, scope FROM ot.agents WHERE org_id=(SELECT id FROM ot.orgs WHERE slug='${rig.org}' AND state='active') AND name='${name}'`)
   const mailTo = name => rig.sql(`SELECT id, uid, sender, state, body, extra FROM ot.mail WHERE recipient_agent_id=${node(name).id} ORDER BY id`)
-  const tryTool = (who, tool, args) => rig.tool(who, tool, args).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
+  const tryTool = (who, tool, args) => rig.tool(who, tool, args).then(r => ({ ok: !!r.ok, v: r.json ?? r.text, error: r.ok ? '' : String(r.text ?? '') }), e => ({ ok: false, error: String(e.message ?? e) }))
 
   // ------------------------------------------------------------ the front door: a project with two workers
   await rig.op({ op: 'create_project', name: 'door', parent: null, description: 'Front door.' })
@@ -56,7 +56,7 @@ export default async function (rig) {
   p.check('several replies are allowed before the ack', reply2.ok, reply2)
 
   // the peer answers THAT reply: it goes to wa alone (simulate the hub id the offline rig never assigns)
-  rig.sql(`UPDATE ot.org_inbox SET net_id='out1' WHERE uid='${out.uid}'`)
+  rig.exec(`UPDATE ot.org_inbox SET net_id='out1' WHERE uid='${out.uid}'`)
   const before = rig.sql('SELECT id FROM ot.mail').length
   await hub('inbound', { id: 'in2', body: 'Order 1234.', reply_to: 'out1' })
   await rig.waitFor(() => mailTo('wa').some(m => m.body === 'Order 1234.'), { what: 'the answer reaches wa', timeout: 30000 })
