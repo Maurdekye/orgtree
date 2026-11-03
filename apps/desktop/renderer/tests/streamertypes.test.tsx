@@ -120,6 +120,29 @@ test('opaque cover follows its switch; images are never hidden', async () => {
   } finally { boundary.dispose(); dom.window.close() }
 })
 
+test('agent status summaries are free-form wherever they render (tray/attention rows, status chips, tooltips); the agent name beside them never blurs', () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  doc.body.innerHTML = `<div class="tray-row"><span class="tray-name">reader@example.test</span>
+    <div class="tray-sum" title="idle: mail reader@example.test now"><span class="tray-sum-text">idle: <span class="md md-inline">mail reader@example.test now</span></span></div>
+    <div class="progress-summary">reported password=k3Y9 done</div>
+    <span class="statuschip idle" data-streamer-freeform="" title="password=k3Y9">Idle</span>
+    <span class="statusdot idle" data-streamer-freeform="" title="a harmless summary"></span>
+    <span class="statusdot idle" title="reader@example.test">unmarked structured dot</span></div>`
+  try {
+    boundary.update(true, cfg({ emails: true, secrets: true }))
+    assert.deepEqual(hidden(registry).sort(), ['password=k3Y9', 'reader@example.test'].sort().concat([]).sort(), 'summary text blurs (the name in .tray-name does not): ' + JSON.stringify(hidden(registry)))
+    const title = (sel: string) => doc.querySelector(sel)!.getAttribute('title')
+    assert.equal(title('.tray-sum'), 'Hidden in Streamer mode', 'the summary tooltip on the row')
+    assert.equal(title('.statuschip'), 'Hidden in Streamer mode', 'a matching status tooltip')
+    assert.equal(doc.querySelectorAll('.statusdot')[0]!.getAttribute('title'), 'a harmless summary', 'a tooltip with nothing to hide stays')
+    assert.equal(doc.querySelectorAll('.statusdot')[1]!.getAttribute('title'), 'reader@example.test', 'an unmarked structured element is never touched')
+    boundary.update(true, cfg({}))
+    assert.deepEqual(hidden(registry), [])
+    assert.equal(title('.tray-sum'), 'idle: mail reader@example.test now', 'switching the types off restores the tooltip live')
+    assert.equal(title('.statuschip'), 'password=k3Y9')
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
