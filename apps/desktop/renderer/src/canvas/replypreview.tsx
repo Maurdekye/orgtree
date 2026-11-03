@@ -49,8 +49,8 @@ export function ReplyPreviewDisclosure({ count, counted = false, children }: {
 }
 
 /** The same annotation frame for transcript references and stored mail snapshots. */
-export function ReplyPreviewFrame({ label, action, onRemove, children, unavailable, onActivate, actionTitle, menuEntries, onOpenMenu, frameRef }: {
-  label: string; action: ReactNode; frameRef?: Ref<HTMLElement>; onRemove?: () => void; children: ReactNode; unavailable?: string
+export function ReplyPreviewFrame({ label, action, onRemove, children, unavailable, onActivate, actionTitle, menuEntries, onOpenMenu, frameRef, floatRemove }: {
+  label: string; action: ReactNode; frameRef?: Ref<HTMLElement>; floatRemove?: boolean; onRemove?: () => void; children: ReactNode; unavailable?: string
   onActivate?:()=>void; actionTitle?:string
   menuEntries?: MenuEntry[] | ((anchor: HTMLElement) => MenuEntry[])
   onOpenMenu?: (anchor: HTMLElement, opening: number, menu: ContextMenuHandle) => void
@@ -74,10 +74,11 @@ export function ReplyPreviewFrame({ label, action, onRemove, children, unavailab
       e.stopPropagation()
       if (opening !== undefined) onOpenMenu?.(anchor, opening, menu)
     } : e => e.stopPropagation()}>
-    {(action || onRemove) && <div className="reply-preview-head">
+    {(action || (onRemove && !floatRemove)) && <div className="reply-preview-head">
       {action}
-      {onRemove && <button type="button" aria-label="Remove reply" onClick={onRemove}>×</button>}
+      {onRemove && !floatRemove && <button type="button" aria-label="Remove reply" onClick={onRemove}>×</button>}
     </div>}
+    {onRemove && floatRemove && <button type="button" className="reply-preview-remove" aria-label="Remove reply" onClick={onRemove}>×</button>}
     {children}
     {unavailable && <span className="dim">{unavailable}</span>}
     {menu.node}
@@ -115,13 +116,14 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
 
   // With a loaded source the jump link rides in the quoted block's own header
   // row, at its right end (USER 2026-11-03 m3db1ac4251e4), instead of a line
-  // above it. The header is the source card's (`.reply-source-meta` or
-  // `.event-head`); a slot is appended to it and the link portalled in. A
-  // composer draft keeps its control strip (jump + remove together) and a
-  // quote with no header of its own keeps the link in the block's head row.
+  // above it, in the composer too (the draft's x then floats alone at the
+  // block's top right corner). The header is the source card's
+  // (`.reply-source-meta` or `.event-head`); a slot is appended to it and
+  // the link portalled in. A quote with no header of its own keeps the link
+  // (and a draft its x) in the block's head row.
   const frameRef = useRef<HTMLElement>(null)
   const [slot, setSlot] = useState<HTMLElement | null>(null)
-  const inline = Boolean(source) && !onRemove
+  const inline = Boolean(source)
   useLayoutEffect(() => {
     const header = inline ? frameRef.current?.querySelector<HTMLElement>(
       '.reply-preview-content .reply-source-meta, .reply-preview-content .event-head') : null
@@ -211,7 +213,7 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
         <ReplyIcon className="reply-preview-jump-icon" aria-hidden="true" focusable="false" fontSize="inherit" />
         <span>{reply.docId?doc.label:'jump to message'}</span>
       </button>
-  return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef}
+  return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef} floatRemove={Boolean(slot)}
     onActivate={reachable?onLocate:undefined} actionTitle={actionTitle}
     menuEntries={buildMenu} onOpenMenu={onOpenMenu}
     unavailable={reply.docId?(!doc.ready?doc.why:undefined):!available ? (source ? 'Original event is not visible in this conversation.'

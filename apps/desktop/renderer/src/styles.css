@@ -10473,3 +10473,14 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .reply-jump-slot { display: inline-flex; align-items: center; flex: none; margin-left: auto; }
 .reply-source-meta time ~ .reply-jump-slot { margin-left: 8px; }
 .reply-jump-slot .reply-preview-jump { padding: 0 4px; }
+
+/* a composer draft whose quoted source has a header: the jump link joined that
+   header, so the x floats alone at the block's top right corner (no row above
+   the header) and the header keeps clear of it */
+.reply-preview-composing { position: relative; }
+.reply-preview > .reply-preview-remove {
+  position: absolute; top: 3px; right: 5px; margin: 0; padding: 0 5px; z-index: 1;
+  border: 0; background: transparent; color: var(--dim); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.reply-preview > .reply-preview-remove:hover { color: var(--ink-strong); }
+.reply-preview-composing .reply-preview-content :is(.reply-source-meta, .event-head) { padding-right: 22px; }
