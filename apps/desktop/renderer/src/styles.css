@@ -6499,6 +6499,11 @@ svg.MuiSvgIcon-root {
    default, so one clickable word does not make the line taller than its
    neighbours */
 .tray-sum .ref-chip { font-size: inherit; padding: 0 3px; }
+/* the summary's Markdown stays ON the one line (spec C13): .md sets white-space: normal and .md-inline is
+   inline-block, which let the row grow to ~200 px and clipped the text. Here it is plain inline text, so the
+   ellipsis on .tray-sum-text clips it like any other summary; a list or display formula flattens inline. */
+.tray-sum-text .md-inline { display: inline; max-width: none; white-space: inherit; }
+.tray-sum-text .md-inline :is(p, ul, ol, li, blockquote, pre, .katex-display) { display: inline; margin: 0; padding: 0; }
 /* THE STATUS LINE IS ONE LINE, whatever the "wrap object mentions" setting says (USER 2026-10-28 10:59:43Z
    m06a44d7adc0c "the status text shouldnt run into multiple rows"). That setting makes a ticket, presentation, app or
    panel link an inline fragment that wraps (display: inline; white-space: normal), which beat this row's nowrap: a

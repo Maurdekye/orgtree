@@ -2,10 +2,15 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { AgentTray } from '../src/canvas/agenttray'
 import { ProgressView } from '../src/canvas/progress'
 import type { CanvasNode } from '../src/canvas/shared'
 import { RICH, expectRich, refs } from './fixtures/richformat'
+
+// the runner defines __SRC_DIR__ (bundles run from node_modules/.orgtree-tests)
+declare const __SRC_DIR__: string
 
 test('RT-C13 the agent tray status summary renders rich text (inline)', async t => {
   const node = { id: 'alpha', state: 'live', kind: 'agent', tier: 'sonnet', children: [], turns: [],
@@ -41,4 +46,10 @@ test('RT-C14 the progress panel renders the todo content and the reported summar
   const summary = view.el.querySelector('.progress-summary')
   assert.ok(summary, 'the reported summary rendered')
   expectRich(summary!)
+})
+
+test('RT-C13b the tray summary stays one ellipsis-clipped line: its Markdown is inline text, not an inline-block', async () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.tray-sum-text \.md-inline \{[^}]*display: inline;[^}]*white-space: inherit/,
+    'the tray summary overrides .md-inline (inline-block) and .md (white-space: normal)')
 })
