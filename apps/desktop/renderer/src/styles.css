@@ -10549,3 +10549,9 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 }
 .reply-preview > .reply-preview-remove:hover { color: var(--ink-strong); }
 .reply-preview-composing .reply-preview-content :is(.reply-source-meta, .event-head) { padding-right: 22px; }
+
+/* rich text drawn inside a line or list entry (spec R4): a list or display
+   formula wraps below the bullet text instead of breaking the row */
+.md-inline { display: inline-block; vertical-align: top; max-width: 100%; }
+.md-inline > :first-child { margin-top: 0; }
+.md-inline > :last-child { margin-bottom: 0; }

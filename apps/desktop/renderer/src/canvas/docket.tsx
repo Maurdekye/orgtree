@@ -56,13 +56,15 @@ import { AgentName, nodeTierOf } from './identity'
 import { DocketSelection, DocketSelectionContext } from './docketselection'
 import { MailReplyBox } from './mail'
 import { sendLinkedReply } from '../events/reply'
-import { jumpKey, useEsc } from './shared'
+import { inlineMd, jumpKey, md, useEsc } from './shared'
+import { RefMdBody } from './refmd'
+import type { MentionWorld } from './refmd'
 import { ageTitle, ListAge } from './listage'
 import { useWorkItems, useSelectedWork } from './useworkitems'
 import { fmtAge, fmtFull } from '../timefmt'
 import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
-import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
+import { ForegroundViewContext, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { useContextMenu } from './contextmenu'
 import { useRowCopy } from './rowcopy'
@@ -2376,8 +2378,8 @@ export function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, 
         : <ul className={'docket-list-items mark-' + mark}>
             {items.map((t, i) => (
               <li key={i}>
-                <DocketSelection field={mark==='done'?'done_so_far':'working_on_next'} text={t} entry={i}><RefProse text={t} world={refWorld} onOpen={onOpenRef}
-                  index={refIndex} onPick={onGoToItem} /></DocketSelection>
+                <DocketSelection field={mark==='done'?'done_so_far':'working_on_next'} text={t} entry={i} format="markdown"><DocketRich inline text={t} refWorld={refWorld} onOpenRef={onOpenRef}
+                  mentions={refIndex.size ? { index: refIndex, onPick: onGoToItem } : null} /></DocketSelection>
               </li>
             ))}
           </ul>}
@@ -2386,11 +2388,24 @@ export function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, 
   )
 }
 
+/** One shared rich-text node for docket prose (spec R1/R4): Markdown, LaTeX and
+ *  mention chips through the same pipeline as every other surface. `inline`
+ *  is for text drawn inside a line or list entry. */
+function DocketRich({ text, inline = false, refWorld, onOpenRef, mentions, className }: {
+  text: string; inline?: boolean; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void
+  mentions?: MentionWorld | null; className?: string
+}) {
+  const html = useMemo(() => inline ? inlineMd(text) : md(text), [text, inline])
+  return <RefMdBody el={inline ? 'span' : 'div'} className={['md', inline && 'md-inline', className].filter(Boolean).join(' ')}
+    html={html} world={refWorld} onOpen={onOpenRef} mentions={mentions} />
+}
+
 /** The blocked / waiting / dropped reason. */
 export function DocketStateReason({ field, text, refWorld, onOpenRef }: {
   field: string; text: string; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void
 }) {
-  return <DocketSelection field={field} text={text}><div className="docket-desc-body">{text}</div></DocketSelection>
+  return <DocketSelection field={field} text={text} format="markdown">
+    <DocketRich className="docket-desc-body" text={text} refWorld={refWorld} onOpenRef={onOpenRef} /></DocketSelection>
 }
 
 /** Evidence notes (item pane). */
@@ -2399,7 +2414,8 @@ export function DocketEvidenceNotes({ item, refWorld, onOpenRef }: {
 }) {
   if (!(item.evidence ?? []).some(ev => ev.note)) return null
   return <DocketSection title="EVIDENCE NOTES"><ul>{(item.evidence ?? []).map((ev, i) => ev.note
-    ? <li key={i}><code>{ev.ref}</code>{' · '}<DocketSelection field="evidence.note" text={ev.note} entry={i}>{ev.note}</DocketSelection></li> : null)}</ul></DocketSection>
+    ? <li key={i}><code>{ev.ref}</code>{' · '}<DocketSelection field="evidence.note" text={ev.note} entry={i} format="markdown">
+      <DocketRich inline text={ev.note} refWorld={refWorld} onOpenRef={onOpenRef} /></DocketSelection></li> : null)}</ul></DocketSection>
 }
 
 /** The manually raised attention reason. */
@@ -2408,9 +2424,8 @@ export function DocketAttentionReason({ reason, refWorld, onOpenRef, refIndex, o
   refIndex: MentionIndex; onGoToItem?: (id: string) => void
 }) {
   return (
-    <div className="docket-attention-body">
-      <RefProse text={reason} world={refWorld} onOpen={onOpenRef} index={refIndex} onPick={onGoToItem} />
-    </div>
+    <DocketRich className="docket-attention-body" text={reason} refWorld={refWorld} onOpenRef={onOpenRef}
+      mentions={refIndex.size ? { index: refIndex, onPick: onGoToItem } : null} />
   )
 }
 
@@ -2426,7 +2441,7 @@ export function DocketAttentionReason({ reason, refWorld, onOpenRef, refIndex, o
  *  It says nothing about the OUTCOME, because an addendum changes none of it:
  *  the status, the acceptance record, the checks and the evidence on this pane
  *  are still exactly the ones the completion wrote. */
-export function DocketPostCompletion({ item }: { item: WorkItem }) {
+export function DocketPostCompletion({ item, refWorld, onOpenRef }: { item: WorkItem; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void }) {
   const pc = item.post_completion
   if (!pc) return null
   const who = typeof pc.by === 'string' ? pc.by : pc.by?.node
@@ -2440,7 +2455,7 @@ export function DocketPostCompletion({ item }: { item: WorkItem }) {
           {pc.count > 1 && ` · ${pc.count} addenda`}
         </span>
       </div>
-      <div className="docket-post-completion-detail">{pc.note}</div>
+      <div className="docket-post-completion-detail"><DocketRich text={pc.note} refWorld={refWorld} onOpenRef={onOpenRef} /></div>
       <div className="dim docket-post-completion-foot">
         The lists below were corrected after this item was {pc.status}; its
         acceptance record is unchanged.
@@ -2453,7 +2468,7 @@ export function DocketPostCompletion({ item }: { item: WorkItem }) {
  * classification and retain the complete check sequence for auditability.
  * In particular, a crash and an expected blocked-request control must not
  * collapse into a generic green check. */
-export function DocketAcceptance({ item }: { item: WorkItem }) {
+export function DocketAcceptance({ item, refWorld, onOpenRef }: { item: WorkItem; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void }) {
   if (!item.acceptance?.length) return null
   return (
     <DocketSection title="ACCEPTANCE CONDITIONS">
@@ -2467,7 +2482,7 @@ export function DocketAcceptance({ item }: { item: WorkItem }) {
           // earlier-rows list.
           const checks = a.check_history_count ?? (a.check_history?.length ?? 0)
           return <li key={i} className={'docket-acceptance-item' + (cls === 'met' ? ' is-met' : '')}>
-            <div>{a.text}</div>
+            <div><DocketRich inline text={a.text} refWorld={refWorld} onOpenRef={onOpenRef} /></div>
             {c
               ? <div className="dim docket-acceptance-evidence">
                   <span className="badge">{cls ?? 'legacy check'}</span>
@@ -2491,7 +2506,7 @@ export function DocketAcceptance({ item }: { item: WorkItem }) {
 /** The latest integration verdict and review packet are deliberately shown
  * separately from status/acceptance: approving a candidate does not complete
  * the docket item, and a packet belongs only to the current review cycle. */
-export function DocketReviewState({ item }: { item: WorkItem }) {
+export function DocketReviewState({ item, refWorld, onOpenRef }: { item: WorkItem; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void }) {
   const verdict = item.candidate_verdict
   const packet = item.review_packet
   if (!verdict && !packet) return null
@@ -2515,10 +2530,10 @@ export function DocketReviewState({ item }: { item: WorkItem }) {
         </div>
       )}
       {candidate && <div className="docket-review-candidate"><code>{candidate}</code></div>}
-      {note && <div className="docket-review-note">{note}</div>}
+      {note && <DocketRich className="docket-review-note" text={note} refWorld={refWorld} onOpenRef={onOpenRef} />}
       {evidence.length > 0 && (
         <ul className="docket-review-evidence">
-          {evidence.map((ev, i) => <li key={i}><code>{ev.ref}</code>{ev.note ? ` · ${ev.note}` : ''}</li>)}
+          {evidence.map((ev, i) => <li key={i}><code>{ev.ref}</code>{ev.note && <>{' · '}<DocketRich inline text={ev.note} refWorld={refWorld} onOpenRef={onOpenRef} /></>}</li>)}
         </ul>
       )}
       </div>
@@ -2543,7 +2558,7 @@ export function DocketReviewState({ item }: { item: WorkItem }) {
  *  recorded it (the recorder is who a `named` grant authorizes against), so
  *  the user downloads and reads here but does not add — unlike ATTACHMENTS
  *  just below, which are the user's own files on the ticket. */
-export function DocketVerification({ slug, item }: { slug: string; item: WorkItem }) {
+export function DocketVerification({ slug, item, refWorld, onOpenRef }: { slug: string; item: WorkItem; refWorld: RefWorld; onOpenRef?: (r: ResolvedRef) => void }) {
   const receipts = (item.evidence ?? [])
     .map((e, i) => ({ i, e, rc: e.receipt }))
     .filter((r): r is { i: number; e: typeof r.e; rc: WorkReceipt } => !!r.rc)
@@ -2572,13 +2587,13 @@ export function DocketVerification({ slug, item }: { slug: string; item: WorkIte
                 {f.severity && <span className="dim"> {f.severity}</span>}
                 <span className="docket-finding-title"> {f.title}</span>
                 {f.detail && <div className="docket-finding-detail dim">
-                  {f.detail}</div>}
+                  <DocketRich text={f.detail} refWorld={refWorld} onOpenRef={onOpenRef} /></div>}
                 {/* every decision, oldest first — the sequence IS the record */}
                 {f.decisions.length > 0 && (
                   <ol className="docket-finding-decisions dim">
                     {f.decisions.map((d, n) => (
                       <li key={n}>{d.disposition}
-                        {d.note ? ` — ${d.note}` : ''}</li>
+                        {d.note && <>{' — '}<DocketRich inline text={d.note} refWorld={refWorld} onOpenRef={onOpenRef} /></>}</li>
                     ))}
                   </ol>
                 )}
@@ -2968,8 +2983,8 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
               </div>}
         </DocketSection>
       )}
-      <DocketReviewState item={item} />
-      <DocketPostCompletion item={item} />
+      <DocketReviewState item={item} refWorld={refWorld} onOpenRef={onOpenRef} />
+      <DocketPostCompletion item={item} refWorld={refWorld} onOpenRef={onOpenRef} />
       <DocketList heading="DONE SO FAR" items={item.done_so_far} mark="done"
         refIndex={refIndex} onGoToItem={onGoToItem} onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
@@ -2978,8 +2993,8 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
         onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
       <DocketEvidenceNotes item={item} refWorld={refWorld} onOpenRef={onOpenRef} />
-      <DocketAcceptance item={item} />
-      <DocketVerification slug={slug} item={item} />
+      <DocketAcceptance item={item} refWorld={refWorld} onOpenRef={onOpenRef} />
+      <DocketVerification slug={slug} item={item} refWorld={refWorld} onOpenRef={onOpenRef} />
       <DocketAttachments slug={slug} item={item} toast={toast}
         refresh={refresh} />
       {manualAttn && (

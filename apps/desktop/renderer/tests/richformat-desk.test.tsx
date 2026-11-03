@@ -1,4 +1,5 @@
-// C1-C3 (spec §2.2): desk thought body, slash-command output, compaction summary.
+// C1 and C3 (spec §2.2): desk thought body and compaction summary. (C2, slash-command
+// output, was withdrawn by the spec author: CLI machine output stays mention-inert, rev 1.1 D1.)
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,14 +19,6 @@ test('RT-C1 an expanded thought renders Markdown, LaTeX and mentions', async t =
   await inAct(async () => { (view.el.querySelector('button.thoughtline') as HTMLButtonElement).click(); await flush(2) })
   const body = view.el.querySelector('.thoughtbody')
   assert.ok(body, 'the thought opened')
-  expectRich(body!)
-})
-
-test.skip('RT-C2 (awaiting the spec author: deskrefs §7 keeps command output mention-inert) slash-command output renders Markdown, LaTeX and mentions', async t => {
-  const view = await mount({ role: 'system', text: '/context', cmd_out: RICH, seq: 2 } as ChatMessage)
-  t.after(() => view.unmount())
-  const body = view.el.querySelector('.cmdout .msgtext')
-  assert.ok(body)
   expectRich(body!)
 })
 

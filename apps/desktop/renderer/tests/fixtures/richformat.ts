@@ -41,8 +41,8 @@ export function expectRich(root: Element, opts: { mentions?: string[] } = {}) {
   for (const t of opts.mentions ?? ['@alpha', '@proj-one', '@item:t/sample-item', '@doc:t/sample-doc']) {
     assert.ok(tokens.includes(t), `(c) a chip for ${t}; chips present: ${tokens.join(', ') || 'none'}`)
   }
-  const code = root.querySelector('code')
-  assert.ok(code && code.textContent?.includes('@agent-in-code'), '(c) the code span keeps its text')
+  const code = [...root.querySelectorAll('code')].find(c => c.textContent?.includes('@agent-in-code'))
+  assert.ok(code, '(c) the code span keeps its text')
   assert.ok(!code!.querySelector('[data-ref-token]') && !code!.querySelector('.katex'),
     '(c) no chip and no formula inside the code span')
   assert.ok(text.includes('a < b & "c"'), '(d) the literal `a < b & "c"` is visible')
