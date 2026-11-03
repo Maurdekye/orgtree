@@ -1,4 +1,5 @@
 import { setStreamerOrgs, useStreamerMode } from './streamer'
+import { useAttractMode } from './attract/pref'
 import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
 import type { HireDefaultsRequest, SettingsRequest } from './types'
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
@@ -1652,6 +1653,7 @@ export default function App() {
     void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
       toast([`could not open the creation window: ${e.message}`]))
   }, [toast])
+  const attractOn = useAttractMode()
   const shellMenu = (
     <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
       error={orgStatus.error} currentOrg={slug}

@@ -39,7 +39,7 @@ import {
 } from './settingskit'
 import type { SettingsTab, SettingsTarget } from './settingskit'
 import { setStreamerAuto, setStreamerCover, setStreamerMode, setStreamerType, useStreamerMode } from '../streamer'
-import type { StreamerType } from '../../../../packages/contracts/streamer'
+import type { StreamerType } from '../../../../../packages/contracts/streamer'
 import {
   setAttractIdleSeconds, setAttractMode, useAttractIdleSeconds, useAttractMode, validAttractIdle,
   setAttractRefuseQuestions, useAttractRefuseQuestions,
