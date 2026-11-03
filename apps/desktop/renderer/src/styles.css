@@ -956,6 +956,11 @@ button.badge.audience-fold.alert {
   transform: translateX(-50%);
   z-index: calc(3 - var(--tuck-i, 0));
 }
+/* the bottom hire strip starts 1px INSIDE the card and 22px tall, which lay over
+   the 8px stack (build-sol: elementFromPoint at the mini stack centre = .hs-fam,
+   so the click hired instead of expanding). A folded node's strip starts below
+   the stack; the stack is a child of the card, so the hover stays contiguous. */
+.sq:has(> .fold-stack) > .hsof:not(.side) { top: calc(100% + 7px); }
 .fold-tuck.prov-claude { --provider-accent: var(--prov-claude); }
 .fold-tuck.prov-openai { --provider-accent: var(--prov-openai); }
 .fold-tuck.prov-google { --provider-accent: var(--prov-google); }

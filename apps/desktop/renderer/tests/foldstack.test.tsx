@@ -120,3 +120,12 @@ test('each tucked colour keeps a visible band: deeper tucks are narrower, behind
   for (let i = 1; i < 3; i++) assert.ok(bottoms[i]! - bottoms[i - 1]! >= 2, `tuck ${i} shows a band of at least 2px below the one in front`)
   assert.ok(bottoms[2]! <= 8, 'the deepest tuck still ends within the 8px gap')
 })
+
+test('the bottom hire strip clears the stack so a click on the stack reaches it', () => {
+  const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
+  const rule = /\.sq:has\(> \.fold-stack\) > \.hsof:not\(\.side\) \{ top: calc\(100% \+ (\d+)px\); \}/.exec(css)
+  assert.ok(rule, 'a folded node pushes its bottom hire strip down')
+  assert.ok(Number(rule![1]) >= 7, 'at least past the 8px stack minus the strip own 1px overlap')
+  assert.match(css, /\.hsof \{\s*position: absolute; left: 50%;/, 'and the base strip rule it overrides still exists')
+  assert.ok(css.indexOf('.sq:has(> .fold-stack) > .hsof:not(.side)') > css.indexOf('.hsof {'), 'declared after the base rule so it wins')
+})
