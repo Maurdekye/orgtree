@@ -1,7 +1,7 @@
 import { sensitiveSpans, STREAMER_HIDDEN } from '../../../../packages/contracts/streamer'
 
 export interface StreamerBoundary {
-  update(on: boolean, known?: readonly string[], ready?: boolean): void
+  update(on: boolean, known?: readonly string[], ready?: boolean, note?: string): void
   dispose(): void
 }
 // Content surfaces only. The canvas's wire <canvas>, its edges <svg> and every
@@ -32,7 +32,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const win = doc.defaultView as HighlightWindow | null
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
-  let active = false, known: readonly string[] = [], ready = true, originalTitle = doc.title, frame = 0
+  let active = false, known: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
   let lastEnd = 0, lastCost = 0, timer = 0
   const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>(), tinyEls = new Set<Element>()
   // Icon-sized media (avatars, logos, glyph images) is hidden without a cover:
@@ -126,8 +126,8 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     // pattern and known-value masks; without the Highlight API only text paint
     // is withheld, and layout, controls and the Turn off button stay usable.
     doc.documentElement.classList.toggle('streamer-textless', !supported)
-    bannerLabel.textContent = !supported ? 'Streamer mode — text hidden: this window cannot mask single values'
-      : ready ? 'Streamer mode' : 'Streamer mode — some account names may still be visible'
+    bannerLabel.textContent = (!supported ? 'Streamer mode — text hidden: this window cannot mask single values'
+      : ready ? 'Streamer mode' : 'Streamer mode — some account names may still be visible') + (note ? ` — ${note}` : '')
     if (!banner.isConnected) doc.body.appendChild(banner)
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
     // A closed select shows its value unless that value is sensitive (USER
@@ -204,7 +204,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   doc.addEventListener('change', onChange, true)
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {
-    update(on, values = [], hydrated = true) { if (!on) { active = false; restore(); return } active = true; known = values; ready = hydrated; scan() },
+    update(on, values = [], hydrated = true, why = '') { if (!on) { active = false; restore(); return } active = true; known = values; ready = hydrated; note = why; scan() },
     dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); restore(); style.remove() },
   }
 }

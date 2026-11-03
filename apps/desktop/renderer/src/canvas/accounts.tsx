@@ -38,7 +38,7 @@ import {
   SetToggle, useSettingsTarget,
 } from './settingskit'
 import type { SettingsTab, SettingsTarget } from './settingskit'
-import { setStreamerMode, useStreamerMode } from '../streamer'
+import { setStreamerAuto, setStreamerMode, useStreamerMode } from '../streamer'
 import {
   setAttractIdleSeconds, setAttractMode, useAttractIdleSeconds, useAttractMode, validAttractIdle,
 } from '../attract/pref'
@@ -397,6 +397,9 @@ function ModeToggles() {
       <SetToggle label="Streamer mode" field="streamerMode" checked={streamer.enabled}
         onChange={v => { void setStreamerMode(v) }}
         hint="Hides private values on screen (email addresses, account names, paths, keys and addresses) while you share it. Copying, links and agents still use the originals." />
+      {desktop() && <SetToggle label="Turn on automatically while OBS is running" field="streamerAuto" checked={streamer.autoSetting}
+        onChange={v => { void setStreamerAuto(v) }}
+        hint="Turns Streamer mode on when OBS, Streamlabs or XSplit starts and off again when the last one closes, unless you had it on yourself. Turning it off by hand while one runs keeps it off until it restarts." />}
       <SetToggle label="Attract mode" field="attractMode" checked={attract}
         onChange={v => { void setAttractMode(v) }}
         hint="After the quiet time below, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />

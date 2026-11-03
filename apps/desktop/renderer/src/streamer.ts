@@ -9,10 +9,14 @@ const KEY = 'orgtree-streamer-mode'
 const EVENT = 'orgtree:streamer-mode'
 const listeners = new Set<() => void>(), boundaries = new Map<Document, StreamerBoundary>()
 let enabled = false, ready = false, accountReady = false, error = '', started = false, revision = 0
-let snapshot = { enabled, ready, error }
+// `auto`: the OBS automation (not the user) turned the mode on; `autoSetting`: Display's switch (absent = on).
+let auto = false, autoSetting = true
+let snapshot = { enabled, ready, error, auto, autoSetting }
+export const AUTO_NOTE = 'turned on because OBS is running'
+const prefsAuto = (p: unknown) => { const v = (p ?? {}) as { streamerMode?: boolean; streamerAuto?: boolean; streamerAutoActive?: boolean }; return { on: v.streamerMode === true, auto: v.streamerMode === true && v.streamerAutoActive === true, setting: v.streamerAuto !== false } }
 function publish() {
-  snapshot = { enabled, ready, error }
-  for (const boundary of boundaries.values()) boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady())
+  snapshot = { enabled, ready, error, auto, autoSetting }
+  for (const boundary of boundaries.values()) boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady(), enabled && auto ? AUTO_NOTE : '')
   for (const listener of listeners) listener()
 }
 function subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
@@ -21,15 +25,27 @@ export function protectStreamerDocument(doc: Document) {
   const existing = boundaries.get(doc)
   if (existing) return () => {}
   const boundary = installStreamerBoundary(doc, () => { void setStreamerMode(false) }); boundaries.set(doc, boundary)
-  boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady())
+  boundary.update(enabled || !ready, screenKnownValues(), ready && accountReady && screenKnownReady(), enabled && auto ? AUTO_NOTE : '')
   return () => { boundary.dispose(); boundaries.delete(doc) }
 }
-function accept(on: boolean) {
-  revision++; enabled = on; ready = true; error = ''; publish()
+function accept(on: boolean, prefs?: unknown) {
+  revision++; enabled = on; ready = true; error = ''
+  if (prefs !== undefined) { const p = prefsAuto(prefs); auto = p.auto; autoSetting = p.setting }
+  if (!on) auto = false
+  publish()
   if (on && !accountReady) void getAccountRegistry().then(value => {
     rememberScreenValues({ accounts: value.accounts, host_identity: value.host_identity })
     accountReady = true; publish()
   }).catch(() => { error = 'Streamer mode is hiding content because account identities could not be loaded.'; publish() })
+}
+/** Display › "Turn on automatically while OBS is running" (desktop app only: a
+ *  browser tab cannot see the machine's processes). */
+export async function setStreamerAuto(on: boolean) {
+  const bridge = desktop(); if (!bridge) return
+  autoSetting = on; publish()
+  try { const value = await bridge.setPreferences({ streamerAuto: on }); autoSetting = value.streamerAuto !== false }
+  catch { autoSetting = !on }
+  publish()
 }
 export async function setStreamerMode(on: boolean) {
   const bridge = desktop(), attempt = ++revision
@@ -38,7 +54,7 @@ export async function setStreamerMode(on: boolean) {
   try {
     if (bridge) {
       const value = await bridge.setPreferences({ streamerMode: on })
-      if (revision === attempt) accept(value.streamerMode === true)
+      if (revision === attempt) accept(value.streamerMode === true, value)
     } else {
       localStorage.setItem(KEY, on ? 'on' : 'off')
       window.dispatchEvent(new Event(EVENT))
@@ -58,9 +74,9 @@ export function startStreamerMode() {
   let alive = true
   let stopPreference: () => void
   if (bridge) {
-    stopPreference = bridge.onEvent(e => { if (alive && e.type === 'preferences') accept((e.data as { streamerMode?: boolean }).streamerMode === true) })
+    stopPreference = bridge.onEvent(e => { if (alive && e.type === 'preferences') accept((e.data as { streamerMode?: boolean }).streamerMode === true, e.data) })
     const before = revision
-    void bridge.getPreferences().then(p => { if (alive && before === revision) accept(p.streamerMode === true) })
+    void bridge.getPreferences().then(p => { if (alive && before === revision) accept(p.streamerMode === true, p) })
       .catch(() => { if (alive && before === revision) { error = 'Streamer mode preferences could not be loaded. Content remains hidden.'; publish() } })
   } else {
     const read = () => { try { accept(localStorage.getItem(KEY) === 'on') } catch { enabled = true; ready = false; publish() } }
