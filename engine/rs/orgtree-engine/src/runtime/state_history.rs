@@ -240,7 +240,15 @@ pub struct Span {
 /// (None while it is the agent's current state, so it reads "now").
 #[logged]
 pub fn spans(marks: &[Mark], newest_end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Vec<Span> {
-    todo!("spans")
+    let mut end = newest_end;
+    marks
+        .iter()
+        .map(|m| {
+            let span = Span { state: m.state, start: m.at, end, secs: (end.unwrap_or(now) - m.at).num_seconds().max(0) };
+            end = Some(m.at);
+            span
+        })
+        .collect()
 }
 
 /// Seconds spent in each state (indexed like `AgentState::ALL`) inside the
@@ -249,7 +257,17 @@ pub fn spans(marks: &[Mark], newest_end: Option<DateTime<Utc>>, now: DateTime<Ut
 /// before the first recorded mark is unknown and counts for no state.
 #[logged]
 pub fn totals(marks: &[Mark], now: DateTime<Utc>, window_secs: i64) -> [i64; 5] {
-    todo!("totals")
+    let from = now - chrono::Duration::seconds(window_secs);
+    let mut out = [0i64; 5];
+    for span in spans(marks, None, now) {
+        let start = span.start.max(from);
+        let end = span.end.unwrap_or(now).min(now);
+        if end > start {
+            let i = AgentState::ALL.iter().position(|s| *s == span.state).unwrap_or(0);
+            out[i] += (end - start).num_seconds();
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -134,6 +134,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/history", get(history::sources))
         .route("/api/orgs/{slug}/history/{section}", get(history::page))
         .route("/api/orgs/{slug}/nodes/{nid}/history", get(mailbox::history))
+        .route("/api/orgs/{slug}/nodes/{nid}/states", get(mailbox::states))
         .route("/api/orgs/{slug}/nodes/{nid}/detail", get(mailbox::detail))
         .route("/api/orgs/{slug}/nodes/{nid}/reader-availability", get(reader_availability::get))
         .route("/api/orgs/{slug}/defaults", post(settings::save_org_defaults))

@@ -89,6 +89,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0079_org_inbox_delivered_to", include_str!("../migrations/0079_org_inbox_delivered_to.sql")),
     ("0080_mention_recency_outside", include_str!("../migrations/0080_mention_recency_outside.sql")),
     ("0081_batch_client_op", include_str!("../migrations/0081_batch_client_op.sql")),
+    ("0082_convo_state_rows", include_str!("../migrations/0082_convo_state_rows.sql")),
 ];
 
 #[cfg(test)]
@@ -163,6 +164,12 @@ mod numbered_keys_tests {
                      "kind='message'", "'event.fired'", "'panel.started'", "'panel.stopped'"] {
             assert!(sql.contains(part), "the panel history migration does not carry {part}");
         }
+    }
+    #[test]
+    fn convo_state_rows_migration_is_registered() {
+        let (_, sql) = super::MIGRATIONS.iter().find(|(n, _)| *n == "0082_convo_state_rows").expect("registered");
+        assert!(sql.contains("CREATE INDEX convo_state_rows ON ot.convo (agent_id, seq DESC)"));
+        assert!(sql.contains("WHERE body->>'kind' = 'state'"));
     }
     #[test]
     fn batch_client_op_migration_is_registered() {
