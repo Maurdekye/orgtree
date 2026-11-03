@@ -165,7 +165,7 @@ The desk header's **retire** and **dissolve** hover tooltips explain their scope
 
 Team and root menus offer bulk actions. They show the counted targets and report skipped or failed entries. Existing labels such as **all subordinates** cover descendants at every depth while leaving the selected root live; **subtree** includes that root. A project has no running turn itself: control its agent members, or use the relevant team action. For an emergency, see [Operating and troubleshooting](operating-orgtree.md).
 
-The Chat transcript also records the agent's own state changes as compact lines — `Idle · was active 12m`, `Frozen · was active 3m` — so where its time went, and how long it sat halted, frozen, blocked or idle, reads in place. Hover a line for the exact instant that state began.
+The Chat transcript also records the agent's own state changes as compact lines naming the state that just ended and how long it lasted — `Active for 32s`, `Idle for 19s` — so where its time went, and how long it sat halted, frozen, blocked or idle, reads in place. A state that lasted under a second leaves no line (it is still on the States tab). Hover a line for the exact instant the next state began.
 
 Retirement does not complete unfinished docket items. Hand off their owners and next steps first. Archived cards remain visible unless the display option hides them; finding one in the retired list is different from rehiring it.
 

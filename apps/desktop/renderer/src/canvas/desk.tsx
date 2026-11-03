@@ -1,3 +1,4 @@
+import { stateMarkerText } from './statemarker'
 import { effectiveReports } from './shared'
 import { Fragment } from 'react'
 import { focusComposerAutomatically, focusComposerBackground } from '../composerfocus'
@@ -3393,7 +3394,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const dedup = eventDedup()
   // the DURABLE id decides — events/dedup.ts says why the reply id cannot
   const viewMessages = useMemo(() => eventDedup().list(mergeAssistantRows(chat?.messages ?? []),
-    (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id)), [chat?.messages])
+    (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id))
+    // a state marker with nothing to say (the ended state lasted under a second) is not drawn: no row, no gap
+    .filter(m => stateMarkerText(m) !== null), [chat?.messages])
   // …and each surviving row OWNS the other names it answers to: its reply id,
   // and the tool_use_id of every chip it carries. A live tool row and its
   // durable chip have always shared that id, but nothing here claimed it, so
@@ -5513,6 +5516,7 @@ function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBa
   // a state-history row's hover names when its state began, the way every
   // other age on the desk is named (`sinceTitle`/`ageTitle`)
   const stateLabel = m.kind === 'state' && typeof m.state === 'string' ? STATE_LABELS[m.state] : undefined
+  if (stateMarkerText(m) === null) return null  // nothing to say (see stateMarkerText); a popout or preview draws no empty row either
   return (
     <div className={'msg sys' + (m.summary ? ' click' : '')}
       onClick={m.summary ? toggleOpen : undefined}
@@ -5521,7 +5525,7 @@ function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBa
       aria-label={!m.summary && stateLabel ? sinceTitle(m.ts, stateLabel + ' since') : undefined}>
       {m.compact_state
         ? <CompactingLine text={m.text} state={m.compact_state} startedAt={m.compact_started_at} endedAt={m.compact_ended_at} />
-        : m.text}{m.summary && !open ? ' · summary ▶' : ''}
+        : (stateMarkerText(m) ?? m.text)}{m.summary && !open ? ' · summary ▶' : ''}
       {open && m.summary && <div className="compaction-summary-wrap" onClick={e => e.stopPropagation()}>
         <RefMdBody className="compaction-summary md" html={md(m.summary, imgBase)} world={refs?.world} onOpen={refs?.onOpen} />
         <button type="button" className="link compaction-summary-copy" aria-label="Copy summary" title="Copy the summary text"

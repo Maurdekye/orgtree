@@ -19,9 +19,17 @@ Frozen · was active 3m
 Active · was frozen 2h
 ```
 
-The row names the state just entered and the state it ended, with how
-long the ended state lasted (the desk's own age words: `45s`, `12m`,
-`2h`, `3d`). The row's timestamp is the new state's start; hovering it
+The row's stored `text` still names the state just entered and the one it
+ended, but the DESK draws the row from its structured fields
+(`prev_state`, `prev_secs`; USER 2026-11-03 17:37:22Z `m1bfdb3fba01b`):
+"`<Ended state> for <duration>`" (`Active for 32s`, `Idle for 19s`), in the
+desk's own age words (`45s`, `12m`, `2h`, `3d`), never the new state. An
+ended state under one second (`prev_secs` 0) draws no row at all in the
+transcript, the popouts or any preview (no empty line, no gap); the row
+stays in the data and on the States tab. An ended state of unknown start
+shows its name alone, a first row with no ended state shows nothing, and a
+row of an older engine without the fields keeps its own text
+(`canvas/statemarker.ts`). The row's timestamp is the new state's start; hovering it
 names that instant in full ("Idle since …"), like every other age on the
 desk. When the ended state's start is not known (it began before
 recording did), the duration is left out rather than invented
