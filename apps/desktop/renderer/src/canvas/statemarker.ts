@@ -15,9 +15,9 @@ const LABEL: Record<string, string> = {
  *  - a row with no ended state (an agent's very first) has nothing to say: `null`.
  *  - a row of an older engine with no structured fields keeps its own text.
  *  Returns `undefined` for a row that is not a state row. */
-export function stateMarkerText(m: Pick<ChatMessage, 'kind' | 'state' | 'prev_state' | 'prev_secs' | 'text'>): string | null | undefined {
+export function stateMarkerText(m: Partial<Pick<ChatMessage, 'kind' | 'state' | 'prev_state' | 'prev_secs' | 'text'>>): string | null | undefined {
   if (m.kind !== 'state') return undefined
-  if (typeof m.state !== 'string') return m.text
+  if (typeof m.state !== 'string') return m.text ?? ''
   const ended = m.prev_state ? LABEL[m.prev_state] : undefined
   if (!ended) return null
   if (typeof m.prev_secs !== 'number') return ended

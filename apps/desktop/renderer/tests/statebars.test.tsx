@@ -43,7 +43,7 @@ test('the hover reads the exact duration', () => {
 })
 
 test('each state bar uses the status colour its dot uses, through one shared variable', () => {
-  const expect: Record<string, string> = { active: 'var(--ok)', idle: 'var(--dim)', blocked: 'var(--bad)', halted: 'var(--bad)', frozen: 'var(--ice)' }
+  const expect: Record<string, string> = { active: 'var(--state-provider, var(--ok))', idle: 'var(--dim)', blocked: 'var(--bad)', halted: 'var(--bad)', frozen: 'var(--ice)' }
   for (const [state, colour] of Object.entries(expect)) {
     const rule = state === 'idle' ? rules('.agent-states [data-state]') : rules(`.agent-states [data-state="${state}"]`)
     assert.equal(decl(rule, '--state-colour'), colour, `${state} colour`)

@@ -89,3 +89,17 @@ test('edge rows: an unknown start names the ended state alone; a first row with 
   assert.equal(stateMarkerText({ role: 'system', kind: 'state', text: 'Idle · was active 12m' } as ChatMessage), 'Idle · was active 12m')
   assert.equal(stateMarkerText({ role: 'system', kind: 'session', text: 'Session ended' } as ChatMessage), undefined, 'not a state row')
 })
+
+test('an "Active for …" marker carries its ended state for the provider-colour rule; the other states do not turn Active-coloured', async t => {
+  const { readFileSync } = await import('node:fs')
+  const path = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.msg\.sys\[data-ended-state="active"\] \{ color: var\(--agent-accent-text, var\(--accent\)\); \}/)
+  const a = await mountView(<Msg m={stateRow({ prev_state: 'active', prev_secs: 32 })} slug="org" nid="worker" />, el => el)
+  const i = await mountView(<Msg m={stateRow({ state: 'active', prev_state: 'idle', prev_secs: 19 })} slug="org" nid="worker" />, el => el)
+  t.after(() => { a.unmount(); i.unmount() })
+  assert.equal(a.el.querySelector('.msg.sys')?.getAttribute('data-ended-state'), 'active')
+  assert.equal(i.el.querySelector('.msg.sys')?.getAttribute('data-ended-state'), 'idle')
+})
+
+declare const __SRC_DIR__: string

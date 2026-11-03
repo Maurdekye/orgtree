@@ -10527,7 +10527,15 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .agent-states-name { display: inline-flex; align-items: center; gap: 6px; }
 /* one status colour per state, read by the dot and the duration bar alike */
 .agent-states [data-state] { --state-colour: var(--dim); }
-.agent-states [data-state="active"] { --state-colour: var(--ok); }
+/* Active is the agent's PROVIDER colour (USER 2026-11-03 m6443dc36a3f1): the same --prov-* tokens the canvas and desk use,
+   so their per-theme contrast tuning applies; with no provider it keeps the status green */
+.agent-states [data-state="active"] { --state-colour: var(--state-provider, var(--ok)); }
+.agent-states.prov-claude { --state-provider: var(--prov-claude); }
+.agent-states.prov-openai { --state-provider: var(--prov-openai); }
+.agent-states.prov-google { --state-provider: var(--prov-google); }
+.agent-states.prov-openrouter { --state-provider: var(--prov-openrouter); }
+.agent-states.prov-langserver { --state-provider: var(--prov-langserver); }
+.agent-states.prov-muse { --state-provider: var(--prov-muse); }
 .agent-states [data-state="blocked"] { --state-colour: var(--bad); }
 .agent-states [data-state="halted"] { --state-colour: var(--bad); }
 .agent-states [data-state="frozen"] { --state-colour: var(--ice); }
@@ -10535,6 +10543,8 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 /* the duration bar: the track takes the row's width between the time and the duration columns (every bar starts at one left edge and ends at one right edge, so lengths compare across rows and pages) with a log-length fill */
 .agent-states-bar { display: block; width: 100%; min-width: 0; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--dim) 18%, transparent); overflow: hidden; }
 .agent-states .state-bar { display: block; height: 100%; border-radius: 4px; background: var(--state-colour); }
+/* the transcript's "Active for 32s" marker takes the desk's provider accent, as Active does in the States tab */
+.msg.sys[data-ended-state="active"] { color: var(--agent-accent-text, var(--accent)); }
 .agent-states-tail { position: relative; }
 /* the sentinel overlaps the list's last half screen (no layout height), so the next page starts loading before the end shows */
 .agent-states-sentinel { position: absolute; left: 0; right: 0; bottom: 100%; height: 50vh; pointer-events: none; }

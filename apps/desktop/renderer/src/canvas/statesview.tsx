@@ -1,9 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { getAgentStates, type AgentStateSpan, type AgentStateTotals, type AgentStateWord, type AgentStatesPage } from '../api'
-import { onLiveBump } from '../livebus'
-import { useOrgRecordCursor } from '../recordsession'
 import { fmtAge, fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
-import { ageClockNow, subscribeAgeClock } from './desk'
+import { ageClockNow, deriveAgentVisualState, subscribeAgeClock } from './desk'
 import { useLoadWhenSeen } from './loadmore'
 
 const WORDS: AgentStateWord[] = ['active', 'idle', 'blocked', 'halted', 'frozen']
@@ -50,13 +48,62 @@ export const dayKey = (at: string): string => fmtStamp(at).slice(0, 10)
 /** The date divider's label: "Today", else "Nov 2". */
 export const dayLabel = (at: string): string => isToday(at) ? 'Today' : fmtDay(at)
 
+/** The recorded state the node's own live data shows right now, or undefined when it shows none of the five (a queued or
+ *  compacting turn, say): read through the desk's badge derivation, whose precedence the engine's recording copies. Only
+ *  a CHANGE of this while the tab is open adds a row, locally (spec: no engine plumbing). */
+export function liveRecordedState(node: Parameters<typeof deriveAgentVisualState>[0]): AgentStateWord | undefined {
+  switch (deriveAgentVisualState(node).kind) {
+    case 'halted': return 'halted'
+    case 'frozen': return 'frozen'
+    case 'active': return 'active'
+    case 'blocked': return 'blocked'
+    case 'queued': case 'compacting': return undefined
+    default: return 'idle'
+  }
+}
+
+/** A state the agent entered while the tab was open, seen from the renderer's own live node data (never refetched). */
+export interface LiveState { state: AgentStateWord; at: number }
+
+/** The recorded spans with the live transitions applied: the spans fetched on open, the open one closed where the first
+ *  live transition begins, the live ones prepended newest first (the last open). Pure. */
+export function withLive(fetched: AgentStateSpan[], live: LiveState[], nowMs: number): AgentStateSpan[] {
+  if (!live.length) return fetched
+  const ms = (t: number) => new Date(t).toISOString()
+  const fresh: AgentStateSpan[] = live.map((l, i) => {
+    const end = live[i + 1]?.at ?? null
+    return { state: l.state, start: ms(l.at), end: end === null ? null : ms(end),
+      secs: Math.max(0, Math.floor(((end ?? nowMs) - l.at) / 1000)) }
+  }).reverse()
+  const rest = fetched.map((sp, i) => i === 0 && sp.end === null
+    ? { ...sp, end: ms(live[0]!.at), secs: Math.max(sp.secs, Math.floor((live[0]!.at - Date.parse(sp.start)) / 1000)) } : sp)
+  return [...fresh, ...rest]
+}
+
+/** The totals with the time since the page was read added locally (they converge on the next open): the span that was
+ *  open at the read keeps accruing until the first live transition, then each live span does. */
+export function totalsWithLive(base: AgentStateTotals, fetchedAtMs: number, openState: AgentStateWord | null, live: LiveState[], nowMs: number): AgentStateTotals {
+  const out = { ...base }
+  const marks: { state: AgentStateWord; from: number }[] = [
+    ...(openState ? [{ state: openState, from: fetchedAtMs }] : []), ...live.map(l => ({ state: l.state, from: l.at }))]
+  marks.forEach((m, i) => {
+    const to = marks[i + 1]?.from ?? nowMs
+    out[m.state] += Math.max(0, Math.floor((to - m.from) / 1000))
+  })
+  return out
+}
+
 /** The agent's state history in node settings: time per state over the last
- *  24 hours and 7 days, then each span newest first in pages by cursor. The
- *  rows are the engine's own recorded state changes (the desk transcript's
- *  state rows read as spans); nothing here is recorded or computed again. */
-export function AgentStatesView({ slug, nid }: { slug: string; nid: string }) {
-  const cursor = useOrgRecordCursor(slug)
+ *  24 hours and 7 days, then each span newest first, the first page on open and
+ *  older pages as the list scrolls. The rows are the engine's own recorded state
+ *  changes (the desk transcript's state rows read as spans); nothing here is
+ *  recorded or computed again. While the tab is open a state the agent enters
+ *  (`liveState`, read from the node the renderer already holds) is added at the
+ *  top and the open span closed, locally: no polling, no refetch; the next open
+ *  reads the record. `provider` paints Active in the agent's provider colour. */
+export function AgentStatesView({ slug, nid, provider, liveState }: { slug: string; nid: string; provider?: string; liveState?: AgentStateWord | null }) {
   const [first, setFirst] = useState<AgentStatesPage | null>(null)
+  const [fetchedAt, setFetchedAt] = useState(0)
   const [older, setOlder] = useState<AgentStateSpan[]>([])
   const [next, setNext] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -64,25 +111,28 @@ export function AgentStatesView({ slug, nid }: { slug: string; nid: string }) {
   const [olderError, setOlderError] = useState('')
   const olderInFlight = useRef(false)
   const [error, setError] = useState('')
+  const [live, setLive] = useState<LiveState[]>([])
   const identity = useRef(0)
   const nextRef = useRef<string | null>(null)
   nextRef.current = next
-  /** newest page again; older pages read so far stay below it */
+  // what the node showed when the page arrived: only a CHANGE from there is a new state
+  const lastLive = useRef<AgentStateWord | null | undefined>(undefined)
   const loadFirst = useCallback(async () => {
     const request = identity.current
     setBusy(true); setError('')
     try {
       const page = await getAgentStates(slug, nid)
       if (request !== identity.current) return
-      setFirst(page)
-      // an older cursor already walked past this page's tail keeps its place
-      setNext(prev => prev && older.length ? prev : page.next_cursor)
+      setFirst(page); setFetchedAt(Date.now()); setNext(page.next_cursor); setLive([])
+      lastLive.current = liveStateRef.current
     } catch (e) {
       if (request === identity.current) setError(e instanceof Error ? e.message : String(e))
     } finally {
       if (request === identity.current) setBusy(false)
     }
-  }, [slug, nid, older.length])
+  }, [slug, nid])
+  const liveStateRef = useRef(liveState)
+  liveStateRef.current = liveState
   /** the next page by cursor; never two at once, nothing once the cursor is spent */
   const loadOlder = useCallback(async () => {
     const before = nextRef.current
@@ -102,35 +152,41 @@ export function AgentStatesView({ slug, nid }: { slug: string; nid: string }) {
       if (request === identity.current) setLoadingOlder(false)
     }
   }, [slug, nid])
+  // opening the tab always reads the first page fresh (nothing refreshes it after that)
   useEffect(() => {
     ++identity.current
-    setFirst(null); setOlder([]); setNext(null); setOlderError(''); setLoadingOlder(false); olderInFlight.current = false
+    setFirst(null); setOlder([]); setNext(null); setOlderError(''); setLoadingOlder(false); setLive([]); olderInFlight.current = false
+    lastLive.current = undefined
     void loadFirst()
-    const off = onLiveBump(() => { void loadFirst() })
-    return () => { ++identity.current; off() }
+    return () => { ++identity.current }
   }, [slug, nid])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!first || lastLive.current === undefined) return
+    if (!liveState || liveState === lastLive.current) return
+    lastLive.current = liveState
+    setLive(prev => [...prev, { state: liveState, at: Date.now() }])
+  }, [liveState, first])
   // the shared second: the open span grows with the clock, never shrinks below the server's reading
   const nowSec = useSyncExternalStore(subscribeAgeClock, ageClockNow)
+  const nowMs = nowSec * 1000
   const secsOf = (s: AgentStateSpan) => s.end ? s.secs
     : Math.max(s.secs, nowSec - Math.floor(Date.parse(s.start) / 1000))
-  const seen = useRef(cursor)
-  useEffect(() => {
-    if (cursor && seen.current && seen.current !== cursor) void loadFirst()
-    seen.current = cursor
-  }, [cursor])  // eslint-disable-line react-hooks/exhaustive-deps
-  const spans = [...(first?.states ?? []), ...older]
+  const spans = [...withLive(first?.states ?? [], live, nowMs), ...older]
+  const openAtFetch = first?.states[0] && first.states[0].end === null ? first.states[0].state : null
   // the sentinel arms while a page is left and the last attempt did not fail; a new cursor or a longer list re-arms it,
   // so a page that leaves the end in view loads the next at once
   const sentinel = useRef<HTMLDivElement>(null)
   useLoadWhenSeen(sentinel, next && !olderError ? `${next}:${spans.length}` : null, () => { void loadOlder() })
-  return <section className="agent-states" aria-label={`${nid}'s state history`}>
-    <div className="agent-states-head"><span className="dim">State history</span>
-      <button disabled={busy} onClick={() => { setOlder([]); setOlderError(''); void loadFirst() }}>Refresh</button></div>
-    {first?.totals && <div className="agent-states-totals">
-      <TotalsLine label="Last 24 hours" totals={first.totals.h24} />
-      <TotalsLine label="Last 7 days" totals={first.totals.d7} />
+  const totals = first?.totals && live.length
+    ? { h24: totalsWithLive(first.totals.h24, fetchedAt, openAtFetch, live, nowMs), d7: totalsWithLive(first.totals.d7, fetchedAt, openAtFetch, live, nowMs) }
+    : first?.totals
+  return <section className={'agent-states' + (provider ? ` prov-${provider}` : '')} aria-label={`${nid}'s state history`}>
+    <div className="agent-states-head"><span className="dim">State history</span></div>
+    {totals && <div className="agent-states-totals">
+      <TotalsLine label="Last 24 hours" totals={totals.h24} />
+      <TotalsLine label="Last 7 days" totals={totals.d7} />
     </div>}
-    {error && <p role="alert">Could not load state history: {error}</p>}
+    {error && <p role="alert">Could not load state history: {error}{' '}<button onClick={() => void loadFirst()}>Retry</button></p>}
     {busy && !first && <p role="status" className="dim">Loading state history…</p>}
     {first && spans.length === 0 && <p className="dim">No state changes recorded yet.</p>}
     <ol className="agent-states-list">{spans.map((s, i) => {

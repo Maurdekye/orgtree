@@ -64,7 +64,7 @@ import { AgentHistoryView } from './historyview'
 import { AgentDirectoryProvider, nodeTierOf, TierChip } from './identity'
 import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
-import { AgentStatesView } from './statesview'
+import { AgentStatesView, liveRecordedState } from './statesview'
 import { slotCount } from './slots'
 import { ProjectPolicyFields } from './projectpolicy'
 import { projectThemeFromNode } from '../projecttheme'
@@ -1978,7 +1978,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         </SettingsTabPanel>}
         <SettingsTabPanel id="states" idBase={tabId} active={tab === 'states'}
           className="app-settings-panel agent-history-tab">
-          {tab === 'states' && <AgentStatesView slug={slug} nid={node.id} />}
+          {tab === 'states' && <AgentStatesView slug={slug} nid={node.id} provider={providerOf(node.tier ?? '')} liveState={liveRecordedState(node)} />}
         </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
             grant is legal either way, so this warns, never blocks */}

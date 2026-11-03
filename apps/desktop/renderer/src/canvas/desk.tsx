@@ -5519,6 +5519,7 @@ function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBa
   if (stateMarkerText(m) === null) return null  // nothing to say (see stateMarkerText); a popout or preview draws no empty row either
   return (
     <div className={'msg sys' + (m.summary ? ' click' : '')}
+      data-ended-state={m.kind === 'state' ? m.prev_state : undefined}
       onClick={m.summary ? toggleOpen : undefined}
       title={m.summary ? (open ? 'collapse' : 'read the compaction summary')
         : stateLabel ? sinceTitle(m.ts, stateLabel + ' since') : undefined}

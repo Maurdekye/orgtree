@@ -3,7 +3,7 @@
 import { flush, inAct, mountView } from './harness'
 import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { AgentStatesView } from '../src/canvas/statesview'
+import { AgentStatesView, liveRecordedState, totalsWithLive, withLive } from '../src/canvas/statesview'
 import { setDisplayZone } from '../src/timefmt'
 
 const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })
@@ -144,6 +144,83 @@ test('the bar track fills the row between the time and the duration columns', as
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   assert.match(css, /\.agent-states-list li \{[^}]*grid-template-columns: 88px 40px minmax\(0, 1fr\) 56px/, 'fixed label, time, and duration columns around a 1fr track')
   assert.match(css, /\.agent-states-bar \{[^}]*width: 100%/, 'the track is the whole 1fr cell, not a fixed 90px')
+})
+
+// USER 2026-11-03 17:39:40Z mb71bc6df4882: no Refresh button; the tab reads the first page fresh on open and is then
+// kept current from the node data the renderer already holds, locally, with no polling and no refetch.
+test('there is no Refresh button, and a live state change adds a row and closes the open span without fetching again', async t => {
+  mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.parse('2026-11-02T12:30:00Z') })
+  t.after(() => mock.timers.reset())
+  fakeObserver(t)
+  setDisplayZone('UTC'); t.after(() => setDisplayZone(null))
+  const urls: string[] = []
+  globalThis.fetch = (async (url: string) => { urls.push(String(url)); return response(PAGE1) }) as typeof fetch
+  const view = await mountView(<AgentStatesView slug="fixture" nid="w" liveState="idle" />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(3) })
+  assert.equal([...view.el.querySelectorAll('button')].some(b => /refresh/i.test(b.textContent ?? '')), false, 'no Refresh button')
+  assert.deepEqual(rowsOf(view.el), ['idle', 'active'])
+  mock.timers.tick(60_000)  // a minute later the agent starts a turn
+  await view.render(<AgentStatesView slug="fixture" nid="w" liveState="active" />)
+  await inAct(async () => { await flush(3) })
+  assert.deepEqual(rowsOf(view.el), ['active', 'idle', 'active'], 'the new state is added at the top')
+  const closed = view.el.querySelectorAll('li[data-state]')[1]!
+  assert.equal(closed.hasAttribute('data-open'), false, 'the previous open span is closed locally')
+  assert.equal(view.el.querySelectorAll('li[data-state]')[0]!.hasAttribute('data-open'), true)
+  assert.equal(urls.length, 1, 'no refetch and no polling: the one fetch is the open')
+  // the totals grew locally by the time the page has been open
+  assert.match(view.el.querySelector('.agent-states-totals')?.textContent ?? '', /Idle 60s/, 'the idle time since the read is added to the totals locally')
+})
+
+test('reopening the tab fetches the first page fresh', async t => {
+  fakeObserver(t)
+  const urls: string[] = []
+  globalThis.fetch = (async (url: string) => { urls.push(String(url)); return response(PAGE1) }) as typeof fetch
+  for (let k = 0; k < 2; k++) {
+    const view = await mountView(<AgentStatesView slug="fixture" nid="w" />, el => el)
+    await inAct(async () => { await flush(3) })
+    view.unmount()
+  }
+  assert.equal(urls.length, 2)
+  assert.ok(urls.every(u => !u.includes('before=')))
+})
+
+test('withLive and totalsWithLive: the open span closes where the first live state begins; totals accrue per state', () => {
+  const t0 = Date.parse('2026-11-02T12:00:00Z')
+  const fetched = [span('idle', '2026-11-02T11:00:00Z', null, 3600), span('active', '2026-11-02T10:00:00Z', '2026-11-02T11:00:00Z', 3600)]
+  const live = [{ state: 'active' as const, at: t0 + 60_000 }, { state: 'idle' as const, at: t0 + 180_000 }]
+  const rows = withLive(fetched, live, t0 + 240_000)
+  assert.deepEqual(rows.map(r => [r.state, r.end === null]), [['idle', true], ['active', false], ['idle', false], ['active', false]])
+  assert.equal(rows[2]!.secs, 3660, 'the span that was open at the read ends where the live one begins')
+  assert.equal(rows[1]!.secs, 120)
+  const base = { active: 0, idle: 10, blocked: 0, halted: 0, frozen: 0 }
+  const totals = totalsWithLive(base, t0, 'idle', live, t0 + 240_000)
+  assert.deepEqual(totals, { active: 120, idle: 10 + 60 + 60, blocked: 0, halted: 0, frozen: 0 })
+  assert.equal(withLive(fetched, [], t0), fetched, 'nothing live, nothing changed')
+})
+
+test('liveRecordedState reads the node through the desk badge derivation', () => {
+  assert.equal(liveRecordedState({ halt: { phase: 'halted' } as never }), 'halted')
+  assert.equal(liveRecordedState({ state: 'live' }), 'idle')
+})
+
+// USER 2026-11-03 17:40:33Z m6443dc36a3f1: Active is the agent's provider colour; other states are unchanged.
+test('Active takes the provider colour for each provider; the other states keep their own', async t => {
+  fakeObserver(t)
+  globalThis.fetch = (async () => response(PAGE1)) as typeof fetch
+  const { readFileSync } = await import('node:fs')
+  const path = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.agent-states \[data-state="active"\] \{ --state-colour: var\(--state-provider, var\(--ok\)\); \}/)
+  assert.match(css, /\.agent-states \[data-state="blocked"\] \{ --state-colour: var\(--bad\); \}/, 'blocked is unchanged')
+  assert.match(css, /\.agent-states \[data-state="frozen"\] \{ --state-colour: var\(--ice\); \}/, 'frozen is unchanged')
+  for (const provider of ['claude', 'openai']) {
+    assert.match(css, new RegExp(`\\.agent-states\\.prov-${provider} \\{ --state-provider: var\\(--prov-${provider}\\); \\}`), provider)
+    const view = await mountView(<AgentStatesView slug="fixture" nid="w" provider={provider} />, el => el)
+    await inAct(async () => { await flush(3) })
+    assert.ok(view.el.querySelector(`section.agent-states.prov-${provider}`), `the tab carries prov-${provider}`)
+    view.unmount()
+  }
 })
 
 declare const __SRC_DIR__: string
