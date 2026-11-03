@@ -4,6 +4,8 @@
 // 11:15:22Z m472583486fbb "should observe the diff to locate where exactly that occurred at, first
 // position"; decision @coordinator-opus mf102bc2f510a (in-memory text snapshot, no engine storage).
 import { flush, inAct, mountView } from './harness'
+import fs from 'node:fs'
+import path from 'node:path'
 import React from 'react'
 import { compatibilityWorkFixture } from './workcompat.fixture'
 import { DocketModal } from '../src/canvas/docket'
@@ -254,4 +256,20 @@ test('§8 the capture fixture contract: the real DocketModal, fed the way attrac
       assert.ok(view.el.querySelector(`[data-docket-field="${sel}"]`), 'the pane marks ' + sel)
     assert.ok(view.el.querySelector('.overlay .docket-modal.settings'), 'an ordinary unpinned docket is an .overlay .docket-modal.settings')
   } finally { await view.unmount(); globalThis.fetch = realFetch }
+})
+
+declare const __SRC_DIR__: string
+test('§9 the capture fixtures survive automatic semicolon insertion: a line starting with ( [ or a backtick follows a line that ends its statement', () => {
+  for (const f of ['attractticket.visual.tsx', 'docketplain.visual.tsx', 'attractidle.visual.tsx']) {
+    const lines = fs.readFileSync(path.join(__SRC_DIR__, '..', 'tests', f), 'utf8').split(/\r?\n/)
+    lines.forEach((line, i) => {
+      if (!/^\s*[(\[`]/.test(line)) return
+      // the previous line with code on it
+      let j = i - 1
+      while (j >= 0 && (!lines[j]!.trim() || /^\s*\/\//.test(lines[j]!))) j--
+      const prev = (lines[j] ?? '').trim()
+      assert.ok(prev === '' || /[;{,(\[=>:?&|+]$/.test(prev),
+        `${f}:${i + 1} starts with ${line.trim().slice(0, 12)} after "${prev.slice(-30)}": prefix it with ; (the fetch assignment above would swallow it)`)
+    })
+  }
 })

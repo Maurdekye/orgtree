@@ -42,7 +42,7 @@ window.fetch = compatibilityWorkFixture((async (input: RequestInfo | URL, init?:
   return new Response(JSON.stringify({ items: [newItem], archived: [], backlogged: [] }), { headers: { 'Content-Type': 'application/json' } })
 }) as typeof fetch)
 
-(window as unknown as { docketPlainVisual: unknown }).docketPlainVisual = {
+;(window as unknown as { docketPlainVisual: unknown }).docketPlainVisual = {
   theme: (contrast: string, accent = 'claude') => { applyContrast(contrast); applyTheme(accent) },
 }
 
