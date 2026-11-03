@@ -4669,6 +4669,18 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Status"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "What Streamer mode hides"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Cover HTML apps, HTML presentations and video"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Attract mode"
     },
     {
@@ -4717,6 +4729,13 @@
       "canvasBackground",
       "orgtree-canvas-background"
      ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "component": "StreamerSettings",
+     "label": "sw.label"
     }
    ]
   },
