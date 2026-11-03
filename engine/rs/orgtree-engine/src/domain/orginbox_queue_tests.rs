@@ -269,3 +269,35 @@ async fn t22_an_org_reply_carries_the_message_id_and_threads_back_to_the_sending
     assert_eq!(got.get::<_, Value>(0)["id"], json!(sent.uid), "re-pointed at the receiver's own row");
     assert_eq!(got.get::<_, Value>(1), json!(["boss"]));
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t1_t2_t3_a_project_holds_the_audience_like_an_agent_and_its_members_inherit_nothing() {
+    use crate::domain::audiences::{grant, Actor};
+    for multi in [false, true] {
+        let w = world(multi).await;
+        let org = crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into());
+        w.e.orgs.insert(org.clone());
+        w.agent("front", None).await;
+        let proj = w.project("intake", false).await; // any queue mode
+        let worker = w.agent("worker", Some(proj)).await;
+        grant(&w.e, &org, &Actor::User, "front", Some("extern"), "t").await.unwrap();
+        grant(&w.e, &org, &Actor::User, "intake", Some("extern"), "t").await.unwrap();
+        let holders = holder_rows(&w.c, w.org, multi).await.unwrap();
+        if multi {
+            assert_eq!(holders.len(), 2, "multi on: an agent and a project hold it together");
+        } else {
+            assert_eq!(holders, vec![("intake".to_string(), "project".to_string())], "multi off: the project replaced the agent");
+            grant(&w.e, &org, &Actor::User, "front", Some("extern"), "t").await.unwrap();
+            assert_eq!(holder_rows(&w.c, w.org, false).await.unwrap(), vec![("front".to_string(), "agent".to_string())], "and the reverse");
+            grant(&w.e, &org, &Actor::User, "intake", Some("extern"), "t").await.unwrap();
+        }
+        // T3: the project's members inherit nothing and cannot manage its grants
+        assert!(!may_send_extern(&w.e, w.org, worker, "worker").await.unwrap());
+        let by_member = grant(&w.e, &org, &Actor::Agent { id: worker, name: "worker".into() }, "intake", Some("extern"), "t").await;
+        assert!(by_member.is_err(), "a member does not manage the project's grants");
+        let out = Outgoing::new(From::Agent { id: worker, name: "worker".into(), generation: 1 }, "@net:bob.1", "hi");
+        assert!(send_extern(&w.e, w.org, &out).await.is_err(), "no job, no outside right");
+    }
+}
