@@ -2975,3 +2975,16 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   Proof: `tests/attract.test.tsx` §6.
 - The presentation scroll finds its pane through `.mailer-read[data-reading=<doc id>]` (gallery.tsx). Cancelling it
   must still settle its length promise, or the cycle's `show` waits forever (§8 caught this).
+
+## "In another window" notice: one compact chip (2026-11-03, 4.5.5)
+
+USER 2026-11-03 11:53:58Z med8fd483149a ("the \"x is in another window\" panel obscures parts of the ui"); decisions @coordinator-opus m022b0a65a2cf.
+The notice a popped-out surface leaves behind is one chip component, `PopoutChip` (`popout.tsx`), single-line and content-sized (max
+~280 px, label ellipsised). `DetachedNotice` (surfaces with no visible home slot: panels, custom apps, slotless desks) registers each
+notice in a per-document store; the first renders one strip into `.popout-notices`: a lone notice sits just below the visible element
+carrying `data-popout-opener="<MovableSurface kind>"`, else top-centre at 52 px; two or more collapse into ONE "N panels in other
+windows" chip whose list holds each panel's Show window / Return here. z-index 12 (below menus 1600 and overlays 60+); the host is
+`pointer-events: none`, only the chip catches pointers. The old bottom-left 40vh stack is gone. A canvas-card desk's
+`.desk-elsewhere` (`deskhosts.tsx` `InDesksPlace`) is the same chip, counter-scaled at the top of the card body; its holder no longer
+paints or catches the card. No surface sets `data-popout-opener` yet, so lone notices currently use the strip. Proof:
+`tests/popoutchip.test.tsx`. [decided: user 2026-11-03; coordinator; verified: `popout.tsx`, `canvas/deskhosts.tsx`, `styles.css`]

@@ -223,10 +223,65 @@ function preservePosition(root: HTMLElement) {
   }
 }
 
-// One compact notice stack per owning document; notices never occupy the
-// departed surface's place in the application's layout.
+// "<X> is in another window": ONE compact chip per owning document, never the
+// departed surface's place in the layout (@item:orgtree/x-is-in-another-window-
+// placeholder-covers-parts-o). Single line, content-sized, below menus and
+// overlays, catching pointer events on the chip alone. A lone notice sits just
+// below its opener button when one is visible (`data-popout-opener="<kind>"`),
+// else on a top-centre strip under the header; two or more collapse into ONE
+// "N panels in other windows" chip whose list carries each panel's actions.
+export interface PopoutNotice { id: symbol; title: ReactNode; kind: string; show: () => void; back: () => void }
 const noticeHosts = new WeakMap<Document, HTMLElement>()
-function DetachedNotice({ home, children }: { home: Document; children: ReactNode }) {
+interface NoticeStore { items: PopoutNotice[]; subs: Set<() => void> }
+const noticeStores = new WeakMap<Document, NoticeStore>()
+const storeOf = (d: Document): NoticeStore => {
+  let s = noticeStores.get(d)
+  if (!s) { s = { items: [], subs: new Set() }; noticeStores.set(d, s) }
+  return s
+}
+const setNotices = (d: Document, fn: (items: PopoutNotice[]) => PopoutNotice[]) => {
+  const s = storeOf(d); s.items = fn(s.items); for (const f of [...s.subs]) f()
+}
+
+/** The shared chip body (also the canvas-card desk's `.desk-elsewhere`): the
+ *  one markup and class every "in another window" notice wears. */
+export function PopoutChip({ className = '', children }: { className?: string; children: ReactNode }) {
+  return <div className={('popout-placeholder popout-chip ' + className).trim()} onPointerDown={stop} onClick={stop}>{children}</div>
+}
+
+function NoticeStrip({ home, items }: { home: Document; items: PopoutNotice[] }) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const lone = items.length === 1 ? items[0]! : null
+  useLayoutEffect(() => {
+    const opener = lone ? [...home.querySelectorAll<HTMLElement>('[data-popout-opener]')]
+      .find(el => el.getAttribute('data-popout-opener') === lone.kind) ?? null : null
+    const r = opener?.getBoundingClientRect()
+    const w = home.defaultView
+    if (!r || !w || !r.width || !r.height) { setPos(null); return }
+    setPos({ top: Math.round(r.bottom + 4), left: Math.max(8, Math.min(Math.round(r.left), w.innerWidth - 288)) })
+  }, [home, lone?.kind, lone?.id])
+  useEffect(() => { if (items.length < 2) setOpen(false) }, [items.length])
+  const rowActions = (n: PopoutNotice) => <>
+    <button onClick={n.show}>Show window</button>
+    <button onClick={n.back}>Return here</button>
+  </>
+  return <div className="popout-strip" style={pos ? { position: 'fixed', top: pos.top, left: pos.left } : undefined}>
+    {lone
+      ? <PopoutChip><span>{lone.title} is in another window.</span>{rowActions(lone)}</PopoutChip>
+      : <PopoutChip className="multi">
+          <button className="popout-chip-count" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+            {items.length} panels in other windows</button>
+        </PopoutChip>}
+    {!lone && open && <div className="popout-chip-list" role="list">
+      {items.map((n, i) => <div key={i} className="popout-chip-row" role="listitem"
+        onPointerDown={stop} onClick={stop}>
+        <span>{n.title}</span>{rowActions(n)}</div>)}
+    </div>}
+  </div>
+}
+
+function StripPortal({ home, items }: { home: Document; items: PopoutNotice[] }) {
   let host = noticeHosts.get(home)
   if (!host) {
     host = home.createElement('div'); host.className = 'popout-notices'
@@ -240,7 +295,23 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
       queueMicrotask(() => { if (!target.childElementCount) target.remove() })
     }
   }, [home, target])
-  return createPortal(<div className="popout-placeholder" onPointerDown={stop} onClick={stop}>{children}</div>, target)
+  return createPortal(<NoticeStrip home={home} items={items} />, target)
+}
+
+export function DetachedNotice({ home, title, kind, show, back }: { home: Document; title: ReactNode; kind: string; show: () => void; back: () => void }) {
+  const id = useRef(Symbol('popout-notice'))
+  const latest = useRef({ show, back }); latest.current = { show, back }
+  useLayoutEffect(() => {
+    const me = id.current
+    const entry: PopoutNotice = { id: me, title, kind, show: () => latest.current.show(), back: () => latest.current.back() }
+    setNotices(home, items => [...items.filter(n => n.id !== me), entry])
+    return () => setNotices(home, items => items.filter(n => n.id !== me))
+  }, [home, title, kind])
+  const store = storeOf(home)
+  const items = useSyncExternalStore(
+    fn => { store.subs.add(fn); return () => { store.subs.delete(fn) } },
+    () => store.items)
+  return items[0]?.id === id.current ? <StripPortal home={home} items={items} /> : null
 }
 
 /** Keeps a live iframe's browsing context across a same-document move where
@@ -797,11 +868,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   }, [owner, detached, parent, kind, org, editable])
   return <>
     <div ref={placeholder} className="movable-anchor">
-      {detached && !anchor && !parked && <DetachedNotice home={placeholder.current?.ownerDocument ?? initialOwner.current}>
-        <span>{title} is in another window.</span>
-        <button onClick={reveal}>Show window</button>
-        <button onClick={redock}>Return here</button>
-      </DetachedNotice>}
+      {detached && !anchor && !parked && <DetachedNotice home={placeholder.current?.ownerDocument ?? initialOwner.current}
+        title={title} kind={kind} show={reveal} back={redock} />}
     </div>
     {ready && createPortal(<SurfaceDocumentContext.Provider value={owner}><SurfaceOverlayContext.Provider value={parts.overlays}><SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, openFrom: origin => open(false, origin), redock, error }}>
       <ObjectMenuBoundary className="movable-events" onPointerDown={detached ? stop : undefined}

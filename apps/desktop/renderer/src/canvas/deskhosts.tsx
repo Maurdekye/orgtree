@@ -1,6 +1,6 @@
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { MovableSurface, useSurface } from '../popout'
+import { MovableSurface, PopoutChip, useSurface } from '../popout'
 import { openSurfaces, revealSurface, revealDetachedPanel } from '../windowlife'
 import { instanceKind } from '../modalkinds'
 import type { BorrowedSurface } from '../windowlife'
@@ -549,9 +549,9 @@ const stopPress = (e: ReactPointerEvent) => e.stopPropagation()
  * keep the plain inline notice.
  */
 function InDesksPlace({ bare, children }: { bare?: boolean; children: ReactNode }) {
-  if (bare) return <div className="popout-placeholder">{children}</div>
+  if (bare) return <PopoutChip>{children}</PopoutChip>
   return <div className="desk-elsewhere-holder">
-    <div className="popout-placeholder desk-elsewhere">{children}</div>
+    <PopoutChip className="desk-elsewhere">{children}</PopoutChip>
   </div>
 }
 

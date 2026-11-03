@@ -1,0 +1,91 @@
+// popoutchip.test.tsx — the "<X> is in another window" notice is one compact
+// chip that never covers what it doesn't replace
+// (@item:orgtree/x-is-in-another-window-placeholder-covers-parts-o; USER
+// 2026-11-03 11:53:58Z med8fd483149a; decisions @coordinator-opus
+// m022b0a65a2cf). Run:  cd apps/desktop/renderer && node tests/run.mjs popoutchip
+import './testguard.mjs'
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
+import { DetachedNotice } from '../src/popout'
+import { flush, inAct, mountView } from './harness'
+
+declare const __SRC_DIR__: string
+const css = () => readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
+const block = (sel: string) => {
+  const s = css(); const i = s.indexOf(sel + ' {'); assert.ok(i >= 0, sel + ' exists')
+  return s.slice(i, s.indexOf('}', i))
+}
+const notice = (title: string, kind: string, calls: string[]) =>
+  <DetachedNotice key={title} home={document} title={title} kind={kind}
+    show={() => calls.push('show ' + title)} back={() => calls.push('back ' + title)} />
+
+test('one notice is one single-line chip with Show window / Return here', async (t) => {
+  const calls: string[] = []
+  const v = await mountView(<>{notice('Inbox', 'inbox', calls)}</>, (el) => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(2) })
+  const chips = document.querySelectorAll('.popout-notices .popout-chip')
+  assert.equal(chips.length, 1)
+  assert.match(chips[0]!.textContent ?? '', /Inbox is in another window\./)
+  const btns = [...chips[0]!.querySelectorAll('button')]
+  assert.deepEqual(btns.map((b) => b.textContent), ['Show window', 'Return here'])
+  btns[0]!.click(); btns[1]!.click()
+  assert.deepEqual(calls, ['show Inbox', 'back Inbox'])
+})
+
+test('two or more notices collapse into ONE "N panels in other windows" chip with a list', async (t) => {
+  const calls: string[] = []
+  const v = await mountView(<>{notice('Inbox', 'inbox', calls)}{notice('Docket', 'docket', calls)}</>, (el) => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(2) })
+  assert.equal(document.querySelectorAll('.popout-notices .popout-chip').length, 1, 'never a stack of chips')
+  const count = document.querySelector<HTMLButtonElement>('.popout-chip-count')
+  assert.equal(count?.textContent?.trim(), '2 panels in other windows')
+  assert.equal(document.querySelector('.popout-chip-list'), null, 'closed until opened')
+  await inAct(async () => { count!.click(); await flush(2) })
+  const rows = [...document.querySelectorAll('.popout-chip-row')]
+  assert.equal(rows.length, 2)
+  rows[1]!.querySelector('button')!.click()
+  assert.deepEqual(calls, ['show Docket'], "each row carries its own panel's bring-back action")
+})
+
+test('a lone notice sits just below its visible opener button, else on the strip', async (t) => {
+  const opener = document.createElement('button')
+  opener.setAttribute('data-popout-opener', 'inbox'); document.body.appendChild(opener)
+  opener.getBoundingClientRect = () => ({ x: 40, y: 10, left: 40, top: 10, right: 80, bottom: 34, width: 40, height: 24, toJSON() {} }) as DOMRect
+  const v = await mountView(<>{notice('Inbox', 'inbox', [])}</>, (el) => el)
+  t.after(() => { v.unmount(); opener.remove() })
+  await inAct(async () => { await flush(2) })
+  const strip = document.querySelector<HTMLElement>('.popout-strip')!
+  assert.equal(strip.style.top, '38px', 'opener bottom + 4')
+  assert.equal(strip.style.left, '40px')
+  const v2 = await mountView(<>{notice('Settings', 'settings', [])}{notice('Inbox', 'inbox', [])}</>, (el) => el)
+  t.after(() => v2.unmount())
+  await inAct(async () => { await flush(2) })
+  assert.equal(document.querySelector<HTMLElement>('.popout-strip')!.style.top, '', 'a collapsed chip uses the strip')
+})
+
+test('unmounting the surface removes its notice and an empty host', async () => {
+  const v = await mountView(<>{notice('Inbox', 'inbox', [])}</>, (el) => el)
+  await inAct(async () => { await flush(2) })
+  v.unmount()
+  await inAct(async () => { await flush(3) })
+  assert.equal(document.querySelectorAll('.popout-chip').length, 0)
+})
+
+test('stylesheet: chip bounds, z-order and pointer pass-through', () => {
+  const host = block('.popout-notices')
+  assert.match(host, /pointer-events:\s*none/, 'the host never catches clicks')
+  const z = Number(/z-index:\s*(\d+)/.exec(host)?.[1])
+  assert.ok(z > 0 && z < 60, `below overlays and menus (z ${z})`)
+  assert.doesNotMatch(host, /max-height/, 'no 40vh stack')
+  assert.match(host, /max-width:\s*min\(280px/, 'content-sized, capped near 280px')
+  assert.match(block('.popout-chip'), /pointer-events:\s*auto/, 'only the chip catches clicks')
+  const desk = block('.popout-placeholder.desk-elsewhere')
+  assert.doesNotMatch(desk, /inset:\s*0/, 'a popped-out card desk no longer paints the whole card')
+  assert.match(desk, /height:\s*auto/)
+  const holder = css().slice(css().indexOf('.desk-elsewhere-holder { background'))
+  assert.match(holder.slice(0, holder.indexOf('}')), /pointer-events:\s*none/, 'the card stays clickable around the chip')
+})
