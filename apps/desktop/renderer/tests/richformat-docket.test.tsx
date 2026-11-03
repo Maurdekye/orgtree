@@ -74,3 +74,13 @@ test('RT-C12 the manual attention reason renders rich text', async t => {
   t.after(() => view.unmount())
   expectRich(view.el.querySelector('.docket-attention-body')!)
 })
+
+test('RT-14 render time of the done and next lists with 40 entries each (measured and reported, not asserted)', async t => {
+  const entries = Array.from({ length: 40 }, (_, i) => `entry ${i}: ${RICH}`)
+  const began = performance.now()
+  const view = await mount(<><DocketList heading="DONE" items={entries} mark="done" refIndex={refIndex} refWorld={world} onOpenRef={onOpen} />
+    <DocketList heading="NEXT" items={entries} mark="next" refIndex={refIndex} refWorld={world} onOpenRef={onOpen} /></>)
+  t.after(() => view.unmount())
+  console.log(`RT-14 docket lists 40+40 rendered in ${(performance.now() - began).toFixed(0)} ms`)
+  assert.equal(view.el.querySelectorAll('.docket-list-items li').length, 80)
+})
