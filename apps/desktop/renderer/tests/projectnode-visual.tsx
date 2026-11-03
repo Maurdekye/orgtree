@@ -109,6 +109,7 @@ import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
+import { noteProjectThemes } from '../src/projecttheme'
 import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
 import { setAttentionLayout } from '../src/attention/mode'
 import { InboxView, MailRowView } from '../src/canvas/mail'
@@ -126,6 +127,9 @@ const relayInboxNow = Date.now()
 window.fetch = ((input: RequestInfo | URL) => {
   const p = new URL(String(input), location.href).pathname
   if (p.endsWith('/api/providers')) return answer({ providers: [] })
+  // an uploaded project icon (themecards): a four-colour square, drawn in its own colours
+  if (p.endsWith('/project-icon')) return answer({ picture: { revision: '1', sha256: UPLOAD_SHA, width: 16, height: 16, bytes: 100,
+    data: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR4nGNQTX79Hx/+dUYUL2YYNWBYGCC22Os/PjzZ+BVePGrAsDAAAPm8f1+iPJGIAAAAAElFTkSuQmCC' } })
   // the header controls' desk: a project mailbox with no transfers, as most are,
   // so the folder strip is the Mail tab's top row (the Transfers box would be)
   if (p.endsWith('/transfers') && new URLSearchParams(location.search).get('scene') === 'headercontrols') {
@@ -189,19 +193,31 @@ const card = {
 
 /** ?scene=themecards: the themed mark (a rocket in rose) against the folder */
 const themedCard = { ...card, id: 'launchpad', theme_color: '#e11d48', theme_icon: 'rocket' } as unknown as CanvasNode
+/** an uploaded icon over the teal theme (@item:orgtree/project-themes-colour-the-whole-project-node-by-i) */
+const UPLOAD_SHA = 'c'.repeat(64)
+const uploadedCard = { ...card, id: 'brand-kit', theme_color: '#0f766e', theme_icon_custom: UPLOAD_SHA } as unknown as CanvasNode
+/** a themed project folded over a working member: the busy state colour wins */
+const busyThemedCard = { ...themedCard, id: 'launch-busy', busy: true } as unknown as CanvasNode
 function ThemeCards() {
   const sq = (nd: CanvasNode, lod: 'mini' | 'norm', x: number, y: number) =>
     <ProjectSquare node={nd} pos={{ x, y }} lod={lod}
       dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
       zoom={lod === 'mini' ? 0.4 : 1.2} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
       onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  // the uploaded icon is read by hash from the project the tree names
+  noteProjectThemes({ slug: 'org', roots: [uploadedCard] } as unknown as TreePayload)
+  // rows: rose rocket theme; uploaded icon (teal theme); no theme; columns:
+  // mini, norm, and (top row) the themed norm card busy, whose state colour wins
   return (
     <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
-      <div style={{ position: 'absolute', left: 60, top: 80, transform: 'scale(2.4)', transformOrigin: '0 0' }}>
+      <div style={{ position: 'absolute', left: 40, top: 30, transform: 'scale(1.6)', transformOrigin: '0 0' }}>
         {sq(themedCard, 'mini', 0, 0)}
-        {sq(themedCard, 'norm', 170, 0)}
-        {sq(card, 'mini', 0, 140)}
-        {sq(card, 'norm', 170, 140)}
+        {sq(themedCard, 'norm', 150, 0)}
+        {sq(busyThemedCard, 'norm', 300, 0)}
+        {sq(uploadedCard, 'mini', 0, 140)}
+        {sq(uploadedCard, 'norm', 150, 140)}
+        {sq(card, 'mini', 0, 280)}
+        {sq(card, 'norm', 150, 280)}
       </div>
     </main>
   )
