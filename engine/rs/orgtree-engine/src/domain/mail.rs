@@ -318,6 +318,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         From::Agent { id, generation, .. } => (Some(*id), Some(*generation)),
         _ => (None, None),
     };
+    let mut user_routed = false;
     if to == "user" {
         if let From::Agent { id, name, .. } = &out.from {
             // a project is transparent for reporting: an agent with no AGENT
@@ -325,6 +326,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
             let row = client.query_one("SELECT ot.superior_of($1)", &[id]).await?;
             let top: bool = row.get::<_, Option<i64>>(0).is_none();
             if !top {
+                user_routed = false;
                 let aud = client
                     .query_opt(
                         "SELECT 1 FROM ot.effective_audiences WHERE org_id = $1 AND grantee = $2 AND grantor = '@user'
@@ -332,15 +334,24 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
                         &[&org_id, name],
                     )
                     .await?;
-                if aud.is_none() && super::orginbox::jobs::job_route(&**client, org_id, *id, &out, None).await?.is_none() {
-                    refuse!(
-                        Forbidden,
-                        "only top-level agents and agents holding a user audience may write to the user; send it to your superior"
-                    );
+                if aud.is_none() {
+                    if super::orginbox::jobs::job_route(&**client, org_id, *id, &out, None).await?.is_none() {
+                        refuse!(
+                            Forbidden,
+                            "only top-level agents and agents holding a user audience may write to the user; send it to your superior"
+                        );
+                    }
+                    user_routed = true;
                 }
             }
         }
         let tx=client.transaction().await?;
+        // U2: the job route found above must still hold inside this transaction, with the job row locked FOR SHARE
+        if let (true, From::Agent { id, name, .. }) = (user_routed, &out.from) {
+            if super::orginbox::jobs::job_route(&*tx, org_id, *id, &out, None).await?.is_none() {
+                refuse!(Forbidden, "only top-level agents and agents holding a user audience may write to the user; send it to your superior ({name}'s job changed)");
+            }
+        }
         let inserted=tx
             .query_one(
                 "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_name,
