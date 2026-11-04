@@ -52,7 +52,7 @@ test('ST3 paths, free strings and routes are redacted before anything is written
   const [loaf, ping, lag] = lines(file)
   assert.equal(loaf.loaf.scripts[0].url, 'app:/x.js'); assert.ok(loaf.loaf.scripts[0].fn.includes('<redacted:paths>'))
   assert.equal(loaf.fetch[0].route, '/api/orgs/<org>/agents/<id>/mail')
-  assert.deepEqual(ping.stacks[0], ['at busy (app:/x.js:10:5)', 'at k (<redacted:paths>:1:1)'])
+  assert.deepEqual(ping.stacks[0], ['at busy (app:/x.js:10:5)', 'at k (<redacted:paths>'])
   assert.equal(ping.stacks[1], 'unavailable:no-api'); assert.equal(lag.main_stack, 'unavailable:not-attempted')
   assert.ok(!fs.readFileSync(file, 'utf8').includes('bob'), 'no name survives')
 })

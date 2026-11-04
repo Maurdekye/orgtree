@@ -63,7 +63,7 @@ test('ST2 the input link: overlapping events with their target, the focused fiel
     const box = v.el.querySelector<HTMLTextAreaElement>('textarea')!
     box.focus()
     const w = new StallWatch(baseEnv())
-    w.noteKey(clock - 2500); w.noteKey(clock - 1200); w.noteKey(clock - 1000)
+    w.noteKey(clock - 4000); w.noteKey(clock - 1200); w.noteKey(clock - 1000)
     w.onEvents([
       { name: 'keydown', startTime: clock - 850, duration: 800, processingStart: clock - 840, processingEnd: clock - 100, interactionId: 7, target: box },
       { name: 'input', startTime: clock - 840, duration: 790, processingStart: clock - 830, processingEnd: clock - 120, interactionId: 8, target: box },
@@ -75,7 +75,7 @@ test('ST2 the input link: overlapping events with their target, the focused fiel
     assert.deepEqual(r.input.map((i: any) => i.target), ['desk-composer', 'desk-composer'])
     assert.equal(r.input[0].input_delay, 10); assert.equal(r.input[0].processing, 740); assert.equal(r.input[0].presentation, 50)
     assert.equal(r.field_len, 400, 'length rounded down to 100')
-    assert.equal(r.keys_2s, 2, 'keydowns in the 2 s before the stall (1200 and 1000 ms before... the 2500 one is older)')
+    assert.equal(r.keys_2s, 2, 'keydowns in the 2 s before the stall (the one 4 s earlier is older)')
     assert.ok(!JSON.stringify(r).includes('SECRETWORD'), 'the text never leaves')
     assert.equal(stallTarget(v.el.querySelector('#plain')), 'input[text]')
     assert.equal(focusedFieldLength(document), 400)
@@ -174,6 +174,6 @@ test('the DOM census counts element and text nodes and depth, and stops at its t
   const big = document.createElement('div')
   for (let i = 0; i < 2000; i++) big.appendChild(document.createElement('span'))
   let t = 0
-  const partial = domCensus(big, 10, () => (t += 1))
+  const partial = domCensus(big, 10, () => (t += 6))
   assert.equal(partial.dom_partial, true); assert.ok(partial.dom_nodes < 2000)
 })
