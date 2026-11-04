@@ -118,7 +118,15 @@ function describe(node: Node | null): string {
   const one = (e: Element) => e.localName + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '')
   return (el.parentElement ? one(el.parentElement) + ' > ' : '') + one(el)
 }
-const SEAM_TAIL = 80, SEAM_HEAD = 4000, SEAM_WORDS = 2, RUN_CACHE_MAX = 6000
+const SEAM_WORDS = 2, RUN_CACHE_MAX = 6000, KEY_SCAN = 100_000
+/** Where a key word (with only whitespace and an optional `:`/`=` after it) that could pair with a value in the NEXT run starts in
+ *  `run`, or -1. Whitespace between the key word and the end can be any length, so the whole run is searched (the last KEY_SCAN chars
+ *  of a huge one). */
+function keyTailAt(run: string): number {
+  const part = run.length > KEY_SCAN ? run.slice(-KEY_SCAN) : run
+  const m = KEY_TAIL.exec(part)
+  return m ? run.length - part.length + m.index : -1
+}
 /** `sensitiveSpans(runs.join('\n'))`, computed per run and cached by run text (a run is a block's text, so a keystroke re-matches the
  *  one run that changed). Matches that can cross a run boundary are handled exactly: (1) a private key (`-----BEGIN`, which may run
  *  unterminated to the end of the text) sends the whole text through the one global pass; (2) `key = value` and `Bearer x` split by
@@ -138,17 +146,18 @@ export function spansByRun(runs: readonly string[], types: StreamerTypes, orgNam
     if (!rel) { regexWork += run.length; rel = sensitiveSpans(run, types, orgNames); if (cache.size >= RUN_CACHE_MAX) cache.clear(); cache.set(key, rel) }
     for (const span of rel) out.push({ start: offset + span.start, end: offset + span.end })
     if (i + 1 < runs.length) {
-      const tail = run.slice(-SEAM_TAIL)
-      if (KEY_TAIL.test(tail)) {
+      const tailAt = keyTailAt(run)
+      if (tailAt >= 0) {
+        const tail = run.slice(tailAt)
         // A match after a key word is `\s*`, an optional `:`/`=`, `\s*`, then ONE value (a quoted value cannot cross a newline): so the
         // window takes any number of whitespace-only runs, and at most SEAM_WORDS runs that have text (the separator, the value).
         let words = 0, head = ''
         for (let j = i + 1; j < runs.length && words < SEAM_WORDS; j++) {
-          head += '\n' + (runs[j]!.length > SEAM_HEAD ? runs[j]!.slice(0, SEAM_HEAD) : runs[j]!)
+          head += '\n' + runs[j]!   // whole runs: a value of any length is masked in full, as the global pass does
           if (runs[j]!.trim() !== '') words++
         }
         const window = tail + head
-        const base = offset + run.length - tail.length
+        const base = offset + tailAt
         regexWork += window.length
         for (const span of sensitiveSpans(window, types, orgNames)) if (span.start < tail.length && span.end > tail.length) out.push({ start: base + span.start, end: base + span.end })
       }
@@ -205,7 +214,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       if (before.includes('-----BEGIN') || after.includes('-----BEGIN')) return false
       total += after.length - before.length
       if (total > 1_000_000 || lastTotal > 1_000_000) return false
-      if (lastRunTail[run] || KEY_TAIL.test(after.slice(-SEAM_TAIL))) return false
+      if (lastRunTail[run] || keyTailAt(after) >= 0) return false
       // an earlier key-word run whose seam window reaches this run (whitespace-only runs are free, at most SEAM_WORDS runs with text)
       for (let j = run - 1, words = 0; j >= 0 && words < SEAM_WORDS; j--) {
         if (lastRunTail[j]) return false
@@ -479,7 +488,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
     const runs = runStarts.map((at, i) => text.slice(at, i + 1 < runStarts.length ? runStarts[i + 1]! - 1 : text.length))
-    lastRunEntries = runEntries; lastRunTail = runs.map(r => KEY_TAIL.test(r.slice(-SEAM_TAIL))); lastTextNodes = nodes.length; lastTotal = text.length; lastPem = runs.some(r => r.includes('-----BEGIN'))
+    lastRunEntries = runEntries; lastRunTail = runs.map(r => keyTailAt(r) >= 0); lastTextNodes = nodes.length; lastTotal = text.length; lastPem = runs.some(r => r.includes('-----BEGIN'))
     for (const span of spansByRun(runs, types, orgNames, runCache, `${JSON.stringify(types)}|${orgNames.join(',')}|`)) {
       while (nodes[firstIndex] && nodes[firstIndex]!.end <= span.start) firstIndex++
       lastIndex = Math.max(firstIndex, lastIndex)

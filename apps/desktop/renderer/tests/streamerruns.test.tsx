@@ -28,7 +28,11 @@ test('per-run spans equal one pass over the whole text, including matches split 
   // fixed seams
   // build-sol 2026-11-04: a key word and its value separated by MANY whitespace-only runs (the global regex's \s takes them all)
   for (const runs of [['password =', ...Array(8).fill(' '), 'hunter2'], ['Bearer', ...Array(8).fill(' '), 'abcdef123456'], ['api key', ' ', ':', ...Array(20).fill('  '), ' ', 'sekret99'],
-    ['token', '=', ...Array(12).fill(''), 'longvalue1234'], ['x'.repeat(10) + ' password', ...Array(50).fill(' '), ':', ' ', 'v1']]) {
+    ['token', '=', ...Array(12).fill(''), 'longvalue1234'], ['x'.repeat(10) + ' password', ...Array(50).fill(' '), ':', ' ', 'v1'],
+    // build-sol: long values and long whitespace runs must not be truncated by the window
+    ['Bearer', 'q'.repeat(5000)], ['password =', '"' + 'q'.repeat(5000) + '"'], ['Bearer', ' '.repeat(5000), 'abcdef123456'], ['token = ', 'v'.repeat(30000)],
+    // key word followed by more than 80 characters of whitespace/separator INSIDE its own run
+    ['password' + ' '.repeat(300) + '=' + ' '.repeat(200), 'hunter2'], ['xx Bearer' + ' '.repeat(500), 'abcdef123456']]) {
     assert.deepEqual(spansByRun(runs, types, [], new Map(), 'k|'), sensitiveSpans(runs.join(String.fromCharCode(10)), types, []), JSON.stringify(runs))
   }
   for (const runs of [['password', 'hunter2'], ['the password:', '  ', 'hunter2'], ['Bearer', 'abcdef123456'], ['x token =', '"quoted value"'], ['-----BEGIN PRIVATE KEY-----', 'AAAA', 'BBBB']]) {
