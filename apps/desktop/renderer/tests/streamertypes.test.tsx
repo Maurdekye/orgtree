@@ -207,6 +207,38 @@ test('the banner sits IN the footer strip beside the version label, never over i
   } finally { bb.dispose(); b.dom.window.close() }
 })
 
+// USER 2026-11-04 m79874151077c "selected text is still blocked off in streamer mode". Cause: a blanket
+// `html.streamer-on ::selection{color:transparent}` rule blanked ANY selection (a ::selection layer also sits above the
+// custom highlight, so a selected key would be drawn in the clear if the rule were just dropped). Now the selection is drawn
+// normally and only the enabled-type spans inside it are covered by a mask box.
+test('a selection is not blurred wholesale: only the hidden-type spans inside it are masked; previews pattern-match', () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  const KEY = 'sk-ant-api03-AbCdeF0123456789xyz'
+  const w = dom.window as unknown as { Range: { prototype: { getClientRects(): unknown } }; getSelection(): Selection }
+  w.Range.prototype.getClientRects = function (this: Range) { return [{ left: 10, top: 20, width: this.toString().length * 5, height: 12, right: 0, bottom: 0, x: 10, y: 20, toJSON() {} }] }
+  doc.body.innerHTML = `<div class="md"><p id="a">hello world ${KEY} done</p></div>
+    <button class="pinuser"><span class="pinuser-t">↑ you: hello world ${KEY}</span></button><span class="mail-preview-text">hello world ${KEY}</span>
+    <div class="turn-mail-preview-content">hello world ${KEY}</div><div class="reply-preview-content">hello world ${KEY}</div><span class="selection-excerpt">hello world ${KEY}</span>`
+  try {
+    boundary.update(true, cfg({ secrets: true }))
+    assert.deepEqual(hidden(registry), Array(6).fill(KEY), 'every preview kind: only the key is masked, "hello world" shows: ' + JSON.stringify(hidden(registry)))
+    const css = doc.querySelector('[data-streamer-style]')!.textContent!
+    assert.ok(!/::selection\s*\{[^}]*(transparent|text-shadow)/.test(css), 'no blanket ::selection blanking rule')
+    const text = doc.getElementById('a')!.firstChild!
+    const sel = w.getSelection(), range = doc.createRange()
+    range.setStart(text, 0); range.setEnd(text, text.textContent!.length); sel.removeAllRanges(); sel.addRange(range)
+    doc.dispatchEvent(new dom.window.Event('selectionchange'))
+    const masks = () => [...doc.querySelectorAll('[data-streamer-selmask]')]
+    assert.equal(masks().length, 1, 'a selection holding words and a key: one mask box, over the key only')
+    assert.equal((masks()[0] as HTMLElement).style.width, KEY.length * 5 + 'px')
+    range.setStart(text, 0); range.setEnd(text, 11); sel.removeAllRanges(); sel.addRange(range)
+    doc.dispatchEvent(new dom.window.Event('selectionchange'))
+    assert.equal(masks().length, 0, 'a selection of only ordinary words: nothing masked')
+    sel.removeAllRanges(); boundary.update(false)
+    assert.equal(masks().length, 0)
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
