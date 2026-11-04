@@ -162,6 +162,27 @@ test('R5 the detail card names the project and who created the dog', async (t) =
   assert.match(text, /created by\s*@?member/)
 })
 
+test('R7 a dog a superior created for its owner names the creator and the borrowed project reach (watchdog on behalf W6, W8)', async (t) => {
+  useFakeClock()
+  installFetch(new FakeServer())
+  t.after(() => realClock())
+  const mk = (via: 'setter' | 'audience' | 'setter_audience', from: string | null) => ({
+    id: 'w/queue', owner: 'w', name: 'queue', kind: 'fair_queue', target: 'Q', interval_s: 5, state: 'armed',
+    at: '2026-11-04T10:00:00Z', fired: 0, once: false, spent: false, created_by: 'C', reach_grant: { project: 'Q', via, from },
+  } as unknown as Watchdog)
+  const text = async (dog: Watchdog) => {
+    const v = await mountView(<WatchdogPanel slug="org" dog={dog} dogs={[dog]} toast={noop} close={noop} />, (el) => el)
+    t.after(() => v.unmount())
+    await inAct(() => flush(3))
+    return v.el.textContent ?? ''
+  }
+  const a = await text(mk('setter', 'C'))
+  assert.match(a, /created by\s*@C/)
+  assert.match(a, /reach to\s*@Q from\s*@C/)
+  assert.match(await text(mk('audience', null)), /reach to\s*@Q through an audience/)
+  assert.match(await text(mk('setter_audience', 'C')), /reach to\s*@Q through\s*@C's audience/)
+})
+
 test('R3 past eight sources the section ends with the group card', async (t) => {
   const list = Array.from({ length: 8 }, (_, i) => feed('d' + i))
   const map = new Map(['member', 'boss'].map((id) => [id, node(id)] as [string, CanvasNode]))
