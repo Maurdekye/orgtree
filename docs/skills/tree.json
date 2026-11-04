@@ -5937,7 +5937,7 @@
    "covers": [
     "screen:agent-history"
    ],
-   "purpose": "The History tab in agent settings: retained event records (kind, actor, detail and time), not the conversation. It appears only when records exist. The States tab beside it shows the agent's state spans and 24 h / 7 d totals.",
+   "purpose": "The History tab in agent settings: retained event records (kind, actor, detail and time), not the conversation. It appears only when records exist. The Activity tab just before it shows the agent's state spans and 24 h / 7 d totals.",
    "must_cover": [
     "what kinds of records appear",
     "difference from the Chat tab",

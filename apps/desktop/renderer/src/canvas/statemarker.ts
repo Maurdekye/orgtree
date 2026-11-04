@@ -6,11 +6,11 @@ const LABEL: Record<string, string> = {
 }
 
 /** What a state-history row says in the transcript (USER 2026-11-03 17:37:22Z m1bfdb3fba01b): the state that just
- *  ENDED and how long it lasted ("Active for 32s", "Idle for 19s"), in the same age words as the States tab. Not the
+ *  ENDED and how long it lasted ("Active for 32s", "Idle for 19s"), in the same age words as the Activity tab. Not the
  *  new state, and no "was".
  *
  *  - an ended state that lasted under one second (the engine writes whole seconds, rounded down, so `prev_secs` 0)
- *    says nothing: `null`, the row is not drawn at all. The state row stays in the data and on the States tab.
+ *    says nothing: `null`, the row is not drawn at all. The state row stays in the data and on the Activity tab.
  *  - an ended state whose start is unknown (it began before recording did) is named without a duration.
  *  - a row with no ended state (an agent's very first) has nothing to say: `null`.
  *  - a row of an older engine with no structured fields keeps its own text.

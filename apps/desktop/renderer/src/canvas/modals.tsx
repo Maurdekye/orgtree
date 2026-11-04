@@ -1140,6 +1140,15 @@ const NODE_CONFIG_TABS = [
   { id: 'tools', label: 'Tools' },
 ] satisfies { id: NodeConfigTab; label: string }[]
 
+/** An agent's settings tabs: the config tabs, then Activity (the state spans; internal id `states`) directly LEFT of History,
+ *  which shows only when records exist (USER 2026-11-04 m5d5ae90b5b7b "change the states tab to activity", mc8352401b5c2
+ *  "place it to the left of history"). */
+export const agentSettingsTabs = (hasHistory: boolean) => [
+  ...NODE_CONFIG_TABS,
+  { id: 'states' as const, label: 'Activity' },
+  ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : []),
+]
+
 interface NodeConfigProps {
   node: CanvasNode
   map: Map<string, CanvasNode>
@@ -1778,7 +1787,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             all. Eight identical subtitles would train the reader to skip
             them, and the org-wide ones are the expensive ones to miss. */}
         <p className="set-hint">Some changes restart the agent, as noted below.</p>
-        <SettingsTabs tabs={[...NODE_CONFIG_TABS, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : []), { id: 'states' as const, label: 'States' }]} tab={tab} setTab={setTab} stripRef={stripRef}
+        <SettingsTabs tabs={agentSettingsTabs(hasHistory)} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase={tabId} label="Agent settings" />
         {/* Keep every panel mounted: switching tabs preserves all draft fields.
             The shared save below still applies edits from every tab together. */}

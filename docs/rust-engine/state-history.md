@@ -26,7 +26,7 @@ ended, but the DESK draws the row from its structured fields
 desk's own age words (`45s`, `12m`, `2h`, `3d`), never the new state. An
 ended state under one second (`prev_secs` 0) draws no row at all in the
 transcript, the popouts or any preview (no empty line, no gap); the row
-stays in the data and on the States tab. An ended state of unknown start
+stays in the data and on the Activity tab. An ended state of unknown start
 shows its name alone, a first row with no ended state shows nothing, and a
 row of an older engine without the fields keeps its own text
 (`canvas/statemarker.ts`). The row's timestamp is the new state's start; hovering it
@@ -121,12 +121,12 @@ Rows never fold into the system-notice pile (that fold is for
 `@system` mail), carry no token count, and are part of the transcript
 agents read back with `orgtree_read_transcript`.
 
-## The States tab in node settings (2026-11-03, 4.5.5)
+## The Activity tab in node settings (2026-11-03, 4.5.5; renamed from "States", USER 2026-11-04 m5d5ae90b5b7b)
 
 USER 2026-11-03 09:25:37Z (`md2ffcbe7266e`): "also was hoping to see
 idle/active/state times in the node seytinfs history tab, or a new
-adjacent tab". An agent's settings window has a **States** tab directly
-after History (agents only; a project has no states). It reads the same
+adjacent tab". An agent's settings window has an **Activity** tab directly
+before History (USER mc8352401b5c2 "place it to the left of history"; it was first added as "States" after History) (agents only; a project has no states). It reads the same
 `kind = "state"` conversation rows, so nothing new is recorded.
 
 **Placement: a new tab, not rows in History.** The History tab is the

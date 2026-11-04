@@ -10511,7 +10511,7 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .mention-landing { margin: 12px; padding: 10px; }
 .mention-landing .md > :first-child { margin-top: 6px; }
 
-/* node settings States tab: time per state, then each span newest first */
+/* node settings Activity tab (id "states"): time per state, then each span newest first */
 .settings.cfg .agent-history-tab .agent-states { flex: 1; min-height: 0; overflow: auto; }
 .agent-states { padding: 8px 12px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .agent-states-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -10543,7 +10543,7 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 /* scale pips at 1 min / 1 hour / 1 day: a 1px tick in the page background colour, so it reads on both the filled bar and the empty track in light and charcoal without hiding the state colour; a wider invisible hit area (::before) carries the hover label */
 .agent-states .state-pip { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: color-mix(in srgb, var(--bg) 75%, transparent); }
 .agent-states .state-pip::before { content: ''; position: absolute; inset: 0 -3px; }
-/* the transcript's "Active for 32s" marker takes the desk's provider accent, as Active does in the States tab */
+/* the transcript's "Active for 32s" marker takes the desk's provider accent, as Active does in the Activity tab */
 .msg.sys[data-ended-state="active"] { color: var(--agent-accent-text, var(--accent)); }
 .agent-states-tail { position: relative; }
 /* the sentinel overlaps the list's last half screen (no layout height), so the next page starts loading before the end shows */
