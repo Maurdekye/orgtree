@@ -55,11 +55,11 @@ export interface DesktopPreferences extends NotificationPreferences {
    *  organization window left without input for more than five minutes
    *  cycles through new activity on its own. Absent means off. */
   attractMode?: boolean
-  /** App settings > Display > Modes > Attract mode "Start after" (USER
+  /** App settings > Streaming > Attract mode "Start after" (USER
    *  2026-11-03 me67326548f6c): whole seconds of no input before a run may
    *  start. 0 or more, no maximum. Absent means 300 (five minutes). */
   attractIdleSeconds?: number
-  /** App settings > Display > Modes "Refuse questions to the user while attract
+  /** App settings > Streaming "Refuse questions to the user while attract
    *  mode runs" (USER 2026-11-03 13:10:58Z m46c12a448a66). Absent means ON; a
    *  window running attract reports it to the engine, which refuses new questions. */
   attractRefuseQuestions?: boolean

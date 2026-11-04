@@ -2941,7 +2941,7 @@ means changed since the window's last input and not yet shown in this run; it is
 that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
 - **Start-after delay (USER 2026-11-03 me67326548f6c).** `DesktopPreferences.attractIdleSeconds` (whole seconds, >= 0, no max,
   absent = 300; `policy.ts` refuses anything else) read live by `useAttractCycle` through `pref.ts` `useAttractIdleSeconds`; the
-  Display › Modes row is `AttractIdleSetting` (accounts.tsx, TurnLimitSetting's number-field pattern). A press the canvas took
+  Streaming row is `AttractIdleSetting` (accounts.tsx, TurnLimitSetting's number-field pattern). A press the canvas took
   sets `held` until pointerup/pointercancel/blur/a button-less move, and the start timer waits for the release, so at 0 a drag
   does not restart mid-gesture. `setTimeout` waits are clamped to 2^31-1 ms. Proof: `tests/attract.test.tsx` §10-§12,
   `tests/streamerblank.test.tsx` (Display field).  The tests' pointerdown scenes must send a pointerup, or `held` stays set.

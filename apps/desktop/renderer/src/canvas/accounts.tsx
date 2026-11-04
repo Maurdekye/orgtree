@@ -304,8 +304,8 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'harnesses', label: 'Harnesses' },
   { id: 'runtime', label: 'Runtime' },
   { id: 'display', label: 'Display' },
-  // what Streamer mode hides, one switch per type (USER 2026-11-03 maad1c88abeba, m4c7b46b6cffb, m10c6278e1744)
-  { id: 'streamer', label: 'Streamer mode' },
+  // Streaming (was "Streamer mode"; USER 2026-11-04 m7cc0b182821b): the streamer switch, OBS auto-detect, what it hides per type, and the attract group
+  { id: 'streamer', label: 'Streaming' },
   // Default org settings USED TO BE ITS OWN WINDOW, opened from the sidebar
   // that v3 removes. It is app-wide — every new organization is born with
   // these values — so it belongs here rather than in one organization's
@@ -394,10 +394,11 @@ function AttractIdleSetting() {
   </SetRow>
 }
 
-/** Settings > Streamer mode: the types streamer mode may hide. One switch per type, each with a one-line description and an
- *  example; the on/off state is shown read-only here (the switch lives in Display, so there is only one). */
+/** Settings > Streaming (USER 2026-11-04 m7cc0b182821b "put all of these settings in the streamer mode tab, and rename it to just
+ *  \"streaming\""): the streamer switch, OBS auto-detect, one switch per type it may hide, then the attract group. Keys and
+ *  behaviour are unchanged; this is a move from Display > Modes (now gone). */
 const STREAMER_SWITCHES: { type: StreamerType; label: string; hint: string }[] = [
-  { type: 'paths', label: 'Local file paths', hint: 'Absolute paths on this computer, e.g. C:\\Users\\you\\project or /home/you/notes. Off by default.' },
+  { type: 'paths', label: 'Local file paths', hint: 'Absolute paths on this computer, e.g. C:\Users\you\project or /home/you/notes. Off by default.' },
   { type: 'ips', label: 'IP addresses', hint: 'IPv4 and IPv6 addresses, e.g. 192.168.1.20 or 2001:db8::1.' },
   { type: 'emails', label: 'Email addresses', hint: 'Email addresses in text and the account email shown in the usage panel, e.g. you@example.com.' },
   { type: 'secrets', label: 'Secrets and keys', hint: 'API keys, bearer and OAuth tokens, passwords and private keys, e.g. api_key=sk-live-… or password=hunter2.' },
@@ -406,15 +407,17 @@ const STREAMER_SWITCHES: { type: StreamerType; label: string; hint: string }[] =
   { type: 'externals', label: 'External addresses', hint: 'Hub and organization addresses such as @net:name.id and @org:slug, and org-inbox senders and recipients.' },
   { type: 'orgs', label: 'Other orgs', hint: 'The names of the other organizations on this installation, in text and in the org switcher. This org is always visible.' },
 ]
-function StreamerSettings({ openDisplay }: { openDisplay: () => void }) {
-  const streamer = useStreamerMode()
+function StreamingSettings() {
+  const streamer = useStreamerMode(), attract = useAttractMode(), refuse = useAttractRefuseQuestions()
   return (
     <>
       <SetGroup title="Streamer mode">
-        <SetRow label="Status" field="streamerStatus">
-          <span>{streamer.enabled ? 'On' : 'Off'}</span>{' '}
-          <button type="button" className="link" onClick={openDisplay}>Change it in Display</button>
-        </SetRow>
+        <SetToggle label="Streamer mode" field="streamerMode" checked={streamer.enabled}
+          onChange={v => { void setStreamerMode(v) }}
+          hint="Blurs the types of private information chosen below while you share your screen. Copying, links and agents still use the originals." />
+        {desktop() && <SetToggle label="Turn on automatically while OBS is running" field="streamerAuto" checked={streamer.autoSetting}
+          onChange={v => { void setStreamerAuto(v) }}
+          hint="Turns Streamer mode on when OBS, Streamlabs or XSplit starts and off again when the last one closes, unless you had it on yourself. Turning it off by hand while one runs keeps it off until it restarts." />}
       </SetGroup>
       <SetGroup title="What Streamer mode hides" note=" · agent, project, account and model names, timestamps and commit ids are never hidden">
         {STREAMER_SWITCHES.map(sw => (
@@ -425,31 +428,16 @@ function StreamerSettings({ openDisplay }: { openDisplay: () => void }) {
           onChange={v => { void setStreamerCover(v) }}
           hint="These cannot be searched for the types above, so while Streamer mode is on they sit behind a Hidden in Streamer mode cover you can dismiss per surface." />
       </SetGroup>
+      <SetGroup title="Attract mode">
+        <SetToggle label="Attract mode" field="attractMode" checked={attract}
+          onChange={v => { void setAttractMode(v) }}
+          hint="After the quiet time below, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
+        <AttractIdleSetting />
+        <SetToggle label="Refuse questions to the user while attract mode runs" field="attractRefuseQuestions" checked={refuse}
+          onChange={v => { void setAttractRefuseQuestions(v) }}
+          hint="While attract mode runs in any window, new questions agents ask you are refused and they are told to message you on Hubchat instead. Mail to you is not affected; questions already open stay." />
+      </SetGroup>
     </>
-  )
-}
-
-function ModeToggles({ openStreamerSettings }: { openStreamerSettings?: () => void }) {
-  const streamer = useStreamerMode(), attract = useAttractMode(), refuse = useAttractRefuseQuestions()
-  return (
-    <SetGroup title="Modes">
-      <SetToggle label="Streamer mode" field="streamerMode" checked={streamer.enabled}
-        onChange={v => { void setStreamerMode(v) }}
-        hint="Blurs the types of private information chosen in the Streamer mode settings (email addresses, secrets, IP addresses and more) while you share your screen. Copying, links and agents still use the originals." />
-      {desktop() && <SetToggle label="Turn on automatically while OBS is running" field="streamerAuto" checked={streamer.autoSetting}
-        onChange={v => { void setStreamerAuto(v) }}
-        hint="Turns Streamer mode on when OBS, Streamlabs or XSplit starts and off again when the last one closes, unless you had it on yourself. Turning it off by hand while one runs keeps it off until it restarts." />}
-      {openStreamerSettings && <SetRow label="What Streamer mode hides" field="streamerHides">
-        <button type="button" className="link" onClick={openStreamerSettings}>What streamer mode hides…</button>
-      </SetRow>}
-      <SetToggle label="Attract mode" field="attractMode" checked={attract}
-        onChange={v => { void setAttractMode(v) }}
-        hint="After the quiet time below, an organization window shows its own new activity by itself. Interacting with the canvas stops it." />
-      <AttractIdleSetting />
-      <SetToggle label="Refuse questions to the user while attract mode runs" field="attractRefuseQuestions" checked={refuse}
-        onChange={v => { void setAttractRefuseQuestions(v) }}
-        hint="While attract mode runs in any window, new questions agents ask you are refused and they are told to message you on Hubchat instead. Mail to you is not affected; questions already open stay." />
-    </SetGroup>
   )
 }
 
@@ -1060,12 +1048,11 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <MailHubSettings active={tab === 'mailhub'} />
     </SettingsTabPanel>
     <SettingsTabPanel id="streamer" idBase="app-settings" active={tab === 'streamer'}>
-      <StreamerSettings openDisplay={() => setTab('display')} />
+      <StreamingSettings />
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
-      <ModeToggles openStreamerSettings={() => setTab('streamer')} />
       <SetGroup title="Text">
         <SetToggle label="Wrap object mentions" checked={(wrapMentions ?? runtime?.wrap_object_mentions) === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWrapObjectMentions, v)}
