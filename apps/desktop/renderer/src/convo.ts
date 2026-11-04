@@ -1888,6 +1888,13 @@ function beat(k: string, slug: string, nid: string): void {
  *  orphan, and every later patch would notify a set nobody is listening to —
  *  a permanently deaf view that looks exactly like the staleness this whole
  *  file exists to prevent. Identity of the Entry is load-bearing. */
+/** The org's websocket closed or is reconnecting: a clear frame for a finished call may have been missed, so the websocket stops being
+ *  the authority for tool_writing rows until it delivers a writing list again (see the merge in refreshConvo). The next snapshot then
+ *  decides, and a row that is gone on the engine is gone here too. */
+export function socketLost(slug: string): void {
+  for (const [k, e] of M) if (k.startsWith(slug + '/')) e.writingVersion = 0
+}
+
 export function resetConvos(): void {
   M.forEach((e) => {
     cancelHistoryRetry(e)

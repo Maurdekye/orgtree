@@ -7,7 +7,7 @@ import './harness'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ingestStream, refreshConvo, resetConvos, useConvo } from '../src/convo'
+import { ingestStream, refreshConvo, resetConvos, socketLost, useConvo } from '../src/convo'
 import type { Convo } from '../src/convo'
 import type { ChatTransient } from '../src/types'
 
@@ -46,4 +46,25 @@ test('an HTTP chat snapshot built before the call never takes the websocket-deli
   await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [] } as never); await flush(4) })
   await inAct(async () => { void refreshConvo(SL, ND, { force: true }); await flush(20) })
   assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false, 'the websocket clear is honoured')
+})
+
+test('after the websocket drops, the websocket is no longer the authority: a snapshot without the row removes a writing row whose clear frame was missed', async t => {
+  const globals = globalThis as unknown as { fetch: typeof fetch }
+  const saved = globals.fetch
+  globals.fetch = (async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), window.location.origin).pathname
+    if (path.endsWith('/chat')) return json({ messages: [], live: [], pending_mail: [], busy: false, windowed: true, has_older: false, before: null, draft_epoch: 'f:0', transient: [] })
+    return json({})
+  }) as typeof fetch
+  resetConvos()
+  let snap: Convo | null = null
+  function Probe() { snap = useConvo(SL, ND); return null }
+  const view = await mountView(<Probe />, h => h)
+  t.after(async () => { await view.unmount(); resetConvos(); globals.fetch = saved })
+  await inAct(async () => { await flush(10) })
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [writing('call-9')] } as never); await flush(4) })
+  assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), true)
+  // while connected, a snapshot without the row does not take it away (the first test); the socket drops and the clear frame is missed
+  await inAct(async () => { socketLost(SL); void refreshConvo(SL, ND, { force: true }); await flush(20) })
+  assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false, 'the snapshot decides again: no stale writing row')
 })

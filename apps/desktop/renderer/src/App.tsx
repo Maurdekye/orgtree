@@ -170,7 +170,7 @@ import {
 import type { SettingsTab, SettingsTarget } from './canvas/settingskit'
 import { OrgInboxPolicy } from './orginboxpolicy'
 import type { OrgInboxMode } from './orginboxpolicy'
-import { ingestPulse, ingestStream, resetConvos } from './convo'
+import { ingestPulse, ingestStream, resetConvos, socketLost } from './convo'
 import { clearNodeMetadata, metadataPatch, publishNodeMetadata, replaceNodeMetadata } from './nodemetadata'
 import type { NodeStreamFrame } from './nodemetadata'
 import type {
@@ -1339,6 +1339,7 @@ export default function App() {
         if (socket !== currentSocket) return
         if (connection !== null) recordSocket.current.close(connection)
         connection = null
+        socketLost(slug)
         bindRoomSocket(slug, null)
         if (!dead) epic?.frame(slug, { type: 'epic_link', up: false })
         if (!dead) timer = setTimeout(connect, 1500)
