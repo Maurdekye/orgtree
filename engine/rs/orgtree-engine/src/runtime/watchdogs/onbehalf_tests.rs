@@ -884,6 +884,26 @@ async fn ce15_a_user_edit_is_recorded_as_the_user() {
     assert!(mail.contains("orgtree_message: ok") && !mail.contains("the setter"), "{mail}");
 }
 
+/// CE16 (spec 5 recheck 4, D16): an edit may not turn one project dog into a duplicate of another (the dog itself excepted).
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce16_project_dog_duplicates() {
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&w.p]).await;
+    create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":"echo one","pattern":"p","project":"P","name":"one"})).await.unwrap();
+    create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":"echo two","pattern":"p","project":"P","name":"two"})).await.unwrap();
+    let e = err(w.cfg(w.s, "P/two", json!({"target":"echo one"})).await);
+    assert!(e.contains("project P already has this watchdog: P/one; listen to the project instead of adding another"), "{e}");
+    assert_eq!(w.column("two", "target").await, "echo two", "nothing written");
+    // editing a dog into its own tuple is fine
+    w.cfg(w.s, "P/two", json!({"target":"echo two","interval_s":120})).await.unwrap();
+    // a pattern edit that makes the pair identical is refused too
+    create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":"echo one","pattern":"q","project":"P","name":"three"})).await.unwrap();
+    let e = err(w.cfg(w.s, "P/three", json!({"pattern":"p"})).await);
+    assert!(e.contains("already has this watchdog: P/one"), "{e}");
+}
+
 /// CE10: a waiting slot claim is re-admitted at the back; a held lease refuses the edit.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
