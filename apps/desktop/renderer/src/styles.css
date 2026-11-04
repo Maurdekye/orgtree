@@ -10538,8 +10538,11 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .agent-states [data-state="frozen"] { --state-colour: var(--ice); }
 .agent-states .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-colour); display: inline-block; }
 /* the duration bar: the track takes the row's width between the time and the duration columns (every bar starts at one left edge and ends at one right edge, so lengths compare across rows and pages) with a log-length fill */
-.agent-states-bar { display: block; width: 100%; min-width: 0; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--dim) 18%, transparent); overflow: hidden; }
+.agent-states-bar { position: relative; display: block; width: 100%; min-width: 0; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--dim) 18%, transparent); overflow: hidden; }
 .agent-states .state-bar { display: block; height: 100%; border-radius: 4px; background: var(--state-colour); }
+/* scale pips at 1 min / 1 hour / 1 day: a 1px tick in the page background colour, so it reads on both the filled bar and the empty track in light and charcoal without hiding the state colour; a wider invisible hit area (::before) carries the hover label */
+.agent-states .state-pip { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: color-mix(in srgb, var(--bg) 75%, transparent); }
+.agent-states .state-pip::before { content: ''; position: absolute; inset: 0 -3px; }
 /* the transcript's "Active for 32s" marker takes the desk's provider accent, as Active does in the States tab */
 .msg.sys[data-ended-state="active"] { color: var(--agent-accent-text, var(--accent)); }
 .agent-states-tail { position: relative; }

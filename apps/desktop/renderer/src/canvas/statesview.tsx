@@ -30,6 +30,12 @@ export const barWidthPct = (secs: number): number => {
   return Math.max(BAR_MIN_PCT, 100 * Math.log(secs) / Math.log(SCALE_MAX_SECS))
 }
 
+/** Scale pips on every row's track: 1 minute, 1 hour and 1 day at the bars' own log positions (USER m45c0e03468a6). A pip
+ *  beyond the track (`maxSecs` below its duration) is omitted; the full scale ends at 7 d, so all three show by default. */
+const PIPS = [{ secs: 60, label: '1 min' }, { secs: 3600, label: '1 hour' }, { secs: 86400, label: '1 day' }] as const
+export const scalePips = (maxSecs: number = SCALE_MAX_SECS) =>
+  PIPS.filter(p => p.secs <= maxSecs).map(p => ({ ...p, pct: barWidthPct(p.secs) }))
+
 /** The exact duration for a hover: "1d 1h 1m 1s", zero parts left out. */
 export const fmtExact = (secs: number): string => {
   let rest = Math.floor(Math.max(0, secs))
@@ -204,6 +210,7 @@ export function AgentStatesView({ slug, nid, provider, liveState }: { slug: stri
             title={`${fmtFull(s.start)} → ${s.end ? fmtFull(s.end) : 'now'}`}>{fmtHm(s.start)}</time>
           <span className="agent-states-bar" title={`${LABEL[s.state]} for ${fmtExact(secs)}`}>
             <i className={`state-bar ${s.state}`} style={{ width: `${barWidthPct(secs)}%` }} />
+            {scalePips().map(p => <b key={p.secs} className="state-pip" style={{ left: `${p.pct}%` }} title={p.label} />)}
           </span>
           <span className="agent-states-dur">{fmtSpan(secs)}</span>
         </li>
