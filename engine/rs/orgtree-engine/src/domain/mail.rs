@@ -342,6 +342,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
                         );
                     }
                     user_routed = true;
+                    #[cfg(test)] route_gate().await;
                 }
             }
         }
@@ -409,7 +410,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         if let Err(refusal) = authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await {
             // G1/G2: the normal rules first, then the one route a job gives its holder and sender
             match super::orginbox::jobs::job_route(&**client, org_id, *id, &out, Some(target_id)).await? {
-                Some(stamp) => { if out.job_reply.is_none() { out.job_reply = Some(stamp); } routed = Some(refusal); }
+                Some(stamp) => { if out.job_reply.is_none() { out.job_reply = Some(stamp); } routed = Some(refusal); #[cfg(test)] route_gate().await; }
                 None => return Err(refusal),
             }
         }
@@ -812,6 +813,21 @@ pub(crate) async fn authorize(
     if super::peer_mail::check(relation,false,parent_name).is_ok() { return Ok(()); }
     let audience = super::peer_mail::audience_allows(client,org_id,from_name,to_name).await?;
     super::peer_mail::check(relation,audience,parent_name)
+}
+
+/// Test hook: a send that found its job route pauses here (reports `reached`, waits for `proceed`) so a test can ACK
+/// the job between the early check and the send's own transaction. Armed once, taken by the next send.
+#[cfg(test)]
+pub(crate) static ROUTE_GATE: std::sync::Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+#[nolog]
+async fn route_gate() {
+    let gate = ROUTE_GATE.lock().unwrap().take();
+    if let Some((reached, proceed)) = gate {
+        reached.notify_one();
+        proceed.notified().await;
+    }
 }
 
 /// A wake-up from the engine itself (crash recovery, watchdogs, freezes ending).

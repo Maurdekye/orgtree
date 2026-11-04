@@ -770,3 +770,55 @@ async fn gr10_an_ack_cannot_slip_between_the_route_check_and_the_send() {
     let acked: bool = c2.query_one("SELECT extra->'claimed'->>'acked_at' IS NOT NULL FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
     assert!(acked);
 }
+
+/// An ACK that lands AFTER the early route check and BEFORE the send's own transaction must stop the send: refusal, no row.
+#[nolog]
+async fn ack_between_check_and_send(w: &World, send: impl std::future::Future<Output = Result<Sent>>, job: &str) -> Result<Sent> {
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let proceed = Arc::new(tokio::sync::Notify::new());
+    *crate::domain::mail::ROUTE_GATE.lock().unwrap() = Some((reached.clone(), proceed.clone()));
+    let acker = async {
+        reached.notified().await;
+        w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
+        proceed.notify_one();
+    };
+    let (r, _) = tokio::join!(send, acker);
+    r
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr11_an_ack_between_the_early_check_and_the_send_stops_an_agent_reply_and_writes_no_row() {
+    let mut w = world(true).await;
+    let (worker, _a, job, copy) = plain_job(&mut w, true).await;
+    let send = crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "late reply", Some(json!({ "id": copy, "from": "A" }))));
+    let r = ack_between_check_and_send(&w, send, &job).await;
+    assert!(r.is_err(), "the ACK won: the send is refused");
+    let n: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND body='late reply'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(n, 0, "and nothing was inserted");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr12_an_ack_between_the_early_check_and_the_send_stops_a_reply_to_the_user_and_writes_no_row() {
+    let mut w = world(true).await;
+    w.e.orgs.insert(crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into()));
+    let proj = w.project("P", true).await;
+    let boss = w.agent("boss", None).await;
+    w.c.execute("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&proj, &boss]).await.unwrap();
+    let worker = w.agent("W", Some(proj)).await;
+    let job = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'user','agent',$3,'P','from the user','pending','{}')",
+        &[&job, &w.org, &proj]).await.unwrap();
+    let copy = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'user','agent',$3,'W','from the user','pending',$4)",
+        &[&copy, &w.org, &worker, &json!({ "via_project": { "id": proj, "name": "P", "mail": job, "ack": true } })]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": worker, "ack": true, "copy": copy } })]).await.unwrap();
+    let send = crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "user", "late report", Some(json!({ "id": copy, "from": "user" }))));
+    let r = ack_between_check_and_send(&w, send, &job).await;
+    assert!(r.is_err(), "the ACK won: the send is refused");
+    let n: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND body='late report'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(n, 0, "and nothing was inserted");
+}

@@ -45,6 +45,10 @@ Start with a batch of one. Larger batches (up to 20) suit small independent task
 
 **Mail > listeners** separates Working, Line and Recently Finished in ACK mode, or Line and Recently Delivered in round-robin. Inspect the job, holder, wait/hold age, batch and watchdog. Paused/unavailable listeners differ from ready workers. **Dead Letter Line** lists notification subscribers, not failed jobs.
 
+### Replying about a job
+
+An agent that holds a queue job can answer whoever sent it, even with no other audience: it names its copy of the job in a reply to that sender (the user too). In ACK mode this works until the agent acknowledges the job; in round-robin mode it has no end. The sender can answer back through the same reply, and a sender's follow-up that names its own earlier mail to the project is bundled with the waiting job or goes straight to the agent holding it. After the acknowledgement a follow-up is a new job. The route never gives anyone a standing audience.
+
 ### Reclaim and retry deliberately
 
 Timeout checkups rotate through all of an agent's held jobs and leases in
