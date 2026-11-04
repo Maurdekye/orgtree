@@ -1089,16 +1089,21 @@ async fn parent_locked_before_dog(w: &W, dog_uid: &str, actor: i64, id: &str, ed
     let mut holder = w.e.db.get().await.unwrap();
     let tx = holder.transaction().await.unwrap();
     tx.query_one("SELECT id FROM ot.watchdogs WHERE id=$1 FOR UPDATE", &[&dog_row]).await.unwrap();
+    let holder_pid: i32 = tx.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get(0);
     let task = tokio::spawn(w.cfg_task(actor, id, edit));
+    // wait for the backend that THIS holder blocks, and check it is configure's dog-row SELECT ... FOR UPDATE
+    // (not an unrelated poller's lock wait)
     let mut blocked = false;
     for _ in 0..200 {
-        if w.count_where("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND datname=current_database()").await > 0 {
+        let n = w.count_where(&format!(
+            "SELECT count(*) FROM pg_stat_activity WHERE {holder_pid} = ANY(pg_blocking_pids(pid))              AND query LIKE 'SELECT state, memo FROM ot.watchdogs WHERE id = %' AND query LIKE '%FOR UPDATE'")).await;
+        if n > 0 {
             blocked = true;
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    assert!(blocked, "the edit never blocked on the dog row");
+    assert!(blocked, "the edit never blocked on the dog row (waiting on the holder's lock)");
     let mut probe = w.e.db.get().await.unwrap();
     let ptx = probe.transaction().await.unwrap();
     let locked = ptx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE NOWAIT", &[&parent_row]).await.is_err();
