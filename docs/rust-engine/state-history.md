@@ -153,3 +153,11 @@ the next actor start (the reconcile above). Migration `0082` adds a partial
 index on the state rows so every read touches only them, never the
 agent's whole transcript. Pure span/totals logic: `state_history::spans`
 and `state_history::totals`.
+
+Renderer only (no engine change): each row's duration bar is drawn on a fixed
+log scale (1 second or less is the minimum, 7 days or more fills the track,
+`ln(secs)/ln(7 d)` between). Every row's track also carries three thin scale
+pips at that same scale's positions for 1 minute, 1 hour and 1 day (about 31%,
+62% and 85% of the track), each with a hover label "1 min", "1 hour" or
+"1 day" and no text on the row; a pip beyond the track's maximum is omitted.
+`scalePips()` in `statesview.tsx`; USER 2026-11-04 m45c0e03468a6.
