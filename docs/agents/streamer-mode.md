@@ -116,3 +116,20 @@ Streamlabs Desktop.exe, TwitchStudio.exe (case-insensitive, whole image name).
   mode on before native masking is evaluated. A persisted flag whose app is gone is released at
   the first verdict (coordinator maf0e03d7007b, from @build-sol's source read).
 - Turning the setting OFF leaves the mode as it is (the user then owns it).
+
+## Scan cost (UI freeze while typing, 2026-11-04)
+
+A scan was a whole-document pass on EVERY mutation batch: 2.2 s per scan at 18k text nodes in jsdom, 65-190 ms in Chromium at
+depth 4-50 (measured, `streamerperf.test.tsx`; the regexes were only 11-20 ms). The cost was `closest()` over the long zone
+selector lists, per text node. The rules now (`streamer-boundary.ts`):
+
+- A text node's CLASSIFICATION (skip / field / free-form + nearest block) is cached in a WeakMap; the TEXT is always read fresh from
+  the node, so new or edited text is masked in the same microtask. Mutation records invalidate the cache by subtree (added nodes,
+  siblings, class changes); config changes drop it. The global text and the regex pass stay whole, so cross-block matches (an
+  unterminated private key, `key =` then a value) are exact.
+- A mutation that touches no free-form text, field, labelled element, input or media (typing counters, hints, chrome) costs no scan.
+  A batch of nothing but edits to classified free-form text reuses the last walk's sequence (no tree walk).
+- Pacing: a scan of 16 ms or more is followed by a wait of 4x its cost, at most 1 s (was 250 ms, which let a 2 s scan keep the
+  main thread ~90% busy). Cheap scans are never delayed, so masking stays before the next paint.
+- `streamerScanStats()` (read-only) returns the last 32 scans (`start`, `ms`, `trigger`, `mutations`, `nodes_walked`, `text_chars`,
+  `ranges_after`) for the stall watch.
