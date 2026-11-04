@@ -272,7 +272,7 @@ function installBridge(t: TestContext) {
   return { writes, elsewhere }
 }
 
-test('App settings › Display › Modes has "Turn on automatically while OBS is running", default on, and the banner note follows the automation', async (t) => {
+test('App settings › Streaming has "Turn on automatically while OBS is running", default on, and the banner note follows the automation', async (t) => {
   const { WebSocket } = g
   g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
   t.after(() => { g.WebSocket = WebSocket })
@@ -280,10 +280,10 @@ test('App settings › Display › Modes has "Turn on automatically while OBS is
   stubFetch()
   const stop = startStreamerMode()
   t.after(() => { stop(); delete g.fetch })
-  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
+  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="streamer" />, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(10) })
-  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-streamer')!
   const row = host.querySelector<HTMLElement>('[data-settings-field="streamerAuto"]')
   assert.equal(row === null, false, 'the row exists beside Streamer mode')
   assert.equal(row!.querySelector('.set-label')!.textContent, 'Turn on automatically while OBS is running')

@@ -39,4 +39,4 @@ window.fetch = (async (url: string, init?: RequestInit) => {
   reveal: () => document.querySelector('[data-settings-field="attractIdleSeconds"]')?.scrollIntoView({ block: 'center' }),
 }
 createRoot(document.getElementById('root')!).render(
-  <div style={{ width: 760, margin: '0 auto' }}><AccountsPanel toast={() => {}} close={() => {}} initialTab="display" /></div>)
+  <div style={{ width: 760, margin: '0 auto' }}><AccountsPanel toast={() => {}} close={() => {}} initialTab="streamer" /></div>)

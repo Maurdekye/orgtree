@@ -240,7 +240,7 @@ function installBridge(t: TestContext) {
   return { writes, elsewhere: (patch: Partial<NativePreferences>) => { saved = { ...saved, ...patch }; broadcast() }, saved: () => saved }
 }
 
-test('Settings has a Streamer mode category next to Display: eight switches with defaults, persistence keys and live sync; Display links to it', async (t) => {
+test('Settings has a Streaming category next to Display holding the streamer switch, OBS auto-detect, eight type switches and the attract group, in that order; Display has no Modes section', async (t) => {
   const { WebSocket } = g
   g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
   t.after(() => { g.WebSocket = WebSocket })
@@ -252,16 +252,20 @@ test('Settings has a Streamer mode category next to Display: eight switches with
   t.after(() => view.unmount())
   await inAct(async () => { await flush(10) })
   const tabs = [...view.el.querySelectorAll('[role="tab"]')].map(e => e.textContent)
-  assert.equal(tabs.indexOf('Streamer mode'), tabs.indexOf('Display') + 1, 'the category sits right after Display: ' + JSON.stringify(tabs))
-  // Display keeps on/off + auto switches and gains the link row; there is no second on/off switch in the new category
+  assert.equal(tabs.indexOf('Streaming'), tabs.indexOf('Display') + 1, 'the category (renamed from Streamer mode) sits right after Display: ' + JSON.stringify(tabs))
+  assert.equal(tabs.includes('Streamer mode'), false)
+  // Display no longer has the Modes section; everything moved to Streaming
   const display = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
-  assert.ok(display.querySelector('[data-settings-field="streamerMode"]'))
-  assert.ok(display.querySelector('[data-settings-field="streamerHides"] button.link')!.textContent!.includes('What streamer mode hides'))
-  await inAct(async () => { display.querySelector<HTMLButtonElement>('[data-settings-field="streamerHides"] button')!.click(); await flush(4) })
+  for (const f of ['streamerMode', 'streamerAuto', 'attractMode', 'attractIdleSeconds', 'attractRefuseQuestions', 'streamerHides']) assert.equal(display.querySelector(`[data-settings-field="${f}"]`), null, 'Display has no ' + f)
+  assert.ok(![...display.querySelectorAll('.set-group-title, h3, h4')].some(e => e.textContent === 'Modes'), 'no Modes heading in Display')
   const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-streamer')!
-  assert.equal(panel.hasAttribute('hidden') || panel.getAttribute('aria-hidden') === 'true', false, 'the link opens the category')
-  assert.ok(!panel.querySelector('[data-settings-field="streamerMode"]'), 'no second on/off switch')
-  assert.ok(/Off/.test(panel.querySelector('[data-settings-field="streamerStatus"]')!.textContent!), 'read-only state')
+  const order = [...panel.querySelectorAll('[data-settings-field]')].map(e => e.getAttribute('data-settings-field'))
+  const want = ['streamerMode', 'streamerAuto', ...['paths', 'ips', 'emails', 'secrets', 'phones', 'tokenUrls', 'externals', 'orgs'].map(k => 'streamer-' + k), 'streamerCover', 'attractMode']
+  assert.deepEqual(order.slice(0, want.length), want, 'order: streamer switch, OBS auto-detect, per-type switches, cover, then attract: ' + JSON.stringify(order))
+  assert.ok(order.includes('attractRefuseQuestions'))
+  assert.equal(panel.querySelector('[data-settings-field="streamerHides"]'), null, 'no "What streamer mode hides" button')
+  assert.equal(panel.querySelector('[data-settings-field="streamerStatus"]'), null, 'no read-only status row: the switch itself is here')
+  assert.ok(!/Streamer mode settings|Change it in Display/.test(panel.textContent!), 'descriptions do not point at another page')
   const box = (field: string) => panel.querySelector<HTMLInputElement>(`[data-settings-field="${field}"] input[type="checkbox"]`)!
   const fields = ['paths', 'ips', 'emails', 'secrets', 'phones', 'tokenUrls', 'externals', 'orgs'].map(k => 'streamer-' + k)
   assert.deepEqual(fields.map(f => box(f)?.checked), [false, true, true, true, true, true, true, true], 'defaults')

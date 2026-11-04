@@ -1,4 +1,4 @@
-// App settings > Display > Modes: "Refuse questions to the user while attract mode runs"
+// App settings > Streaming: "Refuse questions to the user while attract mode runs"
 // (USER 2026-11-03 13:10:58Z m46c12a448a66). Kept out of streamerblank.test.tsx so the two
 // files do not both grow at the end; the helpers below are small copies of that file's.
 import { flush, inAct, mountView } from './harness'
@@ -44,7 +44,7 @@ function installBridge(t: TestContext) {
   return { writes, elsewhere }
 }
 
-test('App settings › Display › Modes has a "Refuse questions to the user while attract mode runs" toggle under the start-after row: default on, one app-wide preference', async (t) => {
+test('App settings › Streaming has a "Refuse questions to the user while attract mode runs" toggle under the start-after row: default on, one app-wide preference', async (t) => {
   const { WebSocket } = g
   g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
   t.after(() => { g.WebSocket = WebSocket })
@@ -52,10 +52,10 @@ test('App settings › Display › Modes has a "Refuse questions to the user whi
   stubFetch()
   const stop = startStreamerMode()
   t.after(() => { stop(); delete g.fetch })
-  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
+  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="streamer" />, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(10) })
-  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-streamer')!
   const row = host.querySelector<HTMLElement>('[data-settings-field="attractRefuseQuestions"]')
   assert.ok(row, 'the refuse-questions row')
   assert.equal(host.querySelector('[data-settings-field="attractIdleSeconds"]')!.nextElementSibling, row, 'directly under the start-after row')

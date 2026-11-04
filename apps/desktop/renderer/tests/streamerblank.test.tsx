@@ -157,7 +157,7 @@ function installBridge(t: TestContext) {
   return { writes, elsewhere }
 }
 
-test('App settings › Display has Streamer mode and Attract mode toggles bound to the one shared preference', async (t) => {
+test('App settings › Streaming has Streamer mode and Attract mode toggles bound to the one shared preference', async (t) => {
   const { WebSocket } = g
   g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
   t.after(() => { g.WebSocket = WebSocket })
@@ -165,10 +165,10 @@ test('App settings › Display has Streamer mode and Attract mode toggles bound 
   stubFetch()
   const stop = startStreamerMode()
   t.after(() => { stop(); delete g.fetch })
-  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
+  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="streamer" />, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(10) })
-  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-streamer')!
   const row = (field: string) => host.querySelector<HTMLElement>(`[data-settings-field="${field}"]`)
   const box = (field: string) => row(field)?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null
   assert.equal(row('streamerMode') === null, false, 'Streamer mode row')
@@ -236,7 +236,7 @@ test('icon-sized embedded surfaces are hidden without a cover; larger ones keep 
   } finally { boundary.dispose(); dom.window.close() }
 })
 
-test('App settings › Display › Modes has an Attract "start after" seconds field next to the toggle: default 300, whole seconds from 0, applied on commit', async (t) => {
+test('App settings › Streaming has an Attract "start after" seconds field next to the toggle: default 300, whole seconds from 0, applied on commit', async (t) => {
   const { WebSocket } = g
   g.WebSocket = class { onclose: (() => void) | null = null; close() { this.onclose?.() } }
   t.after(() => { g.WebSocket = WebSocket })
@@ -244,10 +244,10 @@ test('App settings › Display › Modes has an Attract "start after" seconds fi
   stubFetch()
   const stop = startStreamerMode()
   t.after(() => { stop(); delete g.fetch })
-  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="display" />, el => el)
+  const view = await mountView(<AccountsPanel toast={() => {}} close={() => {}} initialTab="streamer" />, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(10) })
-  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+  const host = view.el.querySelector<HTMLElement>('#app-settings-panel-streamer')!
   const row = host.querySelector<HTMLElement>('[data-settings-field="attractIdleSeconds"]')
   assert.ok(row, 'the start-after row')
   assert.equal(row!.classList.contains('set-row'), true, "the Display tab's own row")
