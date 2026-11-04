@@ -884,7 +884,7 @@ async fn pf05_queue_makes_one_job_handed_to_the_listener() {
     assert_eq!(w.mail_with(w.member, QUEUE_LINE).await, 1, "the worker holds its copy");
     assert_eq!(w.count("SELECT count(*) FROM ot.project_fires WHERE project_id=$1", &[&w.project]).await, 0);
     let from: String = w.e.db.get().await.unwrap().query_one("SELECT sender FROM ot.mail WHERE recipient_agent_id=$1", &[&w.project]).await.unwrap().get(0);
-    assert!(from.contains("feed"), "sent as the watchdog: {from}");
+    assert_eq!(from, "stream/feed", "a dog job is sent as the dog's handle");
 }
 
 /// PF6 (F5): in ACK mode the job is claimed; acking it sends nothing back; a reply to the dog is refused.
@@ -935,6 +935,25 @@ async fn pf07_queue_always_queues_and_a_later_listener_gets_it() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     assert_eq!(w.mail_with(w.member, QUEUE_LINE).await, 1, "the later listener receives the waiting job");
+}
+
+/// PF7b (F5, rev 2.2): an unwatched project's queue dog nudges once while the queue stays non-empty, with the dog's own text, and again after it drains.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf07b_a_chatty_dog_nudges_once_per_fill() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.form_dog(w.boss, "feed", "queue", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    let nudges = || w.count("SELECT count(*) FROM ot.mail WHERE sender='@system' AND body LIKE 'Watchdog @stream/feed (\"feed\") queued a job in project stream''s mailbox, and no agent watches project stream with a fair_queue watchdog, so its jobs wait. Arm one now (orgtree_watchdog create kind=fair_queue target=stream), or change the dog''s form with orgtree_watchdog configure id=stream/feed project_delivery=...%'", &[]);
+    for n in ["one", "two", "three"] { w.fire(row, &[n]).await; }
+    assert_eq!(w.jobs().await.len(), 3);
+    assert_eq!(nudges().await, 1, "three fires, one nudge");
+    assert_eq!(w.count("SELECT count(*) FROM ot.mail WHERE sender='@system' AND body LIKE 'The user wrote%'", &[]).await, 0, "never the user text");
+    w.sql("DELETE FROM ot.mail WHERE recipient_agent_id=$1", &[&w.project]).await;
+    w.fire(row, &["four"]).await;
+    assert_eq!(nudges().await, 2, "the queue filled again: a second nudge");
 }
 
 /// PF8 (F5 ACK timeout): a job nobody has taken never ages into attempts or a dead letter.
