@@ -822,3 +822,17 @@ async fn gr12_an_ack_between_the_early_check_and_the_send_stops_a_reply_to_the_u
     let n: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND body='late report'", &[&w.org]).await.unwrap().get(0);
     assert_eq!(n, 0, "and nothing was inserted");
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr4b_a_reply_the_normal_rules_already_allow_is_still_a_job_reply_the_sender_can_answer() {
+    let mut w = world(true).await;
+    let (worker, a, _job, copy) = plain_job(&mut w, true).await;
+    // W already reaches A through a one-way audience; A has no route to W (W is nested, A's audience is with P only)
+    w.c.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1,'W','A','fixture')", &[&w.org]).await.unwrap();
+    let m = crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "question?", Some(json!({ "id": copy, "from": "A" })))).await.expect("allowed by the normal rules").uid;
+    let stamped: bool = w.c.query_one("SELECT extra ? 'job_reply' FROM ot.mail WHERE uid=$1", &[&m]).await.unwrap().get(0);
+    assert!(stamped, "an allowed reply that names W's copy of the job carries the job-reply stamp");
+    crate::domain::mail::send(&w.e, w.org, from_agent(a, "A", "W", "answer", Some(json!({ "id": m, "from": "W" })))).await.expect("G2: A answers back although it has no route to W");
+}
