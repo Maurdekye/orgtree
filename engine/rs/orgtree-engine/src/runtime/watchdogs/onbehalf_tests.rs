@@ -758,9 +758,19 @@ async fn ce04_a_hello_edit_reconnects_a_pattern_edit_does_not() {
     assert!(server.until(10, |s| s.live() >= 1).await);
     let row = w.dog("sock").await.3;
     let dials = server.upgrades();
-    w.cfg(w.w, "sock", json!({"pattern":"news"})).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-    assert_eq!(server.upgrades(), dials, "a tier A edit does not reconnect");
+    // rev 1.6: a pattern edit reconnects too, so it takes effect now: a matching message fires, another does not
+    w.cfg(w.w, "sock", json!({"pattern":"news","interval_s":5})).await.unwrap();
+    assert!(server.until(10, |s| s.upgrades() > dials).await, "a pattern edit reconnects");
+    assert!(server.until(10, |s| s.live() >= 1).await);
+    server.push(tokio_tungstenite::tungstenite::Message::Text("sports: ignored".into()));
+    server.push(tokio_tungstenite::tungstenite::Message::Text("news: matched".into()));
+    for _ in 0..100 {
+        if w.mail_with(w.w, "news: matched").await > 0 { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert_eq!(w.mail_with(w.w, "news: matched").await, 1, "the edited pattern fires on a match");
+    assert_eq!(w.mail_with(w.w, "sports: ignored").await, 0, "and not on a non-match");
+    let dials = server.upgrades();
     w.cfg(w.w, "sock", json!({"hello":["hi there"]})).await.unwrap();
     assert!(server.until(10, |s| s.upgrades() > dials).await, "a tier B edit reconnects");
     assert_eq!(w.dog("sock").await.2["websocket"]["hello"], json!(["hi there"]));
@@ -781,16 +791,19 @@ async fn ce05_fixed_fields() {
     }
 }
 
-/// CE6: a command edit whose smoke fails is refused and writes nothing.
+/// CE6 (rev 1.6): an edit refuses only where create refuses; a smoke create only warns about is saved and the warning returned.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
 #[nolog]
-async fn ce06_a_failed_smoke_refuses_the_edit() {
+async fn ce06_a_broken_smoke_is_saved_with_a_warning() {
     let w = world().await;
     w.cmd(w.c, "w", "run").await.unwrap();
-    let e = err(w.cfg(w.w, "run", json!({"target":"definitely-not-a-command-zzz --nope"})).await);
-    assert!(e.contains("does not work") || e.contains("could not be run"), "{e}");
-    assert_eq!(w.column("run", "target").await, "echo hi", "nothing written");
+    let out = w.cfg(w.w, "run", json!({"target":"definitely-not-a-command-zzz --nope"})).await.unwrap();
+    assert!(out["warning"].as_str().is_some_and(|t| t.contains("does not work")), "the warning is returned: {out}");
+    assert_eq!(w.column("run", "target").await, "definitely-not-a-command-zzz --nope", "saved, as create would");
+    // create's own refusals still apply: a command needs a pattern
+    let e = err(w.cfg(w.w, "run", json!({"pattern":""})).await);
+    assert!(e.contains("needs a pattern"), "{e}");
 }
 
 /// CE7: a fair_queue target edit is refused while the dog holds an un-ACKed job; after the ACK it is allowed, reach-checked with the editor as setter.
@@ -853,6 +866,22 @@ async fn ce09_the_owner_takes_the_actions_over() {
     w.fire(row, &["go"]).await;
     let mail = w.fire_mail(w.w).await;
     assert!(mail.contains("Fire actions (run as you, with your current authority):") && mail.contains("orgtree_message: ok"), "{mail}");
+}
+
+/// CE15 (rev 1.6): the user's edit of fire_actions is recorded as actions_by "user"; no setter check at fire.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce15_a_user_edit_is_recorded_as_the_user() {
+    let w = world().await;
+    w.cmd(w.c, "w", "act").await.unwrap();
+    configure(&w.e, w.org.id, None, "w/act", &json!({"fire_actions": say("S", "by the user")})).await.unwrap();
+    assert_eq!(w.dog("act").await.2["actions_by"], "user");
+    w.sql("UPDATE ot.agents SET state='archived' WHERE id=$1", &[&w.c]).await;
+    let row = w.dog("act").await.3;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("orgtree_message: ok") && !mail.contains("the setter"), "{mail}");
 }
 
 /// CE10: a waiting slot claim is re-admitted at the back; a held lease refuses the edit.
