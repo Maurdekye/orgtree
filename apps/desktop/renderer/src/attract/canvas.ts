@@ -10,7 +10,8 @@ import { attentionNodes, buildAttentionRows } from '../attention/feed'
 import type { AttentionRow } from '../attention/feed'
 import { markReadNow, readLocally } from '../mailread'
 import { docUnread } from '../canvas/docviewed'
-import { deskOpenElsewhere } from '../canvas/deskhosts'
+import { deskOpenElsewhere, deskShownAnywhere } from '../canvas/deskhosts'
+import { attentionLayout, orgView } from '../attention/mode'
 import { setAttractQuiet } from '../composerfocus'
 import { useAttractCycle } from './attract'
 import type { AttentionTarget, AttractAgent, AttractRoutes, AttractTarget } from './attract'
@@ -98,12 +99,16 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
       } while (dirty && listener)
     } finally { polling = false }
   }
-  /** this agent's desk is already open somewhere (pinned, or in a window of its own), checked when the step RUNS: one pinned
-   *  after the candidates were collected is just as taken (USER 2026-11-03 m7efd38ca3400). Attract then only fits the org. */
+  /** this agent's desk is visible ANYWHERE (a pin, a window of its own, the Attention view's agent desk, a zoomed card, any other
+   *  host), checked when the step RUNS: one opened after the candidates were collected is just as taken (USER 2026-11-03
+   *  m7efd38ca3400). Attract then skips the agent ENTIRELY: no focus, no pan, no fit, no reader, no desk change
+   *  (USER 2026-11-04 m1869e398fdea; replaces the earlier "fit the org with the node in view"). */
   const taken = (id: string | null | undefined): boolean => {
     if (!id) return false
     const c = deps.current
-    return c.pinnedIds().has(id) || deskOpenElsewhere(c.slug, c.map.get(id))
+    const node = c.map.get(id)
+    return c.pinnedIds().has(id) || deskOpenElsewhere(c.slug, node) || deskShownAnywhere(c.slug, node)
+      || (orgView(c.slug) === 'attention' && attentionLayout(c.slug).agent === id)
   }
   /** attention shown through the route its kind already has; a desk that is pinned or open elsewhere gets the whole
    *  org instead (the node is in view), never a window moved */
@@ -115,19 +120,18 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     poll,
     collect: async (from) => {
       since = from
-      const { slug, tree, map, pinnedIds } = deps.current
-      const pinned = pinnedIds()
+      const { slug, tree, map } = deps.current
       const agents: AttractAgent[] = []
       const docs: { id: string; node: string | null }[] = []
       for (const n of map.values()) {
         for (const doc of n.documents ?? [])
-          if (docUnread(slug, doc.id, doc.at) !== null && !pinned.has(n.id) && !deskOpenElsewhere(slug, n)) docs.push({ id: doc.id, node: n.id })
+          if (docUnread(slug, doc.id, doc.at) !== null && !taken(n.id)) docs.push({ id: doc.id, node: n.id })
         // a real, live agent seat: no project, draft, pseudo-card or retiree
         if (!n.tier || n.kind === 'project' || n.isBearerOf || n.state === 'archived' || n.state === 'draft') continue
         agents.push({
           id: n.id, busy: !!n.busy,
           activityAt: latest(n.turn_started_at, n.last_status?.at),
-          deskTaken: pinned.has(n.id) || deskOpenElsewhere(slug, n),
+          deskTaken: taken(n.id),
         })
       }
       const [mail, tickets] = await Promise.all([
@@ -149,12 +153,12 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
         case 'attention': {
           const next = underlying(t)
           if (next) return show(next)
-          if (!t.agent || taken(t.agent)) c.fitAll()
-          else c.goToAgent(t.agent)
+          if (!t.agent) c.fitAll()
+          else if (!taken(t.agent)) c.goToAgent(t.agent)
           return
         }
         case 'org': c.fitAll(); return
-        case 'agent': if (taken(t.id)) c.fitAll(); else c.goToAgent(t.id); return
+        case 'agent': if (!taken(t.id)) c.goToAgent(t.id); return
         case 'mail':
           c.onPanel?.({ kind: 'inbox', mail: t.id })
           // "3 yes": showing it marks it read, through the inbox's own read path
@@ -176,7 +180,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
         }
         case 'doc': {
           // a presentation opens in its agent's reader: not on a desk that is already open elsewhere
-          if (taken(ownerOf(t.id) ?? t.node)) { c.fitAll(); return }
+          if (taken(ownerOf(t.id) ?? t.node)) return
           const before = c.readerIds()
           c.openDoc(t.id)   // the reader marks it viewed as it loads
           const owner = ownerOf(t.id) ?? t.node

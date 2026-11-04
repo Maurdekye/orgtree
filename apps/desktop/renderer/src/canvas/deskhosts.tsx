@@ -400,6 +400,21 @@ export function claimQuestionDesk(slug: string, node: Pick<CanvasNode, 'id' | 'g
   return { place: chosen.props.openIn, within: chosen.anchor }
 }
 
+/** Is this agent's desk visible ANYWHERE right now, read from the registry the hosts themselves use (and with no side effect,
+ *  unlike claimQuestionDesk)? A popped-out window, a borrowing modal, a pin, the Attention agent desk, a zoomed canvas card or
+ *  a switchboard panel: any live slot that is open and eligible. Attract mode skips such an agent entirely
+ *  (USER 2026-11-04 m1869e398fdea), so a new host kind registered here can never be missed again. */
+export function deskShownAnywhere(slug: string, node: Pick<CanvasNode, 'id' | 'generation'> | undefined): boolean {
+  if (!node || typeof node.generation !== 'number' || !Number.isSafeInteger(node.generation) || node.generation < 0) return false
+  const key = deskIdentity(slug, node)
+  if (deskSurface(key)) return true
+  const e = orgDesks.get(slug)?.entries.get(key)
+  if (!e || e.invalidated || e.pendingRename) return false
+  if (e.detached) return true
+  if (e.borrowedBy && e.slots.get(e.borrowedBy)) return true
+  return [...e.slots.values()].some((s) => s.props.openIn && eligible(s))
+}
+
 export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: {
   children: ReactNode; map: Map<string, CanvasNode>; slug: string; treeSlug?: string
   popoutDesk?: (node: CanvasNode) => DeskChatProps
