@@ -54,7 +54,7 @@ export const BLUR_EM = 0.7
 const SMUDGE = `0 0 ${BLUR_EM}em #686868,0 0 ${BLUR_EM}em #686868`
 const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:transparent!important;text-shadow:${SMUDGE}!important}
-html.streamer-on ::selection{color:transparent!important;text-shadow:none!important;background:#686868!important}
+[data-streamer-selmask]{position:fixed;z-index:2147483646;pointer-events:none;background:#686868;border-radius:2px}
 html.streamer-on [data-streamer-blur]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on [data-streamer-blur]::placeholder{color:transparent!important}
 html.streamer-on:not(.streamer-nocover) :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
@@ -128,7 +128,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     for (const el of revealed) el.removeAttribute('data-streamer-revealed')
     revealed.clear(); tinyEls.clear()
     for (const [el, attrs] of attributes) for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
-    attributes.clear(); banner.remove()
+    attributes.clear(); banner.remove(); clearSelectionMasks(); sensitiveRanges = []
     for (const [el, value] of autocomplete) if (el.getAttribute('autocomplete') === 'off') {
       if (value === null) el.removeAttribute('autocomplete'); else el.setAttribute('autocomplete', value)
     }
@@ -265,7 +265,41 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     }
     for (const node of whole) { if (!node.data.trim()) continue; const range = doc.createRange(); range.selectNodeContents(node); ranges.push(range) }
     win!.CSS!.highlights!.set('streamer-sensitive', new win!.Highlight!(...ranges))
+    sensitiveRanges = ranges; maskSelection()
   }
+  // A ::selection layer is drawn ABOVE the custom highlight, so a selected key would show in the clear; and a blanket
+  // ::selection blanking rule hid every selected word (USER 2026-11-04 m79874151077c). The selection is drawn normally;
+  // the part of it that overlaps a hidden-type span gets a mask box over its client rects.
+  let sensitiveRanges: Range[] = [], selFrame = 0
+  // the boxes live in one data-streamer-ui layer, so adding them is not a page mutation (no rescan loop)
+  const selLayer = doc.createElement('div'); selLayer.dataset.streamerUi = ''; selLayer.dataset.streamerSelLayer = ''
+  selLayer.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;background:none;border:0;padding:0'
+  function clearSelectionMasks() { selLayer.replaceChildren(); selLayer.remove() }
+  function maskSelection() {
+    clearSelectionMasks()
+    if (!active) return
+    const sel = win!.getSelection?.()
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return
+    const chosen = sel.getRangeAt(0)
+    for (const span of sensitiveRanges) {
+      if (chosen.compareBoundaryPoints(Range.START_TO_END, span) <= 0 || chosen.compareBoundaryPoints(Range.END_TO_START, span) >= 0) continue
+      const inter = doc.createRange()
+      const startFrom = chosen.compareBoundaryPoints(Range.START_TO_START, span) > 0 ? chosen : span
+      const endFrom = chosen.compareBoundaryPoints(Range.END_TO_END, span) < 0 ? chosen : span
+      inter.setStart(startFrom.startContainer, startFrom.startOffset); inter.setEnd(endFrom.endContainer, endFrom.endOffset)
+      for (const rect of Array.from(inter.getClientRects())) {
+        if (!rect.width || !rect.height) continue
+        const box = doc.createElement('div'); box.dataset.streamerSelmask = ''
+        box.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`
+        selLayer.appendChild(box)
+      }
+    }
+    if (selLayer.firstChild && !selLayer.isConnected) doc.body.appendChild(selLayer)
+  }
+  const requestSelectionMask = () => { if (!active || selFrame) return; selFrame = win!.requestAnimationFrame(() => { selFrame = 0; maskSelection() }) }
+  const onSelection = () => { if (active) maskSelection() }
+  doc.addEventListener('selectionchange', onSelection)
+  win.addEventListener('scroll', requestSelectionMask, true); win.addEventListener('resize', requestSelectionMask)
   const observer = new win.MutationObserver(records => {
     if (!active) return
     // A close/reopen can remove and reinsert the same runtime node in one turn.
@@ -281,7 +315,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {
     update(on, config) { if (!on) { active = false; restore(); return } if (active) restoreAttributes(); active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; scan() },
-    dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); restore(); style.remove() },
+    dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); doc.removeEventListener('selectionchange', onSelection); win.removeEventListener('scroll', requestSelectionMask, true); win.removeEventListener('resize', requestSelectionMask); if (selFrame) win.cancelAnimationFrame(selFrame); restore(); style.remove() },
   }
 }
 
