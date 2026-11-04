@@ -108,6 +108,20 @@ test('R3 Event sources come first, in the shared column order, with the creator 
   assert.match(cells(rows[0]!).at(-1) ?? '', /stream-chat/, 'the watchdog chip comes last')
 })
 
+test('R6 a source row names its delivery form after the watchdog chip (project-watchdogs F10)', async (t) => {
+  const list = [feed('plain', { project_delivery: 'event' } as Partial<Watchdog>),
+    feed('caster', { target: 'ws://127.0.0.1:8787/v2', project_delivery: 'broadcast' } as Partial<Watchdog>),
+    feed('jobs', { target: 'ws://127.0.0.1:8787/v3', project_delivery: 'queue' } as Partial<Watchdog>),
+    feed('legacy', { target: 'ws://127.0.0.1:8787/v4' })]
+  const v = await listeners(t, list, [])
+  const last = [...v.el.querySelectorAll<HTMLTableRowElement>('tbody.listeners-sources tr.source-row')]
+    .map((r) => (r.lastElementChild?.textContent ?? '').replace(/\s+/g, ' ').trim())
+  assert.match(last[0] ?? '', /plain.*event$/)
+  assert.match(last[1] ?? '', /caster.*broadcast$/)
+  assert.match(last[2] ?? '', /jobs.*queue$/)
+  assert.doesNotMatch(last[3] ?? '', /event|broadcast|queue/, 'a row without the key shows no form')
+})
+
 test('R3 no section while the project owns no dog', async (t) => {
   const v = await listeners(t, [], [])
   assert.deepEqual([...v.el.querySelectorAll('.project-listeners h4')].map((h) => h.textContent),
