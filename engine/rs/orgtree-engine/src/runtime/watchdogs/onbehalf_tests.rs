@@ -690,3 +690,260 @@ async fn mg03_a_non_ancestor_cannot_manage() {
     assert!(e.contains("only its owner and the owner's superiors manage this watchdog") || e.contains("no watchdog"), "{e}");
     assert_eq!(w.dog("mine").await.1, "armed");
 }
+
+// ---------------------------------------------------------------- configure edits (rev 1.4 §5, CE1-CE13)
+
+impl W {
+    /// A file dog owned by w in the org workspace (a path every ancestor holds too).
+    #[nolog]
+    async fn file_dog(&self, name: &str) -> (i64, String) {
+        let path = self.e.cfg.workspace_dir("projdogs-fixture").join(format!("{name}.txt")).to_string_lossy().into_owned();
+        create(&self.e, self.org.id, self.w, &json!({"kind":"file","target":path,"name":name,"pattern":"alpha","interval_s":60})).await.unwrap();
+        (self.dog(name).await.3, path)
+    }
+    #[nolog]
+    async fn cfg(&self, actor: i64, id: &str, edit: Value) -> Result<Value> {
+        configure(&self.e, self.org.id, Some(actor), id, &edit).await
+    }
+    #[nolog]
+    async fn column(&self, uid: &str, col: &str) -> String {
+        self.e.db.get().await.unwrap().query_one(&format!("SELECT {col}::text FROM ot.watchdogs WHERE uid=$1 AND state<>'removed' ORDER BY id DESC LIMIT 1"), &[&uid]).await.unwrap().get(0)
+    }
+}
+
+/// CE1: the owner edits behaviour; id, fire count and ring stay; the edit fires nothing.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce01_the_owner_edits_behaviour() {
+    let w = world().await;
+    let (row, _) = w.file_dog("f").await;
+    w.fire(row, &["first"]).await;
+    let before = w.count("SELECT jsonb_array_length(events) FROM ot.watchdogs WHERE id=$1", &[&row]).await;
+    let out = w.cfg(w.w, "f", json!({"pattern":"beta","interval_s":120})).await.unwrap();
+    assert_eq!(out["id"], "f", "{out}");
+    assert_eq!((w.column("f", "pattern").await.as_str(), w.column("f", "interval_s").await.as_str()), ("beta", "120"));
+    assert_eq!(w.column("f", "fired").await, "1", "the fire count is kept");
+    assert_eq!(w.count("SELECT jsonb_array_length(events) FROM ot.watchdogs WHERE id=$1", &[&row]).await, before, "the ring is kept and the edit adds no fire");
+    assert_eq!(w.dog("f").await.1, "armed");
+}
+
+/// CE2/CE3: tier B target rechecks the hands of the editor and of the owner.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce02_ce03_target_edits_need_both_sets_of_hands() {
+    let w = world().await;
+    let (_, _) = w.file_dog("f").await;
+    // a folder only the owner holds (its own working folder), edited in by an ancestor
+    let owners = owner_scratch(&w.e, w.org.id, "w", None).join("private.txt").to_string_lossy().into_owned();
+    let e = err(w.cfg(w.c, "w/f", json!({"target": owners})).await);
+    assert!(e.contains("cannot watch"), "the editor lacks the folder: {e}");
+    // a path neither holds
+    let out = std::env::temp_dir().join("outside-everyone.txt").to_string_lossy().into_owned();
+    let e = err(w.cfg(w.w, "f", json!({"target": out})).await);
+    assert!(e.contains("cannot watch"), "the owner lacks it too: {e}");
+    assert!(w.column("f", "target").await.ends_with("f.txt"), "nothing was written");
+}
+
+/// CE4: a websocket tier B edit reconnects; a pattern-only edit does not.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce04_a_hello_edit_reconnects_a_pattern_edit_does_not() {
+    use crate::ws::testserver::{Opts, TestServer};
+    let w = world().await;
+    let server = TestServer::start(Opts::default()).await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"websocket","target":server.url("/v1/events"),"name":"sock"})).await.unwrap();
+    assert!(server.until(10, |s| s.live() >= 1).await);
+    let row = w.dog("sock").await.3;
+    let dials = server.upgrades();
+    w.cfg(w.w, "sock", json!({"pattern":"news"})).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    assert_eq!(server.upgrades(), dials, "a tier A edit does not reconnect");
+    w.cfg(w.w, "sock", json!({"hello":["hi there"]})).await.unwrap();
+    assert!(server.until(10, |s| s.upgrades() > dials).await, "a tier B edit reconnects");
+    assert_eq!(w.dog("sock").await.2["websocket"]["hello"], json!(["hi there"]));
+    disarm(&w.e, row);
+    server.stop();
+}
+
+/// CE5: kind, owner, project and name are fixed.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce05_fixed_fields() {
+    let w = world().await;
+    w.file_dog("f").await;
+    for edit in [json!({"kind":"command"}), json!({"owner":"S"}), json!({"project":"P"}), json!({"name":"g"})] {
+        let e = err(w.cfg(w.w, "f", edit.clone()).await);
+        assert!(e.contains("kind, owner, project and name are fixed; create a new watchdog instead"), "{edit}: {e}");
+    }
+}
+
+/// CE6: a command edit whose smoke fails is refused and writes nothing.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce06_a_failed_smoke_refuses_the_edit() {
+    let w = world().await;
+    w.cmd(w.c, "w", "run").await.unwrap();
+    let e = err(w.cfg(w.w, "run", json!({"target":"definitely-not-a-command-zzz --nope"})).await);
+    assert!(e.contains("does not work") || e.contains("could not be run"), "{e}");
+    assert_eq!(w.column("run", "target").await, "echo hi", "nothing written");
+}
+
+/// CE7: a fair_queue target edit is refused while the dog holds an un-ACKed job; after the ACK it is allowed, reach-checked with the editor as setter.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce07_queue_target_edit_needs_no_held_job() {
+    let w = world().await;
+    w.ack_mode(w.q).await;
+    let id = w.queue_dog(w.c, "w", "Q").await.unwrap()["id"].as_str().unwrap().to_string();
+    w.post("Q", "held job").await;
+    let copy: String = w.e.db.get().await.unwrap().query_one("SELECT uid FROM ot.mail WHERE recipient_agent_id=$1 AND body LIKE '%held job%'", &[&w.w]).await.unwrap().get(0);
+    let e = err(w.cfg(w.c, &format!("w/{id}"), json!({"target":"B"})).await);
+    assert!(e.contains("ACK or hand back the 1 jobs you hold through this watchdog first"), "{e}");
+    let mut ack = crate::domain::mail::Outgoing::new(crate::domain::mail::From::Agent { id: w.w, name: "w".into(), generation: 1 }, "Q", "done");
+    ack.reply_to = Some(json!({"id": copy}));
+    crate::domain::mail::send(&w.e, w.org.id, ack).await.unwrap();
+    w.cfg(w.c, &format!("w/{id}"), json!({"target":"B"})).await.unwrap();
+    let bid = w.id("B").await;
+    assert_eq!(w.dog(&id).await.2["reach_grant"], json!({"project": bid, "via": "setter", "from": "C"}), "the grant is replaced, not carried over");
+    // a project the editor does not reach either is refused
+    let e = err(w.cfg(w.c, &format!("w/{id}"), json!({"target":"XQ-nothing"})).await);
+    assert!(e.contains("no project named"), "{e}");
+}
+
+/// CE8: an ancestor edits fire_actions on a delegated dog: allow-list; actions_by = the editor.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce08_an_ancestor_sets_fire_actions() {
+    let w = world().await;
+    w.cmd(w.c, "w", "act").await.unwrap();
+    let e = err(w.cfg(w.c, "w/act", json!({"fire_actions":[{"tool":"orgtree_work","args":{"action":"list"}}]})).await);
+    assert!(e.contains("may use only orgtree_message"), "{e}");
+    w.cfg(w.s, "w/act", json!({"fire_actions": say("S", "edited report")})).await.unwrap();
+    assert_eq!(w.dog("act").await.2["actions_by"]["name"], "S");
+    // S is retired: the fire-time check now uses S, not the creator C
+    w.sql("UPDATE ot.agents SET state='archived' WHERE id=$1", &[&w.s]).await;
+    let row = w.dog("act").await.3;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("the setter @S is retired") && mail.contains("limited to what both you and @S"), "{mail}");
+    // fire_actions: [] clears them
+    w.sql("UPDATE ot.agents SET state='live' WHERE id=$1", &[&w.s]).await;
+    w.cfg(w.s, "w/act", json!({"fire_actions": []})).await.unwrap();
+    assert!(w.dog("act").await.2.get("fire_actions").is_none_or(|v| v.is_null() || v.as_array().is_some_and(|a| a.is_empty())));
+}
+
+/// CE9: the owner edits them itself: actions_by = "owner", no setter check at fire.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce09_the_owner_takes_the_actions_over() {
+    let w = world().await;
+    w.cmd(w.c, "w", "act").await.unwrap();
+    w.cfg(w.w, "act", json!({"fire_actions": say("S", "by the owner")})).await.unwrap();
+    assert_eq!(w.dog("act").await.2["actions_by"], "owner");
+    w.sql("UPDATE ot.agents SET state='archived' WHERE id=$1", &[&w.c]).await;
+    let row = w.dog("act").await.3;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("Fire actions (run as you, with your current authority):") && mail.contains("orgtree_message: ok"), "{mail}");
+}
+
+/// CE10: a slot edit while the lease is held is refused; a waiting claim is re-admitted at the back.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce10_slot_edits() {
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{slots_capacity}','1') WHERE id=$1", &[&w.q]).await;
+    let held = create(&w.e, w.org.id, w.c, &json!({"kind":"slot","target":"Q","name":"mine"})).await.unwrap();
+    let held_id = held["id"].as_str().unwrap_or("mine").to_string();
+    let e = err(w.cfg(w.c, &held_id, json!({"slots": 1})).await);
+    assert!(e.contains("release the held slot first (release_slot), then edit") || e.contains("spent"), "{e}");
+    let waiting = create(&w.e, w.org.id, w.c, &json!({"kind":"slot","target":"Q","owner":"w","name":"wait"})).await.unwrap();
+    let wid = waiting["id"].as_str().unwrap().to_string();
+    assert_eq!(w.dog(&wid).await.1, "armed");
+    let before: i64 = w.dog(&wid).await.2["queued_at"].as_i64().unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    w.cfg(w.c, &format!("w/{wid}"), json!({"slots": 1})).await.unwrap();
+    let after: i64 = w.dog(&wid).await.2["queued_at"].as_i64().unwrap();
+    assert!(after > before, "re-admitted at the back of the queue");
+}
+
+/// CE11: a paused dog stays paused; a spent dog is refused.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce11_states() {
+    let w = world().await;
+    let (_, _) = w.file_dog("f").await;
+    act(&w.e, w.org.id, Some(w.w), "f", "pause", None).await.unwrap();
+    w.cfg(w.w, "f", json!({"interval_s": 90})).await.unwrap();
+    assert_eq!(w.dog("f").await.1, "paused", "an edit never resumes");
+    w.sql("UPDATE ot.watchdogs SET state='spent' WHERE uid='f'", &[]).await;
+    let e = err(w.cfg(w.w, "f", json!({"interval_s": 30})).await);
+    assert!(e.contains("a spent watchdog cannot be configured"), "{e}");
+}
+
+/// CE12: a non-owner edit tells the owner; the event lists field names only.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce12_notice_and_record() {
+    let w = world().await;
+    w.file_dog("f").await;
+    w.cfg(w.c, "w/f", json!({"pattern":"SECRETISH-VALUE"})).await.unwrap();
+    assert_eq!(w.mail_with(w.w, "@C changed your watchdog w/f: pattern.").await, 1);
+    let detail: Value = w.e.db.get().await.unwrap().query_one("SELECT detail FROM ot.events WHERE op='watchdog_configure' ORDER BY id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert_eq!(detail["changed"], json!(["pattern"]), "{detail}");
+    assert!(!detail.to_string().contains("SECRETISH"), "values are never recorded: {detail}");
+    // the owner's own edit tells nobody
+    let before = w.mail_with(w.w, "changed your watchdog").await;
+    w.cfg(w.w, "f", json!({"interval_s": 75})).await.unwrap();
+    assert_eq!(w.mail_with(w.w, "changed your watchdog").await, before);
+}
+
+/// CE13: a member edits a project dog's pattern (D4); notice:true on an event-form project dog is refused (D8).
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce13_project_dogs() {
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&w.p]).await;
+    create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":"echo hi","pattern":"p1","project":"P","name":"pd"})).await.unwrap();
+    w.cfg(w.w, "P/pd", json!({"pattern":"p2"})).await.unwrap();
+    assert_eq!(w.column("pd", "pattern").await, "p2");
+    let e = err(w.cfg(w.w, "P/pd", json!({"notice": true})).await);
+    assert!(e.contains("a project watchdog's fires go to the project's listeners"), "{e}");
+}
+
+/// CE14 (rev 1.5 5b): a hello edit reconnects on the STORED credentials; a target edit to another host needs credentials re-supplied.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce14_stored_credentials() {
+    use crate::ws::testserver::{Opts, TestServer};
+    let w = world().await;
+    let need = Opts { require: vec![("authorization".to_string(), "Bearer tok-1".to_string())], ..Opts::default() };
+    let a = TestServer::start(need.clone()).await;
+    let b = TestServer::start(need).await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"websocket","target":a.url("/v1/events"),"name":"sock","credentials":{"bearer":"tok-1"}})).await.unwrap();
+    assert!(a.until(10, |s| s.live() >= 1).await, "connected with the bearer");
+    let row = w.dog("sock").await.3;
+    let dials = a.upgrades();
+    w.cfg(w.w, "sock", json!({"hello":["hi"]})).await.unwrap();
+    assert!(a.until(10, |s| s.upgrades() > dials).await, "the edit reconnected on the stored credentials");
+    let e = err(w.cfg(w.w, "sock", json!({"target": b.url("/v1/events")})).await);
+    assert!(e.contains("the new target is a different host; re-supply credentials with this edit (stored ones are never sent to a new host)"), "{e}");
+    w.cfg(w.w, "sock", json!({"target": b.url("/v1/events"), "credentials":{"bearer":"tok-1"}})).await.unwrap();
+    assert!(b.until(10, |s| s.live() >= 1).await, "now on the new host");
+    disarm(&w.e, row);
+    a.stop();
+    b.stop();
+}
