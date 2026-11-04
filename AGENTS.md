@@ -438,6 +438,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - Delegated watchdogs (2026-11-04, `owner=`): both setter and owner hold the hands; project-kind dogs may target a project reached by tree or an effective audience, the owner's or (delegated) the setter's, checked once at create and kept in `memo.reach_grant`, usable only through that dog's own claims (`projects::dog_reaches`); fire_actions run as the owner limited to the setter's authority per call at fire time. [decided: user 2026-11-04; doc](docs/rust-engine/watchdog-on-behalf.md)
 - Project dogs have three forms (2026-11-04: `memo.project_delivery`, event by default, broadcast to direct agent members, queue as project jobs); only event goes through listeners and `project_fires`. [decided: user 2026-11-04]
 - Only `domain/orginbox_jobs.rs` writes `mail.extra.org_inbox`/`outside_job`; a worker's outside reply right comes from its job. [decided: user 2026-11-03; doc](docs/agents/mail-and-hub.md)
+- Job route (2026-11-04): after the normal reach rules refuse, the holder of any project job may reply to the job's exact sender (user included) naming its copy, and that sender may reply back (`extra.job_reply`); `orginbox_jobs::job_route` decides, rechecked in the send's transaction with the job row FOR SHARE; a sender's own follow-up goes to the holder or is bundled (`follow_up_plain`). It grants nothing. [decided: user mff00b3454f55, m11b024523571]
 
 ## Find the detailed rule
 

@@ -37,6 +37,8 @@ A worker replies with `orgtree_message to=<the outside sender> reply_to=<the job
 - Their **follow-up to their own earlier message** goes to whoever received that message: bundled with the job if it has not been handed out yet, straight to the worker who holds it (ACK mode, not yet acked), or as a new threaded job if it was acked, handed out in round-robin, or lost.
 - `@org:` mail threads the same way, through a stable message id that both orgs keep.
 
+Internal mail works the same way: a worker answers the agent or user that sent the job, and that sender's follow-ups reach the same worker while the job is open (the job route, `orgtree-tool-message`).
+
 ## When to choose it
 
 - Many similar, independent requests: support, intake, triage.

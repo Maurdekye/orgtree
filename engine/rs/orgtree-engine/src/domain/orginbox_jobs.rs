@@ -510,6 +510,8 @@ pub(crate) async fn job_route(client: &impl tokio_postgres::GenericClient, org: 
 #[logged]
 pub(crate) async fn follow_up_plain(tx: &Transaction<'_>, org: i64, project: &crate::domain::projects::Project, out: &Outgoing, mail_uid: &str,
                                     sender: i64, generation: Option<i32>, job: &str) -> Result<Option<FollowedUp>> {
+    // decided under the project row lock, as the queue's hand-out does, so a hand-out or an ACK cannot interleave
+    tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND kind='project' FOR NO KEY UPDATE", &[&project.id]).await?;
     let Some(j) = tx
         .query_opt(
             "SELECT state, extra->'claimed', extra->>'revoked', extra ? 'org_inbox' FROM ot.mail

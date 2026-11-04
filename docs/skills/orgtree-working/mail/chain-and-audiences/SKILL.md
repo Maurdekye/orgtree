@@ -46,6 +46,10 @@ Direct user mail or commands create an agent's own user grant only when it has n
 
 A project's nearest real-agent superior manages its audience requests and decisions; the user does so if there is no such superior. Members cannot manage the project's grants. Use orgtree_audience action=request from=project-name target=agent-or-project for a managed project; its context menu also offers Acquire/Drop audience. Chart and state inspection identify inherited source projects. Drop audience acts on explicit grants, not inherited-only routes; change the source project's grant to remove an inherited route. The org-inbox/outside-mail audience remains agent-only. The separate permission to present within one's own project includes nested members and does not imply recursive audience inheritance.
 
+## The job route (the one exception)
+
+When a project hands you a job, you may reply to that job's sender even with no audience or peer-mail right to them: name your copy with `reply_to` and write to that exact sender, before your ACK in ACK mode (any time in round-robin). Replies back to yours follow the same route. It never creates a grant, covers nobody else, and is checked again inside the send, so an ACK or take-back in between refuses it.
+
 ## See also
 
 - [orgtree-tool-audience](../tool-audience/SKILL.md)

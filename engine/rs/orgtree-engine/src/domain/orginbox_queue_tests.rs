@@ -746,3 +746,26 @@ async fn gr9_a_watchdog_sender_gets_no_reply_control() {
     w.c.execute("UPDATE ot.mail SET sender='P/dg', sender_agent_id=NULL WHERE uid=$1", &[&copy]).await.unwrap();
     assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "P/dg", "x", Some(json!({ "id": copy, "from": "P/dg" })))).await.is_err());
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr10_an_ack_cannot_slip_between_the_route_check_and_the_send() {
+    let mut w = world(true).await;
+    let (worker, a, job, copy) = plain_job(&mut w, true).await;
+    let out = from_agent(worker, "W", "A", "done", Some(json!({ "id": copy, "from": "A" })));
+    let mut conn = w.e.db.get().await.unwrap();
+    let tx = conn.transaction().await.unwrap();
+    assert!(jobs::job_route(&*tx, w.org, worker, &out, Some(a)).await.unwrap().is_some(), "open: the route holds and locks the job row");
+    // the ACK from another connection waits for the send's transaction instead of landing inside it
+    let ack = w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]);
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(700), ack).await.is_err(), "the ACK is held back while the route is locked");
+    tx.rollback().await.unwrap();
+    drop(conn);
+    // after the lock is gone the ACK lands, and the same check now refuses
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let c2 = w.e.db.get().await.unwrap();
+    assert!(jobs::job_route(&**c2, w.org, worker, &out, Some(a)).await.unwrap().is_none(), "acked: refused, nothing would be written");
+    let acked: bool = c2.query_one("SELECT extra->'claimed'->>'acked_at' IS NOT NULL FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
+    assert!(acked);
+}

@@ -393,16 +393,22 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     if state == "unrecoverable" {
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");
     }
+    let mut routed: Option<anyhow::Error> = None;
     if let From::Agent { id, name, .. } = &out.from {
         if let Err(refusal) = authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await {
             // G1/G2: the normal rules first, then the one route a job gives its holder and sender
             match super::orginbox::jobs::job_route(&**client, org_id, *id, &out, Some(target_id)).await? {
-                Some(stamp) => { if out.job_reply.is_none() { out.job_reply = Some(stamp); } }
+                Some(stamp) => { if out.job_reply.is_none() { out.job_reply = Some(stamp); } routed = Some(refusal); }
                 None => return Err(refusal),
             }
         }
     }
     let tx = client.transaction().await?;
+    // the route was found before this transaction: it must still hold now, with the job row locked FOR SHARE, so an
+    // ACK, reclaim or move between the early check and this insert cannot slip through
+    if let (Some(refusal), From::Agent { id, .. }) = (routed, &out.from) {
+        if super::orginbox::jobs::job_route(&*tx, org_id, *id, &out, Some(target_id)).await?.is_none() { return Err(refusal); }
+    }
     let dnd_active:bool=tx.query_one("SELECT ot.agent_dnd($1)",&[&target_id]).await?.get(0);
     super::dnd::validate_urgent(out.urgent,out.urgent_reason.as_deref(),matches!(&out.from, From::User),dnd_active)?;
     let dnd_held=dnd_active && !out.urgent;
