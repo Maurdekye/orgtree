@@ -264,6 +264,18 @@ test('showing a selection mask does not re-trigger scans: body mutations settle 
   } finally { boundary.dispose(); dom.window.close() }
 })
 
+// build-sol 2026-11-04 15:40Z: a key followed by <br> and the next line blurred the next line too ("more"). Text nodes across a
+// <br> were joined with no separator, so the key and the next word became one run.
+test('a line break (<br>) separates runs: the word after a key line is not swallowed into the key', () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  const KEY = 'sk-ant-api03-AbCdeF0123456789xyz'
+  doc.body.innerHTML = `<p class="md">hello<br>the key ${KEY}<br>more</p><p class="md"><b>one</b><br><i>${KEY}</i><br><i>after</i></p>`
+  try {
+    boundary.update(true, cfg({ secrets: true }))
+    assert.deepEqual(hidden(registry), [KEY, KEY], JSON.stringify(hidden(registry)))
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
