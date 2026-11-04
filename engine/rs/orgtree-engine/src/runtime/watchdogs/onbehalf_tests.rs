@@ -989,6 +989,8 @@ async fn ce19b_one_queue_dog_per_owner_per_project_under_the_lock() {
         let r = edit::apply(&*tx, dog, w.org.id, plan, &mut memo, "armed").await;
         if dog.uid == q {
             r.unwrap();
+            // configure writes the merged memo right after apply, in the same transaction
+            tx.execute("UPDATE ot.watchdogs SET memo = $2 WHERE id = $1", &[&dog.row, &memo]).await.unwrap();
             tx.commit().await.unwrap();
         } else {
             let e = format!("{:#}", r.expect_err("the second write must be refused"));

@@ -567,6 +567,27 @@ pub(super) async fn apply(tx: &tokio_postgres::Transaction<'_>, dog: &Dog, org_i
         memo["queued_at"] = json!(Utc::now().timestamp_millis());
     }
     let _ = (org_id, state);
+    // D16 again, under the project row lock configure holds: two edits that each passed the early check
+    // in `plan` cannot both be written into one tuple (the dog itself excepted)
+    if dog.project_owned() {
+        let target = plan.target.clone().unwrap_or_else(|| dog.target.clone());
+        let pattern = plan.pattern.clone().unwrap_or_else(|| dog.pattern.clone());
+        let shell = plan.shell.clone().or_else(|| dog.shell.clone());
+        if let Some(dup) = project_duplicate(tx, dog.owner, &dog.kind, &target, pattern.as_deref(), shell.as_deref(), memo, dog.row).await? {
+            refuse!(Conflict, "project {} already has this watchdog: {}/{}; listen to the project instead of adding another", dog.owner_name, dog.owner_name, dup);
+        }
+    } else if let Some(pid) = plan.memo_set.iter().find(|(k, _)| k == "target_id").and_then(|(_, v)| v.as_i64())
+        .filter(|_| matches!(dog.kind.as_str(), "fair_queue" | "project_listener" | "listener_watch")) {
+        // one fair_queue / listener / listener_watch per owner per project, under the owner row lock
+        tx.query_one("SELECT id FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&dog.owner]).await?;
+        if let Some(r) = tx.query_opt(
+            "SELECT uid, state FROM ot.watchdogs WHERE kind = $3 AND owner_agent_id = $1 AND id <> $4
+                AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $2 ORDER BY id LIMIT 1",
+            &[&dog.owner, &pid, &dog.kind, &dog.row]).await? {
+            refuse!(Conflict, "{} already has {} watchdog {} ({}) on that project; one per agent per project",
+                dog.owner_name, dog.kind, r.get::<_, String>(0), r.get::<_, String>(1));
+        }
+    }
     tx.execute(
         "UPDATE ot.watchdogs SET target = coalesce($2, target), pattern = CASE WHEN $3 THEN $4 ELSE pattern END, shell = coalesce($5, shell),
                 interval_s = coalesce($6, interval_s), fire_mode = coalesce($7, fire_mode),
