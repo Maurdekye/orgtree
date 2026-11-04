@@ -86,7 +86,8 @@ export const streamerScanStats = (): StreamerScanStats => ({ on: ringOn, pace_ms
 interface SeqEntry { node: Text; sep: boolean; field: string | null; data: string }
 interface TextClass { kind: 0 | 1 | 2; field: string | null; block: Element | null }
 const BLOCKS = 'p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html'
-const SKIP = 'script,style,textarea,select,[contenteditable=true],[data-streamer-ui]'
+// [data-streamer-visible]: text that is known NOT to be sensitive and must not be pattern-matched (the current org's own address chip)
+const SKIP = 'script,style,textarea,select,[contenteditable=true],[data-streamer-ui],[data-streamer-visible]'
 /** True when the nearest preceding node in document order is a <br> (the text after a line break starts a new run). */
 function afterLineBreak(from: Node): boolean {
   let n: Node | null = from
@@ -299,7 +300,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
         const sig = `${el.getAttribute('title')}|${el.getAttribute('alt')}|${el.getAttribute('aria-label')}`
         if (attrMemo.get(el) === sig) continue
-        if (el.closest('[data-streamer-ui]')) continue
+        if (el.closest('[data-streamer-ui],[data-streamer-visible]')) continue
         const field = el.closest('[data-streamer-field]')
         const inFree = !field && inFreeform(el)
         for (const key of ['title', 'alt', 'aria-label']) {

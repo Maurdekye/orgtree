@@ -750,6 +750,7 @@ export function useAgentMentions({
               aria-selected={idx === clampedIndex}
               // Streamer mode: a contact or other org in the list is hidden by what it RESOLVES to, whatever name it shows
               data-streamer-field={(c.kind === 'net' || c.kind === 'org') && !isCurrentOrgAddress(mentionText(c)) ? (c.kind === 'net' ? 'external' : 'org') : undefined}
+              data-streamer-visible={(c.kind === 'net' || c.kind === 'org') && isCurrentOrgAddress(mentionText(c)) ? '' : undefined}
               className={'agent-mention-item' + (c.kind === 'agent' || c.kind === 'project' ? '' : ` mention-${c.kind}`)
                 + (idx === clampedIndex ? ' active on' : '')}
               // a ticket hovers with the one ticket identity every ticket link shows, a presentation with its own;
@@ -1049,6 +1050,7 @@ export function HubContactChip({ address, className }: { address: string; classN
       onContextMenu={e => menu.open(e, hubAddressMenuEntries(e.currentTarget, address))}
       data-hub-address={address}
       data-streamer-field={isCurrentOrgAddress(address) ? undefined : 'external'}
+      data-streamer-visible={isCurrentOrgAddress(address) ? '' : undefined}
       data-hub-ref={address}
       data-net-kind={info.kind}
       data-net-icon={info.icon}
