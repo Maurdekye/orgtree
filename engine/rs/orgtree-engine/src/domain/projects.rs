@@ -545,7 +545,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
                       AND older.kind='fair_queue' AND older.state='armed' AND older.id<w.id
                       AND older.owner_agent_id IS NOT DISTINCT FROM w.owner_agent_id
                       AND (older.memo->>'target_id')::bigint=$2)
-                AND (w.owner_kind='user' OR EXISTS (
+                AND (w.owner_kind='user' OR (w.memo->'reach_grant'->>'project')::bigint=$2 OR EXISTS (
                     WITH RECURSIVE owners(id,parent_id,org_id) AS (
                       SELECT id,parent_id,org_id FROM ot.agents WHERE id=a.id
                       UNION SELECT x.id,x.parent_id,x.org_id FROM ot.agents x JOIN owners o ON x.id=o.parent_id AND x.org_id=o.org_id),

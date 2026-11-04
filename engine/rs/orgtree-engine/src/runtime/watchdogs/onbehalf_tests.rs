@@ -146,7 +146,9 @@ const GRANT_Q_SETTER: &str = "setter";
 #[nolog]
 async fn wd01_a_superior_creates_a_dog_its_descendant_owns() {
     let w = world().await;
-    let out = create(&w.e, w.org.id, w.c, &json!({"kind":"file","target":"watch.txt","name":"feed","owner":"w"})).await.unwrap();
+    // a path both hold: the org workspace
+    let target = w.e.cfg.workspace_dir("projdogs-fixture").join("watch.txt").to_string_lossy().into_owned();
+    let out = create(&w.e, w.org.id, w.c, &json!({"kind":"file","target":target,"name":"feed","owner":"w"})).await.unwrap();
     assert_eq!(out["owner"], "w", "{out}");
     let (owner, state, memo, row) = w.dog("feed").await;
     assert_eq!((owner, state.as_str()), (Some(w.w), "armed"));
