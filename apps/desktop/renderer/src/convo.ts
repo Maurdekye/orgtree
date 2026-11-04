@@ -521,6 +521,17 @@ function entry(k: string): Entry {
 
 /** Patch and notify. The snapshot identity changes ONLY on a real change, which
  *  is what useSyncExternalStore requires to avoid an infinite render loop. */
+/** Rig/test-only trace (inert unless a function is installed at globalThis.__ORGTREE_CONVO_TRACE__): reports every store write that
+ *  changes the set of tool_writing rows, with the caller stack, so a one-frame drop of the live writing row can be attributed. */
+function traceWriting(e: Entry, p: Partial<Convo>): void {
+  const hook = (globalThis as { __ORGTREE_CONVO_TRACE__?: (entry: unknown) => void }).__ORGTREE_CONVO_TRACE__
+  if (typeof hook !== 'function' || !('chat' in p)) return
+  const ids = (c: Convo['chat'] | undefined) => (c?.transient ?? []).filter(r => r.kind === 'tool_writing').map(r => r.tool_id ?? r.event_id)
+  const before = ids(e.s.chat), after = ids(p.chat)
+  if (before.join('|') === after.join('|')) return
+  hook({ at: performance.now(), key: e.ownerKey, before, after, version: e.writingVersion ?? 0, ordered: !!e.orderedStream,
+    stack: (new Error().stack ?? '').split(/\r?\n/).slice(2, 7).map(l => l.trim()) })
+}
 function patchEntry(e: Entry, p: Partial<Convo>, ownerVersion = e.ownerVersion): void {
   if (M.get(e.ownerKey) !== e || ownerVersion !== e.ownerVersion) return
   let changed = false
@@ -528,6 +539,7 @@ function patchEntry(e: Entry, p: Partial<Convo>, ownerVersion = e.ownerVersion):
     if (e.s[f as keyof Convo] !== v) { changed = true; break }
   }
   if (!changed) return
+  traceWriting(e, p)
   e.s = { ...e.s, ...p }
   e.subs.forEach((cb) => cb())
   retainConvo(e)

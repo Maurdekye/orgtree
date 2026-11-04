@@ -3425,6 +3425,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // id, its writing row is the same call drawn twice (4.5.1: saved + "✎ 0s")
   const viewTransient = dedup.list(livePartials(transient, convo), (r) => r.kind === 'tool_writing'
     ? toolKey(r.tool_id) ?? eventKey(r.event_id) : eventKey(r.event_id))
+  // rig/test-only (inert unless a function is installed): which writing rows the desk had, and which survived the dedup
+  const traceHook = (globalThis as { __ORGTREE_DESK_TRACE__?: (entry: unknown) => void }).__ORGTREE_DESK_TRACE__
+  if (typeof traceHook === 'function') {
+    const writingIds = (rows: { kind: string; tool_id?: string; event_id?: string }[]) => rows.filter(r => r.kind === 'tool_writing').map(r => r.tool_id ?? r.event_id)
+    traceHook({ at: performance.now(), node: node.id, store: writingIds(transient as never), shown: writingIds(viewTransient as never), live: viewLive.length })
+  }
   const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
   // Every entry under the one separator: waiting durable rows and ghosts.
   const pendWaiting = viewPendLater.length + pending.length

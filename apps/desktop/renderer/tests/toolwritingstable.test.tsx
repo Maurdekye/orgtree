@@ -68,3 +68,24 @@ test('after the websocket drops, the websocket is no longer the authority: a sna
   await inAct(async () => { socketLost(SL); void refreshConvo(SL, ND, { force: true }); await flush(20) })
   assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false, 'the snapshot decides again: no stale writing row')
 })
+
+test('rig trace hook: inert by default; with a hook installed it reports each change of the writing rows with the caller stack', async t => {
+  const globals = globalThis as unknown as { fetch: typeof fetch; __ORGTREE_CONVO_TRACE__?: (e: unknown) => void }
+  const saved = globals.fetch
+  globals.fetch = (async () => json({})) as typeof fetch
+  resetConvos()
+  const seen: { before: string[]; after: string[]; stack: string[] }[] = []
+  let snap: Convo | null = null
+  function Probe() { snap = useConvo(SL, ND); return null }
+  const view = await mountView(<Probe />, h => h)
+  t.after(async () => { await view.unmount(); resetConvos(); globals.fetch = saved; delete globals.__ORGTREE_CONVO_TRACE__ })
+  await inAct(async () => { await flush(10) })
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [writing('call-a')] } as never); await flush(4) })
+  assert.equal(seen.length, 0, 'no hook installed: nothing reported')
+  globals.__ORGTREE_CONVO_TRACE__ = e => { seen.push(e as never) }
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [writing('call-a'), writing('call-b')] } as never); await flush(4) })
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [] } as never); await flush(4) })
+  assert.deepEqual(seen.map(s => [s.before.length, s.after.length]), [[1, 2], [2, 0]])
+  assert.ok(seen[0]!.stack.length > 0)
+  assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false)
+})
