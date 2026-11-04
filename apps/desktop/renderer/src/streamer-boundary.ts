@@ -26,7 +26,10 @@ export const STREAMER_ZONES = {
   freeform: ['.md', '.msg', '.msgtext', '.mailer-body', '.turn-mail-body', '.docket-desc-body', '.event-prose', '.compaction-summary',
     '.thoughtbody', '.ask-q', '.answered-qbody', 'pre', 'code', '.tool-live-output', '.filepre', '.typed-input', '.trunc-note',
     // agent status summaries (agent-written free-form): tray / attention rows, the progress line, and any element that carries one in a tooltip
-    '.tray-sum', '.progress-summary', '[data-streamer-freeform]'].join(','),
+    '.tray-sum', '.progress-summary',
+    // user/agent-written excerpts: the sticky user-message preview, mail and reply previews, selection excerpts, dead-desk previews
+    '.pinuser-t', '.mail-preview-text', '.turn-mail-preview-content', '.reply-preview-content', '.selection-excerpt', '.dead-preview', '.dead-summary',
+    '[data-streamer-freeform]'].join(','),
   always: { email: 'emails', path: 'paths', ip: 'ips', secret: 'secrets', external: 'externals', org: 'orgs' } as Record<string, StreamerType>,
 } as const
 // Content surfaces that cannot be pattern-matched: sandboxed HTML apps, HTML presentations, video. Images are NOT hidden.
