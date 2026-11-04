@@ -1071,8 +1071,11 @@ export function refreshConvo(slug: string, nid: string,
     // draft/thought. The current accumulators cover the live tail in that case.
     if (e.orderedStream && startedAt < e.streamAt) c = { ...c,
       transient: e.s.chat?.transient?.filter(r => r.kind === 'tool_writing') ?? [] }
-    // Frame order also wins when fetch and stream share one millisecond.
-    if (writingVersion !== (e.writingVersion ?? 0)) c = { ...c, transient: [
+    // Frame order also wins when fetch and stream share one millisecond. And once the websocket has delivered ANY writing list, it is
+    // the authority for tool_writing: a snapshot requested after a frame but built before the engine knew of the call carries no such
+    // row, and taking the websocket's row away for one render made the transcript dip a frame and bounce the scrollbar (rig-opus).
+    // A clear frame (an empty list) still removes the rows.
+    if (writingVersion !== (e.writingVersion ?? 0) || (e.orderedStream && (e.writingVersion ?? 0) > 0)) c = { ...c, transient: [
       ...(c.transient ?? []).filter(r => r.kind !== 'tool_writing'),
       ...(e.s.chat?.transient ?? []).filter(r => r.kind === 'tool_writing'),
     ] }
