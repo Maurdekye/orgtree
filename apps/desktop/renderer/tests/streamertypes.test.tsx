@@ -183,6 +183,30 @@ test('every transcript row-header kind is structured: a q-id, date, name and sta
   } finally { boundary.dispose(); dom.window.close() }
 })
 
+// USER 2026-11-04 m27bbbf036a7a "the streamer mode annotation blocks the version number": the pill was a fixed bottom-right overlay.
+test('the banner sits IN the footer strip beside the version label, never over it; a window with no footer reserves a bottom strip', () => {
+  const a = fixture(), ba = installStreamerBoundary(a.doc, () => {})
+  a.doc.body.innerHTML = '<footer class="shell-statusbar"><div class="shell-statusbar-start">chips</div><div class="shell-statusbar-end"><span class="shell-version dim">Orgtree 4.5.5-alpha.3</span></div></footer>'
+  try {
+    ba.update(true, cfg({ secrets: true }))
+    const banner = a.doc.querySelector('[data-streamer-banner]')!, end = a.doc.querySelector('.shell-statusbar-end')!, ver = a.doc.querySelector('.shell-version')!
+    assert.equal(banner.parentElement, end, 'the banner is a child of the footer end group')
+    assert.equal(banner.nextElementSibling, ver, 'immediately before the version label, in flow')
+    assert.ok(banner.querySelector('button'), 'Turn off stays in it')
+    assert.equal(a.doc.documentElement.classList.contains('streamer-banner-fixed'), false)
+    ba.update(false)
+    assert.equal(a.doc.querySelector('[data-streamer-banner]'), null)
+  } finally { ba.dispose(); a.dom.window.close() }
+  const b = fixture(), bb = installStreamerBoundary(b.doc, () => {})
+  b.doc.body.innerHTML = '<main>popout, no footer</main>'
+  try {
+    bb.update(true, cfg({ secrets: true }))
+    assert.equal(b.doc.documentElement.classList.contains('streamer-banner-fixed'), true, 'no footer: a reserved strip, so nothing is covered')
+    bb.update(false)
+    assert.equal(b.doc.documentElement.classList.contains('streamer-banner-fixed'), false)
+  } finally { bb.dispose(); b.dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
