@@ -280,12 +280,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (!active) return
     const sel = win!.getSelection?.()
     if (!sel || !sel.rangeCount || sel.isCollapsed) return
-    const chosen = sel.getRangeAt(0)
+    const chosen = sel.getRangeAt(0), R = (win as unknown as { Range: typeof Range }).Range
     for (const span of sensitiveRanges) {
-      if (chosen.compareBoundaryPoints(Range.START_TO_END, span) <= 0 || chosen.compareBoundaryPoints(Range.END_TO_START, span) >= 0) continue
+      if (chosen.compareBoundaryPoints(R.START_TO_END, span) <= 0 || chosen.compareBoundaryPoints(R.END_TO_START, span) >= 0) continue
       const inter = doc.createRange()
-      const startFrom = chosen.compareBoundaryPoints(Range.START_TO_START, span) > 0 ? chosen : span
-      const endFrom = chosen.compareBoundaryPoints(Range.END_TO_END, span) < 0 ? chosen : span
+      const startFrom = chosen.compareBoundaryPoints(R.START_TO_START, span) > 0 ? chosen : span
+      const endFrom = chosen.compareBoundaryPoints(R.END_TO_END, span) < 0 ? chosen : span
       inter.setStart(startFrom.startContainer, startFrom.startOffset); inter.setEnd(endFrom.endContainer, endFrom.endOffset)
       for (const rect of Array.from(inter.getClientRects())) {
         if (!rect.width || !rect.height) continue

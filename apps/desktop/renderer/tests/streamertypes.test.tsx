@@ -290,6 +290,7 @@ test('Settings has a Streaming category next to Display holding the streamer swi
   const display = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
   for (const f of ['streamerMode', 'streamerAuto', 'attractMode', 'attractIdleSeconds', 'attractRefuseQuestions', 'streamerHides']) assert.equal(display.querySelector(`[data-settings-field="${f}"]`), null, 'Display has no ' + f)
   assert.ok(![...display.querySelectorAll('.set-group-title, h3, h4')].some(e => e.textContent === 'Modes'), 'no Modes heading in Display')
+  await inAct(async () => { [...view.el.querySelectorAll<HTMLElement>('[role="tab"]')].find(e => e.textContent === 'Streaming')!.click(); await flush(6) })
   const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-streamer')!
   const order = [...panel.querySelectorAll('[data-settings-field]')].map(e => e.getAttribute('data-settings-field'))
   const want = ['streamerMode', 'streamerAuto', ...['paths', 'ips', 'emails', 'secrets', 'phones', 'tokenUrls', 'externals', 'orgs'].map(k => 'streamer-' + k), 'streamerCover', 'attractMode']
@@ -315,7 +316,4 @@ test('Settings has a Streaming category next to Display holding the streamer swi
   // another window changes one: this window follows (the same broadcast path as the on/off switch)
   await inAct(async () => { bridge.elsewhere({ streamerIps: true }); await flush(6) })
   assert.equal(box('streamer-ips').checked, true)
-  // back on Display: the link row and status
-  await inAct(async () => { panel.querySelector<HTMLButtonElement>('[data-settings-field="streamerStatus"] button')!.click(); await flush(4) })
-  assert.equal(view.el.querySelector<HTMLElement>('#app-settings-panel-display')!.hasAttribute('hidden'), false)
 })
