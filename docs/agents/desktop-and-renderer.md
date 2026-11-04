@@ -3021,3 +3021,15 @@ surface's own `RefRoutes`:
   quote's draft x floats at the block corner. An unreachable original leaves the block inert. Only a presentation reply
   (`reply.docId`) keeps its titled `reply-preview-jump` link; `MailReplyPreview`'s title link is untouched. Tests:
   `replyagentquote`, `replyjump`, `chatreply`, `deskframe`, `eventdedup`, `replyhistoryjump`, `streamrender`, `maillinkparity`.
+
+- Live tool-writing rows and the desk scrollbar (2026-11-04, rig-opus trace; `renderer/src/convo.ts`): the websocket is the AUTHORITY
+  for `tool_writing` rows once it has delivered any writing list (`orderedStream` and `writingVersion > 0`): an HTTP chat snapshot
+  never takes such a row away (a snapshot requested after the frame can be built before the engine knew of the call). A row the new
+  list no longer carries (the engine's clear frame) is KEPT, marked `retiring_at`, until a saved row carries its tool id (the desk's
+  dedup hides it from then on), `RETIRE_MS` (2000 ms) passes (timer; a call that never commits must not linger), or `socketLost(slug)`
+  (App's websocket `onClose`) ends it at once and resets the authority. Why: the clear frame reaches the desk one frame BEFORE the
+  committed row, so for one render neither existed: the pinned transcript height dipped 28 px and the scrollbar bounced. Frames that
+  carry the committed row still retire the row atomically. Inert rig hooks `globalThis.__ORGTREE_CONVO_TRACE__` (store writes that
+  change the writing rows, with the caller stack) and `__ORGTREE_DESK_TRACE__` (writing rows before and after the dedup, per desk
+  render) do nothing unless a function is installed. Tests: `toolwritingstable` (the clear order, the retire window, socketLost, the
+  snapshot guard, the hooks), `toolwriting` (retire windows), `toolwriting-wire`.
