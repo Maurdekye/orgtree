@@ -44,3 +44,23 @@ test('typing into a textarea / contenteditable / UI element costs no scan; a tog
     assert.deepEqual(spansOf(registry).sort(), [KEY, KEY], 'the formerly editable text is now masked')
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+test('a selection inside one editable control does no mask work; one that leaves it over a hidden key is still covered', async () => {
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc)
+  try {
+    doc.body.innerHTML = `<div class="msg"><p id="a">secret ${KEY} end</p></div><div id="ce" contenteditable="true">editable words here</div>`
+    const w = dom.window as unknown as { Range: { prototype: { getClientRects(): unknown } }; getSelection(): Selection }
+    let rects = 0
+    w.Range.prototype.getClientRects = function (this: Range) { rects++; return [{ left: 10, top: 20, width: this.toString().length * 5, height: 12, right: 0, bottom: 0, x: 10, y: 20, toJSON() {} }] }
+    boundary.update(true, { cover: true })
+    const sel = w.getSelection(), ce = doc.getElementById('ce')!.firstChild!, a = doc.getElementById('a')!.firstChild!
+    const inside = doc.createRange(); inside.setStart(ce, 0); inside.setEnd(ce, 8); sel.removeAllRanges(); sel.addRange(inside)
+    doc.dispatchEvent(new dom.window.Event('selectionchange'))
+    assert.equal(rects, 0, 'no client rects computed for a selection inside the editable control')
+    assert.equal(doc.querySelectorAll('[data-streamer-selmask]').length, 0)
+    // a selection from the editable control out over the hidden key is still covered
+    const across = doc.createRange(); across.setStart(a, 0); across.setEnd(ce, 8); sel.removeAllRanges(); sel.addRange(across)
+    doc.dispatchEvent(new dom.window.Event('selectionchange'))
+    assert.equal(doc.querySelectorAll('[data-streamer-selmask]').length, 1, 'the key inside a selection that leaves the control is covered')
+  } finally { boundary.dispose(); dom.window.close() }
+})

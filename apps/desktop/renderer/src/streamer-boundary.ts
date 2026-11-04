@@ -559,6 +559,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     // nothing to draw (no selection, a caret, or nothing hidden): return before any work, clearing only boxes that exist
     const sel = active ? win!.getSelection?.() : null
     if (!sel || !sel.rangeCount || sel.isCollapsed || !sensitiveRanges.length) { if (selLayer.firstChild) clearSelectionMasks(); return }
+    // a selection that starts and ends inside one editable control (textarea, input, select, contenteditable) cannot overlap a hidden
+    // span: the walk never masks inside it
+    const anchor = sel.anchorNode, host = (anchor?.nodeType === 1 ? anchor as Element : anchor?.parentElement)?.closest('textarea,input,select,[contenteditable=true]')
+    if (host && sel.focusNode && host.contains(sel.focusNode)) { if (selLayer.firstChild) clearSelectionMasks(); return }
     clearSelectionMasks()
     const chosen = sel.getRangeAt(0), R = (win as unknown as { Range: typeof Range }).Range
     for (const span of sensitiveRanges) {
