@@ -231,6 +231,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     const nodes: { node: Text; start: number; end: number }[] = [], whole: Text[] = []
     let text = '', block: Element | null = null
     const walker = doc.createTreeWalker(doc.body, 4)
+    // a <br> is a line break: the text node after it starts a new run, or a key and the next line become one token
+    const afterBreak = new Set<Node>()
+    for (const br of doc.querySelectorAll('br')) { walker.currentNode = br; const next = walker.nextNode(); if (next) afterBreak.add(next) }
+    walker.currentNode = doc.body
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const node = n as Text, parent = node.parentElement
       if (!parent || parent.closest('script,style,textarea,select,[contenteditable=true],[data-streamer-ui]')) continue
@@ -240,7 +244,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       // a KaTeX formula is two copies of its text (a hidden MathML half with the TeX annotation, then the visible HTML half):
       // each is its own run, or a key matches across the seam and the mask lands on the wrong glyphs (spec R10)
       const nextBlock = parent.closest('p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html')
-      if (nextBlock !== block) { text += '\n'; block = nextBlock }
+      if (nextBlock !== block) { text += '\n'; block = nextBlock } else if (afterBreak.has(node)) text += '\n'
       // KaTeX draws a hyphen in math as U+2212; the key patterns are ASCII, and the swap keeps every offset (one char for one char)
       const start = text.length; text += node.data.replace(/−/g, '-'); nodes.push({ node, start, end: text.length })
     }
