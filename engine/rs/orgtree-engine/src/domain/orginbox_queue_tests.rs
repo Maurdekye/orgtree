@@ -532,3 +532,68 @@ async fn t30_the_hand_out_and_carry_lookups_use_their_partial_indexes() {
     assert!(carry.contains("mail_outside_net") && !carry.contains("Seq Scan on mail"), "the carry lookup uses mail_outside_net, however long one peer's history is: {carry}");
     assert!(include_str!("orginbox_jobs.rs").contains("AND sender_agent_id IS NULL AND net_id IS NOT NULL ORDER BY id DESC LIMIT 1"), "the query matches the index predicate exactly");
 }
+
+// ---------------------------------------------------------------- a nested descendant of the holder project (locks in 40f1bc6)
+
+/// P (ACK) holds the org inbox; Q is a project under P; A and B are agents inside Q. A has armed a fair_queue on P and
+/// holds the claim on the job; B did not.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn t31_a_nested_descendant_that_claimed_the_job_replies_and_gets_the_threads_back_but_its_neighbour_cannot() {
+    let mut w = world(true).await;
+    w.e.orgs.insert(crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into()));
+    let p_id = w.project("P", true).await;
+    w.grant("P").await;
+    let q_id = w.project("Q", true).await;
+    w.c.execute("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&q_id, &p_id]).await.unwrap();
+    let a = w.agent("A", Some(q_id)).await;
+    let b = w.agent("B", Some(q_id)).await;
+    // A arms a fair_queue on P
+    w.c.execute("INSERT INTO ot.watchdogs(org_id,uid,owner_agent_id,kind,state,memo,name,target,interval_s) VALUES($1,'dq',$2,'fair_queue','armed',$3,'dq','P',15)",
+        &[&w.org, &a, &json!({ "target_id": p_id.to_string() })]).await.unwrap();
+    // outside mail from a synthetic peer: one job in P, handed to A the way the queue does
+    let (first, p) = w.arrive("nn", "@net:bob.1", "original", json!([])).await;
+    assert_eq!(p.jobs.len(), 1);
+    let job = p.jobs[0].mail.clone();
+    let copy = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@net:bob.1','agent',$3,'A','original','pending',$4)",
+        &[&copy, &w.org, &a, &json!({ "outside_job": job, "via_project": { "id": p_id, "name": "P", "mail": job, "ack": true, "outside": true } })]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": a, "ack": true, "copy": copy } })]).await.unwrap();
+    let mk = |id: i64, name: &str| {
+        let mut o = Outgoing::new(From::Agent { id, name: name.into(), generation: 1 }, "@net:bob.1", "my reply");
+        o.reply_to = Some(json!({ "id": copy, "from": "@net:bob.1" }));
+        o
+    };
+    // 3. A has the reply right and the out row records A as its sender
+    assert!(matches!(jobs::reply_right(&w.e, w.org, a, &mk(a, "A")).await.unwrap(), jobs::Reply::Allowed(j) if j == job), "A, nested two levels below P, may reply");
+    // the fixture has no mail hub: the send passes the reply-right check and stops at the queueing step
+    let hub = send_extern(&w.e, w.org, &mk(a, "A")).await.expect_err("no hub in the fixture");
+    assert!(format!("{hub:#}").contains("mail hub is not running"), "A's reply got past the right check: {hub:#}");
+    w.c.execute("INSERT INTO ot.org_inbox(uid,org_id,dir,peer,body,by_name,state,net_id,sender_agent_id,sender_generation,via_job) VALUES('xo1',$1,'out','@net:bob.1','my reply','A','delivered','out1',$2,1,$3)",
+        &[&w.org, &a, &job]).await.unwrap();
+    let out = w.c.query_one("SELECT uid, net_id, sender_agent_id, via_job FROM ot.org_inbox WHERE org_id=$1 AND dir='out' AND body='my reply'", &[&w.org]).await.unwrap();
+    assert_eq!(out.get::<_, Option<i64>>(2), Some(a), "the out row's sender_agent_id is A");
+    assert_eq!(out.get::<_, Option<String>>(3).as_deref(), Some(job.as_str()), "and it remembers the job");
+    // 4. a hub reply that quotes that out row is delivered to A (D13)
+    let out_uid: String = out.get(0);
+    let out_net: Option<String> = out.get(1);
+    let quote = json!({ "kind": "mail", "box": "org", "id": out_uid, "peer": "@net:bob.1", "net_id": out_net, "gist": "my reply" });
+    let (_, back) = w.arrive("nn1", "@net:bob.1", "thanks", json!([quote])).await;
+    assert_eq!(back.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["A"], "the hub reply goes to A");
+    assert!(back.jobs.is_empty(), "and makes no new job");
+    // 5. a follow-up to the original while A holds the un-ACKed claim goes to A ...
+    let (_, f1) = w.arrive("nn2", "@net:bob.1", "follow-up 1", json!([quote_of(&first, "nn")])).await;
+    assert!(f1.jobs.is_empty());
+    assert_eq!(f1.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["A"], "D14: straight to the claimant");
+    // ... and after A ACKs, a further follow-up is a new job in P
+    w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
+    let (_, f2) = w.arrive("nn3", "@net:bob.1", "follow-up 2", json!([quote_of(&first, "nn")])).await;
+    assert!(f2.copies.is_empty(), "no copy to A once it has ACKed");
+    assert_eq!(f2.jobs.len(), 1, "a new job in P");
+    assert_eq!(f2.jobs[0].project, p_id);
+    // 6. control: B, in Q but not the claimant, has no reply right
+    assert!(!matches!(jobs::reply_right(&w.e, w.org, b, &mk(b, "B")).await.unwrap(), jobs::Reply::Allowed(_)), "B is not the claimant");
+    let refused = send_extern(&w.e, w.org, &mk(b, "B")).await.expect_err("B's outside reply is refused");
+    assert!(format!("{refused:#}").contains("org-inbox audience"), "refused by the right check, not by the hub: {refused:#}");
+}
