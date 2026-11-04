@@ -156,6 +156,33 @@ test('user-written excerpts and previews are free-form: the sticky user-message 
   } finally { boundary.dispose(); dom.window.close() }
 })
 
+// USER 2026-11-04 m8183a66a1f68 "better, but there's still some over-masking": the row header of "Request resolved" had
+// "resolved", "User", the request id and the date blurred. Cause: the row sits in a free-form `.msg`, and the header's adjacent
+// inline fields have no whitespace between them, so their text concatenated into one long token-like run.
+test('every transcript row-header kind is structured: a q-id, date, name and status word in a header are never hidden', () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  const KEY = 'sk-ant-api03-AbCdeF0123456789xyz'
+  const F = (k: string, v: string) => `<span class="event-head-field" data-event-field="${k}">${v}</span>`
+  const HEAD = `<span class="event-family">?</span><strong>Request resolved</strong><span class="event-actor">User</span>${F('qid', 'q35e7490e3d3e')}${F('status', 'resolved')}${F('owner', 'liaison-opus')}<time>2026-11-04 16:25:48 GMT+2</time>`
+  doc.body.innerHTML = [
+    // mail / typed event card header in a transcript row
+    `<div class="msg sys"><section class="turn-mail"><header class="turn-mail-head event-head">${HEAD}</header><div class="turn-mail-body">see ${KEY}</div></section></div>`,
+    // plain (list) mail header, event-card header (request / question / status), reply source meta
+    `<div class="msg"><div class="mailer-head event-head">${HEAD}</div><span class="reply-source-meta">${HEAD}</span></div>`,
+    // answered / resolved request card: summary, chip and verdict rows
+    `<div class="msg"><details class="answered-card" open><summary><span class="answered-chip">Q1</span>Request resolved${HEAD}</summary><ul class="resolved-rows"><li class="resolved-row"><span class="resolved-label">liaison-opus</span><span class="resolved-verdict">q35e7490e3d3e</span></li></ul></details></div>`,
+    // tool call line: the name and count are structured, its argument is free-form
+    `<div class="msg live tools"><span class="tools tchip"><span class="tline">Bash${F('n', 'q35e7490e3d3e')}<span class="tline-count">2026-11-04</span><span class="targ">curl ${KEY}</span></span></span></div>`,
+    // state marker and gap divider
+    `<div class="msg sys" data-streamer-structured>Working since 2026-11-04q35e7490e3d3eliaison-opus</div>`,
+    `<div class="msg sys" data-streamer-structured>— 14s later —q35e7490e3d3e2026-11-04</div>`,
+  ].join('')
+  try {
+    boundary.update(true, cfg({ secrets: true, paths: true }))
+    assert.deepEqual(hidden(registry), [KEY, KEY], 'only the two free-form keys are blurred; no header, id, date, name or status: ' + JSON.stringify(hidden(registry)))
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
