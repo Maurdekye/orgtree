@@ -597,3 +597,152 @@ async fn t31_a_nested_descendant_that_claimed_the_job_replies_and_gets_the_threa
     let refused = send_extern(&w.e, w.org, &mk(b, "B")).await.expect_err("B's outside reply is refused");
     assert!(format!("{refused:#}").contains("org-inbox audience"), "refused by the right check, not by the hub: {refused:#}");
 }
+
+// ---------------------------------------------------------------- job-scoped replies for ANY project mail (relay spec rev 1.2, G1-G3, GR1-GR9)
+
+/// P (a project, ACK or not) with a direct worker W; agent A (top-level, an audience with P but no route back) mails P;
+/// the job is handed to W the way the queue does it. Returns (W, A, job uid, W's copy uid).
+#[nolog]
+async fn plain_job(w: &mut World, ack: bool) -> (i64, i64, String, String) {
+    w.e.orgs.insert(crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into()));
+    let proj = w.project("P", ack).await;
+    let a = w.agent("A", None).await;
+    w.c.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1,'A','P','fixture')", &[&w.org]).await.unwrap();
+    let q = w.project("Q", ack).await;
+    w.c.execute("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&q, &proj]).await.unwrap();
+    let worker = w.agent("W", Some(q)).await;
+    let mut o = Outgoing::new(From::Agent { id: a, name: "A".into(), generation: 1 }, "P", "do this");
+    o.wake = false;
+    let job = crate::domain::mail::send(&w.e, w.org, o).await.unwrap().uid;
+    let copy = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,sender_agent_id,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'A',$3,'agent',$4,'W','do this','pending',$5)",
+        &[&copy, &w.org, &a, &worker, &json!({ "via_project": { "id": proj, "name": "P", "mail": job, "ack": ack } })]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": worker, "ack": ack, "copy": copy } })]).await.unwrap();
+    (worker, a, job, copy)
+}
+
+#[nolog]
+fn from_agent(id: i64, name: &str, to: &str, body: &str, reply_to: Option<Value>) -> Outgoing {
+    let mut o = Outgoing::new(From::Agent { id, name: name.into(), generation: 1 }, to, body);
+    o.reply_to = reply_to;
+    o.wake = false;
+    o
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr1_the_holder_replies_to_the_jobs_sender_naming_its_copy() {
+    let mut w = world(true).await;
+    let (worker, _a, _job, copy) = plain_job(&mut w, true).await;
+    crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "done", Some(json!({ "id": copy, "from": "A" })))).await.expect("G1: the job-scoped reply is delivered");
+    let n: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND sender='W' AND recipient_name='A' AND body='done'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(n, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr2_without_naming_the_copy_or_to_anyone_else_it_is_refused_control() {
+    let mut w = world(true).await;
+    let (worker, _a, _job, copy) = plain_job(&mut w, true).await;
+    w.agent("Z", None).await;
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "done", None)).await.is_err(), "no reply_to");
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "Z", "done", Some(json!({ "id": copy, "from": "A" })))).await.is_err(), "names the copy but writes to someone else");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr3_the_ack_is_recorded_and_the_reply_after_it_is_refused_in_ack_mode_only() {
+    let mut w = world(true).await;
+    let (worker, _a, job, copy) = plain_job(&mut w, true).await;
+    let q = Some(json!({ "id": copy, "from": "A" }));
+    crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "first", q.clone())).await.expect("before the ack");
+    crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "P", "acking", q.clone())).await.expect("mail to the project naming the copy is the ack");
+    let acked: bool = w.c.query_one("SELECT extra->'claimed'->>'acked_at' IS NOT NULL FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
+    assert!(acked, "the ack is recorded");
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "late", q.clone())).await.is_err(), "after the ack");
+    // round-robin: no limit
+    let mut w2 = world(true).await;
+    let (worker2, _a2, _j2, copy2) = plain_job(&mut w2, false).await;
+    let q2 = Some(json!({ "id": copy2, "from": "A" }));
+    crate::domain::mail::send(&w2.e, w2.org, from_agent(worker2, "W", "A", "one", q2.clone())).await.unwrap();
+    crate::domain::mail::send(&w2.e, w2.org, from_agent(worker2, "W", "A", "two", q2)).await.expect("round-robin: replies have no end");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr4_the_sender_replies_back_to_the_workers_reply_until_the_ack() {
+    let mut w = world(true).await;
+    let (worker, a, job, copy) = plain_job(&mut w, true).await;
+    let m = crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "question?", Some(json!({ "id": copy, "from": "A" })))).await.unwrap().uid;
+    let back = Some(json!({ "id": m, "from": "W" }));
+    crate::domain::mail::send(&w.e, w.org, from_agent(a, "A", "W", "answer", back.clone())).await.expect("G2: delivered to W");
+    w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(a, "A", "W", "again", back)).await.is_err(), "after the ack");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr5_a_follow_up_naming_the_senders_own_mail_goes_to_the_holder_not_a_new_job() {
+    let mut w = world(true).await;
+    let (worker, a, job, _copy) = plain_job(&mut w, true).await;
+    crate::domain::mail::send(&w.e, w.org, from_agent(a, "A", "P", "one more thing", Some(json!({ "id": job, "from": "A" })))).await.unwrap();
+    let pending: i64 = w.c.query_one("SELECT count(*) FROM ot.mail m JOIN ot.agents p ON p.id=m.recipient_agent_id AND p.name='P' WHERE m.org_id=$1 AND m.state='pending'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(pending, 0, "G3: no new job in P");
+    let got: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND body='one more thing'", &[&w.org, &worker]).await.unwrap().get(0);
+    assert_eq!(got, 1, "it went to the holder");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr7_u2_any_holder_replies_to_the_user_job_scoped_and_only_the_user() {
+    let mut w = world(true).await;
+    w.e.orgs.insert(crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into()));
+    let proj = w.project("P", true).await;
+    let boss = w.agent("boss", None).await; // an agent above P: W is not a top-level agent
+    w.c.execute("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&proj, &boss]).await.unwrap();
+    let q = w.project("Q", true).await;
+    w.c.execute("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&q, &proj]).await.unwrap();
+    let worker = w.agent("W", Some(q)).await; // nested, no user audience
+    let job = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'user','agent',$3,'P','from the user','pending','{}')",
+        &[&job, &w.org, &proj]).await.unwrap();
+    let copy = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'user','agent',$3,'W','from the user','pending',$4)",
+        &[&copy, &w.org, &worker, &json!({ "via_project": { "id": proj, "name": "P", "mail": job, "ack": true } })]).await.unwrap();
+    w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": worker, "ack": true, "copy": copy } })]).await.unwrap();
+    w.agent("Z", None).await;
+    let named = Some(json!({ "id": copy, "from": "user" }));
+    crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "user", "report", named.clone())).await.expect("U2: the holder may answer the user about its job");
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "user", "unscoped", None)).await.is_err(), "reply only: no reply_to, no right");
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "Z", "x", named)).await.is_err(), "only that one sender");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr8_a_retired_sender_is_refused_and_a_rehired_one_allowed() {
+    let mut w = world(true).await;
+    let (worker, a, _job, copy) = plain_job(&mut w, true).await;
+    let q = Some(json!({ "id": copy, "from": "A" }));
+    w.c.execute("UPDATE ot.agents SET state='archived' WHERE id=$1", &[&a]).await.unwrap();
+    let e = crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "x", q.clone())).await.expect_err("retired sender");
+    assert!(format!("{e:#}").contains("A"), "{e:#}");
+    w.c.execute("UPDATE ot.agents SET state='live' WHERE id=$1", &[&a]).await.unwrap();
+    crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "A", "x", q)).await.expect("rehired: same identity");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn gr9_a_watchdog_sender_gets_no_reply_control() {
+    let mut w = world(true).await;
+    let (worker, _a, _job, copy) = plain_job(&mut w, true).await;
+    w.c.execute("UPDATE ot.mail SET sender='P/dg', sender_agent_id=NULL WHERE uid=$1", &[&copy]).await.unwrap();
+    assert!(crate::domain::mail::send(&w.e, w.org, from_agent(worker, "W", "P/dg", "x", Some(json!({ "id": copy, "from": "P/dg" })))).await.is_err());
+}
