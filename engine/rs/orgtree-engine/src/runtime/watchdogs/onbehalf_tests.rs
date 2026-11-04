@@ -1203,6 +1203,36 @@ async fn ce13_project_dogs() {
     assert!(e.contains("a project watchdog's fires go to the project's listeners"), "{e}");
 }
 
+/// CE20: a configure edit that reuses a dog's stored (unsealed) credentials must not put them in the verbose call log,
+/// neither as text nor as the numeric byte array the logger renders an `Option<&[u8]>` argument as.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce20_stored_credentials_never_reach_the_call_log() {
+    use crate::ws::testserver::{Opts, TestServer};
+    const CANARY: &str = "tok-canary-7q2x9";
+    let w = world().await;
+    let capture = crate::trace::LogCapture::start().await;
+    let need = Opts { require: vec![("authorization".to_string(), format!("Bearer {CANARY}"))], ..Opts::default() };
+    let a = TestServer::start(need).await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"websocket","target":a.url("/v1/events"),"name":"sock","credentials":{"bearer":CANARY}})).await.unwrap();
+    assert!(a.until(10, |s| s.live() >= 1).await, "connected with the bearer");
+    let row = w.dog("sock").await.3;
+    // the edit reuses the stored credentials: they are unsealed and handed to the websocket validation
+    w.cfg(w.w, "sock", json!({"hello":["hi"]})).await.unwrap();
+    disarm(&w.e, row);
+    a.stop();
+    let log = capture.finish().await;
+    assert!(log.contains("validate("), "positive control: the validation call line was logged
+{log}");
+    assert!(!log.contains(CANARY), "the credential text reached the log");
+    let bytes: Vec<String> = CANARY.bytes().map(|b| b.to_string()).collect();
+    for sep in [",", ", "] {
+        let run = bytes[..6].join(sep);
+        assert!(!log.contains(&run), "the credential bytes reached the log as numbers ({run:?})");
+    }
+}
+
 /// CE14 (rev 1.5 5b): a hello edit reconnects on the STORED credentials; a target edit to another host needs credentials re-supplied.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
