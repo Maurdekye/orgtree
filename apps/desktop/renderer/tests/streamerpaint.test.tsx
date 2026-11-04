@@ -7,7 +7,8 @@ import assert from 'node:assert/strict'
 import { installStreamerBoundary, streamerScanStats } from '../src/streamer-boundary'
 
 const KEY = 'sk-ant-api03-AbCdeF0123456789xyz'
-const tick = async () => { for (let i = 0; i < 30; i++) await Promise.resolve() }
+// a scan costing 16 ms or more (the first one in a fresh page can) is paced, so wait for the timer too
+const tick = () => new Promise<void>(r => setTimeout(r, 500))
 function fixture() {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
   let sets = 0
