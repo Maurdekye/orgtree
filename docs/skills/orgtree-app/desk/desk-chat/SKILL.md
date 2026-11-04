@@ -148,7 +148,7 @@ sends. During a turn it sits below the live reply; current-turn mail appears
 normally above the reply and neither is collapsed. When idle, all undelivered
 mail sits under that one separator. Its count excludes current-turn mail.
 Delivered messages display normally; their five-line body previews are unchanged.
-A quote/reply navigation can reveal a folded target;
+A quote/reply navigation can reveal a folded target. A quoted reply block has no "jump to message" label: the whole block is the jump (click it, or Tab to it and press Enter or Space), with a pointer and a hover tint; a quote whose original is not loaded is inert. A presentation reply keeps its titled link;
 opening a disclosure is not a read/delivery acknowledgment.
 
 Event cards and reference links can open their exact related agent, mail, work item, watchdog or document when a route is available. Copy/reply menus use durable source identity; a missing exact source can disable a reply action rather than inventing a target.

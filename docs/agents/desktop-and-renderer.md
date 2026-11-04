@@ -3013,3 +3013,11 @@ surface's own `RefRoutes`:
   (the KaTeX CSS is imported by `styles.css`) with chips bound per host element (`tests/richformat-streamer.test.tsx`,
   `richformat-popout.test.tsx`).
 - Proofs: `tests/richformat-*.test.tsx` with the shared fixture `tests/fixtures/richformat.ts`.
+
+- **Reply quotes have no "jump to message" label; the whole block is the jump** (USER 2026-11-04 m9decb4fe3b0d "remove this jump to
+  message link, the whole reply inline is a jump"; replaces the 2026-11-03 inline link and the chip look). `ReplyPreviewFrame`
+  already carries the activation (`role=link`, tab stop, Enter/Space, `.reply-preview[role="link"]` pointer/hover/focus-visible),
+  so `EventReplyPreview` renders no button for a message quote (agent quote head, card quote header slot, composer draft); a card
+  quote's draft x floats at the block corner. An unreachable original leaves the block inert. Only a presentation reply
+  (`reply.docId`) keeps its titled `reply-preview-jump` link; `MailReplyPreview`'s title link is untouched. Tests:
+  `replyagentquote`, `replyjump`, `chatreply`, `deskframe`, `eventdedup`, `replyhistoryjump`, `streamrender`, `maillinkparity`.

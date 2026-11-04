@@ -11,7 +11,6 @@ import { MAIL_COPY_FAILED, fetchMailRowForCopy, isMailByReferencePreview, mailRo
 import type { CopyableMailRow } from './copytext'
 import { senderMenuAction } from './objectactions'
 import { objectNavProps, useObjectNavRegistry } from './objectnav'
-import { mailLinkProps } from './mailidentity'
 import { ReplyIcon } from '../icons'
 import { fmtFull } from '../timefmt'
 import { usePresentationTitle } from './presentationtitle'
@@ -126,7 +125,8 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
   const [slot, setSlot] = useState<HTMLElement | null>(null)
   // an agent's own message is quoted in the MAIL reply's frame (head + clamped text): no card header to carry the link
   const agentQuote = assistantQuote(sourceData)
-  const inline = Boolean(source) && !agentQuote
+  const cardQuote = Boolean(source) && !agentQuote
+  const inline = cardQuote && Boolean(reply.docId)
   useLayoutEffect(() => {
     const header = inline ? frameRef.current?.querySelector<HTMLElement>(
       '.reply-preview-content .reply-source-meta, .reply-preview-content .event-head') : null
@@ -209,14 +209,13 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
     }
   }
 
-  // the jump control wears the ref chip's look (`ref-chip ref-message ref-ready`: small mono label, ink colour, no underline at
-  // rest, underline on hover) like the subject chip in a mail reply's head (USER m64286c099254; coordinator m15519009534b)
-  const jump = <button className={'reply-preview-jump ref-chip ref-message ref-ready'+(reply.docId?' reply-presentation-link':'')} type="button" onClick={onLocate} disabled={!reachable}
-        {...(reply.docId && reachable ? objectNavProps('document', reply.docId, reply.org)
-          : mailId && reachable ? mailLinkProps({ org: reply.org, id: mailId, box: 'node', node: reply.agent }) : {})}
-        aria-label={reply.docId?doc.label:'jump to message'} title={actionTitle}>
+  // There is NO "jump to message" label (USER 2026-11-04 m9decb4fe3b0d: "the whole reply inline is a jump"): the frame itself is
+  // the link (role=link, tab stop, Enter/Space, pointer + hover cue). Only a presentation reply keeps its titled link.
+  const jump = !reply.docId ? null : <button className="reply-preview-jump ref-chip ref-message ref-ready reply-presentation-link" type="button" onClick={onLocate} disabled={!reachable}
+        {...(reachable ? objectNavProps('document', reply.docId, reply.org) : {})}
+        aria-label={doc.label} title={actionTitle}>
         <ReplyIcon className="reply-preview-jump-icon" aria-hidden="true" focusable="false" fontSize="inherit" />
-        <span>{reply.docId?doc.label:'jump to message'}</span>
+        <span>{doc.label}</span>
       </button>
   if (agentQuote && isValidElement<{ bare?: boolean }>(source)) {
     return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef}
@@ -231,7 +230,7 @@ function EventReplyPreview({ reply, available, onLocate, onRemove, presentationT
       <blockquote><ObjectMenuBoundary role="region" aria-label="Referenced event">{cloneElement(source, { bare: true })}</ObjectMenuBoundary></blockquote>
     </ReplyPreviewFrame>
   }
-  return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef} floatRemove={Boolean(slot)}
+  return <ReplyPreviewFrame label="Replying to chat event" onRemove={onRemove} frameRef={frameRef} floatRemove={Boolean(slot) || (cardQuote && !reply.docId)}
     onActivate={reachable?onLocate:undefined} actionTitle={actionTitle}
     menuEntries={buildMenu} onOpenMenu={onOpenMenu}
     unavailable={reply.docId?(!doc.ready?doc.why:undefined):!available ? (source ? 'Original event is not visible in this conversation.'
