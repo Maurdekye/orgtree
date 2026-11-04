@@ -75,6 +75,8 @@ mod forms;
 pub mod usage;
 #[cfg(test)]
 mod project_tests;
+#[cfg(test)]
+mod onbehalf_tests;
 
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 

@@ -572,6 +572,12 @@ fn watchdog_configure_args(args: &Value) -> Result<(&str, Option<&str>)> {
     Ok((id, mode))
 }
 
+/// RED SCAFFOLD (watchdog on behalf, W1): `owner` is a create field; built in the next commit.
+#[nolog]
+pub(crate) fn watchdog_owner_guard(_args: &Value) -> Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod watchdog_configure_tests {
     use super::*;

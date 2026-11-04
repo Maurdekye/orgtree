@@ -18,6 +18,13 @@ mod watchdog_configure_tests {
         assert!(properties["id"]["description"].as_str().unwrap().contains("configure"));
     }
 
+    /// T1 (watchdog on behalf W1): the schema has `owner`.
+    #[test]
+    fn watchdog_card_has_owner() {
+        let card = build_tool_watchdog();
+        assert_eq!(card["inputSchema"]["properties"]["owner"]["type"], "string", "{card}");
+    }
+
     /// PF17 (project-watchdogs F1): the three delivery forms are in the schema.
     #[test]
     fn watchdog_card_has_project_delivery() {
