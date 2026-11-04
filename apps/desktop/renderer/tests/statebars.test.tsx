@@ -6,7 +6,7 @@ import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { AgentStatesView, barWidthPct, fmtExact } from '../src/canvas/statesview'
+import { AgentStatesView, barWidthPct, fmtExact, scalePips } from '../src/canvas/statesview'
 
 declare const __SRC_DIR__: string
 const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
@@ -102,4 +102,41 @@ test('the duration text sits beside its bar in its own aligned column; bars shar
   const dur = rules('.agent-states-dur')
   assert.equal(decl(dur, 'text-align'), 'right')
   assert.equal(decl(dur, 'font-variant-numeric'), 'tabular-nums')
+})
+
+test('scale pips: 1 min, 1 hour and 1 day sit at the exact log positions of the bars, and any pip beyond the track is dropped', () => {
+  assert.deepEqual(scalePips().map(p => p.label), ['1 min', '1 hour', '1 day'])
+  for (const p of scalePips()) assert.equal(p.pct, barWidthPct(p.secs), `${p.label} uses the bar scale`)
+  assert.deepEqual(scalePips().map(p => p.secs), [60, 3600, 86400])
+  assert.ok(scalePips().every(p => p.pct > 0 && p.pct <= 100))
+  assert.deepEqual(scalePips(3600).map(p => p.label), ['1 min', '1 hour'], 'a pip past the track maximum is omitted')
+})
+
+test('every row track carries the three pips with hover labels and no row text; a 1 h span ends at the 1 h pip', async () => {
+  globalThis.fetch = (async () => response({ node: 'worker', next_cursor: null, totals: { h24: zero, d7: zero }, states: [
+    { state: 'idle', start: '2026-11-02T10:00:00Z', end: '2026-11-02T11:00:00Z', secs: 3600 },
+    { state: 'active', start: '2026-11-02T09:00:00Z', end: '2026-11-02T09:00:30Z', secs: 30 },
+  ] })) as typeof fetch
+  const view = await mountView(<AgentStatesView slug="fixture" nid="worker" />, el => el)
+  try {
+    await inAct(async () => { await flush(3) })
+    const rows = [...view.el.querySelectorAll('li[data-state]')]
+    assert.ok(rows.length >= 2)
+    for (const r of rows) {
+      const pips = [...r.querySelectorAll('.agent-states-bar .state-pip')] as HTMLElement[]
+      assert.deepEqual(pips.map(p => p.getAttribute('title')), ['1 min', '1 hour', '1 day'])
+      assert.deepEqual(pips.map(p => p.textContent), ['', '', ''], 'no text on the row')
+      assert.deepEqual(pips.map(p => parseFloat(p.style.left)), scalePips().map(p => p.pct))
+    }
+    const bar = parseFloat((rows[0]!.querySelector('.state-bar') as HTMLElement).style.width)
+    const hour = parseFloat((rows[0]!.querySelectorAll('.state-pip')[1] as HTMLElement).style.left)
+    assert.ok(Math.abs(bar - hour) < 0.01, 'the 1 h bar ends exactly at the 1 h pip')
+  } finally { await view.unmount() }
+})
+
+test('pips are subtle, theme-aware ticks drawn over the track without hiding the state colour', () => {
+  const pip = rules('.agent-states .state-pip')
+  assert.match(pip, /position:\s*absolute/)
+  assert.match(decl(pip, 'background') ?? '', /var\(--(bg|ink)/, 'built from theme variables, not a fixed colour')
+  assert.doesNotMatch(decl(pip, 'background') ?? '', /#[0-9a-f]{3,8}/i)
 })
