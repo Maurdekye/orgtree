@@ -128,7 +128,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     for (const el of revealed) el.removeAttribute('data-streamer-revealed')
     revealed.clear(); tinyEls.clear()
     for (const [el, attrs] of attributes) for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
-    attributes.clear(); banner.remove(); clearSelectionMasks(); sensitiveRanges = []
+    attributes.clear(); banner.remove(); removeSelectionLayer(); sensitiveRanges = []
     for (const [el, value] of autocomplete) if (el.getAttribute('autocomplete') === 'off') {
       if (value === null) el.removeAttribute('autocomplete'); else el.setAttribute('autocomplete', value)
     }
@@ -274,7 +274,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   // the boxes live in one data-streamer-ui layer, so adding them is not a page mutation (no rescan loop)
   const selLayer = doc.createElement('div'); selLayer.dataset.streamerUi = ''; selLayer.dataset.streamerSelLayer = ''
   selLayer.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;background:none;border:0;padding:0'
-  function clearSelectionMasks() { selLayer.replaceChildren(); selLayer.remove() }
+  // The layer is attached to <body> ONCE and left there while the mode is on: every later change is inside it (the observer
+  // ignores data-streamer-ui targets). Removing and re-adding it per pass mutated <body>, re-triggered the scan and looped.
+  function clearSelectionMasks() { selLayer.replaceChildren() }
+  function removeSelectionLayer() { selLayer.replaceChildren(); selLayer.remove() }
   function maskSelection() {
     clearSelectionMasks()
     if (!active) return
