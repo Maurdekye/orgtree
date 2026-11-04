@@ -1,4 +1,4 @@
-import { DEFAULT_STREAMER_TYPES, sensitiveSpans, STREAMER_HIDDEN, type StreamerType, type StreamerTypes } from '../../../../packages/contracts/streamer'
+import { DEFAULT_STREAMER_TYPES, sensitiveSpans, STREAMER_HIDDEN, type SensitiveSpan, type StreamerType, type StreamerTypes } from '../../../../packages/contracts/streamer'
 
 /** What the boundary hides right now (Settings > Streamer mode). */
 export interface StreamerConfig {
@@ -73,7 +73,7 @@ html.streamer-banner-fixed body{height:calc(100% - 30px)!important;overflow:hidd
 `
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { supports?(property: string, value: string): boolean; highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
 /** The last 32 scans (UI stall spec R8b, rev 1.2): a read-only snapshot for the stall watch; it never triggers a scan. */
-export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_nodes: number; text_chars: number; ranges_after: number }
+export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_nodes: number; regex_chars: number; text_chars: number; ranges_after: number }
 /** One maskSelection call. */
 export interface StreamerMask { start: number; ms: number }
 export interface StreamerScanStats { on: boolean; pace_ms: number; scans: readonly StreamerScan[]; masks: readonly StreamerMask[] }
@@ -105,6 +105,49 @@ const ZONE_ATTRS = new Set(['data-streamer-field', 'data-streamer-freeform', 'da
 const classTouchesZone = (value: string | null) => !!value && value.split(/\s+/).some(t => ZONE_TOKENS.has(t))
 /** Anything whose appearance can change a mask; the rest of the page is chrome. */
 const WATCHED = `${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},[data-streamer-field],[title],[alt],[aria-label],input,textarea,select,[contenteditable],${OPAQUE}`
+/** The text before a possible multi-line match: a key word (optionally quoted, with an optional `:`/`=`) or `Bearer` at the very end. */
+const KEY_TAIL = /(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|api[_ -]?key|apikey|authorization|credential)["']?\s*(?:[:=]\s*)?$|\bBearer$/i
+/** Characters handed to the regex pass since the last scan began (the work a keystroke costs; exposed in the scan ring). */
+let regexWork = 0
+const SEAM_TAIL = 80, SEAM_HEAD_RUNS = 6, SEAM_HEAD = 4000, RUN_CACHE_MAX = 6000
+/** `sensitiveSpans(runs.join('\n'))`, computed per run and cached by run text (a run is a block's text, so a keystroke re-matches the
+ *  one run that changed). Matches that can cross a run boundary are handled exactly: (1) a private key (`-----BEGIN`, which may run
+ *  unterminated to the end of the text) sends the whole text through the one global pass; (2) `key = value` and `Bearer x` split by
+ *  a run boundary (their `\s` takes the newline) are found in a bounded window at each seam whose preceding text ends like a key
+ *  word. Every other pattern is whitespace-bounded, so it cannot cross the boundary. */
+export function spansByRun(runs: readonly string[], types: StreamerTypes, orgNames: readonly string[], cache: Map<string, SensitiveSpan[]>, cacheKey: string): SensitiveSpan[] {
+  let total = runs.length - 1
+  for (const run of runs) total += run.length
+  if (total > 1_000_000) return [{ start: 0, end: total }]
+  if (runs.some(run => run.includes('-----BEGIN'))) { regexWork += total; return sensitiveSpans(runs.join('\n'), types, orgNames) }
+  const out: SensitiveSpan[] = []
+  let offset = 0
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i]!
+    const key = cacheKey + run
+    let rel = cache.get(key)
+    if (!rel) { regexWork += run.length; rel = sensitiveSpans(run, types, orgNames); if (cache.size >= RUN_CACHE_MAX) cache.clear(); cache.set(key, rel) }
+    for (const span of rel) out.push({ start: offset + span.start, end: offset + span.end })
+    if (i + 1 < runs.length) {
+      const tail = run.slice(-SEAM_TAIL)
+      if (KEY_TAIL.test(tail)) {
+        const window = tail + '\n' + runs.slice(i + 1, i + 1 + SEAM_HEAD_RUNS).join('\n').slice(0, SEAM_HEAD)
+        const base = offset + run.length - tail.length
+        regexWork += window.length
+        for (const span of sensitiveSpans(window, types, orgNames)) if (span.start < tail.length && span.end > tail.length) out.push({ start: base + span.start, end: base + span.end })
+      }
+    }
+    offset += run.length + 1
+  }
+  out.sort((a, b) => a.start - b.start || a.end - b.end)
+  const merged: SensitiveSpan[] = []
+  for (const span of out) {
+    const last = merged[merged.length - 1]
+    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end)
+    else merged.push({ ...span })
+  }
+  return merged
+}
 export function installStreamerBoundary(doc: Document, turnOff?: () => void): StreamerBoundary {
   const win = doc.defaultView as HighlightWindow | null
   if (!win) return { update() {}, dispose() {} }
@@ -112,6 +155,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   let active = false, types: StreamerTypes = { ...DEFAULT_STREAMER_TYPES }, coverOn = true, orgNames: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
   let lastEnd = 0, lastCost = 0, timer = 0, scanWalked = 0, scanTextNodes = 0, scanChars = 0, pendingMutations = 0, trigger: StreamerScan['trigger'] = 'other'
   let seq: SeqEntry[] | null = null, textOnly = false
+  const runCache = new Map<string, SensitiveSpan[]>()
   // Elements whose new or changed text is blurred WHOLE while a paced scan has not run yet (nothing may show, even briefly)
   const pending = new Set<Element>(), touched = new Set<Element>()
   const clearPending = () => { for (const el of pending) el.removeAttribute('data-streamer-pending'); pending.clear() }
@@ -243,10 +287,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (!active || !doc.body) return
     if (timer) { win?.clearTimeout(timer); timer = 0 }
     const began = clock()
-    scanWalked = 0; scanTextNodes = 0; scanChars = 0
+    scanWalked = 0; scanTextNodes = 0; scanChars = 0; regexWork = 0
     try { scanNow() } finally {
       lastEnd = clock(); lastCost = lastEnd - began
-      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, nodes_walked: scanWalked, text_nodes: scanTextNodes, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
+      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, nodes_walked: scanWalked, text_nodes: scanTextNodes, regex_chars: regexWork, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
       if (scanRing.length > 32) scanRing.shift()
       pendingMutations = 0; trigger = 'other'; clearPending()
     }
@@ -334,13 +378,14 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (!supported) return
     const nodes: { node: Text; start: number; end: number }[] = [], whole: Text[] = []
     let text = '', block: Element | null = null
+    const runStarts = [0]
     let walked = 0
     const fresh: SeqEntry[] = []
     // KaTeX draws a hyphen in math as U+2212; the key patterns are ASCII, and the swap keeps every offset (one char for one char)
     const read = (node: Text) => node.data.includes('−') ? node.data.replace(/−/g, '-') : node.data
     const add = (e: SeqEntry) => {
       if (e.field !== null) { if (enabledType(e.field)) whole.push(e.node); return }
-      if (e.sep) text += '\n'
+      if (e.sep) { text += '\n'; runStarts.push(text.length) }
       const start = text.length; text += e.data; nodes.push({ node: e.node, start, end: text.length })
     }
     if (light) {
@@ -368,7 +413,8 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     scanWalked = walked; scanTextNodes = nodes.length; scanChars = text.length
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
-    for (const span of sensitiveSpans(text, types, orgNames)) {
+    const runs = runStarts.map((at, i) => text.slice(at, i + 1 < runStarts.length ? runStarts[i + 1]! - 1 : text.length))
+    for (const span of spansByRun(runs, types, orgNames, runCache, `${JSON.stringify(types)}|${orgNames.join(',')}|`)) {
       while (nodes[firstIndex] && nodes[firstIndex]!.end <= span.start) firstIndex++
       lastIndex = Math.max(firstIndex, lastIndex)
       while (nodes[lastIndex] && nodes[lastIndex]!.end < span.end) lastIndex++
@@ -467,7 +513,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   doc.addEventListener('change', onChange, true)
   observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete', 'class', 'data-streamer-field', 'data-streamer-freeform', 'data-streamer-structured', 'contenteditable'] })
   return {
-    update(on, config) { if (!on) { active = false; ringOn = false; ringPace = 0; restore(); return } ringOn = true; if (active) restoreAttributes(); textClass = new WeakMap(); attrMemo = new WeakMap(); seq = null; active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; trigger = 'update'; scan() },
+    update(on, config) { if (!on) { active = false; ringOn = false; ringPace = 0; restore(); return } ringOn = true; if (active) restoreAttributes(); textClass = new WeakMap(); attrMemo = new WeakMap(); seq = null; runCache.clear(); active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; trigger = 'update'; scan() },
     dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); doc.removeEventListener('selectionchange', onSelection); win.removeEventListener('scroll', requestSelectionMask, true); win.removeEventListener('resize', requestSelectionMask); if (selFrame) win.cancelAnimationFrame(selFrame); ringOn = false; restore(); style.remove() },
   }
 }
