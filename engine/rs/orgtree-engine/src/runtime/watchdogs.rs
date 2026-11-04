@@ -81,6 +81,12 @@ mod onbehalf_tests;
 
 /// Test-only: pause one configure or create call just after its early checks (before it opens its
 /// transaction), so a test can run a competing call in between and then release it (CE19).
+/// Does a configure call carry a field to edit (behaviour, target, or a fixed one to refuse)? The tool guard asks.
+#[nolog]
+pub fn configure_edits(args: &Value) -> bool {
+    edit::wants(args)
+}
+
 #[cfg(test)]
 pub(crate) mod race_hook {
     use std::sync::{Arc, Mutex};

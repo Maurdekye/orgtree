@@ -567,8 +567,9 @@ fn watchdog_configure_args(args: &Value) -> Result<(&str, Option<&str>)> {
     let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
         crate::refuse!(BadRequest, "configure needs the watchdog id (see list)");
     };
-    // connection_messages is required unless project_delivery is given
-    let mode = crate::domain::watchdogs::connection_messages_arg(args, args.get("project_delivery").is_none_or(Value::is_null))?;
+    // connection_messages is required unless project_delivery or a field to edit is given (the runtime refuses an empty configure too)
+    let alone = args.get("project_delivery").is_none_or(Value::is_null) && !crate::runtime::watchdogs::configure_edits(args);
+    let mode = crate::domain::watchdogs::connection_messages_arg(args, alone)?;
     Ok((id, mode))
 }
 
