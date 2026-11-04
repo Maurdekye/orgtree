@@ -4669,14 +4669,6 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "Status"
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "What Streamer mode hides"
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Cover HTML apps, HTML presentations and video"
     },
     {
@@ -4734,7 +4726,7 @@
    "ui_dynamic_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "component": "StreamerSettings",
+     "component": "StreamingSettings",
      "label": "sw.label"
     }
    ]
