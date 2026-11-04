@@ -563,11 +563,12 @@ async fn doc_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 /// Configure only the connection-notification flag; never coerce a missing
 /// or malformed value into false. Resolution/authority remain runtime-owned.
 #[nolog]
-fn watchdog_configure_args(args: &Value) -> Result<(&str, &str)> {
+fn watchdog_configure_args(args: &Value) -> Result<(&str, Option<&str>)> {
     let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
         crate::refuse!(BadRequest, "configure needs the watchdog id (see list)");
     };
-    let mode = crate::domain::watchdogs::connection_messages_arg(args, true)?.unwrap();
+    // connection_messages is required unless project_delivery is given
+    let mode = crate::domain::watchdogs::connection_messages_arg(args, args.get("project_delivery").is_none_or(Value::is_null))?;
     Ok((id, mode))
 }
 
@@ -590,7 +591,7 @@ mod watchdog_configure_tests {
     fn watchdog_configure_accepts_true_false_and_qualified_handles() {
         for enabled in [true, false] {
             let args = json!({"id":" owner/dog ", "notify_on_connect":enabled});
-            assert_eq!(watchdog_configure_args(&args).unwrap(), ("owner/dog", if enabled { "notice" } else { "off" }));
+            assert_eq!(watchdog_configure_args(&args).unwrap(), ("owner/dog", Some(if enabled { "notice" } else { "off" })));
         }
     }
 
@@ -620,8 +621,8 @@ async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result
         "create" => watchdogs::create(engine, caller.org_id, caller.agent_id, args).await?,
         "list" => watchdogs::list(engine, caller.agent_id, args).await?,
         "configure" => {
-            let (id, enabled) = watchdog_configure_args(args)?;
-            watchdogs::configure_connect(engine, caller.org_id, Some(caller.agent_id), id, enabled).await?
+            let (id, _) = watchdog_configure_args(args)?;
+            watchdogs::configure(engine, caller.org_id, Some(caller.agent_id), id, args).await?
         }
         "pause" | "resume" | "remove" => {
             let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {

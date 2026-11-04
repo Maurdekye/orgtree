@@ -124,6 +124,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 | `batch` | Create, `fair_queue` only | Integer 1–20, default 1: maximum mails per assignment batch and unacked mails in ACK mode. |
 | `slots` | Create, `slot` only | Integer 1–9,999,999, default 1; at most capacity minus your held/pending units. Reserve all requested units as one lease in strict FIFO order. |
 | `fire_actions` | Create, any kind except `fair_queue` | Up to 4 `{tool, args}` orgtree_* tool calls run as you when the dog fires; results return inline for a ready once result, otherwise in fire mail. Credentials in them only as a file path. See Fire-time tool calls. |
+| `project_delivery` | Create, configure; project dogs only | `event` (default), `broadcast` or `queue`: where the project dog's fires go (see Project watchdogs: delivery forms). |
 | `project` | Create, list | Create: put the watchdog on this project (you must be above or below it): kinds `file`, `command`, `process`, `stream`, `websocket`, `mqtt` only; `notice` true and `fire_actions` are refused. Its fires are the project's event for every armed `project_listener`; the id is `P/uid`, and any agent above or below the project (or the user) can pause, resume, remove, `send` and `configure` it. It runs with the project's hands (the creator must hold them too); prefer inline credentials. List: that project's own watchdogs. |
 | `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, a project's name for `fair_queue`, `slot`, `project_listener` and `listener_watch`, a broker `mqtt://host[:port]`/`mqtts://host[:port]` for `mqtt`, or a `ws://`/`wss://` URL for `websocket`. |
 | `name` | Create | Optional short name; its normalized slug becomes the owner-local ID. |
@@ -259,6 +260,8 @@ already committed listener mail and one-shot fires are not duplicated.
 
 Arming a `project_listener` or `listener_watch` (creating one, or resuming one) switches the project's **Project events** setting on if it was off, and the result says "turned them on"; a create that is refused changes nothing. Only the user or an agent above the project may switch the setting off with project configuration; a below-project member cannot. Switching off pauses armed listeners/watches, with `paused_why` naming who switched it off; switching on restores those disabled registrations, including the user's. Manually paused registrations stay paused.
 
+Listeners and pattern filters see only event-form fires: a project watchdog in broadcast or queue form never reaches them.
+
 ### listener_watch
 
 A threshold crossing and its owed fire are saved together. Recovery completes
@@ -353,6 +356,17 @@ A fire gathers the matching messages since the previous fire, at most one fire p
 {"action":"create","name":"ha-doors","kind":"websocket","target":"wss://ha.lan/api/websocket","credentials":"ws/ha.json",
  "pattern":"\"event_type\":\"state_changed\"","hello":[{"id":1,"type":"subscribe_events","event_type":"state_changed"}]}
 ```
+
+### Project watchdogs: delivery forms
+
+A watchdog created with `project` (see the `project` field) has one of three forms, set with `project_delivery` at create or
+`configure`; the default is `event`.
+
+- `event`: each fire is the project's event, mailed to every armed `project_listener`. It follows the project's Project events setting.
+- `broadcast`: each fire is mailed to every live agent directly under the project (nested projects are not walked; at most 1000). Only the user or an agent above the project may choose it. `notice:true` makes the mail passive; the other forms refuse `notice:true`. With no members, nothing is sent.
+- `queue`: each fire becomes one job in the project's mail queue, whether or not a `fair_queue` listener is registered. It waits until a worker takes it, with no timeout while unclaimed. Workers ack and reply as for any job; there is no reply route to the dog.
+
+Only `event` honours the Project events setting; broadcast and queue dogs run whatever it says. `configure id=P/uid project_delivery=queue` switches a dog from its next fire: broadcast needs the user or an agent above the project; switching to `event` while the setting is off pauses the dog, and switching away from `event` re-arms a dog that setting had paused; leaving broadcast resets `notice` to false. A dog already watching a source blocks a second one on it, whatever its form. An unknown form is refused (`project_delivery is event, broadcast or queue`); on an agent's own dog the parameter is refused.
 
 ## Fire-time tool calls
 

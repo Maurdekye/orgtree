@@ -92,6 +92,30 @@ pub fn handle(owner: &str, uid: &str) -> String {
     format!("{owner}/{uid}")
 }
 
+/// A project dog's delivery form (`memo.project_delivery`, spec rev 2 §13 F1): a
+/// missing or unknown key is `event`, so rows made before the forms stay events.
+#[nolog]
+pub fn project_delivery(memo: &Value) -> &'static str {
+    match memo["project_delivery"].as_str() {
+        Some("broadcast") => "broadcast",
+        Some("queue") => "queue",
+        _ => "event",
+    }
+}
+
+/// The `project_delivery` argument of create or configure: `None` when absent,
+/// a refusal when it names no form.
+#[nolog]
+pub fn project_delivery_arg(args: &Value) -> anyhow::Result<Option<&'static str>> {
+    match args.get("project_delivery") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == "event" => Ok(Some("event")),
+        Some(Value::String(s)) if s == "broadcast" => Ok(Some("broadcast")),
+        Some(Value::String(s)) if s == "queue" => Ok(Some("queue")),
+        Some(_) => crate::refuse!(BadRequest, "project_delivery is event, broadcast or queue"),
+    }
+}
+
 /// Who created a project dog, as `list` shows it: the agent's name or `user`.
 #[nolog]
 pub fn created_by_label(memo: &Value) -> Value {
@@ -171,6 +195,7 @@ pub fn view(w: &Value, owner: &str) -> Value {
     if w["owner_kind"] == "project" {
         o.insert("owner_kind".into(), json!("project"));
         o.insert("created_by".into(), created_by_label(&w["memo"]));
+        o.insert("project_delivery".into(), json!(project_delivery(&w["memo"])));
     }
     if let Some(why) = w["memo"]["paused_why"].as_str().filter(|_| w["state"] == "paused") {
         o.insert("template_warning".into(), json!(why));

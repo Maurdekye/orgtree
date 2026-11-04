@@ -67,6 +67,30 @@ m58f9d1d695c2 ("spec on opus, implement on sonnet"). Spec: @stream-plan-opus rev
 on the Listeners tab, Recently Fired shows the source dog (`message_truncated` past 2,000
 characters), the detail card reads `project @P` / `created by`.
 
+## Delivery forms (spec rev 2.1 §13; USER 2026-11-04 14:20Z m3349f8c87236, "Always queue" 14:25Z mb29a9befb448)
+
+A project dog has one of three forms, `memo.project_delivery` (`event` when the key is missing; no migration, no backfill):
+
+- **event** (default): the project's event, to its armed `project_listener`s (everything above).
+- **broadcast**: one mail per live `kind='agent'` row whose `parent_id` is the project (not nested projects), in sibling
+  order, capped at 1000, sent as `From::Watchdog` with first line `watchdog @P/uid ("name", kind · target) broadcast to the
+  members of project @P`. `notice:true` makes it passive (only this form may). No members: no mail, gist ` (no members)`.
+  A send refused for one member is skipped (` (sent n of m)`). Only the user or an agent ABOVE the project may pick it,
+  at create and at configure (a member below could otherwise mail every peer past peer-mail OFF).
+- **queue**: one job per fire in the project's mailbox through `mail::send` (the `From::Watchdog` arm of `send_project`),
+  first line `... queued a job on project @P`. It ALWAYS queues, with or without a registered `fair_queue` listener; the
+  job waits until a worker takes it. An unclaimed job has no ACK timer, attempts or dead letter (the timer starts at
+  hand-out; `release_stale` only reads claimed jobs). Nothing caps growth; the desk's purge clears it. A job nobody took
+  nudges an unwatched project as a user post does (`nudge_project`; its text says "the user wrote").
+
+Broadcast and queue are not project events: no `project_fires` row, no `project.event`, nothing a listener (patterned or
+not) sees. The event-listeners setting gates the event form only (`switch_off` and the arm-time guard skip the others).
+`configure id=P/uid project_delivery=<form>` (one handler, `runtime::watchdogs::configure`, also taking
+`connection_messages`; both apply in one UPDATE or neither) re-checks F7 for the new form; to `event` while the setting is
+off pauses with the OFF mark, away from `event` clears the mark and re-arms; leaving broadcast resets `notice`. The form is
+not part of the duplicate key (D16). `list` rows and `orgtree_project listeners` `sources` carry `project_delivery`. Code:
+`runtime/watchdogs/forms.rs`.
+
 ## Gotchas
 
 - A fire never mails a project; keep every new sink branching on `owner_kind`.
@@ -77,6 +101,6 @@ characters), the detail card reads `project @P` / `created by`.
 
 ## Tests
 
-`runtime/watchdogs/project_tests.rs` (T1-T21; synthetic PG `projdogs_fixture`, env
+`runtime/watchdogs/project_tests.rs` (T1-T21, PF1-PF16; synthetic PG `projdogs_fixture`, env
 `ORGTREE_PROJDOGS_TEST_URL`/`ORGTREE_PROJDOGS_TEST_ROOT`, `--include-ignored --test-threads=1`; T14 uses the
 in-process websocket test server), renderer `tests/projectwatchdogs.test.tsx` (R1-R5).

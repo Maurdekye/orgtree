@@ -1182,6 +1182,7 @@ fn build_tool_watchdog() -> Value {
             "limit": {"type":"integer","minimum":1,"maximum":100,"description":"list: page size (default 50, max 100)"},
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
             "project": {"type":"string","description":"create: put the watchdog on this project (you must be above or below it); its fires reach the project's listeners. list: that project's watchdogs"},
+            "project_delivery": {"type":"string","enum":["event","broadcast","queue"],"description":"project dogs: event (default, to the project's listeners), broadcast (mail to each live agent directly under the project) or queue (one job per fire in the project's mail queue). create or configure"},
             "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "app_listener", "mqtt", "websocket"] },
             "event_name":{"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while Orgtree is open, tray included"},
             "panel":{"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"},
@@ -1871,6 +1872,7 @@ mod builder_stack_tests {
         dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch"]);
         dschema["properties"]["count"] = serde_json::json!({"type":"integer","minimum":1,"maximum":1024,"description":"listener_watch only: armed project listeners that fire it"});
         dschema["properties"]["project"] = serde_json::json!({"type":"string","description":"create: put the watchdog on this project (you must be above or below it); its fires reach the project's listeners. list: that project's watchdogs"});
+        dschema["properties"]["project_delivery"] = serde_json::json!({"type":"string","enum":["event","broadcast","queue"],"description":"project dogs: event (default, to the project's listeners), broadcast (mail to each live agent directly under the project) or queue (one job per fire in the project's mail queue). create or configure"});
         dschema["properties"]["fire_actions"] = serde_json::json!({"type":"array","maxItems":4,"items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]},"description":"create: orgtree_* tool calls run as you when it fires, results inline or in fire mail; authority rechecked at fire time; not for fair_queue"});
         dschema["properties"]["accounts"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact visible account ids; omitted = any"});
         dschema["properties"]["windows"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"});

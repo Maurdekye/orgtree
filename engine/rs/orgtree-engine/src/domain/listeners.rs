@@ -251,6 +251,7 @@ pub async fn switch_off(tx: &Transaction<'_>, project: i64, by: &str) -> Result<
             &format!("UPDATE ot.watchdogs w SET state = 'paused',
                      memo = w.memo || jsonb_build_object('paused_why', $2::text, '{OFF_MARK}', true)
                 WHERE w.owner_kind = 'project' AND w.owner_agent_id = $1 AND w.state = 'armed'
+                  AND coalesce(w.memo->>'project_delivery', 'event') = 'event'
               RETURNING w.id, w.name, w.uid, w.memo"),
             &[&project, &off_reason(&name, by)],
         )
@@ -1010,7 +1011,8 @@ pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name
         json!({ "handle": crate::domain::watchdogs::handle(name, &r.get::<_, String>(0)), "name": r.get::<_, String>(1),
                 "kind": r.get::<_, String>(2), "target": r.get::<_, String>(3), "state": r.get::<_, String>(4),
                 "fired": r.get::<_, i32>(5), "last_fired": r.get::<_, Option<DateTime<Utc>>>(6).map(iso),
-                "created_by": crate::domain::watchdogs::created_by_label(&memo), "paused_why": memo["paused_why"] })
+                "created_by": crate::domain::watchdogs::created_by_label(&memo), "paused_why": memo["paused_why"],
+                "project_delivery": crate::domain::watchdogs::project_delivery(&memo) })
     }).collect();
     let mut out = json!({ "project": name, "event_listeners": enabled(&scope), "listeners_armed": armed_count(client, org_id, project).await?,
                "listeners": listeners, "watches": watches, "sources": sources });

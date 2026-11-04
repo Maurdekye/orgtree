@@ -435,6 +435,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - An org is busy on its hubs while no org-inbox holder can run (`orginbox::busy`), DND while its org-inbox mode is dnd; a person's hour is the hub's. One `--busy`/`--dnd` token each; offline > DND > busy. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03Z-10-31 09:03Z]
 - Follow the [Windows machine-traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md) before shell/file edits: preserve UTF-8/CRLF, write escape-heavy scripts as files, do not treat JSON quoting as shell escaping, and verify resolved paths/activity before authorized cleanup. [decided: user/coordinator 2026-10-16]
 - Project-owned watchdogs (`owner_kind='project'`) fire its event, never mail it; filter `a.kind='agent'` on owner joins. [decided: user 2026-11-03; doc](docs/rust-engine/project-watchdogs.md)
+- Project dogs have three forms (2026-11-04: `memo.project_delivery`, event by default, broadcast to direct agent members, queue as project jobs); only event goes through listeners and `project_fires`. [decided: user 2026-11-04]
 - Only `domain/orginbox_jobs.rs` writes `mail.extra.org_inbox`/`outside_job`; a worker's outside reply right comes from its job. [decided: user 2026-11-03; doc](docs/agents/mail-and-hub.md)
 
 ## Find the detailed rule

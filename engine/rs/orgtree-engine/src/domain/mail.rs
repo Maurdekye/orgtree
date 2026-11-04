@@ -467,6 +467,8 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
             (Some(*id), Some(*generation))
         }
         From::User => (None, None),
+        // a project watchdog in queue form (project-watchdogs F5): engine-originated, one job per fire
+        From::Watchdog { .. } => (None, None),
         _ => refuse!(Forbidden, "project {} takes mail only from the user and the agents above or below it", project.name),
     };
     if project.state != "live" {
@@ -558,7 +560,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         Some(h) => format!(
             "Delivered to project {}'s mailbox; its fair queue handed it to {} (fair_queue watchdog {}), who now has it as ordinary mail from you.",
             project.name, h.watcher, h.dog),
-        None if matches!(out.from, From::User) => Box::pin(nudge_project(engine, org.id, &project)).await?,
+        None if matches!(out.from, From::User | From::Watchdog { .. }) => Box::pin(nudge_project(engine, org.id, &project)).await?,
         None => {
             // who could take it and why not: every listener busy, halted or paused is not "nobody watches"
             let client = engine.db.get().await?;

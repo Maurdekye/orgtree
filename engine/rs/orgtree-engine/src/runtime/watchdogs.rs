@@ -71,6 +71,7 @@ mod schedule;
 mod websocket;
 mod usage_eval;
 mod immediate;
+mod forms;
 pub mod usage;
 #[cfg(test)]
 mod project_tests;
@@ -136,6 +137,12 @@ impl Dog {
     #[nolog]
     fn project_owned(&self) -> bool {
         self.owner_kind == "project"
+    }
+
+    /// A project dog's delivery form: event, broadcast or queue.
+    #[nolog]
+    fn delivery(&self) -> &'static str {
+        crate::domain::watchdogs::project_delivery(&self.memo)
     }
 
     #[nolog]
@@ -440,7 +447,7 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying
         return Ok(());
     }
     // a project's dog armed while its event listeners are off disables itself (spec D14)
-    if dog.project_owned() && !crate::domain::listeners::guard(engine, dog.org_id, dog.row, dog.owner).await? {
+    if dog.project_owned() && dog.delivery() == "event" && !crate::domain::listeners::guard(engine, dog.org_id, dog.row, dog.owner).await? {
         let body = format!("Project {p}'s watchdog {p}/{u} (\"{n}\") was disabled: project {p}'s event listeners are off. It arms again when they are turned on (registering a listener turns them on).\n",
             p = dog.owner_name, u = dog.uid, n = dog.name);
         keeper_notice(engine, &dog, body, None, false).await;
@@ -1718,6 +1725,52 @@ async fn keeper_notice(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option
 /// hand it to every armed listener. A dog nobody listens to keeps no fire.
 #[logged]
 async fn fire_project(engine: &Arc<Engine>, dog: &Dog, body: &str, ring: bool) {
+    match dog.delivery() {
+        "broadcast" => fire_broadcast(engine, dog, body, ring).await,
+        "queue" => fire_queue(engine, dog, body).await,
+        _ => fire_event(engine, dog, body, ring).await,
+    }
+    changes::notify_id(engine, dog.org_id, vec![Change::Watchdogs]);
+}
+
+/// Broadcast form (F4): mail to each live agent directly under the project.
+#[logged]
+async fn fire_broadcast(engine: &Arc<Engine>, dog: &Dog, body: &str, ring: bool) {
+    let src = forms::Source::of(dog);
+    match forms::broadcast(engine, dog.org_id, dog.owner, &dog.owner_name, &src, dog.notice(), body).await {
+        Ok((sent, found, over)) if ring => {
+            let mut said = String::new();
+            if found == 0 {
+                said.push_str(" (no members)");
+            } else {
+                if over {
+                    said.push_str(" (first 1000 members only)");
+                }
+                if sent < found {
+                    said.push_str(&format!(" (sent {sent} of {found})"));
+                }
+            }
+            if !said.is_empty() {
+                forms::gist_suffix(engine, dog.row, &said).await;
+            }
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "a project watchdog's broadcast failed"),
+    }
+}
+
+/// Queue form (F5): one job in the project's mailbox, whoever listens.
+#[logged]
+async fn fire_queue(engine: &Arc<Engine>, dog: &Dog, body: &str) {
+    let src = forms::Source::of(dog);
+    if let Err(e) = forms::enqueue(engine, dog.org_id, &dog.owner_name, &src, body).await {
+        tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "a project watchdog could not queue its job");
+    }
+}
+
+/// Event form (D9/D10): the project's event, to every armed listener.
+#[logged]
+async fn fire_event(engine: &Arc<Engine>, dog: &Dog, body: &str, ring: bool) {
     let handle = crate::domain::watchdogs::handle(&dog.owner_name, &dog.uid);
     let source = json!({ "kind": "watchdog", "dog_id": dog.row, "dog": dog.uid, "handle": handle, "name": dog.name,
                          "dog_kind": dog.kind, "target": dog.target });
@@ -1739,7 +1792,6 @@ async fn fire_project(engine: &Arc<Engine>, dog: &Dog, body: &str, ring: bool) {
         }
         Err(e) => tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "a project watchdog's fire could not reach its listeners"),
     }
-    changes::notify_id(engine, dog.org_id, vec![Change::Watchdogs]);
 }
 
 /// Read only this row at a connection transition. Configuration takes effect
@@ -2336,11 +2388,22 @@ pub(crate) async fn create_from_template(engine: &Arc<Engine>, org_id: i64, owne
 #[nolog]
 async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, template: Option<bool>, on_project: Option<ProjectCreate>) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
+    // the delivery form (spec rev 2 F1): a project dog's only; a missing key is the event form
+    let form_arg = if on_project.is_some() {
+        crate::domain::watchdogs::project_delivery_arg(args)?
+    } else {
+        if args.get("project_delivery").is_some_and(|v| !v.is_null()) {
+            refuse!(BadRequest, "project_delivery is for project watchdogs");
+        }
+        None
+    };
+    let form = form_arg.unwrap_or("event");
     if on_project.is_some() {
         if !["file", "command", "process", "stream", "websocket", "mqtt"].contains(&kind.as_str()) {
             refuse!(BadRequest, "a project watchdog can be file, command, process, stream, websocket or mqtt; {kind} stays on an agent");
         }
-        if args.get("notice").is_some_and(|v| v == &json!(true)) {
+        // only the broadcast form may be passive (F4)
+        if form != "broadcast" && args.get("notice").is_some_and(|v| v == &json!(true)) {
             refuse!(BadRequest, "a project watchdog's fires go to the project's listeners; each listener's own notice flag decides whether it wakes");
         }
         if args.get("fire_actions").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) {
@@ -2384,6 +2447,13 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let owner_dir: Option<String> = owner_row.get(1);
     let scratch = owner_scratch(engine, org_id, &owner_name, owner_dir.as_deref());
     let mut created_by = Value::Null;
+    if let (Some(pc), "broadcast") = (&on_project, form) {
+        if let Some(c) = pc.caller {
+            if !above_project(engine, c, owner).await? {
+                refuse!(Forbidden, "only the user or an agent above project {} may make its watchdog broadcast to the project's members", pc.name);
+            }
+        }
+    }
     if let Some(pc) = &on_project {
         created_by = project_create_hands(engine, org_id, owner, pc, &kind, args, &scratch).await?;
     }
@@ -2437,6 +2507,9 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let mut memo = json!({ "run": {} });
     if !created_by.is_null() {
         memo["created_by"] = created_by;
+    }
+    if let Some(f) = form_arg {
+        memo["project_delivery"] = json!(f);
     }
     if let Some(needs_credentials) = template {
         memo["template_needs_credentials"] = json!(needs_credentials);
@@ -2695,6 +2768,27 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if let (Some(pc), true) = (&on_project, template.is_none() && once && fire_mode == "event") {
         // already true at create: the fire reaches the project's listeners now (spec D15)
         let lines = immediate::ready_lines(&kind, &target, &smoked, &smoke_lines);
+        if !lines.is_empty() && form != "event" {
+            // broadcast and queue forms fire inline whatever the event-listeners setting says (F6, F9)
+            let id = crate::domain::watchdog_inventory::available_id(&**engine.db.get().await?, owner, &base).await?;
+            let body = fire_body_parts(&id, &kind, &target, &lines, "", true, 1, false);
+            let src = forms::Source { handle: crate::domain::watchdogs::handle(&pc.name, &id), name: id.clone(), kind: kind.clone(), target: target.clone() };
+            let mut out = json!({ "id": id, "name": id, "once": true, "resolved": true, "registered": false, "project": pc.name,
+                "handle": src.handle, "project_delivery": form, "smoke": smoked });
+            if form == "broadcast" {
+                let (sent, found, _) = forms::broadcast(engine, org_id, owner, &pc.name, &src, args["notice"].as_bool().unwrap_or(false), &body).await?;
+                out["sent"] = json!(sent);
+                out["status"] = json!(format!("resolved immediately; no watchdog registered. Its fire was mailed to {sent} member(s) of project {}", pc.name));
+                if found == 0 {
+                    out["note"] = json!(format!("project {} has no live agent members, so nobody received this fire", pc.name));
+                }
+            } else {
+                let uid = forms::enqueue(engine, org_id, &pc.name, &src, &body).await?;
+                out["queued"] = json!(uid);
+                out["status"] = json!(format!("resolved immediately; no watchdog registered. Its fire is job {uid} in project {}'s mail queue", pc.name));
+            }
+            return Ok(out);
+        }
         // with the project's event listeners off nothing fires inline: the dog is
         // registered paused and fires once the setting is on (spec D15)
         let on = {
@@ -2747,7 +2841,8 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
             if let Some(dup) = project_duplicate(&*tx, owner, &kind, &target, pattern.as_deref(), shell_col.as_deref(), &memo).await? {
                 refuse!(Conflict, "project {} already has this watchdog: {}/{}; listen to the project instead of adding another", pc.name, pc.name, dup);
             }
-            if !crate::domain::listeners::enabled(&scope) {
+            // the setting gates the event form only (F6)
+            if form == "event" && !crate::domain::listeners::enabled(&scope) {
                 project_off = true;
                 memo_ins["paused_why"] = json!(format!("project {}'s event listeners are off; this watchdog arms when they are turned on (registering a listener turns them on)", pc.name));
                 memo_ins[crate::domain::listeners::OFF_MARK] = json!(true);
@@ -2908,8 +3003,14 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         );
     }
     if let Some(pc) = &on_project {
-        status = format!("{}{kind} watchdog on project {}{}. Each fire becomes the project's event: every armed project_listener on it receives it \
-            (orgtree_project action=listeners shows them). Administrative notices about it go to its keeper. It costs no credits.",
+        let goes = match form {
+            "broadcast" => format!("Each fire is mailed to every live agent directly under project {}{}", pc.name,
+                if notice { " without waking them" } else { "" }),
+            "queue" => format!("Each fire becomes one job in project {}'s mail queue, whether or not a fair_queue listener is registered; a listener takes it", pc.name),
+            _ => "Each fire becomes the project's event: every armed project_listener on it receives it \
+                  (orgtree_project action=listeners shows them)".to_string(),
+        };
+        status = format!("{}{kind} watchdog on project {}{}. {goes}. Administrative notices about it go to its keeper. It costs no credits.",
             if once { "armed — ONE-SHOT " } else { "armed — " }, pc.name, cadence);
         if matches!(kind.as_str(), "mqtt" | "websocket") {
             status.push_str(" The project's folder is readable by every member: prefer inline credentials over a credentials file.");
@@ -2923,6 +3024,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if let Some(pc) = &on_project {
         out["project"] = json!(pc.name);
         out["handle"] = json!(crate::domain::watchdogs::handle(&pc.name, &id));
+        out["project_delivery"] = json!(form);
         if project_off {
             let why = format!("project {}'s event listeners are off; this watchdog arms when they are turned on (registering a listener turns them on)", pc.name);
             out["state"] = json!("paused");
@@ -2993,25 +3095,124 @@ async fn resolve(engine: &Engine, org_id: i64, actor: Option<i64>, id: &str) -> 
 }
 
 /// pause / resume / remove, by the owner, a superior, or the user (`actor: None`).
+/// Is `agent` above project `project` (an ancestor of it, at any depth)? Below is not enough.
 #[logged]
-pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, mode: &str) -> Result<Value> {
-    if !matches!(mode,"notice"|"wake"|"off") { refuse!(BadRequest,"connection_messages must be notice, wake or off"); }
-    let dog = resolve(engine, org_id, actor, id).await?;
-    if !matches!(dog.kind.as_str(),"mqtt"|"websocket") { refuse!(BadRequest, "connection_messages is for mqtt and websocket watchdogs only"); }
-    if dog.state == "spent" { refuse!(Conflict, "a spent watchdog cannot be configured"); }
+async fn above_project(engine: &Engine, agent: i64, project: i64) -> Result<bool> {
     let client = engine.db.get().await?;
-    let changed = client.execute("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{connection_messages}',to_jsonb($2::text)) WHERE id=$1 AND state NOT IN ('spent','removed')",
-        &[&dog.row, &mode]).await?;
-    drop(client);
-    if changed == 0 { refuse!(Conflict, "this watchdog has departed"); }
-    changes::notify_id(engine, org_id, vec![Change::Watchdogs]);
-    Ok(json!({"id":dog.uid,"name":dog.name,"state":dog.state,"connection_messages":mode,"notify_on_connect":mode!="off"}))
+    Ok(client
+        .query_one(
+            "WITH RECURSIVE up(id, parent_id, depth) AS (
+               SELECT id, parent_id, 0 FROM ot.agents WHERE id = $2
+               UNION ALL SELECT x.id, x.parent_id, up.depth + 1 FROM ot.agents x JOIN up ON x.id = up.parent_id WHERE up.depth < 1024)
+             SELECT EXISTS (SELECT 1 FROM up WHERE id = $1 AND depth > 0)",
+            &[&agent, &project],
+        )
+        .await?
+        .get(0))
 }
 
-/// RED SCAFFOLD (project-watchdogs F8): the one configure handler is built in the next commit.
+/// `configure`, the one handler (project-watchdogs F8): `connection_messages`
+/// (mqtt and websocket dogs) and `project_delivery` (project dogs), by the
+/// owner, a superior, or the user (`actor: None`). Both settings apply in one
+/// UPDATE or neither does.
 #[logged]
-pub async fn configure(_engine: &Arc<Engine>, _org_id: i64, _actor: Option<i64>, _id: &str, _args: &Value) -> Result<Value> {
-    refuse!(BadRequest, "configure with project_delivery is not built yet")
+pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, args: &Value) -> Result<Value> {
+    let mode = crate::domain::watchdogs::connection_messages_arg(args, false)?;
+    let dog = resolve(engine, org_id, actor, id).await?;
+    let form = if args.get("project_delivery").is_some_and(|v| !v.is_null()) {
+        if !dog.project_owned() {
+            refuse!(BadRequest, "project_delivery is for project watchdogs");
+        }
+        crate::domain::watchdogs::project_delivery_arg(args)?
+    } else {
+        None
+    };
+    if mode.is_none() && form.is_none() {
+        refuse!(BadRequest, "configure requires connection_messages (notice, wake or off, or notify_on_connect) or project_delivery (event, broadcast or queue)");
+    }
+    if mode.is_some() && !matches!(dog.kind.as_str(), "mqtt" | "websocket") {
+        refuse!(BadRequest, "connection_messages is for mqtt and websocket watchdogs only");
+    }
+    if dog.state == "spent" {
+        refuse!(Conflict, "a spent watchdog cannot be configured");
+    }
+    // only the user or an agent above the project may make a dog broadcast (F7), checked for the NEW form
+    if let (Some(a), Some("broadcast")) = (actor, form) {
+        if !above_project(engine, a, dog.owner).await? {
+            refuse!(Forbidden, "only the user or an agent above project {} may make its watchdog broadcast to the project's members", dog.owner_name);
+        }
+    }
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    // the project row first, as a fire and a switch take it, then the dog
+    let mut listeners_on = true;
+    if dog.project_owned() {
+        let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&dog.owner]).await?.get(0);
+        listeners_on = crate::domain::listeners::enabled(&scope);
+    }
+    let Some(r) = tx.query_opt("SELECT state, memo FROM ot.watchdogs WHERE id = $1 AND state NOT IN ('spent', 'removed') FOR UPDATE", &[&dog.row]).await? else {
+        refuse!(Conflict, "this watchdog has departed");
+    };
+    let (mut state, mut memo): (String, Value) = (r.get(0), r.get(1));
+    let mut notes: Vec<String> = Vec::new();
+    let was = crate::domain::watchdogs::project_delivery(&memo);
+    let mut rearm = false;
+    if let Some(m) = mode {
+        memo["connection_messages"] = json!(m);
+    }
+    if let Some(f) = form {
+        memo["project_delivery"] = json!(f);
+        if was == "broadcast" && f != "broadcast" && memo["notice"] == json!(true) {
+            memo["notice"] = json!(false);
+            notes.push("notice was reset to false: only broadcast dogs may be passive".to_string());
+        }
+        let off_marked = state == "paused" && memo.get(crate::domain::listeners::OFF_MARK).is_some();
+        if f == "event" && !listeners_on && state == "armed" {
+            let why = format!("project {}'s event listeners are off; this watchdog arms when they are turned on (registering a listener turns them on)", dog.owner_name);
+            memo["paused_why"] = json!(why);
+            memo[crate::domain::listeners::OFF_MARK] = json!(true);
+            state = "paused".to_string();
+            notes.push(why);
+        } else if f != "event" && off_marked {
+            if let Some(o) = memo.as_object_mut() {
+                o.remove("paused_why");
+                o.remove(crate::domain::listeners::OFF_MARK);
+            }
+            state = "armed".to_string();
+            rearm = true;
+            notes.push("re-armed: broadcast and queue dogs don't depend on the event-listeners setting".to_string());
+        }
+    }
+    tx.execute(
+        "UPDATE ot.watchdogs SET memo = $2, state = $3,
+                next_check_at = CASE WHEN $4 AND kind IN ('file','command','process') THEN now() ELSE next_check_at END,
+                silence_since = CASE WHEN $4 AND fire_mode = 'silence' THEN now() ELSE silence_since END,
+                next_silence_at = CASE WHEN $4 AND fire_mode = 'silence' THEN now() + greatest(coalesce(quiet_period_s, 600), 1) * interval '1 second' ELSE next_silence_at END
+          WHERE id = $1",
+        &[&dog.row, &memo, &state, &rearm],
+    )
+    .await?;
+    tx.commit().await?;
+    drop(client);
+    if rearm {
+        disarm(engine, dog.row);
+        arm(engine, dog.row);
+    } else if state == "paused" && dog.state == "armed" {
+        disarm(engine, dog.row);
+    }
+    changes::notify_id(engine, org_id, vec![Change::Watchdogs]);
+    let mut out = json!({"id": dog.uid, "name": dog.name, "state": state});
+    if let Some(m) = mode {
+        out["connection_messages"] = json!(m);
+        out["notify_on_connect"] = json!(m != "off");
+    }
+    if let Some(f) = form {
+        out["project_delivery"] = json!(f);
+    }
+    if !notes.is_empty() {
+        out["note"] = json!(notes.join("; "));
+    }
+    Ok(out)
 }
 
 #[logged]
@@ -3043,7 +3244,7 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
             if !dog.owner_live {
                 refuse!(Conflict, "its owner {} is not live; rehire it first", dog.owner_name);
             }
-            if dog.project_owned() {
+            if dog.project_owned() && dog.delivery() == "event" {
                 // a project dog cannot switch the project's event listeners on (spec D14)
                 let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&dog.owner]).await?.get(0);
                 if !crate::domain::listeners::enabled(&scope) {
@@ -3331,6 +3532,7 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("owner_kind", json!("project"));
                 put("handle", json!(crate::domain::watchdogs::handle(&d.owner_name, &d.uid)));
                 put("created_by", crate::domain::watchdogs::created_by_label(&d.memo));
+                put("project_delivery", json!(d.delivery()));
             } else {
                 put("owner_kind", json!("agent"));
             }

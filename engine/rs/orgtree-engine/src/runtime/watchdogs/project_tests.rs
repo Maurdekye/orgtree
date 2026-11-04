@@ -927,7 +927,13 @@ async fn pf07_queue_always_queues_and_a_later_listener_gets_it() {
     assert_eq!(jobs.len(), 1, "{jobs:?}");
     assert_eq!(jobs[0].1, "pending");
     assert!(!w.gist(row).await.contains("(no "), "no gist suffix: {}", w.gist(row).await);
+    // arming the listener hands it the waiting job (the arm's own dispatch may still be running: dispatch is idempotent)
     w.worker(w.member).await;
+    for _ in 0..30 {
+        crate::domain::projects::dispatch(&w.e, w.org.id, w.project).await.unwrap();
+        if w.mail_with(w.member, QUEUE_LINE).await == 1 { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert_eq!(w.mail_with(w.member, QUEUE_LINE).await, 1, "the later listener receives the waiting job");
 }
 

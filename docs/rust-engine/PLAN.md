@@ -285,7 +285,7 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
-Project watchdogs (USER 2026-11-03 mce2b36a98c88, 4.5.5+): a watchdog owned by a project (`orgtree_watchdog create project=P`) fires the project's event to every armed `project_listener`; any agent above or below the project manages it; `project_listener` gains an optional `pattern`; the Listeners tab lists the dogs as Event sources. See [project watchdogs](project-watchdogs.md).
+Project watchdogs (USER 2026-11-03 mce2b36a98c88, 4.5.5+): a watchdog owned by a project (`orgtree_watchdog create project=P`) fires the project's event to every armed `project_listener`; any agent above or below the project manages it; `project_listener` gains an optional `pattern`; the Listeners tab lists the dogs as Event sources. See [project watchdogs](project-watchdogs.md). Delivery forms (USER 2026-11-04 m3349f8c87236, mb29a9befb448): `project_delivery` event | broadcast | queue (queue always queues).
 
 Custom project themes and icons (USER 2026-10-28 m1c0bc6c121e9, 4.5.5): in a
 project's settings the user picks an icon from the app's built-in set through

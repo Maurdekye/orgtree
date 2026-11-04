@@ -50,8 +50,7 @@ pub async fn watchdog(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     let o = org(&e, &slug)?;
     if b.action == "configure" {
         let config = Value::Object(b.config);
-        let mode = crate::domain::watchdogs::connection_messages_arg(&config,true)?.unwrap();
-        return Ok(Json(crate::runtime::watchdogs::configure_connect(&e,o.id,None,&b.id,mode).await?));
+        return Ok(Json(crate::runtime::watchdogs::configure(&e,o.id,None,&b.id,&config).await?));
     }
     if b.config.contains_key("notify_on_connect") || b.config.contains_key("connection_messages") {
         return Err(ApiError::bad_request("connection-message settings require action configure"));
