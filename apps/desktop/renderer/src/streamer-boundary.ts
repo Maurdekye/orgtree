@@ -29,7 +29,17 @@ export const STREAMER_ZONES = {
     '.tray-sum', '.progress-summary',
     // user/agent-written excerpts: the sticky user-message preview, mail and reply previews, selection excerpts, dead-desk previews
     '.pinuser-t', '.mail-preview-text', '.turn-mail-preview-content', '.reply-preview-content', '.selection-excerpt', '.dead-preview', '.dead-summary',
+    // a tool call's argument (the line around it is structured)
+    '.targ',
     '[data-streamer-freeform]'].join(','),
+  /** STRUCTURED row headers and markers (USER 2026-11-04 m8183a66a1f68): they sit inside a free-form `.msg`/`.mailer-body`, and
+   *  their adjacent inline fields (name, q-id, status, date) concatenate into one long token-like run. A text node whose nearest
+   *  structured ancestor is INSIDE (or is) its free-form zone is never matched; a free-form zone nested inside a structured
+   *  one (a tool argument, a summary body) is matched as usual. */
+  structured: ['.event-head', '.turn-mail-head', '.mailer-head', '.event-head-field', '.event-family', '.event-actor', '.event-row-kind', '.event-time',
+    '.event-field-label', '.event-change-label', '.event-change-agent', '.event-change-sep', '.event-context', '.turn-mail-passive', '.urgentkind',
+    '.reply-source-meta', '.answered-chip', '.answered-card > summary', '.resolved-label', '.resolved-verdict', '.resolved-mark', '.tline',
+    '[data-streamer-structured]'].join(','),
   always: { email: 'emails', path: 'paths', ip: 'ips', secret: 'secrets', external: 'externals', org: 'orgs' } as Record<string, StreamerType>,
 } as const
 // Content surfaces that cannot be pattern-matched: sandboxed HTML apps, HTML presentations, video. Images are NOT hidden.
@@ -177,7 +187,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
       if (el.closest('[data-streamer-ui]')) continue
       const field = el.closest('[data-streamer-field]')
-      const inFree = !field && !!el.closest(STREAMER_ZONES.freeform)
+      const inFree = !field && inFreeform(el)
       for (const key of ['title', 'alt', 'aria-label']) {
         const value = el.getAttribute(key)
         // a label inside an always-field is hidden with it; in free-form it is hidden only if it matches an enabled type
@@ -213,7 +223,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       if (!parent || parent.closest('script,style,textarea,select,[contenteditable=true],[data-streamer-ui]')) continue
       const field = parent.closest('[data-streamer-field]')
       if (field) { if (enabledType(field.getAttribute('data-streamer-field') ?? undefined)) whole.push(node); continue }
-      if (!parent.closest(STREAMER_ZONES.freeform)) continue
+      if (!inFreeform(parent)) continue
       // a KaTeX formula is two copies of its text (a hidden MathML half with the TeX annotation, then the visible HTML half):
       // each is its own run, or a key matches across the seam and the mask lands on the wrong glyphs (spec R10)
       const nextBlock = parent.closest('p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html')
@@ -235,7 +245,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     // symbol swaps all change what is drawn. A sensitive match anywhere in the source masks the whole visible half (spec R10, D3).
     for (const ann of doc.querySelectorAll('.katex annotation[encoding="application/x-tex"]')) {
       const source = ann.textContent ?? ''
-      if (!source || ann.closest('[data-streamer-ui]') || !ann.closest(STREAMER_ZONES.freeform) || !sensitiveSpans(source, types, orgNames).length) continue
+      if (!source || ann.closest('[data-streamer-ui]') || !inFreeform(ann) || !sensitiveSpans(source, types, orgNames).length) continue
       const html = ann.closest('.katex')?.querySelector('.katex-html')
       if (!html) continue
       const range = doc.createRange(); range.selectNodeContents(html); ranges.push(range)
@@ -260,4 +270,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     update(on, config) { if (!on) { active = false; restore(); return } if (active) restoreAttributes(); active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; scan() },
     dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); restore(); style.remove() },
   }
+}
+
+/** True when `el` is inside a free-form zone and not inside a structured header/marker nested in that zone. */
+export function inFreeform(el: Element): boolean {
+  const free = el.closest(STREAMER_ZONES.freeform)
+  if (!free) return false
+  const st = el.closest(STREAMER_ZONES.structured)
+  return !(st && free.contains(st))
 }

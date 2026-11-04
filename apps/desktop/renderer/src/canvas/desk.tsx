@@ -4341,7 +4341,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                     if (el) userRowEls.current.set(seq, el)
                     else userRowEls.current.delete(seq)
                   } : undefined}>
-                {gap && <div className="msg sys" data-reply-event="">— {gap} later —</div>}
+                {gap && <div className="msg sys" data-reply-event="" data-streamer-structured="">— {gap} later —</div>}
                 {/* a sent multi-reply folds as the sent previews do (UX symmetry #37) */}
                 {first && (m.replies?.length
                   ? <ReplyPreviewDisclosure count={m.replies.length}>{visible =>
@@ -5517,6 +5517,7 @@ function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBa
   if (stateMarkerText(m) === null) return null  // nothing to say (see stateMarkerText); a popout or preview draws no empty row either
   return (
     <div className={'msg sys' + (m.summary ? ' click' : '')}
+      data-streamer-structured={m.kind === 'state' || m.compact_state ? '' : undefined}
       data-ended-state={m.kind === 'state' ? m.prev_state : undefined}
       onClick={m.summary ? toggleOpen : undefined}
       title={m.summary ? (open ? 'collapse' : 'read the compaction summary')
