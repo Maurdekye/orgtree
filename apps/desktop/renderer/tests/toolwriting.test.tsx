@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { RunningTurnContext, ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
 import { Msg, ToolChip } from '../src/canvas/desk'
-import { ingestStream, refreshConvo, resetConvos, useConvo } from '../src/convo'
+import { RETIRE_MS, ingestStream, refreshConvo, resetConvos, useConvo } from '../src/convo'
 import type { ChatMessage, ChatTransient } from '../src/types'
 
 test('completed and reloaded chips show both icons and durations without timing words', async t => {
@@ -139,7 +139,11 @@ test('parallel writing snapshots retire atomically with durable chips and surviv
   assert.ok(view.el.querySelector('[aria-label="Writing two"]'))
   assert.match(view.last(), /3.0s/); assert.match(view.last(), /200ms/)
   assert.ok(!snapshots.some(s => s.writing === 0 && s.tools === 1), 'transition carries still-active second call')
+  // a clear frame keeps the writing row until a saved chip claims it or RETIRE_MS passes (the saved row follows the clear frame by
+  // a frame; see toolwritingstable.test.tsx), so a call that never commits leaves after the window
   await inAct(() => frame([])); await flush()
+  assert.ok(view.el.querySelector('[aria-label="Writing two"]'), 'kept as a retiring row')
+  await inAct(async () => { await advance(RETIRE_MS + 200) }); await flush()
   assert.equal(view.el.querySelector('[aria-label="Writing two"]'), null)
   server.messages = [row]; server.busy = false
   await inAct(() => refreshConvo('org', 'worker', { force: true })); await flush()
@@ -172,5 +176,8 @@ test('same-millisecond stale HTTP cannot remove or resurrect writing snapshots',
   pending = refreshConvo('org', 'same-ms', { force: true })
   await inAct(() => ingestStream('org', { node: 'same-ms', kind: 'tool_writing', text: '', t: 0, tool_writing: [] }))
   await inAct(async () => { transport.release(); await pending })
+  // the cleared writer is kept as a retiring row for RETIRE_MS (the older snapshot cannot add a second copy), then it is gone
+  assert.equal(view.last(), 'WRITING_ONE', 'one retiring copy, not two')
+  await inAct(async () => { await advance(RETIRE_MS + 200) })
   assert.equal(view.last(), '', 'an older HTTP writer cannot resurrect after admission/turn cleanup')
 })

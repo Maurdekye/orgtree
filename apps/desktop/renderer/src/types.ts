@@ -1403,7 +1403,7 @@ export interface LiveRowPayload {
   turnId?: string
 }
 
-export interface ChatTransient { tool?: ToolChip; started_at?: string; tool_id?: string; stream_order?: number; reply_quote?: string; event_id: string; role: string; kind: string; text: string }
+export interface ChatTransient { retiring_at?: number; tool?: ToolChip; started_at?: string; tool_id?: string; stream_order?: number; reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
   after?: string

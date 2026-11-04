@@ -249,6 +249,8 @@ interface Entry {
   committedRows: Map<string, ChatMessage>
   orderedStream?: boolean
   writingVersion?: number
+  /** the timer that drops retiring writing rows that no saved chip ever claimed */
+  retireTimer?: ReturnType<typeof setTimeout>
   pageInFlight?: boolean
   /** identity of the current older-page request; stale callbacks may not
    * clear a newer request's latch after a reset/remount. */
@@ -1651,7 +1653,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
       }
       const current = e.s.chat ?? { busy: true, queued: 0, responding: true,
         last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
-      const chat = mergeCommitted(e, { ...current, transient: (current.transient ?? []).filter(row =>
+      let chat = mergeCommitted(e, { ...current, transient: (current.transient ?? []).filter(row =>
         !(ev.draft_clear && ['draft', 'delta'].includes(row.kind))
         && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))
         && !(Array.isArray(ev.tool_writing) && row.kind === 'tool_writing')),
@@ -1662,6 +1664,17 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
           ...ev.tool_writing.filter(row => row.kind === 'tool_writing' && !!row.tool_id && !!row.started_at),
         ] } : {}),
       })
+      // A clear frame can reach the desk one frame BEFORE the committed row that takes the call over (rig-opus trace 2026-11-04: store
+      // [call] -> [] with neither row on screen for a render = the transcript dips 28 px and the scrollbar bounces). A writing row that
+      // the list no longer carries is therefore KEPT, marked retiring, until a saved row carries its tool id (the desk's dedup hides it
+      // from then on) or RETIRE_MS passes (a call that never commits must not linger); socketLost() ends it at once.
+      if (Array.isArray(ev.tool_writing)) {
+        const now = Date.now(), nextIds = new Set(ev.tool_writing.map(r => r.tool_id))
+        const kept = (current.transient ?? []).filter(r => r.kind === 'tool_writing' && !!r.tool_id && !nextIds.has(r.tool_id)
+          && !chat.messages.some(m => m.tools?.some(t => t?.id === r.tool_id)))
+          .map(r => ({ ...r, retiring_at: r.retiring_at ?? now })).filter(r => now - r.retiring_at! < RETIRE_MS)
+        if (kept.length) { chat = { ...chat, transient: [...(chat.transient ?? []), ...kept] }; scheduleRetire(k, e) }
+      }
       const cleared: Partial<Convo> = {}
       if (ev.draft_clear) {
         cleared.draft = ''; cleared.draftOrder = undefined; cleared.draftEventId = undefined; cleared.draftReplyQuote = undefined
@@ -1904,11 +1917,30 @@ function beat(k: string, slug: string, nid: string): void {
  *  the authority for tool_writing rows until it delivers a writing list again (see the merge in refreshConvo). The next snapshot then
  *  decides, and a row that is gone on the engine is gone here too. */
 export function socketLost(slug: string): void {
-  for (const [k, e] of M) if (k.startsWith(slug + '/')) e.writingVersion = 0
+  for (const [k, e] of M) if (k.startsWith(slug + '/')) { e.writingVersion = 0; expireRetiring(k, true) }
+}
+
+/** How long a writing row whose clear frame arrived stays until a saved row claims it (see ingestStream). */
+export const RETIRE_MS = 2000
+function expireRetiring(k: string, all = false): void {
+  const e = M.get(k)
+  if (!e) return
+  if (e.retireTimer !== undefined) { clearTimeout(e.retireTimer); e.retireTimer = undefined }
+  const chat = e.s.chat
+  if (!chat?.transient?.some(r => r.retiring_at !== undefined)) return
+  const now = Date.now()
+  const transient = chat.transient.filter(r => r.retiring_at === undefined || (!all && now - r.retiring_at < RETIRE_MS))
+  if (transient.length !== chat.transient.length) patchEntry(e, { chat: { ...chat, transient } })
+  if (transient.some(r => r.retiring_at !== undefined)) scheduleRetire(k, e)
+}
+function scheduleRetire(k: string, e: Entry): void {
+  if (e.retireTimer !== undefined) clearTimeout(e.retireTimer)
+  e.retireTimer = setTimeout(() => { e.retireTimer = undefined; expireRetiring(k) }, RETIRE_MS + 50)
 }
 
 export function resetConvos(): void {
   M.forEach((e) => {
+    if (e.retireTimer !== undefined) { clearTimeout(e.retireTimer); e.retireTimer = undefined }
     cancelHistoryRetry(e)
     stopClock(e)
     // ⚠ Only unwatched entries lose their poll. React runs child effects

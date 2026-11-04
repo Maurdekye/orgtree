@@ -7,7 +7,7 @@ import './harness'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ingestStream, refreshConvo, resetConvos, socketLost, useConvo } from '../src/convo'
+import { RETIRE_MS, ingestStream, refreshConvo, resetConvos, socketLost, useConvo } from '../src/convo'
 import type { Convo } from '../src/convo'
 import type { ChatTransient } from '../src/types'
 
@@ -45,7 +45,9 @@ test('an HTTP chat snapshot built before the call never takes the websocket-deli
   // a clear frame (empty list) still removes it
   await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [] } as never); await flush(4) })
   await inAct(async () => { void refreshConvo(SL, ND, { force: true }); await flush(20) })
-  assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false, 'the websocket clear is honoured')
+  // (the row is kept as a retiring row until a saved chip claims it or RETIRE_MS passes; the next test covers that)
+  await inAct(async () => { await new Promise(r => setTimeout(r, RETIRE_MS + 300)); await flush(4) })
+  assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false, 'the websocket clear is honoured once the retire window passes')
 })
 
 test('after the websocket drops, the websocket is no longer the authority: a snapshot without the row removes a writing row whose clear frame was missed', async t => {
@@ -85,7 +87,49 @@ test('rig trace hook: inert by default; with a hook installed it reports each ch
   globals.__ORGTREE_CONVO_TRACE__ = e => { seen.push(e as never) }
   await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [writing('call-a'), writing('call-b')] } as never); await flush(4) })
   await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [] } as never); await flush(4) })
-  assert.deepEqual(seen.map(s => [s.before.length, s.after.length]), [[1, 2], [2, 0]])
+  await inAct(async () => { socketLost(SL); await flush(4) })
+  assert.deepEqual(seen.map(s => [s.before.length, s.after.length]), [[1, 2], [2, 0]], 'the clear frame keeps the rows (retiring); socketLost ends them')
   assert.ok(seen[0]!.stack.length > 0)
   assert.equal(snap!.chat?.transient?.some(r => r.kind === 'tool_writing'), false)
+})
+
+test('a clear frame keeps the writing row until a saved chip claims it, or RETIRE_MS passes, or the socket drops (no render with neither row)', async t => {
+  const globals = globalThis as unknown as { fetch: typeof fetch }
+  const saved = globals.fetch
+  let messages: unknown[] = []
+  globals.fetch = (async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), window.location.origin).pathname
+    if (path.endsWith('/chat')) return json({ messages, live: [], pending_mail: [], busy: true, windowed: true, has_older: false, before: null, draft_epoch: 'f:0', transient: [] })
+    return json({})
+  }) as typeof fetch
+  resetConvos()
+  const frames: { writing: boolean; saved: boolean }[] = []
+  let snap: Convo | null = null
+  function Probe() {
+    snap = useConvo(SL, ND)
+    frames.push({ writing: !!snap.chat?.transient?.some(r => r.kind === 'tool_writing'), saved: !!snap.chat?.messages.some(m => m.tools?.some(tc => tc?.id === 'call-7')) })
+    return null
+  }
+  const view = await mountView(<Probe />, h => h)
+  t.after(async () => { await view.unmount(); resetConvos(); globals.fetch = saved })
+  await inAct(async () => { await flush(10) })
+  const writingNow = () => !!snap!.chat?.transient?.some(r => r.kind === 'tool_writing')
+  // the measured order: writing frame, then the CLEAR frame, then (a render later) the committed row
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [writing('call-7')] } as never); await flush(4) })
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [] } as never); await flush(4) })
+  assert.equal(writingNow(), true, 'the clear frame alone does not drop the row (the saved row has not arrived)')
+  messages = [{ role: 'assistant', text: '', ts: WRITTEN, row_id: 'r1', event_id: 'e1', seq: 1, convo_revision: 1, tools: [{ id: 'call-7', name: 'Bash', arg: 'echo hi', input: { command: 'echo hi' } }] }]
+  await inAct(async () => { void refreshConvo(SL, ND, { force: true }); await flush(20) })
+  const after = frames.slice(frames.findIndex(f => f.writing))
+  assert.equal(after.every(f => f.writing || f.saved), true, 'no render has neither the writing row nor the saved chip: ' + JSON.stringify(after))
+  assert.equal(snap!.chat?.messages.some(m => m.tools?.some(tc => tc?.id === 'call-7')), true, 'the saved chip arrived (the desk dedup hides the writing row from here)')
+  // a call that never commits does not linger: the fallback timeout drops it
+  await inAct(async () => { await new Promise(r => setTimeout(r, RETIRE_MS + 300)); await flush(4) })
+  assert.equal(writingNow(), false, 'dropped after RETIRE_MS')
+  // and a socket drop ends it at once
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [writing('call-8')] } as never); await flush(4) })
+  await inAct(async () => { ingestStream(SL, { node: ND, kind: 'convo', tool_writing: [] } as never); await flush(4) })
+  assert.equal(writingNow(), true)
+  await inAct(async () => { socketLost(SL); await flush(4) })
+  assert.equal(writingNow(), false, 'socketLost ends it at once')
 })
