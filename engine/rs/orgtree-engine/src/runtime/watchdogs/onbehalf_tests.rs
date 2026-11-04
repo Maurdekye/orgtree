@@ -1086,6 +1086,9 @@ async fn ce19g_owner_create_vs_edit() {
 /// parent row with NOWAIT: it must already be locked by the edit (parent row first, then the dog row).
 async fn parent_locked_before_dog(w: &W, dog_uid: &str, actor: i64, id: &str, edit: Value, parent_row: i64) -> bool {
     let dog_row = w.dog(dog_uid).await.3;
+    // a paused dog has no runner polling (and locking) its row, so the only waiter on the holder is the edit
+    w.sql("UPDATE ot.watchdogs SET state='paused' WHERE id=$1", &[&dog_row]).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let mut holder = w.e.db.get().await.unwrap();
     let tx = holder.transaction().await.unwrap();
     tx.query_one("SELECT id FROM ot.watchdogs WHERE id=$1 FOR UPDATE", &[&dog_row]).await.unwrap();
@@ -1103,7 +1106,12 @@ async fn parent_locked_before_dog(w: &W, dog_uid: &str, actor: i64, id: &str, ed
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    assert!(blocked, "the edit never blocked on the dog row (waiting on the holder's lock)");
+    if !blocked {
+        let rows = w.e.db.get().await.unwrap().query(
+            "SELECT pid, pg_blocking_pids(pid)::text, wait_event_type, left(query, 120) FROM pg_stat_activity WHERE datname=current_database() AND state='active'", &[]).await.unwrap();
+        let dump: Vec<String> = rows.iter().map(|r| format!("{}|{}|{:?}|{}", r.get::<_, i32>(0), r.get::<_, String>(1), r.get::<_, Option<String>>(2), r.get::<_, String>(3))).collect();
+        panic!("the edit never blocked on the dog row (waiting on the holder {holder_pid}'s lock); active backends: {dump:#?}");
+    }
     let mut probe = w.e.db.get().await.unwrap();
     let ptx = probe.transaction().await.unwrap();
     let locked = ptx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE NOWAIT", &[&parent_row]).await.is_err();
