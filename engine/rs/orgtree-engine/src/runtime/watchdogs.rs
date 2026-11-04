@@ -79,6 +79,36 @@ mod project_tests;
 #[cfg(test)]
 mod onbehalf_tests;
 
+/// Test-only: pause one configure or create call just after its early checks (before it opens its
+/// transaction), so a test can run a competing call in between and then release it (CE19).
+#[cfg(test)]
+pub(crate) mod race_hook {
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::Notify;
+    pub struct Hook {
+        pub op: &'static str,
+        pub reached: Arc<Notify>,
+        pub release: Arc<Notify>,
+    }
+    pub static HOOK: Mutex<Option<Hook>> = Mutex::new(None);
+    /// Arm the hook for the next `op` ("configure" or "create"); returns (reached, release).
+    pub fn arm(op: &'static str) -> (Arc<Notify>, Arc<Notify>) {
+        let (reached, release) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        *HOOK.lock().unwrap() = Some(Hook { op, reached: reached.clone(), release: release.clone() });
+        (reached, release)
+    }
+    pub async fn pause(op: &str) {
+        let hit = {
+            let mut g = HOOK.lock().unwrap();
+            if g.as_ref().is_some_and(|h| h.op == op) { g.take() } else { None }
+        };
+        if let Some(h) = hit {
+            h.reached.notify_one();
+            h.release.notified().await;
+        }
+    }
+}
+
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
 /// The running watchdogs: each runner's cancellation token, and the
@@ -3148,6 +3178,8 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     }
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
+    #[cfg(test)]
+    race_hook::pause("create").await;
     let mut client = engine.db.get().await?;
     let mut clashes = 0;
     // a listener or watch arming on a project whose event listeners were off
@@ -3518,6 +3550,8 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     }
     // every field is validated, and every recheck run, before anything is written (spec 5: atomicity)
     let plan = if editing { Some(edit::plan(engine, org_id, actor, &dog, args).await?) } else { None };
+    #[cfg(test)]
+    race_hook::pause("configure").await;
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     // the project row first, as a fire and a switch take it, then the dog

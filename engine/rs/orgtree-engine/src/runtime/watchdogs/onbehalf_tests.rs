@@ -938,65 +938,186 @@ async fn ce18_project_network_edits_need_the_editors_web() {
     server.stop();
 }
 
-/// CE19 (D16 under the project lock): two edits that each pass the early check cannot both be written.
-#[tokio::test]
-#[ignore = "requires isolated projdogs_fixture database"]
-#[nolog]
-async fn ce19_the_duplicate_check_is_repeated_under_the_lock() {
-    let w = world().await;
-    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&w.p]).await;
-    for n in ["one", "two"] {
-        create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":format!("echo {n}"),"pattern":"p","project":"P","name":n})).await.unwrap();
-    }
-    let (a, b) = (w.dog("one").await.3, w.dog("two").await.3);
-    let (da, db) = (load(&w.e, a).await.unwrap().unwrap(), load(&w.e, b).await.unwrap().unwrap());
-    // both plans pass the early check: neither has been written
-    let want = json!({"target":"echo same"});
-    let pa = edit::plan(&w.e, w.org.id, Some(w.s), &da, &want).await.unwrap();
-    let pb = edit::plan(&w.e, w.org.id, Some(w.s), &db, &want).await.unwrap();
-    for (dog, plan) in [(&da, &pa), (&db, &pb)] {
-        let mut c = w.e.db.get().await.unwrap();
-        let tx = c.transaction().await.unwrap();
-        let mut memo = dog.memo.clone();
-        let r = edit::apply(&*tx, dog, w.org.id, plan, &mut memo, "armed").await;
-        if dog.uid == "one" {
-            r.unwrap();
-            tx.commit().await.unwrap();
-        } else {
-            let e = format!("{:#}", r.expect_err("the second write must be refused"));
-            assert!(e.contains("already has this watchdog: P/one"), "{e}");
-        }
-    }
-    assert_eq!(w.column("two", "target").await, "echo two", "the loser wrote nothing");
+/// Run `first` (a configure or create) paused just after its early checks, run `second` to completion,
+/// then release `first`; returns (first, second). The pause is the test-only `race_hook`.
+async fn interleave(
+    op: &'static str,
+    first: impl std::future::Future<Output = Result<Value>> + Send + 'static,
+    second: impl std::future::Future<Output = Result<Value>>,
+) -> (Result<Value>, Result<Value>) {
+    let (reached, release) = race_hook::arm(op);
+    let h = tokio::spawn(first);
+    tokio::time::timeout(std::time::Duration::from_secs(20), reached.notified()).await.expect("the first call never reached its pause");
+    let b = second.await;
+    release.notify_one();
+    (h.await.unwrap(), b)
 }
 
-/// CE19b: the per-owner-per-project limit is repeated under the owner row lock.
+impl W {
+    fn cfg_task(&self, actor: i64, id: &str, edit: Value) -> impl std::future::Future<Output = Result<Value>> + Send + 'static {
+        let (e, org, id) = (self.e.clone(), self.org.id, id.to_string());
+        async move { configure(&e, org, Some(actor), &id, &edit).await }
+    }
+    async fn count_where(&self, sql: &str) -> i64 {
+        self.e.db.get().await.unwrap().query_one(sql, &[]).await.unwrap().get(0)
+    }
+    /// two project command dogs `one` and `two` on project P
+    async fn two_project_dogs(&self) {
+        self.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&self.p]).await;
+        for n in ["one", "two"] {
+            create(&self.e, self.org.id, self.s, &json!({"kind":"command","target":format!("echo {n}"),"pattern":"p","project":"P","name":n})).await.unwrap();
+        }
+    }
+    /// two fair_queue dogs of C, on projects Q and A (both can be edited onto B); returns their uids in creation order
+    async fn two_queue_dogs(&self) -> (String, String) {
+        self.queue_dog(self.c, "C", "Q").await.unwrap();
+        self.queue_dog(self.c, "C", "A").await.unwrap();
+        let r = self.e.db.get().await.unwrap().query("SELECT uid FROM ot.watchdogs WHERE kind='fair_queue' AND owner_agent_id=$1 AND state<>'removed' ORDER BY id", &[&self.c]).await.unwrap();
+        (r[0].get(0), r[1].get(0))
+    }
+}
+
+const D16: &str = "project P already has this watchdog: P/";
+const LIMIT: &str = "per agent per project";
+const ON_SAME: &str = "SELECT count(*) FROM ot.watchdogs WHERE target='echo same' AND state<>'removed'";
+const ON_B: &str = "SELECT count(*) FROM ot.watchdogs WHERE kind='fair_queue' AND target='B' AND state<>'removed'";
+
+fn new_command(w: &W) -> impl std::future::Future<Output = Result<Value>> + Send + 'static {
+    let (e, org, s) = (w.e.clone(), w.org.id, w.s);
+    async move { create(&e, org, s, &json!({"kind":"command","target":"echo same","pattern":"p","project":"P","name":"three"})).await }
+}
+fn new_queue(w: &W) -> impl std::future::Future<Output = Result<Value>> + Send + 'static {
+    let (e, org, c) = (w.e.clone(), w.org.id, w.c);
+    async move { create(&e, org, c, &json!({"kind":"fair_queue","target":"B","owner":"C","notice":true})).await }
+}
+
+/// CE19 (D16 through configure, edit vs edit): the first edit is paused after its early check, a second edit writes
+/// the same tuple; exactly one wins, the loser is refused with the D16 text and writes nothing.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
 #[nolog]
-async fn ce19b_one_queue_dog_per_owner_per_project_under_the_lock() {
+async fn ce19_project_edit_vs_edit() {
     let w = world().await;
-    let q = w.queue_dog(w.c, "C", "Q").await.unwrap()["id"].as_str().unwrap().to_string();
-    let a = w.queue_dog(w.c, "C", "A").await.unwrap()["id"].as_str().unwrap().to_string();
-    let (dq, da) = (load(&w.e, w.dog(&q).await.3).await.unwrap().unwrap(), load(&w.e, w.dog(&a).await.3).await.unwrap().unwrap());
-    let want = json!({"target":"B"});
-    let pq = edit::plan(&w.e, w.org.id, Some(w.c), &dq, &want).await.unwrap();
-    let pa = edit::plan(&w.e, w.org.id, Some(w.c), &da, &want).await.unwrap();
-    for (dog, plan) in [(&dq, &pq), (&da, &pa)] {
-        let mut c = w.e.db.get().await.unwrap();
-        let tx = c.transaction().await.unwrap();
-        let mut memo = dog.memo.clone();
-        let r = edit::apply(&*tx, dog, w.org.id, plan, &mut memo, "armed").await;
-        if dog.uid == q {
-            r.unwrap();
-            // configure writes the merged memo right after apply, in the same transaction
-            tx.execute("UPDATE ot.watchdogs SET memo = $2 WHERE id = $1", &[&dog.row, &memo]).await.unwrap();
-            tx.commit().await.unwrap();
-        } else {
-            let e = format!("{:#}", r.expect_err("the second write must be refused"));
-            assert!(e.contains("already has fair_queue watchdog"), "{e}");
+    w.two_project_dogs().await;
+    let first = w.cfg_task(w.s, "P/one", json!({"target":"echo same"}));
+    let (a, b) = interleave("configure", first, w.cfg(w.s, "P/two", json!({"target":"echo same"}))).await;
+    b.unwrap();
+    let e = format!("{:#}", a.expect_err("the paused edit must be refused"));
+    assert!(e.contains(D16) && e.contains("two"), "{e}");
+    assert_eq!(w.column("one", "target").await, "echo one", "the loser wrote nothing");
+    assert_eq!(w.column("two", "target").await, "echo same");
+}
+
+/// CE19c (D16, edit vs create): the edit is paused after its early check, a create writes the same tuple first.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19c_project_edit_vs_create() {
+    let w = world().await;
+    w.two_project_dogs().await;
+    let first = w.cfg_task(w.s, "P/one", json!({"target":"echo same"}));
+    let (a, b) = interleave("configure", first, new_command(&w)).await;
+    b.unwrap();
+    let e = format!("{:#}", a.expect_err("the paused edit must be refused"));
+    assert!(e.contains(D16) && e.contains("three"), "{e}");
+    assert_eq!(w.column("one", "target").await, "echo one");
+    assert_eq!(w.count_where(ON_SAME).await, 1);
+}
+
+/// CE19d (D16, create vs edit): the create is paused after its early checks, an edit writes the tuple first.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19d_project_create_vs_edit() {
+    let w = world().await;
+    w.two_project_dogs().await;
+    let (a, b) = interleave("create", new_command(&w), w.cfg(w.s, "P/one", json!({"target":"echo same"}))).await;
+    b.unwrap();
+    let e = format!("{:#}", a.expect_err("the paused create must be refused"));
+    assert!(e.contains(D16) && e.contains("one"), "{e}");
+    assert_eq!(w.count_where(ON_SAME).await, 1);
+}
+
+/// CE19e (per-owner limit through configure, edit vs edit).
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19e_owner_edit_vs_edit() {
+    let w = world().await;
+    let (q, a) = w.two_queue_dogs().await;
+    let first = w.cfg_task(w.c, &q, json!({"target":"B"}));
+    let (r1, r2) = interleave("configure", first, w.cfg(w.c, &a, json!({"target":"B"}))).await;
+    r2.unwrap();
+    let e = format!("{:#}", r1.expect_err("the paused edit must be refused"));
+    assert!(e.contains(LIMIT), "{e}");
+    assert_eq!(w.count_where(ON_B).await, 1);
+}
+
+/// CE19f (per-owner limit, edit vs create): the edit is paused, a create takes the slot on B first.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19f_owner_edit_vs_create() {
+    let w = world().await;
+    let (q, _) = w.two_queue_dogs().await;
+    let first = w.cfg_task(w.c, &q, json!({"target":"B"}));
+    let (r1, r2) = interleave("configure", first, new_queue(&w)).await;
+    r2.unwrap();
+    let e = format!("{:#}", r1.expect_err("the paused edit must be refused"));
+    assert!(e.contains(LIMIT), "{e}");
+    assert_eq!(w.count_where(ON_B).await, 1);
+}
+
+/// CE19g (per-owner limit, create vs edit): the create is paused, an edit takes B first.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19g_owner_create_vs_edit() {
+    let w = world().await;
+    let (q, _) = w.two_queue_dogs().await;
+    let (r1, r2) = interleave("create", new_queue(&w), w.cfg(w.c, &q, json!({"target":"B"}))).await;
+    r2.unwrap();
+    let e = format!("{:#}", r1.expect_err("the paused create must be refused"));
+    assert!(e.contains(LIMIT), "{e}");
+    assert_eq!(w.count_where(ON_B).await, 1);
+}
+
+/// Hold the dog's row lock from outside, start an edit, wait until it blocks on that lock, then try the
+/// parent row with NOWAIT: it must already be locked by the edit (parent row first, then the dog row).
+async fn parent_locked_before_dog(w: &W, dog_uid: &str, actor: i64, id: &str, edit: Value, parent_row: i64) -> bool {
+    let dog_row = w.dog(dog_uid).await.3;
+    let mut holder = w.e.db.get().await.unwrap();
+    let tx = holder.transaction().await.unwrap();
+    tx.query_one("SELECT id FROM ot.watchdogs WHERE id=$1 FOR UPDATE", &[&dog_row]).await.unwrap();
+    let task = tokio::spawn(w.cfg_task(actor, id, edit));
+    let mut blocked = false;
+    for _ in 0..200 {
+        if w.count_where("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND datname=current_database()").await > 0 {
+            blocked = true;
+            break;
         }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+    assert!(blocked, "the edit never blocked on the dog row");
+    let mut probe = w.e.db.get().await.unwrap();
+    let ptx = probe.transaction().await.unwrap();
+    let locked = ptx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE NOWAIT", &[&parent_row]).await.is_err();
+    drop(ptx);
+    tx.rollback().await.unwrap();
+    let _ = task.await;
+    locked
+}
+
+/// CE19h: configure locks the parent row (project for a project dog, owner for an agent dog) BEFORE the dog row.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19h_parent_row_is_locked_before_the_dog() {
+    let w = world().await;
+    w.two_project_dogs().await;
+    assert!(parent_locked_before_dog(&w, "one", w.s, "P/one", json!({"interval_s":90}), w.p).await, "a project dog: the project row must be locked first");
+    let (q, _) = w.two_queue_dogs().await;
+    assert!(parent_locked_before_dog(&w, &q, w.c, &q, json!({"target":"B"}), w.c).await, "an agent dog: the owner row must be locked first");
 }
 
 /// CE10: a waiting slot claim is re-admitted at the back; a held lease refuses the edit.
