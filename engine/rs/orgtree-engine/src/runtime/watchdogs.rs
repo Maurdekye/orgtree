@@ -3008,6 +3008,12 @@ pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<
     Ok(json!({"id":dog.uid,"name":dog.name,"state":dog.state,"connection_messages":mode,"notify_on_connect":mode!="off"}))
 }
 
+/// RED SCAFFOLD (project-watchdogs F8): the one configure handler is built in the next commit.
+#[logged]
+pub async fn configure(_engine: &Arc<Engine>, _org_id: i64, _actor: Option<i64>, _id: &str, _args: &Value) -> Result<Value> {
+    refuse!(BadRequest, "configure with project_delivery is not built yet")
+}
+
 #[logged]
 pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, action: &str, reason: Option<&str>) -> Result<Value> {
     let dog = resolve(engine, org_id, actor, id).await?;

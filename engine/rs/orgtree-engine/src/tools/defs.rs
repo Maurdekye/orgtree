@@ -17,6 +17,15 @@ mod watchdog_configure_tests {
         assert_eq!(properties["connection_messages"]["enum"], json!(["notice","wake","off"]));
         assert!(properties["id"]["description"].as_str().unwrap().contains("configure"));
     }
+
+    /// PF17 (project-watchdogs F1): the three delivery forms are in the schema.
+    #[test]
+    fn watchdog_card_has_project_delivery() {
+        let card = build_tool_watchdog();
+        let p = &card["inputSchema"]["properties"]["project_delivery"];
+        assert_eq!(p["enum"], json!(["event","broadcast","queue"]), "{p}");
+        assert_eq!(p["type"], "string");
+    }
 }
 
 #[cfg(test)]

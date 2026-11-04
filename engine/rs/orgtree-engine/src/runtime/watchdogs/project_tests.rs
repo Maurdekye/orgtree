@@ -733,3 +733,363 @@ async fn r11_history_says_whether_the_source_dog_is_gone() {
     let h = crate::domain::listeners::history(&**c, w.project, None).await.unwrap();
     assert_eq!(h["history"][0]["source"]["gone"], true, "{h}");
 }
+
+// ---------------------------------------------------------------- delivery forms (spec rev 2.1 §13, PF1-PF17)
+
+const BROADCAST_LINE: &str = "watchdog @stream/feed (\"feed\", command · echo hi) broadcast to the members of project @stream";
+const QUEUE_LINE: &str = "watchdog @stream/feed (\"feed\", command · echo hi) queued a job on project @stream";
+
+impl World {
+    /// A project command dog in `form` created by `caller` (extra members merged into the args).
+    #[nolog]
+    async fn form_dog(&self, caller: i64, name: &str, form: &str, extra: Value) -> Result<Value> {
+        let mut a = Self::dog_args(name).await;
+        a["project_delivery"] = json!(form);
+        if let Value::Object(x) = extra {
+            for (k, v) in x { a[k.as_str()] = v; }
+        }
+        create(&self.e, self.org.id, caller, &a).await
+    }
+
+    /// The last ring gist of the dog's row.
+    #[nolog]
+    async fn gist(&self, row: i64) -> String {
+        self.e.db.get().await.unwrap().query_one("SELECT events->-1->>'gist' FROM ot.watchdogs WHERE id=$1", &[&row]).await.unwrap().get(0)
+    }
+
+    /// (uid, state, body, extra) of every mail sitting in the project's own mailbox.
+    #[nolog]
+    async fn jobs(&self) -> Vec<(String, String, String, Value)> {
+        self.e.db.get().await.unwrap().query("SELECT uid, state, body, extra FROM ot.mail WHERE recipient_agent_id=$1 ORDER BY id", &[&self.project]).await.unwrap()
+            .iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))).collect()
+    }
+
+    /// A passive fair_queue listener on the project owned by `agent`.
+    #[nolog]
+    async fn worker(&self, agent: i64) -> Value {
+        create(&self.e, self.org.id, agent, &json!({"kind":"fair_queue","target":"stream","notice":true})).await.unwrap()
+    }
+
+    /// Mail an agent holds whose body contains `needle`.
+    #[nolog]
+    async fn mail_with(&self, agent: i64, needle: &str) -> i64 {
+        self.count("SELECT count(*) FROM ot.mail WHERE recipient_agent_id=$1 AND body LIKE '%'||$2||'%'", &[&agent, &needle]).await
+    }
+}
+
+/// PF1 (F4): a broadcast dog mails each live agent directly under the project once, and nobody else.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf01_broadcast_reaches_direct_members_only() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    // a nested project with its own agent: not walked
+    let sub: i64 = w.e.db.get().await.unwrap().query_one("INSERT INTO ot.agents(org_id,name,parent_id,kind,tier,state,scope,born) VALUES($1,'sub',$2,'project','project','live','{\"transparent\":true}','2026-11-04') RETURNING id", &[&w.org.id, &w.project]).await.unwrap().get(0);
+    w.sql("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'deep',$2,'sol','live','2026-11-04')", &[&w.org.id, &sub]).await;
+    let (m2, m3, deep) = (w.id("member2").await, w.id("member3").await, w.id("deep").await);
+    w.form_dog(w.boss, "feed", "broadcast", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["hello"]).await;
+    for a in [w.member, m2, m3] {
+        let mail = w.mail(a).await;
+        assert_eq!(mail.len(), 1, "{mail:?}");
+        assert!(mail[0].contains(BROADCAST_LINE), "{}", mail[0]);
+        assert!(mail[0].contains("hello"), "{}", mail[0]);
+    }
+    assert!(w.mail(deep).await.is_empty(), "a nested project's agent gets nothing");
+    assert!(w.mail(w.boss).await.is_empty() && w.mail(w.project).await.is_empty());
+    assert_eq!(w.count("SELECT count(*) FROM ot.project_fires WHERE project_id=$1", &[&w.project]).await, 0, "a broadcast is not a project event");
+}
+
+/// PF2 (F4): no direct agent members means no mail and a gist saying so.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf02_broadcast_with_no_members() {
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET state='archived' WHERE parent_id=$1 AND kind='agent'", &[&w.project]).await;
+    w.form_dog(w.boss, "feed", "broadcast", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["x"]).await;
+    assert_eq!(w.count("SELECT count(*) FROM ot.mail WHERE kind='watchdog'", &[]).await, 0);
+    assert!(w.gist(row).await.ends_with(" (no members)"), "{}", w.gist(row).await);
+}
+
+/// PF3 (F4, D8): `notice:true` makes the broadcast passive; event and queue still refuse it.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf03_broadcast_notice_is_passive_and_other_forms_still_refuse_it() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.form_dog(w.boss, "feed", "broadcast", json!({"notice":true})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["x"]).await;
+    let passive: Vec<bool> = w.e.db.get().await.unwrap().query("SELECT notice FROM ot.mail WHERE recipient_agent_id=$1 AND kind='watchdog'", &[&w.member]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert_eq!(passive, vec![true]);
+    // default (notice omitted) wakes
+    let mut again = World::dog_args("loud").await;
+    again["project_delivery"] = json!("broadcast");
+    again["target"] = json!("echo ho");
+    create(&w.e, w.org.id, w.boss, &again).await.unwrap();
+    let loud = w.dog("loud").await.5;
+    w.fire(loud, &["y"]).await;
+    let flags: Vec<bool> = w.e.db.get().await.unwrap().query("SELECT notice FROM ot.mail WHERE recipient_agent_id=$1 AND kind='watchdog' AND body LIKE '%loud%' ORDER BY id", &[&w.member]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert_eq!(flags, vec![false], "an omitted notice wakes");
+    for form in ["event", "queue"] {
+        let e = err(w.form_dog(w.boss, &format!("n-{form}"), form, json!({"notice":true, "target": format!("echo {form}")})).await);
+        assert!(e.contains("a project watchdog's fires go to the project's listeners; each listener's own notice flag decides whether it wakes"), "{form}: {e}");
+    }
+}
+
+/// PF4 (F7): a member below the project may not pick broadcast, at create or at configure.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf04_only_the_user_or_an_agent_above_picks_broadcast() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    let text = "only the user or an agent above project stream may make its watchdog broadcast to the project's members";
+    let e = err(w.form_dog(w.member, "feed", "broadcast", json!({})).await);
+    assert!(e.contains(text), "{e}");
+    w.form_dog(w.boss, "mine", "event", json!({"target":"echo a"})).await.unwrap();
+    let e = err(configure(&w.e, w.org.id, Some(w.member), "stream/mine", &json!({"project_delivery":"broadcast"})).await);
+    assert!(e.contains(text), "{e}");
+    assert_eq!(w.dog("mine").await.3["project_delivery"], "event", "the refused configure changed nothing");
+    // the user and an agent above may
+    let mut a = World::dog_args("byuser").await;
+    a["project_delivery"] = json!("broadcast");
+    a["target"] = json!("echo u");
+    create_as(&w.e, w.org.id, None, &a).await.unwrap();
+    configure(&w.e, w.org.id, Some(w.boss), "stream/mine", &json!({"project_delivery":"broadcast"})).await.unwrap();
+    assert_eq!(w.dog("mine").await.3["project_delivery"], "broadcast");
+}
+
+/// PF5 (F5): a queue dog puts one job in the project's mailbox, handed to the fair_queue listener; no project event.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf05_queue_makes_one_job_handed_to_the_listener() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.worker(w.member).await;
+    w.form_dog(w.boss, "feed", "queue", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["hello"]).await;
+    let jobs = w.jobs().await;
+    assert_eq!(jobs.len(), 1, "{jobs:?}");
+    assert!(jobs[0].2.contains(QUEUE_LINE) && jobs[0].2.contains("hello"), "{}", jobs[0].2);
+    assert_ne!(jobs[0].1, "pending", "the listener took it: {}", jobs[0].1);
+    assert_eq!(w.mail_with(w.member, QUEUE_LINE).await, 1, "the worker holds its copy");
+    assert_eq!(w.count("SELECT count(*) FROM ot.project_fires WHERE project_id=$1", &[&w.project]).await, 0);
+    let from: String = w.e.db.get().await.unwrap().query_one("SELECT sender FROM ot.mail WHERE recipient_agent_id=$1", &[&w.project]).await.unwrap().get(0);
+    assert!(from.contains("feed"), "sent as the watchdog: {from}");
+}
+
+/// PF6 (F5): in ACK mode the job is claimed; acking it sends nothing back; a reply to the dog is refused.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf06_queue_ack_mode() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{mail_queue}','\"ack\"') WHERE id=$1", &[&w.project]).await;
+    w.worker(w.member).await;
+    w.form_dog(w.boss, "feed", "queue", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["hello"]).await;
+    let jobs = w.jobs().await;
+    assert_eq!(jobs.len(), 1, "{jobs:?}");
+    assert_eq!(jobs[0].3["claimed"]["ack"], true, "claimed and awaiting its ack: {}", jobs[0].3);
+    let copy = jobs[0].3["claimed"]["copy"].as_str().expect("the handed copy").to_string();
+    let before = w.count("SELECT count(*) FROM ot.mail WHERE kind='watchdog'", &[]).await;
+    let mut ack = crate::domain::mail::Outgoing::new(crate::domain::mail::From::Agent { id: w.member, name: "member".into(), generation: 1 }, "stream", "done");
+    ack.reply_to = Some(json!({"id": copy}));
+    crate::domain::mail::send(&w.e, w.org.id, ack).await.unwrap();
+    assert_eq!(before, w.count("SELECT count(*) FROM ot.mail WHERE kind='watchdog'", &[]).await, "the ack goes nowhere");
+    let reply = crate::domain::mail::Outgoing::new(crate::domain::mail::From::Agent { id: w.member, name: "member".into(), generation: 1 }, "stream/feed", "thanks");
+    assert!(crate::domain::mail::send(&w.e, w.org.id, reply).await.is_err(), "a watchdog is no recipient");
+}
+
+/// PF7 (F5, rev 2.1 "Always queue"): with no fair_queue listener the fire still queues one waiting job, with no note or gist suffix; a later listener receives it.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf07_queue_always_queues_and_a_later_listener_gets_it() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    let out = w.form_dog(w.boss, "feed", "queue", json!({})).await.unwrap();
+    assert!(out.get("note").is_none_or(Value::is_null), "no create note: {out}");
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["first"]).await;
+    let jobs = w.jobs().await;
+    assert_eq!(jobs.len(), 1, "{jobs:?}");
+    assert_eq!(jobs[0].1, "pending");
+    assert!(!w.gist(row).await.contains("(no "), "no gist suffix: {}", w.gist(row).await);
+    w.worker(w.member).await;
+    assert_eq!(w.mail_with(w.member, QUEUE_LINE).await, 1, "the later listener receives the waiting job");
+}
+
+/// PF8 (F5 ACK timeout): a job nobody has taken never ages into attempts or a dead letter.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf08_an_unclaimed_job_does_not_time_out() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{mail_queue}','\"ack\"') WHERE id=$1", &[&w.project]).await;
+    w.form_dog(w.boss, "feed", "queue", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["waiting"]).await;
+    w.sql("UPDATE ot.mail SET created_at=now()-interval '3 days' WHERE recipient_agent_id=$1", &[&w.project]).await;
+    crate::domain::projects::dispatch(&w.e, w.org.id, w.project).await.unwrap();
+    crate::domain::projects::release_stale(&w.e, w.org.id, w.project).await.unwrap();
+    let jobs = w.jobs().await;
+    assert_eq!(jobs.len(), 1, "{jobs:?}");
+    assert_eq!(jobs[0].1, "pending");
+    assert!(jobs[0].3.get("dead_letter").is_none() && jobs[0].3["attempts"].as_i64().unwrap_or(0) == 0, "{}", jobs[0].3);
+}
+
+/// PF9 (F1, control): a dog row without the key is an event dog, and `list` says so.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf09_a_missing_key_means_event() {
+    let w = world().await;
+    w.listen(w.member, None).await;
+    w.put_dog(w.boss, "feed").await.unwrap();
+    let (_, _, _, memo, _, row) = w.dog("feed").await;
+    assert!(memo.get("project_delivery").is_none(), "the default stores nothing: {memo}");
+    w.fire(row, &["hi"]).await;
+    assert_eq!(w.mail_with(w.member, "fired the event on project @stream").await, 1);
+    let l = list(&w.e, w.boss, &json!({})).await.unwrap();
+    let dog = l["watchdogs"].as_array().or(l["dogs"].as_array()).expect("a list").iter().find(|d| d["id"] == "feed").expect("the dog is listed").clone();
+    assert_eq!(dog["project_delivery"], "event", "{dog}");
+}
+
+/// PF10 (F6): the event-listeners setting gates the event form only.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf10_the_setting_gates_only_the_event_form() {
+    let w = world().await;
+    w.listeners_on(false).await;
+    w.form_dog(w.boss, "b", "broadcast", json!({"target":"echo b"})).await.unwrap();
+    w.form_dog(w.boss, "q", "queue", json!({"target":"echo q"})).await.unwrap();
+    w.form_dog(w.boss, "e", "event", json!({"target":"echo e"})).await.unwrap();
+    for (name, want) in [("b", "armed"), ("q", "armed"), ("e", "paused")] {
+        let (_, _, state, memo, _, _) = w.dog(name).await;
+        assert_eq!(state, want, "{name}");
+        assert_eq!(memo.get(crate::domain::listeners::OFF_MARK).is_some(), name == "e", "{name}: {memo}");
+    }
+    w.listeners_on(true).await;
+    let mut c = w.e.db.get().await.unwrap();
+    let tx = c.transaction().await.unwrap();
+    crate::domain::listeners::switch_off(&tx, w.project, "boss").await.unwrap();
+    tx.commit().await.unwrap();
+    for (name, want) in [("b", "armed"), ("q", "armed"), ("e", "paused")] {
+        assert_eq!(w.dog(name).await.2, want, "after switch_off: {name}");
+    }
+}
+
+/// PF11 (F8): configure moves a dog between forms; the OFF mark follows the setting.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf11_configure_and_the_off_mark() {
+    let w = world().await;
+    w.listeners_on(false).await;
+    w.form_dog(w.boss, "feed", "event", json!({})).await.unwrap();
+    assert_eq!(w.dog("feed").await.2, "paused");
+    let out = configure(&w.e, w.org.id, Some(w.boss), "stream/feed", &json!({"project_delivery":"broadcast"})).await.unwrap();
+    assert!(out["note"].as_str().unwrap_or("").contains("re-armed: broadcast and queue dogs don't depend on the event-listeners setting"), "{out}");
+    let (_, _, state, memo, _, _) = w.dog("feed").await;
+    assert_eq!(state, "armed");
+    assert!(memo.get(crate::domain::listeners::OFF_MARK).is_none() && memo["project_delivery"] == "broadcast", "{memo}");
+    let out = configure(&w.e, w.org.id, Some(w.boss), "stream/feed", &json!({"project_delivery":"event"})).await.unwrap();
+    assert!(out["note"].as_str().unwrap_or("").contains("event listeners are off"), "{out}");
+    let (_, _, state, memo, _, _) = w.dog("feed").await;
+    assert_eq!((state.as_str(), memo.get(crate::domain::listeners::OFF_MARK).is_some()), ("paused", true));
+}
+
+/// PF12 (F8): leaving broadcast resets notice, and says so; both settings apply together.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf12_leaving_broadcast_resets_notice() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.form_dog(w.boss, "feed", "broadcast", json!({"notice":true})).await.unwrap();
+    let out = configure(&w.e, w.org.id, Some(w.boss), "stream/feed", &json!({"project_delivery":"queue"})).await.unwrap();
+    assert!(out["note"].as_str().unwrap_or("").contains("notice was reset to false: only broadcast dogs may be passive"), "{out}");
+    let memo = w.dog("feed").await.3;
+    assert_eq!((memo["notice"].clone(), memo["project_delivery"].clone()), (json!(false), json!("queue")));
+    // invalid in one half: neither applies
+    let e = err(configure(&w.e, w.org.id, Some(w.boss), "stream/feed", &json!({"project_delivery":"event","connection_messages":"loud"})).await);
+    assert!(e.contains("connection_messages must be notice, wake or off") || e.contains("only for mqtt and websocket"), "{e}");
+    assert_eq!(w.dog("feed").await.3["project_delivery"], "queue");
+}
+
+/// PF13 (F11): a pattern-filtered listener sees event-form fires only.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf13_listeners_never_see_other_forms() {
+    let w = world().await;
+    let m2 = w.id("member2").await;
+    w.listen(m2, Some("hello")).await;
+    w.form_dog(w.boss, "feed", "broadcast", json!({})).await.unwrap();
+    let row = w.dog("feed").await.5;
+    w.fire(row, &["hello there"]).await;
+    let fired: i32 = w.e.db.get().await.unwrap().query_one("SELECT fired FROM ot.watchdogs WHERE owner_agent_id=$1 AND kind='project_listener'", &[&m2]).await.unwrap().get(0);
+    assert_eq!(fired, 0);
+    assert_eq!(w.mail_with(m2, "fired the event on project").await, 0);
+}
+
+/// PF14 (F1): the parameter is for project dogs, and only three values.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf14_project_delivery_validation() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    let e = err(create(&w.e, w.org.id, w.boss, &json!({"kind":"command","target":"echo hi","pattern":"zzz","project_delivery":"queue"})).await);
+    assert!(e.contains("project_delivery is for project watchdogs"), "{e}");
+    let e = err(w.form_dog(w.boss, "feed", "carrier-pigeon", json!({})).await);
+    assert!(e.contains("project_delivery is event, broadcast or queue"), "{e}");
+    w.put_dog(w.boss, "plain").await.unwrap();
+    let e = err(configure(&w.e, w.org.id, Some(w.boss), "stream/plain", &json!({"project_delivery":"carrier-pigeon"})).await);
+    assert!(e.contains("project_delivery is event, broadcast or queue"), "{e}");
+    // configure on an agent dog
+    create(&w.e, w.org.id, w.boss, &json!({"kind":"command","target":"echo hi","pattern":"zzz","name":"mine"})).await.unwrap();
+    let e = err(configure(&w.e, w.org.id, Some(w.boss), "mine", &json!({"project_delivery":"queue"})).await);
+    assert!(e.contains("project_delivery is for project watchdogs"), "{e}");
+}
+
+/// PF15 (F9): a ready-once broadcast dog sends at create and says how many; the queue form always queues.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf15_ready_once_resolves_inline() {
+    let w = world().await;
+    let out = w.form_dog(w.boss, "feed", "broadcast", json!({"pattern":"hi","once":true})).await.unwrap();
+    assert_eq!((out["resolved"].clone(), out["registered"].clone(), out["sent"].clone()), (json!(true), json!(false), json!(3)), "{out}");
+    assert_eq!(w.mail(w.member).await.len(), 1);
+    let q = w.form_dog(w.boss, "feed2", "queue", json!({"pattern":"hi2","once":true,"target":"echo hi2"})).await.unwrap();
+    assert_eq!((q["resolved"].clone(), q["registered"].clone()), (json!(true), json!(false)), "{q}");
+    assert!(q["queued"].as_str().is_some_and(|u| !u.is_empty()), "{q}");
+    assert_eq!(w.jobs().await.len(), 1);
+}
+
+/// PF16 (F11): the form is not part of the duplicate key.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn pf16_a_second_dog_on_the_same_source_is_refused_whatever_its_form() {
+    let w = world().await;
+    w.listeners_on(true).await;
+    w.form_dog(w.boss, "feed", "queue", json!({})).await.unwrap();
+    let e = err(w.form_dog(w.boss, "again", "broadcast", json!({})).await);
+    assert!(e.contains("project stream already has this watchdog: stream/feed; listen to the project instead of adding another"), "{e}");
+}
