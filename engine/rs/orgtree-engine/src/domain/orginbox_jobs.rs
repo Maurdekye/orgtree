@@ -406,3 +406,150 @@ pub(super) fn reply_refusal(peer: &str) -> anyhow::Error {
     anyhow::Error::new(crate::domain::UserError::Forbidden(format!(
         "you may reply to {peer} only about outside mail a project queue handed you: name it with reply_to, and in ACK mode reply before you ack it (this one is acked / no longer yours / you are no longer in its project)")))
 }
+
+/// The result of a G3 follow-up that did not become a new job.
+pub(crate) struct FollowedUp {
+    /// the holder it was sent to (None: bundled with a pending job)
+    pub holder: Option<i64>,
+    pub note: String,
+}
+
+/// Is `job` still `holder`'s to answer for: in a live project the holder is a member of, claimed by it, un-ACKed
+/// in ACK mode, and not revoked (R5)?
+#[logged]
+async fn job_open(client: &impl tokio_postgres::GenericClient, org: i64, holder: i64, job: &str) -> Result<bool> {
+    let Some(j) = client
+        .query_opt(
+            "SELECT j.state, j.extra->'claimed', j.extra->>'revoked',
+                    EXISTS (WITH RECURSIVE up(id, parent_id) AS (
+                              SELECT a.id, a.parent_id FROM ot.agents a WHERE a.id = $3
+                              UNION
+                              SELECT a.id, a.parent_id FROM ot.agents a JOIN up ON a.id = up.parent_id)
+                            SELECT 1 FROM up WHERE up.id = j.recipient_agent_id) AS member
+               FROM ot.mail j JOIN ot.agents p ON p.id = j.recipient_agent_id AND p.kind = 'project' AND p.state = 'live'
+              WHERE j.org_id=$1 AND j.uid=$2 FOR SHARE OF j",
+            &[&org, &job, &holder],
+        )
+        .await?
+    else {
+        return Ok(false);
+    };
+    let (state, claim, revoked, member): (String, Option<Value>, Option<String>, bool) = (j.get(0), j.get(1), j.get(2), j.get(3));
+    let claim = claim.unwrap_or(Value::Null);
+    let held = state == "read" && claim["by_id"].as_i64() == Some(holder);
+    let open = claim["ack"] != true || claim["acked_at"].is_null();
+    Ok(held && open && member && revoked.as_deref() != Some("true"))
+}
+
+/// G1/G2 (relay spec 2b): the one reply route a project job gives. Returns the stamp for the reply (`{job, project}`)
+/// when `out` is
+/// * G1: the holder W of a job answering the job's exact sender S, naming W's copy (S may be the user; `target` is None
+///   for "user"), or
+/// * G2: S answering W's earlier job reply M (it carries `extra.job_reply`), naming M, to M's sender W.
+/// A retired S or W is refused as an unknown name. It never grants anything and never runs before the normal rules.
+#[logged]
+pub(crate) async fn job_route(client: &impl tokio_postgres::GenericClient, org: i64, agent: i64, out: &Outgoing, target: Option<i64>) -> Result<Option<Value>> {
+    if out.replies.len() > 1 {
+        return Ok(None);
+    }
+    let Some(id) = out.reply_to.as_ref().and_then(|q| q["id"].as_str()).or_else(|| out.replies.first().and_then(|q| q["id"].as_str())) else {
+        return Ok(None);
+    };
+    let Some(m) = client
+        .query_opt("SELECT sender, sender_agent_id, extra FROM ot.mail WHERE org_id=$1 AND uid=$2 AND recipient_agent_id=$3", &[&org, &id, &agent])
+        .await?
+    else {
+        return Ok(None);
+    };
+    let (sender, sender_agent, extra): (String, Option<i64>, Value) = (m.get(0), m.get(1), m.get(2));
+    let to = bare(&out.to);
+    let live = |who: i64| async move {
+        let r = client.query_opt("SELECT state FROM ot.agents WHERE id=$1 AND org_id=$2", &[&who, &org]).await?;
+        Ok::<bool, anyhow::Error>(r.is_some_and(|r| r.get::<_, String>(0) == "live"))
+    };
+    // G1: W's copy of a project job -> the job's sender
+    let via = &extra["via_project"];
+    if let Some(job) = via["job"].as_str().or_else(|| via["mail"].as_str()) {
+        let Some(j) = client.query_opt("SELECT sender, sender_agent_id FROM ot.mail WHERE org_id=$1 AND uid=$2", &[&org, &job]).await? else {
+            return Ok(None);
+        };
+        let (jsender, jagent): (String, Option<i64>) = (j.get(0), j.get(1));
+        let aimed = match (bare(&jsender), jagent) {
+            ("user", None) => target.is_none() && to == "user",
+            (_, Some(sid)) if target.is_some() => {
+                if target == Some(sid) && !live(sid).await? {
+                    crate::refuse!(NotFound, "no live agent named {to}; nothing was sent");
+                }
+                target == Some(sid)
+            }
+            _ => false,
+        };
+        if aimed && job_open(client, org, agent, job).await? {
+            return Ok(Some(json!({ "job": job, "project": via["name"] })));
+        }
+    }
+    // G2: S answers W's job reply
+    if let (Some(jr), Some(w), Some(t)) = (extra.get("job_reply"), sender_agent, target) {
+        if t == w && bare(&sender) == to {
+            if let Some(job) = jr["job"].as_str() {
+                if !live(w).await? {
+                    crate::refuse!(NotFound, "no live agent named {to}; nothing was sent");
+                }
+                if job_open(client, org, w, job).await? {
+                    return Ok(Some(jr.clone()));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// G3 (relay spec 2b): `sender` mails project `project` naming its OWN earlier mail there. While that job waits the
+/// follow-up is bundled with it; while a holder has it un-ACKed (ACK mode) it goes straight to the holder, stamped so G1
+/// holds; otherwise None (a new job, as before). Runs in the send's transaction; the caller commits.
+#[logged]
+pub(crate) async fn follow_up_plain(tx: &Transaction<'_>, org: i64, project: &crate::domain::projects::Project, out: &Outgoing, mail_uid: &str,
+                                    sender: i64, generation: Option<i32>, job: &str) -> Result<Option<FollowedUp>> {
+    let Some(j) = tx
+        .query_opt(
+            "SELECT state, extra->'claimed', extra->>'revoked', extra ? 'org_inbox' FROM ot.mail
+              WHERE org_id=$1 AND uid=$2 AND sender_agent_id=$3 AND recipient_agent_id=$4 AND NOT (extra ? 'bundled_with') FOR UPDATE",
+            &[&org, &job, &sender, &project.id],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let (state, claim, revoked, outside): (String, Option<Value>, Option<String>, bool) = (j.get(0), j.get(1), j.get(2), j.get(3));
+    if outside || revoked.as_deref() == Some("true") {
+        return Ok(None);
+    }
+    let claim = claim.unwrap_or(Value::Null);
+    let name = out.from.name();
+    if state == "pending" {
+        tx.execute(
+            "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id, recipient_name, kind,
+                                  notice, body, attachments, reply_to, ev, state, read_at, replies, extra)
+             VALUES ($1,$2,$3,$4,$5,'agent',$6,$7,$8,$9,$10,$11,$12,$13,'read',now(),$14,jsonb_build_object('bundled_with',$15::text))",
+            &[&mail_uid, &org, &name, &sender, &generation, &project.id, &project.name, &out.kind, &out.notice, &out.body,
+              &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &Value::Array(out.replies.clone()), &job],
+        )
+        .await?;
+        return Ok(Some(FollowedUp { holder: None, note: format!("Bundled with your pending job in project {}; its holder gets both together.", project.name) }));
+    }
+    let holder = claim["by_id"].as_i64();
+    if let (true, Some(h), true) = (state == "read", holder, claim["ack"] == true && claim["acked_at"].is_null()) {
+        let hname: String = tx.query_one("SELECT name FROM ot.agents WHERE id=$1", &[&h]).await?.get(0);
+        let via = json!({ "via_project": { "id": project.id, "name": project.name, "mail": job, "job": job, "ack": false, "followup": true } });
+        tx.execute(
+            "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id, recipient_name, kind,
+                                  notice, body, attachments, reply_to, ev, state, replies, extra)
+             VALUES ($1,$2,$3,$4,$5,'agent',$6,$7,$8,$9,$10,$11,$12,$13,'pending',$14,$15)",
+            &[&mail_uid, &org, &name, &sender, &generation, &h, &hname, &out.kind, &out.notice, &out.body,
+              &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &Value::Array(out.replies.clone()), &via],
+        )
+        .await?;
+        return Ok(Some(FollowedUp { holder: Some(h), note: format!("Delivered to {hname}, who holds your job in project {}.", project.name) }));
+    }
+    Ok(None)
+}

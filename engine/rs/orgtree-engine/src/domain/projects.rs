@@ -682,8 +682,8 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack, &waited_from],
         )
         .await?;
-        if outside {
-            // D14: follow-ups bundled with this job go to the same listener, in id order, in this transaction
+        {
+            // D14/G3: follow-ups bundled with this job go to the same listener, in id order, in this transaction
             let bundled = tx.query(
                 "SELECT id, uid, sender, kind, body, attachments, reply_to, ev, net_id, net_hub, replies FROM ot.mail
                   WHERE extra ? 'bundled_with' AND extra->>'bundled_with' = $1 AND recipient_agent_id = $2
@@ -691,9 +691,9 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             for b in &bundled {
                 let b_copy = uid("m");
                 // a follow-up never asks for its own ack: the worker acks the JOB, which closes its follow-ups
-                let b_via = json!({ "via_project": { "id": project, "name": pname, "mail": b.get::<_, String>(1), "dog": w.uid, "ack": false,
-                                    "waited_from": iso(waited_from), "outside": true, "bundled": true, "job": mail_uid },
-                                    "outside_job": mail_uid });
+                let mut b_via = json!({ "via_project": { "id": project, "name": pname, "mail": b.get::<_, String>(1), "dog": w.uid, "ack": false,
+                                    "waited_from": iso(waited_from), "bundled": true, "job": mail_uid } });
+                if outside { b_via["via_project"]["outside"] = json!(true); b_via["outside_job"] = json!(mail_uid); }
                 tx.execute(
                     "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body,
                                           attachments, reply_to, ev, state, net_id, net_hub, replies, extra)

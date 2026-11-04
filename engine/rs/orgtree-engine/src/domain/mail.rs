@@ -181,6 +181,8 @@ pub struct Outgoing {
     /// false: store the mail and leave the recipient's wake to the caller
     /// (an automatic reminder wakes an idle agent only, `runtime::wake_idle`)
     pub wake: bool,
+    /// G1: stamped on a job-scoped reply (`{job, project}`) so its recipient may answer back (G2).
+    pub job_reply: Option<Value>,
 }
 
 #[logged]
@@ -205,6 +207,7 @@ impl Outgoing {
             grant_reply_audience: true,
             one_time: false,
             wake: true,
+            job_reply: None,
         }
     }
 
@@ -216,7 +219,10 @@ impl Outgoing {
 
     #[nolog]
     fn delivery_extra(&self) -> Value {
-        if self.one_time { json!({"one_time":true}) } else { json!({}) }
+        let mut extra = json!({});
+        if self.one_time { extra["one_time"] = json!(true); }
+        if let Some(j) = &self.job_reply { extra["job_reply"] = j.clone(); }
+        extra
     }
 }
 
@@ -326,7 +332,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
                         &[&org_id, name],
                     )
                     .await?;
-                if aud.is_none() {
+                if aud.is_none() && super::orginbox::jobs::job_route(&**client, org_id, *id, &out, None).await?.is_none() {
                     refuse!(
                         Forbidden,
                         "only top-level agents and agents holding a user audience may write to the user; send it to your superior"
@@ -388,7 +394,13 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");
     }
     if let From::Agent { id, name, .. } = &out.from {
-        authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
+        if let Err(refusal) = authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await {
+            // G1/G2: the normal rules first, then the one route a job gives its holder and sender
+            match super::orginbox::jobs::job_route(&**client, org_id, *id, &out, Some(target_id)).await? {
+                Some(stamp) => { if out.job_reply.is_none() { out.job_reply = Some(stamp); } }
+                None => return Err(refusal),
+            }
+        }
     }
     let tx = client.transaction().await?;
     let dnd_active:bool=tx.query_one("SELECT ot.agent_dnd($1)",&[&target_id]).await?.get(0);
@@ -489,6 +501,16 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     // (user 2026-10-18 08:01Z), kept as a read record and never queued
     let replied = out.reply_to.as_ref().and_then(|q| q["id"].as_str())
         .or_else(|| out.replies.first().and_then(|q| q["id"].as_str())).map(str::to_string);
+    if let (Some(a), Some(r)) = (sender_agent, &replied) {
+        if let Some(done) = super::orginbox::jobs::follow_up_plain(&tx, org.id, &project, &out, &mail_uid, a, sender_gen, r).await? {
+            tx.commit().await?;
+            drop(client);
+            changes::notify(engine, org, vec![Change::Mailbox(project.id), Change::Mailbox(a), Change::Mailbox(done.holder.unwrap_or(project.id))]);
+            if let Some(h) = done.holder { if out.wake { crate::runtime::wake(engine, org.id, h); } }
+            return Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name.clone(), recipient_state: "live".into(),
+                delivery: done.note, deferred: false });
+        }
+    }
     let acked = match (sender_agent, &replied) {
         (Some(a), Some(r)) => crate::domain::projects::ack_of(&*tx, project.id, a, r).await?,
         _ => None,

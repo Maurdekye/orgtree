@@ -584,7 +584,7 @@ async fn publish_new(engine:&Engine,tx:&tokio_postgres::Transaction<'_>,org:i64,
 }
 
 #[path = "orginbox_jobs.rs"]
-mod jobs;
+pub(crate) mod jobs;
 
 #[logged]
 async fn publish_row(tx:&tokio_postgres::Transaction<'_>,org:i64,holders:&[String],row:&Value)
