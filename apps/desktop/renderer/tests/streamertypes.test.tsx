@@ -143,6 +143,19 @@ test('agent status summaries are free-form wherever they render (tray/attention 
   } finally { boundary.dispose(); dom.window.close() }
 })
 
+test('user-written excerpts and previews are free-form: the sticky user-message preview, mail and reply previews, selection excerpts', () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  const KEY = 'sk-ant-api03-AbCdeF0123456789xyz'
+  doc.body.innerHTML = `<button class="pinuser"><span class="pinuser-t">↑ you: here is ${KEY} ok</span></button>
+    <span class="mail-preview-text">see ${KEY}</span><div class="turn-mail-preview-content">see ${KEY}</div>
+    <div class="reply-preview-content">see ${KEY}</div><span class="selection-excerpt">see ${KEY}</span>
+    <div class="dead-preview">see ${KEY}</div><span class="agent-name">liaison-opus</span>`
+  try {
+    boundary.update(true, cfg({ secrets: true }))
+    assert.deepEqual(hidden(registry), Array(6).fill(KEY), 'every preview blurs the key; the agent name does not: ' + JSON.stringify(hidden(registry)))
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
