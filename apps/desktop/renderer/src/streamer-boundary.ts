@@ -75,7 +75,7 @@ interface HighlightLike { add(range: Range): unknown; delete(range: Range): unkn
 const samePlace = (a: Range, b: Range) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { supports?(property: string, value: string): boolean; highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
 /** The last 32 scans (UI stall spec R8b, rev 1.2): a read-only snapshot for the stall watch; it never triggers a scan. */
-export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_nodes: number; regex_chars: number; text_chars: number; ranges_after: number }
+export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; cause: string; nodes_walked: number; text_nodes: number; regex_chars: number; text_chars: number; ranges_after: number }
 /** One maskSelection call. */
 export interface StreamerMask { start: number; ms: number }
 export interface StreamerScanStats { on: boolean; pace_ms: number; scans: readonly StreamerScan[]; masks: readonly StreamerMask[] }
@@ -85,7 +85,7 @@ export const streamerScanStats = (): StreamerScanStats => ({ on: ringOn, pace_ms
 /** A text node's classification, cached because deriving it (four closest() calls over long selector lists) was the whole cost
  *  of a scan: 2.2 s per scan at 18k text nodes (measured, streamerperf.test.tsx). The TEXT is never cached; it is read fresh from
  *  the node every scan, so new or edited text is masked in the same microtask. Mutation records invalidate what they touch. */
-interface SeqEntry { node: Text; sep: boolean; field: string | null; data: string }
+interface SeqEntry { node: Text; sep: boolean; field: string | null; data: string; run: number }
 interface TextClass { kind: 0 | 1 | 2; field: string | null; block: Element | null }
 const BLOCKS = 'p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html'
 // [data-streamer-visible]: text that is known NOT to be sensitive and must not be pattern-matched (the current org's own address chip)
@@ -111,6 +111,13 @@ const WATCHED = `${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},[data-s
 const KEY_TAIL = /(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|api[_ -]?key|apikey|authorization|credential)["']?\s*(?:[:=]\s*)?$|\bBearer$/i
 /** Characters handed to the regex pass since the last scan began (the work a keystroke costs; exposed in the scan ring). */
 let regexWork = 0
+/** A short label for a mutation target, for the scan ring's `cause` (which mutation made a scan relevant). */
+function describe(node: Node | null): string {
+  const el = node && node.nodeType === 1 ? node as Element : node?.parentElement ?? null
+  if (!el) return '?'
+  const one = (e: Element) => e.localName + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '')
+  return (el.parentElement ? one(el.parentElement) + ' > ' : '') + one(el)
+}
 const SEAM_TAIL = 80, SEAM_HEAD_RUNS = 6, SEAM_HEAD = 4000, RUN_CACHE_MAX = 6000
 /** `sensitiveSpans(runs.join('\n'))`, computed per run and cached by run text (a run is a block's text, so a keystroke re-matches the
  *  one run that changed). Matches that can cross a run boundary are handled exactly: (1) a private key (`-----BEGIN`, which may run
@@ -155,9 +162,49 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
   let active = false, types: StreamerTypes = { ...DEFAULT_STREAMER_TYPES }, coverOn = true, orgNames: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
-  let lastEnd = 0, lastCost = 0, timer = 0, scanWalked = 0, scanTextNodes = 0, scanChars = 0, pendingMutations = 0, trigger: StreamerScan['trigger'] = 'other'
+  let lastEnd = 0, lastCost = 0, timer = 0, scanWalked = 0, scanTextNodes = 0, firstCause = '', scanChars = 0, pendingMutations = 0, trigger: StreamerScan['trigger'] = 'other'
   let seq: SeqEntry[] | null = null, textOnly = false
   const runCache = new Map<string, SensitiveSpan[]>()
+  // the last full pass's runs (entries per run, whether each ends like a key word, the total text length), for the edit fast path
+  let lastRunEntries: SeqEntry[][] | null = null, lastRunTail: boolean[] = [], lastTotal = 0, lastPem = false
+  /** A batch of edits to already-classified free-form text whose runs stay CLEAN (no hidden span before or after, no key-word tail
+   *  that could join the next run, no private-key marker, under the 1M cap) changes no mask anywhere: the entries take the new
+   *  text and the scan stops, with no join and no walk. Anything else returns false and takes the full pass. */
+  function fastEdit(): boolean {
+    // a private-key marker anywhere may run unterminated over every later run, so with one present every edit takes the full pass
+    if (!lastRunEntries || lastPem) return false
+    const changes = new Map<SeqEntry, string>(), runsHit = new Set<number>()
+    for (const node of editedTexts) {
+      const e = seqIndex.get(node)
+      if (!e) continue
+      if (e.field !== null || node.parentElement?.closest('.katex')) return false
+      const data = node.data.includes('\u2212') ? node.data.replace(/\u2212/g, '-') : node.data
+      if (data === e.data) continue
+      changes.set(e, data); runsHit.add(e.run)
+    }
+    if (!changes.size) return true
+    const key = `${JSON.stringify(types)}|${orgNames.join(',')}|`
+    let total = lastTotal
+    const spansOf = (run: string) => {
+      let rel = runCache.get(key + run)
+      if (!rel) { regexWork += run.length; rel = sensitiveSpans(run, types, orgNames); if (runCache.size >= RUN_CACHE_MAX) runCache.clear(); runCache.set(key + run, rel) }
+      return rel
+    }
+    for (const run of runsHit) {
+      const entries = lastRunEntries[run]
+      if (!entries) return false
+      let before = '', after = ''
+      for (const e of entries) { before += e.data; after += changes.get(e) ?? e.data }
+      if (before.includes('-----BEGIN') || after.includes('-----BEGIN')) return false
+      total += after.length - before.length
+      if (total > 1_000_000 || lastTotal > 1_000_000) return false
+      if (lastRunTail[run] || (run > 0 && lastRunTail[run - 1]) || KEY_TAIL.test(after.slice(-SEAM_TAIL))) return false
+      if (spansOf(before).length || spansOf(after).length) return false
+    }
+    for (const [e, data] of changes) e.data = data
+    lastTotal = total
+    return true
+  }
   // Elements whose new or changed text is blurred WHOLE while a paced scan has not run yet (nothing may show, even briefly)
   const pending = new Set<Element>(), touched = new Set<Element>()
   const clearPending = () => { for (const el of pending) el.removeAttribute('data-streamer-pending'); pending.clear() }
@@ -292,9 +339,9 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     scanWalked = 0; scanTextNodes = 0; scanChars = 0; regexWork = 0
     try { scanNow() } finally {
       lastEnd = clock(); lastCost = lastEnd - began
-      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, nodes_walked: scanWalked, text_nodes: scanTextNodes, regex_chars: regexWork, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
+      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, cause: firstCause, nodes_walked: scanWalked, text_nodes: scanTextNodes, regex_chars: regexWork, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
       if (scanRing.length > 32) scanRing.shift()
-      pendingMutations = 0; trigger = 'other'; clearPending()
+      pendingMutations = 0; trigger = 'other'; firstCause = ''; clearPending()
     }
   }
   function scanNow() {
@@ -376,18 +423,22 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
         cover.append(label, dismiss); covered.set(el, cover); place(el as HTMLElement, cover)
       }
     }
+    // a clean text-only batch: nothing to re-match, re-join or re-walk
+    if (light && fastEdit()) { scanWalked = 0; scanChars = lastTotal; editedTexts.clear(); return }
     if (!frame) position()
     if (!supported) return
     const nodes: { node: Text; start: number; end: number }[] = [], whole: Text[] = []
     let text = '', block: Element | null = null
     const runStarts = [0]
+    const runEntries: SeqEntry[][] = [[]]
     let walked = 0
     const fresh: SeqEntry[] = []
     // KaTeX draws a hyphen in math as U+2212; the key patterns are ASCII, and the swap keeps every offset (one char for one char)
     const read = (node: Text) => node.data.includes('−') ? node.data.replace(/−/g, '-') : node.data
     const add = (e: SeqEntry) => {
       if (e.field !== null) { if (enabledType(e.field)) whole.push(e.node); return }
-      if (e.sep) { text += '\n'; runStarts.push(text.length) }
+      if (e.sep) { text += '\n'; runStarts.push(text.length); runEntries.push([]) }
+      e.run = runStarts.length - 1; runEntries[e.run]!.push(e)
       const start = text.length; text += e.data; nodes.push({ node: e.node, start, end: text.length })
     }
     if (light) {
@@ -401,13 +452,13 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
         const node = n as Text
         const cls = classify(node)
         if (cls.kind === 0) continue
-        if (cls.kind === 1) { const e = { node, sep: false, field: cls.field ?? '', data: '' }; fresh.push(e); add(e); continue }
+        if (cls.kind === 1) { const e = { node, sep: false, field: cls.field ?? '', data: '', run: 0 }; fresh.push(e); add(e); continue }
         // a KaTeX formula is two copies of its text (a hidden MathML half with the TeX annotation, then the visible HTML half):
         // each is its own run, or a key matches across the seam and the mask lands on the wrong glyphs (spec R10)
         // a <br> is a line break: the text node after it starts a new run, or a key and the next line become one token
         let sep = false
         if (cls.block !== block) { sep = true; block = cls.block } else if (afterLineBreak(node)) sep = true
-        const e = { node, sep, field: null, data: read(node) }; fresh.push(e); add(e)
+        const e = { node, sep, field: null, data: read(node), run: 0 }; fresh.push(e); add(e)
       }
       seq = fresh; seqIndex.clear(); for (const e of fresh) seqIndex.set(e.node, e)
     }
@@ -416,6 +467,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
     const runs = runStarts.map((at, i) => text.slice(at, i + 1 < runStarts.length ? runStarts[i + 1]! - 1 : text.length))
+    lastRunEntries = runEntries; lastRunTail = runs.map(r => KEY_TAIL.test(r.slice(-SEAM_TAIL))); lastTotal = text.length; lastPem = runs.some(r => r.includes('-----BEGIN'))
     for (const span of spansByRun(runs, types, orgNames, runCache, `${JSON.stringify(types)}|${orgNames.join(',')}|`)) {
       while (nodes[firstIndex] && nodes[firstIndex]!.end <= span.start) firstIndex++
       lastIndex = Math.max(firstIndex, lastIndex)
@@ -513,6 +565,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     // scan only if some record could change a mask (invalidation above is already done, so classification is current)
     let needScan = false
     for (const r of records) if (relevant(r)) {
+      if (!needScan) firstCause = `${r.type}${r.attributeName ? ':' + r.attributeName : ''} ${describe(r.target)}`
       needScan = true
       // remember where the new text is: a deferred scan blurs these elements until it runs
       if (r.type === 'characterData') { const el = r.target.parentElement; if (el) touched.add(el.closest(BLOCKS) ?? el) }
