@@ -407,7 +407,15 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     }
     let mut routed: Option<anyhow::Error> = None;
     if let From::Agent { id, name, .. } = &out.from {
-        if let Err(refusal) = authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await {
+        let authorized = authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await;
+        if authorized.is_ok() {
+            // a reply the normal rules already allow is still a job reply (G1 conditions 1-4): stamp it so the sender may
+            // answer back through G2. This decides nothing; the stamp only records the fact.
+            if let Some(stamp) = super::orginbox::jobs::job_route(&**client, org_id, *id, &out, Some(target_id)).await? {
+                if out.job_reply.is_none() { out.job_reply = Some(stamp); }
+            }
+        }
+        if let Err(refusal) = authorized {
             // G1/G2: the normal rules first, then the one route a job gives its holder and sender
             match super::orginbox::jobs::job_route(&**client, org_id, *id, &out, Some(target_id)).await? {
                 Some(stamp) => { if out.job_reply.is_none() { out.job_reply = Some(stamp); } routed = Some(refusal); #[cfg(test)] route_gate().await; }
