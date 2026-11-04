@@ -2669,6 +2669,15 @@ fn same_target(kind: &str, target: &str) -> String {
     }
 }
 
+/// The (uid, state) of another armed or paused dog of `owner` of the same `kind` on `project`:
+/// one fair_queue / project_listener / listener_watch per agent per project (`except` is the dog's own row, 0 for a create).
+async fn owner_limit_clash(client: &impl tokio_postgres::GenericClient, owner: i64, kind: &str, project: i64, except: i64) -> Result<Option<(String, String)>> {
+    Ok(client.query_opt(
+        "SELECT uid, state FROM ot.watchdogs WHERE kind = $3 AND owner_agent_id = $1 AND id <> $4
+            AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $2 ORDER BY id LIMIT 1",
+        &[&owner, &project, &kind, &except]).await?.map(|r| (r.get(0), r.get(1))))
+}
+
 /// The uid of the project's armed or paused dog that watches the same thing
 /// (spec D16: same kind, target, pattern, shell, websocket hello and mqtt payload filter).
 #[logged]
@@ -3206,6 +3215,15 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
                 memo_ins[crate::domain::listeners::OFF_MARK] = json!(true);
             }
         }
+        if on_project.is_none() {
+            if let Some(p) = queue_project.as_ref().or(listener_project.as_ref()) {
+                // the owner row first, as an edit takes it: two calls cannot both pass the per-owner-per-project limit
+                tx.query_one("SELECT id FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&owner]).await?;
+                if let Some((uid, state)) = owner_limit_clash(&*tx, owner, &kind, p.id, 0).await? {
+                    refuse!(Conflict, "{} already has {} watchdog {} ({}) on project {}; one per agent per project", owner_name, kind, uid, state, p.name);
+                }
+            }
+        }
         if kind=="app_listener"{crate::domain::apps::events::admit_listener(&tx,org_id,owner,&target,&memo,None).await?;}
         if let Some(p)=slot_project.as_ref().filter(|_| template.is_none()) {
             crate::domain::slots::admit(&tx,p.id,Some(owner),i64::from(crate::domain::slots::requested(&memo)),None).await?;
@@ -3559,6 +3577,9 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     if dog.project_owned() {
         let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&dog.owner]).await?.get(0);
         listeners_on = crate::domain::listeners::enabled(&scope);
+    } else if plan.is_some() {
+        // an agent dog's edit takes its owner row before the dog row, as create does (the per-owner-per-project limits)
+        tx.query_one("SELECT id FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&dog.owner]).await?;
     }
     let Some(r) = tx.query_opt("SELECT state, memo FROM ot.watchdogs WHERE id = $1 AND state NOT IN ('spent', 'removed') FOR UPDATE", &[&dog.row]).await? else {
         refuse!(Conflict, "this watchdog has departed");

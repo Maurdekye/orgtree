@@ -580,12 +580,8 @@ pub(super) async fn apply(tx: &tokio_postgres::Transaction<'_>, dog: &Dog, org_i
         .filter(|_| matches!(dog.kind.as_str(), "fair_queue" | "project_listener" | "listener_watch")) {
         // one fair_queue / listener / listener_watch per owner per project, under the owner row lock
         tx.query_one("SELECT id FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&dog.owner]).await?;
-        if let Some(r) = tx.query_opt(
-            "SELECT uid, state FROM ot.watchdogs WHERE kind = $3 AND owner_agent_id = $1 AND id <> $4
-                AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $2 ORDER BY id LIMIT 1",
-            &[&dog.owner, &pid, &dog.kind, &dog.row]).await? {
-            refuse!(Conflict, "{} already has {} watchdog {} ({}) on that project; one per agent per project",
-                dog.owner_name, dog.kind, r.get::<_, String>(0), r.get::<_, String>(1));
+        if let Some((uid, state)) = owner_limit_clash(tx, dog.owner, &dog.kind, pid, dog.row).await? {
+            refuse!(Conflict, "{} already has {} watchdog {} ({}) on that project; one per agent per project", dog.owner_name, dog.kind, uid, state);
         }
     }
     tx.execute(
