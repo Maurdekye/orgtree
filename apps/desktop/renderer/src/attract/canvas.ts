@@ -110,8 +110,8 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     return c.pinnedIds().has(id) || deskOpenElsewhere(c.slug, node) || deskShownAnywhere(c.slug, node)
       || (orgView(c.slug) === 'attention' && attentionLayout(c.slug).agent === id)
   }
-  /** attention shown through the route its kind already has; a desk that is pinned or open elsewhere gets the whole
-   *  org instead (the node is in view), never a window moved */
+  /** attention shown through the route its kind already has; a desk visible anywhere (taken) is skipped entirely:
+   *  no focus, pan, fit or window change */
   const underlying = (t: AttentionTarget): AttractTarget | null =>
     t.what === 'ticket' ? { kind: 'ticket', slug: t.id, mark: '' }
       : t.what === 'mail' ? { kind: 'mail', id: t.id, ...(t.urgent ? { urgent: true } : {}) } : null

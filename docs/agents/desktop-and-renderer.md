@@ -2969,7 +2969,7 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   poll after the run starts is the baseline (what already waited is not an arrival); `useCanvasAttract` polls on every new tree, so the
   delay is the app's own tree cadence. `useAttractCycle` queues them in arrival order, interrupts an ORDINARY dwell at once (`clearTimeout` +
   `step`), waits behind an attention item on screen, and shows each through its kind's route (ticket -> docket + diff scroll, mail -> inbox,
-  question/mention -> `goToAgent`; a pinned or popped-out desk -> `fitAll`). A key that leaves the list and returns is a new arrival.
+  question/mention -> `goToAgent`; a desk visible anywhere -> nothing, the agent is skipped). A key that leaves the list and returns is a new arrival.
   Proof: `tests/attract.test.tsx` §17-§17c.
 - **Canvas interaction = pointerdown/touchstart, wheel, or a key, whose target is inside `.viewport` and outside the panel
   carve-outs (`NOT_CANVAS` in attract.ts: `.overlay`, `.desk-over`, `.tray`, `.pinwin`, `.custom-app-window`, fields).** Mouse moves
