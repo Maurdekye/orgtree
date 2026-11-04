@@ -64,7 +64,10 @@ html.streamer-textless body :not([data-streamer-ui],[data-streamer-ui] *){color:
 [data-streamer-ui] button:hover{border-color:var(--button-accent)!important}
 [data-streamer-ui] button:focus-visible{outline:2px solid var(--button-accent);outline-offset:2px}
 [data-streamer-cover]{position:absolute;z-index:1;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;border:1px solid #888}
-[data-streamer-banner]{position:fixed;z-index:2147483647;right:8px;bottom:8px;padding:7px 10px;border:1px solid #888;border-radius:4px}
+[data-streamer-banner]{position:fixed;z-index:2147483647;left:0;right:0;bottom:0;height:30px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 10px;border-top:1px solid #888}
+[data-streamer-banner][data-streamer-inline]{position:static;z-index:auto;height:auto;flex:none;padding:1px 8px;border:1px solid #888;border-radius:4px;font-size:11px!important;white-space:nowrap}
+[data-streamer-banner][data-streamer-inline] button{padding:0 6px;font-size:11px}
+html.streamer-banner-fixed body{height:calc(100% - 30px)!important;overflow:hidden}
 `
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { supports?(property: string, value: string): boolean; highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
 export function installStreamerBoundary(doc: Document, turnOff?: () => void): StreamerBoundary {
@@ -117,7 +120,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     attributes.clear()
   }
   function restore() {
-    doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-nocover')
+    doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-nocover', 'streamer-banner-fixed')
     for (const el of doc.querySelectorAll('[data-streamer-blur]')) el.removeAttribute('data-streamer-blur')
     win?.CSS?.highlights?.delete('streamer-sensitive')
     for (const cover of covered.values()) cover.remove()
@@ -178,7 +181,17 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     // is withheld, and layout, controls and the Turn off button stay usable.
     doc.documentElement.classList.toggle('streamer-textless', !supported)
     bannerLabel.textContent = (!supported ? 'Streamer mode — text hidden: this window cannot mask single values' : 'Streamer mode') + (note ? ` — ${note}` : '')
-    if (!banner.isConnected) doc.body.appendChild(banner)
+    // USER 2026-11-04 m27bbbf036a7a "blocks the version number": the banner lives IN the footer strip, just before the version
+    // label (the strip's end group), never over a control. A window with no footer (a popout) reserves a bottom strip instead.
+    const host = doc.querySelector('.shell-statusbar-end') ?? doc.querySelector('.shell-statusbar')
+    if (host) {
+      banner.dataset.streamerInline = ''; doc.documentElement.classList.remove('streamer-banner-fixed')
+      const before = host.querySelector('.shell-version')
+      if (banner.parentElement !== host || (before && banner.nextElementSibling !== before)) host.insertBefore(banner, before && before.parentElement === host ? before : host.firstChild)
+    } else {
+      delete banner.dataset.streamerInline; doc.documentElement.classList.add('streamer-banner-fixed')
+      if (banner.parentElement !== doc.body) doc.body.appendChild(banner)
+    }
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
     for (const el of doc.querySelectorAll('input,textarea,select')) {
       const value = el.getAttribute('autocomplete')
