@@ -34,7 +34,7 @@ test('a whole-quote jump loads older history and centers only its own transcript
     proto.scrollIntoView=()=>assert.fail('reply jump must not scroll the desk frame')
     assert.equal(!!list.querySelector('[data-reply-event="event-0"]'),false,'positive control: target is outside the loaded window')
     const block=view.el.querySelector<HTMLElement>('.reply-preview-composing')!
-    assert.equal(block.querySelector<HTMLButtonElement>('.reply-preview-jump')!.disabled,false,'older history is a reachable destination')
+    assert.equal(block.getAttribute('role'),'link','older history is a reachable destination')
     await inAct(()=>block.querySelector<HTMLElement>('blockquote')!.click())
     for(let page=0;page<6;page++)await inAct(async()=>{await flush(6)})
     assert.ok(list.querySelector('[data-reply-event="event-0"]'),'the exact source is loaded')
@@ -51,7 +51,7 @@ test('exhausted history keeps a missing message quote inert and retained',async(
   try{
     await inAct(async()=>{await refreshConvo('synthetic','writer');await flush(6)})
     const block=view.el.querySelector<HTMLElement>('.reply-preview-composing')!
-    assert.equal(block.querySelector<HTMLButtonElement>('.reply-preview-jump')!.disabled,true)
+    assert.equal(block.getAttribute('role'),null);assert.equal(block.querySelector('.reply-preview-jump'),null)
     assert.match(block.textContent??'',/Saved earlier message/)
   }finally{await view.unmount();resetConvos()}
 })

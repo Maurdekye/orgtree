@@ -153,7 +153,7 @@ test('reply navigation reveals a queue containing system mail before scrolling w
   observeTranscriptCenter(scroller, target, () => { assert.equal(run.open, true); scrolls++ })
   const before = JSON.stringify(s.pending_mail)
   await inAct(async () => {
-    view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-jump')!.click()
+    view.el.querySelector<HTMLButtonElement>('.reply-preview-composing')!.click()
     await flush(5)
   })
   assert.equal(scrolls, 1)

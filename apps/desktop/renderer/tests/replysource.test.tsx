@@ -82,7 +82,7 @@ test('composing, pending and sent replies retain the same structured source, met
     list.scrollTop = 0
     let escaped = false
     original.scrollIntoView = () => { escaped = true }
-    await inAct(() => view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-jump')!.click())
+    await inAct(() => view.el.querySelector<HTMLButtonElement>('.reply-preview-composing')!.click())
     assert.equal(list.scrollTop, 320, 'the original source is centered in its transcript')
     assert.equal(escaped, false, 'navigation never scrolls the desk ancestors')
   } finally { await view.unmount(); resetConvos() }
@@ -158,7 +158,7 @@ test('missing snapshot and generation mismatch keep the saved quote, never a new
       assert.equal(preview.querySelector('blockquote')!.textContent, 'Saved excerpt')
       assert.match(preview.textContent!, /unavailable here; quoted context is retained/)
       assert.doesNotMatch(preview.textContent!, /New content/)
-      assert.equal(preview.querySelector<HTMLButtonElement>('button')!.disabled, true)
+      assert.equal(preview.getAttribute('role'), null, 'an unreachable quote is inert')
     } finally { await view.unmount(); resetConvos() }
   }
 })

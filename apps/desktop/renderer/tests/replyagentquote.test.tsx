@@ -1,5 +1,5 @@
 // An agent message quoted in a reply wears the MAIL reply's frame (USER 2026-11-03 18:24:33Z m64286c099254): the muted head
-// "In reply to <agent> · <time>" with the jump link beside it, then the clamped text; no title, no right-aligned time, no
+// "In reply to <agent> · <time>" (no jump label: the whole block is the jump), then the clamped text; no title, no right-aligned time, no
 // far-right link. The mail and docket replies are the reference and do not change.
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -30,31 +30,30 @@ test('the agent-message quote has the mail reply\'s structure: head with the jum
   assert.ok(head, 'the mail reply\'s head row')
   assert.match(head!.querySelector('span')?.textContent ?? '', /^In reply to coordinator-opus · 2026-11-03/)
   assert.ok(head!.querySelector('svg'), 'its reply arrow')
-  const jump = head!.querySelector('.reply-preview-jump') as HTMLButtonElement
-  assert.ok(jump, 'the jump link is inline in the head, beside the text')
-  assert.ok(head!.querySelector('span')!.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.equal(head!.querySelector('.reply-preview-jump'), null, 'no jump label in the head: the whole block is the jump')
+  assert.doesNotMatch(head!.textContent ?? '', /jump to message/)
   const quote = frame.querySelector(':scope > blockquote')
   assert.ok(quote, 'the text sits in the same blockquote the mail reply clamps')
   assert.ok(quote!.querySelector('strong'), 'its Markdown still renders')
   assert.match(quote!.textContent ?? '', /Got it, bold answer\./)
-  await inAct(async () => { jump.click(); await flush(1) })
-  assert.equal(located, 1, 'the link still jumps to the original')
+  await inAct(async () => { (frame as HTMLElement).click(); await flush(1) })
+  assert.equal(located, 1, 'a click on the block jumps to the original')
 })
 
-test('the jump control wears the ref chip look: chip classes, no underline at rest, still a focusable button', async t => {
-  const view = await mountView(withSource(<ReplyPreview reply={reply} available onLocate={() => {}} />), el => el)
+test('the block is the jump: link role, tab stop, pointer and hover cue, Enter and Space', async t => {
+  let located = 0
+  const view = await mountView(withSource(<ReplyPreview reply={reply} available onLocate={() => { located++ }} />), el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(2) })
-  const jump = view.el.querySelector('.reply-preview-head .reply-preview-jump') as HTMLButtonElement
-  assert.ok(jump.classList.contains('ref-chip') && jump.classList.contains('ref-message') && jump.classList.contains('ref-ready'), 'the subject chip classes')
-  assert.equal(jump.tagName, 'BUTTON', 'still keyboard-focusable and clickable')
-  assert.equal(jump.disabled, false)
-  assert.match(jump.textContent ?? '', /jump to message/)
-  assert.ok(jump.querySelector('svg'), 'the reply arrow icon is kept')
+  const frame = view.el.querySelector('aside.reply-preview') as HTMLElement
+  assert.equal(frame.getAttribute('role'), 'link'); assert.equal(frame.tabIndex, 0)
+  frame.focus(); assert.equal(document.activeElement, frame)
+  for (const key of ['Enter', ' ']) await inAct(async () => { frame.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); await flush(1) })
+  assert.equal(located, 2, 'Enter and Space both activate')
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const rule = /^\.ref-chip\.ref-chip\.ref-ready:is\(\.ref-item, \.ref-doc, \.ref-app, \.ref-panel, \.ref-message\),[^{]*\{([^}]*)\}/m.exec(css)?.[1] ?? ''
-  assert.match(rule, /text-decoration: none/, 'the chip rule that now applies has no underline at rest')
-  assert.match(rule, /display: inline-flex/)
+  assert.match(css, /\.reply-preview\[role="link"\]\s*\{\s*cursor:\s*pointer;/, 'pointer')
+  assert.match(css, /\.reply-preview\[role="link"\]:hover\s*\{\s*background:/, 'hover cue')
+  assert.match(css, /\.reply-preview\[role="link"\]:focus-visible/, 'focus ring')
 })
 
 test('no title, no right-aligned timestamp and no far-right link element remain', async t => {
@@ -76,7 +75,7 @@ test('a composer draft of an agent quote keeps the x in the head row, as the mai
   const head = view.el.querySelector('.reply-preview-head')!
   const x = head.querySelector('button[aria-label="Remove reply"]') as HTMLButtonElement
   assert.ok(x, 'the x joins the head row')
-  assert.ok(head.querySelector('.reply-preview-jump'))
+  assert.equal(head.querySelector('.reply-preview-jump'), null)
   await inAct(async () => { x.click(); await flush(1) })
   assert.equal(removed, 1)
 })

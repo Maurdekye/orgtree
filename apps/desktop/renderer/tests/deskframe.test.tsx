@@ -79,9 +79,10 @@ for (const [kind, scale] of [['pinned', 1], ['temporary', .5], ['popped-out', 1.
 
 test('reply navigation reveals its source without shifting the frame', async t => {
   const f = await fixture(t)
-  const jump = f.frame.querySelector<HTMLButtonElement>('.reply-preview-jump')!
-  assert.equal(jump.disabled, false)
-  await inAct(async () => { jump.click(); await flush(3) })
+  const block = f.frame.querySelector<HTMLElement>('.reply-preview')!
+  assert.equal(block.getAttribute('role'), 'link', 'the whole block is the jump')
+  assert.equal(block.querySelector('.reply-preview-jump'), null, 'no separate jump label')
+  await inAct(async () => { block.click(); await flush(3) })
   f.stable()
   assert.equal(f.list.scrollTop, 790, 'the reply source is centered in its transcript')
 })

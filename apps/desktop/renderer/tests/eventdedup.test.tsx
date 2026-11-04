@@ -506,10 +506,10 @@ domTest('§7f a reply naming the snapshot that was deduplicated away still finds
     assert.equal(target.length, 1, 'one row for the replied-to event')
     assert.equal(target[0]!.getAttribute('data-reply-event'), 'reply_new')
     // the reply chip is OFFERED, because the stale id is still a known source
-    const button = el.querySelector<HTMLButtonElement>('.reply-preview-jump')!
+    const button = el.querySelector<HTMLElement>('.reply-preview')!
     assert.ok(button, 'the reply preview is rendered')
-    assert.equal(button.disabled, false,
-      'and it is not greyed out just because its exact snapshot was collapsed')
+    assert.equal(button.getAttribute('role'), 'link',
+      'and it is still a jump just because its exact snapshot was collapsed')
     // clicking it lands on the surviving row rather than nowhere
     const list = el.querySelector<HTMLElement>('.msgs-wrap .msgs')!
     Object.defineProperties(list, {

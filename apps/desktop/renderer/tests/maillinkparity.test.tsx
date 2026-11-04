@@ -35,7 +35,7 @@ for (const box of ['user', 'org', 'node'] as const) test(`mail ${box} identity s
   t.after(() => v.unmount())
   await inAct(async () => { await flush(5) })
   const links = [...v.el.querySelectorAll<HTMLElement>('.mailrow, .ref-mail.ref-ready, .maillink, button.reply-preview-jump')]
-  assert.equal(links.length, box === 'node' ? 6 : 5)
+  assert.equal(links.length, 5, 'the agent-message reply quote has no separate jump button: the block is the jump')
   for (const link of links) {
     await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(2)
     assert.equal(link.title, `${mail.from} · ${fmtFull(mail.at)} · ${mail.id}`)

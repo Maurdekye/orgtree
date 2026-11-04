@@ -131,7 +131,7 @@ test('reply locate opens a collapsed pending target before scrolling and keeps i
     assert.equal(run.open, true, 'reveal precedes scroll'); calls++
   })
   await inAct(async () => {
-    view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-jump')!.click()
+    view.el.querySelector<HTMLButtonElement>('.reply-preview-composing')!.click()
     await new Promise(resolve => setTimeout(resolve, 5))
   })
   assert.equal(calls, 1)

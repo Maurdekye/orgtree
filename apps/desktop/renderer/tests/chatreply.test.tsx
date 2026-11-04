@@ -393,8 +393,8 @@ test('a settled user message carries its own reply reference and excerpt, '
     assert.equal(previews[0]!.classList.contains('reply-preview-composing'), false,
       'the settled annotation must NOT wear the composer class — the user '
       + 'clarification on the sibling docket item is explicit that these are distinct')
-    assert.equal(previews[0]!.querySelector<HTMLButtonElement>('.reply-preview-jump')?.textContent?.trim(),
-      'jump to message', 'the compact control uses the exact requested visible label')
+    assert.equal(previews[0]!.querySelector('.reply-preview-jump'), null,
+      'no "jump to message" label: the whole block is the jump (USER m9decb4fe3b0d)')
     assert.match(previews[0]!.textContent!, /Original answer/,
       `the excerpt is the quoted original text: ${previews[0]!.textContent}`)
   } finally { await view.unmount(); resetConvos() }
@@ -408,16 +408,13 @@ test('…and when the original is still in this loaded conversation, the '
   const view = await mountView(desk(), el => el)
   try {
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
-    const button = view.el.querySelector<HTMLButtonElement>('.reply-preview-jump')!
-    assert.equal(button.textContent?.trim(), 'jump to message')
-    assert.equal(button.getAttribute('aria-label'), 'jump to message')
-    assert.equal(button.querySelector('svg')?.getAttribute('aria-hidden'), 'true',
-      'the curved arrow is decorative because the link text names the action')
+    const button = view.el.querySelector<HTMLElement>('.reply-preview')!
+    assert.equal(button.querySelector('.reply-preview-jump'), null, 'no separate jump label')
+    assert.equal(button.getAttribute('role'), 'link', 'the whole block is the jump')
     button.focus()
-    assert.equal(document.activeElement, button, 'the jump link remains keyboard focusable')
-    assert.equal(button.disabled, false,
-      'the original event IS in this conversation (assistant-1), so the '
-      + `locate route must be live, not the "unavailable" fallback: ${button.title}`)
+    assert.equal(document.activeElement, button, 'the block remains keyboard focusable')
+    assert.equal(button.getAttribute('title'), 'Jump to the original message',
+      'the original event IS in this conversation (assistant-1), so the locate route is live')
     const target = view.el.querySelector('[data-reply-event="assistant-1"]')!
     const list = view.el.querySelector<HTMLElement>('.msgs-wrap .msgs')!
     Object.defineProperties(list, {
@@ -445,8 +442,8 @@ test('…and CONTROL: when the original is NOT in this conversation, the '
     const preview = view.el.querySelector<HTMLElement>('.reply-preview')!
     assert.ok(preview, 'the reference/excerpt still render — this is not the same '
       + 'thing as availability')
-    const button = preview.querySelector<HTMLButtonElement>('.reply-preview-jump')!
-    assert.equal(button.disabled, true, 'but the route is honestly disabled')
+    assert.equal(preview.getAttribute('role'), null, 'but the route is honestly inert')
+    assert.equal(preview.querySelector('.reply-preview-jump'), null)
     assert.match(preview.textContent!, /Original answer/,
       'and the quoted excerpt is still readable even though the source is gone')
   } finally { await view.unmount(); resetConvos() }

@@ -91,8 +91,8 @@ test('nested links, jump buttons and remove buttons retain their own actions',as
   try{
     await inAct(()=>view.el.querySelector<HTMLAnchorElement>('a')!.click())
     assert.equal(links,1);assert.equal(located,0)
-    await inAct(()=>view.el.querySelector<HTMLButtonElement>('.reply-preview-jump')!.click())
-    assert.equal(located,1,'inner jump must not activate twice')
+    await inAct(()=>view.el.querySelector<HTMLElement>('.reply-preview')!.click())
+    assert.equal(located,1,'the block itself is the jump, and it activates once')
     await inAct(()=>view.el.querySelector<HTMLButtonElement>('[aria-label="Remove reply"]')!.click())
     assert.equal(removed,1);assert.equal(located,1,'remove must not navigate')
   }finally{await view.unmount()}
