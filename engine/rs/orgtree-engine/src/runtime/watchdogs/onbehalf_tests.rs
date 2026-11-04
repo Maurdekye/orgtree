@@ -719,12 +719,12 @@ async fn ce01_the_owner_edits_behaviour() {
     let w = world().await;
     let (row, _) = w.file_dog("f").await;
     w.fire(row, &["first"]).await;
-    let before = w.count("SELECT jsonb_array_length(events) FROM ot.watchdogs WHERE id=$1", &[&row]).await;
+    let before = w.count("SELECT jsonb_array_length(events)::bigint FROM ot.watchdogs WHERE id=$1", &[&row]).await;
     let out = w.cfg(w.w, "f", json!({"pattern":"beta","interval_s":120})).await.unwrap();
     assert_eq!(out["id"], "f", "{out}");
     assert_eq!((w.column("f", "pattern").await.as_str(), w.column("f", "interval_s").await.as_str()), ("beta", "120"));
     assert_eq!(w.column("f", "fired").await, "1", "the fire count is kept");
-    assert_eq!(w.count("SELECT jsonb_array_length(events) FROM ot.watchdogs WHERE id=$1", &[&row]).await, before, "the ring is kept and the edit adds no fire");
+    assert_eq!(w.count("SELECT jsonb_array_length(events)::bigint FROM ot.watchdogs WHERE id=$1", &[&row]).await, before, "the ring is kept and the edit adds no fire");
     assert_eq!(w.dog("f").await.1, "armed");
 }
 
@@ -855,17 +855,15 @@ async fn ce09_the_owner_takes_the_actions_over() {
     assert!(mail.contains("Fire actions (run as you, with your current authority):") && mail.contains("orgtree_message: ok"), "{mail}");
 }
 
-/// CE10: a slot edit while the lease is held is refused; a waiting claim is re-admitted at the back.
+/// CE10: a waiting slot claim is re-admitted at the back; a held lease refuses the edit.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
 #[nolog]
 async fn ce10_slot_edits() {
     let w = world().await;
     w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{slots_capacity}','1') WHERE id=$1", &[&w.q]).await;
-    let held = create(&w.e, w.org.id, w.c, &json!({"kind":"slot","target":"Q","name":"mine"})).await.unwrap();
-    let held_id = held["id"].as_str().unwrap_or("mine").to_string();
-    let e = err(w.cfg(w.c, &held_id, json!({"slots": 1})).await);
-    assert!(e.contains("release the held slot first (release_slot), then edit") || e.contains("spent"), "{e}");
+    // C takes the only slot (granted inline, so no dog); the delegated claim for w waits
+    create(&w.e, w.org.id, w.c, &json!({"kind":"slot","target":"Q","name":"mine"})).await.unwrap();
     let waiting = create(&w.e, w.org.id, w.c, &json!({"kind":"slot","target":"Q","owner":"w","name":"wait"})).await.unwrap();
     let wid = waiting["id"].as_str().unwrap().to_string();
     assert_eq!(w.dog(&wid).await.1, "armed");
@@ -874,6 +872,10 @@ async fn ce10_slot_edits() {
     w.cfg(w.c, &format!("w/{wid}"), json!({"slots": 1})).await.unwrap();
     let after: i64 = w.dog(&wid).await.2["queued_at"].as_i64().unwrap();
     assert!(after > before, "re-admitted at the back of the queue");
+    // a held lease refuses the edit
+    w.sql("UPDATE ot.watchdogs SET memo = memo || '{\"lease\":\"L1\"}'::jsonb WHERE uid=$1", &[&wid]).await;
+    let e = err(w.cfg(w.c, &format!("w/{wid}"), json!({"slots": 1})).await);
+    assert!(e.contains("release the held slot first (release_slot), then edit") || e.contains("spent"), "{e}");
 }
 
 /// CE11: a paused dog stays paused; a spent dog is refused.

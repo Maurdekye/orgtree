@@ -66,7 +66,7 @@ pub(super) struct Created {
 /// protocols, heartbeat and credentials, and the owner's web tool. The
 /// credentials are checked as a connection would use them.
 #[logged]
-pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scratch: &Path, target: &str, args: &Value) -> Result<Created> {
+pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scratch: &Path, target: &str, args: &Value, stored: Option<&[u8]>) -> Result<Created> {
     let endpoint = match crate::ws::parse_target(target) {
         Ok(e) => e,
         Err(e) => refuse!(BadRequest, "{e}"),
@@ -127,6 +127,11 @@ pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scra
         Some(_) => refuse!(BadRequest, "heartbeat is an object {{message, every_s}}"),
     };
     let (source, shown, inline) = match args.get("credentials") {
+        // an edit that keeps the dog's stored inline credentials (same host)
+        None | Some(Value::Null) if stored.is_some() => match creds::inline_from_bytes(stored.unwrap_or_default()) {
+            Ok(i) => (creds::Source::Inline(Arc::new(i.clone())), json!({ "kind": "inline" }), Some(i)),
+            Err(e) => refuse!(BadRequest, "{e}"),
+        },
         None | Some(Value::Null) => (creds::Source::None, Value::Null, None),
         Some(Value::String(p)) => {
             let full = file_target(scratch, p.trim());

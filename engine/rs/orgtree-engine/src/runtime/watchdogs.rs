@@ -72,6 +72,7 @@ mod websocket;
 mod usage_eval;
 mod immediate;
 mod forms;
+mod edit;
 pub mod usage;
 #[cfg(test)]
 mod project_tests;
@@ -1663,13 +1664,90 @@ async fn run_fire_actions_inner(engine: &Arc<Engine>, org_id: i64, owner: i64, o
     out
 }
 
+/// The shortest poll or gap a dog of `kind` may ask for.
+#[nolog]
+fn interval_floor(kind: &str) -> i64 {
+    if matches!(kind, "stream" | "activity" | "event" | "usage" | "fair_queue" | "slot" | "project_listener" | "listener_watch" | "mqtt" | "websocket") { STREAM_FLOOR_S } else { FLOOR_S }
+}
+
+/// `fire_mode` and `quiet_period_s` as create validates them.
+#[nolog]
+fn silence_pair(args: &Value) -> Result<(String, Option<i32>)> {
+    let fire_mode = args["fire_mode"].as_str().filter(|s| !s.is_empty()).unwrap_or("event").to_string();
+    if fire_mode != "event" && fire_mode != "silence" {
+        refuse!(BadRequest, "fire_mode must be event or silence");
+    }
+    let quiet: Option<i32> = args["quiet_period_s"].as_i64().map(|q| q.clamp(0, i32::MAX as i64) as i32);
+    if fire_mode == "silence" && quiet.unwrap_or(0) < 1 {
+        refuse!(BadRequest, "fire_mode silence requires quiet_period_s (seconds without a matching event)");
+    }
+    if fire_mode == "event" && quiet.is_some() {
+        refuse!(BadRequest, "quiet_period_s applies only to fire_mode silence");
+    }
+    Ok((fire_mode, quiet))
+}
+
+/// A fair_queue's `batch`.
+#[nolog]
+fn batch_value(batch: &Value) -> Result<u64> {
+    let Some(n) = batch.as_u64().filter(|n| (1..=crate::domain::projects::MAX_QUEUE_BATCH).contains(n)) else {
+        refuse!(BadRequest, "batch must be an integer from 1 to 20");
+    };
+    Ok(n)
+}
+
+/// A slot claim's `slots`.
+#[nolog]
+fn slots_value(slots: &Value) -> Result<i64> {
+    let Some(n) = slots.as_i64().filter(|n| (1..=crate::domain::slots::MAX_CAPACITY).contains(n)) else {
+        refuse!(BadRequest, "slots must be an integer from 1 to {}", crate::domain::slots::MAX_CAPACITY);
+    };
+    Ok(n)
+}
+
+/// A listener_watch's `count` on project `project`.
+#[nolog]
+fn count_value(count: &Value, project: &str) -> Result<i64> {
+    let Some(n) = count.as_i64().filter(|n| (1..=crate::domain::listeners::MAX_COUNT).contains(n)) else {
+        refuse!(BadRequest, "a listener_watch watchdog needs count: how many armed project event listeners on {project} fire it (1 to {})", crate::domain::listeners::MAX_COUNT);
+    };
+    Ok(n)
+}
+
+/// fire_actions a superior sets on a dog it does not own may use only these tools (spec W5): each call is
+/// checked against the setter's own authority at fire time, which only these can be.
+#[nolog]
+fn fire_actions_listed(list: &[Value], owner_name: &str) -> Result<()> {
+    for a in list {
+        let tool = a["tool"].as_str().unwrap_or("");
+        let action = a["args"]["action"].as_str().unwrap_or("");
+        let listed = match tool {
+            "orgtree_message" | "orgtree_send_notice" | "orgtree_status" => true,
+            "orgtree_watchdog" => matches!(action, "pause" | "resume" | "remove" | "send" | "list"),
+            "orgtree_project" => action == "fire_event",
+            _ => false,
+        };
+        if !listed {
+            refuse!(BadRequest, "fire_actions on a watchdog for {owner_name} may use only orgtree_message, orgtree_send_notice, orgtree_watchdog (pause/resume/remove/send/list), orgtree_project fire_event and orgtree_status");
+        }
+    }
+    Ok(())
+}
+
+
 /// The agent that created the dog `uid` for `owner` (its `memo.created_by`), when that is not the owner.
 #[logged]
 async fn setter_of(engine: &Arc<Engine>, owner: i64, uid: &str) -> Option<(i64, String)> {
     let client = engine.db.get().await.ok()?;
     let r = client.query_opt("SELECT memo->'created_by' FROM ot.watchdogs WHERE owner_agent_id = $1 AND uid = $2 AND state <> 'removed' ORDER BY id DESC LIMIT 1", &[&owner, &uid]).await.ok()??;
     let by: Option<Value> = r.get(0);
-    let by = by?;
+    // fire actions an editor set (or the owner took over) are limited to THAT editor, else to the creator
+    let actions_by: Option<Value> = client.query_opt("SELECT memo->'actions_by' FROM ot.watchdogs WHERE owner_agent_id = $1 AND uid = $2 AND state <> 'removed' ORDER BY id DESC LIMIT 1", &[&owner, &uid]).await.ok()??.get(0);
+    let by = match actions_by {
+        Some(Value::String(s)) if s == "owner" => return None,
+        Some(v @ Value::Object(_)) => json!({ "kind": "agent", "id": v["id"], "name": v["name"] }),
+        _ => by?,
+    };
     let id = by["id"].as_i64().filter(|i| *i != owner && by["kind"] == "agent")?;
     Some((id, by["name"].as_str().unwrap_or("").to_string()))
 }
@@ -2601,19 +2679,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         }
         // fire_actions run as the owner, each call only if the setter may make it too (rev 1.2 W5):
         // only the allow-listed tools can be checked against the setter's reach at fire time
-        for a in args.get("fire_actions").and_then(Value::as_array).into_iter().flatten() {
-            let tool = a["tool"].as_str().unwrap_or("");
-            let action = a["args"]["action"].as_str().unwrap_or("");
-            let listed = match tool {
-                "orgtree_message" | "orgtree_send_notice" | "orgtree_status" => true,
-                "orgtree_watchdog" => matches!(action, "pause" | "resume" | "remove" | "send" | "list"),
-                "orgtree_project" => action == "fire_event",
-                _ => false,
-            };
-            if !listed {
-                refuse!(BadRequest, "fire_actions on a watchdog for {} may use only orgtree_message, orgtree_send_notice, orgtree_watchdog (pause/resume/remove/send/list), orgtree_project fire_event and orgtree_status", d.owner_name);
-            }
-        }
+        fire_actions_listed(args.get("fire_actions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]), &d.owner_name)?;
         match kind.as_str() {
             "command" | "stream" if !holds_bash(engine, d.setter).await? => refuse!(
                 Forbidden, "a command/stream watchdog for {} still needs the bash you hold yourself; you do not hold bash", d.owner_name),
@@ -2709,13 +2775,13 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     }
     let mut mqtt_new: Option<mqtt::Created> = None;
     if kind == "mqtt" {
-        let c = mqtt::validate(engine, org_id, owner, &scratch, &target, args).await?;
+        let c = mqtt::validate(engine, org_id, owner, &scratch, &target, args, None).await?;
         target = c.target.clone();
         mqtt_new = Some(c);
     }
     let mut ws_new: Option<websocket::Created> = None;
     if kind == "websocket" {
-        let c = websocket::validate(engine, org_id, owner, &scratch, &target, args).await?;
+        let c = websocket::validate(engine, org_id, owner, &scratch, &target, args, None).await?;
         target = c.target.clone();
         ws_new = Some(c);
     }
@@ -2811,10 +2877,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         if kind != "fair_queue" {
             refuse!(BadRequest, "batch is only for a fair_queue watchdog");
         }
-        let Some(n) = batch.as_u64().filter(|n| (1..=crate::domain::projects::MAX_QUEUE_BATCH).contains(n)) else {
-            refuse!(BadRequest, "batch must be an integer from 1 to 20");
-        };
-        memo["batch"] = json!(n);
+        memo["batch"] = json!(batch_value(batch)?);
     }
     if kind == "fair_queue" {
         if memo.get("batch").is_none() { memo["batch"] = json!(1); }
@@ -2853,10 +2916,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let mut slot_project: Option<crate::domain::projects::Project> = None;
     if let Some(slots) = args.get("slots").filter(|s| !s.is_null()) {
         if kind != "slot" { refuse!(BadRequest, "slots is only for a slot watchdog"); }
-        let Some(n) = slots.as_i64().filter(|n| (1..=crate::domain::slots::MAX_CAPACITY).contains(n)) else {
-            refuse!(BadRequest, "slots must be an integer from 1 to {}",crate::domain::slots::MAX_CAPACITY);
-        };
-        memo["slots"] = json!(n);
+        memo["slots"] = json!(slots_value(slots)?);
     }
     if kind == "slot" {
         if memo.get("slots").is_none() { memo["slots"] = json!(1); }
@@ -2917,10 +2977,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         }
         memo["target_id"] = json!(p.id);
         if kind == "listener_watch" {
-            let Some(n) = args["count"].as_i64().filter(|n| (1..=crate::domain::listeners::MAX_COUNT).contains(n)) else {
-                refuse!(BadRequest, "a listener_watch watchdog needs count: how many armed project event listeners on {} fire it (1 to {})", p.name, crate::domain::listeners::MAX_COUNT);
-            };
-            memo["count"] = json!(n);
+            memo["count"] = json!(count_value(&args["count"], &p.name)?);
             memo["run"]["above"] = json!(false);
         }
         target = p.name.clone();
@@ -2941,17 +2998,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         }
         memo["target_id"] = json!(tid);
     }
-    let fire_mode = args["fire_mode"].as_str().filter(|s| !s.is_empty()).unwrap_or("event").to_string();
-    if fire_mode != "event" && fire_mode != "silence" {
-        refuse!(BadRequest, "fire_mode must be event or silence");
-    }
-    let quiet: Option<i32> = args["quiet_period_s"].as_i64().map(|q| q.clamp(0, i32::MAX as i64) as i32);
-    if fire_mode == "silence" && quiet.unwrap_or(0) < 1 {
-        refuse!(BadRequest, "fire_mode silence requires quiet_period_s (seconds without a matching event)");
-    }
-    if fire_mode == "event" && quiet.is_some() {
-        refuse!(BadRequest, "quiet_period_s applies only to fire_mode silence");
-    }
+    let (fire_mode, quiet) = silence_pair(args)?;
     let shell = args["shell"].as_str().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).unwrap_or_else(|| "native".into());
     if shell != "native" && shell != "bash" {
         refuse!(BadRequest, "shell must be native or bash");
@@ -2975,8 +3022,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if kind == "command" && pattern.is_none() {
         refuse!(BadRequest, "a command watchdog needs a pattern — 'ran and printed something' is not an event");
     }
-    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "usage" || kind == "fair_queue" || kind == "slot" || kind == "project_listener" || kind == "listener_watch" || kind == "mqtt" || kind == "websocket" { STREAM_FLOOR_S } else { FLOOR_S };
-    let interval = args["interval_s"].as_i64().unwrap_or(60).max(floor).min(i32::MAX as i64) as i32;
+    let interval = args["interval_s"].as_i64().unwrap_or(60).max(interval_floor(&kind)).min(i32::MAX as i64) as i32;
     // a slot claim is one-shot: it fires once, with the grant
     let once = kind == "slot" || args["once"].as_bool().unwrap_or(false);
     let notice = args["notice"].as_bool().unwrap_or(false);
@@ -3408,6 +3454,36 @@ async fn above_project(engine: &Engine, agent: i64, project: i64) -> Result<bool
         .get(0))
 }
 
+/// An edit's record: one `watchdog_configure` event listing field NAMES only (never values), and, when
+/// someone other than the owner edited, one passive notice to the owner (the keeper, for a project dog).
+#[logged]
+async fn record_edit(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, dog: &Dog, memo: &Value, changed: &[String]) {
+    let Ok(client) = engine.db.get().await else { return };
+    let editor = match actor {
+        Some(a) => client.query_opt("SELECT name FROM ot.agents WHERE id = $1", &[&a]).await.ok().flatten().map(|r| r.get::<_, String>(0)).unwrap_or_default(),
+        None => "@user".to_string(),
+    };
+    let _ = client.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'watchdog_configure', $2, $3, $4)",
+        &[&org_id, &editor, &dog.owner, &json!({ "id": dog.uid, "changed": changed })]).await;
+    if actor.is_none() || actor == Some(dog.owner) {
+        return;
+    }
+    let to = if dog.project_owned() {
+        match crate::domain::watchdogs::keeper(&**client, dog.owner, memo).await { Ok(Some((_, n))) => Some(n), _ => None }
+    } else {
+        Some(dog.owner_name.clone())
+    };
+    drop(client);
+    let Some(to) = to else { return };
+    let body = format!("@{} changed your watchdog {}/{}: {}.", editor.trim_start_matches('@'), dog.owner_name, dog.uid, changed.join(", "));
+    let mut note = Outgoing::new(From::System, &to, &body);
+    note.notice = true;
+    note.grant_reply_audience = false;
+    if let Err(e) = mail::send(engine, org_id, note).await {
+        tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "the owner of an edited watchdog could not be told");
+    }
+}
+
 /// `configure`, the one handler (project-watchdogs F8): `connection_messages`
 /// (mqtt and websocket dogs) and `project_delivery` (project dogs), by the
 /// owner, a superior, or the user (`actor: None`). Both settings apply in one
@@ -3424,8 +3500,9 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     } else {
         None
     };
-    if mode.is_none() && form.is_none() {
-        refuse!(BadRequest, "configure requires connection_messages (notice, wake or off, or notify_on_connect) or project_delivery (event, broadcast or queue)");
+    let editing = edit::wants(args);
+    if mode.is_none() && form.is_none() && !editing {
+        refuse!(BadRequest, "configure requires connection_messages (notice, wake or off, or notify_on_connect), project_delivery (event, broadcast or queue) or fields to edit (behaviour and target fields; kind, owner, project and name are fixed)");
     }
     if mode.is_some() && !matches!(dog.kind.as_str(), "mqtt" | "websocket") {
         refuse!(BadRequest, "connection_messages is for mqtt and websocket watchdogs only");
@@ -3439,6 +3516,8 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
             refuse!(Forbidden, "only the user or an agent above project {} may make its watchdog broadcast to the project's members", dog.owner_name);
         }
     }
+    // every field is validated, and every recheck run, before anything is written (spec 5: atomicity)
+    let plan = if editing { Some(edit::plan(engine, org_id, actor, &dog, args).await?) } else { None };
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     // the project row first, as a fire and a switch take it, then the dog
@@ -3454,6 +3533,9 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     let mut notes: Vec<String> = Vec::new();
     let was = crate::domain::watchdogs::project_delivery(&memo);
     let mut rearm = false;
+    if let Some(pl) = &plan {
+        edit::apply(&*tx, &dog, org_id, pl, &mut memo, &state).await?;
+    }
     if let Some(m) = mode {
         memo["connection_messages"] = json!(m);
     }
@@ -3491,14 +3573,28 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     .await?;
     tx.commit().await?;
     drop(client);
-    if rearm {
+    let restart = plan.as_ref().is_some_and(|p| p.restart);
+    if rearm || (restart && state == "armed") {
         disarm(engine, dog.row);
         arm(engine, dog.row);
     } else if state == "paused" && dog.state == "armed" {
         disarm(engine, dog.row);
     }
+    let mut changed: Vec<String> = plan.as_ref().map(|p| p.changed.clone()).unwrap_or_default();
+    if mode.is_some() {
+        changed.push("connection_messages".into());
+    }
+    if form.is_some() {
+        changed.push("project_delivery".into());
+    }
+    if plan.is_some() {
+        record_edit(engine, org_id, actor, &dog, &memo, &changed).await;
+    }
     changes::notify_id(engine, org_id, vec![Change::Watchdogs]);
     let mut out = json!({"id": dog.uid, "name": dog.name, "state": state});
+    if plan.is_some() {
+        out["changed"] = json!(changed);
+    }
     if let Some(m) = mode {
         out["connection_messages"] = json!(m);
         out["notify_on_connect"] = json!(m != "off");

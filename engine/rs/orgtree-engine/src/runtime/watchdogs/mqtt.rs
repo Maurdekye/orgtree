@@ -131,7 +131,7 @@ pub(super) struct Created {
 /// (`pattern`), payload_pattern, retained and credentials, and the owner's
 /// web tool. The credentials are checked as a connection would use them.
 #[logged]
-pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scratch: &Path, target: &str, args: &Value) -> Result<Created> {
+pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scratch: &Path, target: &str, args: &Value, stored: Option<&[u8]>) -> Result<Created> {
     let broker = match crate::mqtt::parse_target(target) {
         Ok(b) => b,
         Err(e) => refuse!(BadRequest, "{e}"),
@@ -167,6 +167,14 @@ pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scra
         Some(_) => refuse!(BadRequest, "retained must be true or false"),
     };
     let (source, shown, inline, client_id) = match args.get("credentials") {
+        // an edit that keeps the dog's stored inline credentials (same host)
+        None | Some(Value::Null) if stored.is_some() => match creds::inline_from_bytes(stored.unwrap_or_default()) {
+            Ok(i) => {
+                let client_id = i.client_id.clone();
+                (creds::Source::Inline(Arc::new(i.clone())), json!({ "kind": "inline" }), Some(i), client_id)
+            }
+            Err(e) => refuse!(BadRequest, "{e}"),
+        },
         None | Some(Value::Null) => (creds::Source::None, Value::Null, None, None),
         Some(Value::String(p)) => {
             let full = file_target(scratch, p.trim());

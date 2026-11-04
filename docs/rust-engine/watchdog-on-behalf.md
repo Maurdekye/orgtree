@@ -18,5 +18,13 @@ The spec is @stream-plan-opus's rev 1.3 (W1-W12); decisions here are its numbers
 - **fire_actions (W5 rev 1.2):** `setter_of` finds `memo.created_by` at fire time; `setter_gate` (live, strict ancestor) and `setter_allows`
   (tool groups via `tool_groups::allows_call`, then an allow-list by target reach) run before each call in `run_fire_actions_inner`.
 - **Management (W9):** unchanged; any ancestor of the owner manages (MG1-MG3 pin it).
+- **Configure edits (rev 1.4/1.5 section 5):** `runtime/watchdogs/edit.rs` (`plan` validates everything and writes nothing, `apply` merges into
+  `configure`'s one transaction). It reuses create's validators (`interval_floor`, `silence_pair`, `batch_value`, `slots_value`, `count_value`,
+  `fire_actions_arg`/`fire_actions_listed`, `websocket::validate`/`mqtt::validate` with an optional stored-credentials argument, `smoke`,
+  `watch_reach`). A smoke that reports the target broken refuses the edit. `memo.actions_by` (an editor's object, or "owner") picks whose
+  authority `setter_of` intersects at fire time. Not editable yet: an app_listener's subscription (event_name, panel, all_panels). An mqtt/
+  websocket tier A pattern edit applies at the dog's next connection (the live connection's compiled pattern is not swapped).
+- **fire_actions and `recover`:** fire actions run only in a normal or recovering engine (a safe-start rehearsal skips them); an ordinary create
+  need not return `registered:true`.
 - **Tests:** `runtime/watchdogs/onbehalf_tests.rs` (WD, RB, RA, FA, MG; synthetic PG `projdogs_fixture`, like project_tests.rs), T1 in
   `tools/defs.rs`, renderer R7.

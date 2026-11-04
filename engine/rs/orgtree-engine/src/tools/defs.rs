@@ -1184,7 +1184,8 @@ fn build_tool_watchdog() -> Value {
         "orgtree_watchdog",
         "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped/paged. create kind/target (usage default), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: inline effects/actions; else register. usage cached, no probes. slot grants lease; other kinds/fire_actions: Guide. mqtt/websocket send needs live connection (MQTT topic).",
         json!({
-            "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send", "configure"] },
+            "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send", "configure"],
+                        "description": "configure edits connection_messages, project_delivery and the dog's behaviour and target fields (notice, interval_s, pattern, fire_mode, quiet_period_s, once, target, shell, hello, heartbeat, protocols, credentials, payload_pattern, retained, batch, count, slots, usage fields, fire_actions); kind, owner, project and name are fixed" },
             "cursor": {"type":"string","description":"list: next_cursor from the preceding page"},
             "limit": {"type":"integer","minimum":1,"maximum":100,"description":"list: page size (default 50, max 100)"},
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
@@ -1234,7 +1235,7 @@ fn build_tool_watchdog() -> Value {
             "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
             "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
             "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
-            "id": { "type": "string", "description": "pause/resume/remove/send/configure: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
+            "id": { "type": "string", "description": "pause/resume/remove/send/configure: the watchdog's id as `list` shows it (owner/id for a team member's dog); configure edits keep it, its fire count and its history" },
             "reason": { "type": "string", "description": "remove: why (optional)" },
         }),
         &["action"],
@@ -1882,6 +1883,8 @@ mod builder_stack_tests {
         dschema["properties"]["project"] = serde_json::json!({"type":"string","description":"create: put the watchdog on this project (you must be above or below it); its fires reach the project's listeners. list: that project's watchdogs"});
         dschema["properties"]["project_delivery"] = serde_json::json!({"type":"string","enum":["event","broadcast","queue"],"description":"project dogs: event (default, to the project's listeners), broadcast (mail to each live agent directly under the project) or queue (one job per fire in the project's mail queue). create or configure"});
         dschema["properties"]["owner"] = serde_json::json!({"type":"string","description":"create: make this live descendant (any depth, through projects) the owner; fires reach it as if it had created the watchdog. It runs with the owner's hands; project kinds may use your project reach"});
+        dschema["properties"]["action"]["description"] = serde_json::json!("configure edits connection_messages, project_delivery and the dog's behaviour and target fields (notice, interval_s, pattern, fire_mode, quiet_period_s, once, target, shell, hello, heartbeat, protocols, credentials, payload_pattern, retained, batch, count, slots, usage fields, fire_actions); kind, owner, project and name are fixed");
+        dschema["properties"]["id"]["description"] = serde_json::json!("pause/resume/remove/send/configure: the watchdog's id as `list` shows it (owner/id for a team member's dog); configure edits keep it, its fire count and its history");
         dschema["properties"]["fire_actions"] = serde_json::json!({"type":"array","maxItems":4,"items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]},"description":"create: orgtree_* tool calls run as you when it fires, results inline or in fire mail; authority rechecked at fire time; not for fair_queue"});
         dschema["properties"]["accounts"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact visible account ids; omitted = any"});
         dschema["properties"]["windows"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"});
