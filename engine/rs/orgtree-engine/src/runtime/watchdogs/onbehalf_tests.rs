@@ -938,6 +938,65 @@ async fn ce18_project_network_edits_need_the_editors_web() {
     server.stop();
 }
 
+/// CE19 (D16 under the project lock): two edits that each pass the early check cannot both be written.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19_the_duplicate_check_is_repeated_under_the_lock() {
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&w.p]).await;
+    for n in ["one", "two"] {
+        create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":format!("echo {n}"),"pattern":"p","project":"P","name":n})).await.unwrap();
+    }
+    let (a, b) = (w.dog("one").await.3, w.dog("two").await.3);
+    let (da, db) = (load(&w.e, a).await.unwrap().unwrap(), load(&w.e, b).await.unwrap().unwrap());
+    // both plans pass the early check: neither has been written
+    let want = json!({"target":"echo same"});
+    let pa = edit::plan(&w.e, w.org.id, Some(w.s), &da, &want).await.unwrap();
+    let pb = edit::plan(&w.e, w.org.id, Some(w.s), &db, &want).await.unwrap();
+    for (dog, plan) in [(&da, &pa), (&db, &pb)] {
+        let mut c = w.e.db.get().await.unwrap();
+        let tx = c.transaction().await.unwrap();
+        let mut memo = dog.memo.clone();
+        let r = edit::apply(&*tx, dog, w.org.id, plan, &mut memo, "armed").await;
+        if dog.uid == "one" {
+            r.unwrap();
+            tx.commit().await.unwrap();
+        } else {
+            let e = format!("{:#}", r.expect_err("the second write must be refused"));
+            assert!(e.contains("already has this watchdog: P/one"), "{e}");
+        }
+    }
+    assert_eq!(w.column("two", "target").await, "echo two", "the loser wrote nothing");
+}
+
+/// CE19b: the per-owner-per-project limit is repeated under the owner row lock.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce19b_one_queue_dog_per_owner_per_project_under_the_lock() {
+    let w = world().await;
+    let q = w.queue_dog(w.c, "C", "Q").await.unwrap()["id"].as_str().unwrap().to_string();
+    let a = w.queue_dog(w.c, "C", "A").await.unwrap()["id"].as_str().unwrap().to_string();
+    let (dq, da) = (load(&w.e, w.dog(&q).await.3).await.unwrap().unwrap(), load(&w.e, w.dog(&a).await.3).await.unwrap().unwrap());
+    let want = json!({"target":"B"});
+    let pq = edit::plan(&w.e, w.org.id, Some(w.c), &dq, &want).await.unwrap();
+    let pa = edit::plan(&w.e, w.org.id, Some(w.c), &da, &want).await.unwrap();
+    for (dog, plan) in [(&dq, &pq), (&da, &pa)] {
+        let mut c = w.e.db.get().await.unwrap();
+        let tx = c.transaction().await.unwrap();
+        let mut memo = dog.memo.clone();
+        let r = edit::apply(&*tx, dog, w.org.id, plan, &mut memo, "armed").await;
+        if dog.uid == q {
+            r.unwrap();
+            tx.commit().await.unwrap();
+        } else {
+            let e = format!("{:#}", r.expect_err("the second write must be refused"));
+            assert!(e.contains("already has fair_queue watchdog"), "{e}");
+        }
+    }
+}
+
 /// CE10: a waiting slot claim is re-admitted at the back; a held lease refuses the edit.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
