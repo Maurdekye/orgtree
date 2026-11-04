@@ -276,6 +276,32 @@ pub async fn reaches(client: &impl GenericClient, agent: i64, project: i64) -> R
         .get(0))
 }
 
+/// Is `project` the one a dog's create-time reach grant names (`memo.reach_grant`)? The grant
+/// (watchdog on behalf W6) lives inside its dog: a delegated or audience-reached dog is
+/// checked once at create and keeps its project whatever the tree or the audience does later.
+#[nolog]
+pub fn granted(memo: &Value, project: i64) -> bool {
+    memo["reach_grant"]["project"].as_i64() == Some(project)
+}
+
+/// The one reach predicate of a dog (or a claim got through one): tree reach, or its grant.
+#[logged]
+pub async fn dog_reaches(client: &impl GenericClient, agent: i64, project: i64, memo: &Value) -> Result<bool> {
+    if granted(memo, project) {
+        return Ok(true);
+    }
+    reaches(client, agent, project).await
+}
+
+/// Does `holder` keep a fair_queue dog `dog_uid` whose create-time grant names `project`?
+/// (A claim handed through such a dog stays reachable for its holder.)
+#[logged]
+pub(crate) async fn granted_dog(client: &impl GenericClient, holder: i64, project: i64, dog_uid: &str) -> Result<bool> {
+    Ok(client.query_opt(
+        "SELECT 1 FROM ot.watchdogs WHERE owner_agent_id = $1 AND uid = $2 AND kind = 'fair_queue' AND state <> 'removed'
+            AND (memo->'reach_grant'->>'project')::bigint = $3 LIMIT 1", &[&holder, &dog_uid, &project]).await?.is_some())
+}
+
 /// Refuse unless `agent` reaches `project`, naming what it tried.
 #[logged]
 pub async fn require_reach(client: &impl GenericClient, agent: i64, project: &Project, what: &str) -> Result<()> {
@@ -543,12 +569,12 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         if eligible.iter().any(|w| w.owner == owner) { continue; }
         // a watcher that has since moved out of the project's line no longer reaches it
         // (the user, who listens from the desk, reaches every project)
+        let memo: Value = r.get(8);
         let reached = match owner {
-            Some(agent) => reaches(&*tx, agent, project).await?,
+            Some(agent) => dog_reaches(&*tx, agent, project, &memo).await?,
             None => true,
         };
         if reached {
-            let memo: Value = r.get(8);
             eligible.push(Watcher {
                 row: r.get(0),
                 uid: r.get(1),
@@ -857,7 +883,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
         let (row, holder): (i64, Option<i64>) = (h.get(0), h.get(1));
         let Some(holder) = holder else { continue };
         let a = client.query_opt("SELECT state, halt IS NOT NULL, frozen IS NOT NULL FROM ot.agents WHERE id = $1", &[&holder]).await?;
-        let reach = reaches(&**client, holder, project).await?;
+        let reach = reaches(&**client, holder, project).await? || granted_dog(&**client, holder, project, &h.get::<_, String>(4)).await?;
         let listening = (h.get::<_,Option<bool>>(5).unwrap_or(false) || client
             .query_opt(
                 // a one-shot dog that handed this very mail is spent, and still counts
@@ -915,8 +941,8 @@ async fn stale_claim_reason(tx:&impl GenericClient,org_id:i64,project:i64,holder
     if a.get::<_,String>(0)!="live"{return Ok(Some("was retired"))}
     if a.get::<_,bool>(1){return Ok(Some(HALTED))}
     if a.get::<_,bool>(2){return Ok(Some(FROZEN))}
-    if !reaches(tx,holder,project).await?{return Ok(Some(MOVED_OUT))}
     let dog=claimed["dog"].as_str().unwrap_or("");
+    if !reaches(tx,holder,project).await? && !granted_dog(tx,holder,project,dog).await?{return Ok(Some(MOVED_OUT))}
     let listening=claimed["inline"]==true || tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE org_id=$1 AND kind='fair_queue' AND owner_agent_id=$2 AND (memo->>'target_id')::bigint=$3 AND (state='armed' OR (state='spent' AND uid=$4)) LIMIT 1",&[&org_id,&holder,&project,&dog]).await?.is_some();
     if !listening{return Ok(Some("stopped watching the project"))}
     Ok(None)
@@ -1402,7 +1428,7 @@ pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(Str
 pub async fn watched(client: &impl GenericClient, org_id: i64, project: i64) -> Result<bool> {
     let rows = client
         .query(
-            "SELECT w.owner_agent_id FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
+            "SELECT w.owner_agent_id, w.memo FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
               ORDER BY w.id LIMIT 64",
@@ -1414,7 +1440,7 @@ pub async fn watched(client: &impl GenericClient, org_id: i64, project: i64) -> 
         match r.get::<_, Option<i64>>(0) {
             None => return Ok(true),
             Some(agent) => {
-                if reaches(client, agent, project).await? {
+                if dog_reaches(client, agent, project, &r.get::<_, Value>(1)).await? {
                     return Ok(true);
                 }
             }
@@ -1544,7 +1570,7 @@ pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64,
     let mut st = QueueState::default();
     for r in &rows {
         let id: i64 = r.get(0);
-        if !reaches(client, id, project).await? {
+        if !dog_reaches(client, id, project, &r.get::<_, Value>(3)).await? {
             continue;
         }
         st.listeners += 1;

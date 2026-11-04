@@ -1605,11 +1605,32 @@ async fn run_fire_actions_inner(engine: &Arc<Engine>, org_id: i64, owner: i64, o
         agent_id: owner,
         name: owner_name.to_string(),
     };
-    let mut out = String::from("Fire actions (run as you, with your current authority):\n");
+    // a dog a superior created for its owner: each call also needs the setter's authority (rev 1.2 W5)
+    let setter: Option<(i64, String, Result<(), String>)> = match setter_of(engine, owner, uid).await {
+        Some((id, sname)) => {
+            let gate = setter_gate(engine, id, &sname, owner).await;
+            Some((id, sname, gate))
+        }
+        None => None,
+    };
+    let mut out = match &setter {
+        Some((_, sname, _)) => format!("Fire actions (run as you, limited to what both you and @{sname} may do now):\n"),
+        None => String::from("Fire actions (run as you, with your current authority):\n"),
+    };
     FIRE_ACTION_DEPTH.scope(depth + 1, async {
         for a in actions {
             let tool = a["tool"].as_str().unwrap_or("");
             let argv = if a["args"].is_object() { a["args"].clone() } else { json!({}) };
+            if let Some((sid, sname, gate)) = &setter {
+                let verdict = match gate {
+                    Err(why) => Err(why.clone()),
+                    Ok(()) => setter_allows(engine, org_id, *sid, sname, owner, tool, &argv).await,
+                };
+                if let Err(why) = verdict {
+                    out.push_str(&format!("  {tool}: FAILED\n    {why}\n"));
+                    continue;
+                }
+            }
             let started = Instant::now();
             // built in a frame of its own: inline, the whole tool dispatch
             // future sat in every poll frame up a polled dog's runner, and a
@@ -1640,6 +1661,115 @@ async fn run_fire_actions_inner(engine: &Arc<Engine>, org_id: i64, owner: i64, o
         }
     }).await;
     out
+}
+
+/// The agent that created the dog `uid` for `owner` (its `memo.created_by`), when that is not the owner.
+#[logged]
+async fn setter_of(engine: &Arc<Engine>, owner: i64, uid: &str) -> Option<(i64, String)> {
+    let client = engine.db.get().await.ok()?;
+    let r = client.query_opt("SELECT memo->'created_by' FROM ot.watchdogs WHERE owner_agent_id = $1 AND uid = $2 AND state <> 'removed' ORDER BY id DESC LIMIT 1", &[&owner, &uid]).await.ok()??;
+    let by: Option<Value> = r.get(0);
+    let by = by?;
+    let id = by["id"].as_i64().filter(|i| *i != owner && by["kind"] == "agent")?;
+    Some((id, by["name"].as_str().unwrap_or("").to_string()))
+}
+
+/// The setter must be live and still a strict physical ancestor of the owner (rev 1.2 W5), else every call fails.
+#[logged]
+async fn setter_gate(engine: &Arc<Engine>, setter: i64, sname: &str, owner: i64) -> Result<(), String> {
+    let live = match engine.db.get().await {
+        Ok(c) => c.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND kind = 'agent' AND state = 'live'", &[&setter]).await.ok().flatten().is_some(),
+        Err(_) => false,
+    };
+    if !live {
+        return Err(format!("the setter @{sname} is retired"));
+    }
+    if !above_project(engine, setter, owner).await.unwrap_or(false) {
+        return Err(format!("the setter @{sname} is no longer above you"));
+    }
+    Ok(())
+}
+
+/// May the setter make this fire-action call too (rev 1.2 W5, layers 2 and 3)? Its tool groups, then its
+/// reach over the call's target by an allow-list: anything not listed fails (deny by default).
+#[logged]
+async fn setter_allows(engine: &Arc<Engine>, org_id: i64, setter: i64, sname: &str, owner: i64, tool: &str, args: &Value) -> Result<(), String> {
+    let tools = effective_scope(engine, setter).await.map(|s| s["tools"].clone()).map_err(|e| format!("@{sname}'s tools could not be read: {e:#}"))?;
+    if !crate::domain::tool_groups::allows_call(&tools, tool, args) {
+        return Err(format!("@{sname}'s tool groups do not allow {tool}"));
+    }
+    let unlisted = || format!("{tool} is not available to fire actions on a watchdog created for you by @{sname}");
+    let db = |e: anyhow::Error| format!("{e:#}");
+    match tool {
+        "orgtree_message" | "orgtree_send_notice" => {
+            let to = args["metadata"]["to"].clone();
+            let to = if to.is_null() { args["to"].clone() } else { to };
+            let list: Vec<String> = match &to {
+                Value::String(s) => vec![s.clone()],
+                Value::Array(a) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+                _ => Vec::new(),
+            };
+            if list.is_empty() {
+                return Err(format!("{tool} names no recipient @{sname} could be checked against"));
+            }
+            for r in list {
+                let name = r.trim().trim_start_matches('@').to_string();
+                if name.starts_with("org:") || name.starts_with("net:") {
+                    return Err(format!("outside recipient {r}: @{sname} holds no route for a fire action to use"));
+                }
+                let client = engine.db.get().await.map_err(|e| db(e.into()))?;
+                let ok = if name == "user" {
+                    let top = client.query_one("SELECT ot.superior_of($1)", &[&setter]).await.map_err(|e| db(e.into()))?.get::<_, Option<i64>>(0).is_none();
+                    top || client.query_opt("SELECT 1 FROM ot.effective_audiences WHERE org_id = $1 AND grantee = $2 AND grantor = '@user' AND revoked_at IS NULL AND NOT paused", &[&org_id, &sname]).await.map_err(|e| db(e.into()))?.is_some()
+                } else {
+                    let Some(t) = client.query_opt("SELECT id, kind FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org_id, &name]).await.map_err(|e| db(e.into()))? else {
+                        return Err(format!("no agent named {name}"));
+                    };
+                    let (tid, tkind): (i64, String) = (t.get(0), t.get(1));
+                    if tkind == "project" {
+                        crate::domain::projects::reaches(&**client, setter, tid).await.map_err(db)?
+                            || crate::domain::audiences::effective_holds(&**client, org_id, sname, &name).await.map_err(db)?
+                    } else {
+                        // the send route check with its auto-grant off: a route that would grant itself is not held
+                        crate::domain::mail::authorize(&**client, org_id, setter, sname, tid, &name, false).await.is_ok()
+                    }
+                };
+                if !ok {
+                    return Err(format!("@{sname} cannot send to {r}: not a recipient the setter could reach now"));
+                }
+            }
+            Ok(())
+        }
+        "orgtree_watchdog" => match args["action"].as_str().unwrap_or("list") {
+            "create" => Err("a fire action cannot create watchdogs on a watchdog created for you".to_string()),
+            "list" if args["id"].as_str().is_none_or(|i| i.trim().is_empty()) => Ok(()),
+            "pause" | "resume" | "remove" | "send" | "list" => {
+                let id = args["id"].as_str().unwrap_or("").trim().to_string();
+                // the dog as the OWNER names it, then may the setter manage that dog
+                let dog = resolve(engine, org_id, Some(owner), &id).await.map_err(db)?;
+                if may_manage(engine, Some(setter), dog.owner, &dog.owner_kind).await.map_err(db)? {
+                    Ok(())
+                } else {
+                    Err(format!("@{sname} does not manage watchdog {id}"))
+                }
+            }
+            _ => Err(unlisted()),
+        },
+        "orgtree_project" if args["action"] == "fire_event" => {
+            let name = args["name"].as_str().unwrap_or("");
+            let client = engine.db.get().await.map_err(|e| db(e.into()))?;
+            let Some(p) = crate::domain::projects::by_name(&**client, org_id, name).await.map_err(db)? else {
+                return Err(format!("no project named {name}"));
+            };
+            if crate::domain::projects::reaches(&**client, setter, p.id).await.map_err(db)? {
+                Ok(())
+            } else {
+                Err(format!("@{sname} is neither above nor below project {}", p.name))
+            }
+        }
+        "orgtree_status" if args.get("node").is_none_or(Value::is_null) => Ok(()),
+        _ => Err(unlisted()),
+    }
 }
 
 fn fire_body(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32) -> String {
@@ -2264,9 +2394,16 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
 #[nolog]
 pub async fn create_as(engine: &Arc<Engine>, org_id: i64, caller: Option<i64>, args: &Value) -> Result<Value> {
     let named = args.get("project").and_then(Value::as_str).map(|n| n.trim().trim_start_matches('@')).filter(|n| !n.is_empty());
+    if let Some(owner) = args.get("owner").filter(|v| !v.is_null()) {
+        if named.is_some() {
+            refuse!(BadRequest, "owner and project are exclusive: a project's watchdog has no agent owner");
+        }
+        let Some(setter) = caller else { refuse!(BadRequest, "the app creates watchdogs on a project only (project=P)") };
+        return crate::util::boxed(|| create_for(engine, org_id, setter, owner, args)).await;
+    }
     let Some(name) = named else {
         let Some(owner) = caller else { refuse!(BadRequest, "the app creates watchdogs on a project only (project=P)") };
-        return crate::util::boxed(|| create_mode(engine, org_id, owner, args, None, None)).await;
+        return crate::util::boxed(|| create_mode(engine, org_id, owner, args, None, None, None)).await;
     };
     let project = {
         let client = engine.db.get().await?;
@@ -2280,7 +2417,74 @@ pub async fn create_as(engine: &Arc<Engine>, org_id: i64, caller: Option<i64>, a
         }
         p
     };
-    crate::util::boxed(|| create_mode(engine, org_id, project.id, args, None, Some(ProjectCreate { caller, name: project.name.clone() }))).await
+    crate::util::boxed(|| create_mode(engine, org_id, project.id, args, None, Some(ProjectCreate { caller, name: project.name.clone() }), None)).await
+}
+
+/// A create on behalf of a descendant (docs/rust-engine/watchdog-on-behalf.md, spec W1-W11): the
+/// setter (`setter`, the caller) names a live agent below it, which owns the dog.
+#[logged]
+async fn create_for(engine: &Arc<Engine>, org_id: i64, setter: i64, owner: &Value, args: &Value) -> Result<Value> {
+    let Some(name) = owner.as_str().map(|n| n.trim().trim_start_matches('@')).filter(|n| !n.is_empty()) else {
+        refuse!(BadRequest, "owner must be the name of a live agent below you");
+    };
+    let (id, kind, state): (i64, String, String) = {
+        let client = engine.db.get().await?;
+        let Some(r) = client.query_opt("SELECT id, kind, state FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' ORDER BY (state = 'live') DESC, id DESC LIMIT 1", &[&org_id, &name]).await? else {
+            refuse!(NotFound, "no live agent named {name}");
+        };
+        (r.get(0), r.get(1), r.get(2))
+    };
+    if state != "live" {
+        refuse!(NotFound, "no live agent named {name}");
+    }
+    if kind == "project" {
+        refuse!(BadRequest, "{name} is a project; use project={name} for a project's watchdog");
+    }
+    if id == setter {
+        // an ordinary create: no creator record and no setter reach
+        return crate::util::boxed(|| create_mode(engine, org_id, setter, args, None, None, None)).await;
+    }
+    if !above_project(engine, setter, id).await? {
+        refuse!(Forbidden, "{name} is not below you; you can create watchdogs only for your descendants");
+    }
+    if !crate::domain::tool_groups::enabled(&effective_scope(engine, id).await?["tools"], "watchdogs") {
+        refuse!(Forbidden, "{name} does not hold the watchdog tools, so it could not manage this watchdog");
+    }
+    let setter_name: String = engine.db.get().await?.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&setter]).await?.get(0);
+    let delegate = Delegate { setter, setter_name, owner_name: name.to_string() };
+    crate::util::boxed(|| create_mode(engine, org_id, id, args, None, None, Some(delegate))).await
+}
+
+/// The setter of a delegated create: its own hands and reach count at create (spec W3, W6).
+#[derive(Debug, Clone)]
+struct Delegate {
+    setter: i64,
+    setter_name: String,
+    owner_name: String,
+}
+
+/// May the dog target project `p`? Tree reach, an effective audience with it, then (delegated) the
+/// setter's reach or audience (spec W6). Returns the grant to record when the tree alone would not do.
+#[logged]
+async fn watch_reach(client: &impl tokio_postgres::GenericClient, org_id: i64, owner: i64, owner_name: &str, delegate: Option<&Delegate>,
+    p: &crate::domain::projects::Project, what: &str) -> Result<Option<Value>> {
+    use crate::domain::projects::reaches;
+    if reaches(client, owner, p.id).await? {
+        return Ok(None);
+    }
+    if crate::domain::audiences::effective_holds(client, org_id, owner_name, &p.name).await? {
+        return Ok(Some(json!({ "project": p.id, "via": "audience", "from": Value::Null })));
+    }
+    let Some(d) = delegate else {
+        refuse!(Forbidden, "only agents above or below project {}, or holding an audience with it, may watch it; cannot {what}", p.name);
+    };
+    if reaches(client, d.setter, p.id).await? {
+        return Ok(Some(json!({ "project": p.id, "via": "setter", "from": d.setter_name })));
+    }
+    if crate::domain::audiences::effective_holds(client, org_id, &d.setter_name, &p.name).await? {
+        return Ok(Some(json!({ "project": p.id, "via": "setter_audience", "from": d.setter_name })));
+    }
+    refuse!(Forbidden, "neither {} nor you reach project {} (above or below it, or through an audience)", d.owner_name, p.name)
 }
 
 /// The actor label of a create's event: the creator of a project dog, else the owner.
@@ -2384,12 +2588,40 @@ struct ProjectCreate {
 /// stage paused without smoke, immediate resolutions, subscriptions or runners.
 #[nolog]
 pub(crate) async fn create_from_template(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, needs_credentials: bool) -> Result<Value> {
-    crate::util::boxed(|| create_mode(engine, org_id, owner, args, Some(needs_credentials), None)).await
+    crate::util::boxed(|| create_mode(engine, org_id, owner, args, Some(needs_credentials), None, None)).await
 }
 
 #[nolog]
-async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, template: Option<bool>, on_project: Option<ProjectCreate>) -> Result<Value> {
+async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, template: Option<bool>, on_project: Option<ProjectCreate>, delegate: Option<Delegate>) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
+    if let Some(d) = &delegate {
+        // what the owner's authority must not be scripted into (spec W4, W5), and the setter's own hands (W3)
+        if kind == "app_listener" {
+            refuse!(BadRequest, "app_listener subscribes the owner's own app panels; {} creates it itself", d.owner_name);
+        }
+        // fire_actions run as the owner, each call only if the setter may make it too (rev 1.2 W5):
+        // only the allow-listed tools can be checked against the setter's reach at fire time
+        for a in args.get("fire_actions").and_then(Value::as_array).into_iter().flatten() {
+            let tool = a["tool"].as_str().unwrap_or("");
+            let action = a["args"]["action"].as_str().unwrap_or("");
+            let listed = match tool {
+                "orgtree_message" | "orgtree_send_notice" | "orgtree_status" => true,
+                "orgtree_watchdog" => matches!(action, "pause" | "resume" | "remove" | "send" | "list"),
+                "orgtree_project" => action == "fire_event",
+                _ => false,
+            };
+            if !listed {
+                refuse!(BadRequest, "fire_actions on a watchdog for {} may use only orgtree_message, orgtree_send_notice, orgtree_watchdog (pause/resume/remove/send/list), orgtree_project fire_event and orgtree_status", d.owner_name);
+            }
+        }
+        match kind.as_str() {
+            "command" | "stream" if !holds_bash(engine, d.setter).await? => refuse!(
+                Forbidden, "a command/stream watchdog for {} still needs the bash you hold yourself; you do not hold bash", d.owner_name),
+            "websocket" | "mqtt" if !holds_web(engine, d.setter).await? => refuse!(
+                Forbidden, "a {kind} watchdog for {} still needs the web tool you hold yourself; you do not hold web", d.owner_name),
+            _ => {}
+        }
+    }
     // the delivery form (spec rev 2 F1): a project dog's only; a missing key is the event form
     let form_arg = if on_project.is_some() {
         crate::domain::watchdogs::project_delivery_arg(args)?
@@ -2449,6 +2681,22 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let owner_dir: Option<String> = owner_row.get(1);
     let scratch = owner_scratch(engine, org_id, &owner_name, owner_dir.as_deref());
     let mut created_by = Value::Null;
+    if let Some(d) = &delegate {
+        let client2 = engine.db.get().await?;
+        let g: i32 = client2.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&d.setter]).await?.get(0);
+        created_by = json!({ "kind": "agent", "id": d.setter, "name": d.setter_name, "generation": g });
+        // a credentials FILE must be in a folder the setter holds too (spec W3)
+        if matches!(kind.as_str(), "websocket" | "mqtt") {
+            if let Some(path) = args["credentials"].as_str().map(str::trim).filter(|p| !p.is_empty()) {
+                let r = client2.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&d.setter]).await?;
+                let sdir: Option<String> = r.get(0);
+                let sscratch = owner_scratch(engine, org_id, &d.setter_name, sdir.as_deref());
+                if !file_contained(engine, org_id, d.setter, &sscratch, &file_target(&scratch, path)).await? {
+                    refuse!(Forbidden, "cannot read credentials from {path} — only files in a folder you hold are readable for {}; use inline credentials instead", d.owner_name);
+                }
+            }
+        }
+    }
     if let (Some(pc), "broadcast") = (&on_project, form) {
         if let Some(c) = pc.caller {
             if !above_project(engine, c, owner).await? {
@@ -2491,6 +2739,13 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
                 Forbidden,
                 "cannot watch {target} — only files in your working folder, the workspace, or a folder you hold are watchable (orgtree_request_scope can ask for more)"
             );
+        }
+        if let Some(d) = &delegate {
+            let (sdir,): (Option<String>,) = { let r = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&d.setter]).await?; (r.get(0),) };
+            let sscratch = owner_scratch(engine, org_id, &d.setter_name, sdir.as_deref());
+            if !file_contained(engine, org_id, d.setter, &sscratch, &full).await? {
+                refuse!(Forbidden, "cannot watch {target} — only files in your working folder, the workspace, or a folder you hold are watchable (orgtree_request_scope can ask for more)");
+            }
         }
         target = full.to_string_lossy().into_owned();
     }
@@ -2549,6 +2804,8 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if kind != "listener_watch" && args.get("count").is_some_and(|c| !c.is_null()) {
         refuse!(BadRequest, "count is only for a listener_watch watchdog: how many armed project listeners fire it");
     }
+    // the create-time project reach grant a dog keeps (spec W6): None when the tree reaches
+    let mut reach_grant: Option<Value> = None;
     let mut queue_project: Option<crate::domain::projects::Project> = None;
     if let Some(batch) = args.get("batch").filter(|b| !b.is_null()) {
         if kind != "fair_queue" {
@@ -2568,7 +2825,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         if p.state != "live" {
             refuse!(Conflict, "project {} is retired", p.name);
         }
-        crate::domain::projects::require_reach(&**client, owner, &p, "watch its mailbox").await?;
+        reach_grant = watch_reach(&**client, org_id, owner, &owner_name, delegate.as_ref(), &p, "watch its mailbox").await?;
         // one listener per agent per project: a second dog adds no share of the queue
         // Its batch setting controls capacity, not duplicate registrations.
         if let Some(r) = client
@@ -2580,8 +2837,8 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
             .await?
         {
             let (uid, state): (String, String) = (r.get(0), r.get(1));
-            refuse!(Conflict, "you already watch project {} with fair_queue watchdog {} ({}); one listener per agent per project, a second would not give you more of its mail. Keep using that one{}",
-                p.name, uid, state, if state == "paused" { " (resume it)" } else { "" });
+            refuse!(Conflict, "{} already watch project {} with fair_queue watchdog {} ({}); one listener per agent per project, a second would not give {} more of its mail. Keep using that one{}",
+                if delegate.is_some() { owner_name.as_str() } else { "you" }, p.name, uid, state, if delegate.is_some() { owner_name.as_str() } else { "you" }, if state == "paused" { " (resume it)" } else { "" });
         }
         if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
             refuse!(BadRequest, "a fair_queue watchdog fires on each mail it is handed; it has no silence mode");
@@ -2611,7 +2868,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         if p.state != "live" {
             refuse!(Conflict, "project {} is retired", p.name);
         }
-        crate::domain::projects::require_reach(&**client, owner, &p, "claim its concurrency slots").await?;
+        reach_grant = watch_reach(&**client, org_id, owner, &owner_name, delegate.as_ref(), &p, "claim its concurrency slots").await?;
         // Ownership/remaining capacity is rechecked atomically with insertion
         // under the project lock below. Existing leases do not forbid a
         // smaller additional whole lease that still fits.
@@ -2636,7 +2893,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         if p.state != "live" {
             refuse!(Conflict, "project {} is retired", p.name);
         }
-        crate::domain::projects::require_reach(&**client, owner, &p,
+        reach_grant = watch_reach(&**client, org_id, owner, &owner_name, delegate.as_ref(), &p,
             if kind == "project_listener" { "listen for its events" } else { "watch its listener count" }).await?;
         if let Some(r) = client
             .query_opt(
@@ -2648,8 +2905,8 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         {
             let (uid, state): (String, String) = (r.get(0), r.get(1));
             let what = if kind == "project_listener" { "event listener" } else { "listener watch" };
-            refuse!(Conflict, "you already keep {what} {} ({}) on project {}; one {what} per agent per project. Keep using that one{}",
-                uid, state, p.name, if state == "paused" { " (resume it)" } else { "" });
+            refuse!(Conflict, "{} already keep {what} {} ({}) on project {}; one {what} per agent per project. Keep using that one{}",
+                if delegate.is_some() { owner_name.as_str() } else { "you" }, uid, state, p.name, if state == "paused" { " (resume it)" } else { "" });
         }
         if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
             refuse!(BadRequest, "a {kind} watchdog is pushed by its project; it has no silence mode");
@@ -2668,6 +2925,9 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         }
         target = p.name.clone();
         listener_project = Some(p);
+    }
+    if let Some(g) = &reach_grant {
+        memo["reach_grant"] = g.clone();
     }
     if kind == "activity" {
         let t = target.trim_start_matches('@').to_string();
@@ -2815,7 +3075,25 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
             return Ok(out);
         }
     }
-    if on_project.is_none() && template.is_none() && once && fire_mode == "event" {
+    if let (Some(d), true) = (&delegate, template.is_none() && once && fire_mode == "event" && fire_actions.is_empty() && !matches!(kind.as_str(), "slot" | "fair_queue" | "usage")) {
+        // already true at create: the fire goes to the OWNER as its own (spec W10), no notice
+        let lines = immediate::ready_lines(&kind, &target, &smoked, &smoke_lines);
+        if !lines.is_empty() {
+            let id = crate::domain::watchdog_inventory::available_id(&**engine.db.get().await?, owner, &base).await?;
+            let mut body = fire_body_parts(&id, &kind, &target, &lines, "", false, 1, false);
+            body.push_str("Resolved immediately at create. No watchdog was registered.\n");
+            let key = crate::domain::watchdogs::handle(&owner_name, &id);
+            let mut out = Outgoing::new(From::Watchdog { key, name: id.clone() }, &owner_name, &body);
+            out.kind = "watchdog".into();
+            out.notice = args["notice"].as_bool().unwrap_or(false);
+            if let Err(e) = mail::send(engine, org_id, out).await {
+                tracing::warn!(owner = %owner_name, error = %format!("{e:#}"), "a delegated watchdog's immediate fire could not be mailed");
+            }
+            return Ok(json!({ "id": id, "name": id, "once": true, "resolved": true, "registered": false, "owner": owner_name, "smoke": smoked,
+                "status": format!("resolved immediately; no watchdog registered. Its fire went to {owner_name}") }));
+        }
+    }
+    if on_project.is_none() && delegate.is_none() && template.is_none() && once && fire_mode == "event" {
         let id = crate::domain::watchdog_inventory::available_id(&**engine.db.get().await?, owner, &base).await?;
         if let Some(out) = immediate::resolve(engine, org_id, owner, &owner_name, &id, &kind, &target,
             &memo, &smoked, &smoke_lines, &fire_actions).await? {
@@ -2927,6 +3205,16 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if !project_off {
         arm(engine, row);
     }
+    if let Some(d) = &delegate {
+        // the owner learns of its new dog, passively, once (spec W8)
+        let body = format!("@{} created watchdog {owner_name}/{id} (\"{name}\", {kind} · {target}) for you. Its fires come to you as your own; you can pause, configure or remove it (orgtree_watchdog action=list).", d.setter_name);
+        let mut note = Outgoing::new(From::System, &owner_name, &body);
+        note.notice = true;
+        note.grant_reply_audience = false;
+        if let Err(e) = mail::send(engine, org_id, note).await {
+            tracing::warn!(owner = %owner_name, error = %format!("{e:#}"), "the owner of a delegated watchdog could not be told");
+        }
+    }
     let mut ch = vec![Change::Watchdogs, Change::Events];
     if let Some(p) = &listener_project {
         ch.push(Change::Agent(p.id));
@@ -3035,6 +3323,13 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     }
     if let Some(q) = quiet {
         out["quiet_period_s"] = json!(q);
+    }
+    if let Some(d) = &delegate {
+        out["owner"] = json!(d.owner_name);
+        out["status"] = json!(format!("{} Owned by {}: its fires come to {}, not to you.", out["status"].as_str().unwrap_or(""), d.owner_name, d.owner_name));
+    }
+    if let Some(g) = &reach_grant {
+        out["reach_grant"] = g.clone();
     }
     Ok(out)
 }
@@ -3345,7 +3640,7 @@ async fn resume_slot(engine:&Arc<Engine>,org_id:i64,actor:Option<i64>,dog:&Dog,r
     let row=tx.query_one("SELECT state,memo FROM ot.watchdogs WHERE id=$1 FOR UPDATE",&[&dog.row]).await?;
     let state:String=row.get(0);let memo:Value=row.get(1);
     if !matches!(state.as_str(),"armed"|"paused")||memo.get("lease").is_some() {refuse!(Conflict,"this slot claim was granted or removed; create a new one");}
-    if !crate::domain::projects::reaches(&*tx,dog.owner,project).await? {refuse!(Forbidden,"you no longer reach this slot claim's project");}
+    if !crate::domain::projects::dog_reaches(&*tx,dog.owner,project,&memo).await? {refuse!(Forbidden,"you no longer reach this slot claim's project");}
     crate::domain::slots::admit(&tx,project,Some(dog.owner),i64::from(crate::domain::slots::requested(&memo)),Some(dog.row)).await?;
     tx.execute("UPDATE ot.watchdogs SET state='armed',exit=NULL,memo=(memo-'paused_why'-'paused_by')||jsonb_build_object('queued_at',(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE id=$1",&[&dog.row]).await?;
     let by=match actor {Some(a)=>tx.query_one("SELECT name FROM ot.agents WHERE id=$1",&[&a]).await?.get::<_,String>(0),None=>"@user".into()};
@@ -3371,7 +3666,7 @@ async fn resume_listener(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
         Some(r) => r.get(0),
         None => refuse!(NotFound, "this watchdog's project no longer exists; remove it"),
     };
-    if !crate::domain::projects::reaches(&*tx, dog.owner, project).await? {
+    if !crate::domain::projects::dog_reaches(&*tx, dog.owner, project, &dog.memo).await? {
         refuse!(Forbidden, "{} is no longer above or below project {pname}, so its {} cannot listen there again; remove it",
             dog.owner_name, dog.kind);
     }
@@ -3537,7 +3832,10 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("project_delivery", json!(d.delivery()));
             } else {
                 put("owner_kind", json!("agent"));
+                // a dog a superior created for its owner (watchdog on behalf W8)
+                put("created_by", crate::domain::watchdogs::created_by_label(&d.memo));
             }
+            put("reach_grant", d.memo["reach_grant"].clone());
             put("pattern", json!(d.pattern));
             put("threshold",d.memo["threshold"].clone());
             put("event_scope",d.memo["event_scope"].clone());
@@ -3607,6 +3905,19 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
         .collect();
     if let Some(org) = rows.first().map(|r| dog_of(r).org_id) {
         crate::domain::apps::events::listener_names(&**client, org, &mut dogs).await?;
+    }
+    // a dog's reach grant names its project by id; show the name (watchdog on behalf W6)
+    {
+        let ids: Vec<i64> = dogs.iter().filter_map(|v| v["reach_grant"]["project"].as_i64()).collect();
+        if !ids.is_empty() {
+            let c = engine.db.get().await?;
+            let names: HashMap<i64, String> = c.query("SELECT id, name FROM ot.agents WHERE id = ANY($1)", &[&ids]).await?.iter().map(|r| (r.get(0), r.get(1))).collect();
+            for v in dogs.iter_mut() {
+                if let Some(n) = v["reach_grant"]["project"].as_i64().and_then(|i| names.get(&i)) {
+                    v["reach_grant"]["project"] = json!(n);
+                }
+            }
+        }
     }
     Ok(json!({ "watchdogs": dogs, "next_cursor": next_cursor }))
 }

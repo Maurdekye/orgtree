@@ -124,6 +124,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 | `batch` | Create, `fair_queue` only | Integer 1–20, default 1: maximum mails per assignment batch and unacked mails in ACK mode. |
 | `slots` | Create, `slot` only | Integer 1–9,999,999, default 1; at most capacity minus your held/pending units. Reserve all requested units as one lease in strict FIFO order. |
 | `fire_actions` | Create, any kind except `fair_queue` | Up to 4 `{tool, args}` orgtree_* tool calls run as you when the dog fires; results return inline for a ready once result, otherwise in fire mail. Credentials in them only as a file path. See Fire-time tool calls. |
+| `owner` | Create | A live agent below you that owns the dog (see Watchdogs for a descendant). |
 | `project_delivery` | Create, configure; project dogs only | `event` (default), `broadcast` or `queue`: where the project dog's fires go (see Project watchdogs: delivery forms). |
 | `project` | Create, list | Create: put the watchdog on this project (you must be above or below it): kinds `file`, `command`, `process`, `stream`, `websocket`, `mqtt` only; `notice` true and `fire_actions` are refused. Its fires are the project's event for every armed `project_listener`; the id is `P/uid`, and any agent above or below the project (or the user) can pause, resume, remove, `send` and `configure` it. It runs with the project's hands (the creator must hold them too); prefer inline credentials. List: that project's own watchdogs. |
 | `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, a project's name for `fair_queue`, `slot`, `project_listener` and `listener_watch`, a broker `mqtt://host[:port]`/`mqtts://host[:port]` for `mqtt`, or a `ws://`/`wss://` URL for `websocket`. |
@@ -356,6 +357,17 @@ A fire gathers the matching messages since the previous fire, at most one fire p
 {"action":"create","name":"ha-doors","kind":"websocket","target":"wss://ha.lan/api/websocket","credentials":"ws/ha.json",
  "pattern":"\"event_type\":\"state_changed\"","hello":[{"id":1,"type":"subscribe_events","event_type":"state_changed"}]}
 ```
+
+### Watchdogs for a descendant
+
+`orgtree_watchdog action=create owner=<agent>` makes a live agent **below you** (any depth, through projects) the owner of the new watchdog. Its fires reach that agent as if it had created the dog, and it can pause, configure or remove it. `owner` is a create field only (other actions take the id `owner/id`), is exclusive with `project`, and naming yourself is an ordinary create. You need the watchdog tool group, and so must the owner. The app creates nothing this way.
+
+- **Hands:** the dog runs with the owner's hands; the setter must hold the same ones: bash for `command`/`stream`, web for `websocket`/`mqtt`, and a folder containing a watched file or a credentials file. Relative paths start in the owner's folder.
+- **Kinds:** every kind except `app_listener` (a panel subscription belongs to its owner). `activity` targets must be the owner or its descendant. A ready `once` dog resolves inline with the fire sent to the owner, `owner` in the result and no creation notice. A `slot`, `fair_queue` or `usage` dog, or one with `fire_actions`, registers instead.
+- **fire_actions:** allowed for `orgtree_message`, `orgtree_send_notice`, `orgtree_watchdog` (pause, resume, remove, send, list), `orgtree_project fire_event` and `orgtree_status`. Each call runs as the owner **only if the setter could make it too, checked at every fire**: the setter's tool groups, then its reach over the target. The setter must still be live and above the owner, or every call fails (the fire mail is still delivered). Outside (`@net:`/`@org:`) recipients and any other tool fail. The fire mail says "limited to what both you and @C may do now".
+- **Project reach** (`fair_queue`, `slot`, `project_listener`, `listener_watch`): you may watch a project you are above or below, or one you hold an audience with (explicit or through your project); a superior creating the dog for you may also use its own reach or audience. This is checked once, at create, and kept in the dog's `memo.reach_grant` (shown as `reach_grant` in `list`): losing the audience, moving or retiring does not release it. The grant works only through that dog and its own claims; it lets the owner nothing else (no mail to the project, no event fire, no project-owned dog).
+- **Creator and notice:** `list` and the desk show `created_by`; the owner gets one passive notice when the dog is created (not for an inline resolve). Any ancestor of the owner can manage the dog while it is an ancestor.
+- **Lifecycle:** an owner's retirement pauses and its rehire resumes the dog as usual. Templates drop `created_by` and `reach_grant`: a restored dog is the owner's own.
 
 ### Project watchdogs: delivery forms
 

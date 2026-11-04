@@ -210,7 +210,7 @@ async fn grant_in(tx: &impl GenericClient, org_id: i64, project: i64, inline: Op
                 // a claimant that has since moved out of the project's line no longer reaches it
                 // (the user, who holds from the desk, reaches every project)
                 if let Some(agent) = owner {
-                    if !crate::domain::projects::reaches(&*tx, agent, project).await? {
+                    if !crate::domain::projects::dog_reaches(&*tx, agent, project, &w.4).await? {
                         continue;
                     }
                 }
@@ -385,7 +385,8 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
     loop {
         let rows = tx
             .query(
-                "SELECT l.id, l.uid, l.slot_count, a.id, a.name, a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL
+                "SELECT l.id, l.uid, l.slot_count, a.id, a.name, a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL,
+                        coalesce((SELECT (w.memo->'reach_grant'->>'project')::bigint = $1 FROM ot.watchdogs w WHERE w.id = l.dog_id), false)
                    FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
                   WHERE l.project_id = $1 AND l.ended_at IS NULL AND l.id > $2 ORDER BY l.id LIMIT 200",
                 &[&project, &after],
@@ -400,6 +401,9 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
                 ("halted", crate::domain::projects::HALTED)
             } else if g.get::<_, bool>(7) {
                 (crate::domain::holdings::HOW_FROZEN, crate::domain::projects::FROZEN)
+            } else if g.get::<_, bool>(8) {
+                // the claim came through a dog whose create-time grant names this project
+                continue
             } else {
                 let reaches = match reach.get(&agent) {
                     Some(r) => *r,

@@ -572,9 +572,12 @@ fn watchdog_configure_args(args: &Value) -> Result<(&str, Option<&str>)> {
     Ok((id, mode))
 }
 
-/// RED SCAFFOLD (watchdog on behalf, W1): `owner` is a create field; built in the next commit.
+/// `owner` is a create field (watchdog on behalf W1): other actions take the watchdog id.
 #[nolog]
-pub(crate) fn watchdog_owner_guard(_args: &Value) -> Result<()> {
+pub(crate) fn watchdog_owner_guard(args: &Value) -> Result<()> {
+    if args.get("owner").is_some_and(|v| !v.is_null()) && args["action"].as_str().unwrap_or("") != "create" {
+        crate::refuse!(BadRequest, "owner is a create field; other actions take the watchdog id (owner/id)");
+    }
     Ok(())
 }
 
@@ -622,6 +625,7 @@ mod watchdog_configure_tests {
 #[nolog]
 async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     use crate::runtime::watchdogs;
+    watchdog_owner_guard(args)?;
     let action = args["action"].as_str().unwrap_or("");
     let v = match action {
         "create" => watchdogs::create(engine, caller.org_id, caller.agent_id, args).await?,

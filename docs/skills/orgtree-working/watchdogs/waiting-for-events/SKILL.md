@@ -50,6 +50,8 @@ Read create-time smoke and confirm that the target is runnable and its output ma
 
 Record the watched condition, owner and ID in the work item when it matters to handoff. On waking, inspect the event and actual result, act once, and remove any remaining spent-purpose watcher. Paused/exited dogs still retain their IDs and appear in kept inventory; there is no per-agent or per-org watchdog number cap. A stream's final diagnostic can leave it exited. Use paged list/management evidence to clean up intentionally; the canvas's eight-row preview is not the full inventory.
 
+To wake a report on a condition without spending its turn, create the watchdog with `owner=<report>`.
+
 ## See also
 
 - [orgtree-tool-watchdog](../tool-watchdog/SKILL.md)

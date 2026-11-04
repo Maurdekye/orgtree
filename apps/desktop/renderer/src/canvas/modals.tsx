@@ -284,7 +284,13 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
         {dog.owner_kind === 'project'
           ? <><div className="chip mono">project @{dog.owner}</div>
               <div className="dim wd-created-by">created by {dog.created_by === 'user' ? 'you' : '@' + (dog.created_by ?? 'unknown')}</div></>
-          : <div className="chip mono">{dog.owner}</div>}
+          : <><div className="chip mono">{dog.owner}</div>
+              {dog.created_by && <div className="dim wd-created-by">created by {dog.created_by === 'user' ? 'you' : '@' + dog.created_by}</div>}</>}
+        {dog.reach_grant && <div className="dim wd-created-by">{dog.reach_grant.via === 'setter'
+          ? <>reach to @{dog.reach_grant.project} from @{dog.reach_grant.from}</>
+          : dog.reach_grant.via === 'audience'
+            ? <>reach to @{dog.reach_grant.project} through an audience</>
+            : <>reach to @{dog.reach_grant.project} through @{dog.reach_grant.from}'s audience</>}</div>}
         {dog.kind !== 'app_listener' && <div className="field-label">{description.targetLabel}</div>}
         {dog.kind === 'usage' && <div className="wd-usage-filters">
           <div>Accounts: {dog.accounts?.join(', ') || 'any visible account'}</div>

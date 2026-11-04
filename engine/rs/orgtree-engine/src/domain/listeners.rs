@@ -426,7 +426,7 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
     let rows = tx
         .query(
             &format!("SELECT w.id, w.owner_agent_id, (w.memo->>'count')::bigint,
-                    coalesce((w.memo->'run'->>'above')::boolean, false), w.uid, w.name, coalesce(a.name, '{USER}'), {LISTENING_SINCE}
+                    coalesce((w.memo->'run'->>'above')::boolean, false), w.uid, w.name, coalesce(a.name, '{USER}'), {LISTENING_SINCE}, w.memo
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'listener_watch' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND w.id > $3 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
@@ -451,7 +451,7 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
         // reaches it: it never fires, as a fair-queue watcher out of reach
         // is never handed mail (the user, who watches from the desk, reaches all)
         let reached = match owner {
-            Some(agent) => crate::domain::projects::reaches(&*tx, agent, project).await?,
+            Some(agent) => crate::domain::projects::dog_reaches(&*tx, agent, project, &r.get::<_, Value>(8)).await?,
             None => true,
         };
         if crossed(was, count, need) && reached {
@@ -731,7 +731,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     let rows = tx
         .query(
             &format!("SELECT w.id, w.uid, w.name, w.owner_agent_id, coalesce(a.name, '{USER}'), w.once,
-                    coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}, w.pattern
+                    coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}, w.pattern, w.memo
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND w.id > $4 AND w.id <= $5 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
@@ -750,7 +750,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
         // a listener that has since moved out of the project's line no
         // longer reaches it and receives nothing (the user reaches every project)
         if let Some(agent) = owner {
-            if !crate::domain::projects::reaches(&*tx, agent, project).await? {
+            if !crate::domain::projects::dog_reaches(&*tx, agent, project, &r.get::<_, Value>(11)).await? {
                 continue;
             }
         }
@@ -845,7 +845,7 @@ async fn stage_fire(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<(
         let owner:Option<i64>=d.get(2);
         let allowed=d.get::<_,String>(7)=="armed" && match owner {
             None=>true,
-            Some(owner)=>d.get::<_,Option<String>>(8).as_deref()==Some("live") && d.get::<_,String>(9)=="agent" && crate::domain::projects::reaches(&*tx,owner,project).await?,
+            Some(owner)=>d.get::<_,Option<String>>(8).as_deref()==Some("live") && d.get::<_,String>(9)=="agent" && crate::domain::projects::dog_reaches(&*tx,owner,project,&d.get::<_,Value>(6)).await?,
         };
         if !allowed {
             tx.execute("UPDATE ot.listener_fire_outbox SET done=true WHERE id=$1",&[&id]).await?;

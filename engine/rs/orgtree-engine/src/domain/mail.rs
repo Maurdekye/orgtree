@@ -460,7 +460,17 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
                       notices: &mut super::runtime_notices::ForwardedUserNotices) -> Result<Sent> {
     let (sender_agent, sender_gen) = match &out.from {
         From::Agent { id, generation, name } => {
-            if !crate::domain::projects::reaches(&**client, *id, project.id).await?
+            // a worker acking a job it holds through a dog whose create-time grant names this project
+            // (watchdog on behalf W6) needs neither reach nor an audience for that one reply
+            let ack_via_grant = match out.reply_to.as_ref().and_then(|q| q["id"].as_str()).or_else(|| out.replies.first().and_then(|q| q["id"].as_str())) {
+                Some(reply) => client.query_opt(
+                    "SELECT 1 FROM ot.mail c JOIN ot.mail j ON j.uid = c.extra->'via_project'->>'mail' AND j.recipient_agent_id = $3
+                       JOIN ot.watchdogs w ON w.owner_agent_id = $1 AND w.kind = 'fair_queue' AND w.uid = j.extra->'claimed'->>'dog'
+                        AND (w.memo->'reach_grant'->>'project')::bigint = $3
+                      WHERE c.uid = $2 AND c.recipient_agent_id = $1 LIMIT 1", &[id, &reply, &project.id]).await?.is_some(),
+                None => false,
+            };
+            if !ack_via_grant && !crate::domain::projects::reaches(&**client, *id, project.id).await?
                 && !super::audiences::effective_holds(&**client, org.id, name, &project.name).await? {
                 refuse!(Forbidden, "you need project reach or an audience with {} to write to its mailbox", project.name);
             }

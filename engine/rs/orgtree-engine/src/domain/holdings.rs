@@ -33,6 +33,7 @@
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use serde_json::Value;
 
 use crate::changes::{self, Change};
 use crate::domain::{projects, slots};
@@ -459,7 +460,7 @@ async fn drop_unreached_dogs(engine: &Arc<Engine>, org_id: i64, project: i64) ->
     loop {
         let rows = tx
             .query(
-                "SELECT w.id, w.uid::text, w.kind::text, a.id, a.name::text FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                "SELECT w.id, w.uid::text, w.kind::text, a.id, a.name::text, w.memo FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
                   WHERE w.org_id = $1 AND (w.memo->>'target_id')::bigint = $2 AND w.id > $3
                     AND ((w.kind = 'slot' AND w.state IN ('armed', 'paused') AND NOT w.memo ? 'lease')
                       OR (w.kind = 'fair_queue' AND w.state = 'armed'))
@@ -470,6 +471,10 @@ async fn drop_unreached_dogs(engine: &Arc<Engine>, org_id: i64, project: i64) ->
         for r in &rows {
             let (row, uid, kind, owner, name): (i64, String, String, i64, String) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
             after = row;
+            // a dog's create-time reach grant keeps its own project (watchdog on behalf W6)
+            if projects::granted(&r.get::<_, Value>(5), project) {
+                continue;
+            }
             let reaches = match reach.get(&owner) {
                 Some(r) => *r,
                 None => {

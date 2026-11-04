@@ -196,6 +196,9 @@ pub fn view(w: &Value, owner: &str) -> Value {
         o.insert("owner_kind".into(), json!("project"));
         o.insert("created_by".into(), created_by_label(&w["memo"]));
         o.insert("project_delivery".into(), json!(project_delivery(&w["memo"])));
+    } else if w["memo"]["created_by"]["kind"].is_string() {
+        // a dog a superior created for its owner (watchdog on behalf W8)
+        o.insert("created_by".into(), created_by_label(&w["memo"]));
     }
     if let Some(why) = w["memo"]["paused_why"].as_str().filter(|_| w["state"] == "paused") {
         o.insert("template_warning".into(), json!(why));
