@@ -2671,6 +2671,7 @@ fn same_target(kind: &str, target: &str) -> String {
 
 /// The (uid, state) of another armed or paused dog of `owner` of the same `kind` on `project`:
 /// one fair_queue / project_listener / listener_watch per agent per project (`except` is the dog's own row, 0 for a create).
+#[logged]
 async fn owner_limit_clash(client: &impl tokio_postgres::GenericClient, owner: i64, kind: &str, project: i64, except: i64) -> Result<Option<(String, String)>> {
     Ok(client.query_opt(
         "SELECT uid, state FROM ot.watchdogs WHERE kind = $3 AND owner_agent_id = $1 AND id <> $4
