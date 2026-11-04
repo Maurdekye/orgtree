@@ -641,3 +641,50 @@ async fn fa08_an_own_dog_is_unchanged() {
     assert!(mail.contains("Fire actions (run as you, with your current authority):") && !mail.contains("limited to what both"), "{mail}");
     assert_eq!(w.mail_with(w.s, "own report").await, 1);
 }
+
+// ---------------------------------------------------------------- management controls (rev 1.2 W9, MG1-MG3)
+
+/// MG1 (control): an agent two levels above w, through project P, manages w's dog completely.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn mg01_any_ancestor_manages() {
+    let w = world().await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"command","target":"echo hi","pattern":"z","name":"mine"})).await.unwrap();
+    w.sql("INSERT INTO ot.watchdogs(uid,org_id,owner_agent_id,name,kind,target,interval_s,state,memo) VALUES('sock',$1,$2,'sock','websocket','ws://127.0.0.1:1/x',5,'paused','{\"connection_messages\":\"notice\",\"run\":{}}'::jsonb)", &[&w.org.id, &w.w]).await;
+    // C is two levels above w (C > S > P > w)
+    act(&w.e, w.org.id, Some(w.c), "w/mine", "pause", None).await.unwrap();
+    assert_eq!(w.dog("mine").await.1, "paused");
+    act(&w.e, w.org.id, Some(w.c), "w/mine", "resume", None).await.unwrap();
+    assert_eq!(w.dog("mine").await.1, "armed");
+    configure(&w.e, w.org.id, Some(w.c), "w/sock", &json!({"connection_messages":"wake"})).await.unwrap();
+    assert_eq!(w.dog("sock").await.2["connection_messages"], "wake");
+    act(&w.e, w.org.id, Some(w.c), "w/mine", "remove", None).await.unwrap();
+    assert_eq!(w.count("SELECT count(*) FROM ot.watchdogs WHERE uid='mine' AND state<>'removed'", &[]).await, 0);
+}
+
+/// MG2 (control): an agent above project P (not a member) pauses a P-owned dog; P's member resumes it.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn mg02_project_dogs_are_managed_from_above_and_from_inside() {
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&w.p]).await;
+    create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":"echo hi","pattern":"z","name":"pd","project":"P"})).await.unwrap();
+    act(&w.e, w.org.id, Some(w.s), "P/pd", "pause", None).await.unwrap();
+    assert_eq!(w.dog("pd").await.1, "paused");
+    act(&w.e, w.org.id, Some(w.w), "P/pd", "resume", None).await.unwrap();
+    assert_eq!(w.dog("pd").await.1, "armed");
+}
+
+/// MG3 (control): x, not an ancestor, cannot pause w's dog.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn mg03_a_non_ancestor_cannot_manage() {
+    let w = world().await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"command","target":"echo hi","pattern":"z","name":"mine"})).await.unwrap();
+    let e = err(act(&w.e, w.org.id, Some(w.x), "w/mine", "pause", None).await);
+    assert!(e.contains("only its owner and the owner's superiors manage this watchdog") || e.contains("no watchdog"), "{e}");
+    assert_eq!(w.dog("mine").await.1, "armed");
+}
