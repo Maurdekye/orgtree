@@ -108,7 +108,7 @@ const classTouchesZone = (value: string | null) => !!value && value.split(/\s+/)
 /** Anything whose appearance can change a mask; the rest of the page is chrome. */
 const WATCHED = `${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},[data-streamer-field],[title],[alt],[aria-label],input,textarea,select,[contenteditable],${OPAQUE}`
 /** The text before a possible multi-line match: a key word (optionally quoted, with an optional `:`/`=`) or `Bearer` at the very end. */
-const KEY_TAIL = /(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|api[_ -]?key|apikey|authorization|credential)["']?\s*(?:[:=]\s*)?$|\bBearer$/i
+const KEY_TAIL = /(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|api[_ -]?key|apikey|authorization|credential)["']?\s*(?:[:=]\s*)?$|\bBearer\s*$/i
 /** Characters handed to the regex pass since the last scan began (the work a keystroke costs; exposed in the scan ring). */
 let regexWork = 0
 /** A short label for a mutation target, for the scan ring's `cause` (which mutation made a scan relevant). */
