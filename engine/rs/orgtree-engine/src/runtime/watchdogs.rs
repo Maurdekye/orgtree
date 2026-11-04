@@ -1744,7 +1744,7 @@ async fn setter_of(engine: &Arc<Engine>, owner: i64, uid: &str) -> Option<(i64, 
     // fire actions an editor set (or the owner took over) are limited to THAT editor, else to the creator
     let actions_by: Option<Value> = client.query_opt("SELECT memo->'actions_by' FROM ot.watchdogs WHERE owner_agent_id = $1 AND uid = $2 AND state <> 'removed' ORDER BY id DESC LIMIT 1", &[&owner, &uid]).await.ok()??.get(0);
     let by = match actions_by {
-        Some(Value::String(s)) if s == "owner" => return None,
+        Some(Value::String(_)) => return None, // "owner" or "user": no setter check
         Some(v @ Value::Object(_)) => json!({ "kind": "agent", "id": v["id"], "name": v["name"] }),
         _ => by?,
     };
@@ -3604,6 +3604,11 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     }
     if !notes.is_empty() {
         out["note"] = json!(notes.join("; "));
+    }
+    if let Some(p) = &plan {
+        if !p.warnings.is_empty() {
+            out["warning"] = json!(p.warnings.join(" "));
+        }
     }
     Ok(out)
 }

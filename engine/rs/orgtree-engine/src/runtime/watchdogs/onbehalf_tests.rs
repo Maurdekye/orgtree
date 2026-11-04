@@ -799,7 +799,7 @@ async fn ce06_a_broken_smoke_is_saved_with_a_warning() {
     let w = world().await;
     w.cmd(w.c, "w", "run").await.unwrap();
     let out = w.cfg(w.w, "run", json!({"target":"definitely-not-a-command-zzz --nope"})).await.unwrap();
-    assert!(out["warning"].as_str().is_some_and(|t| t.contains("does not work")), "the warning is returned: {out}");
+    assert!(out["warning"].as_str().is_some_and(|t| t.contains("DOES NOT WORK")), "the warning is returned: {out}");
     assert_eq!(w.column("run", "target").await, "definitely-not-a-command-zzz --nope", "saved, as create would");
     // create's own refusals still apply: a command needs a pattern
     let e = err(w.cfg(w.w, "run", json!({"pattern":""})).await);

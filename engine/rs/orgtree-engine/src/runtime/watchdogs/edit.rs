@@ -68,6 +68,8 @@ pub(super) struct Plan {
     pub silence_reset: bool,
     /// new inline credentials to seal for this dog (`Some(None)`: remove the sealed row)
     pub sealed: Option<Option<Vec<u8>>>,
+    /// what create only WARNS about (a smoke reporting the target broken): saved, and returned to the editor
+    pub warnings: Vec<String>,
     /// a slot claim re-admitted at the back: (project, whole-lease count)
     pub slot_admit: Option<(i64, i32)>,
     /// a listener's new project: its event listeners are switched on as at create
@@ -349,7 +351,7 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
             p.slot_admit = Some((pid, n as i32));
         }
     }
-    if matches!(kind, "websocket" | "mqtt") && (given.iter().any(|k| matches!(*k, "hello" | "heartbeat" | "protocols" | "credentials" | "payload_pattern" | "retained" | "target")) || (kind == "mqtt" && has(args, "pattern"))) {
+    if matches!(kind, "websocket" | "mqtt") && (given.iter().any(|k| matches!(*k, "hello" | "heartbeat" | "protocols" | "credentials" | "payload_pattern" | "retained" | "target")) || has(args, "pattern")) {
         net(engine, org_id, actor, dog, args, &scratch, &editor_name, new_target.as_deref(), pattern.as_deref(), &mut p, &mut target).await?;
     }
     if kind == "usage" && given.iter().any(|k| matches!(*k, "threshold_percent" | "usage_events" | "windows" | "accounts")) {
@@ -395,6 +397,9 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
             // who the fire-time check intersects with: an editor above the owner; the owner (or the user) ends it
             if by_other {
                 p.memo_set.push(("actions_by".into(), json!({ "id": actor, "name": editor_name })));
+            } else if actor.is_none() {
+                // the user's authority covers the owner's: no setter check at fire, recorded honestly
+                p.memo_set.push(("actions_by".into(), json!("user")));
             } else {
                 p.memo_set.push(("actions_by".into(), json!("owner")));
             }
@@ -407,8 +412,9 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
         let re = pattern.as_deref().and_then(|t| compile(t).ok());
         let cwd = scratch.is_dir().then_some(scratch.clone());
         let smoked = smoke(kind, &target, re.as_ref(), shell.as_deref(), cwd.as_deref()).await;
+        // create only warns about a broken target: the edit saves it and returns the warning
         if smoked["broken"].as_bool().unwrap_or(false) {
-            refuse!(Conflict, "the new target does not work: {}", smoked["broken_why"].as_str().or(smoked["error"].as_str()).unwrap_or("its smoke run failed"));
+            p.warnings.push(format!("ARMED BUT THE NEW TARGET DOES NOT WORK — {}", smoked["broken_why"].as_str().or(smoked["error"].as_str()).unwrap_or("its smoke run failed; see the dog's health after its first check")));
         }
     }
     if new_target.is_some() && !matches!(kind, "websocket" | "mqtt") {
@@ -486,7 +492,7 @@ async fn net(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, dog: &Dog, a
         let (smoked, parked) = websocket::smoke(engine, &c).await;
         drop(parked);
         if smoked["broken"].as_bool().unwrap_or(false) {
-            refuse!(Conflict, "the new settings do not connect: {}", smoked["note"].as_str().or(smoked["error"].as_str()).unwrap_or("see the smoke"));
+            p.warnings.push(format!("ARMED, BUT NOT CONNECTED — {}", smoked["note"].as_str().or(smoked["error"].as_str()).unwrap_or("see the dog's connection state")));
         }
         *target = c.target.clone();
         p.target = Some(c.target.clone());
@@ -499,7 +505,7 @@ async fn net(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, dog: &Dog, a
         let (smoked, parked) = mqtt::smoke(engine, dog.owner, &c).await;
         drop(parked);
         if smoked["broken"].as_bool().unwrap_or(false) {
-            refuse!(Conflict, "the new settings do not connect: {}", smoked["note"].as_str().or(smoked["error"].as_str()).unwrap_or("see the smoke"));
+            p.warnings.push(format!("ARMED, BUT NOT CONNECTED — {}", smoked["note"].as_str().or(smoked["error"].as_str()).unwrap_or("see the dog's connection state")));
         }
         *target = c.target.clone();
         p.target = Some(c.target.clone());
@@ -513,9 +519,9 @@ async fn net(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, dog: &Dog, a
             p.changed.push(k.to_string());
         }
     }
-    // tier B reconnects the runner; a pattern / payload_pattern / retained edit alone does not
-    p.restart = has(args, "target") || has(args, "hello") || has(args, "heartbeat") || has(args, "protocols") || has(args, "credentials")
-        || (kind == "mqtt" && has(args, "pattern"));
+    // every edit of the connection reconnects the runner (rev 1.6): the live connection holds its compiled filter,
+    // so a pattern, payload_pattern or retained edit must take effect now too (same host: no credentials needed)
+    p.restart = true;
     Ok(())
 }
 
