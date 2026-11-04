@@ -51,3 +51,19 @@ test('a keystroke re-runs the regexes on the changed run only (work count), at 1
     assert.ok(last.regex_chars < 2000, `regex input for one keystroke: ${last.regex_chars} of ${last.text_chars} chars`)
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+// build-sol 2026-11-04: a page with over 1,000,000 characters of free-form text threw IndexSizeError (offset 4294967295): the
+// whole-text fallback span starts at 0 but the first text node starts at 1 (after the leading run separator), so setStart got -1.
+test('over 1,000,000 characters of free-form text: everything is hidden and nothing throws', () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
+  const registry = new Map<string, Range[]>()
+  Object.defineProperty(dom.window, 'CSS', { value: { highlights: registry }, configurable: true })
+  Object.defineProperty(dom.window, 'Highlight', { value: class extends Array<Range> { constructor(...r: Range[]) { super(...r) } }, configurable: true })
+  const doc = dom.window.document, boundary = installStreamerBoundary(doc)
+  try {
+    doc.body.innerHTML = `<div class="md"><p id="a">first words</p><p>${'word '.repeat(210000)}</p><p id="z">last words</p></div>`
+    boundary.update(true, { cover: true })
+    const hidden = (registry.get('streamer-sensitive') ?? []).map(r => r.toString())
+    assert.ok(hidden.some(t => t.startsWith('first words')) && hidden.some(t => t.endsWith('last words')), 'the whole text is covered')
+  } finally { boundary.dispose(); dom.window.close() }
+})

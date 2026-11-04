@@ -420,7 +420,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       while (nodes[lastIndex] && nodes[lastIndex]!.end < span.end) lastIndex++
       const first = nodes[firstIndex], last = nodes[lastIndex]
       if (!first || !last) continue
-      const range = doc.createRange(); range.setStart(first.node, span.start - first.start); range.setEnd(last.node, span.end - last.start); ranges.push(range)
+      const range = doc.createRange(); range.setStart(first.node, Math.max(0, span.start - first.start)); range.setEnd(last.node, Math.max(0, span.end - last.start)); ranges.push(range)
     }
     // A formula is judged by its TeX source (the annotation), never by its drawn text: subscripts, superscripts, spacing and
     // symbol swaps all change what is drawn. A sensitive match anywhere in the source masks the whole visible half (spec R10, D3).
