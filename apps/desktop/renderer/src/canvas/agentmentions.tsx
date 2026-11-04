@@ -16,7 +16,7 @@ import { loadMoreMentions, SEARCH_KINDS, useMentionSearch } from './mentionsearc
 import type { SearchKind } from './mentionsearch'
 import { RefMark } from './refmarks'
 import type { MentionRow } from '../api'
-import { NetMark, NetName, ensureNetPicture, netRosterEntries, hubAddressTitle, netChipClass, netChipLabel, netMention, orgNetAddress, splitScheme, useNetMentionState } from './netmentions'
+import { NetMark, NetName, isCurrentOrgAddress, ensureNetPicture, netRosterEntries, hubAddressTitle, netChipClass, netChipLabel, netMention, orgNetAddress, splitScheme, useNetMentionState } from './netmentions'
 
 export interface MentionCandidate {
   id: string
@@ -748,6 +748,8 @@ export function useAgentMentions({
               type="button"
               role="option"
               aria-selected={idx === clampedIndex}
+              // Streamer mode: a contact or other org in the list is hidden by what it RESOLVES to, whatever name it shows
+              data-streamer-field={(c.kind === 'net' || c.kind === 'org') && !isCurrentOrgAddress(mentionText(c)) ? (c.kind === 'net' ? 'external' : 'org') : undefined}
               className={'agent-mention-item' + (c.kind === 'agent' || c.kind === 'project' ? '' : ` mention-${c.kind}`)
                 + (idx === clampedIndex ? ' active on' : '')}
               // a ticket hovers with the one ticket identity every ticket link shows, a presentation with its own;
@@ -1046,7 +1048,7 @@ export function HubContactChip({ address, className }: { address: string; classN
       className={cls}
       onContextMenu={e => menu.open(e, hubAddressMenuEntries(e.currentTarget, address))}
       data-hub-address={address}
-      data-streamer-field="external"
+      data-streamer-field={isCurrentOrgAddress(address) ? undefined : 'external'}
       data-hub-ref={address}
       data-net-kind={info.kind}
       data-net-icon={info.icon}

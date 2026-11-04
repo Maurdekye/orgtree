@@ -56,6 +56,7 @@ const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:transparent!important;text-shadow:${SMUDGE}!important}
 [data-streamer-selmask]{position:fixed;z-index:2147483646;pointer-events:none;background:#686868;border-radius:2px}
 html.streamer-on [data-streamer-pending]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
+html.streamer-on [data-streamer-blur] :is(img,svg,canvas){filter:blur(6px)!important}
 html.streamer-on [data-streamer-blur]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on [data-streamer-blur]::placeholder{color:transparent!important}
 html.streamer-on:not(.streamer-nocover) :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
@@ -270,7 +271,9 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       // Always-fields hold one type for sure: an input-like one is blurred through CSS (its value is not text), others by range below.
       for (const el of doc.querySelectorAll('[data-streamer-field]')) {
         const on = enabledType(el.getAttribute('data-streamer-field') ?? undefined)
-        if (el.matches('input,textarea,select,[contenteditable=true]')) el.toggleAttribute('data-streamer-blur', on)
+        // a field whose visible text is NOT a text node (a chip's display name is drawn from data-net-name by CSS, its initials from
+      // data-initials, its picture is an <img>) cannot be covered by a text range: the whole element is blurred instead
+      if (el.matches('input,textarea,select,[contenteditable=true]') || el.querySelector('[data-net-name],[data-initials],img')) el.toggleAttribute('data-streamer-blur', on)
       }
       // Masking fails per value, never per window: unready identities keep the
       // pattern and known-value masks; without the Highlight API only text paint

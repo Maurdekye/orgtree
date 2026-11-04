@@ -41,7 +41,7 @@ import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
 import { createRefMarkEl, hasRefMark } from './refmarks'
 import { createObjectMentionButton, objectMentionsWrap, useObjectMentionsWrap } from './mentionwrap'
-import { createNetMarkEl, createNetNameEls, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
+import { createNetMarkEl, createNetNameEls, isCurrentOrgAddress, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 /** the attribute that makes an injected chip findable again on the next pass.
  *  It holds the ORIGINAL TOKEN, so undoing the injection is exact — the chip's
@@ -104,6 +104,7 @@ function hubChipEl(doc: Document, token: string): HTMLElement {
   el.setAttribute(TOK, token)
   el.setAttribute('data-hub-ref', addr)
   el.setAttribute('data-hub-address', addr)
+  if (!isCurrentOrgAddress(addr)) el.setAttribute('data-streamer-field', 'external')
   el.setAttribute('data-net-kind', info.kind)
   el.setAttribute('data-net-icon', info.icon)
   if (inert) el.setAttribute('aria-disabled', 'true')

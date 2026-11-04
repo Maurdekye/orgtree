@@ -203,6 +203,13 @@ export function orgNetAddress(): string | null {
   return ownAddress
 }
 
+/** Streamer mode (External addresses): the on-screen org's own address, as `@net:` or `@org:`, stays visible; every other
+ *  address that resolves to a party outside this org is hidden, whatever name the chip shows for it. */
+export function isCurrentOrgAddress(address: string): boolean {
+  const a = address.trim().toLowerCase()
+  return (ownAddress !== null && a === ownAddress) || (viewOrg !== null && a === `@org:${viewOrg.toLowerCase()}`)
+}
+
 function sameRoster(a: Map<string, RosterEntry>, b: Map<string, RosterEntry>): boolean {
   if (a.size !== b.size) return false
   for (const [k, v] of a) {
