@@ -222,15 +222,15 @@ async fn act_args(w: &W, action: &str) -> Result<Value> {
         .map(|_| json!({}))
 }
 
-/// WD5 (W4, W5): fire_actions and app_listener are refused for a delegated dog.
+/// WD5 (W4, W5 rev 1.2): app_listener is refused; fire_actions outside the allow-list are refused at create.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
 #[nolog]
-async fn wd05_fire_actions_and_app_listener_are_refused() {
+async fn wd05_app_listener_and_unlisted_fire_actions_are_refused() {
     let w = world().await;
     let e = err(create(&w.e, w.org.id, w.c, &json!({"kind":"command","target":"echo hi","pattern":"z","owner":"w",
-        "fire_actions":[{"tool":"orgtree_status","args":{"status":"working"}}]})).await);
-    assert!(e.contains("fire_actions on a watchdog for w would run with w's authority; w adds them itself"), "{e}");
+        "fire_actions":[{"tool":"orgtree_work","args":{"action":"list"}}]})).await);
+    assert!(e.contains("fire_actions on a watchdog for w may use only orgtree_message, orgtree_send_notice, orgtree_watchdog (pause/resume/remove/send/list), orgtree_project fire_event and orgtree_status"), "{e}");
     let e = err(create(&w.e, w.org.id, w.c, &json!({"kind":"app_listener","target":"x","owner":"w"})).await);
     assert!(e.contains("app_listener subscribes the owner's own app panels; w creates it itself"), "{e}");
 }
@@ -500,4 +500,144 @@ async fn ra09_revoking_a_project_audience_changes_nothing() {
     assert_eq!(w.dog(&id).await.1, "armed");
     w.post("B", "late job").await;
     assert_eq!(w.mail_with(a1, "late job").await, 1);
+}
+
+// ---------------------------------------------------------------- fire_actions limited to both (rev 1.2, FA1-FA8)
+
+impl W {
+    /// A delegated command dog whose fire runs `actions`; returns the dog row.
+    #[nolog]
+    async fn acting_dog(&self, setter: i64, owner: &str, name: &str, actions: Value) -> i64 {
+        create(&self.e, self.org.id, setter, &json!({"kind":"command","target":"echo hi","pattern":"never-matches-zzz","name":name,"owner":owner,"interval_s":3600,"fire_actions":actions})).await.unwrap();
+        self.dog(name).await.3
+    }
+    /// The newest fire mail w holds that carries fire actions.
+    #[nolog]
+    async fn fire_mail(&self, agent: i64) -> String {
+        self.bodies(agent).await.into_iter().rev().find(|b| b.contains("Fire actions")).expect("a fire mail with its fire actions")
+    }
+}
+
+fn say(to: &str, body: &str) -> Value {
+    json!([{"tool":"orgtree_message","args":{"metadata":{"to":to},"body":body}}])
+}
+
+/// FA1: the call is made as the owner; the heading names the setter.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa01_a_call_both_may_make_runs() {
+    let w = world().await;
+    let row = w.acting_dog(w.c, "w", "act", say("S", "report from w")).await;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("Fire actions (run as you, limited to what both you and @C may do now):"), "{mail}");
+    assert!(mail.contains("orgtree_message: ok"), "{mail}");
+    assert_eq!(w.mail_with(w.s, "report from w").await, 1, "the message was sent as w");
+}
+
+/// FA2: the owner can reach x by an audience, the setter cannot: FAILED, nothing sent.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa02_the_setters_reach_over_the_recipient() {
+    let w = world().await;
+    w.audience("w", "x").await;
+    let row = w.acting_dog(w.c, "w", "act", say("x", "should not arrive")).await;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("orgtree_message: FAILED") && mail.contains("@C cannot send to x"), "{mail}");
+    assert_eq!(w.mail_with(w.x, "should not arrive").await, 0);
+}
+
+/// FA3: the user as recipient: the setter (not top-level, no user audience) cannot, though w holds one.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa03_the_user_needs_the_setters_own_route() {
+    let w = world().await;
+    w.audience("w", "@user").await;
+    let row = w.acting_dog(w.s, "w", "act", say("user", "to the user")).await;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("orgtree_message: FAILED"), "{mail}");
+    assert_eq!(w.count("SELECT count(*) FROM ot.mail WHERE recipient_kind='user' AND body LIKE '%to the user%'", &[]).await, 0);
+}
+
+/// FA4: the setter's tool groups lose messaging.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa04_the_setters_tool_groups() {
+    let w = world().await;
+    let row = w.acting_dog(w.c, "w", "act", say("S", "nope")).await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_build_object('tools',jsonb_build_object('orgtree',jsonb_build_object('messaging',false))) WHERE id=$1", &[&w.c]).await;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("orgtree_message: FAILED") && mail.contains("@C's tool groups do not allow orgtree_message"), "{mail}");
+}
+
+/// FA5: the setter retired, or the owner moved out of its line: every call fails; the fire mail is still delivered.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa05_a_retired_or_left_behind_setter() {
+    let w = world().await;
+    let row = w.acting_dog(w.c, "w", "act", say("S", "never")).await;
+    w.sql("UPDATE ot.agents SET state='archived' WHERE id=$1", &[&w.c]).await;
+    w.fire(row, &["first"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("the setter @C is retired") && mail.contains("first"), "{mail}");
+    w.sql("UPDATE ot.agents SET state='live' WHERE id=$1", &[&w.c]).await;
+    w.sql("UPDATE ot.agents SET parent_id=$2 WHERE id=$1", &[&w.w, &w.x]).await;
+    w.fire(row, &["second"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("the setter @C is no longer above you") && mail.contains("second"), "{mail}");
+    assert_eq!(w.mail_with(w.s, "never").await, 0);
+}
+
+/// FA6: watchdog actions need the setter's management of the target dog.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa06_watchdog_actions_need_the_setters_management() {
+    let w = world().await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"command","target":"echo own","pattern":"z","name":"mine"})).await.unwrap();
+    create(&w.e, w.org.id, w.x, &json!({"kind":"command","target":"echo far","pattern":"z","name":"far"})).await.unwrap();
+    let actions = json!([{"tool":"orgtree_watchdog","args":{"action":"pause","id":"mine"}},{"tool":"orgtree_watchdog","args":{"action":"pause","id":"x/far"}}]);
+    let row = w.acting_dog(w.c, "w", "act", actions).await;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert_eq!(w.dog("mine").await.1, "paused", "{mail}");
+    assert_eq!(w.dog("far").await.1, "armed", "the far dog is untouched: {mail}");
+    assert!(mail.contains("orgtree_watchdog: FAILED"), "{mail}");
+}
+
+/// FA7: a fire action cannot create a watchdog (a chain of delegations).
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa07_a_fire_action_cannot_create() {
+    let w = world().await;
+    let row = w.acting_dog(w.c, "w", "act", say("S", "x")).await;
+    // the create-time allow-list would refuse a create action, so plant it in the stored dog
+    w.sql("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{fire_actions}',$2::jsonb) WHERE id=$1",
+        &[&row, &json!([{"tool":"orgtree_watchdog","args":{"action":"create","kind":"command","target":"echo z","pattern":"q"}}])]).await;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("a fire action cannot create watchdogs on a watchdog created for you"), "{mail}");
+}
+
+/// FA8 (control): w's own dog: the unchanged heading and no setter check.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa08_an_own_dog_is_unchanged() {
+    let w = world().await;
+    create(&w.e, w.org.id, w.w, &json!({"kind":"command","target":"echo hi","pattern":"never-matches-zzz","name":"own","interval_s":3600,"fire_actions":say("S","own report")})).await.unwrap();
+    let row = w.dog("own").await.3;
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.w).await;
+    assert!(mail.contains("Fire actions (run as you, with your current authority):") && !mail.contains("limited to what both"), "{mail}");
+    assert_eq!(w.mail_with(w.s, "own report").await, 1);
 }
