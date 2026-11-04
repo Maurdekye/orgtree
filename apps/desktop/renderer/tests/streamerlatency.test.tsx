@@ -28,7 +28,7 @@ test('one changed free-form text node: mutation to updated mask in under 220 ms 
     for (let quiet = 0, last = -1; quiet < 3;) { await new Promise(r => setTimeout(r, 700)); quiet = sets === last ? quiet + 1 : 0; last = sets }
     const draft = doc.getElementById('draft')!.firstChild as Text
     const before = sets, began = performance.now()
-    draft.data = 'xy'
+    draft.data = 'xy sk-ant-api03-AbCdeF0123456789xyz'
     while (sets === before && performance.now() - began < 20000) await new Promise(r => setTimeout(r, 5))
     const took = performance.now() - began
     console.log(`LATENCY mutation to mask update: ${took.toFixed(0)} ms`)

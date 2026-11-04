@@ -71,6 +71,8 @@ html.streamer-textless body :not([data-streamer-ui],[data-streamer-ui] *){color:
 [data-streamer-banner][data-streamer-inline] button{padding:0 6px;font-size:11px}
 html.streamer-banner-fixed body{height:calc(100% - 30px)!important;overflow:hidden}
 `
+interface HighlightLike { add(range: Range): unknown; delete(range: Range): unknown }
+const samePlace = (a: Range, b: Range) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { supports?(property: string, value: string): boolean; highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
 /** The last 32 scans (UI stall spec R8b, rev 1.2): a read-only snapshot for the stall watch; it never triggers a scan. */
 export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_nodes: number; regex_chars: number; text_chars: number; ranges_after: number }
@@ -247,7 +249,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     clearPending()
     doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-nocover', 'streamer-banner-fixed')
     for (const el of doc.querySelectorAll('[data-streamer-blur]')) el.removeAttribute('data-streamer-blur')
-    win?.CSS?.highlights?.delete('streamer-sensitive')
+    win?.CSS?.highlights?.delete('streamer-sensitive'); highlightObj = null
     for (const cover of covered.values()) cover.remove()
     covered.clear()
     for (const el of revealed) el.removeAttribute('data-streamer-revealed')
@@ -432,13 +434,32 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       const range = doc.createRange(); range.selectNodeContents(html); ranges.push(range)
     }
     for (const node of whole) { if (!node.data.trim()) continue; const range = doc.createRange(); range.selectNodeContents(node); ranges.push(range) }
-    win!.CSS!.highlights!.set('streamer-sensitive', new win!.Highlight!(...ranges))
-    sensitiveRanges = ranges; maskSelection()
+    // ONE Highlight object is registered once and diffed in place (add/delete only the ranges that changed): re-registering a new
+    // Highlight invalidates highlight paint for the whole document. A keystroke in the composer usually changes no span, so it
+    // touches neither the object nor CSS.highlights. Ranges are live; old and new are matched by position.
+    const registry = win!.CSS!.highlights!
+    if (!highlightObj || typeof highlightObj.add !== 'function' || typeof highlightObj.delete !== 'function') {
+      // a Highlight without add/delete (test doubles): replace it, but only when the spans changed
+      const unchanged = highlightObj && ranges.length === sensitiveRanges.length && ranges.every((r, i) => samePlace(r, sensitiveRanges[i]!))
+      if (!unchanged) { highlightObj = new win!.Highlight!(...ranges) as HighlightLike; registry.set('streamer-sensitive', highlightObj); sensitiveRanges = ranges }
+    } else {
+      const old = new Map<Node, Range[]>()
+      for (const o of sensitiveRanges) { const list = old.get(o.startContainer); if (list) list.push(o); else old.set(o.startContainer, [o]) }
+      const keep = new Set<Range>(), kept: Range[] = []
+      for (const r of ranges) {
+        const match = old.get(r.startContainer)?.find(o => !keep.has(o) && samePlace(o, r))
+        if (match) { keep.add(match); kept.push(match) } else { highlightObj.add(r); kept.push(r) }
+      }
+      for (const o of sensitiveRanges) if (!keep.has(o)) highlightObj.delete(o)
+      sensitiveRanges = kept
+    }
+    maskSelection()
   }
   // A ::selection layer is drawn ABOVE the custom highlight, so a selected key would show in the clear; and a blanket
   // ::selection blanking rule hid every selected word (USER 2026-11-04 m79874151077c). The selection is drawn normally;
   // the part of it that overlaps a hidden-type span gets a mask box over its client rects.
   let sensitiveRanges: Range[] = [], selFrame = 0
+  let highlightObj: HighlightLike | null = null
   // the boxes live in one data-streamer-ui layer, so adding them is not a page mutation (no rescan loop)
   const selLayer = doc.createElement('div'); selLayer.dataset.streamerUi = ''; selLayer.dataset.streamerSelLayer = ''
   selLayer.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;background:none;border:0;padding:0'
@@ -451,10 +472,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     try { maskSelectionNow() } finally { maskRing.push({ start: began, ms: clock() - began }); if (maskRing.length > 64) maskRing.shift() }
   }
   function maskSelectionNow() {
+    // nothing to draw (no selection, a caret, or nothing hidden): return before any work, clearing only boxes that exist
+    const sel = active ? win!.getSelection?.() : null
+    if (!sel || !sel.rangeCount || sel.isCollapsed || !sensitiveRanges.length) { if (selLayer.firstChild) clearSelectionMasks(); return }
     clearSelectionMasks()
-    if (!active) return
-    const sel = win!.getSelection?.()
-    if (!sel || !sel.rangeCount || sel.isCollapsed) return
     const chosen = sel.getRangeAt(0), R = (win as unknown as { Range: typeof Range }).Range
     for (const span of sensitiveRanges) {
       if (chosen.compareBoundaryPoints(R.START_TO_END, span) <= 0 || chosen.compareBoundaryPoints(R.END_TO_START, span) >= 0) continue
