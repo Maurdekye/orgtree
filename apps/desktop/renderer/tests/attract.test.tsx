@@ -23,6 +23,9 @@ import { createAttractPanels } from '../src/attract/panels'
 import type { PanelKind } from '../src/attract/panels'
 import { markDocViewed } from '../src/canvas/docviewed'
 import { readLocally, resetLocalReads } from '../src/mailread'
+import { registerWindow } from '../src/windowlife'
+import { deskIdentity } from '../src/canvas/deskhosts'
+import { setAttentionLayout, setOrgView } from '../src/attention/mode'
 
 const SINCE = Date.parse('2026-11-02T12:00:00Z')
 const before = '2026-11-02T11:59:00Z', later = '2026-11-02T12:01:00Z'
@@ -672,7 +675,7 @@ test('§17b once per arrival: standing attention at the start of a run is the ba
   } finally { globalThis.fetch = realFetch; resetLocalReads(); localStorage.clear() }
 })
 
-test('§17c the attention routes: a question or mention goes to its node, a flagged ticket to the docket, urgent mail to the inbox; a pinned or popped-out desk fits the org instead; moving on closes the panels', async () => {
+test('§17c the attention routes: a question or mention goes to its node, a flagged ticket to the docket, urgent mail to the inbox; a desk that is visible anywhere is skipped entirely; moving on closes the panels', async () => {
   localStorage.clear(); resetLocalReads()
   const realFetch = globalThis.fetch
   globalThis.fetch = (async () => new Response(JSON.stringify({ read: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
@@ -690,7 +693,7 @@ test('§17c the attention routes: a question or mention goes to its node, a flag
     calls.length = 0
     pinned.add('bea')
     await routes.show(attn('question:q2', 'question', 'bea', 'q2'))
-    assert.deepEqual(calls, ['fit'], 'a pinned desk: the whole org, with the node in view, no window juggling')
+    assert.deepEqual(calls, [], 'a desk visible anywhere: attract skips the agent entirely - no fit, no pan, no focus (USER m1869e398fdea)')
     calls.length = 0
     await routes.show(attn('ticket:flagged', 'ticket', 'cy', 'flagged'))
     routes.hide(attn('ticket:flagged', 'ticket', 'cy', 'flagged'))
@@ -773,7 +776,7 @@ test('§8 the canvas routes: pinned or popped-out desks are skipped, real read m
 })
 
 // USER 2026-11-03 17:57:15Z m7efd38ca3400 "attract mode focused your desk even though it's open in the pinned agent desk already"
-test('§8b a desk open elsewhere is never touched, even when it was pinned after the candidates were collected; its presentations are not opened on it', async () => {
+test('§8b a desk open elsewhere is never touched, even when it was pinned after the candidates were collected; its presentations are not opened on it, and the canvas does not move either', async () => {
   const node = (id: string, extra: Record<string, unknown> = {}) =>
     [id, { id, tier: 'opus', state: 'idle', generation: 1, busy: true, turn_started_at: before, ...extra }] as const
   const map = new Map<string, any>([node('late'), node('pinned', { documents: [{ id: 'pd', title: 'p', at: later }] })])
@@ -793,9 +796,44 @@ test('§8b a desk open elsewhere is never touched, even when it was pinned after
     await routes.show({ kind: 'agent', id: 'late', mark: before })
     await routes.show({ kind: 'agent', id: 'pinned', mark: before })
     await routes.show({ kind: 'doc', id: 'pd', node: 'pinned' })
-    assert.deepEqual(calls, ['fit', 'fit', 'fit'], 'only the canvas moves; no desk is focused and no reader opened: ' + calls.join(','))
+    assert.deepEqual(calls, [], 'nothing moves (USER m1869e398fdea): no pan, no focus, no desk change, no reader: ' + calls.join(','))
   } finally { resetLocalReads(); localStorage.clear() }
 })
+
+// USER 2026-11-04 19:34:25Z m1869e398fdea "attract mode still focused your node even though i have your desk open in a pinned attention
+// view agent desk": an agent whose desk is visible ANYWHERE (pinned, the attention view's desk, a popped-out window) is skipped
+// entirely: no node focus, no pan, no desk change, whether it comes up as an agent step, an attention item or a presentation.
+for (const kind of ['pinned', 'attention-view', 'popped-out'] as const) {
+  test(`§8c a desk shown as ${kind} is skipped entirely: no focus, no pan, no fit, no reader; a free agent is still visited`, async () => {
+    localStorage.clear(); resetLocalReads()
+    const node = (id: string, extra: Record<string, unknown> = {}) =>
+      [id, { id, tier: 'opus', state: 'idle', generation: 1, busy: true, turn_started_at: before, ...extra }] as const
+    const map = new Map<string, any>([node('liaison', { documents: [{ id: 'dx', title: 'd', at: later }] }), node('free')])
+    const pinned = new Set<string>()
+    let stopSurface = () => {}
+    try {
+      if (kind === 'pinned') pinned.add('liaison')
+      if (kind === 'attention-view') { setOrgView('acme', 'attention'); setAttentionLayout('acme', { agent: 'liaison' }) }
+      if (kind === 'popped-out') stopSurface = registerWindow({ id: 'probe-desk', kind: `desk:${deskIdentity('acme', map.get('liaison'))}`, org: 'acme', editable: false,
+        window: globalThis.window, redock: () => {} })
+      const calls: string[] = []
+      const routes = canvasAttractRoutes(() => ({
+        enabled: true, slug: 'acme', tree: { user_inbox_count: 0, roots: [], asks: [] } as any, map, pinnedIds: () => pinned,
+        goToAgent: (id) => calls.push('go:' + id), fitAll: () => calls.push('fit'), openDoc: (id) => calls.push('doc:' + id),
+        readerIds: () => [], closeReader: () => {}, onPanel: () => {},
+      }))
+      const got = await routes.collect(SINCE)
+      assert.equal(got.agents.find(a => a.id === 'liaison')!.deskTaken, true, 'its desk counts as taken')
+      assert.deepEqual(got.docs, [], 'and so do its presentations')
+      await routes.show({ kind: 'agent', id: 'liaison', mark: before })
+      await routes.show(attn('question:q', 'question', 'liaison', 'q'))
+      await routes.show({ kind: 'doc', id: 'dx', node: 'liaison' })
+      assert.deepEqual(calls, [], 'nothing moved for the visible desk: ' + calls.join(','))
+      await routes.show({ kind: 'agent', id: 'free', mark: before })
+      assert.deepEqual(calls, ['go:free'], 'an agent whose desk is not open anywhere is still visited')
+    } finally { stopSurface(); setOrgView('acme', 'canvas'); setAttentionLayout('acme', { agent: null }); localStorage.clear(); resetLocalReads() }
+  })
+}
 
 // USER 2026-11-03 13:10:58Z m46c12a448a66 "any user facing questions while attract mode is on should
 // be outright refused (optional extra toggle default on)"
