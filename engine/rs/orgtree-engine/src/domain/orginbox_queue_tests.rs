@@ -758,7 +758,8 @@ async fn gr10_an_ack_cannot_slip_between_the_route_check_and_the_send() {
     let tx = conn.transaction().await.unwrap();
     assert!(jobs::job_route(&*tx, w.org, worker, &out, Some(a)).await.unwrap().is_some(), "open: the route holds and locks the job row");
     // the ACK from another connection waits for the send's transaction instead of landing inside it
-    let ack = w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]);
+    let ps = [&job as &(dyn tokio_postgres::types::ToSql + Sync)];
+    let ack = w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &ps);
     assert!(tokio::time::timeout(std::time::Duration::from_millis(700), ack).await.is_err(), "the ACK is held back while the route is locked");
     tx.rollback().await.unwrap();
     drop(conn);
