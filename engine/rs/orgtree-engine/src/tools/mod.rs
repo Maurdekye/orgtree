@@ -612,6 +612,39 @@ mod watchdog_configure_tests {
         }
     }
 
+    /// CE21: the TOOL guard lets a configure that edits behaviour or target fields through (no connection_messages needed).
+    #[test]
+    fn watchdog_configure_accepts_edit_fields_without_connection_messages() {
+        for args in [
+            json!({"id":"worker/dog","target":"echo AFTER","pattern":"AFTER","interval_s":15}),
+            json!({"id":"sock","hello":["hi"]}),
+            json!({"id":"sock","pattern":"news"}),
+            json!({"id":"dog","interval_s":30}),
+            json!({"id":"dog","fire_actions":[]}),
+            json!({"id":"dog","kind":"command"}),
+        ] {
+            let (id, mode) = watchdog_configure_args(&args).unwrap_or_else(|e| panic!("{args}: {e:#}"));
+            assert_eq!(mode, None, "{args}");
+            assert!(!id.is_empty());
+        }
+        // an edit may carry connection_messages too
+        assert_eq!(watchdog_configure_args(&json!({"id":"sock","hello":["hi"],"connection_messages":"wake"})).unwrap(), ("sock", Some("wake")));
+        // null edit fields do not count as edits
+        assert!(watchdog_configure_args(&json!({"id":"dog","target":null})).is_err());
+    }
+
+    /// CE21: the guards that must stay: an empty configure and a bad id are still refused, an edit does not excuse them.
+    #[test]
+    fn watchdog_configure_edit_keeps_the_empty_and_id_guards() {
+        assert!(watchdog_configure_args(&json!({"id":"dog"})).is_err(), "nothing to configure");
+        for value in [Value::Null, json!(""), json!(" 	 "), json!(1), json!(false), json!([])] {
+            assert!(watchdog_configure_args(&json!({"id":value,"target":"x"})).is_err());
+        }
+        assert!(watchdog_configure_args(&json!({"target":"x"})).is_err());
+        // malformed connection_messages still refused alongside an edit
+        assert!(watchdog_configure_args(&json!({"id":"dog","target":"x","connection_messages":"silent"})).is_err());
+    }
+
     #[test]
     fn watchdog_configure_rejects_missing_blank_or_non_string_ids() {
         assert!(watchdog_configure_args(&json!({"notify_on_connect":false})).is_err());
