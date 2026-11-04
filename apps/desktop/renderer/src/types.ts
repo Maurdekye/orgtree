@@ -804,6 +804,8 @@ export interface Watchdog {
   owner_kind?: 'agent' | 'project'
   /** a project dog's creator: an agent's name, or `user` */
   created_by?: string
+  /** a project dog's delivery form (project-watchdogs F1): where its fires go; the engine always sends it for project dogs */
+  project_delivery?: 'event' | 'broadcast' | 'queue'
   /** why a paused dog is paused */
   paused_why?: string
   template_warning?: string

@@ -218,7 +218,8 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
       {watching && <td className="listener-count"/>}
       <td className="listener-fired">{w.fired}</td>
       {firing && <td className="listener-actions"/>}
-      <td className="listener-dog-cell"><WatchdogLink dog={w} className="listener-dog" /></td>
+      <td className="listener-dog-cell"><WatchdogLink dog={w} className="listener-dog" />
+        {w.project_delivery && <span className="dim listener-form"> {w.project_delivery}</span>}</td>
       {ownRows && <td className="slot-action"/>}
     </>)
     return <WatchdogRow as="tr" key={w.id} id={w.id} className={'slot-row listener-row source-row' + (w.state === 'paused' ? ' out' : '')}>{cells}</WatchdogRow>
