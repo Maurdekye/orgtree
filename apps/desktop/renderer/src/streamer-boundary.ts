@@ -70,12 +70,82 @@ html.streamer-textless body :not([data-streamer-ui],[data-streamer-ui] *){color:
 html.streamer-banner-fixed body{height:calc(100% - 30px)!important;overflow:hidden}
 `
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { supports?(property: string, value: string): boolean; highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
+/** The last 32 scans (UI stall spec R8b, rev 1.2): a read-only snapshot for the stall watch; it never triggers a scan. */
+export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_chars: number; ranges_after: number }
+export interface StreamerScanStats { on: boolean; pace_ms: number; scans: readonly StreamerScan[] }
+const scanRing: StreamerScan[] = []
+let ringOn = false, ringPace = 0
+export const streamerScanStats = (): StreamerScanStats => ({ on: ringOn, pace_ms: ringPace, scans: scanRing.slice() })
+/** A text node's classification, cached because deriving it (four closest() calls over long selector lists) was the whole cost
+ *  of a scan: 2.2 s per scan at 18k text nodes (measured, streamerperf.test.tsx). The TEXT is never cached; it is read fresh from
+ *  the node every scan, so new or edited text is masked in the same microtask. Mutation records invalidate what they touch. */
+interface SeqEntry { node: Text; sep: boolean; field: string | null; data: string }
+interface TextClass { kind: 0 | 1 | 2; field: string | null; block: Element | null }
+const BLOCKS = 'p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html'
+const SKIP = 'script,style,textarea,select,[contenteditable=true],[data-streamer-ui]'
+/** True when the nearest preceding node in document order is a <br> (the text after a line break starts a new run). */
+function afterLineBreak(from: Node): boolean {
+  let n: Node | null = from
+  for (;;) {
+    let p: Node | null = n!.previousSibling
+    while (!p) { n = n!.parentNode; if (!n || n.nodeType === 9) return false; p = n.previousSibling }
+    while (p.lastChild) p = p.lastChild
+    if (p.nodeName === 'BR') return true
+    if (p.nodeType === 3) return false
+    n = p
+  }
+}
+const ZONE_TOKENS = new Set(`${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},${BLOCKS}`.match(/\.[\w-]+/g)?.map(t => t.slice(1)))
+const classTouchesZone = (value: string | null) => !!value && value.split(/\s+/).some(t => ZONE_TOKENS.has(t))
+/** Anything whose appearance can change a mask; the rest of the page is chrome. */
+const WATCHED = `${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},[data-streamer-field],[title],[alt],[aria-label],input,textarea,select,[contenteditable],${OPAQUE}`
 export function installStreamerBoundary(doc: Document, turnOff?: () => void): StreamerBoundary {
   const win = doc.defaultView as HighlightWindow | null
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
   let active = false, types: StreamerTypes = { ...DEFAULT_STREAMER_TYPES }, coverOn = true, orgNames: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
-  let lastEnd = 0, lastCost = 0, timer = 0
+  let lastEnd = 0, lastCost = 0, timer = 0, scanWalked = 0, scanChars = 0, pendingMutations = 0, trigger: StreamerScan['trigger'] = 'other'
+  let seq: SeqEntry[] | null = null, textOnly = false
+  const seqIndex = new Map<Text, SeqEntry>(), editedTexts = new Set<Text>()
+  let textClass = new WeakMap<Text, TextClass>(), attrMemo = new WeakMap<Element, string>()
+  function classify(node: Text): TextClass {
+    let cls = textClass.get(node)
+    if (cls) return cls
+    const parent = node.parentElement
+    if (!parent || parent.closest(SKIP)) cls = { kind: 0, field: null, block: null }
+    else {
+      const field = parent.closest('[data-streamer-field]')
+      if (field) cls = { kind: 1, field: field.getAttribute('data-streamer-field'), block: null }
+      else if (!inFreeform(parent)) cls = { kind: 0, field: null, block: null }
+      else cls = { kind: 2, field: null, block: parent.closest(BLOCKS) }
+    }
+    textClass.set(node, cls)
+    return cls
+  }
+  /** Could this mutation change what the scan would mask? A change that touches no free-form text, field, labelled element,
+   *  input or media element (typing counters, hints, chrome) cannot, so it costs no scan. When unsure it says yes. */
+  function relevant(r: MutationRecord): boolean {
+    if (r.type === 'characterData') return classify(r.target as Text).kind !== 0
+    const target = r.target as Element
+    if (target.closest('[data-streamer-ui]')) return false
+    if (r.type === 'attributes') {
+      if (r.attributeName === 'class') return classTouchesZone(r.oldValue) || classTouchesZone(target.getAttribute('class'))
+      return !!target.closest('[data-streamer-field]') || inFreeform(target) || r.attributeName === 'autocomplete'
+    }
+    if (r.removedNodes.length || target.closest('[data-streamer-field]') || inFreeform(target)) return true
+    for (const a of r.addedNodes) {
+      if (a.nodeType === 3) { if (classify(a as Text).kind !== 0) return true } else if (a.nodeType === 1 && ((a as Element).matches(WATCHED) || (a as Element).querySelector(WATCHED))) return true
+    }
+    return false
+  }
+  const invalidate = (root: Node | null) => {
+    if (!root) return
+    if (root.nodeType === 3) { textClass.delete(root as Text); return }
+    if (root.nodeType !== 1) return
+    attrMemo.delete(root as Element)
+    const walker = doc.createTreeWalker(root, 5)
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) { if (n.nodeType === 3) textClass.delete(n as Text); else attrMemo.delete(n as Element) }
+  }
   const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>(), tinyEls = new Set<Element>()
   // Icon-sized media (avatars, logos, glyph images) is hidden without a cover:
   // a bordered box with a label and a button would not fit and would be noise.
@@ -147,7 +217,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const clock = () => (win?.performance ?? performance).now()
   function requestScan() {
     if (!active) return
-    const wait = lastCost < 16 ? 0 : lastEnd + Math.min(250, lastCost * 4) - clock()
+    // Only a scan of 16 ms or more is paced: the next one waits 4x its cost (at most 1 s, was 250 ms: a 2 s scan then kept the main thread
+    // ~90% busy), so the scan share stays near 20%. The incremental scan costs a few ms, so new text is normally masked in the same
+    // microtask, before the next paint.
+    const wait = lastCost < 16 ? 0 : lastEnd + Math.min(1000, lastCost * 4) - clock()
+    ringPace = Math.max(0, Math.round(wait))
+    trigger = 'mutation'
     if (wait <= 0) scan()
     else if (!timer) timer = win!.setTimeout(() => { timer = 0; scan() }, wait)
   }
@@ -155,7 +230,13 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (!active || !doc.body) return
     if (timer) { win?.clearTimeout(timer); timer = 0 }
     const began = clock()
-    try { scanNow() } finally { lastEnd = clock(); lastCost = lastEnd - began }
+    scanWalked = 0; scanChars = 0
+    try { scanNow() } finally {
+      lastEnd = clock(); lastCost = lastEnd - began
+      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, nodes_walked: scanWalked, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
+      if (scanRing.length > 32) scanRing.shift()
+      pendingMutations = 0; trigger = 'other'
+    }
   }
   function scanNow() {
     // Virtualized transcripts must not retain detached history through our restoration maps.
@@ -170,84 +251,106 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     doc.documentElement.classList.add('streamer-on')
     doc.documentElement.classList.toggle('streamer-nocover', !coverOn)
     const enabledType = (kind: string | undefined) => { const type = kind ? STREAMER_ZONES.always[kind] : undefined; return !!type && types[type] }
-    // Always-fields hold one type for sure: an input-like one is blurred through CSS (its value is not text), others by range below.
-    for (const el of doc.querySelectorAll('[data-streamer-field]')) {
-      const on = enabledType(el.getAttribute('data-streamer-field') ?? undefined)
-      if (el.matches('input,textarea,select,[contenteditable=true]')) el.toggleAttribute('data-streamer-blur', on)
-    }
     const supported = !!win?.Highlight && !!win.CSS?.highlights
-    // Masking fails per value, never per window: unready identities keep the
-    // pattern and known-value masks; without the Highlight API only text paint
-    // is withheld, and layout, controls and the Turn off button stay usable.
-    doc.documentElement.classList.toggle('streamer-textless', !supported)
-    bannerLabel.textContent = (!supported ? 'Streamer mode — text hidden: this window cannot mask single values' : 'Streamer mode') + (note ? ` — ${note}` : '')
-    // USER 2026-11-04 m27bbbf036a7a "blocks the version number": the banner lives IN the footer strip, just before the version
-    // label (the strip's end group), never over a control. A window with no footer (a popout) reserves a bottom strip instead.
-    const host = doc.querySelector('.shell-statusbar-end') ?? doc.querySelector('.shell-statusbar')
-    if (host) {
-      banner.dataset.streamerInline = ''; doc.documentElement.classList.remove('streamer-banner-fixed')
-      const before = host.querySelector('.shell-version')
-      if (banner.parentElement !== host || (before && banner.nextElementSibling !== before)) host.insertBefore(banner, before && before.parentElement === host ? before : host.firstChild)
-    } else {
-      delete banner.dataset.streamerInline; doc.documentElement.classList.add('streamer-banner-fixed')
-      if (banner.parentElement !== doc.body) doc.body.appendChild(banner)
-    }
-    if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
-    for (const el of doc.querySelectorAll('input,textarea,select')) {
-      const value = el.getAttribute('autocomplete')
-      if (value !== 'off') { autocomplete.set(el, value); el.setAttribute('autocomplete', 'off') }
-    }
-    for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
-      if (el.closest('[data-streamer-ui]')) continue
-      const field = el.closest('[data-streamer-field]')
-      const inFree = !field && inFreeform(el)
-      for (const key of ['title', 'alt', 'aria-label']) {
-        const value = el.getAttribute(key)
-        // a label inside an always-field is hidden with it; in free-form it is hidden only if it matches an enabled type
-        if (value && value !== STREAMER_HIDDEN && (field ? enabledType(field.getAttribute('data-streamer-field') ?? undefined) : inFree && sensitiveSpans(value, types, orgNames).length > 0)) {
-          let attrs = attributes.get(el); if (!attrs) { attrs = new Map(); attributes.set(el, attrs) }
-          attrs.set(key, value); el.setAttribute(key, STREAMER_HIDDEN)
-        }
+    // Only text changed, in nodes already classified (a streaming message, an edit): the order, labels, fields and media are as they
+    // were, so the scan reuses the last walk's sequence and re-matches the text (a cheap pass, no tree walk, no closest()).
+    const light = textOnly && seq !== null && supported
+    if (!light) {
+      // Always-fields hold one type for sure: an input-like one is blurred through CSS (its value is not text), others by range below.
+      for (const el of doc.querySelectorAll('[data-streamer-field]')) {
+        const on = enabledType(el.getAttribute('data-streamer-field') ?? undefined)
+        if (el.matches('input,textarea,select,[contenteditable=true]')) el.toggleAttribute('data-streamer-blur', on)
       }
-    }
-    for (const [el, box] of covered) if (!el.isConnected || !coverOn) { box.remove(); covered.delete(el) }
-    for (const el of revealed) if (!el.isConnected) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
-    for (const el of doc.querySelectorAll(OPAQUE)) {
-      if (!coverOn) continue
-      if (el.closest('[data-streamer-ui]') || revealed.has(el) || covered.has(el) || el.parentElement?.closest(OPAQUE)) continue
-      if (isTiny(el)) { tinyEls.add(el); continue }
-      const cover = doc.createElement('div'); cover.dataset.streamerUi = ''; cover.dataset.streamerCover = ''
-      const label = doc.createElement('span'); label.textContent = STREAMER_HIDDEN
-      const dismiss = doc.createElement('button'); dismiss.type = 'button'; dismiss.className = 'icon-btn'; dismiss.dataset.streamerDismiss = ''
-      dismiss.textContent = '×'; dismiss.setAttribute('aria-label', 'Dismiss cover for this surface')
-      dismiss.title = 'Reveal this surface until it closes or Streamer mode restarts'
-      dismiss.onclick = () => { revealed.add(el); el.setAttribute('data-streamer-revealed', ''); cover.remove(); covered.delete(el) }
-      // Inside a link or button, a click on the cover must not activate the hidden surface's owner.
-      cover.addEventListener('click', e => { e.preventDefault(); e.stopPropagation() })
-      cover.append(label, dismiss); covered.set(el, cover); place(el as HTMLElement, cover)
+      // Masking fails per value, never per window: unready identities keep the
+      // pattern and known-value masks; without the Highlight API only text paint
+      // is withheld, and layout, controls and the Turn off button stay usable.
+      doc.documentElement.classList.toggle('streamer-textless', !supported)
+      bannerLabel.textContent = (!supported ? 'Streamer mode — text hidden: this window cannot mask single values' : 'Streamer mode') + (note ? ` — ${note}` : '')
+      // USER 2026-11-04 m27bbbf036a7a "blocks the version number": the banner lives IN the footer strip, just before the version
+      // label (the strip's end group), never over a control. A window with no footer (a popout) reserves a bottom strip instead.
+      const host = doc.querySelector('.shell-statusbar-end') ?? doc.querySelector('.shell-statusbar')
+      if (host) {
+        banner.dataset.streamerInline = ''; doc.documentElement.classList.remove('streamer-banner-fixed')
+        const before = host.querySelector('.shell-version')
+        if (banner.parentElement !== host || (before && banner.nextElementSibling !== before)) host.insertBefore(banner, before && before.parentElement === host ? before : host.firstChild)
+      } else {
+        delete banner.dataset.streamerInline; doc.documentElement.classList.add('streamer-banner-fixed')
+        if (banner.parentElement !== doc.body) doc.body.appendChild(banner)
+      }
+      if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
+      for (const el of doc.querySelectorAll('input,textarea,select')) {
+        const value = el.getAttribute('autocomplete')
+        if (value !== 'off') { autocomplete.set(el, value); el.setAttribute('autocomplete', 'off') }
+      }
+      for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
+        const sig = `${el.getAttribute('title')}|${el.getAttribute('alt')}|${el.getAttribute('aria-label')}`
+        if (attrMemo.get(el) === sig) continue
+        if (el.closest('[data-streamer-ui]')) continue
+        const field = el.closest('[data-streamer-field]')
+        const inFree = !field && inFreeform(el)
+        for (const key of ['title', 'alt', 'aria-label']) {
+          const value = el.getAttribute(key)
+          // a label inside an always-field is hidden with it; in free-form it is hidden only if it matches an enabled type
+          if (value && value !== STREAMER_HIDDEN && (field ? enabledType(field.getAttribute('data-streamer-field') ?? undefined) : inFree && sensitiveSpans(value, types, orgNames).length > 0)) {
+            let attrs = attributes.get(el); if (!attrs) { attrs = new Map(); attributes.set(el, attrs) }
+            attrs.set(key, value); el.setAttribute(key, STREAMER_HIDDEN)
+          }
+        }
+        attrMemo.set(el, `${el.getAttribute('title')}|${el.getAttribute('alt')}|${el.getAttribute('aria-label')}`)
+      }
+      for (const [el, box] of covered) if (!el.isConnected || !coverOn) { box.remove(); covered.delete(el) }
+      for (const el of revealed) if (!el.isConnected) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
+      for (const el of doc.querySelectorAll(OPAQUE)) {
+        if (!coverOn) continue
+        if (el.closest('[data-streamer-ui]') || revealed.has(el) || covered.has(el) || el.parentElement?.closest(OPAQUE)) continue
+        if (isTiny(el)) { tinyEls.add(el); continue }
+        const cover = doc.createElement('div'); cover.dataset.streamerUi = ''; cover.dataset.streamerCover = ''
+        const label = doc.createElement('span'); label.textContent = STREAMER_HIDDEN
+        const dismiss = doc.createElement('button'); dismiss.type = 'button'; dismiss.className = 'icon-btn'; dismiss.dataset.streamerDismiss = ''
+        dismiss.textContent = '×'; dismiss.setAttribute('aria-label', 'Dismiss cover for this surface')
+        dismiss.title = 'Reveal this surface until it closes or Streamer mode restarts'
+        dismiss.onclick = () => { revealed.add(el); el.setAttribute('data-streamer-revealed', ''); cover.remove(); covered.delete(el) }
+        // Inside a link or button, a click on the cover must not activate the hidden surface's owner.
+        cover.addEventListener('click', e => { e.preventDefault(); e.stopPropagation() })
+        cover.append(label, dismiss); covered.set(el, cover); place(el as HTMLElement, cover)
+      }
     }
     if (!frame) position()
     if (!supported) return
     const nodes: { node: Text; start: number; end: number }[] = [], whole: Text[] = []
     let text = '', block: Element | null = null
-    const walker = doc.createTreeWalker(doc.body, 4)
-    // a <br> is a line break: the text node after it starts a new run, or a key and the next line become one token
-    const afterBreak = new Set<Node>()
-    for (const br of doc.querySelectorAll('br')) { walker.currentNode = br; const next = walker.nextNode(); if (next) afterBreak.add(next) }
-    walker.currentNode = doc.body
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      const node = n as Text, parent = node.parentElement
-      if (!parent || parent.closest('script,style,textarea,select,[contenteditable=true],[data-streamer-ui]')) continue
-      const field = parent.closest('[data-streamer-field]')
-      if (field) { if (enabledType(field.getAttribute('data-streamer-field') ?? undefined)) whole.push(node); continue }
-      if (!inFreeform(parent)) continue
-      // a KaTeX formula is two copies of its text (a hidden MathML half with the TeX annotation, then the visible HTML half):
-      // each is its own run, or a key matches across the seam and the mask lands on the wrong glyphs (spec R10)
-      const nextBlock = parent.closest('p,div,li,pre,td,th,section,h1,h2,h3,h4,button,label,.katex-mathml,.katex-html')
-      if (nextBlock !== block) { text += '\n'; block = nextBlock } else if (afterBreak.has(node)) text += '\n'
-      // KaTeX draws a hyphen in math as U+2212; the key patterns are ASCII, and the swap keeps every offset (one char for one char)
-      const start = text.length; text += node.data.replace(/−/g, '-'); nodes.push({ node, start, end: text.length })
+    let walked = 0
+    const fresh: SeqEntry[] = []
+    // KaTeX draws a hyphen in math as U+2212; the key patterns are ASCII, and the swap keeps every offset (one char for one char)
+    const read = (node: Text) => node.data.includes('−') ? node.data.replace(/−/g, '-') : node.data
+    const add = (e: SeqEntry) => {
+      if (e.field !== null) { if (enabledType(e.field)) whole.push(e.node); return }
+      if (e.sep) text += '\n'
+      const start = text.length; text += e.data; nodes.push({ node: e.node, start, end: text.length })
     }
+    if (light) {
+      for (const node of editedTexts) { const e = seqIndex.get(node); if (e && e.field === null) e.data = read(node) }
+      for (const e of seq!) { walked++; add(e) }
+    }
+    else {
+      const walker = doc.createTreeWalker(doc.body, 4)
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        walked++
+        const node = n as Text
+        const cls = classify(node)
+        if (cls.kind === 0) continue
+        if (cls.kind === 1) { const e = { node, sep: false, field: cls.field ?? '', data: '' }; fresh.push(e); add(e); continue }
+        // a KaTeX formula is two copies of its text (a hidden MathML half with the TeX annotation, then the visible HTML half):
+        // each is its own run, or a key matches across the seam and the mask lands on the wrong glyphs (spec R10)
+        // a <br> is a line break: the text node after it starts a new run, or a key and the next line become one token
+        let sep = false
+        if (cls.block !== block) { sep = true; block = cls.block } else if (afterLineBreak(node)) sep = true
+        const e = { node, sep, field: null, data: read(node) }; fresh.push(e); add(e)
+      }
+      seq = fresh; seqIndex.clear(); for (const e of fresh) seqIndex.set(e.node, e)
+    }
+    editedTexts.clear()
+    scanWalked = walked; scanChars = text.length
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
     for (const span of sensitiveSpans(text, types, orgNames)) {
@@ -307,22 +410,40 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const onSelection = () => { if (active) maskSelection() }
   doc.addEventListener('selectionchange', onSelection)
   win.addEventListener('scroll', requestSelectionMask, true); win.addEventListener('resize', requestSelectionMask)
-  const observer = new win.MutationObserver(records => {
+  const observer = new win.MutationObserver(all => {
     if (!active) return
+    // the root element's own class list is ours (streamer-on, ...) or the theme's: it changes no text's classification
+    const records = all.filter(r => !(r.type === 'attributes' && r.attributeName === 'class' && r.target === doc.documentElement))
+    if (!records.length) return
+    pendingMutations += records.length
+    for (const r of records) {
+      if (r.type === 'characterData') invalidate(r.target)
+      else if (r.type === 'childList') {
+        for (const a of r.addedNodes) invalidate(a)
+        invalidate(r.previousSibling); invalidate(r.nextSibling)
+      } else if (r.attributeName === 'class') invalidate(r.target)
+      else attrMemo.delete(r.target as Element)
+    }
+    // scan only if some record could change a mask (invalidation above is already done, so classification is current)
+    let needScan = false
+    for (const r of records) if (relevant(r)) { needScan = true; break }
     // A close/reopen can remove and reinsert the same runtime node in one turn.
     for (const record of records) for (const removed of record.removedNodes) for (const el of revealed) {
       if (removed.contains(el)) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
     }
+    if (!needScan) return
+    // a batch of nothing but edits to classified free-form text keeps the last walk's sequence; anything structural drops it
+    if (records.every(r => r.type === 'characterData')) { textOnly = true; for (const r of records) editedTexts.add(r.target as Text) } else seq = null
     if (records.every(r => (r.target.nodeType === 1 ? r.target as Element : r.target.parentElement)?.closest('[data-streamer-ui]'))) return
     requestScan()
   })
   // A select's value changes without any DOM mutation.
   const onChange = (e: Event) => { if (active && (e.target as Element | null)?.localName === 'select') requestScan() }
   doc.addEventListener('change', onChange, true)
-  observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
+  observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete', 'class'] })
   return {
-    update(on, config) { if (!on) { active = false; restore(); return } if (active) restoreAttributes(); active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; scan() },
-    dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); doc.removeEventListener('selectionchange', onSelection); win.removeEventListener('scroll', requestSelectionMask, true); win.removeEventListener('resize', requestSelectionMask); if (selFrame) win.cancelAnimationFrame(selFrame); restore(); style.remove() },
+    update(on, config) { if (!on) { active = false; ringOn = false; ringPace = 0; restore(); return } ringOn = true; if (active) restoreAttributes(); textClass = new WeakMap(); attrMemo = new WeakMap(); seq = null; active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; trigger = 'update'; scan() },
+    dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); doc.removeEventListener('selectionchange', onSelection); win.removeEventListener('scroll', requestSelectionMask, true); win.removeEventListener('resize', requestSelectionMask); if (selFrame) win.cancelAnimationFrame(selFrame); ringOn = false; restore(); style.remove() },
   }
 }
 
