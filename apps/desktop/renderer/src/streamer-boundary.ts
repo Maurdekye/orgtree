@@ -55,7 +55,7 @@ const SMUDGE = `0 0 ${BLUR_EM}em #686868,0 0 ${BLUR_EM}em #686868`
 const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:transparent!important;text-shadow:${SMUDGE}!important}
 [data-streamer-selmask]{position:fixed;z-index:2147483646;pointer-events:none;background:#686868;border-radius:2px}
-html.streamer-on [data-streamer-pending]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
+html.streamer-on [data-streamer-pending],html.streamer-on [data-streamer-pending] *{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on [data-streamer-blur] :is(img,svg,canvas){filter:blur(6px)!important}
 html.streamer-on [data-streamer-blur]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on [data-streamer-blur]::placeholder{color:transparent!important}
@@ -166,7 +166,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   let seq: SeqEntry[] | null = null, textOnly = false
   const runCache = new Map<string, SensitiveSpan[]>()
   // the last full pass's runs (entries per run, whether each ends like a key word, the total text length), for the edit fast path
-  let lastRunEntries: SeqEntry[][] | null = null, lastRunTail: boolean[] = [], lastTotal = 0, lastPem = false
+  let lastRunEntries: SeqEntry[][] | null = null, lastRunTail: boolean[] = [], lastTotal = 0, lastPem = false, lastTextNodes = 0
   /** A batch of edits to already-classified free-form text whose runs stay CLEAN (no hidden span before or after, no key-word tail
    *  that could join the next run, no private-key marker, under the 1M cap) changes no mask anywhere: the entries take the new
    *  text and the scan stops, with no join and no walk. Anything else returns false and takes the full pass. */
@@ -424,7 +424,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       }
     }
     // a clean text-only batch: nothing to re-match, re-join or re-walk
-    if (light && fastEdit()) { scanWalked = 0; scanChars = lastTotal; editedTexts.clear(); return }
+    if (light && fastEdit()) { scanWalked = 0; scanTextNodes = lastTextNodes; scanChars = lastTotal; editedTexts.clear(); return }
     if (!frame) position()
     if (!supported) return
     const nodes: { node: Text; start: number; end: number }[] = [], whole: Text[] = []
@@ -467,7 +467,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
     const runs = runStarts.map((at, i) => text.slice(at, i + 1 < runStarts.length ? runStarts[i + 1]! - 1 : text.length))
-    lastRunEntries = runEntries; lastRunTail = runs.map(r => KEY_TAIL.test(r.slice(-SEAM_TAIL))); lastTotal = text.length; lastPem = runs.some(r => r.includes('-----BEGIN'))
+    lastRunEntries = runEntries; lastRunTail = runs.map(r => KEY_TAIL.test(r.slice(-SEAM_TAIL))); lastTextNodes = nodes.length; lastTotal = text.length; lastPem = runs.some(r => r.includes('-----BEGIN'))
     for (const span of spansByRun(runs, types, orgNames, runCache, `${JSON.stringify(types)}|${orgNames.join(',')}|`)) {
       while (nodes[firstIndex] && nodes[firstIndex]!.end <= span.start) firstIndex++
       lastIndex = Math.max(firstIndex, lastIndex)
