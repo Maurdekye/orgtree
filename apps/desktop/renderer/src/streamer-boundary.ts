@@ -118,14 +118,18 @@ function describe(node: Node | null): string {
   const one = (e: Element) => e.localName + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '')
   return (el.parentElement ? one(el.parentElement) + ' > ' : '') + one(el)
 }
-const SEAM_WORDS = 2, RUN_CACHE_MAX = 6000, KEY_SCAN = 100_000
+const SEAM_WORDS = 2, RUN_CACHE_MAX = 6000
 /** Where a key word (with only whitespace and an optional `:`/`=` after it) that could pair with a value in the NEXT run starts in
- *  `run`, or -1. Whitespace between the key word and the end can be any length, so the whole run is searched (the last KEY_SCAN chars
- *  of a huge one). */
+ *  `run`, or -1. Whitespace between the key word and the end can be any length, so the WHOLE run is searched (a text over 1M chars is
+ *  never matched per run at all). */
+const keyTailCache = new Map<string, number>()
 function keyTailAt(run: string): number {
-  const part = run.length > KEY_SCAN ? run.slice(-KEY_SCAN) : run
-  const m = KEY_TAIL.exec(part)
-  return m ? run.length - part.length + m.index : -1
+  const known = keyTailCache.get(run)
+  if (known !== undefined) return known
+  const m = KEY_TAIL.exec(run), at = m ? m.index : -1
+  if (keyTailCache.size >= RUN_CACHE_MAX) keyTailCache.clear()
+  keyTailCache.set(run, at)
+  return at
 }
 /** `sensitiveSpans(runs.join('\n'))`, computed per run and cached by run text (a run is a block's text, so a keystroke re-matches the
  *  one run that changed). Matches that can cross a run boundary are handled exactly: (1) a private key (`-----BEGIN`, which may run

@@ -39,7 +39,9 @@ test('per-run spans equal one pass over the whole text, including matches split 
     // build-sol: long values and long whitespace runs must not be truncated by the window
     ['Bearer', 'q'.repeat(5000)], ['password =', '"' + 'q'.repeat(5000) + '"'], ['Bearer', ' '.repeat(5000), 'abcdef123456'], ['token = ', 'v'.repeat(30000)],
     // key word followed by more than 80 characters of whitespace/separator INSIDE its own run
-    ['password' + ' '.repeat(300) + '=' + ' '.repeat(200), 'hunter2'], ['xx Bearer' + ' '.repeat(500), 'abcdef123456']]) {
+    ['password' + ' '.repeat(300) + '=' + ' '.repeat(200), 'hunter2'], ['xx Bearer' + ' '.repeat(500), 'abcdef123456'],
+    // build-sol: a key word more than 100,000 characters before the end of its run (still under the 1M cap)
+    ['password =' + ' '.repeat(100100), 'hunter2'], ['Bearer' + ' '.repeat(100100), 'abcdef123456']]) {
     assert.deepEqual(spansByRun(runs, types, [], new Map(), 'k|'), sensitiveSpans(runs.join(String.fromCharCode(10)), types, []), JSON.stringify(runs))
   }
   for (const runs of [['password', 'hunter2'], ['the password:', '  ', 'hunter2'], ['Bearer', 'abcdef123456'], ['x token =', '"quoted value"'], ['-----BEGIN PRIVATE KEY-----', 'AAAA', 'BBBB']]) {
