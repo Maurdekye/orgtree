@@ -55,6 +55,7 @@ const SMUDGE = `0 0 ${BLUR_EM}em #686868,0 0 ${BLUR_EM}em #686868`
 const STYLE = `
 html.streamer-on ::highlight(streamer-sensitive){color:transparent!important;background-color:transparent!important;text-shadow:${SMUDGE}!important}
 [data-streamer-selmask]{position:fixed;z-index:2147483646;pointer-events:none;background:#686868;border-radius:2px}
+html.streamer-on [data-streamer-pending]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on [data-streamer-blur]{color:transparent!important;text-shadow:${SMUDGE}!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on [data-streamer-blur]::placeholder{color:transparent!important}
 html.streamer-on:not(.streamer-nocover) :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
@@ -71,11 +72,13 @@ html.streamer-banner-fixed body{height:calc(100% - 30px)!important;overflow:hidd
 `
 type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { supports?(property: string, value: string): boolean; highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
 /** The last 32 scans (UI stall spec R8b, rev 1.2): a read-only snapshot for the stall watch; it never triggers a scan. */
-export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_chars: number; ranges_after: number }
-export interface StreamerScanStats { on: boolean; pace_ms: number; scans: readonly StreamerScan[] }
-const scanRing: StreamerScan[] = []
+export interface StreamerScan { start: number; ms: number; trigger: 'mutation' | 'update' | 'prefs' | 'org-list' | 'other'; mutations: number; nodes_walked: number; text_nodes: number; text_chars: number; ranges_after: number }
+/** One maskSelection call. */
+export interface StreamerMask { start: number; ms: number }
+export interface StreamerScanStats { on: boolean; pace_ms: number; scans: readonly StreamerScan[]; masks: readonly StreamerMask[] }
+const scanRing: StreamerScan[] = [], maskRing: StreamerMask[] = []
 let ringOn = false, ringPace = 0
-export const streamerScanStats = (): StreamerScanStats => ({ on: ringOn, pace_ms: ringPace, scans: scanRing.slice() })
+export const streamerScanStats = (): StreamerScanStats => ({ on: ringOn, pace_ms: ringPace, scans: scanRing.slice(), masks: maskRing.slice() })
 /** A text node's classification, cached because deriving it (four closest() calls over long selector lists) was the whole cost
  *  of a scan: 2.2 s per scan at 18k text nodes (measured, streamerperf.test.tsx). The TEXT is never cached; it is read fresh from
  *  the node every scan, so new or edited text is masked in the same microtask. Mutation records invalidate what they touch. */
@@ -96,6 +99,7 @@ function afterLineBreak(from: Node): boolean {
   }
 }
 const ZONE_TOKENS = new Set(`${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},${BLOCKS}`.match(/\.[\w-]+/g)?.map(t => t.slice(1)))
+const ZONE_ATTRS = new Set(['data-streamer-field', 'data-streamer-freeform', 'data-streamer-structured', 'contenteditable'])
 const classTouchesZone = (value: string | null) => !!value && value.split(/\s+/).some(t => ZONE_TOKENS.has(t))
 /** Anything whose appearance can change a mask; the rest of the page is chrome. */
 const WATCHED = `${STREAMER_ZONES.freeform},${STREAMER_ZONES.structured},[data-streamer-field],[title],[alt],[aria-label],input,textarea,select,[contenteditable],${OPAQUE}`
@@ -104,8 +108,11 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
   let active = false, types: StreamerTypes = { ...DEFAULT_STREAMER_TYPES }, coverOn = true, orgNames: readonly string[] = [], ready = true, note = '', originalTitle = doc.title, frame = 0
-  let lastEnd = 0, lastCost = 0, timer = 0, scanWalked = 0, scanChars = 0, pendingMutations = 0, trigger: StreamerScan['trigger'] = 'other'
+  let lastEnd = 0, lastCost = 0, timer = 0, scanWalked = 0, scanTextNodes = 0, scanChars = 0, pendingMutations = 0, trigger: StreamerScan['trigger'] = 'other'
   let seq: SeqEntry[] | null = null, textOnly = false
+  // Elements whose new or changed text is blurred WHOLE while a paced scan has not run yet (nothing may show, even briefly)
+  const pending = new Set<Element>(), touched = new Set<Element>()
+  const clearPending = () => { for (const el of pending) el.removeAttribute('data-streamer-pending'); pending.clear() }
   const seqIndex = new Map<Text, SeqEntry>(), editedTexts = new Set<Text>()
   let textClass = new WeakMap<Text, TextClass>(), attrMemo = new WeakMap<Element, string>()
   function classify(node: Text): TextClass {
@@ -130,6 +137,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (target.closest('[data-streamer-ui]')) return false
     if (r.type === 'attributes') {
       if (r.attributeName === 'class') return classTouchesZone(r.oldValue) || classTouchesZone(target.getAttribute('class'))
+      if (ZONE_ATTRS.has(r.attributeName ?? '')) return true
       return !!target.closest('[data-streamer-field]') || inFreeform(target) || r.attributeName === 'autocomplete'
     }
     if (r.removedNodes.length || target.closest('[data-streamer-field]') || inFreeform(target)) return true
@@ -190,6 +198,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     attributes.clear()
   }
   function restore() {
+    clearPending()
     doc.documentElement.classList.remove('streamer-on', 'streamer-textless', 'streamer-nocover', 'streamer-banner-fixed')
     for (const el of doc.querySelectorAll('[data-streamer-blur]')) el.removeAttribute('data-streamer-blur')
     win?.CSS?.highlights?.delete('streamer-sensitive')
@@ -223,6 +232,8 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     const wait = lastCost < 16 ? 0 : lastEnd + Math.min(1000, lastCost * 4) - clock()
     ringPace = Math.max(0, Math.round(wait))
     trigger = 'mutation'
+    if (wait > 0) for (const el of touched) { if (el.isConnected && !pending.has(el)) { el.setAttribute('data-streamer-pending', ''); pending.add(el) } }
+    touched.clear()
     if (wait <= 0) scan()
     else if (!timer) timer = win!.setTimeout(() => { timer = 0; scan() }, wait)
   }
@@ -230,12 +241,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (!active || !doc.body) return
     if (timer) { win?.clearTimeout(timer); timer = 0 }
     const began = clock()
-    scanWalked = 0; scanChars = 0
+    scanWalked = 0; scanTextNodes = 0; scanChars = 0
     try { scanNow() } finally {
       lastEnd = clock(); lastCost = lastEnd - began
-      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, nodes_walked: scanWalked, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
+      scanRing.push({ start: began, ms: lastCost, trigger, mutations: pendingMutations, nodes_walked: scanWalked, text_nodes: scanTextNodes, text_chars: Math.floor(scanChars / 1000) * 1000, ranges_after: sensitiveRanges.length })
       if (scanRing.length > 32) scanRing.shift()
-      pendingMutations = 0; trigger = 'other'
+      pendingMutations = 0; trigger = 'other'; clearPending()
     }
   }
   function scanNow() {
@@ -350,7 +361,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       seq = fresh; seqIndex.clear(); for (const e of fresh) seqIndex.set(e.node, e)
     }
     editedTexts.clear()
-    scanWalked = walked; scanChars = text.length
+    scanWalked = walked; scanTextNodes = nodes.length; scanChars = text.length
     const ranges: Range[] = []
     let firstIndex = 0, lastIndex = 0
     for (const span of sensitiveSpans(text, types, orgNames)) {
@@ -386,6 +397,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   function clearSelectionMasks() { selLayer.replaceChildren() }
   function removeSelectionLayer() { selLayer.replaceChildren(); selLayer.remove() }
   function maskSelection() {
+    const began = clock()
+    try { maskSelectionNow() } finally { maskRing.push({ start: began, ms: clock() - began }); if (maskRing.length > 64) maskRing.shift() }
+  }
+  function maskSelectionNow() {
     clearSelectionMasks()
     if (!active) return
     const sel = win!.getSelection?.()
@@ -421,12 +436,18 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       else if (r.type === 'childList') {
         for (const a of r.addedNodes) invalidate(a)
         invalidate(r.previousSibling); invalidate(r.nextSibling)
-      } else if (r.attributeName === 'class') invalidate(r.target)
+      } else if (r.attributeName === 'class' || ZONE_ATTRS.has(r.attributeName ?? '')) invalidate(r.target)
       else attrMemo.delete(r.target as Element)
     }
     // scan only if some record could change a mask (invalidation above is already done, so classification is current)
     let needScan = false
-    for (const r of records) if (relevant(r)) { needScan = true; break }
+    for (const r of records) if (relevant(r)) {
+      needScan = true
+      // remember where the new text is: a deferred scan blurs these elements until it runs
+      if (r.type === 'characterData') { const el = r.target.parentElement; if (el) touched.add(el.closest(BLOCKS) ?? el) }
+      else if (r.type === 'childList') for (const a of r.addedNodes) { const el = a.nodeType === 1 ? a as Element : a.parentElement; if (el) touched.add(el) }
+      else if (r.target.nodeType === 1) touched.add(r.target as Element)
+    }
     // A close/reopen can remove and reinsert the same runtime node in one turn.
     for (const record of records) for (const removed of record.removedNodes) for (const el of revealed) {
       if (removed.contains(el)) { el.removeAttribute('data-streamer-revealed'); revealed.delete(el) }
@@ -440,7 +461,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   // A select's value changes without any DOM mutation.
   const onChange = (e: Event) => { if (active && (e.target as Element | null)?.localName === 'select') requestScan() }
   doc.addEventListener('change', onChange, true)
-  observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete', 'class'] })
+  observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete', 'class', 'data-streamer-field', 'data-streamer-freeform', 'data-streamer-structured', 'contenteditable'] })
   return {
     update(on, config) { if (!on) { active = false; ringOn = false; ringPace = 0; restore(); return } ringOn = true; if (active) restoreAttributes(); textClass = new WeakMap(); attrMemo = new WeakMap(); seq = null; active = true; types = config?.types ?? { ...DEFAULT_STREAMER_TYPES }; coverOn = config?.cover !== false; orgNames = config?.orgNames ?? []; ready = config?.ready !== false; note = config?.note ?? ''; trigger = 'update'; scan() },
     dispose() { active = false; observer.disconnect(); doc.removeEventListener('change', onChange, true); doc.removeEventListener('selectionchange', onSelection); win.removeEventListener('scroll', requestSelectionMask, true); win.removeEventListener('resize', requestSelectionMask); if (selFrame) win.cancelAnimationFrame(selFrame); ringOn = false; restore(); style.remove() },

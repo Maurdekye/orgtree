@@ -96,6 +96,8 @@ test('a secret split across inline nodes, and an unterminated private key across
     assert.equal(stats.on, true)
     assert.ok(stats.scans.length <= 32 && before <= 32, 'ring capped at 32')
     assert.equal(stats.scans[stats.scans.length - 1]!.trigger, 'mutation')
+    assert.ok(stats.scans.at(-1)!.text_nodes > 0 && stats.scans.at(-1)!.text_chars >= 0, 'text_nodes counted')
+    assert.ok(stats.masks.length > 0 && stats.masks.length <= 64, 'maskSelection calls are ringed (max 64)')
   } finally { boundary.dispose(); dom.window.close() }
 })
 
@@ -122,5 +124,51 @@ test('sustained per-frame structural mutations keep the scan share of the main t
     const secret = doc.createElement('p'); secret.textContent = `k ${key}`; host.appendChild(secret)
     for (let i = 0; i < 100 && !(doc.defaultView as unknown as { CSS: { highlights: Map<string, Range[]> } }).CSS.highlights.get('streamer-sensitive')?.some(r => r.toString() === key); i++) await new Promise(r => setTimeout(r, 50))
     assert.ok((doc.defaultView as unknown as { CSS: { highlights: Map<string, Range[]> } }).CSS.highlights.get('streamer-sensitive')?.some(r => r.toString() === key), 'the appended key is masked')
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
+test('while a slow scan is paced, new or changed text is blurred whole at once and masked by the scan (nothing shows unmasked)', { timeout: 120000 }, async () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  try {
+    doc.body.innerHTML = '<div id="t" class="md"></div>'
+    const host = doc.getElementById('t')!
+    for (let i = 0; i < 4000; i++) { const p = doc.createElement('p'); p.textContent = `row ${i} text`; host.appendChild(p) }
+    boundary.update(true, { cover: true })
+    for (let quiet = 0, last = -1; quiet < 2;) { await new Promise(r => setTimeout(r, 400)); const c = streamerScanStats().scans.length; quiet = c === last ? quiet + 1 : 0; last = c }
+    assert.ok(streamerScanStats().scans.at(-1)!.ms >= 16, 'the scan is slow enough to be paced in this fixture')
+    const secret = doc.createElement('p'); secret.textContent = `k ${key}`; host.appendChild(secret)
+    const edited = host.children[3]!; edited.firstChild!.textContent = `now ${key}`
+    await tick()
+    assert.equal(secret.hasAttribute('data-streamer-pending'), true, 'the appended paragraph is blurred before the paced scan runs')
+    assert.equal(edited.hasAttribute('data-streamer-pending'), true, 'the edited paragraph is blurred too')
+    for (let i = 0; i < 200 && secret.hasAttribute('data-streamer-pending'); i++) await new Promise(r => setTimeout(r, 50))
+    assert.equal(secret.hasAttribute('data-streamer-pending'), false, 'the scan ran and cleared the temporary blur')
+    assert.equal(spansOf(registry).filter(t => t === key).length, 2, 'both keys are masked by the scan')
+    const box = doc.createElement('div'); box.innerHTML = '<span>me@example.test</span>'; doc.body.appendChild(box)
+    await new Promise(r => setTimeout(r, 1500))
+    const before = spansOf(registry).length
+    box.setAttribute('data-streamer-field', 'email')
+    for (let i = 0; i < 200 && spansOf(registry).length === before; i++) await new Promise(r => setTimeout(r, 50))
+    assert.ok(spansOf(registry).includes('me@example.test'), 'a data-streamer-field added later is honoured')
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
+test('sustained per-frame free-form edits at 18k text nodes: scan time per second stays bounded (number reported)', { timeout: 180000 }, async () => {
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc)
+  try {
+    build(doc)
+    boundary.update(true, { cover: true })
+    for (let quiet = 0, last = -1; quiet < 3;) { await new Promise(r => setTimeout(r, 700)); const c = streamerScanStats().scans.length; quiet = c === last ? quiet + 1 : 0; last = c }
+    const draft = doc.getElementById('draft')!.firstChild as Text
+    const baseline = streamerScanStats().scans.at(-1)?.start ?? -1
+    const began = performance.now()
+    for (let i = 0; i < 150; i++) { draft.data = 'frame ' + i; await new Promise(r => setTimeout(r, 16)) }
+    const elapsed = performance.now() - began
+    const scans = streamerScanStats().scans
+    const fresh = scans.filter(s => s.start > baseline)
+    const spent = fresh.reduce((n, s) => n + s.ms, 0)
+    const perSecond = spent / (elapsed / 1000)
+    console.log(`FRAMES 150 edits at ~60 fps in ${elapsed.toFixed(0)} ms (jsdom, 18k nodes): ${fresh.length} scans, scan time ${perSecond.toFixed(0)} ms per second`)
+    assert.ok(perSecond < 300, `scan time per second ${perSecond.toFixed(0)} ms`)
   } finally { boundary.dispose(); dom.window.close() }
 })
