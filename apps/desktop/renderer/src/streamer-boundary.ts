@@ -583,7 +583,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   const observer = new win.MutationObserver(all => {
     if (!active) return
     // the root element's own class list is ours (streamer-on, ...) or the theme's: it changes no text's classification
-    const records = all.filter(r => !(r.type === 'attributes' && r.attributeName === 'class' && r.target === doc.documentElement))
+    // Content changes INSIDE an element the walk never masks (the SAME predicate, SKIP: a textarea, select, contenteditable, our own UI, a
+    // known-visible chip) cannot change a mask, so they are dropped before they can mark a batch relevant: React rewrites a controlled
+    // textarea's text child on every key, and each of those used to cost a scan. Attribute records are kept (a contenteditable toggle
+    // re-classifies what is inside it).
+    const records = all.filter(r => !(r.type === 'attributes' && r.attributeName === 'class' && r.target === doc.documentElement)
+      && !(r.type !== 'attributes' && (r.target.nodeType === 1 ? r.target as Element : r.target.parentElement)?.closest(SKIP)))
     if (!records.length) return
     pendingMutations += records.length
     for (const r of records) {
