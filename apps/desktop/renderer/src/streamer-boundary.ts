@@ -148,7 +148,9 @@ export function spansByRun(runs: readonly string[], types: StreamerTypes, orgNam
     if (i + 1 < runs.length) {
       const tailAt = keyTailAt(run)
       if (tailAt >= 0) {
-        const tail = run.slice(tailAt)
+        // one character of context before the key word: the patterns start with a word boundary (`tokenapi key` has none before `api`)
+        const from = tailAt > 0 ? tailAt - 1 : 0
+        const tail = run.slice(from)
         // A match after a key word is `\s*`, an optional `:`/`=`, `\s*`, then ONE value (a quoted value cannot cross a newline): so the
         // window takes any number of whitespace-only runs, and at most SEAM_WORDS runs that have text (the separator, the value).
         let words = 0, head = ''
@@ -157,7 +159,7 @@ export function spansByRun(runs: readonly string[], types: StreamerTypes, orgNam
           if (runs[j]!.trim() !== '') words++
         }
         const window = tail + head
-        const base = offset + tailAt
+        const base = offset + from
         regexWork += window.length
         for (const span of sensitiveSpans(window, types, orgNames)) if (span.start < tail.length && span.end > tail.length) out.push({ start: base + span.start, end: base + span.end })
       }
