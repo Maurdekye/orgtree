@@ -201,7 +201,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       if (!e) continue
       if (e.field !== null || node.parentElement?.closest('.katex')) return false
       const data = node.data.includes('\u2212') ? node.data.replace(/\u2212/g, '-') : node.data
-      if (data === e.data) continue
+      if (data === e.data) {
+        // the SAME text written back wholesale (Text.data = ...) collapses every live range that ends in this node to offset 0, so a hidden
+        // span in or ending in it must be recomputed: take the full pass
+        if (sensitiveRanges.some(r => r.startContainer === node || r.endContainer === node)) return false
+        continue
+      }
       changes.set(e, data); runsHit.add(e.run)
     }
     if (!changes.size) return true

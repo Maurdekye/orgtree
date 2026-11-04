@@ -86,3 +86,28 @@ test('edits to the whitespace / separator / value runs after a key word match on
     await edit(0, 'token', 'key word back')
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+// build-sol 2026-11-04 (extra seeds 11 and 12648430): the SAME text written back wholesale collapses the live ranges that end in the
+// node, and the fast path used to skip the batch because the text was unchanged.
+test('the same text written back to a hidden node (or the value node of a cross-run Bearer) keeps its mask', { timeout: 60000 }, async () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  try {
+    doc.body.innerHTML = '<div class="md"><p id="p0">@org:neighbor</p><p id="p1">:Bearer</p><p id="p2">hunter2</p><p id="p3">plain</p></div>'
+    boundary.update(true, { cover: true })
+    await wait(500)
+    const texts = () => Array.from({ length: 4 }, (_, j) => (doc.getElementById('p' + j)!.firstChild as Text).data)
+    const check = (label: string) => {
+      const whole = ['', ...texts()].join('\n')
+      const expected = sensitiveSpans(whole, DEFAULT_STREAMER_TYPES, []).map(s => whole.slice(s.start, s.end).split(String.fromCharCode(10)).join(''))
+      assert.deepEqual(spansOf(registry).sort(), expected.sort(), label)
+      assert.equal(expected.length > 0, true)
+    }
+    check('initial')
+    for (const id of ['p0', 'p1', 'p2', 'p3']) {
+      const node = doc.getElementById(id)!.firstChild as Text
+      node.data = node.data   // identical text, wholesale
+      await wait(80)
+      check('same text written back to ' + id)
+    }
+  } finally { boundary.dispose(); dom.window.close() }
+})
