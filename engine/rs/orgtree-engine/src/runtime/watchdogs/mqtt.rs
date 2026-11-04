@@ -130,7 +130,9 @@ pub(super) struct Created {
 /// Check a create call's mqtt arguments: the broker URL, the topic filter
 /// (`pattern`), payload_pattern, retained and credentials, and the owner's
 /// web tool. The credentials are checked as a connection would use them.
-#[logged]
+// #[nolog]: `stored` is the dog's UNSEALED inline credentials (an edit that keeps them); the logger would render the
+// byte slice as a numeric array, which no key-name masking catches (CE20)
+#[nolog]
 pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scratch: &Path, target: &str, args: &Value, stored: Option<&[u8]>) -> Result<Created> {
     let broker = match crate::mqtt::parse_target(target) {
         Ok(b) => b,

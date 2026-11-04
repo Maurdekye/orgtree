@@ -25,6 +25,7 @@ The spec is @stream-plan-opus's rev 1.3 (W1-W12); decisions here are its numbers
   `memo.actions_by` (an editor's object, "owner" or "user") picks whose authority `setter_of` intersects at fire time (a string means none).
   An app_listener's subscription fields and mqtt `qos` are not editable (fixed / not stored). Every edit of a websocket or mqtt dog's connection,
   a pattern edit included, reconnects it so the live connection's compiled filter is replaced.
+- **Credentials and the call log:** `mqtt::validate` / `websocket::validate` are `#[nolog]`: an edit hands them the dog's UNSEALED stored credentials as `stored: Option<&[u8]>`, which the logger would render as a numeric byte array (name masking cannot catch it). CE20 guards it.
 - **Lock order (spec 1.8):** configure and create take the parent row first (the project row for a project dog, the owner row for an agent dog), then the dog row, recheck D16 / the per-owner-per-project limit under it, then write. Test-only `race_hook` pauses a call after its early checks (CE19, CE19c-h).
 - **Project dogs in an edit:** the D16 duplicate check runs against the dog's new values (itself excluded, `project_duplicate(..., except)`); a project
   websocket/mqtt connection edit needs the editor's web tool as well as the project line's; a stream's shell edit restarts its process.
