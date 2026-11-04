@@ -239,6 +239,31 @@ test('a selection is not blurred wholesale: only the hidden-type spans inside it
   } finally { boundary.dispose(); dom.window.close() }
 })
 
+// build-sol 2026-11-04 15:21Z: a real Chromium selection over a key froze the renderer. Cause: the mask layer was removed from
+// and re-added to <body> on every pass; those childList records target BODY (not a data-streamer-ui node), so the observer
+// rescanned, the scan re-ran maskSelection, which mutated body again: an endless microtask loop.
+test('showing a selection mask does not re-trigger scans: body mutations settle (no observer feedback loop)', async () => {
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc)
+  const KEY = 'sk-ant-api03-AbCdeF0123456789xyz'
+  const w = dom.window as unknown as { Range: { prototype: { getClientRects(): unknown } }; getSelection(): Selection }
+  w.Range.prototype.getClientRects = function (this: Range) { return [{ left: 10, top: 20, width: this.toString().length * 5, height: 12, right: 0, bottom: 0, x: 10, y: 20, toJSON() {} }] }
+  doc.body.innerHTML = `<div class="md"><p id="a">hello world ${KEY} done</p></div>`
+  try {
+    boundary.update(true, cfg({ secrets: true }))
+    let records = 0
+    const watcher = new dom.window.MutationObserver(list => { records += list.length })
+    watcher.observe(doc.body, { childList: true })
+    const text = doc.getElementById('a')!.firstChild!
+    const sel = w.getSelection(), range = doc.createRange()
+    range.setStart(text, 0); range.setEnd(text, text.textContent!.length); sel.removeAllRanges(); sel.addRange(range)
+    doc.dispatchEvent(new dom.window.Event('selectionchange'))
+    for (let i = 0; i < 60; i++) await Promise.resolve()
+    assert.ok(records <= 2, 'the layer is attached once and left alone; body mutations seen: ' + records)
+    assert.equal(doc.querySelectorAll('[data-streamer-selmask]').length, 1)
+    watcher.disconnect()
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
 test('the zone table is explicit: free-form containers and the always-field kinds', () => {
   assert.ok(STREAMER_ZONES.freeform.includes('.md') && STREAMER_ZONES.freeform.includes('.msg'))
   assert.deepEqual(Object.keys(STREAMER_ZONES.always).sort(), ['email', 'external', 'ip', 'org', 'path', 'secret'])
