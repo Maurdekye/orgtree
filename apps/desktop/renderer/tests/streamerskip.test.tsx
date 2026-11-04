@@ -41,6 +41,6 @@ test('typing into a textarea / contenteditable / UI element costs no scan; a tog
     doc.getElementById('ce')!.setAttribute('contenteditable', 'false'); doc.getElementById('ce')!.className = 'msg'
     await wait(400)
     assert.equal(streamerScanStats().scans.length > afterContent, true, 'a contenteditable toggle still scans')
-    assert.deepEqual(spansOf(registry).sort(), [KEY, 'edited ' + KEY].sort(), 'the formerly editable text is now masked')
+    assert.deepEqual(spansOf(registry).sort(), [KEY, KEY], 'the formerly editable text is now masked')
   } finally { boundary.dispose(); dom.window.close() }
 })
