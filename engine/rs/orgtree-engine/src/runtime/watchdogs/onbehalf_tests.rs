@@ -904,6 +904,40 @@ async fn ce16_project_dog_duplicates() {
     assert!(e.contains("already has this watchdog: P/one"), "{e}");
 }
 
+/// CE17 (spec 5: tier B changes restart a stream): a shell-only edit of a stream dog replaces its process.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce17_a_stream_shell_edit_restarts() {
+    let w = world().await;
+    w.sql("INSERT INTO ot.watchdogs(uid,org_id,owner_agent_id,name,kind,target,interval_s,state,memo) VALUES('strm',$1,$2,'strm','stream','echo hi',5,'paused','{\"run\":{}}'::jsonb)", &[&w.org.id, &w.w]).await;
+    let row = w.dog("strm").await.3;
+    let dog = load(&w.e, row).await.unwrap().unwrap();
+    let plan = edit::plan(&w.e, w.org.id, Some(w.w), &dog, &json!({"shell":"native"})).await.unwrap();
+    assert!(plan.restart, "a tier B shell edit restarts the stream: {plan:?}");
+    let plan = edit::plan(&w.e, w.org.id, Some(w.w), &dog, &json!({"interval_s": 30})).await.unwrap();
+    assert!(!plan.restart, "a tier A edit does not");
+}
+
+/// CE18 (spec 5 recheck 1): a project websocket dog's connection edit needs the EDITOR's web tool too, not only the project line's.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn ce18_project_network_edits_need_the_editors_web() {
+    use crate::ws::testserver::{Opts, TestServer};
+    let w = world().await;
+    w.sql("UPDATE ot.agents SET scope=jsonb_set(scope,'{event_listeners}','true') WHERE id=$1", &[&w.p]).await;
+    let server = TestServer::start(Opts::default()).await;
+    create(&w.e, w.org.id, w.s, &json!({"kind":"websocket","target":server.url("/v1/events"),"project":"P","name":"sock"})).await.unwrap();
+    let row = w.dog("sock").await.3;
+    w.sql("UPDATE ot.agents SET scope=jsonb_build_object('tools',jsonb_build_object('web',false)) WHERE id=$1", &[&w.w]).await;
+    let e = err(w.cfg(w.w, "P/sock", json!({"hello":["x"]})).await);
+    assert!(e.contains("web tool"), "the editor lacks web: {e}");
+    assert_eq!(w.dog("sock").await.2["websocket"]["hello"], json!([]), "nothing written");
+    disarm(&w.e, row);
+    server.stop();
+}
+
 /// CE10: a waiting slot claim is re-admitted at the back; a held lease refuses the edit.
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
