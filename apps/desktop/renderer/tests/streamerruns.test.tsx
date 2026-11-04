@@ -9,7 +9,7 @@ import { DEFAULT_STREAMER_TYPES, sensitiveSpans } from '../../../../packages/con
 const types = { ...DEFAULT_STREAMER_TYPES, paths: true }
 const PIECES = ['hello world', 'password', ' : ', '=', 'hunter2', 'Bearer', 'abc.DEF-123_xyz', 'sk-ant-api03-AbCdeF0123456789xyz', 'me@example.test',
   '192.168.12.34', 'C:\\Users\\me\\x.txt', '', ' ', '-----BEGIN PRIVATE KEY-----', 'MIIEvQIBADANBgkq', '-----END PRIVATE KEY-----', 'token', '"', 'api key', '+1 (415) 555-0123',
-  'AbCdEfGhIjKlMnOpQrStUvWxYz0123', '@net:someone.abc123', 'plain words here', 'x'.repeat(100), 'api_key']
+  'AbCdEfGhIjKlMnOpQrStUvWxYz0123', '@net:someone.abc123', '=', ':', '   ', '  ', 'plain words here', 'x'.repeat(100), 'api_key']
 const rnd = (seed: number) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32
 
 test('per-run spans equal one pass over the whole text, including matches split across runs (key = value, Bearer, PEM, split keys)', () => {
@@ -26,6 +26,11 @@ test('per-run spans equal one pass over the whole text, including matches split 
     assert.deepEqual(actual, expected, `seed ${seed}: ${JSON.stringify(runs)}`)
   }
   // fixed seams
+  // build-sol 2026-11-04: a key word and its value separated by MANY whitespace-only runs (the global regex's \s takes them all)
+  for (const runs of [['password =', ...Array(8).fill(' '), 'hunter2'], ['Bearer', ...Array(8).fill(' '), 'abcdef123456'], ['api key', ' ', ':', ...Array(20).fill('  '), ' ', 'sekret99'],
+    ['token', '=', ...Array(12).fill(''), 'longvalue1234'], ['x'.repeat(10) + ' password', ...Array(50).fill(' '), ':', ' ', 'v1']]) {
+    assert.deepEqual(spansByRun(runs, types, [], new Map(), 'k|'), sensitiveSpans(runs.join(String.fromCharCode(10)), types, []), JSON.stringify(runs))
+  }
   for (const runs of [['password', 'hunter2'], ['the password:', '  ', 'hunter2'], ['Bearer', 'abcdef123456'], ['x token =', '"quoted value"'], ['-----BEGIN PRIVATE KEY-----', 'AAAA', 'BBBB']]) {
     assert.deepEqual(spansByRun(runs, types, [], new Map(), 'k|'), sensitiveSpans(runs.join('\n'), types, []), JSON.stringify(runs))
   }

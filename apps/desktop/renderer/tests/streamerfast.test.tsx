@@ -61,3 +61,28 @@ test('random edit sequences: the highlight always equals one pass over the whole
     }
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+test('edits to the whitespace / separator / value runs after a key word match one whole-text pass (the seam window reaches them)', { timeout: 180000 }, async () => {
+  const { dom, doc, registry } = fixture(), boundary = installStreamerBoundary(doc)
+  try {
+    const N = 14
+    doc.body.innerHTML = '<div class="md">' + Array.from({ length: N }, (_, i) => `<p id="p${i}">${i === 0 ? 'password' : i === 1 ? '=' : i === N - 1 ? 'hunter2' : ' '}</p>`).join('') + '</div>'
+    boundary.update(true, { cover: true })
+    await wait(500)
+    const check = (label: string) => {
+      const texts = Array.from({ length: N }, (_, j) => (doc.getElementById('p' + j)!.firstChild as Text).data)
+      const whole = ['', ...texts].join('\n')
+      const expected = sensitiveSpans(whole, DEFAULT_STREAMER_TYPES, []).map(s => whole.slice(s.start, s.end).split(String.fromCharCode(10)).join(''))
+      assert.deepEqual(spansOf(registry).sort(), expected.sort(), `${label}: ${JSON.stringify(texts)}`)
+    }
+    check('initial')
+    const edit = async (i: number, data: string, label: string) => { (doc.getElementById('p' + i)!.firstChild as Text).data = data; await wait(80); check(label) }
+    await edit(N - 1, 'abc', 'value run edited')
+    await edit(N - 1, 'hunter3x', 'value run edited again')
+    await edit(5, ' x ', 'a gap run gets text (breaks the chain)')
+    await edit(5, ' ', 'the gap run is whitespace again')
+    await edit(1, ':', 'separator changed')
+    await edit(0, 'plain', 'key word removed')
+    await edit(0, 'token', 'key word back')
+  } finally { boundary.dispose(); dom.window.close() }
+})

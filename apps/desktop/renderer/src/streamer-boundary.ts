@@ -118,7 +118,7 @@ function describe(node: Node | null): string {
   const one = (e: Element) => e.localName + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '')
   return (el.parentElement ? one(el.parentElement) + ' > ' : '') + one(el)
 }
-const SEAM_TAIL = 80, SEAM_HEAD_RUNS = 6, SEAM_HEAD = 4000, RUN_CACHE_MAX = 6000
+const SEAM_TAIL = 80, SEAM_HEAD = 4000, SEAM_WORDS = 2, RUN_CACHE_MAX = 6000
 /** `sensitiveSpans(runs.join('\n'))`, computed per run and cached by run text (a run is a block's text, so a keystroke re-matches the
  *  one run that changed). Matches that can cross a run boundary are handled exactly: (1) a private key (`-----BEGIN`, which may run
  *  unterminated to the end of the text) sends the whole text through the one global pass; (2) `key = value` and `Bearer x` split by
@@ -140,7 +140,14 @@ export function spansByRun(runs: readonly string[], types: StreamerTypes, orgNam
     if (i + 1 < runs.length) {
       const tail = run.slice(-SEAM_TAIL)
       if (KEY_TAIL.test(tail)) {
-        const window = tail + '\n' + runs.slice(i + 1, i + 1 + SEAM_HEAD_RUNS).join('\n').slice(0, SEAM_HEAD)
+        // A match after a key word is `\s*`, an optional `:`/`=`, `\s*`, then ONE value (a quoted value cannot cross a newline): so the
+        // window takes any number of whitespace-only runs, and at most SEAM_WORDS runs that have text (the separator, the value).
+        let words = 0, head = ''
+        for (let j = i + 1; j < runs.length && words < SEAM_WORDS; j++) {
+          head += '\n' + (runs[j]!.length > SEAM_HEAD ? runs[j]!.slice(0, SEAM_HEAD) : runs[j]!)
+          if (runs[j]!.trim() !== '') words++
+        }
+        const window = tail + head
         const base = offset + run.length - tail.length
         regexWork += window.length
         for (const span of sensitiveSpans(window, types, orgNames)) if (span.start < tail.length && span.end > tail.length) out.push({ start: base + span.start, end: base + span.end })
@@ -198,7 +205,12 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
       if (before.includes('-----BEGIN') || after.includes('-----BEGIN')) return false
       total += after.length - before.length
       if (total > 1_000_000 || lastTotal > 1_000_000) return false
-      if (lastRunTail[run] || (run > 0 && lastRunTail[run - 1]) || KEY_TAIL.test(after.slice(-SEAM_TAIL))) return false
+      if (lastRunTail[run] || KEY_TAIL.test(after.slice(-SEAM_TAIL))) return false
+      // an earlier key-word run whose seam window reaches this run (whitespace-only runs are free, at most SEAM_WORDS runs with text)
+      for (let j = run - 1, words = 0; j >= 0 && words < SEAM_WORDS; j--) {
+        if (lastRunTail[j]) return false
+        if ((lastRunEntries[j] ?? []).some(e => e.data.trim() !== '')) words++
+      }
       if (spansOf(before).length || spansOf(after).length) return false
     }
     for (const [e, data] of changes) e.data = data
