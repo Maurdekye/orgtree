@@ -74,3 +74,31 @@ test('maskSelection does no work for a caret or when nothing is hidden; a real s
     assert.equal(doc.querySelectorAll('[data-streamer-selmask]').length, 0, 'removed again')
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+test('text inserted before a masked key in the same node (the key moves), and a wholesale data replacement (as React does): the highlight covers exactly the key, with no stale range', async () => {
+  const { dom, doc, registry, sets } = fixture(), boundary = installStreamerBoundary(doc)
+  try {
+    doc.body.innerHTML = `<div class="msg"><p id="a">see ${KEY} now</p></div>`
+    boundary.update(true, { cover: true })
+    const object = registry.get('streamer-sensitive') as Set<Range>, after = sets()
+    const text = doc.getElementById('a')!.firstChild as Text
+    const exactlyKey = (label: string) => {
+      assert.deepEqual(texts(registry), [KEY], `${label}: covers exactly the key`)
+      assert.equal(object.size, 1, `${label}: no stale range left in the highlight`)
+      assert.equal(registry.get('streamer-sensitive'), object, `${label}: same Highlight object`)
+    }
+    exactlyKey('initial')
+    // insertion before the key: a live range shifts with it
+    text.insertData(0, 'some words before: '); await tick(); exactlyKey('insertData before the key')
+    text.insertData(3, 'XYZ'); await tick(); exactlyKey('insertion in the middle of the leading text')
+    // wholesale replacement of the data, key now at a different offset: the old range collapses, the new one is added, the old deleted
+    text.data = `a much longer prefix to push the key right: ${KEY} tail`; await tick(); exactlyKey('data replaced wholesale')
+    text.data = `${KEY}`; await tick(); exactlyKey('data replaced, key at offset 0')
+    text.data = `<<${KEY}>> and ${KEY}`; await tick()
+    assert.deepEqual(texts(registry), [KEY, KEY], 'two keys')
+    assert.equal(object.size, 2)
+    text.data = 'no secret any more'; await tick()
+    assert.deepEqual(texts(registry), [], 'cleared'); assert.equal(object.size, 0)
+    assert.equal(sets(), after, 'never re-registered')
+  } finally { boundary.dispose(); dom.window.close() }
+})
