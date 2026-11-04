@@ -179,3 +179,25 @@ test('ST12 stack failures become unavailable:<reason>; a capture always disables
   await new Promise(r => setImmediate(r))
   assert.deepEqual(noApi.reports[0].rec.stacks, ['unavailable:collectJavaScriptCallStack is not a function', 'unavailable:collectJavaScriptCallStack is not a function'])
 })
+
+test('ST12b the worker source: a stale heartbeat triggers one capture a minute; an inspector failure is posted as unavailable:<reason>', async () => {
+  const wbundle = path.join(temp, 'worker-source.cjs')
+  await build({ entryPoints: ['apps/desktop/main/stall-worker-source.ts'], outfile: wbundle, bundle: true, platform: 'node', format: 'cjs' })
+  const { MAIN_STACK_WORKER_SOURCE } = createRequire(import.meta.url)(wbundle)
+  const run = (inspector, heartbeat) => {
+    const posts = [], sab = new SharedArrayBuffer(8), view = new Float64Array(sab)
+    view[0] = heartbeat
+    let tick
+    const modules = { 'node:worker_threads': { parentPort: { postMessage: m => posts.push(m) }, workerData: { sab } }, 'node:inspector': inspector }
+    new Function('require', 'setInterval', MAIN_STACK_WORKER_SOURCE)(n => modules[n], fn => { tick = fn })
+    return { posts, tick }
+  }
+  const broken = run({ Session: class { connectToMainThread() { throw new Error('no inspector here') } disconnect() {} } }, 0)
+  broken.tick()
+  assert.equal(broken.posts.length, 1); assert.equal(broken.posts[0].stack, 'unavailable:no inspector here')
+  broken.tick(); broken.tick()
+  assert.equal(broken.posts.length, 1, 'at most one capture a minute')
+  const healthy = run({ Session: class { connectToMainThread() {} disconnect() {} on() {} post(m, p, cb) { cb(null) } } }, Date.now())
+  healthy.tick()
+  assert.equal(healthy.posts.length, 0, 'a fresh heartbeat: nothing to capture')
+})

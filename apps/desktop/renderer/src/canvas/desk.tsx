@@ -2,6 +2,7 @@ import { gapDividerText, stateMarkerText } from './statemarker'
 import { effectiveReports } from './shared'
 import { Fragment } from 'react'
 import { focusComposerAutomatically, focusComposerBackground } from '../composerfocus'
+import { noteDraftSave } from '../stallwatch'
 import { resizeComposer } from '../composerautosize'
 import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
 import { DeskModelButton } from './deskmodel'
@@ -2239,7 +2240,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const setText = useCallback((v: string | ((prev: string) => string)) => setTextRaw((prev) => {
     const next = typeof v === 'function' ? v(prev) : v
     try {
-      if (next) localStorage.setItem(draftKey, next)
+      if (next) { localStorage.setItem(draftKey, next); noteDraftSave() }
       else localStorage.removeItem(draftKey)
     } catch { /* private mode */ }
     return next
@@ -4617,7 +4618,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           STEER WINDOW, which only exists while a turn is genuinely running.
           A queued or compacting agent has no window to miss. */}
       <ComposerFocusRegion onFocusChange={setComposerFocused}>
-      <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')
+      <div data-stall-id="desk-composer" className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')
         + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
         {/* the notice toggle sits ABOVE the attach button, not beside it
             (user 2026-09-17). One column, bottom-aligned by the composer's

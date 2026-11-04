@@ -440,6 +440,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - Project dogs have three forms (2026-11-04: `memo.project_delivery`, event by default, broadcast to direct agent members, queue as project jobs); only event goes through listeners and `project_fires`. [decided: user 2026-11-04]
 - Only `domain/orginbox_jobs.rs` writes `mail.extra.org_inbox`/`outside_job`; a worker's outside reply right comes from its job. [decided: user 2026-11-03; doc](docs/agents/mail-and-hub.md)
 - Job route (2026-11-04): once reach rules refuse, a project job's holder may reply to its exact sender (user too) and that sender back; `orginbox_jobs::job_route`, rechecked in the send's transaction. Grants nothing. [decided: user mff00b3454f55; doc](docs/skills/orgtree-working/mail/tool-message/SKILL.md)
+- UI stalls: [ui-stall-diagnostics](docs/agents/ui-stall-diagnostics.md); tag new text inputs `data-stall-id`.
 
 ## Find the detailed rule
 

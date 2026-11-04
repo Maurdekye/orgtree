@@ -26,6 +26,7 @@ import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modal
 import { placedInstance, useModalInstances } from './modalinstances'
 import { useCanvasAttract } from '../attract/canvas'
 import { useAttractRefuseQuestions } from '../attract/pref'
+import { registerStallCounts } from '../stallwatch'
 import { reportAttract } from '../streamrooms'
 import type { AttractPanel } from '../attract/canvas'
 import { detachedPanel, revealDetachedDocument } from '../windowlife'
@@ -3795,6 +3796,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     goToAgent, fitAll: () => fitAll(), openDoc: openDocView,
     readerIds: () => agentReaderIds, closeReader: closeAgentReader, onPanel: onAttractPanel,
   })
+  // UI stall tooling: node COUNTS for the stall record (never names), read only when a stall is being recorded
+  const stallMap = useRef(map)
+  stallMap.current = map
+  useEffect(() => {
+    const count = (want: (n: CanvasNode) => boolean) => () => { let k = 0; for (const n of stallMap.current.values()) if (want(n)) k++; return k }
+    registerStallCounts({
+      agents: count(n => !!n.tier && n.kind !== 'project' && !n.isBearerOf && n.state !== 'archived' && n.state !== 'draft'),
+      projects: count(n => n.kind === 'project'), watchdogs: count(n => n.id.startsWith('dog:')),
+    })
+  }, [])
   // tell the engine this window's attract mode runs, so it can refuse new questions to the user
   const attractRefuse = useAttractRefuseQuestions()
   useEffect(() => { reportAttract(slug, attractRunning, attractRefuse) }, [slug, attractRunning, attractRefuse])

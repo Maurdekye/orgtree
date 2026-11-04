@@ -45,7 +45,9 @@ await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/pr
 // catch-all answers with index.html's own text/html instead of the module
 // script, and the app never boots (visible bug: Refresh on an open org turns
 // the window white until the app is closed and reopened back to `/`).
+// ORGTREE_STALL_FIXTURE=busy compiles the stall tooling's test-only busy hook in (rig proof RP1); a normal build defines '' and drops it
 await renderer({ root: 'apps/desktop/renderer', base: '/',
+  define: { __ORGTREE_STALL_FIXTURE__: JSON.stringify(process.env.ORGTREE_STALL_FIXTURE === 'busy' ? 'busy' : '') },
   build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true } })
 // The favicon is also used by the packaged UI. Keep one SVG source beside the
 // Windows ICO and copy it into Vite's output rather than maintaining a duplicate.

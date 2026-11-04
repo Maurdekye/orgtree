@@ -239,6 +239,10 @@ export interface DesktopBridge {
   openTemplatesFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
   /** Open the current engine's log directory in the OS file manager. */
   openLogsFolder?(): Promise<{ ok: boolean; error?: string }>
+  /** UI stall tooling (item ui-freezes-intermittently-for-several-seconds-at): one stall record, fire and forget; the main
+   *  process redacts and writes diagnostics/ui-stalls.jsonl. `stallwatch` is false when ORGTREE_STALLWATCH=0 switched it off. */
+  diagStall?(record: unknown): void
+  stallwatch?: boolean
   /** Scoped support must be advertised: older shells ignore extra arguments. */
   scratchFolderScopes?: readonly ('team' | 'shared')[]
   /** Personal/team identity, or an empty node for the org-wide shared folder.

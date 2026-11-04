@@ -347,7 +347,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       onClick={focusComposerBackground}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles(e.dataTransfer.files) } }}>
-      <input ref={inputRef} className="quickchat-input" value={text} disabled={busy}
+      <input data-stall-id="quickchat" ref={inputRef} className="quickchat-input" value={text} disabled={busy}
         placeholder={`${label} — message a new agent, Enter to hire`}
         title={`${label} — message a new agent, Enter to hire`}
         aria-label={`${label} message`}

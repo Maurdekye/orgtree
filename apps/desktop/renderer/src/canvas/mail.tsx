@@ -1440,7 +1440,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             [...(e.target.files ?? [])].forEach(attach)
             e.target.value = ''
           }} />
-        <textarea ref={taRef} rows={2} value={draft}
+        <textarea data-stall-id="mail-reply" ref={taRef} rows={2} value={draft}
           title={enterKey.hint}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
           onChange={(e) => { currentDraft.current.draft = e.target.value; setDraft(e.target.value); mentions.syncCaret() }}

@@ -26,6 +26,17 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
   // be recognisable as such. The token is that recognition: private to the
   // preload, quoted back on every message that would end the holding, and
   // never exposed to page script.
+  // UI stall tooling: the ping port. Main sends one MessagePort per document load; this answers each ping from the
+  // PRELOAD, whose port callback runs on the renderer's main thread: the thread being probed. Off with ORGTREE_STALLWATCH=0.
+  const stallwatch = !process.argv.includes('--orgtree-stallwatch=0')
+  if (stallwatch) {
+    ipcRenderer.on('stall-ping-port', (event) => {
+      const port = event.ports[0]
+      if (!port) return
+      port.onmessage = (message: MessageEvent) => { try { port.postMessage({ pong: (message.data as { ping?: number })?.ping }) } catch { /* gone */ } }
+      port.start()
+    })
+  }
   let windowIdentity: OrgWindowIdentity | null = null
   let documentToken = ''
   try {
@@ -69,6 +80,8 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     openCharterFolder: () => ipcRenderer.invoke('desktop:open-charter-folder'),
     openTemplatesFolder: () => ipcRenderer.invoke('desktop:open-templates-folder'),
     openLogsFolder: () => ipcRenderer.invoke('desktop:open-logs-folder'),
+    diagStall: stallwatch ? (record: unknown) => { try { ipcRenderer.send('diag:stall', record) } catch { /* diagnostics only */ } } : undefined,
+    stallwatch,
     scratchFolderScopes: ['team', 'shared'],
     openAgentScratchFolder: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:open-agent-scratch-folder', org, node, scope),
     agentScratchAgentsFileExists: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:agent-scratch-agents-file-exists', org, node, scope),

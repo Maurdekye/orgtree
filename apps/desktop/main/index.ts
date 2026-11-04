@@ -3,7 +3,7 @@ import { installShiftAltSpace } from './shift-alt-space'
 import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
-import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
@@ -41,6 +41,11 @@ import { detectHarnesses, harnessSetupMenu, type HarnessSetup } from './harnesse
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
+import { STALL_LOG, StallLog } from './stall-log'
+import { IpcTracker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
+import type { IpcLike } from './stall-probe'
+import { MAIN_STACK_WORKER_SOURCE } from './stall-worker-source'
+import { Worker } from 'node:worker_threads'
 import { nativeAppFeed, taskbarPicture } from './appfeed'
 import { JumpListIcons } from './jumplist-icons'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
@@ -127,6 +132,15 @@ const crashReporterStarted = (() => {
   try { crashReporter.start({ ...CRASH_REPORTER_OPTIONS, productName: identity.name }); return true }
   catch (error) { console.warn('Crash reporter could not start', error); return false }
 })()
+// UI STALL TOOLING (item ui-freezes-intermittently-for-several-seconds-at; spec ui-stall-tooling-spec). ORGTREE_STALLWATCH=0 is the one
+// off switch: no switch, header, wrapper, interval, ping or worker below runs. The ipcMain wrapper has to exist BEFORE the first
+// handler is registered, so it is here; the log, probes and per-window ping are wired where the windows are (see stallLog).
+const stallOn = stallWatchEnabled(process.env)
+for (const sw of stallSwitches(process.env)) { const eq = sw.indexOf('='); app.commandLine.appendSwitch(sw.slice(0, eq), sw.slice(eq + 1)) }
+const stallTracker = new IpcTracker(Date.now)
+let stallSync: ((channel: string, ms: number) => void) | undefined
+let stallWindowOf: ((event: unknown) => string) | undefined
+if (stallOn) trackIpc(ipcMain as unknown as IpcLike, stallTracker, Date.now, (channel, ms) => stallSync?.(channel, ms), event => stallWindowOf?.(event) ?? '')
 const installerUpgradeRequested = hasInstallerUpgradeRequest(process.argv)
 const single = app.requestSingleInstanceLock()
 if (!single) app.quit()
@@ -481,6 +495,67 @@ else {
   const windowEvents = new WindowEventLog(() =>
     engineRestartOptions?.dataRoot ? path.join(engineRestartOptions.dataRoot, WINDOW_EVENTS_LOG) : undefined)
   const windowFacts = (id: string) => { const entry = windows.get(id); return entry && { kind: entry.kind, org: entry.org } }
+  // UI stall log, probes and per-window ping (main/stall-*.ts): the file is <data root>/diagnostics/ui-stalls.jsonl, written only here
+  const stallApp = (() => {
+    let commit = ''
+    try { commit = String(JSON.parse(fs.readFileSync(path.join(process.resourcesPath, 'build-info.json'), 'utf8')).commit ?? '').slice(0, 7) } catch { /* unpackaged */ }
+    return `${app.getVersion()}${commit ? ' ' + commit : ''}`
+  })()
+  const stallLog = new StallLog({
+    file: () => engineRestartOptions?.dataRoot ? path.join(engineRestartOptions.dataRoot, STALL_LOG) : undefined, app: () => stallApp })
+  const stallPing = new PingWatchdog({ now: Date.now, setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: h => clearTimeout(h as NodeJS.Timeout),
+    setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
+    report: (src, w, record) => stallLog.write(src, record, { id: w.id, org: w.org }) })
+  if (stallOn) {
+    const stackStore = new MainStackStore()
+    const heartbeat = new Float64Array(new SharedArrayBuffer(8))
+    heartbeat[0] = Date.now()
+    stallSync = (channel, ms) => stallLog.write('sync-ipc', { ms, channel })
+    stallWindowOf = event => { try { return resolveNativeSender(event as never, windows, engine.origin).id } catch { return '' } }
+    ipcMain.on('diag:stall', (event, record) => {
+      const id = stallWindowOf?.(event) ?? ''
+      if (id) stallLog.write('renderer-loaf', record, { id, org: windows.get(id)?.kind === 'org' })
+    })
+    try {
+      const worker = new Worker(MAIN_STACK_WORKER_SOURCE, { eval: true, workerData: { sab: heartbeat.buffer } })
+      worker.on('message', (m: { at: number; stack: string | string[] }) => stackStore.put(m.at, m.stack))
+      worker.on('error', () => { /* best effort: main_stack stays unavailable */ })
+      worker.unref()
+    } catch { /* no worker: main_stack stays unavailable */ }
+    new MainLagProbe({ now: Date.now, setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
+      mainStack: (from, to) => stackStore.near(from, to), beat: t => { heartbeat[0] = t },
+      // the worker's stack arrives as a message once main runs again: give it a moment, then write
+      report: r => { setTimeout(() => stallLog.write('main-lag', { ...r, main_stack: stackStore.near(r.at_ms, r.at_ms + r.lag_ms) }), 50) },
+    }).start()
+    stallPing.start()
+  }
+  /** One MessagePort per document load; the preload answers each ping on the renderer's main thread. */
+  const attachStallPing = (window: BrowserWindow, id: string) => {
+    if (!stallOn) return
+    const wc = window.webContents
+    let channel: MessageChannelMain | null = null
+    stallPing.add({
+      id, get org() { return windows.get(id)?.kind === 'org' },
+      port: { postMessage: message => channel?.port1.postMessage(message) },
+      visible: () => !window.isDestroyed() && window.isVisible() && !window.isMinimized(),
+      collectStack: async () => {
+        const frame = wc.mainFrame as unknown as { collectJavaScriptCallStack?: () => Promise<string> }
+        if (typeof frame.collectJavaScriptCallStack !== 'function') throw new Error('collectJavaScriptCallStack is not available')
+        return String(await frame.collectJavaScriptCallStack())
+      },
+    })
+    wc.on('did-finish-load', () => {
+      try {
+        channel?.port1.close()
+        channel = new MessageChannelMain()
+        channel.port1.on('message', event => { const pong = (event.data as { pong?: unknown } | null)?.pong; if (typeof pong === 'number') stallPing.pong(id, pong) })
+        channel.port1.start()
+        wc.postMessage('stall-ping-port', null, [channel.port2])
+      } catch { /* diagnostics only */ }
+    })
+    wc.on('unresponsive', () => stallPing.unresponsive(id))
+    window.once('closed', () => { stallPing.remove(id); try { channel?.port1.close() } catch { /* already closed */ } })
+  }
   /** Put a window in front of the user. See revealPopout for why restoring a
    *  minimized window must come first. ⚠ ONLY THIS WINDOW: every other window
    *  stays exactly as it is (user 2026-10-09; main/window-reveal.ts). */
@@ -2544,6 +2619,9 @@ else {
         return startupKind()
       })
       const register = configureEngineSession(browserSession, () => engine.origin, () => engine.token)
+      // the app's own origin gets the Document-Policy that lets the ping watchdog read the renderer's JS stack (stall tooling)
+      if (stallOn) browserSession.webRequest.onHeadersReceived((details, callback) =>
+        callback({ responseHeaders: withStackPolicy((details.responseHeaders ?? {}) as Record<string, string[]>, details.url, engine.origin, process.env) }))
       const openArtifact = (url: string) => {
         const artifactSession = session.fromPartition(`artifact-${randomUUID()}`)
         configureArtifactSession(artifactSession, url, engine.origin, engine.token)
@@ -2593,7 +2671,8 @@ else {
             // The window id rides along for native-side logs only; the
             // renderer reads its identity over IPC, because a launch argument
             // is fixed for the window's life and this window's KIND is not.
-            additionalArguments: [`--orgtree-ui-origin=${windowOrigin}`, `--orgtree-window-id=${id}`] } })
+            additionalArguments: [`--orgtree-ui-origin=${windowOrigin}`, `--orgtree-window-id=${id}`,
+              ...(stallOn ? [] : ['--orgtree-stallwatch=0'])] } })
         const record: MainWindowRecord = {
           id, window, owned: new Set(), tearingDown: false, documentToken: '', runningPanels: 0, keptForPanels: false,
           outbox: windowOutbox<DesktopEvent>({ hold: type => HELD_EVENT_TYPES.has(type as DesktopEvent['type']) }),
@@ -2608,6 +2687,7 @@ else {
         records.set(id, record)
         if (registerNow) windows.register({ id, senderId: window.webContents.id, window, kind, ...(org ? { org } : {}) })
         watchWindowEvents(window, id, () => windowFacts(id), windowEvents)
+        attachStallPing(window, id)
         window.setIcon(runtimeIcon())
         taskbarAttention.applyBadge(window)
         const capture = () => savePlacement(record)

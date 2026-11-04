@@ -19,6 +19,7 @@ The root guide contains only before-work constraints. These topic references ret
 | [Desktop and renderer](desktop-and-renderer.md) | Canvas, desks, links, menus, windows, geometry, rendering and visual behavior. |
 | [Startup and release](startup-and-release.md) | Boot, shutdown, placement, installers, native integration, updates and release evidence. |
 | [Development and verification](development-and-verification.md) | Worktrees, build/resource rules, tests, evidence, platform traps and maintenance. |
+| [UI stall diagnostics](ui-stall-diagnostics.md) | The ui-stalls.jsonl log, its schema, redaction and how to read a stall. |
 | [Legacy and superseded records](legacy-and-superseded.md) | 3.x implementation/procedures, stopped work, historical states and earlier guidance. |
 
 ## Preservation check

@@ -218,7 +218,7 @@ export function HostHub({ active = true, phone }: { active?: boolean; phone?: Re
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
         <SetGroup title="Hosting">
           <SetRow label="Hub name" hint="Shown to everyone who connects, and on the hub's own mail page.">
-            <input aria-label="Mail hub name" value={config.name} placeholder="This computer's name"
+            <input data-stall-id="settings-field" aria-label="Mail hub name" value={config.name} placeholder="This computer's name"
               onChange={e => setConfig({ ...config, name: e.target.value })} />
           </SetRow>
           <SetRow label="Maximum attachment size (MiB)"

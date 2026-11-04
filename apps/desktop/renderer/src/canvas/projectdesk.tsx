@@ -52,6 +52,7 @@ import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
 import { focusComposerAutomatically, focusComposerBackground } from '../composerfocus'
+import { noteDraftSave } from '../stallwatch'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
 import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
@@ -355,7 +356,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
   const setText = (next: string) => {
     setTextState(next)
     try {
-      if (next) localStorage.setItem(messageDraftKey, next)
+      if (next) { localStorage.setItem(messageDraftKey, next); noteDraftSave() }
       else localStorage.removeItem(messageDraftKey)
     } catch { /* best-effort browser persistence, like the agent composer */ }
   }
@@ -541,7 +542,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
       </div>
       <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
         onChange={(e) => { [...e.target.files!].forEach(attach); e.target.value = '' }} />
-      <textarea ref={attachComposer} rows={2} value={text} disabled={!can} title={enterKey.hint}
+      <textarea data-stall-id="desk-composer" ref={attachComposer} rows={2} value={text} disabled={!can} title={enterKey.hint}
         aria-label={`message every agent under project ${node.id}`}
         placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
           : unheard ? `message project ${node.id}…`

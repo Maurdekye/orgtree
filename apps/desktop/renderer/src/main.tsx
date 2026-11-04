@@ -2,12 +2,16 @@
 // listeners) must be live before anything else — including React itself —
 // gets a chance to throw. See crashReporter.ts for why.
 import { flushPendingReports } from './crashReporter'
+// SECOND, and before React: the stall tooling's React-commit hook has to exist before react-dom loads (stallwatch.ts)
+import './stallhook'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './mobile'   // D-125: stamp html.mobile before first paint
 import App from './App'
 import CrashBoundary, { CrashTestRenderTrigger } from './CrashBoundary'
 import { installFreezeLog } from './freezelog'
+import { installStallWatch } from './stallwatch'
+import { installStallFixture } from './stallfixture'
 import FreezeLogPage, { isFreezeLogPath } from './FreezeLogPage'
 import './styles.css'
 // the v3 shell's own sheet, deliberately separate from styles.css and loaded
@@ -47,6 +51,7 @@ flushPendingReports()
 // runs the app with the recorder installed (see freezelog.ts)
 const freezePage = isFreezeLogPath()
 if (!freezePage) installFreezeLog()
+if (!freezePage) { installStallWatch(); installStallFixture() }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

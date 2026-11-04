@@ -751,7 +751,7 @@ export function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, 
 }) {
   return (
     <div className="docket-search" role="search">
-      <input ref={boxRef} type="search" className="docket-search-input"
+      <input data-stall-id="search" ref={boxRef} type="search" className="docket-search-input"
         id={`${searchId}-q`}
         placeholder={placeholder}
         aria-label={ariaLabel}

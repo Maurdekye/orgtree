@@ -497,7 +497,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
                 <span className="ask-row-body"><b>Other</b></span>
               </button>
               {otherOn && !d.q.skip && (
-                <textarea rows={2} value={d.q.text} disabled={busy} title={enterKey.hint}
+                <textarea data-stall-id="ask-answer" rows={2} value={d.q.text} disabled={busy} title={enterKey.hint}
                   className="ask-other" placeholder="your answer…"
                   onChange={(e) => patch({ q: { ...d.q, skip: false,
                     text: e.target.value } })}

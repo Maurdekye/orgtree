@@ -1,4 +1,5 @@
 import { setStreamerOrgs, useStreamerMode } from './streamer'
+import { setStallContext } from './stallwatch'
 import { useAttractMode } from './attract/pref'
 import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
 import type { HireDefaultsRequest, SettingsRequest } from './types'
@@ -1500,6 +1501,14 @@ export default function App() {
   // the capability, and where it is absent every branch below falls through to
   // the sidebar-and-drawer app exactly as it is on main today.
   const shellView = identityView(identity)
+  // UI stall tooling (stallwatch.ts): which view the user was in, as FIXED ENUMS only - never a name, id or title
+  useEffect(() => {
+    setStallContext({
+      screen: shellView === 'homepage' ? 'homepage' : shellView === 'create' ? 'create'
+        : showSettings || showAccounts || showDefaults ? 'settings' : 'canvas',
+      panel: showInbox ? 'mail' : showDocket ? 'docket' : showGallery ? 'files' : showUsage ? 'usage' : 'none', popout: null,
+    })
+  }, [shellView, showSettings, showAccounts, showDefaults, showInbox, showDocket, showGallery, showUsage])
   // In a v3 window the bound organization IS the identity's, and nothing else
   // may set it: a bound window never changes organization, so this commits
   // straight past `setSlug`'s switch prompt, which exists for a world where one
