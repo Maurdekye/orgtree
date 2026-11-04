@@ -80,8 +80,10 @@ A project dog has one of three forms, `memo.project_delivery` (`event` when the 
 - **queue**: one job per fire in the project's mailbox through `mail::send` (the `From::Watchdog` arm of `send_project`),
   first line `... queued a job on project @P`. It ALWAYS queues, with or without a registered `fair_queue` listener; the
   job waits until a worker takes it. An unclaimed job has no ACK timer, attempts or dead letter (the timer starts at
-  hand-out; `release_stale` only reads claimed jobs). Nothing caps growth; the desk's purge clears it. A job nobody took
-  nudges an unwatched project as a user post does (`nudge_project`; its text says "the user wrote").
+  hand-out; `release_stale` only reads claimed jobs). Nothing caps growth; the desk's purge clears it. The job's sender is
+  the dog's handle `P/uid`. In a project nobody watches, a dog job nudges the project's nudge target only when it is the
+  queue's ONLY waiting job (counted in the insert's transaction), so a chatty dog nudges once per fill, with its own text
+  (spec rev 2.2); user and agent mail keep their nudge unchanged.
 
 Broadcast and queue are not project events: no `project_fires` row, no `project.event`, nothing a listener (patterned or
 not) sees. The event-listeners setting gates the event form only (`switch_off` and the arm-time guard skip the others).

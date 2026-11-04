@@ -87,7 +87,8 @@ pub(super) async fn broadcast(engine: &Arc<Engine>, org_id: i64, project: i64, p
 #[logged]
 pub(super) async fn enqueue(engine: &Arc<Engine>, org_id: i64, pname: &str, src: &Source, body: &str) -> Result<String> {
     let text = message(src, "queued a job on", pname, body);
-    let mut out = Outgoing::new(From::Watchdog { key: src.handle.clone(), name: src.name.clone() }, pname, &text);
+    // the job's sender is the dog's HANDLE: names repeat across projects, the handle is what configure and remove take
+    let mut out = Outgoing::new(From::Watchdog { key: src.handle.clone(), name: src.handle.clone() }, pname, &text);
     out.kind = "watchdog".into();
     Ok(mail::send(engine, org_id, out).await?.uid)
 }
