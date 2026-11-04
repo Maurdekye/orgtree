@@ -213,6 +213,10 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
         p.shell = Some(s);
         p.changed.push("shell".into());
         p.rebaseline = true;
+        // a stream's process is replaced by a tier B change
+        if kind == "stream" {
+            p.restart = true;
+        }
     }
     // hands of the owner AND the editor for what a command or stream runs
     if matches!(kind, "command" | "stream") && (new_target.is_some() || has(args, "shell")) {
@@ -420,6 +424,17 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
     if new_target.is_some() && !matches!(kind, "websocket" | "mqtt") {
         p.target = Some(target.clone());
     }
+    // a project's dog may not become a duplicate of another (D16, the form excluded), the dog itself aside
+    if project_dog {
+        let mut eff = dog.memo.clone();
+        for (k, v) in &p.memo_set {
+            eff[k.as_str()] = v.clone();
+        }
+        let client = engine.db.get().await?;
+        if let Some(dup) = project_duplicate(&**client, dog.owner, kind, &target, pattern.as_deref(), shell.as_deref(), &eff, dog.row).await? {
+            refuse!(Conflict, "project {} already has this watchdog: {}/{}; listen to the project instead of adding another", dog.owner_name, dog.owner_name, dup);
+        }
+    }
     let _ = tier_b;
     Ok(p)
 }
@@ -432,9 +447,8 @@ async fn net(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, dog: &Dog, a
     new_target: Option<&str>, pattern: Option<&str>, p: &mut Plan, target: &mut String) -> Result<()> {
     let kind = dog.kind.as_str();
     let memo_net = dog.memo[kind].clone();
-    let project_dog = dog.project_owned();
     // the editor needs the web tool too (W3 with the editor as setter)
-    if let Some(a) = actor.filter(|a| *a != dog.owner && !project_dog) {
+    if let Some(a) = actor.filter(|a| *a != dog.owner) {
         if !holds_web(engine, a).await? {
             refuse!(Forbidden, "a {kind} watchdog reaches the network with the hands of whoever edits it too — it needs the web tool {editor_name} does not hold");
         }

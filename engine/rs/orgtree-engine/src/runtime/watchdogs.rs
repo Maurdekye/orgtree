@@ -2643,15 +2643,15 @@ fn same_target(kind: &str, target: &str) -> String {
 /// (spec D16: same kind, target, pattern, shell, websocket hello and mqtt payload filter).
 #[logged]
 async fn project_duplicate(client: &impl tokio_postgres::GenericClient, project: i64, kind: &str, target: &str,
-    pattern: Option<&str>, shell: Option<&str>, memo: &Value) -> Result<Option<String>> {
+    pattern: Option<&str>, shell: Option<&str>, memo: &Value, except: i64) -> Result<Option<String>> {
     let hello = memo["websocket"]["hello"].clone();
     let payload = memo["mqtt"]["payload_pattern"].as_str().map(str::to_string);
     let rows = client.query(
         "SELECT uid, target FROM ot.watchdogs WHERE owner_agent_id = $1 AND owner_kind = 'project' AND state IN ('armed', 'paused')
             AND kind = $2 AND coalesce(pattern, '') = coalesce($3, '') AND coalesce(shell, '') = coalesce($4, '')
             AND coalesce(memo->'websocket'->'hello', 'null'::jsonb) = $5::jsonb
-            AND coalesce(memo->'mqtt'->>'payload_pattern', '') = coalesce($6, '') ORDER BY id",
-        &[&project, &kind, &pattern, &shell, &hello, &payload]).await?;
+            AND coalesce(memo->'mqtt'->>'payload_pattern', '') = coalesce($6, '') AND id <> $7 ORDER BY id",
+        &[&project, &kind, &pattern, &shell, &hello, &payload, &except]).await?;
     let want = same_target(kind, target);
     Ok(rows.iter().find(|r| same_target(kind, &r.get::<_, String>(1)) == want).map(|r| r.get(0)))
 }
@@ -3042,7 +3042,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         memo["websocket"] = c.memo.clone();
     }
     if let Some(pc) = &on_project {
-        if let Some(dup) = project_duplicate(&**client, owner, &kind, &target, pattern.as_deref(), shell_col.as_deref(), &memo).await? {
+        if let Some(dup) = project_duplicate(&**client, owner, &kind, &target, pattern.as_deref(), shell_col.as_deref(), &memo, 0).await? {
             refuse!(Conflict, "project {} already has this watchdog: {}/{}; listen to the project instead of adding another", pc.name, pc.name, dup);
         }
     }
@@ -3164,7 +3164,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
             // the project row first, as a fire takes it: two creates cannot both pass the check
             let scope: Value = tx.query_opt("SELECT scope FROM ot.agents WHERE id = $1 AND kind = 'project' AND state = 'live' FOR NO KEY UPDATE", &[&owner]).await?
                 .map(|r| r.get(0)).ok_or_else(|| anyhow::anyhow!("project {} is not live", pc.name))?;
-            if let Some(dup) = project_duplicate(&*tx, owner, &kind, &target, pattern.as_deref(), shell_col.as_deref(), &memo).await? {
+            if let Some(dup) = project_duplicate(&*tx, owner, &kind, &target, pattern.as_deref(), shell_col.as_deref(), &memo, 0).await? {
                 refuse!(Conflict, "project {} already has this watchdog: {}/{}; listen to the project instead of adding another", pc.name, pc.name, dup);
             }
             // the setting gates the event form only (F6)

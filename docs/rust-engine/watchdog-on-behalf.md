@@ -25,6 +25,8 @@ The spec is @stream-plan-opus's rev 1.3 (W1-W12); decisions here are its numbers
   `memo.actions_by` (an editor's object, "owner" or "user") picks whose authority `setter_of` intersects at fire time (a string means none).
   An app_listener's subscription fields and mqtt `qos` are not editable (fixed / not stored). Every edit of a websocket or mqtt dog's connection,
   a pattern edit included, reconnects it so the live connection's compiled filter is replaced.
+- **Project dogs in an edit:** the D16 duplicate check runs against the dog's new values (itself excluded, `project_duplicate(..., except)`); a project
+  websocket/mqtt connection edit needs the editor's web tool as well as the project line's; a stream's shell edit restarts its process.
 - **fire_actions and `recover`:** fire actions run only in a normal or recovering engine (a safe-start rehearsal skips them); an ordinary create
   need not return `registered:true`.
 - **Tests:** `runtime/watchdogs/onbehalf_tests.rs` (WD, RB, RA, FA, MG; synthetic PG `projdogs_fixture`, like project_tests.rs), T1 in
