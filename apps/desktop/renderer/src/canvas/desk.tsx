@@ -50,6 +50,7 @@ import { ReplyPreview, ReplyPreviewDisclosure, ReplySourceProvider } from './rep
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu, useCopyFeedback } from './contextmenu'
 import { desktop } from '../desktop'
+import { useStreamedLines, useWritingMask } from '../streamedoutput'
 import { ToolFilePath } from './toolfilepath'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge, QueuedEffortBadge, useOrgDefaultEffort } from './effort'
 import { EffortBar } from './effortbar'
@@ -79,7 +80,7 @@ import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } fr
 
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useNodeMetadata } from '../nodemetadata'
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, PendingMail,
   Denial, Readiness, ServingAccount, TreeFrozen, TreeNode, TurnStat,
@@ -4419,7 +4420,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             {row.kind === 'tool_writing' ? <ToolChip t={row.tool ?? { id: row.tool_id, name: row.text, writing_started_at: row.started_at }}
               slug={slug} nid={node.id} onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc} /> : ['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.text
-                ? <ThoughtBody text={row.text} live refs={deskRefs} imgBase={fileBase(slug, node.id)} />
+                ? <StreamedThought text={row.text} refs={deskRefs} imgBase={fileBase(slug, node.id)} />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
                     {thinkSecs !== null && thinkSecs > 0 ? ` for ${formatSeconds(thinkSecs)}` : ''}</div>)
               // render-inline-html-custom-responses: these transient rows are
@@ -4427,8 +4428,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               // — capture_reply_stream never produces 'user' here — but the
               // grant still names the agent-response case explicitly rather
               // than defaulting open on "not user".
-              : <RefMdBody className={row.kind === 'draft' || row.kind === 'delta' ? 'md draft' : 'md'} world={deskRefs.world} onOpen={deskRefs.onOpen}
-                  html={md(row.text,
+              : <StreamedMd className={row.kind === 'draft' || row.kind === 'delta' ? 'md draft' : 'md'} world={deskRefs.world} onOpen={deskRefs.onOpen}
+                  streaming={row.kind === 'draft' || row.kind === 'delta'} text={row.text} html={(text: string) => md(text,
                     fileBase(slug, node.id), row.role === 'assistant',
                     // live only when this row IS the growing draft; a settled
                     // transient row is ordinary text and belongs in the
@@ -5230,6 +5231,8 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
     return path === arg || (t.arg!.length === 90 && path.startsWith(arg))
   }) ? '' : t.arg
   const shellError = isFailedShellCall(t)
+  // streamer mode: a call still being written shows its description or a placeholder, never its partial input
+  const hidden = useWritingMask(t)
   const inputEvent = t.event_id ?? (t.input_seq ? `e${t.input_seq}` : undefined)
   const outputEvent = t.result_event_id ?? (t.output_seq ? `e${t.output_seq}` : inputEvent)
   useTranscriptSelectionReveal(slug,nid,inputEvent,t.id,open,toggleOpen)
@@ -5261,7 +5264,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   }
   return (
     <><div className={'tools tchip' + (t.error || shellError ? ' terr' : '')}>
-      <span data-reply-event={t.event_id ?? ''} data-reply-quote={String(t.reply_quote ?? `${t.name} ${t.arg ?? ''}`)} className={'tline' + (expandable ? ' click' : '')}
+      <span data-reply-event={t.event_id ?? ''} data-reply-quote={String(hidden ? t.name : t.reply_quote ?? `${t.name} ${t.arg ?? ''}`)} className={'tline' + (expandable ? ' click' : '')}
         onClick={expandable ? toggleOpen : undefined}
         title={expandable ? (open ? 'collapse' : 'expand') : undefined}
         {...(shellError ? { role: 'button', tabIndex: 0, 'aria-expanded': open,
@@ -5273,9 +5276,9 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
           : running ? <span title="Executing tool call" aria-label="executing tool call"><ArrowRightIcon fontSize="inherit" className="tooldot tool-running-status" /></span>
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
-        {toolArg ? <span className="targ"> {toolArg}</span> : null}
+        {hidden ? <span className="targ"> {hidden.arg}</span> : toolArg ? <span className="targ"> {toolArg}</span> : null}
         <ToolInputCount count={t.input_tokens} estimated={t.input_tokens_estimated !== false} />
-        {t.file_paths?.map((file, i) => <Fragment key={`${file.path}-${i}`}>{' '}
+        {!hidden && t.file_paths?.map((file, i) => <Fragment key={`${file.path}-${i}`}>{' '}
           <ToolFilePath path={file.path} link={file.link} completed={t.ended_at}
             onContextMenu={e => { fileMenu.open(e, [], e.currentTarget) }} />
         </Fragment>)}
@@ -5309,7 +5312,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       {open && (t.result_lines ?? 0) > 0 && <div className="dim tool-line-count">{t.result_lines} line{t.result_lines === 1 ? '' : 's'}</div>}
       {open && <LiveShellOutput tool={t} />}
       {open && (writing
-        ? t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
+        ? hidden ? null : t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
           ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
         : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} retained={t.retained_input} selection={t.retained_input?undefined:inputSource} />)}
       {open && !writing && !t.retained_input && hasHelperTranscript(t) && <HelperTranscript slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
@@ -5454,6 +5457,17 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     Boolean(a.replyAvailable?.(r)) === Boolean(b.replyAvailable?.(r))))
 })
 
+/** A growing response draft; with streamer mode on only its complete lines show (streamedoutput.ts). */
+export function StreamedMd({ text, streaming, html, ...rest }: Omit<ComponentProps<typeof RefMdBody>, 'html'> & { text: string; streaming: boolean; html: (text: string) => ComponentProps<typeof RefMdBody>['html'] }) {
+  const lines = useStreamedLines(text)
+  return <RefMdBody {...rest} html={html(streaming ? lines : text)} />
+}
+/** Live thinking text, one complete line at a time while streamer mode is on. */
+export function StreamedThought({ text, refs, imgBase }: { text: string; refs?: RefRoutes; imgBase?: string }) {
+  const lines = useStreamedLines(text)
+  return lines ? <ThoughtBody text={lines} live refs={refs} imgBase={imgBase} />
+    : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…</div>
+}
 function ThoughtBody({ text, live = false, refs, imgBase }: { text: string; live?: boolean; refs?: RefRoutes; imgBase?: string }) {
   // Identical block/paragraph whitespace while streaming and after attachment.
   // pre-wrap on the old live root also rendered Markdown's HTML separator
