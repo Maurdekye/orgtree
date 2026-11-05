@@ -4714,7 +4714,10 @@ main.solo { width: 100%; }
 .settings.cfg > .agent-settings-header { align-items: center; gap: 12px; }
 .settings.cfg .agent-settings-header-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .settings.cfg > .agent-history-tab { flex: 1; min-height: 0; overflow: hidden; }
-.settings.cfg .agent-history-tab .msgs { flex: 1; min-height: 0; }
+.settings.cfg .agent-history-tab .msgs { flex: 1; min-height: 0; padding: 0; }
+/* ONE content inset for every agent/project settings tab: the window's own --panel-pad, nothing more (the four config tabs and
+   App settings add none). History's list and States used to add 3px 2px and 8px 12px, shifting the content edge between tabs. */
+.settings.cfg .agent-history-tab .agent-states { padding: 0; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) { position: relative; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar {
   position: absolute; top: var(--panel-pad-y); right: var(--panel-pad-x); margin: 0;

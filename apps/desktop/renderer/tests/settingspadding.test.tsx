@@ -12,11 +12,11 @@ import { join as joinPath } from 'node:path'
 
 const read = (f: string) => readFileSync(joinPath(__SRC_DIR__, f), 'utf8')
 const css = read('styles.css').replace(/\/\*[\s\S]*?\*\//g, '')
-/** the declaration block of the LAST rule whose selector list contains `sel` exactly */
+/** the declarations of EVERY rule whose selector list contains `sel` exactly */
 function lastBlock(sel: string): string {
   let out = ''
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (m[1].split(',').map(s => s.trim()).includes(sel)) out = m[2]
+    if (m[1].split(",").map(s => s.trim()).includes(sel)) out += m[2]
   }
   return out
 }
