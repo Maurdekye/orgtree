@@ -1869,6 +1869,11 @@ function startClock(k: string, e: Entry): void {
   if (!e.subs.size) return
   e.clock = setInterval(() => {
     if (!e.thinkT0) return stopClock(e)
+    // The seconds are only DRAWN by the empty "thinking… for Ns" placeholder. Once thought text streams
+    // in, nothing shows them, so the clock parks (thinking_start restarts it) instead of re-rendering
+    // every desk subscriber each second for an unchanged screen.
+    if (e.s.thinking) return stopClock(e)
+    // (patch() already ignores a tick whose value equals the current one)
     patch(k, { thinkSecs: Math.round((Date.now() - e.thinkT0) / 1000) })
   }, 1000)
 }

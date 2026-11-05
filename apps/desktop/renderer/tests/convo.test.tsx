@@ -332,6 +332,29 @@ convoTest('§1.5 a lone thinking_start does not leave the panel thinking forever
     assert.equal(d.now().draft, '', 'the superseded draft retires on the payload')
   })
 
+convoTest('the thinking clock costs no re-render once thought text is streaming (nothing draws the seconds)', async ({ SL, ND, s, desk }) => {
+  const d = await desk()
+  await advance(3000)
+  s.busy = true
+  await inAct(() => {
+    ingestStream(SL, { node: ND, kind: 'thinking_start', text: '', t: Date.now() })
+  })
+  // the empty placeholder DRAWS the seconds: they advance each second
+  const before = d.frames.length
+  await advance(3000)
+  assert.ok(d.frames.length > before, 'the placeholder clock still advances')
+  assert.ok((d.now().thinkSecs ?? 0) >= 2, 'seconds advanced while the placeholder is shown')
+  await inAct(() => {
+    ingestStream(SL, { node: ND, kind: 'thinking', text: 'pondering', t: Date.now() })
+  })
+  await advance(300)
+  const settled = d.frames.length
+  await advance(8000)
+  // (the heartbeat refetch may still produce frames; only the CLOCK's own frames are the cost)
+  const ticks = d.frames.slice(settled).filter((f, i) => f.thinkSecs !== d.frames[settled + i - 1]!.thinkSecs)
+  assert.equal(ticks.length, 0, 'no clock frame while thought text hides the seconds')
+})
+
 convoTest('§1.6 a dropped turn_done does not double-render the reply',
   async ({ SL, ND, s, desk }) => {
     // the draft and the durable row say the same words. If the draft outlives
