@@ -49,13 +49,13 @@ impl World {
     #[nolog]
     async fn listener(&self, agent: i64, name: &str, project: i64) {
         self.c.execute("INSERT INTO ot.watchdogs(org_id,uid,owner_agent_id,kind,state,memo,name,target,interval_s) VALUES($1,$2,$3,'fair_queue','armed',$4,$2,'x',15)",
-            &[&self.org, &name, &agent, &json!({ "target_id": project.to_string(), "notice": true, "batch": 5 })]).await.unwrap();
+            &[&self.org, &name, &agent, &json!({ "target_id": project, "notice": true, "batch": 5 })]).await.unwrap();
     }
     /// The relay dog: project `q` listens to project `p` (stored the way `create` stores a project-owned fair_queue).
     #[nolog]
     async fn relay(&self, q: i64, p: i64, batch: i64) {
         self.c.execute("INSERT INTO ot.watchdogs(org_id,uid,owner_agent_id,owner_kind,kind,state,memo,name,target,interval_s) VALUES($1,$2,$3,'project','fair_queue','armed',$4,$2,(SELECT name FROM ot.agents WHERE id=$5),15)",
-            &[&self.org, &format!("relay{q}{p}"), &q, &json!({ "target_id": p.to_string(), "batch": batch, "project_delivery": "queue" }), &p]).await.unwrap();
+            &[&self.org, &format!("relay{q}{p}"), &q, &json!({ "target_id": p, "batch": batch, "project_delivery": "queue" }), &p]).await.unwrap();
     }
     #[nolog]
     async fn arrive(&mut self, net_id: &str, body: &str, replies: Value) -> (String, jobs::Published) {
