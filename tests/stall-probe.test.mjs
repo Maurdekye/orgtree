@@ -201,3 +201,22 @@ test('ST12b the worker source: a stale heartbeat triggers one capture a minute; 
   healthy.tick()
   assert.equal(healthy.posts.length, 0, 'a fresh heartbeat: nothing to capture')
 })
+
+test('ST13 the main-stack worker costs about 8 MB resident, so it is lazy: not started at launch, started by the first stall signal, stopped after 10 quiet minutes', () => {
+  const f = fake(), spawned = [], stopped = []
+  const lazy = new P.LazyStackWorker({ ...f, spawn: () => { const w = { n: spawned.length }; spawned.push(w); return { stop: () => stopped.push(w) } } })
+  f.advance(3_600_000)
+  assert.equal(spawned.length, 0, 'an hour of quiet: no worker was ever created')
+  lazy.wake()
+  assert.equal(spawned.length, 1, 'the first stall signal starts it')
+  f.advance(5 * 60_000); lazy.wake()
+  assert.equal(spawned.length, 1, 'a second signal reuses it')
+  f.advance(9 * 60_000)
+  assert.equal(stopped.length, 0, 'the quiet clock restarted at the second signal')
+  f.advance(2 * 60_000)
+  assert.equal(stopped.length, 1, '10 minutes after the last signal it is stopped')
+  lazy.wake()
+  assert.equal(spawned.length, 2, 'a later stall starts a fresh one')
+  const failing = new P.LazyStackWorker({ ...f, spawn: () => { throw new Error('no worker') } })
+  assert.doesNotThrow(() => failing.wake(), 'a failed start is swallowed: main_stack stays unavailable')
+})
