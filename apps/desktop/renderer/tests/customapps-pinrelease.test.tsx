@@ -168,3 +168,24 @@ test('a resize gesture flags the panel so its app frame ignores the pointer, and
  assert.equal(frame().hasAttribute('data-sizing'),false,'a title-bar drag leaves the frame alone')
  await inAct(async()=>{bar.dispatchEvent(pointer('pointerup',200,135));await tick()})
 })
+
+// THE RESIZE DRAG DOES NOT DEPEND ON POINTER CAPTURE (pointer-trace diagnostic 2026-11-05, build-sol
+// app-panel-pointer-diag-20261105): in the real window the page saw every pointermove and the pointerup of the east-edge drag,
+// but with the pointer off the handle they landed on the panel's frame host, no gotpointercapture was ever seen and no handle
+// held capture; the handle stopped receiving moves after three steps and the drag never saved. The gesture therefore also
+// listens on the window while it is down, so it follows the pointer wherever the events land.
+test('a resize drag follows the pointer and saves even when the events never reach the handle (no pointer capture)',async t=>{
+ const slug='resize-no-capture',f=fixture(t,slug,[pinned('one')])
+ const view=await mountView(<AppsWorkspace slug={slug}/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
+ const h=frame().querySelector<HTMLElement>('[data-resize-edge="e"]')!
+ const elsewhere=frame().querySelector<HTMLElement>('.custom-app-host')??document.body
+ await inAct(async()=>{h.dispatchEvent(pointer('pointerdown',500,400));await tick()})
+ // the pointer left the handle and capture never held: the moves and the release land on the frame host
+ await inAct(async()=>{elsewhere.dispatchEvent(pointer('pointermove',515,400));elsewhere.dispatchEvent(pointer('pointermove',530,400));await tick()})
+ assert.deepEqual(rectOf(frame()),['120px','80px','430px','300px'],'previewing from events that never reached the handle')
+ await inAct(async()=>{elsewhere.dispatchEvent(pointer('pointerup',530,400));await tick()})
+ const saved=f.calls.filter(c=>c.action==='panel_update'&&c.placement)
+ assert.equal(saved.length,1,'one save')
+ assert.equal(saved[0]!.placement.width,430)
+ assert.equal(frame().hasAttribute('data-sizing'),false)
+})
