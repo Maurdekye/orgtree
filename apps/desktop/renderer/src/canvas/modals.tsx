@@ -1993,7 +1993,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         </SettingsTabPanel>}
         <SettingsTabPanel id="states" idBase={tabId} active={tab === 'states'}
           className="app-settings-panel agent-history-tab">
-          {tab === 'states' && <AgentStatesView slug={slug} nid={node.id} provider={providerOf(node.tier ?? '')} liveState={liveRecordedState(node)} />}
+          {tab === 'states' && <AgentStatesView slug={slug} nid={node.id} provider={providerOf(node.tier ?? '')} liveState={liveRecordedState(node)} created={node.created} />}
         </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
             grant is legal either way, so this warns, never blocks */}

@@ -1297,6 +1297,8 @@ export interface CanvasNode {
   bg_tasks?: number
   helper_count?: number
   last_error?: string | null
+  /** TreeNode.created: when the node was hired; the Activity tab's age (bar scale tier) starts here */
+  created?: string
 }
 
 /** a bearer pseudo-card carries a stub scope ({tools:{}, add_dirs:[]}),

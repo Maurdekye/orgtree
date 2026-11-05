@@ -161,3 +161,10 @@ pips at that same scale's positions for 1 minute, 1 hour and 1 day (about 31%,
 62% and 85% of the track), each with a hover label "1 min", "1 hour" or
 "1 day" and no text on the row; a pip beyond the track's maximum is omitted.
 `scalePips()` in `statesview.tsx`; USER 2026-11-04 m45c0e03468a6.
+
+Longer scales for older agents (USER 2026-11-05 m7a0e94f5e592): the maximum is per agent, `scaleMaxSecs(age)`: 7 d up to
+and including a week old, 30 d ("1 month") over a week, 365 d ("1 year") over 30 d. Age is `ageSecsOf(created, spans, now)`:
+from the node's hire time (`TreeNode.created`) or the earliest loaded span, whichever is older, and it ticks with the shared
+age clock, so the tier moves up live and is the same on every lazy page. Without a hire time the tier can rise only as older
+pages load. The 1 week pip appears on the month and year scales, the 1 month pip on the year scale; a pip at the scale's
+end is not drawn. Bars use `barWidthPct(secs, max)`; the totals line is unchanged. Renderer only.

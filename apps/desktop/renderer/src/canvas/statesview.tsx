@@ -19,22 +19,42 @@ function TotalsLine({ label, totals }: { label: string; totals: AgentStateTotals
       : <span className="dim">nothing recorded</span>}</span>
 }
 
-/** Bar length (percent of the track) for a span, on a FIXED log scale so rows
- *  stay comparable across pages and agents: 1 s or less is the minimum, 7 days
- *  or more the full bar, length proportional to log(duration) between. */
-const SCALE_MAX_SECS = 7 * 86400
+/** Bar length (percent of the track) for a span on a log scale: 1 s or less is the minimum, `maxSecs` or more the full
+ *  bar, length proportional to log(duration) between. The maximum is the AGENT's tier (`scaleMaxSecs`), fixed per agent
+ *  so every page and live update of one agent compares; the default is the 7 d scale. */
+const WEEK = 7 * 86400
+const MONTH = 30 * 86400
+const YEAR = 365 * 86400
 const BAR_MIN_PCT = 2
-export const barWidthPct = (secs: number): number => {
+export const barWidthPct = (secs: number, maxSecs: number = WEEK): number => {
   if (!(secs > 1)) return BAR_MIN_PCT
-  if (secs >= SCALE_MAX_SECS) return 100
-  return Math.max(BAR_MIN_PCT, 100 * Math.log(secs) / Math.log(SCALE_MAX_SECS))
+  if (secs >= maxSecs) return 100
+  return Math.max(BAR_MIN_PCT, 100 * Math.log(secs) / Math.log(maxSecs))
+}
+
+/** LONGER SCALES FOR OLDER AGENTS (USER 2026-11-05 m7a0e94f5e592): an agent older than 1 week has a 1 month (30 d) full
+ *  bar, older than 1 month a 1 year (365 d) one; otherwise 7 d. Exactly a week or a month is not yet "over". */
+export const scaleMaxSecs = (ageSecs: number): number => ageSecs > MONTH ? YEAR : ageSecs > WEEK ? MONTH : WEEK
+
+/** The agent's age in seconds: from the hire time (`created`) or the earliest loaded span, whichever is older; 0 when neither
+ *  is known. The hire time makes the tier right from the first page; without it the tier can only rise as older pages load. */
+export const ageSecsOf = (created: string | undefined, spans: { start: string }[], nowMs: number): number => {
+  let earliest = Number.POSITIVE_INFINITY
+  for (const t of [created, ...spans.map(s => s.start)]) {
+    const ms = t ? Date.parse(t) : NaN
+    if (Number.isFinite(ms) && ms < earliest) earliest = ms
+  }
+  return Number.isFinite(earliest) ? Math.max(0, Math.floor((nowMs - earliest) / 1000)) : 0
 }
 
 /** Scale pips on every row's track: 1 minute, 1 hour and 1 day at the bars' own log positions (USER m45c0e03468a6). A pip
  *  beyond the track (`maxSecs` below its duration) is omitted; the full scale ends at 7 d, so all three show by default. */
-const PIPS = [{ secs: 60, label: '1 min' }, { secs: 3600, label: '1 hour' }, { secs: 86400, label: '1 day' }] as const
-export const scalePips = (maxSecs: number = SCALE_MAX_SECS) =>
-  PIPS.filter(p => p.secs <= maxSecs).map(p => ({ ...p, pct: barWidthPct(p.secs) }))
+const PIPS = [{ secs: 60, label: '1 min' }, { secs: 3600, label: '1 hour' }, { secs: 86400, label: '1 day' },
+  { secs: WEEK, label: '1 week' }, { secs: MONTH, label: '1 month' }] as const
+/** 1 min / 1 hour / 1 day always (while within the scale); 1 week once the scale reaches a month; 1 month once it reaches a
+ *  year. A pip sitting at the scale's end (the week at 7 d, the month at 30 d) is not drawn. */
+export const scalePips = (maxSecs: number = WEEK) =>
+  PIPS.filter(p => p.secs <= 86400 ? p.secs <= maxSecs : p.secs < maxSecs).map(p => ({ ...p, pct: barWidthPct(p.secs, maxSecs) }))
 
 /** The exact duration for a hover: "1d 1h 1m 1s", zero parts left out. */
 export const fmtExact = (secs: number): string => {
@@ -107,7 +127,7 @@ export function totalsWithLive(base: AgentStateTotals, fetchedAtMs: number, open
  *  (`liveState`, read from the node the renderer already holds) is added at the
  *  top and the open span closed, locally: no polling, no refetch; the next open
  *  reads the record. `provider` paints Active in the agent's provider colour. */
-export function AgentStatesView({ slug, nid, provider, liveState }: { slug: string; nid: string; provider?: string; liveState?: AgentStateWord | null }) {
+export function AgentStatesView({ slug, nid, provider, liveState, created }: { slug: string; nid: string; provider?: string; liveState?: AgentStateWord | null; created?: string }) {
   const [first, setFirst] = useState<AgentStatesPage | null>(null)
   const [fetchedAt, setFetchedAt] = useState(0)
   const [older, setOlder] = useState<AgentStateSpan[]>([])
@@ -180,6 +200,8 @@ export function AgentStatesView({ slug, nid, provider, liveState }: { slug: stri
   const secsOf = (s: AgentStateSpan) => s.end ? s.secs
     : Math.max(s.secs, nowSec - Math.floor(Date.parse(s.start) / 1000))
   const spans = [...withLive(first?.states ?? [], live, nowMs), ...older]
+  const maxSecs = scaleMaxSecs(ageSecsOf(created, spans, nowMs))
+  const pips = scalePips(maxSecs)
   const openAtFetch = first?.states[0] && first.states[0].end === null ? first.states[0].state : null
   // the sentinel arms while a page is left and the last attempt did not fail; a new cursor or a longer list re-arms it,
   // so a page that leaves the end in view loads the next at once
@@ -209,8 +231,8 @@ export function AgentStatesView({ slug, nid, provider, liveState }: { slug: stri
           <time className="agent-states-when dim" dateTime={s.start}
             title={`${fmtFull(s.start)} → ${s.end ? fmtFull(s.end) : 'now'}`}>{fmtHm(s.start)}</time>
           <span className="agent-states-bar" title={`${LABEL[s.state]} for ${fmtExact(secs)}`}>
-            <i className={`state-bar ${s.state}`} style={{ width: `${barWidthPct(secs)}%` }} />
-            {scalePips().map(p => <b key={p.secs} className="state-pip" style={{ left: `${p.pct}%` }} title={p.label} />)}
+            <i className={`state-bar ${s.state}`} style={{ width: `${barWidthPct(secs, maxSecs)}%` }} />
+            {pips.map(p => <b key={p.secs} className="state-pip" style={{ left: `${p.pct}%` }} title={p.label} />)}
           </span>
           <span className="agent-states-dur">{fmtSpan(secs)}</span>
         </li>
