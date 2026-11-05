@@ -444,7 +444,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     const resumeFade = (): number => smooth01((animTime - resumeStart) / cfg.power.resumeS)
     const revealNow = (): number => (still ? 1 : smooth01((animTime - revealStart) / cfg.wind.revealS) * settleFade())
     const visibleNow = (): boolean =>
-      !doc.hidden && doc.hasFocus() && !live.current.hidden && host.clientWidth > 0 && host.isConnected
+      !doc.hidden && !live.current.hidden && host.clientWidth > 0 && host.isConnected
     const intervalMs = (): number =>
       busyWhy ? cfg.power.backoffFrameMs
         : touch.rippling(touchNow()) ? cfg.power.rippleFrameMs : cfg.power.frameMs
