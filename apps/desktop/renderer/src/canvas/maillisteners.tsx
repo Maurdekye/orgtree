@@ -68,6 +68,10 @@ export interface Stretch { from: string; to?: string }
 export interface WorkingJob {
   mail: string; gist?: string; copy?: string | null; agent: string; dog?: DogIdentity | null
   attempts?: number; waited_from?: string | null; held_at?: string | null
+  /** a relay project holds it (`agent` is that project; relay spec R10) */
+  relay?: boolean; holder_project?: string
+  /** the project this job was relayed from */
+  relayed_from?: string
 }
 /** A handed job that ended (Recently Finished). */
 export interface FinishedJob {
@@ -349,12 +353,13 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               return (
                 <tr key={j.mail} className="slot-row listener-row held-job">
                   <td className="slot-position"/>
-                  <th scope="row" className="slot-agent">{agentLink(j.agent)}</th>
+                  <th scope="row" className="slot-agent">{j.relay ? <>project {agentLink(j.agent)} (relay)</> : agentLink(j.agent)}</th>
                   <td className="slot-wait">{j.waited_from && j.held_at && <ListenerTime from={j.waited_from} to={j.held_at} />}</td>
                   <td className="slot-held">{j.held_at && <ListenerTime from={j.held_at} />}</td>
                   <td className="slot-ended"/>
                   <td className="listener-mail">{mailLink(j.mail, j.gist,
-                    `${j.agent} holds this job until it acks it; click to read it in the inbox`)}</td>
+                    `${j.agent} holds this job until it acks it; click to read it in the inbox`)}
+                    {j.relayed_from && <div className="listener-via">relayed from {agentLink(j.relayed_from)}</div>}</td>
                   <td className="listener-ack"/>
                   <td className="listener-batch" title="maximum messages per batch and unacked mails in ACK mode">{w ? w.batch ?? 1 : ''}</td>
                   <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{w?.fired ?? ''}</td>
@@ -424,7 +429,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
             {ack ? (history as FinishedJob[]).map((h) => (
               <tr key={h.id} className={'slot-row listener-row finished' + endingClass(h.how)} data-ending={h.how}>
                 <td className="slot-position"/>
-                <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
+                <th scope="row" className="slot-agent">{h.agent.startsWith('relay ') ? <>project {agentLink(h.agent.slice(6))} (relay)</> : agentLink(h.agent)}</th>
                 <td className="slot-wait">{h.waited_from && h.held_at && <ListenerTime from={h.waited_from} to={h.held_at} />}</td>
                 <td className="slot-held">{h.held_at && <ListenerTime from={h.held_at} to={h.ended_at} />}</td>
                 <td className="slot-ended"><Ago at={h.ended_at} what={h.how === 'acked' ? 'acked' : 'ended'} /></td>
