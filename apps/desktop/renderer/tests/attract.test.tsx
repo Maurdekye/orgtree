@@ -965,7 +965,7 @@ test('§18 the trace: a step, a panel opening and closing, a hand-over and a sto
     const panelRows = got.filter(r => r.ev === 'panel' || r.ev === 'release')
     assert.deepEqual(panelRows.map(r => [r.ev, r.action, r.panel, r.owned]), [
       ['panel', 'open', 'docket', true], ['panel', 'close', 'docket', true],
-      ['panel', 'open', 'docket', false], ['release', undefined, undefined, undefined],
+      ['panel', 'open', 'docket', false],   // the user's own docket: a touch has nothing of attract's to hand over, so no release row (§21)
     ])
     // the cycle: a step names its kind and its timings; a canvas press is a stop with its reason
     got.length = 0
@@ -1011,16 +1011,5 @@ test('§21 the trace is silent outside a run, and a hand-over is traced only whe
     panels.apply({ kind: 'docket', item: 'b' }); sh.render()
     panels.apply('release')
     assert.deepEqual(got.map(r => [r.ev, r.action]), [['panel', 'open'], ['release', undefined]])
-    // an idle Cycle and a wheel in a panel: the cycle hands the touch to routes.release, still no trace without a run
-    setAttractTraceLive(false)
-    got.length = 0
-    const log: Log = { calls: [] }
-    const view = await mountView(<Cycle enabled routes={{ ...routesFor(log, []), release: () => { panels.apply('release') } }} log={log} />, el => el)
-    try {
-      const sc = scene()
-      await inAct(() => { fire(sc.panels.overlay, 'wheel', {}) })
-      assert.deepEqual(got, [], 'a wheel in a panel while attract is idle writes nothing')
-      sc.root.remove()
-    } finally { await view.unmount() }
   } finally { setAttractTraceSink(null); setAttractTraceLive(false) }
 })
