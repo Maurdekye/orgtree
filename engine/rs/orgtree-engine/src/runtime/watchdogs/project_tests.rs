@@ -250,15 +250,15 @@ async fn t05_the_setting_off_pauses_the_dog() {
     let _ = row;
 }
 
-/// T6 (D7): every other kind stays on an agent.
+/// T6 (D7): every other kind stays on an agent (a project's `fair_queue` is the relay, tested in domain/orginbox_relay_tests.rs).
 #[tokio::test]
 #[ignore = "requires isolated projdogs_fixture database"]
 #[nolog]
 async fn t06_other_kinds_are_refused() {
     let w = world().await;
-    for kind in ["event", "usage", "activity", "fair_queue", "slot", "project_listener", "listener_watch", "app_listener"] {
+    for kind in ["event", "usage", "activity", "slot", "project_listener", "listener_watch", "app_listener"] {
         let e = err(create(&w.e, w.org.id, w.boss, &json!({"kind":kind,"target":"stream","project":"stream","count":1})).await);
-        assert!(e.contains(&format!("a project watchdog can be file, command, process, stream, websocket or mqtt; {kind} stays on an agent")), "{kind}: {e}");
+        assert!(e.contains(&format!("a project watchdog can be file, command, process, stream, websocket, mqtt or fair_queue (a relay); {kind} stays on an agent")), "{kind}: {e}");
     }
     assert_eq!(w.count("SELECT count(*) FROM ot.watchdogs WHERE owner_kind='project'", &[]).await, 0);
 }
