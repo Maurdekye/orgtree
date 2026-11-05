@@ -147,7 +147,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   const stopping=motion==='stop'
   useLayoutEffect(()=>{frame.current?.toggleAttribute('inert',stopping)},[frame,stopping])
   const latest=useRef(panel);latest.current=panel
-  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size';edge:PanelEdge;pointerId:number;capture:HTMLElement}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
+  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size';edge:PanelEdge;pointerId:number;capture:HTMLElement}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false),[sizing,setSizing]=useState(false)
   // a released drop on screen until its save commits: the revision that commits it, once known (`end`)
   const held=useRef<{rev:number}|null>(null)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
@@ -184,9 +184,9 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   // preview, and the later pointer-up has no gesture left to commit. An already
   // released drop is different: its held preview must survive the browser's
   // ordinary lost-capture notification while its save is in flight.
-  const cancel=()=>{const d=drag.current;if(!d)return;drag.current=null;try{d.capture.releasePointerCapture(d.pointerId)}catch{/* already gone */}setPreview(null);setFree(false)}
+  const cancel=()=>{const d=drag.current;if(!d)return;drag.current=null;try{d.capture.releasePointerCapture(d.pointerId)}catch{/* already gone */}setPreview(null);setFree(false);setSizing(false)}
   useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'&&drag.current){event.preventDefault();event.stopPropagation();cancel()}};const win=owner.defaultView??window;win.addEventListener('keydown',onKey,true);return()=>{win.removeEventListener('keydown',onKey,true)}},[owner])
-  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size',edge:PanelEdge='se')=>{if(surface?.detached||drag.current||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind,edge,pointerId:event.pointerId,capture:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);if(layer)raisePinSurface(layer.key)}
+  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size',edge:PanelEdge='se')=>{if(surface?.detached||drag.current||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind,edge,pointerId:event.pointerId,capture:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);if(kind==='size')setSizing(true);if(layer)raisePinSurface(layer.key)}
   const gesture=(d:NonNullable<typeof drag.current>,event:ReactPointerEvent<HTMLElement>):AppPlacement=>{const dx=event.clientX-d.x,dy=event.clientY-d.y;return d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:resizePlacement(d.placement,d.edge,dx,dy,!layer)}
   const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d||event.pointerId!==d.pointerId)return;event.stopPropagation();setFree(event.shiftKey);setPreview(gesture(d,event))}
   // One commit per gesture, from where the pointer ended; a window pin is
@@ -197,7 +197,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   // release painted the panel at its old placement for as long as the save was
   // in flight. The held geometry ends when this drop's own save has answered and
   // the panel carries that revision; a refused drop goes back where it was.
-  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d||event.pointerId!==d.pointerId)return;drag.current=null;if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3){setPreview(null);return}
+  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d||event.pointerId!==d.pointerId)return;drag.current=null;setSizing(false);if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3){setPreview(null);return}
     const g=gesture(d,event),r=layer?windowRect(g,layer.bounds):null,f=r&&layer?snap(r,d.kind,event.shiftKey)?.rect??r:null
     const placement=f?{...g,x:Math.round(f.x),y:Math.round(f.y),width:Math.round(f.w),height:Math.round(f.h)}:g
     const hold={rev:Infinity};held.current=hold;setPreview(placement)
@@ -205,7 +205,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
     void update({placement}).then(saved=>{hold.rev=saved?.rev??-Infinity;if(latest.current.rev>=hold.rev)done()},done)}
   // the committed revision replaces the held drop before the next paint
   useLayoutEffect(()=>{const hold=held.current;if(hold&&panel.rev>=hold.rev){held.current=null;setPreview(null)}},[panel.rev])
-  return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-motion={motion} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
+  return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-motion={motion} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-sizing={sizing||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>

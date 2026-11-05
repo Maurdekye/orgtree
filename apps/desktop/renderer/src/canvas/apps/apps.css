@@ -50,6 +50,7 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-more>div { position:absolute;right:0;top:27px;z-index:10;display:flex;flex-direction:column;min-width:170px;border:1px solid var(--line);background:var(--panel);padding:4px;border-radius:6px;box-shadow:0 8px 24px #0005 }
 .custom-app-more>div button { width:auto;min-height:27px;height:auto;text-align:left;justify-content:flex-start;padding:5px 8px }
 .custom-app-host { display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;border-radius:0 0 7px 7px }
+.custom-app-window[data-sizing] iframe { pointer-events:none }
 .custom-app-host iframe { border:0;flex:1;min-height:0;width:100%;background:#fff }
 .custom-app-status { min-height:24px;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 8px;font-size:11px;color:var(--dim);border-top:1px solid var(--line);overflow:hidden;white-space:nowrap }
 .custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--dim);padding:16px }
