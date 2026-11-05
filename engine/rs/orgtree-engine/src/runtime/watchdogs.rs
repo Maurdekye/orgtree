@@ -3596,6 +3596,15 @@ pub async fn configure(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id
     if dog.state == "spent" {
         refuse!(Conflict, "a spent watchdog cannot be configured");
     }
+    // R1: a relay stays a queue dog that runs until removed and wakes nobody, as create requires
+    if dog.kind == "fair_queue" && dog.project_owned() {
+        if form.is_some_and(|f| f != "queue") {
+            refuse!(BadRequest, "a relay (a project's queue listener) relays into its own queue: its project_delivery stays queue");
+        }
+        if args["once"].as_bool() == Some(true) || args["notice"].as_bool() == Some(true) {
+            refuse!(BadRequest, "a relay runs until removed and wakes nobody: once and notice are not allowed on it");
+        }
+    }
     // only the user or an agent above the project may make a dog broadcast (F7), checked for the NEW form
     if let (Some(a), Some("broadcast")) = (actor, form) {
         if !above_project(engine, a, dog.owner).await? {
