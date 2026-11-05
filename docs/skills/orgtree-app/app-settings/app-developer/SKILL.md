@@ -29,6 +29,10 @@ window/popout. Muting leaves visuals, heat and event detection running; unmute
 returns to current activity without replaying missed sounds. Disabling the main
 effect stops its audio/visual machinery. See [tray controls](../../app-shell/tray-and-windows/SKILL.md).
 
+## UI freeze records
+
+To help find intermittent freezes, the desktop app records each time a window or the app itself stops responding for about half a second or more (and each time a window or one of its helper processes quits unexpectedly). Records go to `diagnostics/ui-stalls.jsonl` in Orgtree's data folder (`%APPDATA%\Orgtree v2\data`), one line per freeze, kept to about 6 MB across three rotating files. Nothing is written while nothing freezes. A record holds only timings, counts and the kind of control being typed in, never message text, agent or people's names or file contents, and it stays on this computer: nothing is sent anywhere. To turn the recorder off, start Orgtree with the environment variable `ORGTREE_STALLWATCH=0`.
+
 ## See also
 
 - [orgtree-crash-and-restart](../../app-shell/crash-and-restart/SKILL.md).

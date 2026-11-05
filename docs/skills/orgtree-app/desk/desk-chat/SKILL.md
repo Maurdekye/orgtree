@@ -122,6 +122,26 @@ inner edges; plain amounts and bare uppercase identifiers stay literal. Use
 visible as its delimited source. Math commands cannot fetch images or create
 trusted HTML links, and a formula's macro definitions do not affect later math.
 
+## Where formatted text appears
+
+These surfaces render the same formatting as a Chat message: Markdown, math,
+and mentions and `@item:`/`@doc:`/`@mail:` links as clickable chips:
+
+- in Chat: messages, thoughts and compaction summaries (the summary has a
+  Copy control that copies its source text);
+- in the docket: descriptions, progress list entries, blocked and dropped
+  reasons, evidence and review notes, findings, decisions, acceptance text,
+  the post-completion addendum and the attention reason;
+- the project's Summary (click outside a chip or link to edit it);
+- the tray's status summaries and the progress panel;
+- answered questions (the typed answer and note), request reasons and an
+  MCP server's elicitation message;
+- a custom app's description;
+- mail, quick chat, helper responses and presentations.
+
+Slash-command output (`/context` and similar) is shown as Markdown without
+chips: it is the CLI's own output.
+
 ## Finished thinking times
 
 Claude thoughts keep their measured duration when the live block finishes and
@@ -160,12 +180,15 @@ A network mention, @net: or @org:, names a party outside the org, so it sits on 
 ## State changes in the transcript
 
 Each time the agent's state changes, the transcript gains one compact system
-line where it happened — `Idle · was active 12m`, `Frozen · was active 3m`,
-`Active · was frozen 2h`. The first word is the state just entered (Active,
-Idle, Blocked, Halted or Frozen — the same states the desk's badges show, by
-the same precedence: a halt over a freeze over a running turn over a blocked
-report over idle); what follows is the state that ended and how long it
-lasted. Hovering the line names the instant the new state began, in full.
+line where it happened, naming the state that just ended and how long it
+lasted, in the Activity tab's age words — `Active for 32s`, `Idle for 19s`,
+`Frozen for 2h`. The states are Active, Idle, Blocked, Halted and Frozen, the
+same states the desk's badges show, by the same precedence: a halt over a
+freeze over a running turn over a blocked report over idle. A state that
+lasted under a second leaves no line, and the agent's very first state has
+none. Hovering the line names the new state and the instant it began
+("Idle since …"). A `— 28 min later —` divider is left out when the line just
+after it already accounts for that quiet time.
 Blocked is the one state the agent reports itself (`orgtree_status`); the
 others are measured by the engine. A blocked report made during a turn shows
 when that turn ends. Where a state began before recording did, its length is
