@@ -299,30 +299,6 @@ pub struct StatesQuery {
     pub before: Option<String>,
 }
 
-/// One bounded read of an agent's state rows, newest first, from the partial
-/// index `convo_state_rows` (migration 0082): never a scan of the transcript.
-/// `upto` includes the row with that seq.
-async fn state_marks(client: &tokio_postgres::Client, agent_id: i64, upto: Option<i64>, limit: i64)
-    -> anyhow::Result<Vec<(i64, crate::runtime::state_history::Mark)>> {
-    use crate::runtime::state_history::{AgentState, Mark};
-    let rows = client
-        .query(
-            "SELECT seq, body->>'state', coalesce(body->>'ts', to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'))
-               FROM ot.convo WHERE agent_id = $1 AND body->>'kind' = 'state' AND ($2::bigint IS NULL OR seq <= $2)
-              ORDER BY seq DESC LIMIT $3",
-            &[&agent_id, &upto, &limit],
-        )
-        .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|r| {
-            let state = r.get::<_, Option<String>>(1).and_then(|s| AgentState::parse(&s))?;
-            let at = r.get::<_, Option<String>>(2).and_then(|t| crate::util::parse_ts(&t))?;
-            Some((r.get::<_, i64>(0), Mark { state, at }))
-        })
-        .collect())
-}
-
 /// An agent's state history for node settings: spans newest first, in pages
 /// by cursor, and (first page only) the time spent in each state over the
 /// last 24 hours and 7 days. Every row read is one of the agent's own
@@ -330,7 +306,7 @@ async fn state_marks(client: &tokio_postgres::Client, agent_id: i64, upto: Optio
 #[logged]
 pub async fn states(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>, Query(q): Query<StatesQuery>)
     -> ApiResult<Json<Value>> {
-    use crate::runtime::state_history::{self, AgentState};
+    use crate::runtime::state_history;
     let o = org(&e, &slug)?;
     let a = agent(&e, &o, &nid).await?;
     if a.kind == "project" {
@@ -346,42 +322,7 @@ pub async fn states(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
             .ok_or_else(|| ApiError::bad_request("before must be a returned state cursor"))?),
     };
     let client = e.db.get().await?;
-    let now = chrono::Utc::now();
-    // with a cursor the first row is the neighbour the page below ends at
-    let mut rows = state_marks(&client, a.id, before, limit + 1 + before.is_some() as i64).await?;
-    let newest_end = if before.is_some() && !rows.is_empty() { Some(rows.remove(0).1.at) } else { None };
-    let has_more = rows.len() as i64 > limit;
-    rows.truncate(limit as usize);
-    let next_cursor = if has_more { rows.last().map(|(seq, _)| seq.to_string()) } else { None };
-    let marks: Vec<_> = rows.iter().map(|(_, m)| *m).collect();
-    let states: Vec<Value> = state_history::spans(&marks, newest_end, now)
-        .into_iter()
-        .map(|s| json!({ "state": s.state.as_str(), "start": crate::util::iso(s.start),
-                         "end": s.end.map(crate::util::iso), "secs": s.secs }))
-        .collect();
-    let mut out = json!({ "node": a.name, "states": states, "next_cursor": next_cursor });
-    if before.is_none() {
-        // newest rows back to the 7 day cut (plus the one row before it), in bounded pages
-        let cut = now - chrono::Duration::days(7);
-        let (mut all, mut upto) = (Vec::new(), None);
-        'pages: for _ in 0..25 {
-            let page = state_marks(&client, a.id, upto, 200).await?;
-            let Some(last_seq) = page.last().map(|(seq, _)| *seq) else { break };
-            let full = page.len() == 200;
-            for (_, m) in page {
-                all.push(m);
-                if m.at < cut { break 'pages; }
-            }
-            if !full { break; }
-            upto = Some(last_seq - 1);
-        }
-        let word = |t: [i64; 5]| {
-            let mut o = serde_json::Map::new();
-            for (s, secs) in AgentState::ALL.iter().zip(t) { o.insert(s.as_str().into(), json!(secs)); }
-            Value::Object(o)
-        };
-        out["totals"] = json!({ "h24": word(state_history::totals(&all, now, 86_400)),
-                                "d7": word(state_history::totals(&all, now, 7 * 86_400)) });
-    }
+    let page = state_history::history_page(&client, a.id, before, limit, chrono::Utc::now()).await?;
+    let out = page.http_json(&a.name);
     Ok(Json(out))
 }

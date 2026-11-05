@@ -270,6 +270,125 @@ pub fn totals(marks: &[Mark], now: DateTime<Utc>, window_secs: i64) -> [i64; 5] 
     out
 }
 
+/// One bounded read of an agent's state rows, newest first, from the partial
+/// index `convo_state_rows` (migration 0082): never a scan of the transcript.
+/// `upto` includes the row with that seq.
+#[logged]
+pub async fn state_marks(client: &tokio_postgres::Client, agent_id: i64, upto: Option<i64>, limit: i64)
+    -> anyhow::Result<Vec<(i64, Mark)>> {
+    let rows = client
+        .query(
+            "SELECT seq, body->>'state', coalesce(body->>'ts', to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'))
+               FROM ot.convo WHERE agent_id = $1 AND body->>'kind' = 'state' AND ($2::bigint IS NULL OR seq <= $2)
+              ORDER BY seq DESC LIMIT $3",
+            &[&agent_id, &upto, &limit],
+        )
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            let state = r.get::<_, Option<String>>(1).and_then(|s| AgentState::parse(&s))?;
+            let at = r.get::<_, Option<String>>(2).and_then(|t| crate::util::parse_ts(&t))?;
+            Some((r.get::<_, i64>(0), Mark { state, at }))
+        })
+        .collect())
+}
+
+/// The page's spans and cursor from the rows read (`limit + 1`, plus the neighbour row when a cursor was given), newest
+/// first. With a cursor the first row is the neighbour the page below ends at; one row past `limit` means more history.
+#[logged]
+pub fn assemble(mut rows: Vec<(i64, Mark)>, has_cursor: bool, limit: i64, now: DateTime<Utc>) -> (Vec<Span>, Option<String>) {
+    let newest_end = if has_cursor && !rows.is_empty() { Some(rows.remove(0).1.at) } else { None };
+    let has_more = rows.len() as i64 > limit;
+    rows.truncate(limit.max(0) as usize);
+    let next_cursor = if has_more { rows.last().map(|(seq, _)| seq.to_string()) } else { None };
+    let marks: Vec<_> = rows.iter().map(|(_, m)| *m).collect();
+    (spans(&marks, newest_end, now), next_cursor)
+}
+
+/// One page of an agent's state history, newest first: its spans, the cursor
+/// of the page below (None on the last page) and, on the FIRST page only, the
+/// seconds per state over the last 24 hours and 7 days (`[h24, d7]`, indexed
+/// like `AgentState::ALL`). Shared by the node-settings Activity tab's HTTP
+/// read and `orgtree_state_inspect activity=true`, so the two never diverge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryPage {
+    pub spans: Vec<Span>,
+    pub next_cursor: Option<String>,
+    pub totals: Option<[[i64; 5]; 2]>,
+}
+
+/// Read one page: `before` is the previous page's cursor (the seq of the
+/// oldest row it showed), `limit` the page size. Every row read is one of the
+/// agent's own `kind = "state"` rows, so the read never grows with inactive
+/// history; the first page's totals read at most 25 pages of 200 rows back to
+/// the 7 day cut. `now` is the one instant every computation uses.
+#[logged]
+pub async fn history_page(client: &tokio_postgres::Client, agent_id: i64, before: Option<i64>, limit: i64, now: DateTime<Utc>)
+    -> anyhow::Result<HistoryPage> {
+    let rows = state_marks(client, agent_id, before, limit + 1 + before.is_some() as i64).await?;
+    let (spans, next_cursor) = assemble(rows, before.is_some(), limit, now);
+    let totals = if before.is_none() {
+        // newest rows back to the 7 day cut (plus the one row before it), in bounded pages
+        let cut = now - chrono::Duration::days(7);
+        let (mut all, mut upto) = (Vec::new(), None);
+        'pages: for _ in 0..25 {
+            let page = state_marks(client, agent_id, upto, 200).await?;
+            let Some(last_seq) = page.last().map(|(seq, _)| *seq) else { break };
+            let full = page.len() == 200;
+            for (_, m) in page {
+                all.push(m);
+                if m.at < cut { break 'pages; }
+            }
+            if !full { break; }
+            upto = Some(last_seq - 1);
+        }
+        Some([totals(&all, now, 86_400), totals(&all, now, 7 * 86_400)])
+    } else { None };
+    Ok(HistoryPage { spans, next_cursor, totals })
+}
+
+fn totals_map(t: [i64; 5], per: impl Fn(i64) -> Value) -> Value {
+    let mut o = serde_json::Map::new();
+    for (s, secs) in AgentState::ALL.iter().zip(t) { o.insert(s.as_str().into(), per(secs)); }
+    Value::Object(o)
+}
+
+impl HistoryPage {
+    /// The node-settings Activity tab's JSON (`GET .../nodes/{nid}/states`):
+    /// byte-for-byte what that endpoint returned before the shared read.
+    #[logged]
+    pub fn http_json(&self, node: &str) -> Value {
+        let states: Vec<Value> = self.spans.iter()
+            .map(|s| json!({ "state": s.state.as_str(), "start": crate::util::iso(s.start),
+                             "end": s.end.map(crate::util::iso), "secs": s.secs }))
+            .collect();
+        let mut out = json!({ "node": node, "states": states, "next_cursor": self.next_cursor });
+        if let Some([h24, d7]) = self.totals {
+            out["totals"] = json!({ "h24": totals_map(h24, |secs| json!(secs)), "d7": totals_map(d7, |secs| json!(secs)) });
+        }
+        out
+    }
+
+    /// The agent tool's JSON (`orgtree_state_inspect activity=true`): spans
+    /// carry a compact `dur` (the desk's age words) and `"end": "now"` for the
+    /// open span; `totals` appear on the first page only (key absent after).
+    #[logged]
+    pub fn tool_json(&self, as_of: DateTime<Utc>) -> Value {
+        let spans: Vec<Value> = self.spans.iter()
+            .map(|s| json!({ "state": s.state.as_str(), "start": crate::util::iso(s.start),
+                             "end": s.end.map(|e| json!(crate::util::iso(e))).unwrap_or_else(|| json!("now")),
+                             "secs": s.secs, "dur": fmt_duration(s.secs) }))
+            .collect();
+        let mut out = json!({ "as_of": crate::util::iso(as_of), "spans": spans, "next_cursor": self.next_cursor });
+        if let Some([h24, d7]) = self.totals {
+            let per = |secs: i64| json!({ "secs": secs, "dur": fmt_duration(secs) });
+            out["totals"] = json!({ "h24": totals_map(h24, per), "d7": totals_map(d7, per) });
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod activity_tests;
 

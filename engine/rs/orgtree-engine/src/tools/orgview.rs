@@ -324,6 +324,47 @@ fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64
     false
 }
 
+/// `activity=true` on `orgtree_state_inspect`: one agent's state-history page
+/// rides in its row (spec rev 1.0, @item:orgtree/agents-can-read-other-agents-activity-state-hist).
+/// `before` is the previous page's `next_cursor`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ActivityArgs {
+    pub limit: i64,
+    pub before: Option<i64>,
+}
+
+/// The activity parameters, checked before anything is read. `names` is the
+/// requested names after trimming. None = activity not requested.
+#[logged]
+pub fn parse_activity_args(args: &Value, names: &[String]) -> Result<Option<ActivityArgs>> {
+    let on = match args.get("activity") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => crate::refuse!(BadRequest, "activity must be true or false"),
+    };
+    let given = |k: &str| args.get(k).is_some_and(|v| !v.is_null());
+    if !on {
+        if given("activity_limit") || given("activity_cursor") {
+            crate::refuse!(BadRequest, "activity_limit and activity_cursor need activity=true");
+        }
+        return Ok(None);
+    }
+    if names.len() != 1 {
+        crate::refuse!(BadRequest, "activity reads one agent at a time; pass a single node");
+    }
+    let limit = match args.get("activity_limit") {
+        None | Some(Value::Null) => 20,
+        Some(v) => v.as_i64().filter(|n| (1..=100).contains(n))
+            .ok_or_else(|| crate::domain::user_err(crate::domain::UserError::BadRequest, "activity_limit must be an integer from 1 to 100"))?,
+    };
+    let before = match args.get("activity_cursor") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_str().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0)
+            .ok_or_else(|| crate::domain::user_err(crate::domain::UserError::BadRequest, "activity_cursor must be a returned activity cursor"))?),
+    };
+    Ok(Some(ActivityArgs { limit, before }))
+}
+
 #[logged]
 pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let archived = args["include_archived"].as_bool().unwrap_or(false);
@@ -332,6 +373,7 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     if let Some(n) = arg_str(args, "node") { names.push(n.to_string()); }
     for n in &mut names { *n = n.trim().trim_start_matches('@').to_string(); }
     names.retain(|n| !n.is_empty());
+    let activity = parse_activity_args(args, &names)?;
     let mut client = engine.db.get().await?;
     let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await?;
     let settings: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&caller.org_id]).await?.get(0);
@@ -396,12 +438,24 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     // The snapshot is coherent and owned. CPU work and verbose scope logging
     // cannot occupy a Tokio async worker or retain a database-pool client.
     let span = tracing::Span::current();
-    tokio::task::spawn_blocking(move || span.in_scope(|| inspection_projection(caller_id, caller_name, archived, names, scopes, reporting, records, ceiling))).await?
+    let wanted = if activity.is_some() { names.first().cloned() } else { None };
+    let done = tokio::task::spawn_blocking(move || span.in_scope(|| inspection_projection(caller_id, caller_name, archived, names, scopes, reporting, records, ceiling, activity.is_some()))).await??;
+    let (Some(req), Some(name)) = (activity, wanted) else { return Ok(done) };
+    // the history is a second, fresh read after the visibility snapshot (two reads, not one transaction): the row is
+    // already known to be visible, and an agent archived in between still gets its first page
+    let client = engine.db.get().await?;
+    let id: i64 = client.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state<>'deleted'", &[&caller.org_id, &name]).await?.get(0);
+    let now = Utc::now();
+    let page = crate::runtime::state_history::history_page(&client, id, req.before, req.limit, now).await?;
+    let mut out: Value = serde_json::from_str(&done.text)?;
+    out["nodes"][0]["activity"] = page.tool_json(now);
+    Done::json(&out)
 }
 
 #[logged]
 fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, names: Vec<String>,
-    scopes: HashMap<i64, (Option<i64>, Value)>, reporting: HashMap<i64, Option<i64>>, records: Vec<(i64, Value)>, ceiling: Value) -> Result<Done> {
+    scopes: HashMap<i64, (Option<i64>, Value)>, reporting: HashMap<i64, Option<i64>>, records: Vec<(i64, Value)>, ceiling: Value,
+    activity: bool) -> Result<Done> {
     // Rank the complete live sibling set before visibility/name filtering.
     // Archived rows have no live index and do not consume an insertion slot.
     let mut siblings: HashMap<Option<i64>, Vec<(i64, f64)>> = HashMap::new();
@@ -443,6 +497,9 @@ fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, na
             crate::refuse!(Forbidden, "state inspection is outside your visible scope: {name}");
         }
     }
+    if activity && out.first().is_some_and(|r| r["kind"] == "project") {
+        crate::refuse!(BadRequest, "activity history lists an agent's states; a project has none");
+    }
     tracing::info!(snapshot_agents=scopes.len(), evaluated_scopes=cache.len(), returned_agents=out.len(),
         "state inspection scope projection complete");
     Done::json(&json!({"actor":caller_name,"visibility":visibility,"nodes":out}))
@@ -458,7 +515,7 @@ mod fast_tools_tests {
             (2,(Some(1),json!({}))), (3,(Some(1),json!({"fast_mode":true})))]);
         let records=(1..=3).map(|id|(id,json!({"name":format!("n{id}"),"state":"live","tier":"sol"}))).collect();
         let reporting=scopes.iter().map(|(id,(parent,_))|(*id,*parent)).collect();
-        let d=inspection_projection(1,"n1".into(),false,vec![],scopes,reporting,records,ceiling).unwrap();
+        let d=inspection_projection(1,"n1".into(),false,vec![],scopes,reporting,records,ceiling,false).unwrap();
         let out:Value=serde_json::from_str(&d.text).unwrap();
         assert_eq!(out["nodes"][0]["scope"]["fast_mode"],true);
         assert_eq!(out["nodes"][1]["scope"]["fast_mode"],false);
