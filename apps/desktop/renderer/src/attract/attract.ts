@@ -31,7 +31,7 @@
    idle tracker and the cycle hook; the canvas supplies the data and routes. */
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_ATTRACT_IDLE_SECONDS, useAttractIdleSeconds } from './pref'
-import { attractTrace } from './trace'
+import { attractTrace, setAttractTraceLive } from './trace'
 
 /** "activates if no input for >5 minutes": the default; the user's setting
  *  (App settings > Display, pref.ts) replaces it and may be 0 */
@@ -309,6 +309,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
   useEffect(() => {
     if (!running || !enabled) return
     let alive = true
+    setAttractTraceLive(true)   // the trace exists only while a run is going
     let timer: ReturnType<typeof setTimeout> | undefined
     const since = lastInputAt()
     const shown = new Set<string>()
@@ -376,6 +377,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       routesRef.current.stop?.()
       attractTrace({ ev: 'stop', why: stopWhy.current })
       stopWhy.current = 'other'
+      setAttractTraceLive(false)
     }
   }, [running, enabled])
 

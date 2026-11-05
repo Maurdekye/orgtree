@@ -13,6 +13,9 @@ import type { StallSrc } from '../../../packages/contracts/stall'
 
 export const STALL_LOG = path.join('diagnostics', 'ui-stalls.jsonl')
 export const STALL_MAX_BYTES = 2 * 1024 * 1024
+/** the attract trace has its OWN file, rate bucket and rotation, so it can never displace freeze evidence (coordinator ruling 2026-11-05) */
+export const ATTRACT_LOG = path.join('diagnostics', 'ui-attract.jsonl')
+export const ATTRACT_MAX_BYTES = 1024 * 1024
 export const STALL_LINE_MAX = 16 * 1024
 const STACK_FRAMES = 40, FRAME_CHARS = 200
 
@@ -183,11 +186,13 @@ export interface StallLogOptions {
   /** version and short commit, for every line */
   app?: () => string
   maxBytes?: number
+  attractMaxBytes?: number
   lineMax?: number
 }
 
 export class StallLog {
   private readonly cap = new RateCap()
+  private readonly attractCap = new RateCap()
   constructor(private readonly o: StallLogOptions) {}
 
   /** `window`: the window-events id of the window the stall belongs to (null for main-only stalls) */
@@ -198,7 +203,9 @@ export class StallLog {
       if (!file) return
       const clock = this.o.clock ?? (() => new Date())
       const r = rec(record)
-      const gate = this.cap.take(clock().getTime())
+      const attract = src === 'attract'
+      const target = attract ? path.join(path.dirname(file), 'ui-attract.jsonl') : file
+      const gate = (attract ? this.attractCap : this.cap).take(clock().getTime())
       if (!gate.ok) return
       const atMs = typeof r.at_ms === 'number' && Number.isFinite(r.at_ms) ? r.at_ms : undefined   // epoch ms: beyond num()'s cap
       const line = shrink({
@@ -209,15 +216,16 @@ export class StallLog {
         dropped: (int(r.dropped) ?? 0) + gate.dropped, truncated: false,
         ...body(src, r),
       }, this.o.lineMax ?? STALL_LINE_MAX)
-      fs.mkdirSync(path.dirname(file), { recursive: true })
+      fs.mkdirSync(path.dirname(target), { recursive: true })
       let size = 0
-      try { size = fs.statSync(file).size } catch { /* not there yet */ }
-      if (size > (this.o.maxBytes ?? STALL_MAX_BYTES)) {
-        try { fs.rmSync(file + '.2', { force: true }) } catch { /* best effort */ }
-        try { fs.renameSync(file + '.1', file + '.2') } catch { /* no .1 yet */ }
-        fs.renameSync(file, file + '.1')
+      try { size = fs.statSync(target).size } catch { /* not there yet */ }
+      if (size > (attract ? this.o.attractMaxBytes ?? ATTRACT_MAX_BYTES : this.o.maxBytes ?? STALL_MAX_BYTES)) {
+        try { fs.rmSync(target + '.2', { force: true }) } catch { /* best effort */ }
+        try { fs.renameSync(target + '.1', target + '.2') } catch { /* no .1 yet */ }
+        fs.renameSync(target, target + '.1')
       }
-      fs.appendFileSync(file, JSON.stringify(line) + '\n')
+      fs.appendFileSync(target, JSON.stringify(line) + '
+')
     } catch { /* diagnostics never break the app they describe */ }
   }
 }

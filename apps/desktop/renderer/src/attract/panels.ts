@@ -30,7 +30,7 @@ export function createAttractPanels(host: PanelHost): { apply: (panel: AttractPa
   const justClosed = new Set<PanelKind>()
   return {
     apply(panel) {
-      if (panel === 'release') { mine.clear(); attractTrace({ ev: 'release' }); return }
+      if (panel === 'release') { if (mine.size) attractTrace({ ev: 'release' }); mine.clear(); return }
       if (!panel) {
         for (const kind of mine) { host.close(kind); justClosed.add(kind); attractTrace({ ev: 'panel', action: 'close', panel: kind, owned: true }) }
         mine.clear()

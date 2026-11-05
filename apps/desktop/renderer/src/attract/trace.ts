@@ -32,10 +32,14 @@ const bridgeSink: Sink = (record) => {
   } catch { /* diagnostics only */ }
 }
 let sink: Sink = bridgeSink
+/** true only while a run is going (the cycle sets it): outside a run nothing is traced (coordinator ruling 2026-11-05) */
+let live = false
+export function setAttractTraceLive(on: boolean): void { live = on }
 
 /** tests capture the records; null restores the bridge */
 export function setAttractTraceSink(next: Sink | null): void { sink = next ?? bridgeSink }
 
 export function attractTrace(record: AttractTraceRecord): void {
+  if (!live) return
   try { sink({ ...record }) } catch { /* diagnostics only */ }
 }

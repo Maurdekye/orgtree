@@ -21,6 +21,8 @@ Common fields: `at` (ISO UTC of the stall start), `src`, `ms`, `window` (the win
 
 `gpu` (recorder v2, on `renderer-loaf`, `renderer-ping`, `renderer-unresponsive` and `main-lag`): main reads the GPU process's cumulative CPU with `app.getAppMetrics()` every 5 s (`GpuSampler`, main/stall-probe.ts, a ring of 13); a record gets `cpu_pct` (percent of one core) over `window_ms`, from the last sample at or before the stall start to when the record reached main, `restarted` (the GPU pid changed: no CPU compared) and `ws_mb` (working set). Numbers only; nulls when there is no GPU process.
 
+**The attract trace is NOT in this file.** `src:'attract'` records (attract mode's own steps, kinds and timings only) go to `diagnostics/ui-attract.jsonl` with their own rate bucket (30/min) and rotation (1 MB x 2): attract lines can never use the freeze budget or rotate freeze evidence out.
+
 ## How to read a stall
 
 **Waiting vs working (v2).** `loaf.blocking` 0 means no task, rendering included, reached 50 ms: the renderer's main thread was free. If `scripts_ms` is also small next to `ms`, the frame waited on frame delivery (GPU process, compositor, OS), which no renderer entry sees; then read `gpu.cpu_pct` and look for a `process-gone` line. `render_at` near `ms` with a small `ms - render_at` puts the time before rendering; script `at` offsets show whether the scripts were spread out or bunched (alpha.5 10:22Z: 613 ms, blocking 0, 80 ms of scripts, v1 could not say more).
