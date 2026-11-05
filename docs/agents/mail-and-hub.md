@@ -832,3 +832,12 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
 - Job route (G1-G3, 2026-11-04): `mail::send` asks `orginbox_jobs::job_route` only after `authorize` (or the user-mail check) refuses. It allows the holder of ANY project job (copy `via_project.mail`/`job`) to reply to the job's exact sender (user included) while the job row is held, un-ACKed in ACK mode, not `revoked` and in a live project the holder belongs to; the reply is stamped `extra.job_reply`, which lets the sender reply back (G2). The route is rechecked in the send's transaction (`job_open` reads `FOR SHARE`); a retired sender is refused as unknown; nothing is granted. `follow_up_plain` (G3, under the project row lock) bundles a sender's follow-up with the pending job or copies it to the un-ACKed holder; hand-out copies bundled follow-ups for any job. Test hook: `mail::ROUTE_GATE` pauses a send between the early check and its transaction.
 
 - `@org:` messages carry one id on both rows (`net_id`, hub NULL); a reply's quote is re-pointed at the receiver's own row so the same threading applies.
+
+## A Hubchat reply's quote line (2026-11-05)
+
+- Hubchat starts every reply with one `> ` line, the answered message's first line cut to 120 characters
+  (Hubchat `questions::outgoing`, docs/question-cards.md), for clients that don't read `reply_to`.
+  `orginbox::deliver_inbound_replies` drops it (`without_reply_quote`) when the reply names exactly one message the
+  org holds and the line is exactly that quote, so the reply block shows the context once (user 2026-11-05
+  mb1883a706391). A deliberate or inexact quote, a multi-reply's lines (with `Answer:`/`Skipped`) and a body that
+  would be left empty stay; a stale-arrival note stays first. Tests `reply_quote_tests`, queue `rq1`.
