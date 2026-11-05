@@ -5,20 +5,15 @@ counts, a physical heat field, deterministic tool-name signatures, and a
 working-factory direction: machinery, moving parts and material impacts.
 
 `activity.ts` reads the existing live tree's `busy`, `activity.phase`,
-`mcp_readiness_waiting`, and `phase`. Thinking, response writing, tool argument
-writing, tool execution, waiting, and compaction each have a distinct shared
-machinery layer: geared whirring, conveyor chatter, ratchets, piston strokes,
-idling flywheels and grinding. Filtered friction noise and amplitude-modulated
-carriers provide mechanical texture. Project nodes,
+`mcp_readiness_waiting`, and `phase` for the heat field only. Project nodes,
 idle status reports, archived, frozen and halted agents contribute none.
-The six layer gains rise fourfold from one to fifteen agents, then cap.
-Oscillators are shared rather than allocated per agent. Transitions and final
-context shutdown use 300 ms gain ramps. The layers enter the existing dry
-bus, limiter and master volume, below discrete event sounds. No new audio
-provider read, engine field, frame loop or asset is needed for sound.
 
-User feedback at 13:24Z on 2026-10-18 removes the baseline agent drone entirely.
-An unclassified mid-turn phase contributes heat but starts no audio layer.
+User 2026-11-05 15:33Z ("remove the constant droning sounds while agents are
+active in epic mode") removes the continuous activity layers entirely
+(`ambience.ts` and `EpicSynth.activity` are gone). No oscillator or noise loop
+runs while agents work; only discrete event cues and tool impacts sound. This
+replaces the 4.4.0 six-layer machinery ambience (and the 2026-10-18 13:24Z
+baseline-drone removal).
 
 ## Tray mute
 

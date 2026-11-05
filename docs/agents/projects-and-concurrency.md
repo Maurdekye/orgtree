@@ -1826,15 +1826,15 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1732–1745.
 
 <a id="e-6617f189114f0831"></a>
 
-## EPIC 4.4.0 activity audio uses the existing busy/activity tree state: six
+## EPIC 4.4.0 activity audio used the existing busy/activity tree state (six
 
 Original section: AGENTS.md — working on Orgtree. Source lines 1755–1769.
 
 <!-- preserved:e-6617f189114f0831 -->
-- EPIC 4.4.0 activity audio uses the existing busy/activity tree state: six
-  capped, count-scaled layers on the existing bus. User feedback at 13:24Z on
-  2026-10-18 removes the baseline agent drone; unclassified mid-turn work
-  retains its heat source without an audio layer.
+- EPIC 4.4.0 activity audio drove six capped, count-scaled machinery layers from
+  the busy/activity tree state. USER 2026-11-05 15:33Z removes that continuous
+  ambience entirely (no drone while agents work; `ambience.ts` deleted); event
+  cues and tool impacts remain, and the tree state still feeds heat only.
   The App lends its latest tree reference (no copy/listener/audio off) so
   enabling mid-turn starts immediately. Sounds feed a world-space Jacobi heat
   equation beneath the cards; reduced motion shows a static baseline. Tool
@@ -1845,7 +1845,7 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1755–1769.
   Reduced motion disables pulses. Working cards stay still: user feedback
   at 19:33Z removes the piston bump, replacing the coordinator's 09:42Z approval. Contract and tests:
   [EPIC activity sound](../../docs/rust-engine/epic-activity-sound.md).
-  [decided: user 2026-10-17 09:18–09:41Z, 19:33Z, 21:25Z; 2026-10-18 13:24Z; verified: `epic/{activity,ambience,audio,heatfield,heatmap,toolvoice}.ts`]
+  [decided: user 2026-10-17 09:18–09:41Z, 19:33Z, 21:25Z; 2026-10-18 13:24Z; verified: `epic/{activity,audio,heatfield,heatmap,toolvoice}.ts`]
 <!-- /preserved:e-6617f189114f0831 -->
 
 <a id="e-3ce227b9a30eba55"></a>

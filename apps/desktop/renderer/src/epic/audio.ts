@@ -16,8 +16,6 @@
    ticks) are dropped first and only the loud events still get through, so a
    flood of events cannot pile thousands of live nodes onto the audio thread. */
 
-import { ActivityAudio } from './ambience'
-import type { ActivityCounts } from './activity'
 import { toolVoice } from './toolvoice'
 
 export type SoundName =
@@ -324,7 +322,6 @@ export class EpicSynth {
   private voices = 0
   private timers = new Set<ReturnType<typeof setTimeout>>()
   private closed = false
-  private ambience: ActivityAudio
   private master: GainNode
   private muted: boolean
 
@@ -352,13 +349,12 @@ export class EpicSynth {
     this.wet.connect(verb)
     verb.connect(limiter)
     this.noise = whiteNoise(ctx, 2)
-    this.ambience = new ActivityAudio(ctx, this.bus, this.noise)
   }
 
   get active(): number { return this.voices }
 
-  /** One final gain after both dry and reverb paths, including ambience.
-   * Keep scheduling voices while muted: activity and heat are unchanged. */
+  /** One final gain after both dry and reverb paths.
+   * Keep scheduling voices while muted: heat is unchanged. */
   setMuted(muted: boolean): void {
     if (this.closed || muted === this.muted) return
     this.muted = muted
@@ -367,8 +363,6 @@ export class EpicSynth {
     else { p.cancelScheduledValues(at); p.setValueAtTime(p.value, at) }
     p.linearRampToValueAtTime(muted ? 0 : 0.85, at + 0.3)
   }
-
-  activity(counts: ActivityCounts): void { if (!this.closed) this.ambience.update(counts) }
 
   /** Play one sound now. Returns false when the budget dropped it. */
   play(name: SoundName, opts: PlayOptions = {}): boolean {
@@ -412,9 +406,6 @@ export class EpicSynth {
     for (const timer of this.timers) clearTimeout(timer)
     this.timers.clear()
     this.voices = 0
-    const close = () => { try { void this.ctx.close().catch(() => {}) } catch { /* already closed */ } }
-    const fade = this.ambience.stop()
-    if (fade) setTimeout(close, fade)
-    else close()
+    try { void this.ctx.close().catch(() => {}) } catch { /* already closed */ }
   }
 }

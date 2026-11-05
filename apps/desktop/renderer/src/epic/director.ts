@@ -48,7 +48,7 @@
 import { EpicSynth, type AudioContextCtor, type PlayOptions, type SoundName } from './audio'
 import { Stage, type Rect } from './stage'
 import { epicTreeNow, setEpicTaps } from './tap'
-import { activitySources, countActivity, emptyActivity } from './activity'
+import { activitySources } from './activity'
 import { SoundHeatmap } from './heatmap'
 import * as progress from './progress'
 import {
@@ -261,7 +261,7 @@ class Show implements EpicShow {
       tree: (org, tree) => this.onTree(org, tree),
       action: (org, kind, node) => this.onAction(org, kind, node),
       refused: (_path, status) => this.onRefused(status),
-      clear: () => { this.synth?.activity(emptyActivity()); this.heat.clear() },
+      clear: () => { this.heat.clear() },
     })
     this.cleanups.push(() => setEpicTaps(null))
     // the app feed: usage readings crossing 90% and 100%, and resetting; and
@@ -283,7 +283,6 @@ class Show implements EpicShow {
 
   private activity(tree: Parameters<typeof activitySources>[0]): void {
     const sources = this.synth ? activitySources(tree) : []
-    this.synth?.activity(countActivity(sources))
     this.heat.update(sources)
   }
 
