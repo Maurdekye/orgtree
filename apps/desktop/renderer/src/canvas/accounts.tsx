@@ -3,6 +3,7 @@ import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { CanvasBackgroundSetting } from './canvasbgsetting'
 import { HireAutoFocusSetting, NewHirePositionSetting } from './hirepositionsetting'
+import { EventHeadlineSetting } from './eventheadlinesetting'
 import { ChangelogAfterUpdateSetting } from '../changelog'
 import { setProjectBunchesOn, useProjectBunches, setProjectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
@@ -1058,7 +1059,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           disabled={!runtime || busy} onChange={v => changeRuntime(setWrapObjectMentions, v)}
           hint="Let long ticket, presentation, app and panel links continue onto the next line within a sentence. Off by default." />
       </SetGroup>
-      <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><EventHeadlineSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>

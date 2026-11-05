@@ -19,6 +19,7 @@ import { md } from '../canvas/shared'
 import { WatchdogLink } from '../canvas/watchdoglink'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 import { StructuredJson } from '../canvas/structuredjson'
+import { useEventHeadline } from './cardheadline'
 import { EXTERNAL_NOTE, EXTERNAL_TAG, appEventParts, fireActionParts, fireLineParts } from './firelines'
 import type { FirePart } from './firelines'
 import { IdleDocketCards } from './idledocket'
@@ -66,13 +67,14 @@ function Fields({ fields, ...props }: ValueProps & { fields: EventField[] }) {
   </div>)}</>
 }
 function FireParts({ parts, ...props }: ContentProps & { parts: FirePart[] }) {
-  return <>{parts.map((p, i) => p.kind === 'headline'
+  const headlines = useEventHeadline()
+  return <>{parts.map((p, i) => p.kind === 'headline' && headlines
     ? <div key={i} className="event-headline" data-event-field="headline">
         {(p.name || p.event) && <div className="event-headline-who dim">{[p.name, p.event].filter(Boolean).join(' · ')}</div>}
         <Text text={p.text} {...props} />
         <details className="event-context"><summary>Details</summary><StructuredJson value={p.value} raw={p.raw} /></details>
       </div>
-    : p.kind === 'json'
+    : p.kind === 'json' || p.kind === 'headline'
     ? <StructuredJson key={i} value={p.value} raw={p.raw} />
     : p.kind === 'literal' ? <div key={i} className="event-prose" style={{whiteSpace:'pre-wrap'}}>{p.text}</div>
     : <Text key={i} text={p.text} {...props} />)}</>

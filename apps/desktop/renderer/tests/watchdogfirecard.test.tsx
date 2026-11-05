@@ -123,13 +123,28 @@ test('a fire with no JSON draws exactly as text', async t => {
   assert.match(v.el.textContent ?? '', /done in \{x\} s/)
 })
 
-test('a websocket chat event leads with its words, sender and kind; the gate and flags fold under Details', async t => {
+const CHAT_KEY = 'orgtree-event-card-headline'
+function chatFire() {
   const chat = JSON.stringify({ kind: 'chat.message', text: 'hello from chat, can you hear me?', viewer: { name: 'viewer_one', id: 'v1' },
     flags: [], gate: { interruptions_per_min_5: 0.4, interruptions_15: 2, min_interval_s: 60, min_donation: 0 } }, null, 2)
   const line = '2026-11-05T14:30:00.000Z  517 bytes\n' + chat.split(String.fromCharCode(10)).map(l => '    │ ' + l).join('\n')
-  const lines = [line, WS_JSON]
-  const v = await mountView(<EventCard org="org" profile="operator" row={{ ev: fire('stream-chat', 'WEBSOCKET —', lines, { source: 'websocket' }), body: 'mail text' }} />, h => h)
-  t.after(() => v.unmount())
+  return fire('stream-chat', 'WEBSOCKET —', [line, WS_JSON], { source: 'websocket' })
+}
+
+test('with the Display toggle OFF (the default) a chat event keeps the plain JSON view: no headline, same viewer, tag kept', async t => {
+  localStorage.clear()
+  const v = await mountView(<EventCard org="org" profile="operator" row={{ ev: chatFire(), body: 'mail text' }} />, h => h)
+  t.after(async () => { await v.unmount(); localStorage.clear() })
+  assert.ok(!v.el.querySelector('.event-headline'), 'no headline while the toggle is off')
+  assert.equal(v.el.querySelectorAll('.sj').length, 2, 'both messages draw as the JSON viewer, as before')
+  assert.match(v.el.textContent ?? '', /hello from chat, can you hear me\?/, 'the words are still in the viewer')
+  tagged(v.el, v.el.textContent ?? '')
+})
+
+test('a websocket chat event leads with its words, sender and kind (toggle ON); the gate and flags fold under Details', async t => {
+  localStorage.clear(); localStorage.setItem(CHAT_KEY, '1')
+  const v = await mountView(<EventCard org="org" profile="operator" row={{ ev: chatFire(), body: 'mail text' }} />, h => h)
+  t.after(async () => { await v.unmount(); localStorage.clear() })
   const head = v.el.querySelector('.event-headline')
   assert.ok(head, 'the words lead as a headline')
   assert.match(head!.textContent ?? '', /hello from chat, can you hear me\?/)

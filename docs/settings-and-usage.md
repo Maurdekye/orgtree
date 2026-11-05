@@ -50,6 +50,7 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
   the same. Projects, the compact hire sheet and immediate Staff already have
   no automatic desk jump. This saves immediately for the app profile and is
   shared across its organizations and windows; explicit navigation still works.
+- **Show event message text as the card headline:** Off by default. On makes a WebSocket or MQTT monitor event card in a desk lead with the JSON message's text (then message, then body), with the sender and event kind above it and the rest folded under Details. Open cards change at once.
 - Row or circular chart layout, desk text size (75–250%), crowded-team stacks and hiding retired agents.
 - Bunching consecutive projects, and a separate opt-in to rearrange projects inside a bunch. Bunching alone changes drawing; rearranging changes tree order.
 - Card shortcut buttons, folding long jump-card rows, pin snapping, overlap fading and keeping corner controls inside the area left by pins.
