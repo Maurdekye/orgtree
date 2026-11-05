@@ -129,6 +129,9 @@ struct Srv {
     turn: Mutex<Option<String>>,
     model: Mutex<String>,
     steers: Mutex<VecDeque<String>>,
+    /// the session's approval mode (session/start, setApprovalMode): under `denyUnmatched` an MCP call
+    /// is denied with no approval asked (measured 2026-11-05 on a real seat with shell/edit off)
+    approval_mode: Mutex<String>,
     /// the session's MCP servers as session/start or resume named them
     servers: Mutex<Value>,
     /// the session's workspace roots (sticky, as MSP keeps them)
@@ -385,6 +388,7 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             *srv.session.lock().unwrap() = Some(sid.clone());
             *srv.model.lock().unwrap() = p["modelId"].as_str().unwrap_or("muse-wonder-1.0").to_string();
             *srv.servers.lock().unwrap() = p.pointer("/config/mcpServers").cloned().unwrap_or(Value::Null);
+            *srv.approval_mode.lock().unwrap() = p["approvalMode"].as_str().unwrap_or("").to_string();
             remember_session(srv, &sid);
             let roots = strings(&p["workspaceRoots"]).unwrap_or_else(|| vec![root.to_string()]);
             store_roots(srv, &sid, &roots);
@@ -416,6 +420,9 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             srv.respond(id, json!({ "status": "accepted" }));
         }
         "session/setApprovalMode" | "session/setPermissionProfile" => {
+            if method == "session/setApprovalMode" {
+                *srv.approval_mode.lock().unwrap() = p["mode"].as_str().unwrap_or("").to_string();
+            }
             srv.log("posture", json!({ "set": method, "value": p.get("mode").or(p.get("profileId")) }));
             srv.respond(id, json!({ "status": "accepted" }));
         }
@@ -705,6 +712,12 @@ fn tool(srv: &Arc<Srv>, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         }
         item(srv, turn, true, done);
     };
+    if orgtree && srv.approval_mode.lock().unwrap().as_str() == "denyUnmatched" {
+        let reason = "deny_unmatched: no policy rule allows this action";
+        finish("rejected", "", Some(reason));
+        srv.log("tool_result", json!({ "tool": name, "declined": true, "reason": reason }));
+        return;
+    }
     // Muse's own root rules: a write inside a workspace root runs unasked;
     // without the sandbox one outside does too (measured on Muse 1.4.6)
     let native = step["native_write"].as_bool() == Some(true);
@@ -1278,6 +1291,7 @@ pub fn run(raw: &[String]) -> i32 {
         turn: Mutex::new(None),
         model: Mutex::new(String::new()),
         steers: Mutex::new(VecDeque::new()),
+        approval_mode: Mutex::new(String::new()),
         servers: Mutex::new(Value::Null),
         roots: Mutex::new(Vec::new()),
         cancelled: Mutex::new(Vec::new()),

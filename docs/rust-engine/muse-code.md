@@ -105,7 +105,7 @@ further roots; read-only grants are never roots (Muse gives every root the
 same write access), reads there are approved on request. Posture: write seats
 run `:ask-me` with approval `onRequest` (the engine answers each request from
 the scope, once, never for the session), read-only seats `:read-only` with
-`denyUnmatched`, bypass seats `:unrestricted` / `allowAll`. A refusal is
+`onRequest` too (the engine's scope answers: its orgtree tools pass, shell and writes are refused; `denyUnmatched` denied every MCP call, "deny_unmatched: no policy rule allows this action", measured 2026-11-05 on a seat with shell/edit off), bypass seats `:unrestricted` / `allowAll`. A refusal is
 MSP's `denied` choice when a host offers one, else `abort`: real Muse 1.4.6
 offers only `allow_once`, the persistent `allow_local_prefix` (never taken)
 and `abort` ("Reject", once), and an `abort` rejects that one call ("approval

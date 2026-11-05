@@ -76,6 +76,7 @@ export default async function (rig) {
       rita: { turns: [{ name: 'readonly', match: 'PROOF-RO', once: true, steps: [
         { tool: 'write_file', args: { path: 'C:\\outside\\x.txt', content: 'x' }, approval: true,
           subject: { kind: 'fileAccess', access: 'write', path: 'C:\\outside\\x.txt' }, result: 'written' },
+        { tool: 'orgtree_status', args: { status: 'working', summary: 'read-only seat reports' } },
         { text: 'I could not write there.' }] }] },
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
@@ -218,9 +219,12 @@ export default async function (rig) {
   const [rt] = await rig.waitTurns('rita', 1, { timeout: 30000 })
   const rstart = log('rita', 'start')[0]
   const rsess = log('rita', 'session').find(l => l.action === 'start')
-  p.check('rita: shell and writes closed at the host, the read-only profile, denyUnmatched',
-    rstart?.args?.includes('--disable-shell') && rstart.args.includes('--disable-write') && rsess?.profile === ':read-only' && rsess.approval === 'denyUnmatched',
+  p.check('rita: shell and writes closed at the host, the read-only profile',
+    rstart?.args?.includes('--disable-shell') && rstart.args.includes('--disable-write') && rsess?.profile === ':read-only' && rsess.approval === 'onRequest',
     { args: rstart?.args, sess: rsess })
+  // a seat with shell/edit off still reaches its Orgtree tools (denyUnmatched denied every call, 2026-11-05)
+  p.check('rita: the read-only seat posture asks (onRequest), so orgtree_status is not denied', rsess?.approval === 'onRequest'
+    && !log('rita', 'tool_result').some(l => String(l.reason ?? '').includes('deny_unmatched')), { sess: rsess })
   const rap = log('rita', 'approval')[0]
   p.check('rita: a write outside her folders is denied once and booked as a denial', rap?.choice === 'abort'
     && rig.one(`SELECT denials FROM ot.turns WHERE id = ${rt.id}`)?.denials === 1, rap)

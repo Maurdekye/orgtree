@@ -69,8 +69,9 @@ pub const OBSERVERS: &[&str] = &["memory", "skill-reminder", "todo-reminder", "g
 pub const PROMPT_ARG_BUDGET: usize = 26_000;
 
 /// The permission profile a seat's session runs with (Muse's own catalog):
-/// read-only seats read only; write seats edit their roots and ask (this
-/// driver answers) for anything else; bypass seats run unrestricted.
+/// read-only seats read only and ask (this driver answers, so the seat's
+/// granted Orgtree tools still pass while shell and writes are refused);
+/// write seats edit their roots and ask for anything else; bypass seats run unrestricted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Seat {
     pub profile: &'static str,
@@ -101,7 +102,7 @@ pub fn os_sandbox(session0: bool, may_write: bool, permission_mode: &str) -> boo
 #[logged]
 pub fn seat(may_write: bool, permission_mode: &str) -> Seat {
     if !may_write {
-        Seat { profile: ":read-only", approval: "denyUnmatched" }
+        Seat { profile: ":read-only", approval: "onRequest" }
     } else if permission_mode == "bypassPermissions" {
         Seat { profile: ":unrestricted", approval: "allowAll" }
     } else {
@@ -1371,9 +1372,27 @@ mod tests {
 
     #[test]
     fn seats_never_ask_the_judge() {
-        assert_eq!(seat(false, "bypassPermissions"), Seat { profile: ":read-only", approval: "denyUnmatched" });
+        // `denyUnmatched` denies every MCP call silently ("deny_unmatched: no policy rule allows this action",
+        // measured 2026-11-05 on a seat with shell/edit off), so a read-only seat asks like the others and
+        // `allowed` answers: its orgtree tools pass, shell and writes are refused.
+        assert_eq!(seat(false, "bypassPermissions"), Seat { profile: ":read-only", approval: "onRequest" });
         assert_eq!(seat(true, "bypassPermissions"), Seat { profile: ":unrestricted", approval: "allowAll" });
         assert_eq!(seat(true, "acceptEdits").profile, ":ask-me");
+    }
+
+    /// A seat with shell/edit off (read-only) must still reach its Orgtree tools: the seat asks, and the
+    /// scope's answer lets `orgtree` through while shell, writes and foreign servers stay refused.
+    #[test]
+    fn a_read_only_seat_asks_and_keeps_its_orgtree_tools() {
+        let s = seat(false, "acceptEdits");
+        assert_eq!(s.approval, "onRequest", "denyUnmatched would deny every orgtree call");
+        let policy = Policy { may_write: false, may_shell: false, write: vec![], read: vec!["c:/agent".into()], servers: vec!["orgtree".into()] };
+        assert!(allowed(&policy, &json!({ "kind": "tool", "toolName": "mcp__orgtree__orgtree_status" }), "").is_ok());
+        assert!(allowed(&policy, &json!({ "kind": "tool", "toolName": "mcp__orgtree__orgtree_message" }), "").is_ok());
+        assert!(allowed(&policy, &json!({ "kind": "tool", "toolName": "mcp__other__x" }), "").is_err());
+        assert!(allowed(&policy, &json!({ "kind": "shell", "command": "dir" }), "powershell").is_err());
+        assert!(allowed(&policy, &json!({ "kind": "fileAccess", "access": "write", "path": "C:/agent/x" }), "write_file").is_err());
+        assert!(allowed(&policy, &json!({ "kind": "fileAccess", "access": "read", "path": "C:/agent/x" }), "read_file").is_ok());
     }
 
     #[test]
