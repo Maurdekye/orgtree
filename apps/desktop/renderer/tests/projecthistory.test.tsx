@@ -315,6 +315,14 @@ test('§2 take back asks first, then runs the engine op; the holder is told and 
 
 /* ─── §3 round-robin ───────────────────────────────────────────────────── */
 
+test('§3 relay (R10): a relay hand-out is listed in Recently Delivered as "project … (relay)"', async (t) => {
+  const job = { id: 5, copy: 'c5', agent: 'sync', mail: 'm5', gist: 'mail 5', relay: true, holder_project: 'sync', dog: fq('sync', 'relay'),
+    held_at: '2026-10-19T08:00:00.000Z', waited_from: '2026-10-19T07:58:00.000Z' } as DeliveredJob
+  const { view } = await mailFolder(t, { project: 'sync', ack: false, history: [job], history_next: null }, false)
+  const row = view.el.querySelector<HTMLTableRowElement>(`${T} .mail-history tr.listener-row`)!
+  assert.match(row.querySelector('.slot-agent')!.textContent!, /project\s*sync\s*\(relay\)/)
+})
+
 test('§3 round-robin: Line and Recently Delivered, with when each was delivered; older deliveries as you scroll', async (t) => {
   const delivered = (id: number): DeliveredJob => ({ id, copy: `c${id}`, agent: id % 2 ? 'sa' : 'sb', mail: `m${id}`, gist: `mail ${id}`,
     dog: fq(id % 2 ? 'sa' : 'sb', id % 2 ? 'mail-a' : 'mail-b'), held_at: '2026-10-19T08:00:00.000Z', waited_from: '2026-10-19T07:58:00.000Z' })

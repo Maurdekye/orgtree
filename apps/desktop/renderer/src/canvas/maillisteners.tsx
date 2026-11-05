@@ -83,6 +83,8 @@ export interface FinishedJob {
 export interface DeliveredJob {
   id: number; copy: string; agent: string; mail: string; gist?: string; dog?: DogIdentity | null
   held_at: string; waited_from?: string | null
+  /** a relay project took it (`agent` is that project; no worker copy exists) */
+  relay?: boolean; holder_project?: string
 }
 export interface MailHistory {
   project: string; ack: boolean; max_attempts?: number; dead_letters?: boolean
@@ -446,7 +448,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
             )) : (history as DeliveredJob[]).map((h) => (
               <tr key={h.id} className="slot-row listener-row delivered">
                 <td className="slot-position"/>
-                <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
+                <th scope="row" className="slot-agent">{h.relay ? <>project {agentLink(h.agent)} (relay)</> : agentLink(h.agent)}</th>
                 <td className="slot-wait">{h.waited_from && <ListenerTime from={h.waited_from} to={h.held_at} />}</td>
                 <td className="slot-ended"><Ago at={h.held_at} what="delivered" /></td>
                 <td className="listener-mail">{mailLink(h.mail, h.gist, `the mail ${h.agent} was handed; click to read it in the inbox`)}</td>
