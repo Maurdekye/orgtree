@@ -64,7 +64,7 @@ A general native instruction/token ceiling is unknown here. Session-loaded skill
 
 ## Tools, permissions and sandbox
 
-Read-only seats use `:read-only`/deny-unmatched with shell/write disabled. Normal write seats use `:ask-me`/on-request; bypass uses `:unrestricted`/allow-all. In Windows Session 0, normal write seats disable Muse's OS sandbox. Some shell and file operations can then exceed folder grants without an approval callback; no engine callback can enforce a request Muse never sends. Outside Session 0 the sandbox stays on for normal seats.
+Read-only seats use `:read-only`/on-request with shell/write disabled: Orgtree answers each request from the seat's scope, so its granted Orgtree tools pass while shell, writes and other servers are refused (deny-unmatched denied every MCP call, so it is not used; that Muse then asks for approval on an Orgtree tool call is inferred, not measured on real Muse). Normal write seats use `:ask-me`/on-request; bypass uses `:unrestricted`/allow-all. In Windows Session 0, normal write seats disable Muse's OS sandbox. Some shell and file operations can then exceed folder grants without an approval callback; no engine callback can enforce a request Muse never sends. Outside Session 0 the sandbox stays on for normal seats.
 
 Read-only granted folders are not writable workspace roots. For approvals that arrive, Orgtree answers every open stage once from current scope, never a persistent allow rule. Disallowed subagents are stopped; contributor mode, workflow triggers and observer capabilities are disabled per process without editing saved settings.
 
