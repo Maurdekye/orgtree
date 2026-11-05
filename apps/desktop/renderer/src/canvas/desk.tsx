@@ -3484,13 +3484,23 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // menu anchored to a detached node (which the menu's scroll rule reads as
   // "unanswerable" and closes on). Cheap when no menu is open: the mark is
   // removed from one remembered element and nothing is searched.
+  //
+  // ⚠ IT MUST STAY O(1) AND WRITE NOTHING WHILE THE EVENT HAS NOT MOVED (bug
+  // 4.5.5 2026-11-05, a window froze after a right-click on a live desk with
+  // streamer mode on). A live desk renders on every tool-call update. The
+  // element found by a search is remembered, so the transcript is searched
+  // once per re-key, not on every render after one. The class is written only
+  // when missing: a `class` write queues a mutation record even when its value
+  // is unchanged, and the streamer boundary rescans for each one on a `.msg`
+  // row. See tests/ctxtargetstorm.test.tsx.
   useEffect(() => {
-    const want = replyMenu.isOpen
-      ? ctxTargetElement(scroller.current, ctxTarget.current) : null
+    const target = replyMenu.isOpen ? ctxTarget.current : null
+    const want = ctxTargetElement(scroller.current, target)
+    if (target && want) target.el = want
     const had = ctxMarked.current
     if (had && had !== want) had.classList.remove('ctx-target')
     if (want) {
-      want.classList.add('ctx-target')
+      if (!want.classList.contains('ctx-target')) want.classList.add('ctx-target')
       replyMenu.reanchor(want)
     }
     ctxMarked.current = want
