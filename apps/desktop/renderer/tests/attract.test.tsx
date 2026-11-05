@@ -20,6 +20,7 @@ import { bindRoomSocket, reportAttract } from '../src/streamrooms'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { canvasAttractRoutes } from '../src/attract/canvas'
 import { createAttractPanels } from '../src/attract/panels'
+import { setAttractTraceSink } from '../src/attract/trace'
 import type { PanelKind } from '../src/attract/panels'
 import { markDocViewed } from '../src/canvas/docviewed'
 import { readLocally, resetLocalReads } from '../src/mailread'
@@ -881,4 +882,49 @@ test('§13 the org socket is told attract started and stopped, with the setting,
   bindRoomSocket('o1', m => quiet.push(m))
   assert.deepEqual(quiet.filter(m => (m as { type: string }).type === 'attract'), [])
   bindRoomSocket('o1', null)
+})
+
+// §18 the attract trace (item attract-mode-gets-stuck-on-the-docket-and-doesn-t, coordinator go 2026-11-05 13:43Z): one record per
+// step / panel change / hand-over / stop, so the next "stuck on the docket" is measurable. Kinds and timings only: the user streams.
+test('§18 the trace: a step, a panel opening and closing, a hand-over and a stop are each one record, with no ids or text', async () => {
+  const got: Record<string, unknown>[] = []
+  setAttractTraceSink(r => { got.push(r) })
+  try {
+    // panels: attract opens the docket (owned), closes it; the user's own docket is not owned; a touch hands one over
+    const sh = shell()
+    const panels = createAttractPanels(sh.host)
+    panels.apply({ kind: 'docket', item: 'SECRET-TICKET' }); sh.render()
+    panels.apply(null); sh.render()
+    await Promise.resolve()
+    sh.user('docket', true)
+    panels.apply({ kind: 'docket', item: 'SECRET-TICKET' }); sh.render()
+    panels.apply('release')
+    const panelRows = got.filter(r => r.ev === 'panel' || r.ev === 'release')
+    assert.deepEqual(panelRows.map(r => [r.ev, r.action, r.panel, r.owned]), [
+      ['panel', 'open', 'docket', true], ['panel', 'close', 'docket', true],
+      ['panel', 'open', 'docket', false], ['release', undefined, undefined, undefined],
+    ])
+    // the cycle: a step names its kind and its timings; a canvas press is a stop with its reason
+    got.length = 0
+    useFakeClock()
+    try {
+      watchInput(() => {})()
+      key()
+      const log: Log = { calls: [] }
+      const view = await mountView(<Cycle enabled routes={routesFor(log, [{ id: 'SECRET-MAIL' }])} log={log} />, el => el)
+      try {
+        await advance(ATTRACT_IDLE_MS + 2_000, 500)
+        const step = got.find(r => r.ev === 'step')!
+        assert.equal(step.kind, 'mail')
+        assert.equal(typeof step.need_ms, 'number'); assert.equal(typeof step.dwell_ms, 'number')
+        assert.ok((step.dwell_ms as number) >= DWELL_MIN_MS && (step.dwell_ms as number) <= DWELL_MAX_MS)
+        const sc = scene()
+        await inAct(() => { fire(sc.node, 'keydown', { key: 'a' }) })
+        const stop = got.find(r => r.ev === 'stop')!
+        assert.equal(stop.why, 'canvas')
+        sc.root.remove()
+      } finally { await view.unmount() }
+    } finally { realClock() }
+    assert.ok(!JSON.stringify(got).includes('SECRET'), 'no id, title or text is ever traced')
+  } finally { setAttractTraceSink(null) }
 })
