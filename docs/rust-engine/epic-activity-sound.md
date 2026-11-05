@@ -35,7 +35,7 @@ or audio and retains only its existing preference subscription.
 Enabling during existing work seeds from a borrowed reference to the App's
 already published tree. While EPIC is off this is only a reference assignment
 at the existing publish sites: no copied snapshot, listener, DOM or audio.
-Org removal and socket loss silence the layers; stop closes them after fading.
+Org removal and socket loss clear the heat field; stop closes the audio context.
 
 ## Heat equation
 
@@ -100,7 +100,7 @@ lifetimes. Existing event routing, pitch and gain modifiers still apply.
 | `answer` | Eleven-note pentatonic harp run | Answered question |
 | `coins` | Whoosh and sparkling coin reward | Credit change, credit request, cost effect and usage reset |
 
-The continuous machinery layers, deterministic tool impacts, other factory
+Deterministic tool impacts, other factory
 event sounds and their heat impulses remain. Every recipe uses the existing
 master bus, limiter, voice caps and tray-mute fade. Cards remain still.
 

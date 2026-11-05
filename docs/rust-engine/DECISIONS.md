@@ -742,6 +742,8 @@ a static field. Every tool signature hashes its normalised name to select
   palette: hire and victory fanfares, turnEnd bells, answer harp and coins.
   User feedback at 13:24Z on 2026-10-18 removes the baseline agent drone;
   activity layers, event sounds and heat retain their existing behavior.
+  (USER 2026-11-05 15:33Z later removes the activity layers too: no continuous
+  sound while agents work; see epic-activity-sound.md.)
   Their existing event routing, gain and pitch remain. Real-link tool/message transport pulses remain,
   disabled under reduced motion. User feedback at 19:33Z removes the working-card
   piston bump as distracting, replacing the coordinator's 09:42Z approval:

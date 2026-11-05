@@ -17,10 +17,10 @@ Agents explain and suggest these controls; the user operates them. They are diag
 
 The quiet space below the last row rewards a hover; click there to enable **EPIC mode**, and untick it to make it disappear again.
 
-While enabled, activity adds machinery sounds and heat: thinking, response
-writing, tool writing/execution, waiting and compaction have distinct layers.
-Actions add impacts; heat spreads and cools as work changes. Idle status reports,
-projects, retired, frozen and halted agents do not add activity layers. This is
+While enabled, activity adds heat (no continuous drone): thinking, response
+writing, tool writing/execution, waiting and compaction feed it.
+Actions add impacts and sounds; heat spreads and cools as work changes. Idle status reports,
+projects, retired, frozen and halted agents do not add activity. This is
 an audiovisual display of observed activity, not a measure of useful progress.
 
 The tray's **Mute EPIC sounds** checkbox is visible only while enabled. It saves
