@@ -177,6 +177,18 @@ async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, p
     Ok(r.as_ref().map(inbox_quote))
 }
 
+/// Hubchat starts a reply with one `> ` line quoting the message it answers (that message's first line, at most
+/// 120 characters: Hubchat's docs/question-cards.md), for clients that don't read `reply_to`. Orgtree shows the
+/// answered message in the reply block, so the body drops the line, but only when it is exactly the quote Hubchat
+/// writes for `original`: a deliberate quote of anything else stays, and so does a body that would be left empty.
+/// A stale-arrival note in front stays first (USER 2026-11-05 15:59:52Z mb1883a706391: "this hubchat reply includes
+/// the context twice"). `None`: keep the body as it came.
+#[nolog]
+pub(crate) fn without_reply_quote(body: &str, original: &str) -> Option<String> {
+    let _ = (body, original);
+    None
+}
+
 /// A worker's job-scoped outside reply (D10): the send's own transaction re-checks the right `FOR SHARE` and writes
 /// `via_job` in the same insert, so a fast answer can always find its thread.
 pub struct JobReply<'a> {
@@ -747,6 +759,46 @@ mod org_dnd_tests {
         let app=json!({"org_inbox_mode":"dnd","org_inbox_enabled":false}).as_object().unwrap().clone();
         let effective=crate::feed::groups::effective_settings(&json!({}),&app);
         assert_eq!(effective["org_inbox_mode"],"normal");assert_eq!(effective["org_inbox_enabled"],true);
+    }
+}
+
+#[cfg(test)]
+mod reply_quote_tests {
+    use super::*;
+    /// The message Orgtree sent, shaped like the user's report: a first line longer than Hubchat's 120 characters.
+    const SENT: &str = "Here's what the fix does now. When a panel is resized from its bottom-right corner, the frame follows the pointer and the content keeps its scroll position.\n\nSecond paragraph.";
+    fn hubchat_reply(original: &str, text: &str) -> String {
+        let first: String = original.lines().next().unwrap_or("").chars().take(120).collect();
+        format!("> {first}\n{text}")
+    }
+    #[test] fn a_hubchat_reply_drops_its_quote_of_the_message_it_answers() {
+        let body = hubchat_reply(SENT, "Looks good, ship it.");
+        assert_eq!(without_reply_quote(&body, SENT).as_deref(), Some("Looks good, ship it."));
+    }
+    #[test] fn a_multi_line_reply_keeps_every_line_after_the_quote() {
+        let body = hubchat_reply(SENT, "One thing:\n\n> my own quote of something else\nstill mine");
+        assert_eq!(without_reply_quote(&body, SENT).as_deref(), Some("One thing:\n\n> my own quote of something else\nstill mine"));
+    }
+    #[test] fn a_short_original_and_crlf_and_unicode_quote_exactly() {
+        let sent = "שלום, done ✓\nmore";
+        assert_eq!(without_reply_quote(&hubchat_reply(sent, "תודה"), sent).as_deref(), Some("תודה"));
+        let long: String = "é".repeat(130);
+        assert_eq!(without_reply_quote(&hubchat_reply(&long, "ok"), &long).as_deref(), Some("ok"), "120 characters, not bytes");
+    }
+    #[test] fn a_stale_arrival_note_stays_in_front() {
+        let body = format!("[arrived via the mail hub — sent 2026-11-05T10:00:00Z, 5.0 hours ago; the sender may have moved on]\n\n{}", hubchat_reply(SENT, "late answer"));
+        assert_eq!(without_reply_quote(&body, SENT).as_deref(),
+            Some("[arrived via the mail hub — sent 2026-11-05T10:00:00Z, 5.0 hours ago; the sender may have moved on]\n\nlate answer"));
+    }
+    #[test] fn a_deliberate_quote_that_does_not_match_stays() {
+        for body in ["> Here's what the fix does now.\nnot Hubchat's exact quote", "> something else entirely\nmine",
+                     "Looks good.\n> Here's what the fix does now.", ">Here's what the fix does now. When a panel\nno space"] {
+            assert_eq!(without_reply_quote(body, SENT), None, "{body:?}");
+        }
+    }
+    #[test] fn a_quote_with_nothing_after_it_stays() {
+        assert_eq!(without_reply_quote(&hubchat_reply(SENT, ""), SENT), None);
+        assert_eq!(without_reply_quote(&hubchat_reply(SENT, "  \n"), SENT), None);
     }
 }
 

@@ -836,3 +836,26 @@ async fn gr4b_a_reply_the_normal_rules_already_allow_is_still_a_job_reply_the_se
     assert!(stamped, "an allowed reply that names W's copy of the job carries the job-reply stamp");
     crate::domain::mail::send(&w.e, w.org, from_agent(a, "A", "W", "answer", Some(json!({ "id": m, "from": "W" })))).await.expect("G2: A answers back although it has no route to W");
 }
+
+// ---------------------------------------------------------------- a Hubchat reply's quote line (USER 2026-11-05 mb1883a706391)
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rq1_a_hubchat_reply_to_our_message_is_stored_without_its_quote_line() {
+    let w = world(false).await;
+    w.e.orgs.insert(crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into()));
+    let sent = "Here's what the fix does now. When a panel is resized from its bottom-right corner, the frame follows the pointer and the content keeps its scroll position.\n\nMore.";
+    w.c.execute("INSERT INTO ot.org_inbox(uid,org_id,dir,peer,body,by_name,state,net_id) VALUES('rq-out',$1,'out','@net:bob.1',$2,'A','delivered','rq-out-net')",
+        &[&w.org, &sent]).await.unwrap();
+    let first: String = sent.lines().next().unwrap().chars().take(120).collect();
+    let reply = format!("> {first}\nLooks good, ship it.");
+    assert!(deliver_inbound_replies(&w.e, w.org, "@net:bob.1", &reply, vec![], "rq-in-net", "hub1", &["rq-out-net".into()]).await.unwrap());
+    let (body, quoted): (String, Value) = { let r = w.c.query_one("SELECT body, reply_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND net_id='rq-in-net'", &[&w.org]).await.unwrap(); (r.get(0), r.get(1)) };
+    assert_eq!(body, "Looks good, ship it.", "the context shows once, in the reply block");
+    assert_eq!(quoted["id"], "rq-out", "the reply block still names the answered message");
+    let mine = "> Here's what the fix does now.\nmy own words";
+    assert!(deliver_inbound_replies(&w.e, w.org, "@net:bob.1", mine, vec![], "rq-in-net-2", "hub1", &["rq-out-net".into()]).await.unwrap());
+    let kept: String = w.c.query_one("SELECT body FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND net_id='rq-in-net-2'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(kept, mine, "a quote that is not Hubchat's exact one stays");
+}
