@@ -5,6 +5,6 @@
 1. `TRACE_JS` is injected into the page right after the App entry mounts: a capture-phase window listener for pointerdown/move/up/cancel, gotpointercapture/lostpointercapture and mousedown/move/up. Each record: type, target tag, target class, `data-resize-edge`, pointerId, buttons, clientX/Y, whether ANY resize handle hasPointerCapture(pointerId), page-clock ms.
 2. Every driver `Input.dispatchMouseEvent` is preceded by a `{src:'driver',what,x,y,t}` marker in the same array, so each CDP step lines up with what the page saw.
 3. The edge order is east first: `['e','n','s','w','ne','nw','se','sw']`.
-4. On any outcome (pass or the failure path) the array is written to `<out>/pointer-trace.json` and `result.trace`.
+4. `dumpTrace` writes the array to `<out>/pointer-trace.json` (and `result.traceFile`/`result.traceRecords`) on BOTH outcomes: once at the end of the success path before `g.finish()`, and first thing in the failure path before the screenshot, so neither a pass nor a screenshot failure loses it.
 
 Run it exactly as the R3 driver (same config, same guard-normal.cjs beside it); tip arm only is enough. Decision rule (coordinator-opus 2026-11-05 18:44Z): if the page never records a move/up once the pointer crosses the iframe, it is harness/OOPIF input; if it does and the handle still does not save, it is a product bug.
