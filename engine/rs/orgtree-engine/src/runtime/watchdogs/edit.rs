@@ -295,7 +295,12 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
                     // the editor is the setter: its reach, or its audience, may stand in for the owner's (W6); a new check replaces the grant
                     let delegate = actor.filter(|a| *a != dog.owner).map(|a| Delegate { setter: a, setter_name: editor_name.clone(), owner_name: dog.owner_name.clone() });
                     let what = match kind { "fair_queue" => "watch its mailbox", "slot" => "claim its concurrency slots", "project_listener" => "listen for its events", _ => "watch its listener count" };
-                    match watch_reach(&**client, org_id, dog.owner, &dog.owner_name, delegate.as_ref(), &pr, what).await? {
+                    // the user edits a relay's target with their own authority (as create does), recording the grant
+                    let user_for_relay = actor.is_none() && dog.owner_kind == "project" && kind == "fair_queue"
+                        && !crate::domain::projects::reaches(&**client, dog.owner, pr.id).await?;
+                    let reach = if user_for_relay { Some(json!({ "project": pr.id, "via": "user", "from": "user" })) }
+                        else { watch_reach(&**client, org_id, dog.owner, &dog.owner_name, delegate.as_ref(), &pr, what).await? };
+                    match reach {
                         Some(g) => p.memo_set.push(("reach_grant".into(), g)),
                         None => p.memo_del.push("reach_grant".into()),
                     }

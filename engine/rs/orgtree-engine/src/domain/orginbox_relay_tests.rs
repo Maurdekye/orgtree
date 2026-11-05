@@ -54,8 +54,8 @@ impl World {
     /// The relay dog: project `q` listens to project `p` (stored the way `create` stores a project-owned fair_queue).
     #[nolog]
     async fn relay(&self, q: i64, p: i64, batch: i64) {
-        self.c.execute("INSERT INTO ot.watchdogs(org_id,uid,owner_agent_id,owner_kind,kind,state,memo,name,target,interval_s) VALUES($1,$2,$3,'project','fair_queue','armed',$4,$2,'x',15)",
-            &[&self.org, &format!("relay{q}{p}"), &q, &json!({ "target_id": p.to_string(), "batch": batch, "project_delivery": "queue" })]).await.unwrap();
+        self.c.execute("INSERT INTO ot.watchdogs(org_id,uid,owner_agent_id,owner_kind,kind,state,memo,name,target,interval_s) VALUES($1,$2,$3,'project','fair_queue','armed',$4,$2,(SELECT name FROM ot.agents WHERE id=$5),15)",
+            &[&self.org, &format!("relay{q}{p}"), &q, &json!({ "target_id": p.to_string(), "batch": batch, "project_delivery": "queue" }), &p]).await.unwrap();
     }
     #[nolog]
     async fn arrive(&mut self, net_id: &str, body: &str, replies: Value) -> (String, jobs::Published) {
@@ -487,7 +487,7 @@ async fn rl18_a_claim_committed_between_plan_and_apply_stops_the_target_edit() {
     let (reached, release) = crate::runtime::watchdogs::race_hook::arm("configure");
     let (e, org, idc) = (w.e.clone(), w.org, id.clone());
     let edit = tokio::spawn(async move { crate::runtime::watchdogs::configure(&e, org, None, &idc, &json!({ "target": "P2" })).await });
-    reached.notified().await;
+    tokio::time::timeout(std::time::Duration::from_secs(20), reached.notified()).await.expect("configure reached its pause");
     let (_, published) = w.arrive("n1", "hello", json!([])).await;
     let job = published.jobs[0].mail.clone();
     w.dispatch(p).await;
