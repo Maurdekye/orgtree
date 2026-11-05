@@ -137,9 +137,24 @@ test('ST15 an attract record is allowlisted: event, kind, panel, why and numbers
   log.write('attract', { ev: 'step', kind: 'ticket', need_ms: 90000, dwell_ms: 90000.4, n: 3, panel: 'docket', owned: true,
     why: 'share', docket_pct: 12.4, title: 'Secret ticket title', slug: 'secret-slug', id: 'm-123' }, { id: '7c0e4a89-787d-412d-a45b-ca83419549d8', org: true })
   log.write('attract', { ev: 'surprise', kind: 'nonsense', panel: 'elsewhere', why: 'because' })
-  const [a, b] = lines(file)
+  const [a, b] = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))   // the trace has its OWN file (coordinator ruling 2026-11-05)
+  assert.deepEqual(lines(file), [], 'and nothing of it lands in ui-stalls.jsonl')
   assert.equal(a.src, 'attract')
   assert.deepEqual([a.ev, a.kind, a.need_ms, a.dwell_ms, a.n, a.panel, a.owned, a.why, a.docket_pct], ['step', 'ticket', 90000, 90000.4, 3, 'docket', true, 'share', 12.4])
   assert.ok(!JSON.stringify(a).includes('ecret') && !JSON.stringify(a).includes('m-123'), 'no title, slug or id')
   assert.deepEqual([b.ev, b.kind, b.panel, b.why], ['other', 'other', 'other', 'other'], 'enum fields outside their list become other')
+})
+
+test('ST16 attract lines never crowd out freeze evidence: their own rate bucket, their own file with its own 1 MB x 2 rotation', () => {
+  const dir = fresh(), file = path.join(dir, STALL_LOG), attractFile = path.join(dir, 'diagnostics', 'ui-attract.jsonl'), t = { now: Date.parse('2026-11-05T14:50:00Z') }
+  const log = new StallLog({ file: () => file, clock: clockAt(t), attractMaxBytes: 2000 })
+  for (let i = 0; i < 100; i++) log.write('attract', { ev: 'step', kind: 'org', need_ms: 0, dwell_ms: 9000, n: i, docket_pct: 0 })
+  log.write('renderer-loaf', { ms: 900 })
+  const stalls = lines(file)
+  assert.equal(stalls.length, 1, 'the freeze record still lands after 100 attract writes in a minute')
+  assert.equal(stalls[0].src, 'renderer-loaf')
+  assert.ok(stalls.every(l => l.src !== 'attract'), 'ui-stalls.jsonl carries no attract line')
+  assert.ok(fs.existsSync(attractFile), 'the attract file exists')
+  assert.ok(fs.existsSync(attractFile + '.1'), 'it rotated at its own cap')
+  assert.ok(!fs.existsSync(file + '.1'), 'and the freeze file did not rotate')
 })

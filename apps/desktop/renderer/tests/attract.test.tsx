@@ -20,7 +20,7 @@ import { bindRoomSocket, reportAttract } from '../src/streamrooms'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { canvasAttractRoutes } from '../src/attract/canvas'
 import { createAttractPanels } from '../src/attract/panels'
-import { setAttractTraceSink } from '../src/attract/trace'
+import { setAttractTraceLive, setAttractTraceSink } from '../src/attract/trace'
 import type { PanelKind } from '../src/attract/panels'
 import { markDocViewed } from '../src/canvas/docviewed'
 import { readLocally, resetLocalReads } from '../src/mailread'
@@ -951,6 +951,7 @@ test('§20 the docket gets at most 15% of screen time over any rolling 5 minutes
 test('§18 the trace: a step, a panel opening and closing, a hand-over and a stop are each one record, with no ids or text', async () => {
   const got: Record<string, unknown>[] = []
   setAttractTraceSink(r => { got.push(r) })
+  setAttractTraceLive(true)   // the cycle sets this for a run; this part drives the panels directly
   try {
     // panels: attract opens the docket (owned), closes it; the user's own docket is not owned; a touch hands one over
     const sh = shell()
@@ -968,6 +969,7 @@ test('§18 the trace: a step, a panel opening and closing, a hand-over and a sto
     ])
     // the cycle: a step names its kind and its timings; a canvas press is a stop with its reason
     got.length = 0
+    setAttractTraceLive(false)
     useFakeClock()
     try {
       watchInput(() => {})()
@@ -988,5 +990,37 @@ test('§18 the trace: a step, a panel opening and closing, a hand-over and a sto
       } finally { await view.unmount() }
     } finally { realClock() }
     assert.ok(!JSON.stringify(got).includes('SECRET'), 'no id, title or text is ever traced')
-  } finally { setAttractTraceSink(null) }
+  } finally { setAttractTraceSink(null); setAttractTraceLive(false) }
+})
+
+test('§21 the trace is silent outside a run, and a hand-over is traced only when attract owned a panel (coordinator ruling 2026-11-05)', async () => {
+  const got: Record<string, unknown>[] = []
+  setAttractTraceSink(r => { got.push(r) })
+  try {
+    const sh = shell()
+    const panels = createAttractPanels(sh.host)
+    // no run going: opening, closing and handing over a panel write nothing
+    panels.apply({ kind: 'docket', item: 'a' }); sh.render()
+    panels.apply(null); sh.render()
+    panels.apply('release')
+    assert.deepEqual(got, [], 'attract is off: nothing is traced')
+    // a run is going but the user's own panel is touched: attract owns nothing, so there is nothing to hand over
+    setAttractTraceLive(true)
+    panels.apply('release')
+    assert.deepEqual(got, [], 'a release with no owned panel is not traced')
+    panels.apply({ kind: 'docket', item: 'b' }); sh.render()
+    panels.apply('release')
+    assert.deepEqual(got.map(r => [r.ev, r.action]), [['panel', 'open'], ['release', undefined]])
+    // an idle Cycle and a wheel in a panel: the cycle hands the touch to routes.release, still no trace without a run
+    setAttractTraceLive(false)
+    got.length = 0
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={{ ...routesFor(log, []), release: () => { panels.apply('release') } }} log={log} />, el => el)
+    try {
+      const sc = scene()
+      await inAct(() => { fire(sc.panels.overlay, 'wheel', {}) })
+      assert.deepEqual(got, [], 'a wheel in a panel while attract is idle writes nothing')
+      sc.root.remove()
+    } finally { await view.unmount() }
+  } finally { setAttractTraceSink(null); setAttractTraceLive(false) }
 })
