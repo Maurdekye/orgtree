@@ -27,7 +27,7 @@ m58f9d1d695c2 ("spec on opus, implement on sonnet"). Spec: @stream-plan-opus rev
   project's hands are checked (`authority_lost`); the dog outlives its creator. Relative paths
   start in the project's folder. Prefer inline credentials: the folder is readable by members.
 - **D6** `send`/`configure`: the D4 set; `send` needs the *caller's* web tool.
-- **D7 kinds.** `file command process stream websocket mqtt` only
+- **D7 kinds.** `file command process stream websocket mqtt` and `fair_queue` (a relay, below) only
   (`a project watchdog can be ...; <kind> stays on an agent`).
 - **D8 options.** `notice:true` and `fire_actions` are refused; `notice:false`/omitted is
   stored false (A2). Pattern, shell, interval, silence, once, hello, heartbeat, credentials,
