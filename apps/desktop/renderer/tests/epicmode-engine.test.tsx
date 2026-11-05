@@ -265,16 +265,15 @@ test('a direct show stages taps, survives unknown frames and stops cleanly', t =
   tap!.frame('acme', { type: 'record_changes', upserts: [] })
   tap!.frame('acme', null)
   tap!.tree('acme', tree([node('boss')]))
-  // Activity audio follows an observed phase; busy alone intentionally has no
-  // synthesized machinery layer (activitySources contract).
+  // An observed phase feeds heat only; there is no continuous audio layer.
   tap!.tree('acme', tree([node('boss', { busy: true, activity: { phase: 'thinking' } })]))
   tap!.action('acme', 'interrupt', 'boss')
   assert.equal(show.staged >= before + 3, true, `staged ${show.staged - before}`)
   t.mock.timers.enable({ apis: ['setTimeout'] })
   show.stop()
   assert.equal(taps.epic === null, true, 'and removes them')
-  assert.equal(audio.log.closed, 0, 'active machinery fades before closing its context')
+  assert.equal(audio.log.closed, 1, 'no ambience fades: stop closes the audio context at once')
   t.mock.timers.tick(345)
-  assert.equal(audio.log.closed, 1)
+  assert.equal(audio.log.closed, 1, 'and only once')
   assert.equal(document.querySelectorAll('canvas.epic-stage').length, 0)
 })

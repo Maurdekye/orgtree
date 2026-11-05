@@ -50,8 +50,10 @@ test('epic mode has no sustained activity drone: the synth takes no activity cou
 
 test('director seeds existing work immediately and follows state changes, disconnect and org removal', () => {
   const base = fakeAudio(), readings: ReturnType<typeof emptyActivity>[] = []
-  const original = SoundHeatmap.prototype.update
+  const original = SoundHeatmap.prototype.update, originalClear = SoundHeatmap.prototype.clear
   SoundHeatmap.prototype.update = function (sources) { readings.push(countActivity(sources)); original.call(this, sources) }
+  // org removal / socket loss clears the heat field directly (no update call): that is an empty reading too
+  SoundHeatmap.prototype.clear = function () { readings.push(emptyActivity()); originalClear.call(this) }
   publishEpicTree(tree(node('a', 'tool_writing')))
   const show = startEpic({ audio: base.Ctor })
   try {
@@ -65,7 +67,7 @@ test('director seeds existing work immediately and follows state changes, discon
     assert.equal(readings.at(-1)!.writing, 1)
     clearEpicTree()
     assert.deepEqual(readings.at(-1), emptyActivity())
-  } finally { show.stop(); clearEpicTree(); SoundHeatmap.prototype.update = original }
+  } finally { show.stop(); clearEpicTree(); SoundHeatmap.prototype.update = original; SoundHeatmap.prototype.clear = originalClear }
 })
 
 test('normalised tool names determine all signature parameters across harness prefixes', () => {
