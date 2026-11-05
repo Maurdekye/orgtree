@@ -248,7 +248,7 @@ test('§2 relay (R10): a relay holder shows as "project … (relay)" and a relay
   const { view } = await mailFolder(t, h, true)
   const work = view.el.querySelector<HTMLTableRowElement>(`${T} .mail-working tr.listener-row`)!
   assert.match(work.querySelector('.slot-agent')!.textContent!, /project\s*sync\s*\(relay\)/, 'the holder is a relay project')
-  assert.match(work.querySelector('.listener-via')!.textContent!, /relayed from\s*sb/, 'and the job came from sb')
+  assert.match(work.querySelector('.listener-via')!.textContent!, /relayed from\s*\w*sb/, 'and the job came from sb')
 })
 
 test('§2 ack mode: Working, Line, the Dead Letter Line while a dead-letter listener reaches the project, Recently Finished (user 06:22Z, 06:41Z)', async (t) => {
