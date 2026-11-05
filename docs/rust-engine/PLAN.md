@@ -330,7 +330,8 @@ new state's start on hover. Blocked is the agent's self-reported status; the
 rest are engine-measured. Ordinary conversation rows appended by the actor,
 loaded lazily with the rest of the history; no org-wide view. Node settings
 also has a paged Activity tab (first named States) (spans newest first, 24 h / 7 d totals; USER
-2026-11-03 md2ffcbe7266e). See [state history](state-history.md).
+2026-11-03 md2ffcbe7266e). Agents read the same pages with
+`orgtree_state_inspect activity=true` (USER 2026-11-05 maac5e83fa61e). See [state history](state-history.md).
 
 Object-mention wrapping (USER2026-10-27): Display > Text > Wrap object mentions
 opts into links continuing inline across lines. Default off retains existing

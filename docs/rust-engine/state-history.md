@@ -168,3 +168,18 @@ from the node's hire time (`TreeNode.created`) or the earliest loaded span, whic
 age clock, so the tier moves up live and is the same on every lazy page. Without a hire time the tier can rise only as older
 pages load. The 1 week pip appears on the month and year scales, the 1 month pip on the year scale; a pip at the scale's
 end is not drawn. Bars use `barWidthPct(secs, max)`; the totals line is unchanged. Renderer only.
+
+Agents read it too (USER 2026-11-05 maac5e83fa61e; spec rev 1.0b,
+@item:orgtree/agents-can-read-other-agents-activity-state-hist):
+`orgtree_state_inspect node=X activity=true [activity_limit=1..100,
+default 20] [activity_cursor=<previous next_cursor>]` adds an `activity`
+object to that one agent's row: `{as_of, spans:[{state, start, end|"now",
+secs, dur}], next_cursor, totals?}` with the same spans, paging and
+first-page-only totals as the tab (`dur` and `{secs, dur}` totals use the
+desk's age words). Both reads go through `state_history::history_page`;
+the HTTP JSON is unchanged (`HistoryPage::http_json`). Exactly one distinct
+name is allowed; visibility, archived opt-in and refusals are the existing
+inspection rules; a project is refused. Read-only: no wake, mail or write.
+The card description is unchanged (12,000 byte startup cap); the hint lives
+in the three schema parameter descriptions and the `tool-state-inspect`
+glossary page.
