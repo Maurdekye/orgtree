@@ -15,6 +15,11 @@ export const SCROLL_PX_PER_S = 40
 export const SCROLL_PAUSE_MS = 1_500
 /** the longest a single presentation holds the screen */
 export const SCROLL_MAX_MS = 90_000
+/** A docket visit is short (USER 2026-11-05 m207f9caba2e3 "attract mode spends too much time scrolling through evidence on the
+ *  docket"): the ticket pane shows its header, glides to the change in at most this long (it no longer reads down to it at
+ *  SCROLL_PX_PER_S), and holds; the whole visit never outlasts the longest dwell. */
+export const TICKET_GLIDE_MS = 2_000
+export const TICKET_MAX_MS = 15_000
 /** how long to wait for the reader to load the document */
 const FIND_MS = 4_000
 

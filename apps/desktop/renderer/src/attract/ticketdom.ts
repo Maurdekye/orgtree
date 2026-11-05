@@ -13,7 +13,7 @@
    Nothing is drawn on the change itself (USER 2026-11-03 m786d6661d885: "dont highlight the
    actual changed passage, just scroll down to where it is"). Setting scrollTop is no
    user input (attract.ts listens for none of it). */
-import { SCROLL_MAX_MS, SCROLL_PAUSE_MS, scrollMs } from './scroll'
+import { SCROLL_PAUSE_MS, SCROLL_PX_PER_S, TICKET_GLIDE_MS, TICKET_MAX_MS } from './scroll'
 import type { TicketChange } from './ticketsnap'
 
 export interface TicketShow {
@@ -148,7 +148,8 @@ export function showTicketChange(change: TicketChange | null, root: ParentNode =
       const room = pane ? Math.max(0, pane.scrollHeight - pane.clientHeight) : 0
       const to = pane ? Math.max(0, Math.min(room, box.top - here + pane.scrollTop - LEAD)) : 0
       if (!pane || to <= 0) { resolve(0); return }
-      const total = Math.min(SCROLL_MAX_MS, scrollMs(to))
+      // header pause, a short glide (never the reading pace), the change held: USER 2026-11-05 m207f9caba2e3
+      const total = Math.min(TICKET_MAX_MS, 2 * SCROLL_PAUSE_MS + Math.min(TICKET_GLIDE_MS, to / SCROLL_PX_PER_S * 1000))
       resolve(total)
       pane.scrollTop = 0
       const run = Math.max(0, total - 2 * SCROLL_PAUSE_MS)

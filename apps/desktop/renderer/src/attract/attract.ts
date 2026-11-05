@@ -136,12 +136,14 @@ export const fitGap = (n: number, jitter: number): number =>
 /** The next target. Nothing new: fit the whole org and nothing else. With something new, the whole org comes after
  *  `fitGap` targets (`run` of them so far; `jitter` is this cycle's draw), never twice in a row, and the other steps
  *  pick at random among the new things, never the same one twice in a row (the only new thing just shown: the org). */
+export const TICKET_EVERY = 4
 export function pickAttract(candidates: AttractTarget[], rng: () => number,
-  last: AttractTarget | null, run = 0, jitter = 1): AttractTarget {
+  last: AttractTarget | null, run = 0, jitter = 1, sinceTicket = TICKET_EVERY): AttractTarget {
   if (!candidates.length) return { kind: 'org' }
   if (last?.kind !== 'org' && run >= fitGap(candidates.length, jitter)) return { kind: 'org' }
   const lastKey = last ? targetKey(last) : null
-  const pool = candidates.filter(t => targetKey(t) !== lastKey)
+  // USER 2026-11-05 m207f9caba2e3 (less docket, more canvas and desks): a ticket at most every fourth step
+  const pool = candidates.filter(t => targetKey(t) !== lastKey && (t.kind !== 'ticket' || sinceTicket >= TICKET_EVERY - 1))
   if (!pool.length) return { kind: 'org' }
   const i = Math.min(pool.length - 1, Math.floor(rng() * pool.length))
   return pool[i]!
@@ -307,6 +309,8 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     let current: AttractTarget | null = null
     /** targets since the last fit-the-whole-org step, and this cycle's gap jitter (fitGap) */
     let run = 0
+    /** steps since a ticket was last shown (the docket comes at most every TICKET_EVERY-th step) */
+    let sinceTicket = TICKET_EVERY
     let jitter = 0.8 + 0.4 * rngRef.current()
     /** things needing attention that have arrived and are waiting their step, in arrival order */
     const queue: AttentionTarget[] = []
@@ -321,8 +325,9 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
         try { input = await routesRef.current.collect(since) }
         catch { input = { agents: [], mail: [], docs: [], tickets: [] } }
         if (!alive) return
-        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter)
+        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter, sinceTicket)
       }
+      sinceTicket = next.kind === 'ticket' || (next.kind === 'attention' && next.what === 'ticket') ? 0 : sinceTicket + 1
       if (next.kind === 'org') { run = 0; jitter = 0.8 + 0.4 * rngRef.current() } else run++
       if (current) routesRef.current.hide(current)
       current = next

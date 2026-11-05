@@ -2950,10 +2950,12 @@ that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
   and not on the wire), so `attract/ticketsnap.ts` keeps an in-memory text snapshot per ticket (LRU 200 items / 2 MB) that the
   docket pane records as it shows one and attract records after its own showing. `canvasAttractRoutes.show('ticket')` reads
   the snapshot and the current item BEFORE opening the docket, takes `firstTextChange` (common-prefix/suffix scan in the pane's order),
-  and `attract/ticketdom.ts` expands that section by clicking its own toggle, scrolls at `SCROLL_PX_PER_S`, draws NOTHING on the change
+  and `attract/ticketdom.ts` expands that section by clicking its own toggle, shows the header, glides to the change in at most `TICKET_GLIDE_MS` (2 s; USER 2026-11-05 m207f9caba2e3 replaced the read-through at `SCROLL_PX_PER_S`, a visit never exceeds `TICKET_MAX_MS` 15 s), draws NOTHING on the change
   (USER 2026-11-03 m786d6661d885 replaced the highlight: no class, style or Custom Highlight), and clicks the toggles back on move-on. `DocketSelection` stamps
   `data-docket-field`/`-entry` for it. Fallbacks: no snapshot -> an evidence history row since the last input points at EVIDENCE NOTES;
   else the top. A release or interrupt keeps the sections open. Proof: `tests/attractticket.test.tsx`.
+  `pickAttract` lets a ticket in at most every `TICKET_EVERY`-th (4th) step (attention items are exempt); the freed steps go to the org, agents and their desks. Proof: `tests/attract.test.tsx` §19.
+  The attract TRACE (`attract/trace.ts`): one record per step, panel open/close, hand-over and stop, sent through `diagStall` as `src:'attract'` and written to `ui-stalls.jsonl` by `main/stall-log.ts` with an allowlist of enums and numbers (never an id, title or text; the user streams). Proof: `tests/attract.test.tsx` §18, `tests/stall-log.test.mjs` ST15.
 - **The whole org keeps a share of the steps, scaled by how much is new (USER 2026-11-03 m0dc876241ee7, REPLACED m6802501d1f0c).**
   `pickAttract(candidates, rng, last, run, jitter)`: the whole org after `fitGap(N, jitter)` = clamp(round(1 + N/4 x jitter), 1, `FIT_GAP_CAP` 15)
   targets, N = the new targets waiting (recomputed each step), jitter 0.8-1.2 drawn once per cycle by `useAttractCycle`; never twice in a row;
