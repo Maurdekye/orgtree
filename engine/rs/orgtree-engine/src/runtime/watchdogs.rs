@@ -2743,10 +2743,20 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         }
         None
     };
-    let form = form_arg.unwrap_or("event");
+    let relay = on_project.is_some() && kind == "fair_queue";
+    let form = form_arg.unwrap_or(if relay { "queue" } else { "event" });
     if on_project.is_some() {
-        if !["file", "command", "process", "stream", "websocket", "mqtt"].contains(&kind.as_str()) {
-            refuse!(BadRequest, "a project watchdog can be file, command, process, stream, websocket or mqtt; {kind} stays on an agent");
+        if !["file", "command", "process", "stream", "websocket", "mqtt", "fair_queue"].contains(&kind.as_str()) {
+            refuse!(BadRequest, "a project watchdog can be file, command, process, stream, websocket, mqtt or fair_queue (a relay); {kind} stays on an agent");
+        }
+        if relay {
+            // R1 (relay spec): a project's queue listener relays into its own queue, runs until removed, and wakes nobody
+            if form != "queue" {
+                refuse!(BadRequest, "a project's queue listener relays into its own queue (project_delivery queue)");
+            }
+            if args["once"].as_bool().unwrap_or(false) {
+                refuse!(BadRequest, "a relay runs until removed; once is not allowed");
+            }
         }
         // only the broadcast form may be passive (F4)
         if form != "broadcast" && args.get("notice").is_some_and(|v| v == &json!(true)) {
@@ -2877,7 +2887,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if !created_by.is_null() {
         memo["created_by"] = created_by;
     }
-    if let Some(f) = form_arg {
+    if let Some(f) = form_arg.or(relay.then_some("queue")) {
         memo["project_delivery"] = json!(f);
     }
     if let Some(needs_credentials) = template {
@@ -2926,7 +2936,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         memo["batch"] = json!(batch_value(batch)?);
     }
     if kind == "fair_queue" {
-        if memo.get("batch").is_none() { memo["batch"] = json!(1); }
+        if memo.get("batch").is_none() { memo["batch"] = json!(if relay { crate::domain::projects::RELAY_BATCH } else { 1 }); }
         // one project's mailbox; only agents above or below it may claim its mail
         let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
             refuse!(NotFound, "no project named {} to watch; fair_queue takes a project's name as target", target.trim_start_matches('@'));
@@ -2934,7 +2944,26 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         if p.state != "live" {
             refuse!(Conflict, "project {} is retired", p.name);
         }
+        if relay {
+            // R2/R7: P is another live project; Q, or the creating agent, reaches it; the relay edge closes no loop
+            if p.id == owner {
+                refuse!(BadRequest, "project {} cannot relay into itself", p.name);
+            }
+            let pc = on_project.as_ref().unwrap();
+            if let Some(c) = pc.caller {
+                let setter_name: String = client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&c]).await?.get(0);
+                let d = Delegate { setter: c, setter_name, owner_name: owner_name.clone() };
+                reach_grant = watch_reach(&**client, org_id, owner, &owner_name, Some(&d), &p, "relay its mailbox").await?;
+            } else if !crate::domain::projects::reaches(&**client, owner, p.id).await? {
+                // the user creates it: the same grant record an audience-held target would carry
+                reach_grant = Some(json!({ "project": p.id, "via": "user", "from": "user" }));
+            }
+            if crate::domain::projects::relay_loop(&**client, owner, p.id).await? {
+                refuse!(Conflict, "a relay from {} into {} would close a loop ({} -> ... -> {})", p.name, owner_name, owner_name, p.name);
+            }
+        } else {
         reach_grant = watch_reach(&**client, org_id, owner, &owner_name, delegate.as_ref(), &p, "watch its mailbox").await?;
+        }
         // one listener per agent per project: a second dog adds no share of the queue
         // Its batch setting controls capacity, not duplicate registrations.
         if let Some(r) = client

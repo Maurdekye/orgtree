@@ -2959,7 +2959,8 @@ async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
     let Some(mail) = str_arg(req, "mail") else { refuse!(BadRequest, "mail_take_back needs mail: the held job's id in the project's mailbox") };
     let held = tx
         .query_opt(
-            "SELECT id, (extra->'claimed'->>'by_id')::bigint, extra->'claimed'->>'by', extra->'claimed'->>'copy' FROM ot.mail
+            "SELECT id, (extra->'claimed'->>'by_id')::bigint, extra->'claimed'->>'by', extra->'claimed'->>'copy',
+                    (extra->'claimed'->>'by_project')::bigint FROM ot.mail
               WHERE uid = $1 AND recipient_agent_id = $2 AND state = 'read' AND extra->'claimed'->>'ack' = 'true'
                 AND extra->'claimed'->>'acked_at' IS NULL AND NOT (extra ? 'dead_letter')",
             &[&mail, &n.id],
@@ -2968,6 +2969,19 @@ async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
     // the user's own job has no agent holder: only the user ends it, by acknowledging it
     if held.as_ref().is_some_and(|r| r.get::<_, Option<i64>>(1).is_none() && r.get::<_, Option<String>>(2).as_deref() == Some(user_regs::USER)) {
         refuse!(Forbidden, "mail {mail} is the user's own job: only the user ends it, by acknowledging it");
+    }
+    // R5: a job held by a relay goes back to this queue; its child is revoked in the relaying project
+    if let Some(r) = held.as_ref().filter(|r| r.get::<_, Option<i64>>(4).is_some()) {
+        let (row, q, by): (i64, i64, String) = (r.get(0), r.get::<_, Option<i64>>(4).unwrap_or_default(), r.get::<_, Option<String>>(2).unwrap_or_default());
+        let why = format!("had it taken back by {}", actor.label());
+        if !crate::domain::projects::relay_take_back(tx, org.id, n.id, row, &why).await? {
+            refuse!(Conflict, "mail {mail} is not held by anyone in project {} any more", n.name);
+        }
+        event(tx, org.id, "mail_take_back", actor, Some(n.id), json!({ "project": n.name, "mail": mail, "holder": by, "relay": true }), fx).await?;
+        fx.agents.insert(n.id);
+        fx.mailboxes.push(n.id);
+        fx.mailboxes.push(q);
+        return Ok(json!({ "project": n.name, "mail": mail, "holder": by, "taken": true, "dead_letter": false }));
     }
     let Some((row, Some(holder), Some(by), copy)) = held.map(|r| (r.get::<_, i64>(0), r.get::<_, Option<i64>>(1), r.get::<_, Option<String>>(2), r.get::<_,Option<String>>(3))) else {
         refuse!(Conflict, "mail {mail} is not held by anyone in project {} (it waits, is acked or was already taken back)", n.name);

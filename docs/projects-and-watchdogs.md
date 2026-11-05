@@ -49,6 +49,10 @@ Start with a batch of one. Larger batches (up to 20) suit small independent task
 
 An agent that holds a queue job can answer whoever sent it, even with no other audience: it names its copy of the job in a reply to that sender (the user too). In ACK mode this works until the agent acknowledges the job; in round-robin mode it has no end. The sender can answer back through the same reply, and a sender's follow-up that names its own earlier mail to the project is bundled with the waiting job or goes straight to the agent holding it. After the acknowledgement a follow-up is a new job. The route never gives anyone a standing audience.
 
+### Relaying one project's queue into another
+
+A project can take jobs out of another project's queue and put each into its own: create a queue watchdog on project Q whose target is project P. The job in P stays claimed by Q until Q's worker has finished with it (the acknowledgement in ACK mode, the hand-out in round-robin), then it is acknowledged for you. The worker in Q answers the original sender, including an outside one, and the sender's follow-ups find the worker. A relay that would close a loop is refused, and a relay stops taking jobs once Q's own queue holds its batch of unclaimed ones. Taking a job back from P's desk withdraws it from Q.
+
 ### Reclaim and retry deliberately
 
 Timeout checkups rotate through all of an agent's held jobs and leases in

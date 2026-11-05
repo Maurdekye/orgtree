@@ -253,6 +253,12 @@ async fn follow_up(tx: &Transaction<'_>, org: i64, project: i64, name: &str, row
             .query_opt("SELECT uid, state, extra FROM ot.mail WHERE recipient_agent_id=$1 AND uid=$2 FOR UPDATE", &[&project, &parent])
             .await?;
     }
+    // R9: a job that was relayed follows its child into the relaying project, while the relay's custody lasts
+    if let Some(j) = &job {
+        if let Some((q, qname)) = relayed_to(tx, &j.get::<_, Value>(2)).await? {
+            return Box::pin(follow_up(tx, org, q, &qname, row, o_uid, copies, jobs)).await;
+        }
+    }
     if let Some(j) = &job {
         let (j_uid, state, extra): (String, String, Value) = (j.get(0), j.get(1), j.get(2));
         if state == "pending" {
@@ -283,6 +289,23 @@ async fn follow_up(tx: &Transaction<'_>, org: i64, project: i64, name: &str, row
     let mail = insert_job(tx, org, project, name, row, "pending", json!({})).await?;
     jobs.push(Job { project, name: name.to_string(), mail });
     Ok(())
+}
+
+/// R9: the live relaying project a job (its `extra`) was relayed into while its relay claim is still open, and the child
+/// job there still stands (not revoked). `None`: the job's own project decides.
+#[logged]
+async fn relayed_to(tx: &Transaction<'_>, extra: &Value) -> Result<Option<(i64, String)>> {
+    let (claim, to) = (&extra["claimed"], &extra["relayed_to"]);
+    if claim["by_project"].is_null() || !claim["acked_at"].is_null() || !extra["revoked"].is_null() { return Ok(None); }
+    let (Some(q), Some(child)) = (to["project"].as_i64(), to["job"].as_str()) else { return Ok(None) };
+    Ok(tx
+        .query_opt(
+            "SELECT p.name FROM ot.mail c JOIN ot.agents p ON p.id = c.recipient_agent_id AND p.kind = 'project' AND p.state = 'live'
+              WHERE c.uid = $1 AND c.recipient_agent_id = $2 AND coalesce(c.extra->>'revoked', '') <> 'true'",
+            &[&child, &q],
+        )
+        .await?
+        .map(|r| (q, r.get(0))))
 }
 
 /// After commit: tell the projects' desks, then hand the jobs out (D8). Unwatched projects get the same
@@ -375,7 +398,7 @@ pub(super) async fn reply_right_tx(client: &impl tokio_postgres::GenericClient, 
                               SELECT a.id, a.parent_id FROM ot.agents a WHERE a.id = $3
                               UNION
                               SELECT a.id, a.parent_id FROM ot.agents a JOIN up ON a.id = up.parent_id)
-                            SELECT 1 FROM up WHERE up.id = j.recipient_agent_id) AS member
+                            SELECT 1 FROM up WHERE up.id = j.recipient_agent_id) AS member, j.extra->>'revoked'
                FROM ot.mail j JOIN ot.agents p ON p.id = j.recipient_agent_id AND p.kind = 'project' AND p.state = 'live'
               WHERE j.org_id=$1 AND j.uid=$2 AND j.extra ? 'org_inbox' FOR SHARE OF j",
             &[&org, &job, &agent],
@@ -384,11 +407,12 @@ pub(super) async fn reply_right_tx(client: &impl tokio_postgres::GenericClient, 
     else {
         return Ok(Reply::Refused);
     };
-    let (state, claim, member): (String, Option<Value>, bool) = (j.get(0), j.get(1), j.get(2));
+    let (state, claim, member, revoked): (String, Option<Value>, bool, Option<String>) = (j.get(0), j.get(1), j.get(2), j.get(3));
     let claim = claim.unwrap_or(Value::Null);
     let held = state == "read" && claim["by_id"].as_i64() == Some(agent);
     let open = claim["ack"] != true || claim["acked_at"].is_null();
-    Ok(if held && open && member { Reply::Allowed(job) } else { Reply::Refused })
+    // R5: a job the user took back from its relay keeps its worker, but not the reply right
+    Ok(if held && open && member && revoked.as_deref() != Some("true") { Reply::Allowed(job) } else { Reply::Refused })
 }
 
 /// Inside the send's own transaction: the right the early check found must still hold, and is now locked.
@@ -527,6 +551,15 @@ pub(crate) async fn follow_up_plain(tx: &Transaction<'_>, org: i64, project: &cr
         return Ok(None);
     }
     let claim = claim.unwrap_or(Value::Null);
+    // R9/GR6: a relayed job's follow-up follows the child into the relaying project, the sender's own mail there
+    if let Some(rt) = tx.query_opt("SELECT extra FROM ot.mail WHERE org_id=$1 AND uid=$2", &[&org, &job]).await? {
+        let extra: Value = rt.get(0);
+        if let Some((q, qname)) = relayed_to(tx, &extra).await? {
+            let child = extra["relayed_to"]["job"].as_str().unwrap_or_default().to_string();
+            let qp = crate::domain::projects::Project { id: q, name: qname, state: "live".into() };
+            return Box::pin(follow_up_plain(tx, org, &qp, out, mail_uid, sender, generation, &child)).await;
+        }
+    }
     let name = out.from.name();
     if state == "pending" {
         tx.execute(

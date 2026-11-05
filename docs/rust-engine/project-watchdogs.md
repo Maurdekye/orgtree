@@ -106,3 +106,22 @@ not part of the duplicate key (D16). `list` rows and `orgtree_project listeners`
 `runtime/watchdogs/project_tests.rs` (T1-T21, PF1-PF16; synthetic PG `projdogs_fixture`, env
 `ORGTREE_PROJDOGS_TEST_URL`/`ORGTREE_PROJDOGS_TEST_ROOT`, `--include-ignored --test-threads=1`; T14 uses the
 in-process websocket test server), renderer `tests/projectwatchdogs.test.tsx` (R1-R5).
+
+## Relay: a project listens to another project's queue (2026-11-05)
+
+USER 2026-11-04 16:10:28Z m8bb8c9368e2d. Spec: @stream-plan-opus `project-relay-spec.md` rev 1.4 (R1-R11). Code:
+`domain/projects/relay.rs`, `hand_batch_in` (relay watchers take their turn like any listener), tests
+`domain/orginbox_relay_tests.rs`.
+
+- A project-owned `fair_queue` (owner Q, `memo.target_id` P, `project_delivery` queue) hands each job of P into Q's own queue
+  as a child job: sender/body/org_inbox copied, `extra.relayed_from {project,job,dog,chain}`. P's job is claimed `by_project`
+  (never `by_id`/`by_user`) and gets `relayed_to`; its bundled follow-ups travel as follow-ups of the child.
+- Custody (R5): P's job is ACKed (`acked_by` "relay Q") when the child's custody ends (Q ACK mode: the ACK; Q round-robin: the
+  hand-out; recursive up a chain). A dead-lettered child dead-letters the job. Taking the job back marks the child `revoked`
+  (`job_open`/`reply_right_tx` refuse a revoked job) and withdraws it if still waiting. A retired Q gives its claims back at P's
+  next `release_stale`. `by_project` claims never time out.
+- R6/R7: eligible only while Q holds fewer than `batch` (default 5) unclaimed jobs, counted under Q's row lock; refused at
+  create when it closes a relay loop; at run time skipped for a job whose chain holds Q or has 8 entries.
+- D14 (`follow_up`, `follow_up_plain`) recurses from a relayed job into its child while the relay's claim is open.
+- Not done: display of the holder as "project @Q (relay)" on the desk (R10) is left to the renderer stage; the take-back of a
+  job whose project is round-robin has no outstanding claim to take.

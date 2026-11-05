@@ -567,6 +567,8 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         crate::domain::projects::record_ending(&*tx, org.id, project.id, orig_uid, claimed, sender_agent,
             &out.from.name(), "acked", None, attempt, Some(mail_uid.as_str())).await?;
         crate::domain::projects::free_listener(&*tx, sender_agent, claimed).await?;
+        // R5: the job this one was relayed from is done too (a no-op for any other job)
+        crate::domain::projects::settle_relayed(&*tx, org.id, orig_uid).await?;
         super::mention_navigation::record_mail(&*tx,org.id,&mail_uid,&out.body,out.urgent_reason.as_deref()).await?;
         tx.commit().await?;
         drop(client);
@@ -574,6 +576,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         changes::notify(engine, org, vec![Change::Mailbox(project.id), Change::Mailbox(sender_agent.unwrap_or_default()),
             Change::Spark { from: out.from.spark(), to: project.name.clone() }]);
         let handed = crate::domain::projects::dispatch(engine, org.id, project.id).await?;
+        crate::domain::projects::dispatch_relayed_parent(engine, org.id, &orig_uid).await;
         let next = handed.iter().find(|h| h.watcher == me).map(|h| h.copy.clone());
         let delivery = match next {
             Some(c) => format!("Ack recorded for {} in project {}'s mailbox; it handed you the next mail, {c}.", replied.unwrap_or_default(), project.name),
@@ -693,6 +696,12 @@ async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domai
     nudge.grant_reply_audience = false;
     Box::pin(send(engine, org_id, nudge)).await?;
     Ok(unwatched_note(&project.name, &Nudge::Woke(name)))
+}
+
+/// A relay put a job into `project`'s queue and nobody there could take it: the nudge a watchdog's queued job gets (spec F5).
+#[logged]
+pub(crate) async fn nudge_relayed(engine: &Arc<Engine>, org_id: i64, project: &crate::domain::projects::Project) -> Result<String> {
+    nudge_project(engine, org_id, project, Some(&format!("{}/relay", project.name))).await
 }
 
 /// A bare recipient is resolved only when no internal agent has that name.

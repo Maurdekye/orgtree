@@ -303,6 +303,31 @@ async fn rl10_agent_mail_is_relayed_as_a_plain_job_and_its_worker_replies_to_the
     let _ = q;
 }
 
+/// RL11: the user takes J back from P's desk while W holds the child: J is pending in P again, the child is revoked, W's outside
+/// reply is refused.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl11_taking_the_job_back_from_the_relay_revokes_the_childs_reply_right() {
+    let (mut w, p, _q, worker) = rig(true, true, 5).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    let child = w.child(&job).await;
+    let (copy, _) = w.copy_of(worker, &child).await;
+    let row: i64 = w.c.query_one("SELECT id FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
+    let tx = w.c.transaction().await.unwrap();
+    assert!(projects::relay_take_back(&tx, w.org, p, row, "had it taken back by the user").await.unwrap());
+    tx.commit().await.unwrap();
+    let state: String = w.c.query_one("SELECT state FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
+    let ex = w.extra(&job).await;
+    assert_eq!(state, "pending", "J is back in P's queue");
+    assert!(ex.get("claimed").is_none() && ex.get("relayed_to").is_none(), "{ex}");
+    assert_eq!(w.extra(&child).await["revoked"], json!(true));
+    let out = reply_from(worker, "W", "@net:bob.1", "late", &copy, "@net:bob.1");
+    assert!(matches!(jobs::reply_right(&w.e, w.org, worker, &out).await.unwrap(), jobs::Reply::Refused), "revoked: W keeps the job, not the right");
+}
+
 /// RL12: Q is retired with an outstanding relay claim: at P's next release the job goes back to P's queue.
 #[tokio::test]
 #[ignore = "requires an isolated orginbox_queue_fixture database"]

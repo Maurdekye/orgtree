@@ -32,6 +32,30 @@ use crate::domain::user_regs::USER;
 
 #[cfg(test)]
 mod claim_boundary_tests;
+mod relay;
+pub use relay::{relay_loop, RELAY_BATCH};
+pub(crate) use relay::settle as settle_relayed;
+
+/// The user took a job back from its relay (R5): the child is revoked and the job returns to the front of the queue.
+#[logged]
+pub async fn relay_take_back(tx: &impl GenericClient, org_id: i64, project: i64, row: i64, why: &str) -> Result<bool> {
+    relay::take_back(tx, org_id, project, row, why, "taken_back").await
+}
+
+/// After a relayed job's ACK settled the job it was relayed from, the parent project has room again: run its queue.
+#[logged]
+pub(crate) async fn dispatch_relayed_parent(engine: &Arc<Engine>, org_id: i64, child: &str) {
+    let parent = async {
+        let client = engine.db.get().await?;
+        let r = client.query_opt("SELECT (extra->'relayed_from'->>'project')::bigint FROM ot.mail WHERE uid = $1", &[&child]).await?;
+        anyhow::Ok(r.and_then(|r| r.get::<_, Option<i64>>(0)))
+    };
+    if let Ok(Some(p)) = parent.await {
+        if let Err(e) = Box::pin(dispatch(engine, org_id, p)).await {
+            tracing::warn!(error = %format!("{e:#}"), "running the parent queue after a relayed ack failed");
+        }
+    }
+}
 mod credit_settlement;
 #[cfg(test)]
 mod credit_scale_tests;
@@ -335,6 +359,8 @@ pub struct Watcher {
     pub remaining: usize,
     /// when its last job ended (acked or taken back): `memo.run.freed_at`
     pub freed_at: Option<DateTime<Utc>>,
+    /// a project's relay into its own queue (`owner` is that project; relay spec R1)
+    pub relay: bool,
 }
 
 impl Watcher {
@@ -403,6 +429,8 @@ struct Step {
     notice: bool,
     dog_row: i64,
     spent: bool,
+    /// the project this step relayed a job into (its queue runs next; nobody is woken)
+    relayed: Option<i64>,
 }
 
 /// Hand the project's waiting mail out: oldest first, bounded assignment
@@ -415,12 +443,38 @@ struct Step {
 pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Vec<Handed>> {
     release_stale(engine, org_id, project).await?;
     let mut out = Vec::new();
+    let mut relayed: Vec<i64> = Vec::new();
     while out.len() < DISPATCH_BATCH {
         let steps = hand_batch(engine, org_id, project, (DISPATCH_BATCH - out.len()).min(64)).await?;
         if steps.is_empty() { break; }
+        relayed.extend(steps.iter().filter_map(|s| s.relayed));
         out.extend(notify_handed(engine, org_id, project, steps));
     }
+    relay_on(engine, org_id, relayed).await?;
     Ok(out)
+}
+
+/// R4: after a relay committed jobs into other projects' queues, those queues run next (their workers get the jobs) and,
+/// when nobody could take the first waiting job, the same nudge a user post gets (spec F5, the 0 -> 1 rule).
+#[logged]
+async fn relay_on(engine: &Arc<Engine>, org_id: i64, mut targets: Vec<i64>) -> Result<()> {
+    targets.sort_unstable();
+    let counts: Vec<(i64, usize)> = targets.chunk_by(|a, b| a == b).map(|c| (c[0], c.len())).collect();
+    for (q, n) in counts {
+        let handed = Box::pin(dispatch(engine, org_id, q)).await?;
+        let client = engine.db.get().await?;
+        let waiting: i64 = client.query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' AND NOT (extra ? 'bundled_with')", &[&q]).await?.get(0);
+        if handed.is_empty() && waiting as usize == n && !watched(&**client, org_id, q).await? {
+            if let Some(p) = client.query_opt("SELECT id, name, state FROM ot.agents WHERE id = $1 AND kind = 'project'", &[&q]).await? {
+                let project = Project { id: p.get(0), name: p.get(1), state: p.get(2) };
+                drop(client);
+                if let Err(e) = Box::pin(crate::domain::mail::nudge_relayed(engine, org_id, &project)).await {
+                    tracing::warn!(project = %project.name, error = %format!("{e:#}"), "nudging a relayed-into project failed");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Publish committed queue changes. A create-time candidate (row 0) has
@@ -439,6 +493,12 @@ fn notify_handed(engine: &Arc<Engine>, org_id: i64, project: i64, steps: Vec<Ste
             }
             if step.spent {
                 crate::runtime::watchdogs::disarm(engine, step.dog_row);
+            }
+            if let Some(q) = step.relayed {
+                // a relay hands a job to a queue, not to an agent: nobody is woken here
+                changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(q), Change::Watchdogs]);
+                out.push(step.handed);
+                continue;
             }
             let mut ch = vec![Change::Mailbox(project), Change::Watchdogs,
                 Change::Spark { from: step.project.clone(), to: step.handed.watcher.clone() }];
@@ -487,7 +547,7 @@ pub async fn take_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: i
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let candidate = Watcher { row: 0, uid: dog.to_string(), owner: Some(owner), owner_name: name.to_string(),
-        last_fired: None, created_at: Utc::now(), once: true, notice: false, remaining: batch, freed_at: None };
+        last_fired: None, created_at: Utc::now(), once: true, notice: false, remaining: batch, freed_at: None, relay: false };
     let steps = hand_batch_in(&*tx, org_id, project, 64, Some(candidate)).await?;
     let copies: Vec<String> = steps.iter().filter(|s| s.dog_row == 0).map(|s| s.handed.copy.clone()).collect();
     if copies.is_empty() { return Ok(None); }
@@ -586,9 +646,12 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
                 notice: r.get(7),
                 remaining: batch_size(&memo).saturating_sub(if ack { r.get::<_, i64>(9) as usize } else { 0 }),
                 freed_at: memo["run"]["freed_at"].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc)),
+                relay: false,
             });
         }
     }
+    // R1/R6: project relays into their own queues take their turn like any other listener
+    eligible.extend(relay::eligible(tx, org_id, project).await?);
     if let Some(mut candidate) = inline {
         let owner = candidate.owner.unwrap();
         if tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE kind='fair_queue' AND owner_agent_id=$1 AND state IN ('armed','paused') AND (memo->>'target_id')::bigint=$2 LIMIT 1", &[&owner,&project]).await?.is_some() {
@@ -615,7 +678,8 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
     let waiting = tx
         .query(
             "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
-                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from', extra->'one_time', extra ? 'org_inbox'
+                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from', extra->'one_time', extra ? 'org_inbox',
+                    extra->'relayed_from', extra->'org_inbox'
                FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
                  AND (NOT $2 OR EXISTS (SELECT 1 FROM unnest($3::bigint[]) AS o(id) WHERE sender_agent_id IS DISTINCT FROM o.id)
                       OR ($4 AND sender <> '@user'))
@@ -630,7 +694,9 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         let sender_name: String = m.get(2);
         // outside mail (extra.org_inbox) is never handed to the user's desk listener: the desktop can't reply outside
         let outside: bool = m.get(19);
-        let others: Vec<Watcher> = eligible.iter().filter(|w| (!skip_own || !is_sender(w, sender, &sender_name)) && !(outside && w.owner.is_none())).cloned().collect();
+        let relayed_from: Option<Value> = m.get(20);
+        let others: Vec<Watcher> = eligible.iter().filter(|w| (!skip_own || !is_sender(w, sender, &sender_name)) && !(outside && w.owner.is_none())
+            && (!w.relay || relay::may_relay(&relayed_from, w.owner.unwrap_or_default()))).cloned().collect();
         // a mail the user took back from a holder goes to someone else first
         let taken_from: Vec<i64> = m.get::<_, Option<Value>>(17).and_then(|v| v.as_array().cloned()).unwrap_or_default()
             .iter().filter_map(Value::as_i64).collect();
@@ -642,6 +708,29 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         let copy = uid("m");
         // since when this listener waited for it (its Waited on the desk)
         let waited_from = w.waiting_since();
+        if w.relay {
+            // R4: the child job goes into the relaying project's own queue; this is not a hand-out to an agent
+            let child = relay::hand(tx, org_id, project, &pname, ack, &w, m, waited_from).await?;
+            if !ack && relayed_from.is_some() {
+                // round-robin custody ends at the hand-out (R5): the job this one was relayed from is done
+                relay::settle(tx, org_id, &mail_uid).await?;
+            }
+            let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("relayed to project {}: {body}", w.owner_name), 200) }]);
+            let served: DateTime<Utc> = tx.query_one(
+                "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = clock_timestamp(),
+                        events = (SELECT coalesce(jsonb_agg(x ORDER BY n), '[]'::jsonb) FROM (
+                            SELECT x, n FROM jsonb_array_elements(events || $2) WITH ORDINALITY AS e(x, n) ORDER BY n DESC LIMIT $3) s)
+                  WHERE id = $1 RETURNING last_fired", &[&w.row, &ring, &EVENTS_KEEP]).await?.get(0);
+            if let Some(next) = eligible.iter_mut().find(|next| next.row == w.row) {
+                next.remaining -= 1;
+                next.last_fired = Some(served);
+            }
+            steps.push(Step {
+                handed: Handed { mail: mail_uid, copy: child, watcher: w.owner_name.clone(), dog: w.uid.clone() },
+                project: pname.clone(), watcher_id: None, notice: true, dog_row: w.row, spent: false, relayed: w.owner,
+            });
+            continue;
+        }
         let mut via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
                                             "waited_from": iso(waited_from) } });
         if m.get::<_,Option<Value>>(18).is_some_and(|v|v==true) { via["one_time"]=json!(true); }
@@ -728,6 +817,10 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             next.remaining -= 1;
             next.last_fired = Some(served);
         }
+        if !ack && relayed_from.is_some() {
+            // round-robin custody ends at the hand-out (R5): the job this one was relayed from is done
+            relay::settle(tx, org_id, &mail_uid).await?;
+        }
         steps.push(Step {
             handed: Handed { mail: mail_uid, copy, watcher: w.owner_name.clone(), dog: w.uid.clone() },
             project: pname.clone(),
@@ -735,6 +828,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             notice,
             dog_row: w.row,
             spent: w.once,
+            relayed: None,
         });
     }
     // A one-shot accepts its whole available batch; becoming spent is atomic
@@ -873,14 +967,25 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     let held = client
         .query(
             &format!("SELECT m.id, (m.extra->'claimed'->>'by_id')::bigint, m.extra->'claimed'->>'by', m.extra->'claimed'->>'copy',
-                             coalesce(m.extra->'claimed'->>'dog', ''), m.extra->'claimed'->>'inline'='true'
+                             coalesce(m.extra->'claimed'->>'dog', ''), m.extra->'claimed'->>'inline'='true',
+                             (m.extra->'claimed'->>'by_project')::bigint
                         FROM ot.mail m WHERE m.recipient_agent_id = $1 AND {OUTSTANDING} ORDER BY m.id LIMIT 200"),
             &[&project],
         )
         .await?;
     let mut gone = Vec::new();
+    let mut retired_relays: Vec<(i64, String)> = Vec::new();
     for h in &held {
         let (row, holder): (i64, Option<i64>) = (h.get(0), h.get(1));
+        // R5: a relay claim has no agent holder and never times out; it ends with the child's custody, unless the
+        // relaying project was retired (the only stale case for `by_project`)
+        if let Some(q) = h.get::<_, Option<i64>>(6) {
+            let live = client.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND kind = 'project' AND state = 'live'", &[&q]).await?.is_some();
+            if !live {
+                retired_relays.push((row, h.get::<_, Option<String>>(2).unwrap_or_default()));
+            }
+            continue;
+        }
         let Some(holder) = holder else { continue };
         let a = client.query_opt("SELECT state, halt IS NOT NULL, frozen IS NOT NULL FROM ot.agents WHERE id = $1", &[&holder]).await?;
         let reach = reaches(&**client, holder, project).await? || granted_dog(&**client, holder, project, &h.get::<_, String>(4)).await?;
@@ -908,6 +1013,16 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     }
     drop(client);
     let mut released = Vec::new();
+    for (row, qname) in retired_relays {
+        let mut c = engine.db.get().await?;
+        let tx = c.transaction().await?;
+        tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
+        let why = format!("the relaying project {qname} was retired");
+        if relay::take_back(&*tx, org_id, project, row, &why, "failed").await? {
+            tx.commit().await?;
+            released.push(format!("relay {qname}"));
+        }
+    }
     for (row, holder, by, why, copy) in gone {
         let taken = reclaim(engine, org_id, project, row, holder, &by, why, "released", copy.as_deref()).await?;
         if let Some(dead) = taken {
@@ -1038,6 +1153,8 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
             &[&row, &by, &holder, &why, &attempts, &how],
         )
         .await?;
+        // R5: a relayed job that dead-letters here dead-letters the job it came from too
+        relay::dead_lettered(tx, org_id, &uid, &pname).await?;
     } else {
         tx.execute(
             &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
@@ -1971,7 +2088,7 @@ mod tests {
     }
 
     fn w(row: i64, last: Option<i64>, created: i64) -> Watcher {
-        Watcher { row, uid: format!("q{row}"), owner: Some(row * 10), owner_name: format!("a{row}"), last_fired: last.map(at),
+        Watcher { relay: false, row, uid: format!("q{row}"), owner: Some(row * 10), owner_name: format!("a{row}"), last_fired: last.map(at),
                   created_at: at(created), once: false, notice: false, remaining: 1, freed_at: None }
     }
 

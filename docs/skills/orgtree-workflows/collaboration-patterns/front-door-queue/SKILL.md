@@ -39,6 +39,8 @@ A worker replies with `orgtree_message to=<the outside sender> reply_to=<the job
 
 Internal mail works the same way: a worker answers the agent or user that sent the job, and that sender's follow-ups reach the same worker while the job is open (the job route, `orgtree-tool-message`).
 
+A front door can feed team projects through relays: each team project Q relays the front door P (`create kind=fair_queue project=Q target=P`), so P's jobs are spread across teams while P stays the one address outsiders know.
+
 ## When to choose it
 
 - Many similar, independent requests: support, intake, triage.

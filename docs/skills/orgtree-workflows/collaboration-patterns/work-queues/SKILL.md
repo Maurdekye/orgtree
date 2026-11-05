@@ -69,6 +69,10 @@ For exact load-balancer/FIFO job, acknowledgement, retry/dead-letter and signal-
 
 Whoever holds a job may reply to its sender, and the sender may answer back, without any other audience (the job route; see `orgtree-tool-message`). A sender's follow-up that names its own earlier mail to the project is bundled with the pending job, or goes straight to the holder while the job is un-ACKed; after the ACK it is a new job.
 
+## Chains of queues
+
+A project can listen to another project's queue (a relay: `orgtree_watchdog create kind=fair_queue project=Q target=P`). Each job it takes becomes a job in Q's own queue, with the original sender, so P can be a thin front door and Q a team. Replies, ACK and follow-ups run through the chain to the final worker; a loop is refused (see `orgtree-tool-watchdog`).
+
 ## Recipe
 
 1. Create the project and hire the workers under it; put the job's standing instructions in the project's Summary (`description` setting; it is every worker's standing charter).
