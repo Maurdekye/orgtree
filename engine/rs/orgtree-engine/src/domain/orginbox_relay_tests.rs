@@ -461,3 +461,17 @@ async fn rl16_a_relay_target_edit_waits_for_its_outstanding_jobs_and_refuses_loo
     let e = crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "Q" })).await.expect_err("self");
     assert!(format!("{e:#}").contains("cannot relay into itself"), "{e:#}");
 }
+
+/// R1 on configure: the options create refuses for a relay are refused when editing it, too.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl17_configure_keeps_a_relay_a_queue_dog_without_once_or_notice() {
+    let (w, p, q, _worker) = rig(true, true, 5).await;
+    let id = format!("Q/relay{q}{p}");
+    for bad in [json!({ "project_delivery": "event" }), json!({ "project_delivery": "broadcast" }), json!({ "once": true }), json!({ "notice": true })] {
+        let e = crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &bad).await.expect_err("refused");
+        assert!(format!("{e:#}").contains("relay"), "{bad}: {e:#}");
+    }
+    crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "batch": 3 })).await.expect("a batch edit is fine");
+}
