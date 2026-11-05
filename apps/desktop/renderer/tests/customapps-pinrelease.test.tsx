@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {AppsWorkspace} from '../src/canvas/apps/ui'
 import {invalidateCustomApps} from '../src/canvas/apps/store'
+import {resizePlacement} from '../src/canvas/apps/placement'
 
 // USER 2026-10-27 m061e2860fd9b: "when i drag and release a pinned app panel, it
 // briefly flickers back to its initial pre-drag positon for 1 frame before
@@ -111,4 +112,35 @@ for(const kind of ['move','size'] as const)test(`lost pointer capture cancels a 
  assert.deepEqual(rectOf(frame()),FROM,'losing capture restores the committed placement')
  await inAct(async()=>{handle.dispatchEvent(pointer('pointerup',300,185));await tick()})
  assert.equal(f.calls.filter(c=>c.action==='panel_update'&&c.placement).length,0,'the cancelled gesture never commits')
+})
+
+// EVERY EDGE AND CORNER RESIZES (@item:orgtree/app-panels-can-t-be-resized-by-dragging-their-ed, USER 2026-11-05 14:20:45Z
+// mc2f4ccd62129: "i cant drag from the edges of app panels to resize them"): the panel had one 15px grip at its south-east
+// corner; the pinned desks and settings have eight handles. Drag by (+30,+20) from pinned 120,80 400x300.
+const EXPECT:Record<string,[string,string,string,string]>={
+ e:['120px','80px','430px','300px'], w:['150px','80px','370px','300px'],
+ s:['120px','80px','400px','320px'], n:['120px','100px','400px','280px'],
+ se:['120px','80px','430px','320px'], ne:['120px','100px','430px','280px'],
+ nw:['150px','100px','370px','280px'], sw:['150px','80px','370px','320px']}
+for(const edge of Object.keys(EXPECT))test(`dragging the ${edge} handle of a pinned app panel resizes it and saves the size`,async t=>{
+ const slug='resize-edge-'+edge,f=fixture(t,slug,[pinned('one')])
+ const view=await mountView(<AppsWorkspace slug={slug}/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
+ const h=frame().querySelector<HTMLElement>(`[data-resize-edge="${edge}"]`)
+ assert.ok(h,`the ${edge} handle exists`)
+ await inAct(async()=>{h.dispatchEvent(pointer('pointerdown',500,400));h.dispatchEvent(pointer('pointermove',530,420));await tick()})
+ assert.deepEqual(rectOf(frame()),EXPECT[edge],'previewing')
+ await inAct(async()=>{h.dispatchEvent(pointer('pointerup',530,420));await tick()})
+ const saved=f.calls.filter(c=>c.action==='panel_update'&&c.placement)
+ assert.equal(saved.length,1,'one save')
+ const[x,y,w,hh]=EXPECT[edge].map(v=>parseInt(v))
+ assert.deepEqual([saved[0]!.placement.x,saved[0]!.placement.y,saved[0]!.placement.width,saved[0]!.placement.height],[x,y,w,hh])
+})
+
+test('the resize rule: the dragged side follows the pointer, the minimum pins the opposite side, a centered panel grows both ways',()=>{
+ const p={x:120,y:80,width:400,height:300}
+ assert.deepEqual(resizePlacement(p,'w',500,0,false),{x:360,y:80,width:160,height:300},'shrunk to the minimum from the west: the east edge stays at 520')
+ assert.deepEqual(resizePlacement(p,'n',0,500,false),{x:120,y:260,width:400,height:120},'and from the north: the south edge stays at 380')
+ assert.deepEqual(resizePlacement(p,'e',9999,0,false).width,4096,'capped')
+ assert.deepEqual(resizePlacement(p,'e',30,0,true),{x:120,y:80,width:460,height:300},'centered: twice the pointer, x untouched')
+ assert.deepEqual(resizePlacement(p,'nw',-30,-20,true),{x:120,y:80,width:460,height:340},'centered west/north grow outwards too')
 })
