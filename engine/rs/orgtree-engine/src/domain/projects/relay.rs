@@ -39,17 +39,22 @@ pub(super) async fn eligible(tx: &impl GenericClient, org_id: i64, project: i64)
                FROM ot.watchdogs w JOIN ot.agents q ON q.id = w.owner_agent_id AND q.kind = 'project' AND q.state = 'live'
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.owner_kind = 'project' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2
-              ORDER BY w.last_fired NULLS FIRST, w.created_at, w.id LIMIT 16 FOR UPDATE OF w",
+              ORDER BY w.last_fired NULLS FIRST, w.created_at, w.id LIMIT 16",
             &[&org_id, &project],
         )
         .await?;
     let mut out = Vec::new();
     for r in &rows {
         let q: i64 = r.get(2);
-        let memo: Value = r.get(6);
+        // lock order P (held by the caller) -> Q -> the dog, as configure takes Q -> the dog (R3 rule 7)
         if tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND kind = 'project' AND state = 'live' FOR NO KEY UPDATE", &[&q]).await?.is_none() {
             continue;
         }
+        // the dog, re-read under its lock: an edit that moved its target or paused it since the list above skips this pick
+        let Some(again) = tx.query_opt(
+            "SELECT memo FROM ot.watchdogs WHERE id = $1 AND state = 'armed' AND (memo->>'target_id')::bigint = $2 FOR UPDATE",
+            &[&r.get::<_, i64>(0), &project]).await? else { continue };
+        let memo: Value = again.get(0);
         let waiting: i64 = tx
             .query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' AND NOT (extra ? 'bundled_with')", &[&q])
             .await?
@@ -187,6 +192,9 @@ pub(crate) async fn settle(tx: &impl GenericClient, org_id: i64, child: &str) ->
 /// without being requeued (that could loop it back into the same relay).
 #[logged]
 pub(crate) async fn dead_lettered(tx: &impl GenericClient, org_id: i64, child: &str, qname: &str) -> Result<()> {
+    // R5b: every ancestor up the chain dead-letters, the reason naming where it actually died
+    let mut child = child.to_string();
+    for _ in 0..=RELAY_DEPTH {
     let Some(c) = tx.query_opt("SELECT extra->'relayed_from' FROM ot.mail WHERE uid = $1", &[&child]).await? else { return Ok(()) };
     let Some(rf) = c.get::<_, Option<Value>>(0) else { return Ok(()) };
     let (Some(p), Some(job)) = (rf["project"].as_i64(), rf["job"].as_str().map(str::to_string)) else { return Ok(()) };
@@ -213,6 +221,8 @@ pub(crate) async fn dead_lettered(tx: &impl GenericClient, org_id: i64, child: &
     )
     .await?;
     record_ending(tx, org_id, p, &job, &claimed, claimed["by_project"].as_i64(), &by, "dead_letter", Some(&why), attempts, None).await?;
+    child = job;
+    }
     Ok(())
 }
 
@@ -234,14 +244,23 @@ pub async fn take_back(tx: &impl GenericClient, org_id: i64, project: i64, row: 
     let (uid, attempts, claimed): (String, i64, Value) = (m.get(0), m.get(1), m.get(2));
     let (Some(q), Some(child)) = (claimed["by_project"].as_i64(), claimed["copy"].as_str().map(str::to_string)) else { return Ok(false) };
     let qname = claimed["by"].as_str().unwrap_or("?").to_string();
-    // the child: revoked; a still-waiting one leaves the relaying project's queue (and its bundled follow-ups with it)
-    tx.execute("UPDATE ot.mail SET extra = extra || '{\"revoked\": true}'::jsonb WHERE uid = $1", &[&child]).await?;
-    tx.execute(
-        "UPDATE ot.mail SET state = 'read', read_at = now(), extra = extra || jsonb_build_object('withdrawn', jsonb_build_object('why', $2::text, 'at', now()))
-          WHERE uid = $1 AND state = 'pending'",
-        &[&child, &why],
-    )
-    .await?;
+    // every descendant: revoked (R5b). A still-waiting one leaves its queue; a middle job's relay claim ends; a worker that
+    // holds the last one keeps its copy and loses the reply right
+    let mut cur = child.clone();
+    for _ in 0..=RELAY_DEPTH {
+        let Some(d) = tx.query_opt("SELECT state, extra->'claimed'->>'by_project', extra->'relayed_to'->>'job' FROM ot.mail WHERE uid = $1 FOR UPDATE", &[&cur]).await? else { break };
+        let (state, middle, next): (String, Option<String>, Option<String>) = (d.get(0), d.get(1), d.get(2));
+        tx.execute("UPDATE ot.mail SET extra = extra || '{\"revoked\": true}'::jsonb WHERE uid = $1", &[&cur]).await?;
+        if state == "pending" || middle.is_some() {
+            tx.execute(
+                "UPDATE ot.mail SET state = 'read', read_at = coalesce(read_at, now()), extra = (extra - 'claimed') || jsonb_build_object('withdrawn', jsonb_build_object('why', $2::text, 'at', now()))
+                  WHERE uid = $1",
+                &[&cur, &why],
+            )
+            .await?;
+        }
+        match next { Some(n) => cur = n, None => break }
+    }
     let ended = closed_attempt("m.extra", "$4::text", "$3::text");
     tx.execute(
         &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
