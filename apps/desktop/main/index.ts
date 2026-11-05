@@ -42,7 +42,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
 import { STALL_LOG, StallLog } from './stall-log'
-import { IpcTracker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
+import { IpcTracker, LazyStackWorker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
 import type { IpcLike } from './stall-probe'
 import { MAIN_STACK_WORKER_SOURCE } from './stall-worker-source'
 import { Worker } from 'node:worker_threads'
@@ -510,22 +510,24 @@ else {
     const stackStore = new MainStackStore()
     const heartbeat = new Float64Array(new SharedArrayBuffer(8))
     heartbeat[0] = Date.now()
-    stallSync = (channel, ms) => stallLog.write('sync-ipc', { ms, channel })
-    stallWindowOf = event => { try { return resolveNativeSender(event as never, windows, engine.origin).id } catch { return '' } }
-    ipcMain.on('diag:stall', (event, record) => {
-      const id = stallWindowOf?.(event) ?? ''
-      if (id) stallLog.write('renderer-loaf', record, { id, org: windows.get(id)?.kind === 'org' })
-    })
-    try {
+    // the main-stack worker is a whole isolate (about 8 MB): it starts on the first stall signal, not at launch (LazyStackWorker)
+    const stackWorker = new LazyStackWorker({ setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: h => clearTimeout(h as NodeJS.Timeout), spawn: () => {
       const worker = new Worker(MAIN_STACK_WORKER_SOURCE, { eval: true, workerData: { sab: heartbeat.buffer } })
       worker.on('message', (m: { at: number; stack: string | string[] }) => stackStore.put(m.at, m.stack))
       worker.on('error', () => { /* best effort: main_stack stays unavailable */ })
       worker.unref()
-    } catch { /* no worker: main_stack stays unavailable */ }
+      return { stop: () => { void worker.terminate() } }
+    } })
+    stallSync = (channel, ms) => { stackWorker.wake(); stallLog.write('sync-ipc', { ms, channel }) }
+    stallWindowOf = event => { try { return resolveNativeSender(event as never, windows, engine.origin).id } catch { return '' } }
+    ipcMain.on('diag:stall', (event, record) => {
+      const id = stallWindowOf?.(event) ?? ''
+      if (id) { stackWorker.wake(); stallLog.write('renderer-loaf', record, { id, org: windows.get(id)?.kind === 'org' }) }
+    })
     new MainLagProbe({ now: Date.now, setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
       mainStack: (from, to) => stackStore.near(from, to), beat: t => { heartbeat[0] = t },
       // the worker's stack arrives as a message once main runs again: give it a moment, then write
-      report: r => { setTimeout(() => stallLog.write('main-lag', { ...r, main_stack: stackStore.near(r.at_ms, r.at_ms + r.lag_ms) }), 50) },
+      report: r => { stackWorker.wake(); setTimeout(() => stallLog.write('main-lag', { ...r, main_stack: stackStore.near(r.at_ms, r.at_ms + r.lag_ms) }), 50) },
     }).start()
     stallPing.start()
   }

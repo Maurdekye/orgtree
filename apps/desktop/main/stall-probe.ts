@@ -112,6 +112,34 @@ export class MainLagProbe {
   }
 }
 
+// ---------------------------------------------------------------- lazy main-stack worker
+export interface LazyWorkerDeps {
+  setTimeout: (fn: () => void, ms: number) => unknown
+  clearTimeout: (h: unknown) => void
+  /** creates the worker thread; the returned handle stops it */
+  spawn: () => { stop: () => void }
+  idleMs?: number
+}
+/** The main-stack worker thread is a whole V8 isolate: measured about +8 MB resident in main (RP2, 2026-11-05). So it does not exist until
+ *  a stall signal (a main-lag record, a sync-IPC record, a renderer long frame) calls wake(), and it is stopped after 10 quiet minutes. The
+ *  stall that starts it has no main stack (`unavailable:none-captured`); a recurring stall does. A failed start is swallowed. */
+export class LazyStackWorker {
+  private handle: { stop: () => void } | null = null
+  private timer: unknown = null
+  constructor(private readonly d: LazyWorkerDeps) {}
+  wake(): void {
+    if (!this.handle) { try { this.handle = this.d.spawn() } catch { return } }
+    if (this.timer) this.d.clearTimeout(this.timer)
+    this.timer = this.d.setTimeout(() => this.sleep(), this.d.idleMs ?? 10 * 60_000)
+  }
+  private sleep(): void {
+    this.timer = null
+    const h = this.handle
+    this.handle = null
+    try { h?.stop() } catch { /* already gone */ }
+  }
+}
+
 // ---------------------------------------------------------------- renderer ping watchdog
 export interface PingPort { postMessage(message: unknown): void }
 export interface PingWindow {
