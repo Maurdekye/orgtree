@@ -34,7 +34,7 @@ Orgtree 4.5.5 lets projects own watchdogs, relay one project's queue into anothe
 
 - **Fold a subtree.** Right-click any agent or project with members and choose **Collapse subtree**. The branch leaves the canvas and the layout closes the gap. A small stack under the node shows its first children in their colours and how many are hidden: click it to unfold. A folded node still looks busy while any hidden member is working, and glows while any has a question or an unseen mention for you. The choice is saved per organization.
 - **Project icons and colours.** In Project settings, pick an icon from the built-in set or upload your own, and a theme colour. The icon replaces the folder wherever the project appears: on the canvas, its card and desk, @project links, the @ menu and the hire-under chip. The colour tints the project's node.
-- **More text is formatted.** Thoughts, slash-command output, compaction summaries, docket text, the project Summary, the tray's status summaries, answered questions and app descriptions now use the same formatting as Chat (Markdown, links, math).
+- **More text is formatted.** Thoughts, compaction summaries, docket text, the project Summary, the tray's status summaries, answered questions and app descriptions now use the same formatting as Chat (Markdown, links, math).
 - **Reply quotes are simpler.** A quoted reply block is itself the jump to the original, with no separate "jump to message" label, and quotes of agents' messages use the mail reply's frame.
 - **A desk open in another window** shows one compact "in another window" chip on its card.
 - **A selection in a transcript stays put** while new events arrive.
