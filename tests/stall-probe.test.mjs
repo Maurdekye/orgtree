@@ -217,6 +217,22 @@ test('ST13 the main-stack worker costs about 8 MB resident, so it is lazy: not s
   assert.equal(stopped.length, 1, '10 minutes after the last signal it is stopped')
   lazy.wake()
   assert.equal(spawned.length, 2, 'a later stall starts a fresh one')
-  const failing = new P.LazyStackWorker({ ...f, spawn: () => { throw new Error('no worker') } })
+  const failing = new P.LazyStackWorker({ ...f, startupGraceMs: 0, spawn: () => { throw new Error('no worker') } })
   assert.doesNotThrow(() => failing.wake(), 'a failed start is swallowed: main_stack stays unavailable')
+})
+
+test('ST14 startup grace: signals in the first 60 s do not start the worker (and say why); one at 61 s does', () => {
+  const f = fake(), spawned = []
+  const lazy = new P.LazyStackWorker({ ...f, spawn: () => { spawned.push(1); return { stop() {} } } })
+  f.advance(10_000)
+  assert.equal(lazy.inGrace(), true)
+  lazy.wake()
+  assert.equal(spawned.length, 0, 'a startup sync-IPC or lag at 10 s starts nothing')
+  f.advance(51_000)
+  assert.equal(lazy.inGrace(), false)
+  lazy.wake()
+  assert.equal(spawned.length, 1, 'at 61 s a stall signal starts it')
+  const early = new P.LazyStackWorker({ ...f, startupGraceMs: 0, spawn: () => { spawned.push(2); return { stop() {} } } })
+  early.wake()
+  assert.equal(spawned.length, 2, 'a zero grace (tests) wakes at once')
 })
