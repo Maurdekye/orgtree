@@ -531,7 +531,8 @@ else {
     stallWindowOf = event => { try { return resolveNativeSender(event as never, windows, engine.origin).id } catch { return '' } }
     ipcMain.on('diag:stall', (event, record) => {
       const id = stallWindowOf?.(event) ?? ''
-      if (id) { stackWorker.wake(); stallLog.write('renderer-loaf', withGpu(record), { id, org: windows.get(id)?.kind === 'org' }) }
+      if (id && (record as { src?: unknown } | null)?.src === 'attract') stallLog.write('attract', record, { id, org: windows.get(id)?.kind === 'org' })   // the attract trace: no stack worker, no GPU
+      else if (id) { stackWorker.wake(); stallLog.write('renderer-loaf', withGpu(record), { id, org: windows.get(id)?.kind === 'org' }) }
     })
     new MainLagProbe({ now: Date.now, setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
       mainStack: (from, to) => stackStore.near(from, to), beat: t => { heartbeat[0] = t },

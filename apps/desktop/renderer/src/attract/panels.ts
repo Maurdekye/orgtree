@@ -12,6 +12,7 @@
    open, took it for the user's, and left it up for good. `justClosed` carries
    what was closed in this same tick. */
 import type { AttractPanel } from './canvas'
+import { attractTrace } from './trace'
 
 export type PanelKind = 'inbox' | 'docket'
 
@@ -29,9 +30,9 @@ export function createAttractPanels(host: PanelHost): { apply: (panel: AttractPa
   const justClosed = new Set<PanelKind>()
   return {
     apply(panel) {
-      if (panel === 'release') { mine.clear(); return }
+      if (panel === 'release') { mine.clear(); attractTrace({ ev: 'release' }); return }
       if (!panel) {
-        for (const kind of mine) { host.close(kind); justClosed.add(kind) }
+        for (const kind of mine) { host.close(kind); justClosed.add(kind); attractTrace({ ev: 'panel', action: 'close', panel: kind, owned: true }) }
         mine.clear()
         // gone by the next turn of the event loop, long before the shell could show a user's reopening
         queueMicrotask(() => justClosed.clear())
@@ -41,6 +42,7 @@ export function createAttractPanels(host: PanelHost): { apply: (panel: AttractPa
       if (!mine.has(kind) && (justClosed.has(kind) || !host.isOpen(kind))) mine.add(kind)
       justClosed.delete(kind)
       host.show(kind, panel.kind === 'inbox' ? panel.mail : panel.item)
+      attractTrace({ ev: 'panel', action: 'open', panel: kind, owned: mine.has(kind) })
     },
   }
 }

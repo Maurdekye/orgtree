@@ -31,6 +31,7 @@
    idle tracker and the cycle hook; the canvas supplies the data and routes. */
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_ATTRACT_IDLE_SECONDS, useAttractIdleSeconds } from './pref'
+import { attractTrace } from './trace'
 
 /** "activates if no input for >5 minutes": the default; the user's setting
  *  (App settings > Display, pref.ts) replaces it and may be 0 */
@@ -270,6 +271,8 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
   const routesRef = useRef(routes)
   routesRef.current = routes
   const rngRef = useRef(rng)
+  /** why the run ended, for the trace: set by the canvas-interaction stop, otherwise disabled/unmounted */
+  const stopWhy = useRef<'canvas' | 'other'>('other')
   rngRef.current = rng
 
   // idle → run; input → stop
@@ -286,7 +289,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       }, wait)
     }
     const stop = watchInput((canvas, panel) => {
-      if (canvas) setRunning(false)
+      if (canvas) { stopWhy.current = 'canvas'; setRunning(false) }
       else if (panel) routesRef.current.release?.()
       arm()
     })
@@ -328,9 +331,11 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       try { need = Number(await routesRef.current.show(next)) || 0 } catch { need = 0 }
       busy = false
       if (!alive) return
+      const dwell = attractDwell(rngRef.current, need)
+      attractTrace({ ev: 'step', kind: next.kind, need_ms: need, dwell_ms: dwell, n: run })
       // an arrival that came in while this step was starting does not wait out a dwell
       if (queue.length && next.kind !== 'attention') { void step(); return }
-      timer = setTimeout(() => { void step() }, attractDwell(rngRef.current, need))
+      timer = setTimeout(() => { void step() }, dwell)
     }
     // anything needing attention: queued in arrival order; it interrupts an ordinary dwell at once, and waits behind
     // an attention item that is on screen (which gets its dwell)
@@ -345,6 +350,8 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       clearTimeout(timer)
       stopWatching?.()
       routesRef.current.stop?.()
+      attractTrace({ ev: 'stop', why: stopWhy.current })
+      stopWhy.current = 'other'
     }
   }, [running, enabled])
 

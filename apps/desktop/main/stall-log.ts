@@ -147,6 +147,13 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
   }
   if (src === 'main-lag') return compact({ lag_ms: num(r.lag_ms), ipc: ipc(), main_stack: stack(r.main_stack), gpu: gpu(r.gpu) })
   if (src === 'process-gone') return compact({ kind: oneOf(r.kind, GONE_KINDS), reason: oneOf(r.reason, GONE_REASONS), exit_code: int(r.exit_code) })
+  if (src === 'attract') {
+    // the attract trace (renderer/src/attract/trace.ts): enums and numbers only. No id, title or text field exists here, whatever arrives.
+    return compact({ ev: oneOf(r.ev, ['step', 'panel', 'release', 'stop']), kind: r.kind === undefined ? undefined : oneOf(r.kind, ['org', 'agent', 'mail', 'doc', 'ticket', 'attention']),
+      need_ms: num(r.need_ms), dwell_ms: num(r.dwell_ms), n: int(r.n), action: r.action === undefined ? undefined : oneOf(r.action, ['open', 'close']),
+      panel: r.panel === undefined ? undefined : oneOf(r.panel, ['inbox', 'docket']), owned: bool(r.owned),
+      why: r.why === undefined ? undefined : oneOf(r.why, ['canvas']) })
+  }
   return compact({ channel: str(r.channel, 80) })   // sync-ipc
 }
 
