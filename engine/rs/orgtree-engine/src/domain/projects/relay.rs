@@ -54,7 +54,7 @@ pub(super) async fn eligible(tx: &impl GenericClient, org_id: i64, project: i64)
         #[cfg(test)] gate("locked").await;
         // the dog, re-read under its lock: an edit that moved its target or paused it since the list above skips this pick
         let Some(again) = tx.query_opt(
-            "SELECT memo FROM ot.watchdogs WHERE id = $1 AND state = 'armed' AND (memo->>'target_id')::bigint = $2 FOR UPDATE",
+            "SELECT memo FROM ot.watchdogs WHERE id = $1 AND state = 'armed' AND (memo->>'target_id')::bigint = $2 FOR SHARE",
             &[&r.get::<_, i64>(0), &project]).await? else { continue };
         let memo: Value = again.get(0);
         let waiting: i64 = tx
