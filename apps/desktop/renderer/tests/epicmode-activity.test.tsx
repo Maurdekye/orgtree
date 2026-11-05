@@ -3,7 +3,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TreeNode, TreePayload } from '../src/types'
 import { ACTIVITY_LAYERS, activityScale, activitySources, countActivity, emptyActivity } from '../src/epic/activity'
-import { ACTIVITY_FADE_MS } from '../src/epic/ambience'
 import { EpicSynth } from '../src/epic/audio'
 import { startEpic } from '../src/epic/director'
 import { clearEpicTree, publishEpicTree } from '../src/epic/tap'
@@ -37,46 +36,22 @@ test('every layer rises audibly with its count, stays finite and is capped', () 
   for (const n of [0, -1, NaN, Infinity]) assert.equal(activityScale(n), 0)
 })
 
-test('one shared voice per layer, crossfades and idle cleanup, including smooth context shutdown', t => {
+test('epic mode has no sustained activity drone: the synth takes no activity counts and starts nothing on its own', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const base = fakeAudio(), ramps: { value: number; at: number }[] = []
-  let stops = 0
-  class Audio extends base.Ctor {
-    createGain() {
-      const g = super.createGain()
-      g.gain.linearRampToValueAtTime = (value, at) => { ramps.push({ value, at }); return g.gain }
-      return g
-    }
-    createOscillator() { const o = super.createOscillator(); o.stop = () => { stops++ }; return o }
-  }
-  const synth = new EpicSynth(Audio), counts = { ...emptyActivity(), thinking: 1 }
-  synth.activity(counts)
-  const nodes = base.log.nodes
-  for (let i = 0; i < 1000; i++) synth.activity(counts)
-  assert.equal(base.log.nodes, nodes, 'updates never stack per-agent oscillators')
-  const first = ramps.filter(r => r.value > 0).map(r => r.value)
-  synth.activity({ ...counts, thinking: 15 })
-  assert.equal(ramps.some(r => r.value >= first[0]! * 3.9), true, 'actual audio gain follows agent count')
-  synth.activity({ ...emptyActivity(), writing: 1 })
-  assert.equal(ramps.at(-2)?.value, 0, 'old activity fades out')
-  assert.equal(ramps.at(-1)!.value > 0, true, 'new activity fades in')
-  assert.equal(stops, 0, 'a crossfade never cuts a voice off at the transition')
-  t.mock.timers.tick(ACTIVITY_FADE_MS + 35)
-  assert.equal(stops, 2, 'the old layer releases both its oscillators after fading')
+  const base = fakeAudio(), synth = new EpicSynth(base.Ctor)
+  assert.equal(typeof (synth as unknown as { activity?: unknown }).activity, 'undefined', 'no activity-driven ambience entry point')
+  assert.equal(base.log.started, 0, 'a fresh synth starts no looping source')
+  assert.equal(synth.play('click'), true)
+  assert.equal(base.log.started > 0, true, 'discrete event audio remains audible')
   synth.close()
-  assert.equal(base.log.closed, 0, 'context remains open through the final fade')
-  assert.equal(ramps.at(-1)!.at, ACTIVITY_FADE_MS / 1000)
-  t.mock.timers.tick(ACTIVITY_FADE_MS + 45)
-  assert.equal(base.log.closed, 1)
-  assert.equal(stops, 4)
-  synth.activity(counts)
-  assert.equal(base.log.closed, 1, 'closed show cannot restart its layers')
+  t.mock.timers.tick(100)
+  assert.equal(base.log.closed, 1, 'the context closes at once; there is no ambience fade to wait for')
 })
 
 test('director seeds existing work immediately and follows state changes, disconnect and org removal', () => {
   const base = fakeAudio(), readings: ReturnType<typeof emptyActivity>[] = []
-  const original = EpicSynth.prototype.activity
-  EpicSynth.prototype.activity = function (counts) { readings.push({ ...counts }); original.call(this, counts) }
+  const original = SoundHeatmap.prototype.update
+  SoundHeatmap.prototype.update = function (sources) { readings.push(countActivity(sources)); original.call(this, sources) }
   publishEpicTree(tree(node('a', 'tool_writing')))
   const show = startEpic({ audio: base.Ctor })
   try {
@@ -90,7 +65,7 @@ test('director seeds existing work immediately and follows state changes, discon
     assert.equal(readings.at(-1)!.writing, 1)
     clearEpicTree()
     assert.deepEqual(readings.at(-1), emptyActivity())
-  } finally { show.stop(); clearEpicTree(); EpicSynth.prototype.activity = original }
+  } finally { show.stop(); clearEpicTree(); SoundHeatmap.prototype.update = original }
 })
 
 test('normalised tool names determine all signature parameters across harness prefixes', () => {
@@ -110,23 +85,15 @@ test('normalised tool names determine all signature parameters across harness pr
   assert.equal(ACTIVITY_LAYERS.length, 6)
 })
 
-test('unclassified working agents are silent, while all six activity sounds and event sounds remain', t => {
+test('event sounds remain; activity never starts any looping source', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const base = fakeAudio(), synth = new EpicSynth(base.Ctor)
-  const baseline = base.log.nodes
-  synth.activity(countActivity(activitySources(tree(node('busy', 'provider-starting')))))
-  assert.equal(base.log.started, 0, 'working alone must not start a background drone')
-  assert.equal(base.log.nodes, baseline, 'no silent leftover audio graph for unclassified work')
-  for (const layer of ['thinking', 'writing', 'toolWriting', 'tool', 'waiting', 'compacting'] as const) {
-    const started = base.log.started
-    synth.activity({ ...emptyActivity(), [layer]: 1 })
-    assert.equal(base.log.started, started + 3, `${layer} retains its carrier, modulator and friction source`)
-  }
+  assert.equal(base.log.started, 0)
   const started = base.log.started
   assert.equal(synth.play('click'), true)
   assert.equal(base.log.started > started, true, 'discrete event audio remains audible')
   synth.close()
-  t.mock.timers.tick(ACTIVITY_FADE_MS + 45)
+  t.mock.timers.tick(100)
   assert.equal(base.log.closed, 1)
 })
 

@@ -1054,6 +1054,28 @@ function belongsAt(c: HTMLCanvasElement, q: { x: number; y: number }, from: { x:
   return { x: world.x * to.z + to.x, y: world.y * to.z + to.y }
 }
 
+test('Claude Waves keeps animating while the window is unfocused but visible (stream capture)', async (t) => {
+  installAsciiGlEnv(t, 1)
+  stubReducedMotion(t, false)
+  document.hasFocus = () => false // the user works in another window; this one stays visible on stream
+  const viewRef = { current: { x: 0, y: 0, z: 1 } }
+  let api: AsciiTestApi | null = null
+  const mounted = await mountView(
+    <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
+      pin={{ seed: 42, pool: 'mixed' }} onReady={a => { api = a }} />,
+    el => el,
+  )
+  t.after(async () => { await mounted.unmount() })
+  for (let i = 0; i < 20 && !api; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
+  }
+  assert.equal(api === null, false, 'AsciiLayer should initialize with mock WebGL2')
+  for (let i = 0; i < 20 && !api!.state().running; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 50)); await flush(2) })
+  }
+  assert.equal(api!.state().running, true, 'an unfocused but visible window keeps the waves loop running')
+})
+
 test('Claude Waves follows the committed camera between its own redraws and leaves nothing behind once the next draw lands', async (t) => {
   const { viewRef, api, canvas, commit } = await mountAsciiForZoom(t, 1)
   const V0 = { x: -100, y: -50, z: 1.5 }, V1 = { x: -140, y: -20, z: 1.7 }, V2 = { x: -90, y: -75, z: 1.3 }

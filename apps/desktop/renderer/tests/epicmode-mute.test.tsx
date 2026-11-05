@@ -5,7 +5,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EpicSynth } from '../src/epic/audio'
-import { emptyActivity } from '../src/epic/activity'
 import { startEpicSync } from '../src/epic/sync'
 import { Preferences } from '../../main/preferences'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
@@ -35,7 +34,6 @@ test('mute fades the final output, including active layers and event/reverb rout
   const synth = new EpicSynth(Audio, { muted: true })
   try {
     assert.equal(gains[0]!.gain.value, 0, 'a persisted mute is silent before any first greeting or layer')
-    synth.activity({ ...emptyActivity(), tool: 2 })
     assert.equal(synth.play('tool', { tool: 'read_file' }), true, 'muted action sounds still drive their visual heat impulses')
     assert.equal(base.log.closed, 0)
     assert.equal(typeof (synth as any).setMuted, 'function')
