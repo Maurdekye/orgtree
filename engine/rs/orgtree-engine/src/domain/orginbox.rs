@@ -162,7 +162,7 @@ pub async fn sent_quote(client: &tokio_postgres::Client, org_id: i64, uid: &str,
 /// This org's own record of the message a hub reply names (one it sent or
 /// received), quoted; `None` when the org never saw it.
 #[logged]
-async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, peer:&str) -> Result<Option<Value>> {
+async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, peer:&str) -> Result<Option<(Value, String)>> {
     let r = client
         .query_opt(
             &format!(
@@ -174,7 +174,7 @@ async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, p
             &[&org_id, &net_id, &peer],
         )
         .await?;
-    Ok(r.as_ref().map(inbox_quote))
+    Ok(r.as_ref().map(|r| (inbox_quote(r), r.get::<_, String>(5))))
 }
 
 /// Hubchat starts a reply with one `> ` line quoting the message it answers (that message's first line, at most
@@ -185,9 +185,23 @@ async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, p
 /// the context twice"). `None`: keep the body as it came.
 #[nolog]
 pub(crate) fn without_reply_quote(body: &str, original: &str) -> Option<String> {
-    let _ = (body, original);
-    None
+    let first: String = original.lines().next().unwrap_or("").chars().take(HUBCHAT_QUOTE_CHARS).collect();
+    let quote = format!("> {first}\n");
+    let (note, rest) = match body.starts_with(STALE_NOTE).then(|| body.find("]\n\n")).flatten() {
+        Some(end) => body.split_at(end + 3),
+        None => ("", body),
+    };
+    let text = rest.strip_prefix(quote.as_str())?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(format!("{note}{text}"))
 }
+
+/// Hubchat's quote length (`QUOTE_CHARS` in its questions.rs).
+const HUBCHAT_QUOTE_CHARS: usize = 120;
+/// How net.rs `publish_inbound` starts a late arrival's note.
+const STALE_NOTE: &str = "[arrived via the mail hub — sent ";
 
 /// A worker's job-scoped outside reply (D10): the send's own transaction re-checks the right `FOR SHARE` and writes
 /// `via_job` in the same insert, so a fast answer can always find its thread.
@@ -548,9 +562,17 @@ pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str
     // The org row serializes mode changes, extraction and publication.
     let mut client = engine.db.get().await?;
     let mut quotes=Vec::new();
+    let mut answered=None;
     for id in references.iter().take(super::replies::MAX_REPLIES) {
-        quotes.push(net_quote(&client,org_id,id,peer).await?.unwrap_or_else(|| json!({"net_id":id,"gist":"Original message unavailable"})));
+        match net_quote(&client,org_id,id,peer).await? {
+            Some((q,original)) => { if quotes.is_empty() { answered=Some(original); } quotes.push(q); }
+            None => quotes.push(json!({"net_id":id,"gist":"Original message unavailable"})),
+        }
     }
+    // One answered message we hold: Hubchat's quote of it is the reply block's job (a multi-reply's quote lines,
+    // with their Answer/Skipped lines, stay as they came).
+    let shown=if quotes.len()==1 { answered.as_deref().and_then(|o| without_reply_quote(body,o)) } else { None };
+    let body=shown.as_deref().unwrap_or(body);
     let stored=quotes.first().cloned();
     let tx = client.transaction().await?;
     // Serialize only this org's publication boundary, including the duplicate
