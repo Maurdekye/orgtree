@@ -425,3 +425,29 @@ async fn rl15_the_desk_data_names_the_relay_as_holder_and_the_source_project() {
     let status = crate::domain::listeners::status(&w.c, w.org, q, "Q").await.unwrap();
     assert!(status["sources"].as_array().unwrap().iter().any(|s| s["kind"] == "fair_queue" && s["target"] == "P" && s["project_delivery"] == "queue"), "{status}");
 }
+
+/// R3: a relay's target edit is refused while jobs it took are still outstanding in the old project, allowed after their
+/// custody ends; and a target edit that would close a loop is refused.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl16_a_relay_target_edit_waits_for_its_outstanding_jobs_and_refuses_loops() {
+    let (mut w, p, q, worker) = rig(true, true, 5).await;
+    w.project("P2", true, None).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    let id = format!("Q/relay{q}{p}");
+    let e = crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "P2" })).await.expect_err("outstanding");
+    assert!(format!("{e:#}").contains("still outstanding in the old project"), "{e:#}");
+    let child = w.child(&job).await;
+    let (copy, _) = w.copy_of(worker, &child).await;
+    let mut ack = Outgoing::new(From::Agent { id: worker, name: "W".into(), generation: 1 }, "Q", "done");
+    ack.reply_to = Some(json!({ "id": copy, "from": "@net:bob.1" }));
+    ack.wake = false;
+    crate::domain::mail::send(&w.e, w.org, ack).await.unwrap();
+    crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "P2" })).await.expect("allowed once the job is ACKed");
+    // a loop: P2 relays Q (edge Q -> P2); Q's relay now sits on P2 (edge P2 -> Q), so retargeting it at Q itself is refused
+    let e = crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "Q" })).await.expect_err("self");
+    assert!(format!("{e:#}").contains("cannot relay into itself"), "{e:#}");
+}

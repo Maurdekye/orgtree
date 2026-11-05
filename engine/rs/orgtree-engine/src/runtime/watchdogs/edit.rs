@@ -299,6 +299,15 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
                         Some(g) => p.memo_set.push(("reach_grant".into(), g)),
                         None => p.memo_del.push("reach_grant".into()),
                     }
+                    // a relay may not target itself or close a relay loop (R7)
+                    if kind == "fair_queue" && dog.owner_kind == "project" {
+                        if pr.id == dog.owner {
+                            refuse!(BadRequest, "project {} cannot relay into itself", pr.name);
+                        }
+                        if crate::domain::projects::relay_loop(&**client, dog.owner, pr.id).await? {
+                            refuse!(Conflict, "a relay from {} into {} would close a loop", pr.name, dog.owner_name);
+                        }
+                    }
                     // one fair_queue / listener / listener_watch per owner per project, the dog itself aside
                     if kind != "slot" {
                         if let Some(r) = client.query_opt(
@@ -317,6 +326,16 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
                             &[&old_pid, &dog.owner, &dog.uid]).await?.get(0);
                         if held > 0 {
                             refuse!(Conflict, "ACK or hand back the {held} jobs you hold through this watchdog first");
+                        }
+                        // a relay (project-owned): jobs it relayed that are still outstanding in the old project (R3)
+                        if dog.owner_kind == "project" {
+                            let relayed: i64 = client.query_one(&format!(
+                                "SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $1 AND (m.extra->'claimed'->>'by_project')::bigint = $2
+                                    AND m.extra->'claimed'->>'dog' = $3 AND {}", crate::domain::projects::OUTSTANDING),
+                                &[&old_pid, &dog.owner, &dog.uid]).await?.get(0);
+                            if relayed > 0 {
+                                refuse!(Conflict, "{relayed} jobs this relay took are still outstanding in the old project; wait until they are ACKed or taken back before changing its target");
+                            }
                         }
                     }
                     if kind == "slot" && dog.memo.get("lease").is_some() {
