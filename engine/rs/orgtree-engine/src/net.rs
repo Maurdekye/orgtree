@@ -1299,6 +1299,12 @@ pub fn peer_language(engine: &Engine, slug: &str) -> Option<String> {
 /// Is `peer` on a roster this org can reach? The cache answers first; a
 /// miss asks each of the org's hubs once.
 #[logged]
+/// Test seam: a synthetic hub roster that knows `slug`, so a `@net:` send reaches the production queueing path with no hub.
+#[cfg(test)]
+pub(crate) fn test_know_peer(engine: &Engine, slug: &str) {
+    engine.net.rosters.pin().insert("test://synthetic-hub".to_string(), Arc::new(vec![json!({ "slug": slug })]));
+}
+
 async fn knows_peer(engine: &Engine, org_id: i64, peer: &str) -> bool {
     if engine.net.rosters.pin().iter().any(|(_, r)| r.iter().any(|x| x["slug"].as_str() == Some(peer))) {
         return true;

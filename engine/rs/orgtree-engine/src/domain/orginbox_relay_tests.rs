@@ -149,15 +149,14 @@ async fn rl3_the_final_worker_may_reply_outside_through_the_relayed_job() {
     let (copy, _) = w.copy_of(worker, &child).await;
     let out = reply_from(worker, "W", "@net:bob.1", "answer", &copy, "@net:bob.1");
     assert!(matches!(jobs::reply_right(&w.e, w.org, worker, &out).await.unwrap(), jobs::Reply::Allowed(j) if j == child), "D10 through the chain");
-    let hub = send_extern(&w.e, w.org, &out).await.expect_err("the fixture has no mail hub");
-    assert!(format!("{hub:#}").contains("mail hub is not running"), "past the right check, stopped by the missing hub: {hub:#}");
-    // the fixture has no hub, so the out row is written as the send does (t31): W is its sender and it remembers the child
-    w.c.execute("INSERT INTO ot.org_inbox(uid,org_id,dir,peer,body,by_name,state,net_id,sender_agent_id,sender_generation,via_job) VALUES('xo3',$1,'out','@net:bob.1','answer','W','delivered','out3',$2,1,$3)",
-        &[&w.org, &worker, &child]).await.unwrap();
-    let row = w.c.query_one("SELECT sender_agent_id, via_job FROM ot.org_inbox WHERE uid='xo3'", &[]).await.unwrap();
-    assert_eq!((row.get::<_, Option<i64>>(0), row.get::<_, Option<String>>(1)), (Some(worker), Some(child.clone())), "sender_agent_id=W, via_job=J2");
+    // the fixture has no mail hub: a synthetic roster entry makes the peer known, so the PRODUCTION send path queues the out row
+    crate::net::test_know_peer(&w.e, "bob.1");
+    send_extern(&w.e, w.org, &out).await.expect("queued by the production send path");
+    let row = w.c.query_one("SELECT uid, net_id, sender_agent_id, via_job FROM ot.org_inbox WHERE org_id=$1 AND dir='out' AND body='answer'", &[&w.org]).await.unwrap();
+    assert_eq!((row.get::<_, Option<i64>>(2), row.get::<_, Option<String>>(3)), (Some(worker), Some(child.clone())), "sender_agent_id=W, via_job=J2");
     // D13: the hub reply to that out row goes to W, and makes no new job
-    let quote = json!({ "kind": "mail", "box": "org", "id": "xo3", "peer": "@net:bob.1", "net_id": "out3", "gist": "answer" });
+    let (out_uid, out_net): (String, Option<String>) = (row.get(0), row.get(1));
+    let quote = json!({ "kind": "mail", "box": "org", "id": out_uid, "peer": "@net:bob.1", "net_id": out_net, "gist": "answer" });
     let (_, back) = w.arrive("n9", "thanks", json!([quote])).await;
     assert_eq!(back.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["W"], "the hub reply goes to W");
     assert!(back.jobs.is_empty());
@@ -498,4 +497,62 @@ async fn rl18_a_claim_committed_between_plan_and_apply_stops_the_target_edit() {
     assert!(format!("{err:#}").contains("still outstanding in the old project"), "{err:#}");
     let target: String = w.c.query_one("SELECT memo->>'target_id' FROM ot.watchdogs WHERE uid=$1", &[&format!("relay{q}{p}")]).await.unwrap().get(0);
     assert_eq!(target, p.to_string(), "nothing was written");
+}
+
+/// R5b: a dead letter at any depth dead-letters every ancestor; the reason names where it died.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl6b_a_dead_letter_two_levels_down_dead_letters_both_ancestors() {
+    let (mut w, p, q, _worker) = rig(true, true, 5).await;
+    let r = w.project("R", true, None).await;
+    let wr = w.agent("WR", Some(r)).await;
+    w.listener(wr, "wrq", r).await;
+    w.c.execute("UPDATE ot.watchdogs SET state='paused' WHERE uid='wq'", &[]).await.unwrap();
+    w.relay(r, q, 5).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    let child = w.child(&job).await;
+    let grandchild = w.child(&child).await;
+    let (copy, _) = w.copy_of(wr, &grandchild).await;
+    w.c.execute("UPDATE ot.mail SET extra = extra || '{\"attempts\": 99}'::jsonb WHERE uid=$1", &[&grandchild]).await.unwrap();
+    let row: i64 = w.c.query_one("SELECT id FROM ot.mail WHERE uid=$1", &[&grandchild]).await.unwrap().get(0);
+    let tx = w.c.transaction().await.unwrap();
+    assert!(projects::reclaim_in(&tx, w.org, r, row, wr, "tester", "let it go", "released", "taken_back", true, Some(&copy)).await.unwrap().expect("reclaimed").dead);
+    tx.commit().await.unwrap();
+    for (uid, dead_at) in [(&child, "R"), (&job, "R")] {
+        let ex = w.extra(uid).await;
+        assert_eq!(ex["dead_letter"]["why"], json!(format!("relayed to project {dead_at} and dead-lettered there")), "{uid}: {ex}");
+    }
+}
+
+/// R5b: a take-back at P revokes every active descendant, so the final holder loses the reply right and nothing is left waiting.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl11b_a_take_back_at_p_revokes_every_descendant() {
+    let (mut w, p, q, _worker) = rig(true, true, 5).await;
+    let r = w.project("R", true, None).await;
+    let wr = w.agent("WR", Some(r)).await;
+    w.listener(wr, "wrq", r).await;
+    w.c.execute("UPDATE ot.watchdogs SET state='paused' WHERE uid='wq'", &[]).await.unwrap();
+    w.relay(r, q, 5).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    let child = w.child(&job).await;
+    let grandchild = w.child(&child).await;
+    let (copy, _) = w.copy_of(wr, &grandchild).await;
+    let row: i64 = w.c.query_one("SELECT id FROM ot.mail WHERE uid=$1", &[&job]).await.unwrap().get(0);
+    let tx = w.c.transaction().await.unwrap();
+    assert!(projects::relay_take_back(&tx, w.org, p, row, "had it taken back by the user").await.unwrap());
+    tx.commit().await.unwrap();
+    for uid in [&child, &grandchild] {
+        assert_eq!(w.extra(uid).await["revoked"], json!(true), "{uid} is revoked");
+    }
+    let ex = w.extra(&child).await;
+    assert!(ex.get("claimed").is_none(), "the middle job's relay claim ends: {ex}");
+    let out = reply_from(wr, "WR", "@net:bob.1", "late", &copy, "@net:bob.1");
+    assert!(matches!(jobs::reply_right(&w.e, w.org, wr, &out).await.unwrap(), jobs::Reply::Refused), "the final holder keeps the job, not the right");
 }
