@@ -884,6 +884,17 @@ test('§13 the org socket is told attract started and stopped, with the setting,
   bindRoomSocket('o1', null)
 })
 
+test('§19 a ticket is picked at most every fourth step (USER 2026-11-05 m207f9caba2e3: less docket, more canvas and desks)', () => {
+  const t1: AttractTarget = { kind: 'ticket', slug: 't1', mark: 'a' }, t2: AttractTarget = { kind: 'ticket', slug: 't2', mark: 'b' }
+  const ag: AttractTarget = { kind: 'agent', id: 'a1', mark: 'x' }
+  for (const since of [0, 1, 2]) for (const r of [0, 0.3, 0.6, 0.99]) {
+    assert.notEqual(pickAttract([t1, t2, ag], () => r, null, 0, 1, since).kind, 'ticket', `since ${since} rng ${r}: the docket sits this one out`)
+  }
+  assert.equal(pickAttract([t1, t2, ag], () => 0, null, 0, 1, 3).kind, 'ticket', 'the fourth step after a ticket may be one')
+  assert.equal(pickAttract([t1, t2], () => 0, null, 0, 1).kind, 'ticket', 'no ticket yet this run: allowed')
+  assert.deepEqual(pickAttract([t1, t2], () => 0, null, 0, 1, 1), { kind: 'org' }, 'only tickets waiting and one was just shown: the org')
+})
+
 // §18 the attract trace (item attract-mode-gets-stuck-on-the-docket-and-doesn-t, coordinator go 2026-11-05 13:43Z): one record per
 // step / panel change / hand-over / stop, so the next "stuck on the docket" is measurable. Kinds and timings only: the user streams.
 test('§18 the trace: a step, a panel opening and closing, a hand-over and a stop are each one record, with no ids or text', async () => {

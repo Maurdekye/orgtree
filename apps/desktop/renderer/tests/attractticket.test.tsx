@@ -17,6 +17,7 @@ import {
   recordTicketSnapshot, ticketFields, ticketSnapshot,
 } from '../src/attract/ticketsnap'
 import { showTicketChange } from '../src/attract/ticketdom'
+import { SCROLL_PAUSE_MS, TICKET_GLIDE_MS, TICKET_MAX_MS } from '../src/attract/scroll'
 import { canvasAttractRoutes } from '../src/attract/canvas'
 
 const item = (over: Record<string, unknown> = {}): any => ({
@@ -266,6 +267,17 @@ test('§6e rendered markdown (inline formatting, a paragraph break, a list): the
       show.restore(); p.remove()
     }
   } finally { g.CSS = hadCSS; delete g.Highlight }
+})
+
+test('§6f a docket visit is short (USER 2026-11-05 m207f9caba2e3): a far change is reached by a glide of at most 2 s between two pauses, never a read-through', async () => {
+  const p = pane()
+  p.add('EVIDENCE NOTES', true, { name: 'evidence.note', entry: 0, text: 'ev one', y: 1500 })   // about 1,480 px down: the old pace read it for 40 s
+  try {
+    const show = await showTicketChange({ kind: 'text', field: 'evidence.note#0', section: 'EVIDENCE NOTES', offset: 0, length: 6, snippet: 'ev one' }, document).length
+    assert.ok(show > 0, 'there is a scroll')
+    assert.ok(show <= 2 * SCROLL_PAUSE_MS + TICKET_GLIDE_MS, 'at most pause + 2 s glide + pause: ' + show)
+    assert.ok(TICKET_MAX_MS <= 15_000, 'a docket visit never outlasts the longest dwell')
+  } finally { p.remove() }
 })
 
 test('§6b no change means the top: nothing expands, nothing scrolls, length 0', async () => {
