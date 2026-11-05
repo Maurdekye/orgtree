@@ -1015,8 +1015,10 @@ export function refreshConvo(slug: string, nid: string,
           throw new Error('Transcript pagination did not advance')
         }
         const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+        // the merged range now starts at this page: its cursor goes with it
         c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
-          || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
+          || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages],
+          before: page.before, has_older: page.has_older }
         cursor = page.before
       }
     }
@@ -1056,8 +1058,13 @@ export function refreshConvo(slug: string, nid: string,
         break
       }
       const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+      // ⚠ THE CURSOR GOES WITH THE ROWS (bug 4.5.5 2026-11-05). Keeping the
+      // tail's cursor left the transcript starting below its own `before`:
+      // every later older page then held only rows already loaded, was judged
+      // "did not advance" and retried for ever. See historycursor.test.tsx.
       c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
-        || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
+        || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages],
+        before: page.before, has_older: page.has_older }
       proofCursor = page.before
     }
     // Publish the freshness watermark only after all paging awaits. A newer
@@ -1070,8 +1077,10 @@ export function refreshConvo(slug: string, nid: string,
     if (!changedConversation && e.s.paged && e.s.chat && c.messages.length) {
       const first = c.messages[0]!.seq
       const older = e.s.chat.messages.filter(row => typeof row.seq === 'number' && typeof first === 'number' && row.seq < first)
+      // the retained history's cursor only when retained rows are the oldest;
+      // otherwise this payload (and any pages merged into it) reaches further
       c = { ...c, messages: [...older, ...c.messages],
-        before: e.s.chat.before, has_older: e.s.chat.has_older }
+        ...(older.length ? { before: e.s.chat.before, has_older: e.s.chat.has_older } : {}) }
     }
     // deltas held for a missing base: the fetched pending row may be it
     for (const id of [...e.assistantGaps.keys()]) {
