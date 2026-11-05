@@ -339,7 +339,8 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
                                     AND m.extra->'claimed'->>'dog' = $3 AND {}", crate::domain::projects::OUTSTANDING),
                                 &[&old_pid, &dog.owner, &dog.uid]).await?.get(0);
                             if relayed > 0 {
-                                refuse!(Conflict, "{relayed} jobs this relay took are still outstanding in the old project; wait until they are ACKed or taken back before changing its target");
+                                let from: String = client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&old_pid]).await?.get(0);
+                                refuse!(Conflict, "{relayed} relayed jobs from @{from} are still outstanding in @{}; let them finish or take them back from @{from}'s queue, then edit", dog.owner_name);
                             }
                         }
                     }
@@ -602,7 +603,8 @@ pub(super) async fn apply(tx: &tokio_postgres::Transaction<'_>, dog: &Dog, org_i
                 &[&old, &dog.owner, &dog.uid]).await?.get(0);
             if held > 0 {
                 if who == "relay" {
-                    refuse!(Conflict, "{held} jobs this relay took are still outstanding in the old project; wait until they are ACKed or taken back before changing its target");
+                    let from: String = tx.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&old]).await?.get(0);
+                    refuse!(Conflict, "{held} relayed jobs from @{from} are still outstanding in @{}; let them finish or take them back from @{from}'s queue, then edit", dog.owner_name);
                 }
                 refuse!(Conflict, "ACK or hand back the {held} jobs you hold through this watchdog first");
             }

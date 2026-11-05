@@ -448,7 +448,7 @@ async fn rl16_a_relay_target_edit_waits_for_its_outstanding_jobs_and_refuses_loo
     w.dispatch(p).await;
     let id = format!("Q/relay{q}{p}");
     let e = crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "P2" })).await.expect_err("outstanding");
-    assert!(format!("{e:#}").contains("still outstanding in the old project"), "{e:#}");
+    assert!(format!("{e:#}").contains("relayed jobs from @P are still outstanding in @Q; let them finish or take them back from @P's queue, then edit"), "{e:#}");
     let child = w.child(&job).await;
     let (copy, _) = w.copy_of(worker, &child).await;
     let mut ack = Outgoing::new(From::Agent { id: worker, name: "W".into(), generation: 1 }, "Q", "done");
@@ -456,6 +456,9 @@ async fn rl16_a_relay_target_edit_waits_for_its_outstanding_jobs_and_refuses_loo
     ack.wake = false;
     crate::domain::mail::send(&w.e, w.org, ack).await.unwrap();
     crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "P2" })).await.expect("allowed once the job is ACKed");
+    // with nothing outstanding the user may retarget, and the reach grant is recorded anew (spec 1.6: no user exception to rule 7)
+    let grant: Value = w.c.query_one("SELECT memo->'reach_grant' FROM ot.watchdogs WHERE uid=$1", &[&format!("relay{q}{p}")]).await.unwrap().get(0);
+    assert_eq!(grant["via"], json!("user"), "{grant}");
     // a loop: P2 relays Q (edge Q -> P2); Q's relay now sits on P2 (edge P2 -> Q), so retargeting it at Q itself is refused
     let e = crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "Q" })).await.expect_err("self");
     assert!(format!("{e:#}").contains("cannot relay into itself"), "{e:#}");
@@ -494,7 +497,7 @@ async fn rl18_a_claim_committed_between_plan_and_apply_stops_the_target_edit() {
     assert!(w.extra(&job).await["claimed"]["by_project"] == json!(q), "the relay took the job while the edit was between plan and apply");
     release.notify_one();
     let err = edit.await.unwrap().expect_err("refused in the locked apply");
-    assert!(format!("{err:#}").contains("still outstanding in the old project"), "{err:#}");
+    assert!(format!("{err:#}").contains("relayed jobs from @P are still outstanding in @Q; let them finish or take them back from @P's queue, then edit"), "{err:#}");
     let target: String = w.c.query_one("SELECT memo->>'target_id' FROM ot.watchdogs WHERE uid=$1", &[&format!("relay{q}{p}")]).await.unwrap().get(0);
     assert_eq!(target, p.to_string(), "nothing was written");
 }
@@ -587,7 +590,7 @@ async fn rl16_target_edit_races_handout_the_handout_wins_and_the_edit_is_refused
     proceed.notify_one();
     pick.await.unwrap().unwrap();
     let err = edit.await.unwrap().expect_err("refused: the relay now holds the job");
-    assert!(format!("{err:#}").contains("still outstanding in the old project"), "{err:#}");
+    assert!(format!("{err:#}").contains("relayed jobs from @P are still outstanding in @Q; let them finish or take them back from @P's queue, then edit"), "{err:#}");
     assert_eq!(w.extra(&job).await["claimed"]["by_project"], json!(q), "the job went to the relay");
     let target: String = w.c.query_one("SELECT memo->>'target_id' FROM ot.watchdogs WHERE uid=$1", &[&format!("relay{q}{p}")]).await.unwrap().get(0);
     assert_eq!(target, p.to_string());
