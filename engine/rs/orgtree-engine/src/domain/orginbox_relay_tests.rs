@@ -475,3 +475,27 @@ async fn rl17_configure_keeps_a_relay_a_queue_dog_without_once_or_notice() {
     }
     crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "batch": 3 })).await.expect("a batch edit is fine");
 }
+
+/// R3 rule 7 under a race: a job the relay takes between configure's plan and its locked apply makes the edit refuse, and the
+/// target stays as it was.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl18_a_claim_committed_between_plan_and_apply_stops_the_target_edit() {
+    let (mut w, p, q, _worker) = rig(true, true, 5).await;
+    w.project("P2", true, None).await;
+    let id = format!("Q/relay{q}{p}");
+    let (reached, release) = crate::runtime::watchdogs::race_hook::arm("configure");
+    let (e, org, idc) = (w.e.clone(), w.org, id.clone());
+    let edit = tokio::spawn(async move { crate::runtime::watchdogs::configure(&e, org, None, &idc, &json!({ "target": "P2" })).await });
+    reached.notified().await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    assert!(w.extra(&job).await["claimed"]["by_project"] == json!(q), "the relay took the job while the edit was between plan and apply");
+    release.notify_one();
+    let err = edit.await.unwrap().expect_err("refused in the locked apply");
+    assert!(format!("{err:#}").contains("still outstanding in the old project"), "{err:#}");
+    let target: String = w.c.query_one("SELECT memo->>'target_id' FROM ot.watchdogs WHERE uid=$1", &[&format!("relay{q}{p}")]).await.unwrap().get(0);
+    assert_eq!(target, p.to_string(), "nothing was written");
+}
