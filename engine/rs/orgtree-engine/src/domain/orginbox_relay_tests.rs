@@ -391,3 +391,37 @@ async fn rl14_control_a_direct_listener_is_unaffected() {
     let (_, mx) = w.copy_of(m, &job).await;
     assert_eq!(mx["outside_job"], json!(job));
 }
+
+/// R10: what the desk reads. P's Working row names the holder as a relay project; Q's Working row says where the job came from;
+/// the Recently Finished row after the ACK is the relay's, with its dog; the relay is in Q's Listeners sources.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl15_the_desk_data_names_the_relay_as_holder_and_the_source_project() {
+    let (mut w, p, q, worker) = rig(true, true, 5).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    let scope = |id: i64| { let c = &w.c; async move { c.query_one("SELECT scope FROM ot.agents WHERE id=$1", &[&id]).await.unwrap().get::<_, Value>(0) } };
+    let hist_p = projects::queue_history(&w.c, p, "P", &scope(p).await, None, false).await.unwrap();
+    let held = &hist_p["working"][0];
+    assert_eq!(held["relay"], json!(true), "{held}");
+    assert_eq!(held["holder_project"], json!("Q"), "{held}");
+    assert_eq!(held["dog"]["id"], json!(format!("Q/relay{q}{p}")), "the relay dog is named: {held}");
+    let hist_q = projects::queue_history(&w.c, q, "Q", &scope(q).await, None, false).await.unwrap();
+    assert_eq!(hist_q["working"][0]["relayed_from"], json!("P"), "{}", hist_q["working"][0]);
+    // the ACK ends it: P's Recently Finished row is the relay's
+    let child = w.child(&job).await;
+    let (copy, _) = w.copy_of(worker, &child).await;
+    let mut ack = Outgoing::new(From::Agent { id: worker, name: "W".into(), generation: 1 }, "Q", "done");
+    ack.reply_to = Some(json!({ "id": copy, "from": "@net:bob.1" }));
+    ack.wake = false;
+    crate::domain::mail::send(&w.e, w.org, ack).await.unwrap();
+    let hist_p = projects::queue_history(&w.c, p, "P", &scope(p).await, None, false).await.unwrap();
+    let done = &hist_p["history"][0];
+    assert_eq!(done["agent"], json!("relay Q"), "{done}");
+    assert_eq!(done["how"], json!("acked"));
+    assert_eq!(done["dog"]["id"], json!(format!("Q/relay{q}{p}")), "{done}");
+    let status = crate::domain::listeners::status(&w.c, w.org, q, "Q").await.unwrap();
+    assert!(status["sources"].as_array().unwrap().iter().any(|s| s["kind"] == "fair_queue" && s["target"] == "P" && s["project_delivery"] == "queue"), "{status}");
+}
