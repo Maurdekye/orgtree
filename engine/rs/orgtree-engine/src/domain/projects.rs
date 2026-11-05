@@ -2043,6 +2043,31 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
                     "held_at": iso(r.get(3)), "waited_from": when(json_time(&via["waited_from"])) })
         }).collect())
     };
+    // R10 (spec 1.6b): in round-robin a relay hand-out has no worker copy, so it is listed from the job itself (its claim's
+    // `by_project`), merged by id with the copies
+    let (rows, history) = if ack { (rows, history) } else {
+        let more = match cursor {
+            Some(c) => client.query(
+                "SELECT j.id, j.uid, j.body, j.extra->'claimed' FROM ot.mail j WHERE j.recipient_agent_id = $1
+                    AND j.extra->'claimed'->>'by_project' IS NOT NULL AND j.id < $2 ORDER BY j.id DESC LIMIT $3", &[&project, &c, &limit]).await?,
+            None => client.query(
+                "SELECT j.id, j.uid, j.body, j.extra->'claimed' FROM ot.mail j WHERE j.recipient_agent_id = $1
+                    AND j.extra->'claimed'->>'by_project' IS NOT NULL ORDER BY j.id DESC LIMIT $2", &[&project, &limit]).await?,
+        };
+        let mut all = history;
+        for r in &more {
+            let c: Value = r.get(3);
+            let q = c["by"].as_str().unwrap_or("?").to_string();
+            all.push(json!({ "id": r.get::<_, i64>(0), "copy": c["copy"], "agent": q, "mail": r.get::<_, String>(1),
+                "relay": true, "holder_project": q,
+                "dog": crate::domain::watchdogs::identity(&q, c["dog"].as_str().unwrap_or(""), None, "fair_queue", Some(false), Some("armed")),
+                "gist": first_line(&r.get::<_, String>(2)), "held_at": when(json_time(&c["at"])), "waited_from": when(json_time(&c["waited_from"])) }));
+        }
+        all.sort_by_key(|v| std::cmp::Reverse(v["id"].as_i64().unwrap_or(0)));
+        let total = rows + more.len();
+        all.truncate(QUEUE_PAGE);
+        (total, all)
+    };
     let next = if rows > QUEUE_PAGE { history.last().and_then(|v| v["id"].as_i64()).map(|id| id.to_string()) } else { None };
     out["history"] = Value::Array(history);
     out["history_next"] = json!(next);
