@@ -151,6 +151,16 @@ async fn rl3_the_final_worker_may_reply_outside_through_the_relayed_job() {
     assert!(matches!(jobs::reply_right(&w.e, w.org, worker, &out).await.unwrap(), jobs::Reply::Allowed(j) if j == child), "D10 through the chain");
     let hub = send_extern(&w.e, w.org, &out).await.expect_err("the fixture has no mail hub");
     assert!(format!("{hub:#}").contains("mail hub is not running"), "past the right check, stopped by the missing hub: {hub:#}");
+    // the fixture has no hub, so the out row is written as the send does (t31): W is its sender and it remembers the child
+    w.c.execute("INSERT INTO ot.org_inbox(uid,org_id,dir,peer,body,by_name,state,net_id,sender_agent_id,sender_generation,via_job) VALUES('xo3',$1,'out','@net:bob.1','answer','W','delivered','out3',$2,1,$3)",
+        &[&w.org, &worker, &child]).await.unwrap();
+    let row = w.c.query_one("SELECT sender_agent_id, via_job FROM ot.org_inbox WHERE uid='xo3'", &[]).await.unwrap();
+    assert_eq!((row.get::<_, Option<i64>>(0), row.get::<_, Option<String>>(1)), (Some(worker), Some(child.clone())), "sender_agent_id=W, via_job=J2");
+    // D13: the hub reply to that out row goes to W, and makes no new job
+    let quote = json!({ "kind": "mail", "box": "org", "id": "xo3", "peer": "@net:bob.1", "net_id": "out3", "gist": "answer" });
+    let (_, back) = w.arrive("n9", "thanks", json!([quote])).await;
+    assert_eq!(back.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["W"], "the hub reply goes to W");
+    assert!(back.jobs.is_empty());
 }
 
 /// RL4: P and Q in ACK mode: W's ACK of the child ACKs the job in P, "relay Q".
