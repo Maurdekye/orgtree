@@ -24,10 +24,10 @@ test('the file is diagnostics/ui-stalls.jsonl and a record is one allowlisted v:
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-04T19:00:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t), app: () => '4.5.5-alpha.4 fa64d93' })
   log.write('renderer-loaf', { at_ms: Date.parse('2026-11-04T18:59:59Z'), ms: 912.34, unknown_key: 'dropped', loaf: { blocking: 800, scripts: [{ fn: 'busy', ms: 700, extra: 1 }] },
-    ctx: { screen: 'nonsense', panel: 'docket', popout: null }, input: [{ type: 'weird', target: 'desk-composer' }], dropped: 2 }, { id: 'w1', org: true })
+    ctx: { screen: 'nonsense', panel: 'docket', popout: null }, input: [{ type: 'weird', target: 'desk-composer' }], dropped: 2 }, { id: '7c0e4a89-787d-412d-a45b-ca83419549d8', org: true })
   const [r] = lines(file)
   assert.equal(r.v, 1); assert.equal(r.src, 'renderer-loaf'); assert.equal(r.at, '2026-11-04T18:59:59.000Z'); assert.equal(r.ms, 912.3)
-  assert.equal(r.window, 'w1'); assert.equal(r.org_window, true); assert.equal(r.app, '4.5.5-alpha.4 fa64d93'); assert.equal(r.dropped, 2); assert.equal(r.truncated, false)
+  assert.equal(r.window, '7c0e4a89-787d-412d-a45b-ca83419549d8'); assert.equal(r.org_window, true); assert.equal(r.app, '4.5.5-alpha.4 fa64d93'); assert.equal(r.dropped, 2); assert.equal(r.truncated, false)
   assert.equal('unknown_key' in r, false, 'unknown keys are dropped')
   assert.equal(r.loaf.scripts[0].extra, undefined)
   assert.deepEqual(r.ctx, { screen: 'other', panel: 'docket', popout: null }, 'an enum value outside its enum becomes other')
@@ -85,4 +85,48 @@ test('ST7 rotation keeps three files at most; an oversize record is truncated to
   const bad = new StallLog({ file: () => path.join(blocker, 'sub', STALL_LOG) })
   assert.doesNotThrow(() => bad.write('sync-ipc', { ms: 200, channel: 'c' }))
   assert.doesNotThrow(() => new StallLog({ file: () => undefined }).write('sync-ipc', {}))
+})
+
+test('ST15 v2 frame split, script starts, the all-scripts total and the GPU sample pass the allowlist (numbers only)', () => {
+  const file = path.join(fresh(), STALL_LOG)
+  const log = new StallLog({ file: () => file })
+  log.write('renderer-loaf', { ms: 613.6, loaf: { blocking: 0, render_at: 560.04, style_layout_at: 563, scripts_ms: 79.7, scripts_n: 12,
+    scripts: [{ fn: 'O', ms: 23.1, at: 450.06, extra: 'x' }] },
+  gpu: { cpu_pct: 87.25, window_ms: 5012, restarted: false, ws_mb: 412.4, pid: 4242, name: 'GPU D:\\Users\\bob' } })
+  const [r] = lines(file)
+  assert.equal(r.loaf.render_at, 560); assert.equal(r.loaf.style_layout_at, 563)
+  assert.equal(r.loaf.scripts_ms, 79.7); assert.equal(r.loaf.scripts_n, 12); assert.equal(r.loaf.scripts[0].at, 450.1)
+  assert.deepEqual(r.gpu, { cpu_pct: 87.3, window_ms: 5012, restarted: false, ws_mb: 412.4 }, 'pid and any string are dropped')
+  log.write('renderer-loaf', { ms: 600, loaf: { render_at: null, style_layout_at: null } })
+  assert.equal(lines(file)[1].loaf.render_at, null, 'a frame without a rendering update keeps render_at null')
+  log.write('renderer-ping', { blocked_ms: 900, gpu: { cpu_pct: 3, window_ms: 4000, restarted: true } })
+  log.write('main-lag', { lag_ms: 700, gpu: { cpu_pct: 1, window_ms: 4000, restarted: false } })
+  assert.deepEqual(lines(file)[2].gpu, { cpu_pct: 3, window_ms: 4000, restarted: true })
+  assert.deepEqual(lines(file)[3].gpu, { cpu_pct: 1, window_ms: 4000, restarted: false })
+})
+
+test('ST16 process-gone lines: the kind and reason are enums, the exit code a number, nothing else survives', () => {
+  const file = path.join(fresh(), STALL_LOG)
+  const log = new StallLog({ file: () => file })
+  log.write('process-gone', { kind: 'GPU', reason: 'crashed', exit_code: -1073741819, name: 'D:\\Users\\bob\\x', serviceName: 'bob@example.com' })
+  log.write('process-gone', { kind: 'renderer', reason: 'oom', exit_code: 0 }, { id: '0725eca3-4932-4b2a-9788-c0e2cffecbdf', org: true })
+  log.write('process-gone', { kind: 'Weird', reason: 'mystery' })
+  const [gpu, ren, odd] = lines(file)
+  assert.equal(gpu.src, 'process-gone'); assert.equal(gpu.kind, 'GPU'); assert.equal(gpu.reason, 'crashed'); assert.equal(gpu.exit_code, -1073741819)
+  assert.equal('name' in gpu || 'serviceName' in gpu, false)
+  assert.equal(ren.kind, 'renderer'); assert.equal(ren.org_window, true)
+  assert.equal(odd.kind, 'other'); assert.equal(odd.reason, 'other')
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('bob'))
+})
+
+test('ST17 the window id is the app-made UUID from window-events.jsonl, kept as is; anything else is dropped', () => {
+  // v1 ran the id through the free-string detector, which reads a UUID as a secret: the alpha.5 records said
+  // "window":"<redacted:secrets>", so a stall could not be matched to its window's events.
+  const file = path.join(fresh(), STALL_LOG)
+  const log = new StallLog({ file: () => file })
+  log.write('renderer-loaf', { ms: 600 }, { id: '0725eca3-4932-4b2a-9788-c0e2cffecbdf', org: true })
+  log.write('renderer-loaf', { ms: 600 }, { id: 'bob@example.com', org: false })
+  const [a, b] = lines(file)
+  assert.equal(a.window, '0725eca3-4932-4b2a-9788-c0e2cffecbdf')
+  assert.equal('window' in b, false)
 })

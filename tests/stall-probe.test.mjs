@@ -236,3 +236,34 @@ test('ST14 startup grace: signals in the first 60 s do not start the worker (and
   early.wake()
   assert.equal(spawned.length, 2, 'a zero grace (tests) wakes at once')
 })
+
+test('ST18 the GPU sampler: CPU of the GPU process over the window that covers a stall, a restart, and no GPU at all', () => {
+  const f = fake()
+  let cum = 10, pid = 77
+  const metrics = () => [{ pid: 1, type: 'Browser', cpu: { cumulativeCPUUsage: 99 } },
+    ...(pid ? [{ pid, type: 'GPU', cpu: { cumulativeCPUUsage: cum }, memory: { workingSetSize: 400 * 1024 } }] : [])]
+  const g = new P.GpuSampler({ ...f, metrics })
+  g.start()
+  assert.equal(f.count(), 1, 'one interval')
+  f.advance(P.GPU_SAMPLE_EVERY_MS)               // ring sample at +5 s: cum 10
+  const before = f.now()
+  cum += 0.2; f.advance(P.GPU_SAMPLE_EVERY_MS)    // +10 s: cum 10.2
+  const stallFrom = f.now() + 1000
+  f.advance(2000); cum += 1.5                       // the stall: 1.5 s of GPU CPU in the 2 s since the last sample
+  const s = g.around(stallFrom, stallFrom + 600)
+  assert.equal(s.window_ms, 2000, 'from the last sample at or before the stall start to now')
+  assert.equal(s.cpu_pct, 75, '1.5 CPU-seconds over 2 s = 75% of one core')
+  assert.equal(s.restarted, false); assert.equal(s.ws_mb, 400)
+  assert.ok(before < stallFrom)
+  pid = 78; cum = 0.1
+  f.advance(1000)
+  assert.equal(g.around(f.now() - 500, f.now()).restarted, true, 'a new GPU pid is a restart; its CPU is not compared with the old one')
+  assert.equal(g.around(f.now() - 500, f.now()).cpu_pct, null)
+  pid = 0
+  f.advance(P.GPU_SAMPLE_EVERY_MS)
+  assert.deepEqual(g.around(f.now() - 100, f.now()), { cpu_pct: null, window_ms: 0, restarted: false, ws_mb: null }, 'no GPU process: nulls, never a throw')
+  const broken = new P.GpuSampler({ ...f, metrics: () => { throw new Error('gone') } })
+  assert.doesNotThrow(() => broken.around(0, 1))
+  g.stop(); broken.stop()
+  assert.equal(f.count(), 0, 'stop clears the interval')
+})

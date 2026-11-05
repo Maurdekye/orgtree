@@ -47,7 +47,7 @@ test('ST1 a 499 ms frame only counts; a 500 ms frame is one record with the sche
   const r = sent[0]
   assert.equal(r.ms, 500)
   assert.equal(r.loaf_50_500, 2, 'the two shorter frames were counted (499 and 60 are both >= 50 ms)')
-  assert.deepEqual(r.loaf.scripts[0], { invoker: 'BUTTON.onclick', invoker_type: 'event-listener', fn: 'busy', url: 'http://127.0.0.1:1/assets/a.js', pos: 77, ms: 480, forced_ms: 12 }, 'top script first, with attribution')
+  assert.deepEqual(r.loaf.scripts[0], { invoker: 'BUTTON.onclick', invoker_type: 'event-listener', fn: 'busy', url: 'http://127.0.0.1:1/assets/a.js', pos: 77, ms: 480, forced_ms: 12, at: null }, 'top script first, with attribution (no startTime in this entry: at is null)')
   for (const k of ['loaf', 'input', 'keys_2s', 'field_len', 'fetch', 'ws', 'react', 'ctx', 'counts', 'streamer', 'selectionchange', 'capture_ms', 'at_ms', 'dropped'])
     assert.ok(k in r, 'record has ' + k)
   assert.ok(r.capture_ms <= 20, 'capture is cheap')
@@ -176,4 +176,27 @@ test('the DOM census counts element and text nodes and depth, and stops at its t
   let t = 0
   const partial = domCensus(big, 10, () => (t += 6))
   assert.equal(partial.dom_partial, true); assert.ok(partial.dom_nodes < 2000)
+})
+
+test('ST15 v2: the frame splits into before-render and render, each script carries its start, and ALL scripts are totalled', () => {
+  // the alpha.5 record (10:22:33Z, 613.6 ms, blocking 0) listed 80 ms of scripts but no start offsets: waiting could not be
+  // told apart from short tasks. Scripts under 5 ms are not listed by Chromium; the total still counts every listed one,
+  // including those beyond the top 10.
+  const w = new StallWatch(baseEnv())
+  const start = clock - 600
+  const scripts = Array.from({ length: 12 }, (_, i) => ({ invoker: 'MessagePort.onmessage', invokerType: 'event-listener', sourceFunctionName: 'O',
+    sourceURL: 'app:/assets/i.js', sourceCharPosition: 1, startTime: start + 10 + i * 40, duration: 6 + i, forcedStyleAndLayoutDuration: 0 }))
+  w.onLoaf(loaf({ startTime: start, duration: 600, blockingDuration: 0, renderStart: start + 560, styleAndLayoutStart: start + 563, scripts }))
+  const r = sent[0]
+  assert.equal(r.loaf.render_at, 560, 'renderStart - startTime')
+  assert.equal(r.loaf.style_layout_at, 563, 'styleAndLayoutStart - startTime')
+  assert.equal(r.loaf.scripts_n, 12, 'every script entry is counted')
+  assert.equal(r.loaf.scripts_ms, scripts.reduce((a, s) => a + s.duration, 0), 'the total covers all 12, not only the top 10')
+  assert.equal(r.loaf.scripts.length, 10)
+  assert.equal(r.loaf.scripts[0].at, 10 + 11 * 40, 'the longest script (the last) starts 450 ms in')
+  assert.equal(r.loaf.scripts.at(-1).at, 10 + 2 * 40)
+  // a frame with no rendering update has renderStart 0: no offset rather than a negative one
+  w.onLoaf(loaf({ startTime: start, duration: 600, renderStart: 0, styleAndLayoutStart: 0, scripts: [] }))
+  assert.equal(sent[1].loaf.render_at, null); assert.equal(sent[1].loaf.style_layout_at, null)
+  assert.equal(sent[1].loaf.scripts_ms, 0); assert.equal(sent[1].loaf.scripts_n, 0)
 })
