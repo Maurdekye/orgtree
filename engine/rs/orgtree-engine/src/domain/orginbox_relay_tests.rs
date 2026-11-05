@@ -620,3 +620,24 @@ async fn rl16_target_edit_races_handout_the_edit_wins_and_the_handout_skips() {
     assert_eq!(in_q, 0, "nothing was misrouted into Q");
     let _ = p2;
 }
+
+/// R10 (spec 1.6b) RL19: P in round-robin relays J; P's Recently Delivered lists it with the holder "project Q (relay)" (read
+/// from J itself: no worker copy row exists).
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl19_a_round_robin_p_lists_a_relayed_job_in_recently_delivered() {
+    let (mut w, p, q, _worker) = rig(false, true, 5).await;
+    let (_, published) = w.arrive("n1", "hello relay", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    w.dispatch(p).await;
+    let scope: Value = w.c.query_one("SELECT scope FROM ot.agents WHERE id=$1", &[&p]).await.unwrap().get(0);
+    let hist = projects::queue_history(&w.c, p, "P", &scope, None, false).await.unwrap();
+    assert_eq!(hist["ack"], json!(false));
+    let row = hist["history"].as_array().unwrap().iter().find(|r| r["mail"] == json!(job)).unwrap_or_else(|| panic!("the relayed job is listed: {hist}"));
+    assert_eq!(row["relay"], json!(true), "{row}");
+    assert_eq!(row["agent"], json!("Q"), "{row}");
+    assert_eq!(row["holder_project"], json!("Q"), "{row}");
+    assert_eq!(row["gist"], json!("hello relay"), "{row}");
+    let _ = q;
+}
