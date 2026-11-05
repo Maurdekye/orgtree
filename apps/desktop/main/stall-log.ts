@@ -224,8 +224,7 @@ export class StallLog {
         try { fs.renameSync(target + '.1', target + '.2') } catch { /* no .1 yet */ }
         fs.renameSync(target, target + '.1')
       }
-      fs.appendFileSync(target, JSON.stringify(line) + '
-')
+      fs.appendFileSync(target, JSON.stringify(line) + '\n')
     } catch { /* diagnostics never break the app they describe */ }
   }
 }
