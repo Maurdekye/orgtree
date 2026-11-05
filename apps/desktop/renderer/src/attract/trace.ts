@@ -6,19 +6,21 @@
 
 export interface AttractTraceRecord {
   /** what happened: a cycle step, a panel opened/closed by attract, a panel handed to the user, the run ended */
-  ev: 'step' | 'panel' | 'release' | 'stop'
+  ev: 'step' | 'panel' | 'release' | 'stop' | 'skip'
   /** step: the target kind (org, agent, mail, doc, ticket, attention) */
   kind?: string
   /** step: the least time the step needs (a scroll), and the dwell actually chosen, in ms; n = targets since the last fit-the-org */
   need_ms?: number
   dwell_ms?: number
   n?: number
+  /** step: the docket's share of the last 5 minutes of this run, in percent (the share cap is 15) */
+  docket_pct?: number
   /** panel: open or close, which shell panel, and whether attract owned it (false = the user's, never closed by attract) */
   action?: 'open' | 'close'
   panel?: 'inbox' | 'docket'
   owned?: boolean
   /** stop: canvas interaction, or anything else (disabled, unmount) */
-  why?: 'canvas' | 'other'
+  why?: 'canvas' | 'share' | 'other'
 }
 
 type Sink = (record: Record<string, unknown>) => void

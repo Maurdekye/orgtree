@@ -135,11 +135,11 @@ test('ST15 an attract record is allowlisted: event, kind, panel, why and numbers
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-05T13:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t) })
   log.write('attract', { ev: 'step', kind: 'ticket', need_ms: 90000, dwell_ms: 90000.4, n: 3, panel: 'docket', owned: true,
-    why: 'canvas', title: 'Secret ticket title', slug: 'secret-slug', id: 'm-123' }, { id: '7c0e4a89-787d-412d-a45b-ca83419549d8', org: true })
+    why: 'share', docket_pct: 12.4, title: 'Secret ticket title', slug: 'secret-slug', id: 'm-123' }, { id: '7c0e4a89-787d-412d-a45b-ca83419549d8', org: true })
   log.write('attract', { ev: 'surprise', kind: 'nonsense', panel: 'elsewhere', why: 'because' })
   const [a, b] = lines(file)
   assert.equal(a.src, 'attract')
-  assert.deepEqual([a.ev, a.kind, a.need_ms, a.dwell_ms, a.n, a.panel, a.owned, a.why], ['step', 'ticket', 90000, 90000.4, 3, 'docket', true, 'canvas'])
+  assert.deepEqual([a.ev, a.kind, a.need_ms, a.dwell_ms, a.n, a.panel, a.owned, a.why, a.docket_pct], ['step', 'ticket', 90000, 90000.4, 3, 'docket', true, 'share', 12.4])
   assert.ok(!JSON.stringify(a).includes('ecret') && !JSON.stringify(a).includes('m-123'), 'no title, slug or id')
   assert.deepEqual([b.ev, b.kind, b.panel, b.why], ['other', 'other', 'other', 'other'], 'enum fields outside their list become other')
 })

@@ -137,13 +137,19 @@ export const fitGap = (n: number, jitter: number): number =>
  *  `fitGap` targets (`run` of them so far; `jitter` is this cycle's draw), never twice in a row, and the other steps
  *  pick at random among the new things, never the same one twice in a row (the only new thing just shown: the org). */
 export const TICKET_EVERY = 4
+/** USER 2026-11-05 m68460e1a8f36 "like 70% of the screen time is the docket, that's way too often": over any rolling
+ *  5 minutes the docket gets at most 15% of the screen time (a visit is only started while the time used plus the longest dwell
+ *  still fits), and an attention ticket gets at most ONE docket visit per window (its exemption from the every-4th-step rule is
+ *  no exemption from the share). A refused attention ticket is dropped (the Attention view still lists it) and traced as a skip. */
+export const DOCKET_SHARE = 0.15
+export const DOCKET_WINDOW_MS = 300_000
 export function pickAttract(candidates: AttractTarget[], rng: () => number,
-  last: AttractTarget | null, run = 0, jitter = 1, sinceTicket = TICKET_EVERY): AttractTarget {
+  last: AttractTarget | null, run = 0, jitter = 1, sinceTicket = TICKET_EVERY, docketOk = true): AttractTarget {
   if (!candidates.length) return { kind: 'org' }
   if (last?.kind !== 'org' && run >= fitGap(candidates.length, jitter)) return { kind: 'org' }
   const lastKey = last ? targetKey(last) : null
   // USER 2026-11-05 m207f9caba2e3 (less docket, more canvas and desks): a ticket at most every fourth step
-  const pool = candidates.filter(t => targetKey(t) !== lastKey && (t.kind !== 'ticket' || sinceTicket >= TICKET_EVERY - 1))
+  const pool = candidates.filter(t => targetKey(t) !== lastKey && (t.kind !== 'ticket' || (docketOk && sinceTicket >= TICKET_EVERY - 1)))
   if (!pool.length) return { kind: 'org' }
   const i = Math.min(pool.length - 1, Math.floor(rng() * pool.length))
   return pool[i]!
@@ -311,6 +317,13 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     let run = 0
     /** steps since a ticket was last shown (the docket comes at most every TICKET_EVERY-th step) */
     let sinceTicket = TICKET_EVERY
+    /** the docket visits of this run (start, end or null while open), for the rolling 5-minute share */
+    const docketVisits: { at: number; end: number | null; attn: boolean }[] = []
+    const isAttnTicket = (t: AttractTarget) => t.kind === 'attention' && t.what === 'ticket'
+    const docketMs = (now: number) => docketVisits.reduce((n, v) => n + Math.max(0, Math.min(v.end ?? now, now) - Math.max(v.at, now - DOCKET_WINDOW_MS)), 0)
+    const docketOk = (now: number) => docketMs(now) + DWELL_MAX_MS <= DOCKET_SHARE * DOCKET_WINDOW_MS
+    const attnTicketOk = (now: number) => docketOk(now) && !docketVisits.some(v => v.attn && v.at > now - DOCKET_WINDOW_MS)
+    const closeVisit = () => { const v = docketVisits.at(-1); if (v && v.end === null) v.end = Date.now() }
     let jitter = 0.8 + 0.4 * rngRef.current()
     /** things needing attention that have arrived and are waiting their step, in arrival order */
     const queue: AttentionTarget[] = []
@@ -319,25 +332,30 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       if (!alive) return
       busy = true
       let next: AttractTarget
+      for (let i = 0; i < queue.length;) {
+        if (isAttnTicket(queue[i]!) && !attnTicketOk(Date.now())) { queue.splice(i, 1); attractTrace({ ev: 'skip', kind: 'attention', why: 'share' }) } else i++
+      }
       if (queue.length) next = queue.shift()!    // attention first, whatever the cadence says
       else {
         let input: Omit<AttractInput, 'since'>
         try { input = await routesRef.current.collect(since) }
         catch { input = { agents: [], mail: [], docs: [], tickets: [] } }
         if (!alive) return
-        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter, sinceTicket)
+        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter, sinceTicket, docketOk(Date.now()))
       }
       sinceTicket = next.kind === 'ticket' || (next.kind === 'attention' && next.what === 'ticket') ? 0 : sinceTicket + 1
       if (next.kind === 'org') { run = 0; jitter = 0.8 + 0.4 * rngRef.current() } else run++
+      closeVisit()
       if (current) routesRef.current.hide(current)
       current = next
       shown.add(targetKey(next))
+      if (next.kind === 'ticket' || isAttnTicket(next)) docketVisits.push({ at: Date.now(), end: null, attn: next.kind === 'attention' })
       let need = 0
       try { need = Number(await routesRef.current.show(next)) || 0 } catch { need = 0 }
       busy = false
       if (!alive) return
       const dwell = attractDwell(rngRef.current, need)
-      attractTrace({ ev: 'step', kind: next.kind, need_ms: need, dwell_ms: dwell, n: run })
+      attractTrace({ ev: 'step', kind: next.kind, need_ms: need, dwell_ms: dwell, n: run, docket_pct: Math.round(100 * docketMs(Date.now()) / DOCKET_WINDOW_MS) })
       // an arrival that came in while this step was starting does not wait out a dwell
       if (queue.length && next.kind !== 'attention') { void step(); return }
       timer = setTimeout(() => { void step() }, dwell)
@@ -354,6 +372,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       alive = false
       clearTimeout(timer)
       stopWatching?.()
+      closeVisit()
       routesRef.current.stop?.()
       attractTrace({ ev: 'stop', why: stopWhy.current })
       stopWhy.current = 'other'
