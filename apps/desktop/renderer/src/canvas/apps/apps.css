@@ -55,6 +55,14 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--dim);padding:16px }
 .custom-app-error { padding:6px 9px;color:var(--danger,#e88);font-size:12px;overflow-wrap:anywhere }
 .custom-app-resize { position:absolute;width:15px;height:15px;right:0;bottom:0;cursor:nwse-resize;touch-action:none;border-right:2px solid var(--dim);border-bottom:2px solid var(--dim);border-radius:0 0 6px 0 }
+/* edge and corner handles: the same hit areas and cursors as the pinned desks' .modalpin-rs, inside the panel and above its app frame */
+.custom-app-rs { position:absolute;z-index:8;touch-action:none }
+.custom-app-rs.n,.custom-app-rs.s { left:12px;right:12px;height:6px;cursor:ns-resize }
+.custom-app-rs.e,.custom-app-rs.w { top:12px;bottom:12px;width:6px;cursor:ew-resize }
+.custom-app-rs.n { top:0 } .custom-app-rs.s { bottom:0 } .custom-app-rs.e { right:0 } .custom-app-rs.w { left:0 }
+.custom-app-rs.ne,.custom-app-rs.nw,.custom-app-rs.sw { width:14px;height:14px }
+.custom-app-rs.ne { top:0;right:0;cursor:nesw-resize } .custom-app-rs.nw { top:0;left:0;cursor:nwse-resize } .custom-app-rs.sw { bottom:0;left:0;cursor:nesw-resize }
+.custom-app-resize.custom-app-rs { z-index:8 }
 .custom-app-dialog { box-sizing:border-box;min-height:0 }
 .custom-app-dialog>header { display:flex;gap:8px;align-items:center;justify-content:space-between;flex:none }
 .custom-app-dialog>header svg { width:16px;height:16px }

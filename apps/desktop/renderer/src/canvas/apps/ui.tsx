@@ -16,7 +16,7 @@ import {usePanelMotion,type PanelMotion} from './motion'
 import {AppSettings,PanelSettings} from './settings'
 import {AppsRefRoutes} from './events'
 import {AppDialog as Dialog} from './dialog'
-import {PANEL_MIN,appPlacement,windowRect} from './placement'
+import {PANEL_EDGES,PANEL_MIN,appPlacement,resizePlacement,windowRect,type PanelEdge} from './placement'
 import {appLinkTitle,appLinkMenu,appRunState,manageAppLink,panelLinkMenu,panelRunState} from './links'
 import type {AppSettingsRequest} from './links'
 import {pinSnapOn,useEsc} from '../shared'
@@ -147,7 +147,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   const stopping=motion==='stop'
   useLayoutEffect(()=>{frame.current?.toggleAttribute('inert',stopping)},[frame,stopping])
   const latest=useRef(panel);latest.current=panel
-  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size';pointerId:number;capture:HTMLElement}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
+  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size';edge:PanelEdge;pointerId:number;capture:HTMLElement}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
   // a released drop on screen until its save commits: the revision that commits it, once known (`end`)
   const held=useRef<{rev:number}|null>(null)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
@@ -186,8 +186,8 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   // ordinary lost-capture notification while its save is in flight.
   const cancel=()=>{const d=drag.current;if(!d)return;drag.current=null;try{d.capture.releasePointerCapture(d.pointerId)}catch{/* already gone */}setPreview(null);setFree(false)}
   useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'&&drag.current){event.preventDefault();event.stopPropagation();cancel()}};const win=owner.defaultView??window;win.addEventListener('keydown',onKey,true);return()=>{win.removeEventListener('keydown',onKey,true)}},[owner])
-  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||drag.current||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind,pointerId:event.pointerId,capture:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);if(layer)raisePinSurface(layer.key)}
-  const gesture=(d:NonNullable<typeof drag.current>,event:ReactPointerEvent<HTMLElement>):AppPlacement=>{const dx=event.clientX-d.x,dy=event.clientY-d.y;return d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:{...d.placement,width:Math.round(Math.max(160,Math.min(4096,d.placement.width+dx))),height:Math.round(Math.max(120,Math.min(4096,d.placement.height+dy)))}}
+  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size',edge:PanelEdge='se')=>{if(surface?.detached||drag.current||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind,edge,pointerId:event.pointerId,capture:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);if(layer)raisePinSurface(layer.key)}
+  const gesture=(d:NonNullable<typeof drag.current>,event:ReactPointerEvent<HTMLElement>):AppPlacement=>{const dx=event.clientX-d.x,dy=event.clientY-d.y;return d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:resizePlacement(d.placement,d.edge,dx,dy,!layer)}
   const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d||event.pointerId!==d.pointerId)return;event.stopPropagation();setFree(event.shiftKey);setPreview(gesture(d,event))}
   // One commit per gesture, from where the pointer ended; a window pin is
   // clamped into the canvas area and snapped, as pinned desks are.
@@ -217,7 +217,9 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
     <PanelHtml slug={slug} app={app} panel={panel} visible={shown&&!stopping} stopping={stopping}/>
-    {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>start(e,'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel}/>}
+    {/* the pinned desks' eight handles (modalpin.tsx), drawn inside the panel over the app's frame: the app's own content never
+        receives the resize drag. The south-east one is the visible grip. A popped-out window keeps the OS window's resizing. */}
+    {!surface?.detached&&PANEL_EDGES.map(edge=><div key={edge} className={edge==='se'?'custom-app-resize custom-app-rs se':'custom-app-rs '+edge} data-resize-edge={edge} aria-label={edge==='se'?'Resize panel':undefined} onPointerDown={e=>start(e,'size',edge)} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel}/>)}
     {settings&&!stopping&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
   </section>{candidate&&<div className="pin-snap-preview" role="status" style={{left:candidate.rect.x,top:candidate.rect.y,width:candidate.rect.w,height:candidate.rect.h}}><span>{candidate.snap.target===null?candidate.label:'Snap beside pinned window'} · Shift for free placement</span></div>}</>
 }
