@@ -122,3 +122,24 @@ test('a fire with no JSON draws exactly as text', async t => {
   assert.match(v.el.textContent ?? '', /READY/)
   assert.match(v.el.textContent ?? '', /done in \{x\} s/)
 })
+
+test('a websocket chat event leads with its words, sender and kind; the gate and flags fold under Details', async t => {
+  const chat = JSON.stringify({ kind: 'chat.message', text: 'hello from chat, can you hear me?', viewer: { name: 'viewer_one', id: 'v1' },
+    flags: [], gate: { interruptions_per_min_5: 0.4, interruptions_15: 2, min_interval_s: 60, min_donation: 0 } }, null, 2)
+  const line = '2026-11-05T14:30:00.000Z  517 bytes\n' + chat.split(String.fromCharCode(10)).map(l => '    │ ' + l).join('\n')
+  const lines = [line, WS_JSON]
+  const v = await mountView(<EventCard org="org" profile="operator" row={{ ev: fire('stream-chat', 'WEBSOCKET —', lines, { source: 'websocket' }), body: 'mail text' }} />, h => h)
+  t.after(() => v.unmount())
+  const head = v.el.querySelector('.event-headline')
+  assert.ok(head, 'the words lead as a headline')
+  assert.match(head!.textContent ?? '', /hello from chat, can you hear me\?/)
+  assert.match(head!.querySelector('.event-headline-who')?.textContent ?? '', /^viewer_one · chat\.message$/, 'sender and kind beside it')
+  const details = head!.querySelector('details')
+  assert.ok(details && !details.open, 'the object folds closed under Details')
+  assert.equal(details!.querySelector('summary')?.textContent, 'Details')
+  assert.ok(details!.querySelector('.sj'), 'gate and flags are the JSON viewer inside it')
+  assert.ok(details!.querySelector('.sj-raw'), 'Raw is unchanged')
+  const outside = [...v.el.querySelectorAll('.sj')].filter(e => !details!.contains(e))
+  assert.equal(outside.length, 1, 'the payload with no words keeps its plain JSON view (the second message)')
+  tagged(v.el, v.el.textContent ?? '')
+})

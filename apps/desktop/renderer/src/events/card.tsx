@@ -66,7 +66,13 @@ function Fields({ fields, ...props }: ValueProps & { fields: EventField[] }) {
   </div>)}</>
 }
 function FireParts({ parts, ...props }: ContentProps & { parts: FirePart[] }) {
-  return <>{parts.map((p, i) => p.kind === 'json'
+  return <>{parts.map((p, i) => p.kind === 'headline'
+    ? <div key={i} className="event-headline" data-event-field="headline">
+        {(p.name || p.event) && <div className="event-headline-who dim">{[p.name, p.event].filter(Boolean).join(' · ')}</div>}
+        <Text text={p.text} {...props} />
+        <details className="event-context"><summary>Details</summary><StructuredJson value={p.value} raw={p.raw} /></details>
+      </div>
+    : p.kind === 'json'
     ? <StructuredJson key={i} value={p.value} raw={p.raw} />
     : p.kind === 'literal' ? <div key={i} className="event-prose" style={{whiteSpace:'pre-wrap'}}>{p.text}</div>
     : <Text key={i} text={p.text} {...props} />)}</>

@@ -9,6 +9,20 @@ import { parseStructured } from '../canvas/structuredjson'
 
 export type FireSource = 'mqtt' | 'websocket'
 export type FirePart = { kind: 'text' | 'literal'; text: string } | { kind: 'json'; value: unknown; raw: string }
+  // an mqtt/websocket JSON message that carries readable words: they lead the card, the object folds under "Details"
+  | { kind: 'headline'; text: string; name?: string; event?: string; value: unknown; raw: string }
+
+/** The words a message carries, for the card's headline: the first of text, message, body that is
+ *  a non-empty string, with the sender (viewer.name, else name) and the event kind beside it. */
+function headline(value: unknown, raw: string): FirePart | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const o = value as Record<string, unknown>
+  const str = (v: unknown): string | undefined => typeof v === 'string' && v.trim() ? v : undefined
+  const text = str(o.text) ?? str(o.message) ?? str(o.body)
+  if (text === undefined) return undefined
+  const viewer = o.viewer !== null && typeof o.viewer === 'object' ? (o.viewer as Record<string, unknown>).name : undefined
+  return { kind: 'headline', text, name: str(viewer) ?? str(o.name), event: str(o.kind), value, raw }
+}
 
 /** App mail contains labelled JSON values in one multiline observation. Parse
  * each complete value independently, never repair a clipped payload or interpret
@@ -90,7 +104,7 @@ export function fireLineParts(line: string, source?: FireSource): FirePart[] {
       const raw = body.join('\n')
       const value = json(raw, cut !== undefined)
       if (value !== undefined) {
-        const parts: FirePart[] = [{ kind: 'text', text: head }, { kind: 'json', value, raw }]
+        const parts: FirePart[] = [{ kind: 'text', text: head }, headline(value, raw) ?? { kind: 'json', value, raw }]
         if (cut !== undefined) parts.push({ kind: 'text', text: cut })
         return parts
       }
