@@ -511,7 +511,7 @@ else {
     const heartbeat = new Float64Array(new SharedArrayBuffer(8))
     heartbeat[0] = Date.now()
     // the main-stack worker is a whole isolate (about 8 MB): it starts on the first stall signal, not at launch (LazyStackWorker)
-    const stackWorker = new LazyStackWorker({ setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: h => clearTimeout(h as NodeJS.Timeout), spawn: () => {
+    const stackWorker = new LazyStackWorker({ now: Date.now, setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: h => clearTimeout(h as NodeJS.Timeout), spawn: () => {
       const worker = new Worker(MAIN_STACK_WORKER_SOURCE, { eval: true, workerData: { sab: heartbeat.buffer } })
       worker.on('message', (m: { at: number; stack: string | string[] }) => stackStore.put(m.at, m.stack))
       worker.on('error', () => { /* best effort: main_stack stays unavailable */ })
@@ -527,7 +527,7 @@ else {
     new MainLagProbe({ now: Date.now, setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
       mainStack: (from, to) => stackStore.near(from, to), beat: t => { heartbeat[0] = t },
       // the worker's stack arrives as a message once main runs again: give it a moment, then write
-      report: r => { stackWorker.wake(); setTimeout(() => stallLog.write('main-lag', { ...r, main_stack: stackStore.near(r.at_ms, r.at_ms + r.lag_ms) }), 50) },
+      report: r => { stackWorker.wake(); setTimeout(() => stallLog.write('main-lag', { ...r, main_stack: stackWorker.inGrace() ? 'unavailable:startup-grace' : stackStore.near(r.at_ms, r.at_ms + r.lag_ms) }), 50) },
     }).start()
     stallPing.start()
   }

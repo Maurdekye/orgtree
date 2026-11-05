@@ -114,6 +114,9 @@ export class MainLagProbe {
 
 // ---------------------------------------------------------------- lazy main-stack worker
 export interface LazyWorkerDeps {
+  now: () => number
+  /** signals in the first N ms after construction (app start) do not start the worker; default 60 s (spec rev 1.8) */
+  startupGraceMs?: number
   setTimeout: (fn: () => void, ms: number) => unknown
   clearTimeout: (h: unknown) => void
   /** creates the worker thread; the returned handle stops it */
@@ -126,8 +129,12 @@ export interface LazyWorkerDeps {
 export class LazyStackWorker {
   private handle: { stop: () => void } | null = null
   private timer: unknown = null
-  constructor(private readonly d: LazyWorkerDeps) {}
+  private readonly born: number
+  constructor(private readonly d: LazyWorkerDeps) { this.born = d.now() }
+  /** startup sync IPC and engine attach can look like a stall: no worker for the first minute (the records are still written) */
+  inGrace(): boolean { return this.d.now() - this.born < (this.d.startupGraceMs ?? 60_000) }
   wake(): void {
+    if (this.inGrace()) return
     if (!this.handle) { try { this.handle = this.d.spawn() } catch { return } }
     if (this.timer) this.d.clearTimeout(this.timer)
     this.timer = this.d.setTimeout(() => this.sleep(), this.d.idleMs ?? 10 * 60_000)
