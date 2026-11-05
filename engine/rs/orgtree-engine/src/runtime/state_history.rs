@@ -271,6 +271,9 @@ pub fn totals(marks: &[Mark], now: DateTime<Utc>, window_secs: i64) -> [i64; 5] 
 }
 
 #[cfg(test)]
+mod activity_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

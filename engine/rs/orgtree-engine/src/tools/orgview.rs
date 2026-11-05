@@ -264,6 +264,10 @@ pub async fn chart_as_user(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, a
 #[cfg(test)]
 mod session_measurement_tests;
 
+/// `orgtree_state_inspect activity=true`: argument rules, visibility, projects (red tests, spec rev 1.0).
+#[cfg(test)]
+mod activity_read_tests;
+
 #[logged]
 fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value,
     cache: &mut HashMap<i64, (Value, usize)>) -> Result<Value> {
