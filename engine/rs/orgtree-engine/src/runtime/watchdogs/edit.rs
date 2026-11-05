@@ -586,6 +586,23 @@ pub(super) async fn apply(tx: &tokio_postgres::Transaction<'_>, dog: &Dog, org_i
         memo["queued_at"] = json!(Utc::now().timestamp_millis());
     }
     let _ = (org_id, state);
+    // R3 rule 7 again, in the locked transaction: a claim committed since `plan` still blocks the retarget (a relay's
+    // outstanding jobs `by_project`, an agent's own `by_id`), and nothing is written
+    if plan.memo_set.iter().any(|(k, _)| k == "target_id") && dog.kind == "fair_queue" {
+        if let Some(old) = dog.memo["target_id"].as_i64() {
+            let (col, who) = if dog.project_owned() { ("by_project", "relay") } else { ("by_id", "dog") };
+            let held: i64 = tx.query_one(&format!(
+                "SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $1 AND (m.extra->'claimed'->>'{col}')::bigint = $2
+                    AND m.extra->'claimed'->>'dog' = $3 AND {}", crate::domain::projects::OUTSTANDING),
+                &[&old, &dog.owner, &dog.uid]).await?.get(0);
+            if held > 0 {
+                if who == "relay" {
+                    refuse!(Conflict, "{held} jobs this relay took are still outstanding in the old project; wait until they are ACKed or taken back before changing its target");
+                }
+                refuse!(Conflict, "ACK or hand back the {held} jobs you hold through this watchdog first");
+            }
+        }
+    }
     // D16 again, under the project row lock configure holds: two edits that each passed the early check
     // in `plan` cannot both be written into one tuple (the dog itself excepted)
     if dog.project_owned() {
