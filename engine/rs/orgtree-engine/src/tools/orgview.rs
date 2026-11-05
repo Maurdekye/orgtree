@@ -327,7 +327,7 @@ fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64
 /// `activity=true` on `orgtree_state_inspect`: one agent's state-history page
 /// rides in its row (spec rev 1.0, @item:orgtree/agents-can-read-other-agents-activity-state-hist).
 /// `before` is the previous page's `next_cursor`.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActivityArgs {
     pub limit: i64,
     pub before: Option<i64>,

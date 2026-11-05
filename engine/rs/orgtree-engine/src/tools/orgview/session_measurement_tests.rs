@@ -108,7 +108,7 @@ fn session_scope_projection_preserves_visibility_filters_and_sibling_ranks() {
     let records=vec![(1,json!({"name":"me","state":"live","sibling_order":10})),(2,json!({"name":"child","state":"live","sibling_order":0})),(3,json!({"name":"hidden","state":"live","sibling_order":0}))];
     // This fixture has only agents, so reporting and placement parents coincide.
     let reporting:HashMap<_,_>=scopes.iter().map(|(id,(parent,_))|(*id,*parent)).collect();
-    let project=|names|inspection_projection(1,"me".into(),false,names,scopes.clone(),reporting.clone(),records.clone(),ceiling.clone());
+    let project=|names|inspection_projection(1,"me".into(),false,names,scopes.clone(),reporting.clone(),records.clone(),ceiling.clone(),false);
     let out:Value=serde_json::from_str(&project(Vec::new()).unwrap().text).unwrap();
     assert_eq!(out["nodes"].as_array().unwrap().len(),2);
     assert_eq!(out["nodes"][0]["name"],"me");

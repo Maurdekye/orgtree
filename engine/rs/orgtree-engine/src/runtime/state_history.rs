@@ -354,10 +354,10 @@ fn totals_map(t: [i64; 5], per: impl Fn(i64) -> Value) -> Value {
     Value::Object(o)
 }
 
+#[logged]
 impl HistoryPage {
     /// The node-settings Activity tab's JSON (`GET .../nodes/{nid}/states`):
     /// byte-for-byte what that endpoint returned before the shared read.
-    #[logged]
     pub fn http_json(&self, node: &str) -> Value {
         let states: Vec<Value> = self.spans.iter()
             .map(|s| json!({ "state": s.state.as_str(), "start": crate::util::iso(s.start),
@@ -373,7 +373,6 @@ impl HistoryPage {
     /// The agent tool's JSON (`orgtree_state_inspect activity=true`): spans
     /// carry a compact `dur` (the desk's age words) and `"end": "now"` for the
     /// open span; `totals` appear on the first page only (key absent after).
-    #[logged]
     pub fn tool_json(&self, as_of: DateTime<Utc>) -> Value {
         let spans: Vec<Value> = self.spans.iter()
             .map(|s| json!({ "state": s.state.as_str(), "start": crate::util::iso(s.start),
