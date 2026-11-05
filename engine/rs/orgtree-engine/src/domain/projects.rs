@@ -850,7 +850,7 @@ pub async fn waiting(client: &impl GenericClient, project: i64, limit: i64) -> R
         .get(0);
     let rows = client
         .query(
-            "SELECT uid, sender, kind, notice, urgent, created_at, body, jsonb_array_length(attachments)
+            "SELECT uid, sender, kind, notice, urgent, created_at, body, jsonb_array_length(attachments), extra->'relayed_from'->>'name'
                FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' ORDER BY id DESC LIMIT $2",
             &[&project, &limit],
         )
@@ -867,6 +867,7 @@ pub async fn waiting(client: &impl GenericClient, project: i64, limit: i64) -> R
             if r.get::<_, bool>(4) { v["urgent"] = json!(true); }
             let files: i32 = r.get(7);
             if files > 0 { v["attachments"] = json!(files); }
+            if let Some(from) = r.get::<_, Option<String>>(8) { v["relayed_from"] = json!(from); }
             v
         })
         .collect();
@@ -1976,21 +1977,25 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
         let rows = client
             .query(
                 &format!("SELECT m.uid, m.body, m.extra->'claimed', coalesce((m.extra->>'attempts')::bigint, 0),
-                                 w.name, w.kind, w.once, w.state
+                                 w.name, w.kind, w.once, w.state, m.extra->'relayed_from'->>'name'
                             FROM ot.mail m {}
                            WHERE m.recipient_agent_id = $1 AND m.state = 'read' AND m.extra->'claimed'->>'ack' = 'true'
                              AND m.extra->'claimed'->>'acked_at' IS NULL AND NOT (m.extra ? 'dead_letter')
                            ORDER BY m.id LIMIT 200",
-                    dog_of("(m.extra->'claimed'->>'by_id')::bigint", "m.extra->'claimed'->>'dog'")),
+                    dog_of("coalesce((m.extra->'claimed'->>'by_id')::bigint, (m.extra->'claimed'->>'by_project')::bigint)", "m.extra->'claimed'->>'dog'")),
                 &[&project],
             )
             .await?;
         out["working"] = Value::Array(rows.iter().map(|r| {
             let c: Value = r.get(2);
             let agent = c["by"].as_str().unwrap_or("?");
-            json!({ "mail": r.get::<_, String>(0), "gist": first_line(r.get(1)), "copy": c["copy"], "agent": agent,
+            let mut v = json!({ "mail": r.get::<_, String>(0), "gist": first_line(r.get(1)), "copy": c["copy"], "agent": agent,
                     "dog": row_dog(r, agent, c["dog"].as_str(), 4, "fair_queue"), "attempts": r.get::<_, i64>(3),
-                    "waited_from": when(json_time(&c["waited_from"])), "held_at": when(json_time(&c["at"])) })
+                    "waited_from": when(json_time(&c["waited_from"])), "held_at": when(json_time(&c["at"])) });
+            // R10: a relay holds it (the holder is a project), and a relayed job says where it came from
+            if c["by_project"].as_i64().is_some() { v["relay"] = json!(true); v["holder_project"] = json!(agent); }
+            if let Some(from) = r.get::<_, Option<String>>(8) { v["relayed_from"] = json!(from); }
+            v
         }).collect());
     }
     let (rows, history): (usize, Vec<Value>) = if ack {
@@ -2007,8 +2012,10 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
         };
         (rows.len(), rows.iter().take(QUEUE_PAGE).map(|r| {
             let agent: String = r.get(3);
+            // a relay's ending is recorded as "relay Q"; its dog is Q's
+            let owner = agent.strip_prefix("relay ").unwrap_or(&agent).to_string();
             json!({ "id": r.get::<_, i64>(0), "mail": r.get::<_, String>(1), "copy": r.get::<_, Option<String>>(2), "agent": agent,
-                    "dog": row_dog(r, &agent, r.get(4), 14, "fair_queue"), "how": r.get::<_, String>(5),
+                    "dog": row_dog(r, &owner, r.get(4), 14, "fair_queue"), "how": r.get::<_, String>(5),
                     "why": r.get::<_, Option<String>>(6), "attempt": r.get::<_, Option<i32>>(7),
                     "waited_from": when(r.get(8)), "held_at": when(r.get(9)), "ended_at": iso(r.get(10)),
                     "ack": r.get::<_, Option<String>>(11), "gist": r.get::<_, Option<&str>>(12).map(first_line),

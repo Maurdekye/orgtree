@@ -177,7 +177,7 @@ pub(crate) async fn settle(tx: &impl GenericClient, org_id: i64, child: &str) ->
             &[&row.get::<_, i64>(0), &by],
         )
         .await?;
-        record_ending(tx, org_id, p, &job, &claimed, None, &by, "acked", None, row.get(2), None).await?;
+        record_ending(tx, org_id, p, &job, &claimed, claimed["by_project"].as_i64(), &by, "acked", None, row.get(2), None).await?;
         child = job;
     }
     Ok(())
@@ -212,7 +212,7 @@ pub(crate) async fn dead_lettered(tx: &impl GenericClient, org_id: i64, child: &
         &[&row.get::<_, i64>(0), &by, &why, &attempts],
     )
     .await?;
-    record_ending(tx, org_id, p, &job, &claimed, None, &by, "dead_letter", Some(&why), attempts, None).await?;
+    record_ending(tx, org_id, p, &job, &claimed, claimed["by_project"].as_i64(), &by, "dead_letter", Some(&why), attempts, None).await?;
     Ok(())
 }
 
@@ -263,6 +263,6 @@ pub async fn take_back(tx: &impl GenericClient, org_id: i64, project: i64, row: 
         &[&project, &uid],
     )
     .await?;
-    record_ending(tx, org_id, project, &uid, &claimed, None, &format!("relay {qname}"), ending, Some(why), attempts, None).await?;
+    record_ending(tx, org_id, project, &uid, &claimed, Some(q), &format!("relay {qname}"), ending, Some(why), attempts, None).await?;
     Ok(true)
 }
