@@ -719,12 +719,12 @@ fn build_tool_chart() -> Value {
 fn build_tool_state_inspect() -> Value {
     tool(
         "orgtree_state_inspect",
-        "Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. activity=true with one node adds its state-history page (spans, 24h/7d totals, cursor). Excludes prompts, transcripts and mail.",
+        "Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.",
         json!({
             "node": { "type": "string" },
             "nodes": { "type": "array", "items": { "type": "string" } },
             "include_archived": { "type": "boolean" },
-            "activity": { "type": "boolean", "description": "default false; with exactly one node, add its activity-history page" },
+            "activity": { "type": "boolean", "description": "default false; with exactly one node, add its state-history page (spans, 24h/7d totals, cursor)" },
             "activity_limit": { "type": "integer", "minimum": 1, "maximum": 100, "description": "spans per page, default 20" },
             "activity_cursor": { "type": "string", "description": "activity.next_cursor from the previous page" },
         }),
@@ -1944,9 +1944,9 @@ mod builder_stack_tests {
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
         card["description"] = serde_json::json!("Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.\nGuide: orgtree-tool-chart.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_state_inspect").unwrap();
-        card["description"] = serde_json::json!("Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. activity=true with one node adds its state-history page (spans, 24h/7d totals, cursor). Excludes prompts, transcripts and mail.\nGuide: orgtree-tool-state-inspect.");
+        card["description"] = serde_json::json!("Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.\nGuide: orgtree-tool-state-inspect.");
         // agents read other agents' activity history (USER 2026-11-05 maac5e83fa61e): three parameters on this one tool
-        card["inputSchema"]["properties"]["activity"] = serde_json::json!({ "type": "boolean", "description": "default false; with exactly one node, add its activity-history page" });
+        card["inputSchema"]["properties"]["activity"] = serde_json::json!({ "type": "boolean", "description": "default false; with exactly one node, add its state-history page (spans, 24h/7d totals, cursor)" });
         card["inputSchema"]["properties"]["activity_limit"] = serde_json::json!({ "type": "integer", "minimum": 1, "maximum": 100, "description": "spans per page, default 20" });
         card["inputSchema"]["properties"]["activity_cursor"] = serde_json::json!({ "type": "string", "description": "activity.next_cursor from the previous page" });
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
