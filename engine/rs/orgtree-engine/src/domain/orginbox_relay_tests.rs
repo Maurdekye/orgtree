@@ -556,3 +556,64 @@ async fn rl11b_a_take_back_at_p_revokes_every_descendant() {
     let out = reply_from(wr, "WR", "@net:bob.1", "late", &copy, "@net:bob.1");
     assert!(matches!(jobs::reply_right(&w.e, w.org, wr, &out).await.unwrap(), jobs::Reply::Refused), "the final holder keeps the job, not the right");
 }
+
+/// Arm the hand-out gate; returns (reached, proceed).
+#[nolog]
+fn arm_gate(point: &'static str) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
+    let (reached, proceed) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    *projects::relay_gate().lock().unwrap() = Some((point, reached.clone(), proceed.clone()));
+    (reached, proceed)
+}
+
+/// R3 rule 7, spec rev 1.5 (configure versus the in-flight hand-out), outcome 1: the hand-out holds P and Q and has not re-read the
+/// dog yet; the target edit queues behind Q, the hand-out claims the job, and the edit is then refused. Nothing is misrouted.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl16_target_edit_races_handout_the_handout_wins_and_the_edit_is_refused() {
+    let (mut w, p, q, _worker) = rig(true, true, 5).await;
+    w.project("P2", true, None).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    let id = format!("Q/relay{q}{p}");
+    let (reached, proceed) = arm_gate("locked");
+    let (e, org) = (w.e.clone(), w.org);
+    let pick = tokio::spawn(async move { projects::dispatch(&e, org, p).await });
+    tokio::time::timeout(std::time::Duration::from_secs(20), reached.notified()).await.expect("the hand-out reached its gate");
+    let (e, idc) = (w.e.clone(), id.clone());
+    let edit = tokio::spawn(async move { crate::runtime::watchdogs::configure(&e, org, None, &idc, &json!({ "target": "P2" })).await });
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    assert!(!edit.is_finished(), "the edit waits behind the hand-out's lock on Q");
+    proceed.notify_one();
+    pick.await.unwrap().unwrap();
+    let err = edit.await.unwrap().expect_err("refused: the relay now holds the job");
+    assert!(format!("{err:#}").contains("still outstanding in the old project"), "{err:#}");
+    assert_eq!(w.extra(&job).await["claimed"]["by_project"], json!(q), "the job went to the relay");
+    let target: String = w.c.query_one("SELECT memo->>'target_id' FROM ot.watchdogs WHERE uid=$1", &[&format!("relay{q}{p}")]).await.unwrap().get(0);
+    assert_eq!(target, p.to_string());
+}
+
+/// Outcome 2: the edit commits between the hand-out's listing and its locks; the hand-out re-reads the dog, sees the new target and
+/// skips: the job stays in P and nothing lands in Q.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn rl16_target_edit_races_handout_the_edit_wins_and_the_handout_skips() {
+    let (mut w, p, q, _worker) = rig(true, true, 5).await;
+    let p2 = w.project("P2", true, None).await;
+    let (_, published) = w.arrive("n1", "hello", json!([])).await;
+    let job = published.jobs[0].mail.clone();
+    let id = format!("Q/relay{q}{p}");
+    let (reached, proceed) = arm_gate("listed");
+    let (e, org) = (w.e.clone(), w.org);
+    let pick = tokio::spawn(async move { projects::dispatch(&e, org, p).await });
+    tokio::time::timeout(std::time::Duration::from_secs(20), reached.notified()).await.expect("the hand-out reached its gate");
+    crate::runtime::watchdogs::configure(&w.e, w.org, None, &id, &json!({ "target": "P2" })).await.expect("no claim yet: the edit is allowed");
+    proceed.notify_one();
+    pick.await.unwrap().unwrap();
+    let ex = w.extra(&job).await;
+    assert!(ex.get("claimed").is_none() && ex.get("relayed_to").is_none(), "skipped: the job stays in P: {ex}");
+    let in_q: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id=$1 AND extra ? 'relayed_from'", &[&q]).await.unwrap().get(0);
+    assert_eq!(in_q, 0, "nothing was misrouted into Q");
+    let _ = p2;
+}

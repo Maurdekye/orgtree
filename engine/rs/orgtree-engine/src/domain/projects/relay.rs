@@ -46,10 +46,12 @@ pub(super) async fn eligible(tx: &impl GenericClient, org_id: i64, project: i64)
     let mut out = Vec::new();
     for r in &rows {
         let q: i64 = r.get(2);
+        #[cfg(test)] gate("listed").await;
         // lock order P (held by the caller) -> Q -> the dog, as configure takes Q -> the dog (R3 rule 7)
         if tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND kind = 'project' AND state = 'live' FOR NO KEY UPDATE", &[&q]).await?.is_none() {
             continue;
         }
+        #[cfg(test)] gate("locked").await;
         // the dog, re-read under its lock: an edit that moved its target or paused it since the list above skips this pick
         let Some(again) = tx.query_opt(
             "SELECT memo FROM ot.watchdogs WHERE id = $1 AND state = 'armed' AND (memo->>'target_id')::bigint = $2 FOR UPDATE",
@@ -74,6 +76,21 @@ pub(super) async fn eligible(tx: &impl GenericClient, org_id: i64, project: i64)
         });
     }
     Ok(out)
+}
+
+/// Test hook (the CE19 pattern): a hand-out pauses at `point` ("listed": relays listed, Q not locked yet; "locked": P and Q
+/// locked, the dog not re-read yet) until the test lets it go. Armed once, taken by the next pick.
+#[cfg(test)]
+pub(crate) static GATE: std::sync::Mutex<Option<(&'static str, std::sync::Arc<tokio::sync::Notify>, std::sync::Arc<tokio::sync::Notify>)>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+#[nolog]
+async fn gate(point: &str) {
+    let hit = { let mut g = GATE.lock().unwrap(); if g.as_ref().is_some_and(|x| x.0 == point) { g.take() } else { None } };
+    if let Some((_, reached, proceed)) = hit {
+        reached.notify_one();
+        proceed.notified().await;
+    }
 }
 
 /// May this job be relayed into project `q`: no loop at run time and not past the depth limit (R7)?

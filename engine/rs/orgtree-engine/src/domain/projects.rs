@@ -35,6 +35,8 @@ mod claim_boundary_tests;
 mod relay;
 pub use relay::{relay_loop, RELAY_BATCH};
 pub(crate) use relay::settle as settle_relayed;
+#[cfg(test)]
+pub(crate) fn relay_gate() -> &'static std::sync::Mutex<Option<(&'static str, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> { &relay::GATE }
 
 /// The user took a job back from its relay (R5): the child is revoked and the job returns to the front of the queue.
 #[logged]
