@@ -4741,6 +4741,7 @@
     "ls:orgtree-chart-layout",
     "ls:orgtree-new-hire-position",
     "ls:orgtree-hire-auto-focus",
+    "ls:orgtree-event-card-headline",
     "ls:orgtree-desk-dpi",
     "ls:orgtree-crowd-piles",
     "ls:orgtree-hide-retired",
@@ -4802,6 +4803,10 @@
      "label": "Open desk after manual hire"
     },
     {
+     "file": "apps/desktop/renderer/src/canvas/eventheadlinesetting.tsx",
+     "label": "Show event message text as the card headline"
+    },
+    {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "Hide retired agents"
     },
@@ -4846,6 +4851,13 @@
      "file": "apps/desktop/renderer/src/hirefocus.ts",
      "needles": [
       "orgtree-hire-auto-focus"
+     ]
+    },
+    {
+     "key": "ls:orgtree-event-card-headline",
+     "file": "apps/desktop/renderer/src/events/cardheadline.ts",
+     "needles": [
+      "orgtree-event-card-headline"
      ]
     },
     {
