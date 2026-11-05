@@ -272,3 +272,53 @@ export class MainStackStore {
     return l && l.at >= from - 1000 && l.at <= to + 1000 ? l.stack : 'unavailable:none-captured'
   }
 }
+
+// ---------------------------------------------------------------- GPU process CPU (recorder v2)
+// A long animation frame with blockingDuration 0 means the renderer's main thread was free while no frame was produced
+// (alpha.5, 2026-11-05 10:22Z: 613 ms, 80 ms of scripts). Frame delivery then waits on the GPU process, the compositor or
+// the OS, which no renderer-side entry can see. Every GPU_SAMPLE_EVERY_MS this reads the GPU process's cumulative CPU
+// (app.getAppMetrics, injected); a stall record gets the CPU over the window from the last sample at or before the
+// stall's start to now (when the record reaches main), and whether the GPU process changed pid in between (a restart).
+export const GPU_SAMPLE_EVERY_MS = 5000
+export interface ProcessMetricLike { pid: number; type: string; cpu?: { cumulativeCPUUsage?: number }; memory?: { workingSetSize?: number } }
+export interface GpuSamplerDeps {
+  now(): number
+  metrics(): ProcessMetricLike[]
+  setInterval(fn: () => void, ms: number): unknown
+  clearInterval(handle: unknown): void
+}
+interface GpuPoint { at: number; pid: number | null; cum: number | null; wsKb: number | null }
+export interface GpuAround { cpu_pct: number | null; window_ms: number; restarted: boolean; ws_mb: number | null }
+export class GpuSampler {
+  private ring: GpuPoint[] = []
+  private timer: unknown = null
+  constructor(private readonly d: GpuSamplerDeps, private readonly keep = 13) {}
+  start(): void { if (this.timer === null) this.timer = this.d.setInterval(() => this.push(), GPU_SAMPLE_EVERY_MS) }
+  stop(): void { if (this.timer !== null) { this.d.clearInterval(this.timer); this.timer = null } }
+  private read(): GpuPoint {
+    const at = this.d.now()
+    try {
+      const g = this.d.metrics().find(m => m.type === 'GPU')
+      if (!g) return { at, pid: null, cum: null, wsKb: null }
+      const cum = typeof g.cpu?.cumulativeCPUUsage === 'number' ? g.cpu.cumulativeCPUUsage : null
+      const wsKb = typeof g.memory?.workingSetSize === 'number' ? g.memory.workingSetSize : null
+      return { at, pid: g.pid, cum, wsKb }
+    } catch { return { at, pid: null, cum: null, wsKb: null } }
+  }
+  private push(): void { this.ring.push(this.read()); if (this.ring.length > this.keep) this.ring.shift() }
+  /** the GPU process around a stall that started at `from` (epoch ms); `to` is its end, kept for symmetry with the other probes */
+  around(from: number, _to: number): GpuAround {
+    const now = this.read()
+    if (now.pid === null) return { cpu_pct: null, window_ms: 0, restarted: false, ws_mb: null }
+    const ws_mb = now.wsKb === null ? null : Math.round(now.wsKb / 1024 * 10) / 10
+    let before: GpuPoint | undefined
+    for (const p of this.ring) if (p.at <= from && p.pid !== null) before = p
+    before ??= this.ring.find(p => p.pid !== null)
+    if (!before) return { cpu_pct: null, window_ms: 0, restarted: false, ws_mb }
+    const window_ms = Math.max(0, now.at - before.at)
+    if (before.pid !== now.pid) return { cpu_pct: null, window_ms, restarted: true, ws_mb }
+    const cpu_pct = before.cum === null || now.cum === null || window_ms <= 0 ? null
+      : Math.round(Math.max(0, now.cum - before.cum) / (window_ms / 1000) * 1000) / 10
+    return { cpu_pct, window_ms, restarted: false, ws_mb }
+  }
+}

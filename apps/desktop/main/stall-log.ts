@@ -77,6 +77,15 @@ const EVENT_TYPES = ['keydown', 'keyup', 'keypress', 'input', 'beforeinput', 'po
   'click', 'dblclick', 'compositionstart', 'compositionupdate', 'compositionend', 'contextmenu', 'dragstart', 'dragend', 'drop', 'wheel', 'focusin', 'focusout']
 const TRIGGERS = ['mutation', 'update', 'prefs', 'org-list', 'other']
 const TARGET = /^[a-z0-9-]{1,32}(?:\[[a-z-]{1,20}\])?$/
+/** window ids are the app's own UUIDs (window-events.jsonl): kept as they are, anything else is dropped (v1 read them as secrets) */
+const WINDOW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** Electron's child-process types plus the renderer; the reasons of child-process-gone / render-process-gone */
+const GONE_KINDS = ['renderer', 'GPU', 'Utility', 'Zygote', 'Sandbox helper', 'Pepper Plugin', 'Pepper Plugin Broker', 'Unknown']
+const GONE_REASONS = ['clean-exit', 'abnormal-exit', 'killed', 'crashed', 'oom', 'launch-failed', 'integrity-failure', 'memory-eviction']
+const nullable = (v: unknown): number | null | undefined => v === null ? null : num(v)
+/** v2: the GPU process's CPU over the sample window around the stall (main/stall-probe.ts GpuSampler); numbers only */
+const gpu = (v: unknown) => { if (v === undefined) return undefined; const g = rec(v)
+  return compact({ cpu_pct: nullable(g.cpu_pct), window_ms: num(g.window_ms), restarted: bool(g.restarted), ws_mb: nullable(g.ws_mb) }) }
 
 /** one stack frame "fn (url:line:col)": every url inside shortened, then the whole frame detector-redacted */
 function redactFrame(f: string): string {
@@ -103,9 +112,10 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
     return compact({
       loaf: compact({
         blocking: num(l.blocking), render_start: num(l.render_start), style_layout_start: num(l.style_layout_start),
+        render_at: nullable(l.render_at), style_layout_at: nullable(l.style_layout_at), scripts_ms: num(l.scripts_ms), scripts_n: int(l.scripts_n),
         scripts: arr(l.scripts, 10).map(x => { const sc = rec(x); return compact({
           invoker: str(sc.invoker, 80), invoker_type: str(sc.invoker_type, 40), fn: str(sc.fn, 80), url: redactUrl(sc.url),
-          pos: int(sc.pos), ms: num(sc.ms), forced_ms: num(sc.forced_ms) }) }),
+          pos: int(sc.pos), ms: num(sc.ms), forced_ms: num(sc.forced_ms), at: nullable(sc.at) }) }),
       }),
       input: arr(r.input, 8).map(x => { const i = rec(x); return compact({
         type: oneOf(i.type, EVENT_TYPES), interaction_id: int(i.interaction_id), input_delay: num(i.input_delay),
@@ -129,13 +139,14 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
         scans: arr(s.scans, 32).map(x => { const k = rec(x); return compact({ start: num(k.start), ms: num(k.ms),
           trigger: oneOf(k.trigger, TRIGGERS), mutations: int(k.mutations), nodes_walked: int(k.nodes_walked), text_nodes: int(k.text_nodes),
           text_chars: int(k.text_chars), ranges_after: int(k.ranges_after) }) }) }),
-      loaf_50_500: int(r.loaf_50_500), capture_ms: num(r.capture_ms),
+      loaf_50_500: int(r.loaf_50_500), capture_ms: num(r.capture_ms), gpu: gpu(r.gpu),
     })
   }
   if (src === 'renderer-ping' || src === 'renderer-unresponsive') {
-    return compact({ blocked_ms: num(r.blocked_ms), stacks: arr(r.stacks, 2).map(stack), ipc: ipc(), ctx: r.ctx === undefined ? undefined : context(r.ctx) })
+    return compact({ blocked_ms: num(r.blocked_ms), stacks: arr(r.stacks, 2).map(stack), ipc: ipc(), ctx: r.ctx === undefined ? undefined : context(r.ctx), gpu: gpu(r.gpu) })
   }
-  if (src === 'main-lag') return compact({ lag_ms: num(r.lag_ms), ipc: ipc(), main_stack: stack(r.main_stack) })
+  if (src === 'main-lag') return compact({ lag_ms: num(r.lag_ms), ipc: ipc(), main_stack: stack(r.main_stack), gpu: gpu(r.gpu) })
+  if (src === 'process-gone') return compact({ kind: oneOf(r.kind, GONE_KINDS), reason: oneOf(r.reason, GONE_REASONS), exit_code: int(r.exit_code) })
   return compact({ channel: str(r.channel, 80) })   // sync-ipc
 }
 
@@ -186,7 +197,7 @@ export class StallLog {
       const line = shrink({
         v: 1,
         at: new Date(atMs ?? clock().getTime()).toISOString(), src, ms: num(r.ms ?? r.lag_ms ?? r.blocked_ms),
-        window: str(window?.id ?? '', 60) || undefined, org_window: window?.org === true,
+        window: typeof window?.id === 'string' && WINDOW_ID.test(window.id) ? window.id : undefined, org_window: window?.org === true,
         app: str(this.o.app?.() ?? '', 60) || undefined,
         dropped: (int(r.dropped) ?? 0) + gate.dropped, truncated: false,
         ...body(src, r),

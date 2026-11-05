@@ -176,12 +176,17 @@ export class StallWatch {
     if (!(entry.duration >= STALL_MIN_MS)) { if (entry.duration >= 50) this.small++; return }
     const t0 = this.env.now()
     const start = Number(entry.startTime), end = start + Number(entry.duration)
-    const scripts = (Array.isArray(entry.scripts) ? [...entry.scripts] : [])
+    const all: Any[] = Array.isArray(entry.scripts) ? [...entry.scripts] : []
+    // v2: offsets from the frame's start (startTime is a high-resolution time like every other entry field), so waiting
+    // for a frame can be told apart from work; renderStart/styleAndLayoutStart are 0 when the frame had no rendering update
+    const offset = (t: unknown) => typeof t === 'number' && t > 0 ? t - start : null
+    const scripts = [...all]
       .sort((a: Any, b: Any) => (b.duration ?? 0) - (a.duration ?? 0)).slice(0, 10)
       .map((s: Any) => ({
         invoker: s[FIELDS[0]], invoker_type: s[FIELDS[1]], fn: s[FIELDS[2]], url: s[FIELDS[3]], pos: s[FIELDS[4]],
-        ms: s[FIELDS[5]], forced_ms: s[FIELDS[6]],
+        ms: s[FIELDS[5]], forced_ms: s[FIELDS[6]], at: offset(s.startTime),
       }))
+    const scriptsMs = all.reduce((a: number, s: Any) => a + (Number(s.duration) || 0), 0)
     const input = this.events.filter(e => e.startTime <= end && e.startTime + e.duration >= start).slice(0, 8).map(e => {
       const delay = Math.max(0, (e.processingStart ?? e.startTime) - e.startTime)
       const processing = Math.max(0, (e.processingEnd ?? e.processingStart ?? e.startTime) - (e.processingStart ?? e.startTime))
@@ -199,7 +204,8 @@ export class StallWatch {
     const dom = domCensus(this.env.doc, 10, this.env.now)
     const record: Any = {
       at_ms: this.env.wall() - (this.env.now() - start), ms: entry.duration,
-      loaf: { blocking: entry.blockingDuration, render_start: entry.renderStart, style_layout_start: entry.styleAndLayoutStart, scripts },
+      loaf: { blocking: entry.blockingDuration, render_start: entry.renderStart, style_layout_start: entry.styleAndLayoutStart,
+        render_at: offset(entry.renderStart), style_layout_at: offset(entry.styleAndLayoutStart), scripts_ms: scriptsMs, scripts_n: all.length, scripts },
       input, keys_2s: this.keys.count(start - 2000, start), field_len: focusedFieldLength(this.env.doc),
       fetch: this.env.fetches.open().filter(f => f.started <= end).map(f => ({ route: f.route, method: f.method, age_ms: Math.max(0, end - f.started) })),
       ws: { frames: ws.n, bytes: ws.size },

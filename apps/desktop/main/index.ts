@@ -42,7 +42,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
 import { STALL_LOG, StallLog } from './stall-log'
-import { IpcTracker, LazyStackWorker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
+import { GpuSampler, IpcTracker, LazyStackWorker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
 import type { IpcLike } from './stall-probe'
 import { MAIN_STACK_WORKER_SOURCE } from './stall-worker-source'
 import { Worker } from 'node:worker_threads'
@@ -503,9 +503,18 @@ else {
   })()
   const stallLog = new StallLog({
     file: () => engineRestartOptions?.dataRoot ? path.join(engineRestartOptions.dataRoot, STALL_LOG) : undefined, app: () => stallApp })
+  // recorder v2: the GPU process's CPU around each stall (a frame can wait on it while the renderer's main thread is free)
+  const gpuSampler = stallOn ? new GpuSampler({ now: Date.now, metrics: () => app.getAppMetrics(), setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: h => clearInterval(h as NodeJS.Timeout) }) : null
+  const withGpu = (record: unknown): unknown => {
+    if (!gpuSampler || !record || typeof record !== 'object') return record
+    const r = record as { at_ms?: unknown; ms?: unknown }
+    const from = typeof r.at_ms === 'number' ? r.at_ms : Date.now(), ms = typeof r.ms === 'number' ? r.ms : 0
+    return { ...record, gpu: gpuSampler.around(from, from + ms) }
+  }
   const stallPing = new PingWatchdog({ now: Date.now, setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: h => clearTimeout(h as NodeJS.Timeout),
     setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
-    report: (src, w, record) => stallLog.write(src, record, { id: w.id, org: w.org }) })
+    report: (src, w, record) => stallLog.write(src, withGpu(record), { id: w.id, org: w.org }) })
   if (stallOn) {
     const stackStore = new MainStackStore()
     const heartbeat = new Float64Array(new SharedArrayBuffer(8))
@@ -522,14 +531,17 @@ else {
     stallWindowOf = event => { try { return resolveNativeSender(event as never, windows, engine.origin).id } catch { return '' } }
     ipcMain.on('diag:stall', (event, record) => {
       const id = stallWindowOf?.(event) ?? ''
-      if (id) { stackWorker.wake(); stallLog.write('renderer-loaf', record, { id, org: windows.get(id)?.kind === 'org' }) }
+      if (id) { stackWorker.wake(); stallLog.write('renderer-loaf', withGpu(record), { id, org: windows.get(id)?.kind === 'org' }) }
     })
     new MainLagProbe({ now: Date.now, setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
       mainStack: (from, to) => stackStore.near(from, to), beat: t => { heartbeat[0] = t },
       // the worker's stack arrives as a message once main runs again: give it a moment, then write
-      report: r => { stackWorker.wake(); setTimeout(() => stallLog.write('main-lag', { ...r, main_stack: stackWorker.inGrace() ? 'unavailable:startup-grace' : stackStore.near(r.at_ms, r.at_ms + r.lag_ms) }), 50) },
+      report: r => { stackWorker.wake(); setTimeout(() => stallLog.write('main-lag', withGpu({ ...r, ms: r.lag_ms, main_stack: stackWorker.inGrace() ? 'unavailable:startup-grace' : stackStore.near(r.at_ms, r.at_ms + r.lag_ms) })), 50) },
     }).start()
     stallPing.start()
+    gpuSampler?.start()
+    // recorder v2: a GPU, utility or other child process going away (Chromium restarts it; frames stall meanwhile)
+    app.on('child-process-gone', (_event, details) => details.reason !== 'clean-exit' && stallLog.write('process-gone', { kind: details.type, reason: details.reason, exit_code: details.exitCode }))
   }
   /** One MessagePort per document load; the preload answers each ping on the renderer's main thread. */
   const attachStallPing = (window: BrowserWindow, id: string) => {
@@ -556,6 +568,8 @@ else {
       } catch { /* diagnostics only */ }
     })
     wc.on('unresponsive', () => stallPing.unresponsive(id))
+    wc.on('render-process-gone', (_event, details) => details.reason !== 'clean-exit' && stallLog.write('process-gone', { kind: 'renderer', reason: details.reason, exit_code: details.exitCode },
+      { id, org: windows.get(id)?.kind === 'org' }))
     window.once('closed', () => { stallPing.remove(id); try { channel?.port1.close() } catch { /* already closed */ } })
   }
   /** Put a window in front of the user. See revealPopout for why restoring a
