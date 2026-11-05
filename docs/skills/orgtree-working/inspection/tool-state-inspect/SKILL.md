@@ -55,7 +55,7 @@ Folder grants are ancestor-clamped effective grants, not merely the target's con
 
 Rules:
 
-1. Exactly one name in total across `node` and `nodes`; otherwise `activity reads one agent at a time; pass a single node`.
+1. Exactly one distinct name across `node` and `nodes` (naming the same agent twice is fine); otherwise `activity reads one agent at a time; pass a single node`.
 2. `activity_limit` or `activity_cursor` without `activity=true` is refused: `activity_limit and activity_cursor need activity=true`. A limit outside 1 to 100 or not an integer is `activity_limit must be an integer from 1 to 100`; a cursor that is not a positive integer string is `activity_cursor must be a returned activity cursor`. A non-boolean `activity` is `activity must be true or false`.
 3. Visibility, the archived opt-in and the refusal text are exactly the read rules above: an out-of-scope, unknown, deleted or archived-without-opt-in name is `state inspection is outside your visible scope: …`.
 4. A project is refused: `activity history lists an agent's states; a project has none`.

@@ -349,7 +349,8 @@ pub fn parse_activity_args(args: &Value, names: &[String]) -> Result<Option<Acti
         }
         return Ok(None);
     }
-    if names.len() != 1 {
+    // DISTINCT names count (spec rev 1.0a): node=a plus nodes=[a] is one agent
+    if names.iter().collect::<std::collections::HashSet<_>>().len() != 1 {
         crate::refuse!(BadRequest, "activity reads one agent at a time; pass a single node");
     }
     let limit = match args.get("activity_limit") {
