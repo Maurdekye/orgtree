@@ -144,3 +144,27 @@ test('the resize rule: the dragged side follows the pointer, the minimum pins th
  assert.deepEqual(resizePlacement(p,'e',30,0,true),{x:120,y:80,width:460,height:300},'centered: twice the pointer, x untouched')
  assert.deepEqual(resizePlacement(p,'nw',-30,-20,true),{x:120,y:80,width:460,height:340},'centered west/north grow outwards too')
 })
+
+// THE APP'S FRAME NEVER SEES A RESIZE DRAG (rig capture 2026-11-05 R3: an east-edge drag over the real frame lost the
+// handle and the frame took the moves and the release; the panel never saved). While a resize gesture is down the panel
+// is flagged data-sizing, and the stylesheet makes the frame ignore the pointer, so the drag cannot cross into the app
+// whatever the browser does with pointer capture. The flag clears at release.
+test('a resize gesture flags the panel so its app frame ignores the pointer, and release clears it',async t=>{
+ const slug='resize-sizing-flag',f=fixture(t,slug,[pinned('one')])
+ const view=await mountView(<AppsWorkspace slug={slug}/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
+ const h=frame().querySelector<HTMLElement>('[data-resize-edge="e"]')!
+ assert.equal(frame().hasAttribute('data-sizing'),false,'idle: the frame takes the pointer as usual')
+ await inAct(async()=>{h.dispatchEvent(pointer('pointerdown',500,400));await tick()})
+ assert.equal(frame().hasAttribute('data-sizing'),true,'down on a handle: flagged before the first move')
+ await inAct(async()=>{h.dispatchEvent(pointer('pointermove',530,420));await tick()})
+ assert.equal(frame().hasAttribute('data-sizing'),true,'while dragging')
+ const saving=gate();f.saving=saving.p
+ await inAct(async()=>{h.dispatchEvent(pointer('pointerup',530,420));await tick()})
+ assert.equal(frame().hasAttribute('data-sizing'),false,'released: the frame takes the pointer again even while the save is out')
+ await inAct(async()=>{saving.open();await tick()})
+ // a move gesture (title bar) is not a resize and never flags
+ const bar=frame().querySelector<HTMLElement>('.custom-app-title')!
+ await inAct(async()=>{bar.dispatchEvent(pointer('pointerdown',200,135));await tick()})
+ assert.equal(frame().hasAttribute('data-sizing'),false,'a title-bar drag leaves the frame alone')
+ await inAct(async()=>{bar.dispatchEvent(pointer('pointerup',200,135));await tick()})
+})
