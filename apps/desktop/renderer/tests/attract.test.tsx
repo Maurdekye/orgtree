@@ -895,6 +895,57 @@ test('§19 a ticket is picked at most every fourth step (USER 2026-11-05 m207f9c
   assert.deepEqual(pickAttract([t1, t2], () => 0, null, 0, 1, 1), { kind: 'org' }, 'only tickets waiting and one was just shown: the org')
 })
 
+test('§20 the docket gets at most 15% of screen time over any rolling 5 minutes, a burst of 30 changed tickets included; attention tickets get one visit per window (USER 2026-11-05 m68460e1a8f36)', async () => {
+  const trace: Record<string, unknown>[] = []
+  setAttractTraceSink(r => { trace.push(r) })
+  useFakeClock()
+  try {
+    watchInput(() => {})()
+    key()
+    const stamp = new Date(Date.now() + 60_000).toISOString()
+    const tickets = Array.from({ length: 30 }, (_, i) => ({ slug: 't' + i, updatedAt: stamp }))
+    const shownSlugs = new Set<string>()
+    const visits: { at: number; end: number | null; attn: boolean }[] = []
+    let arrive: ((items: AttentionTarget[]) => void) | undefined
+    const close = () => { const v = visits.at(-1); if (v && v.end === null) v.end = Date.now() }
+    const routes: AttractRoutes = {
+      collect: async () => ({ agents: [], mail: [], docs: [], tickets: tickets.filter(t => !shownSlugs.has(t.slug)) }),
+      show: (t) => {
+        if (t.kind === 'ticket') shownSlugs.add(t.slug)
+        if (t.kind === 'ticket' || (t.kind === 'attention' && t.what === 'ticket')) visits.push({ at: Date.now(), end: null, attn: t.kind === 'attention' })
+      },
+      hide: () => close(),
+      stop: () => close(),
+      watch: (fn) => { arrive = fn; return () => { arrive = undefined } },
+    }
+    const log: Log = { calls: [] }
+    const view = await mountView(<Cycle enabled routes={routes} log={log} />, el => el)
+    try {
+      await advance(ATTRACT_IDLE_MS + 2_000, 500)
+      const t0 = Date.now()
+      await advance(120_000, 1_000)
+      // five tickets someone flagged arrive together
+      const attn = (i: number): AttentionTarget => ({ kind: 'attention', key: 'k' + i, what: 'ticket', agent: 'a', id: 'f' + i })
+      await inAct(() => { arrive?.([1, 2, 3, 4, 5].map(attn)) })
+      await advance(480_000, 1_000)
+      close()
+      const end = Date.now()
+      const used = (a: number, b: number) => visits.reduce((n, v) => n + Math.max(0, Math.min(v.end ?? end, b) - Math.max(v.at, a)), 0)
+      let worst = 0, worstAttn = 0
+      for (let w = t0; w + 300_000 <= end; w += 10_000) {
+        worst = Math.max(worst, used(w, w + 300_000))
+        worstAttn = Math.max(worstAttn, visits.filter(v => v.attn && v.at >= w && v.at < w + 300_000).length)
+      }
+      assert.ok(visits.length > 0, 'the docket is still visited')
+      assert.ok(worst <= 0.15 * 300_000, `the docket share over 5 minutes is at most 15%: worst window ${Math.round(worst / 3000)}% (${worst} ms)`)
+      assert.ok(worstAttn <= 1, `attention tickets: at most one docket visit per window, saw ${worstAttn}`)
+      const steps = trace.filter(r => r.ev === 'step')
+      assert.ok(steps.length > 0 && steps.every(r => typeof r.docket_pct === 'number'), 'every traced step reports the docket share')
+      assert.ok(trace.some(r => r.ev === 'skip'), 'a refused attention ticket is traced as a skip')
+    } finally { await view.unmount() }
+  } finally { realClock(); setAttractTraceSink(null) }
+})
+
 // §18 the attract trace (item attract-mode-gets-stuck-on-the-docket-and-doesn-t, coordinator go 2026-11-05 13:43Z): one record per
 // step / panel change / hand-over / stop, so the next "stuck on the docket" is measurable. Kinds and timings only: the user streams.
 test('§18 the trace: a step, a panel opening and closing, a hand-over and a stop are each one record, with no ids or text', async () => {
