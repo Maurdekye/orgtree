@@ -48,7 +48,7 @@ A project's nearest real-agent superior manages its audience requests and decisi
 
 ## The job route (the one exception)
 
-When a project hands you a job, you may reply to that job's sender even with no audience or peer-mail right to them: name your copy with `reply_to` and write to that exact sender, before your ACK in ACK mode (any time in round-robin). Replies back to yours follow the same route. It never creates a grant, covers nobody else, and is checked again inside the send, so an ACK or take-back in between refuses it.
+When a project hands you a job, you may reply to that job's sender even with no audience or peer-mail right to them: name your copy with `reply_to` and write to that exact sender, before your ACK in ACK mode (any time in round-robin). Replies back to yours follow the same route. It never creates a grant, covers nobody else, and is checked again inside the send, so an ACK or take-back in between refuses it. It holds for any project job and any sender, the user included, and through relays: the worker who finally holds a relayed job may reply to the job's original sender, whatever the layers between, until the job is acknowledged or taken back (a take-back revokes the relayed copy).
 
 ## See also
 

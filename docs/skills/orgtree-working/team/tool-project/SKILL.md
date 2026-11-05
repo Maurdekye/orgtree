@@ -125,6 +125,8 @@ Its regex preview uses a synthetic event line with project name and empty job
 details; payload-specific filters can be absent from this preview. The
 automatic superior notice is separate from that subscriber list.
 
+**Relays.** A project can also be a queue listener: `orgtree_watchdog kind=fair_queue project=Q target=P` makes Q take P's jobs into its own queue (see the `orgtree-tool-watchdog` page, "A relay"). `mail_queue` on P decides when the relay's claim ends: P in ACK mode, when Q's child job is acknowledged; P round-robin, when Q hands it out. A user or ancestor "take back" of the job on P revokes the child. A retired Q gives its claims back at P's next stale release, and relay claims never time out on P's side.
+
 ## Concurrency analogies in Project settings
 
 - Round-robin works like a load balancer: each job goes to the least recently woken listener.

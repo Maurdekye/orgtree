@@ -71,7 +71,7 @@ Whoever holds a job may reply to its sender, and the sender may answer back, wit
 
 ## Chains of queues
 
-A project can listen to another project's queue (a relay: `orgtree_watchdog create kind=fair_queue project=Q target=P`). Each job it takes becomes a job in Q's own queue, with the original sender, so P can be a thin front door and Q a team. Replies, ACK and follow-ups run through the chain to the final worker; a loop is refused (see `orgtree-tool-watchdog`).
+A project can listen to another project's queue (a relay: `orgtree_watchdog create kind=fair_queue project=Q target=P`). Each job it takes becomes a job in Q's own queue, with the original sender, so P can be a thin front door and Q a team. Replies, ACK and follow-ups run through the chain to the final worker; a loop is refused (see `orgtree-tool-watchdog`). P's job stays claimed by the relaying project until Q's copy ends (ACKed "relay Q"), and shows as **project Q (relay)** on P's desk; taking it back from P withdraws or revokes Q's copy. A relay takes jobs only while Q holds fewer than its `batch` (default 5) unclaimed ones, so with no worker in Q the jobs stay in P for P's other listeners.
 
 ## Recipe
 

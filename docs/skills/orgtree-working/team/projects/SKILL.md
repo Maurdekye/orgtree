@@ -79,6 +79,8 @@ it. No armed or paused mail listener produces a warning; a paused listener
 counts as attached. Agents keep one fair-queue registration per project.
 Each ACK job uses one of the listener's batch places (1–20, default 1).
 
+A project can also be the listener. A **relay** (`orgtree_watchdog kind=fair_queue project=Q target=P`; see the `orgtree-tool-watchdog` page, "A relay") makes project Q take P's jobs into its own queue, one child job per job, with the original sender (and, for outside mail, the reply right). So P can be a thin front door and Q a team, and chains work (P to Q to R). P's job stays claimed by Q until the child's custody ends in Q, then it is acknowledged "relay Q". The relay never times out on P's side, a relay that would close a loop is refused, and a retired Q gives its claims back. The desk shows the holder as **project Q (relay)**.
+
 With project Ack timeout and Runtime working checkups on, each outstanding
 agent job receives `ack_reminders` reminders (1–10, default 3); the next
 eligible checkup reclaims it. This is not an exact elapsed-time timer.
