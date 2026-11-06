@@ -3622,8 +3622,13 @@ button.project-slots-badge, button.project-listeners-badge, button.project-queue
 .listeners-table .fired-message.open .fired-message-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .listeners-table .fired-by { font-size: 12px; }
 .listeners-table .slot-history-more { color: var(--dim); font-size: 11px; }
-.listeners-table .history-fold { font-size: 11px; }
-.listeners-table .history-fold button.link + button.link { margin-left: 12px; }
+/* "Show N more" / "Show fewer" under Recently Finished/Delivered: a text link in the dim history-row style,
+   as the cache warning's .cache-turn-off is (the app has no global .link rule, so a bare button would draw as a grey bordered button) */
+.mail-listeners-table .history-fold { color: var(--dim); font-size: 11px; }
+.mail-listeners-table .history-fold button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.mail-listeners-table .history-fold button:hover { background: none; text-decoration-thickness: 2px; }
+.mail-listeners-table .history-fold button + button { margin-left: 12px; }
 .project-listeners code { font-size: 11px; }
 /* the desk's Dead letters tab */
 .project-dead-letters { display: flex; flex-direction: column; gap: 4px; overflow: auto; }

@@ -468,9 +468,9 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               </tr>
             ))}
             {(hidden > 0 || shown > HISTORY_FOLD) && <tr><td colSpan={n} className="history-fold">
-              {hidden > 0 && <button type="button" className="link" data-action="show-more"
+              {hidden > 0 && <button type="button" data-action="show-more"
                 onClick={() => setShown((v) => v + HISTORY_STEP)}>Show {Math.min(HISTORY_STEP, hidden)} more</button>}
-              {shown > HISTORY_FOLD && <button type="button" className="link" data-action="show-fewer"
+              {shown > HISTORY_FOLD && <button type="button" data-action="show-fewer"
                 onClick={() => setShown(HISTORY_FOLD)}>Show fewer</button>}
             </td></tr>}
             {hidden === 0 && (loading || failed || hist?.history_next) && <tr ref={moreRef}><td colSpan={n} className="slot-history-more" role="status">
