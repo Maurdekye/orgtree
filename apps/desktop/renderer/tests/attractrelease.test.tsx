@@ -32,13 +32,14 @@ const fire = (el: Element, type: string) => {
 function shell() {
   const committed: Record<PanelKind, boolean> = { inbox: false, docket: false }
   const pending: Record<PanelKind, boolean> = { inbox: false, docket: false }
+  let shown = 0
   const host = {
     isOpen: (k: PanelKind) => committed[k],
-    show: (k: PanelKind) => { pending[k] = true },
+    show: (k: PanelKind) => { pending[k] = true; shown++ },
     close: (k: PanelKind) => { pending[k] = false },
   }
   const render = () => { committed.inbox = pending.inbox; committed.docket = pending.docket }
-  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }) }
+  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown }
 }
 /** a cycle whose agent and one changed ticket are always new, with the docket as `docket` says */
 function routesWith(calls: string[], docket: AttractRoutes['docket']): AttractRoutes {
@@ -176,4 +177,21 @@ test('R6 the time an unowned docket is open counts toward the docket share (dock
       assert.ok((last.docket_pct as number) >= 25, `100 s of a 300 s window is about 33%: saw ${String(last.docket_pct)}`)
     } finally { await view.unmount() }
   } finally { realClock(); setAttractTraceSink(null) }
+})
+
+test('R7 a docket opened twice is one instance, and attract's close leaves none open (at most one docket per window)', () => {
+  const sh = shell()
+  const panels = createAttractPanels(sh.host)
+  panels.apply({ kind: 'docket', item: 'a' }); sh.render()
+  panels.apply({ kind: 'docket', item: 'b' }); sh.render()   // a second open while it is up: the same instance, retargeted
+  assert.equal(sh.shows(), 2)
+  assert.deepEqual(sh.open(), { inbox: false, docket: true })
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().docket, false, 'one close shuts it')
+  // a docket open anywhere (the user's, or popped out) is never opened over: the cycle keeps tickets away from it (R4), and if it
+  // is reached anyway the open retargets that one docket and is not attract's to close
+  sh.user('docket', true)
+  panels.apply({ kind: 'docket', item: 'c' }); sh.render()
+  panels.apply(null); sh.render()
+  assert.equal(sh.open().docket, true, 'the user's docket stays')
 })

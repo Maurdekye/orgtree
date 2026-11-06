@@ -145,6 +145,22 @@ test('ST15 an attract record is allowlisted: event, kind, panel, why and numbers
   assert.deepEqual([b.ev, b.kind, b.panel, b.why], ['other', 'other', 'other', 'other'], 'enum fields outside their list become other')
 })
 
+test('ST15b the release trigger, a touch, an adopt and the docket skip are allowlisted enums and booleans only', () => {
+  const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-06T13:50:00Z') }
+  const log = new StallLog({ file: () => file, clock: clockAt(t) })
+  log.write('attract', { ev: 'release', via: 'wheel', title: 'Secret' })
+  log.write('attract', { ev: 'touch', via: 'keydown', trusted: false })
+  log.write('attract', { ev: 'adopt', panel: 'docket' })
+  log.write('attract', { ev: 'skip', kind: 'attention', why: 'docket' })
+  log.write('attract', { ev: 'release', via: 'a typed secret' })
+  const got = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))
+  assert.deepEqual(got.map(l => [l.ev, l.via, l.trusted, l.panel, l.why]), [
+    ['release', 'wheel', undefined, undefined, undefined], ['touch', 'keydown', false, undefined, undefined],
+    ['adopt', undefined, undefined, 'docket', undefined], ['skip', undefined, undefined, undefined, 'docket'], ['release', 'other', undefined, undefined, undefined],
+  ])
+  assert.ok(!JSON.stringify(got).includes('ecret'))
+})
+
 test('ST16 attract lines never crowd out freeze evidence: their own rate bucket, their own file with its own 1 MB x 2 rotation', () => {
   const dir = fresh(), file = path.join(dir, STALL_LOG), attractFile = path.join(dir, 'diagnostics', 'ui-attract.jsonl'), t = { now: Date.parse('2026-11-05T14:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t), attractMaxBytes: 2000 })

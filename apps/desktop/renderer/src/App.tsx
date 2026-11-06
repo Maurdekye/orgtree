@@ -70,6 +70,7 @@ import { requestMentionLanding } from './canvas/mentionlanding'
 import { OrgtreeMenu } from './shell/menu'
 import type { AttractPanel } from './attract/canvas'
 import type { ReleaseVia } from './attract/attract'
+import { detachedKind } from './windowlife'
 import { createAttractPanels } from './attract/panels'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -593,7 +594,8 @@ export default function App() {
   const showInboxNow = useRef(showInbox); showInboxNow.current = showInbox
   const showDocketNow = useRef(showDocket); showDocketNow.current = showDocket
   const attractPanels = useMemo(() => createAttractPanels({
-    isOpen: kind => kind === 'inbox' ? showInboxNow.current : showDocketNow.current,
+    // a docket popped out into a window of its own is open too: attract reuses it (never mounts a second) and treats it as the user's
+    isOpen: kind => kind === 'inbox' ? showInboxNow.current : showDocketNow.current || detachedKind('docket'),
     show: (kind, id) => {
       if (kind === 'inbox') { showInboxNow.current = true; setInboxJump(jumpTo(id)); setShowInbox(true); raisePinnedModal('inbox', slug) }
       else { showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }
