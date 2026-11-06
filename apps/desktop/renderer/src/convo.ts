@@ -960,6 +960,7 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched?: ReadonlyMap<string |
     combined.splice(index < 0 ? combined.length : index, 0, row)
   }
   const messages = mergeAssistantRows(combined)
+  const oldest = c.messages.find(row => typeof row.seq === 'number')?.seq
   for (const [id, row] of e.committedRows) {
     if (ids.has(id)) {
       const index = messages.findIndex(existing => (existing.row_id ?? existing.event_id) === id)
@@ -968,6 +969,15 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched?: ReadonlyMap<string |
       // current view during an incremental merge are not server acknowledgments.
       const confirmed = fetched?.get(id)
       if (confirmed && (confirmed.convo_revision ?? 0) >= (row.convo_revision ?? 0)) e.committedRows.delete(id)
+      continue
+    }
+    // ⚠ A COMMIT BELOW THE PAYLOAD'S OLDEST ROW IS DROPPED (bug 4.5.6-alpha.2
+    // 2026-11-06, historycursor.test.tsx). Spliced in, it put the transcript
+    // below its own `before` cursor, so every older page held nothing older
+    // than the oldest row and retried for ever; and no tail fetch ever
+    // confirms it. Its durable copy comes back when paging reaches it.
+    if (c.has_older && typeof oldest === 'number' && typeof row.seq === 'number' && row.seq < oldest) {
+      e.committedRows.delete(id)
       continue
     }
     const index = messages.findIndex(existing => row.seq !== undefined && existing.seq !== undefined
@@ -1086,6 +1096,7 @@ export function refreshConvo(slug: string, nid: string,
         c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
           || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages],
           before: page.before, has_older: page.has_older }
+        for (const row of page.messages) fetchedCommits.set(row.row_id ?? row.event_id, row)
         cursor = page.before
       }
     }
@@ -1132,6 +1143,7 @@ export function refreshConvo(slug: string, nid: string,
       c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
         || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages],
         before: page.before, has_older: page.has_older }
+      for (const row of page.messages) fetchedCommits.set(row.row_id ?? row.event_id, row)
       proofCursor = page.before
     }
     // Publish the freshness watermark only after all paging awaits. A newer
@@ -1492,7 +1504,9 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, _viewpo
       cancelHistoryRetry(e)
       patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
         chat: boundTranscript(e, mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
-          before: page.before, has_older: page.has_older }), true) }, version)
+          before: page.before, has_older: page.has_older },
+          // an older page is a server answer too: it confirms the commits it holds
+          new Map(page.messages.map(row => [row.row_id ?? row.event_id, row]))), true) }, version)
     }).catch((error: unknown) => {
       const currentPage = e.pageSerial === pageSerial
       if (!currentPage) return
