@@ -60,6 +60,8 @@ pub(super) struct Created {
     heartbeat: Option<(String, Duration)>,
     pattern: Option<Regex>,
     plaintext: bool,
+    /// the live feed's identity header for a dog on the feed URL
+    feed_header: Option<String>,
 }
 
 /// Check a create call's websocket arguments: the URL, pattern, hello,
@@ -158,7 +160,8 @@ pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scra
         "credentials": shown, "hello": hello, "protocols": protocols, "notify_on_connect": notify_on_connect,
         "heartbeat": heartbeat.as_ref().map(|(m, every)| json!({ "message": m, "every_s": every.as_secs() })),
     });
-    Ok(Created { target: endpoint.url(), memo, inline, endpoint, source, hello, protocols, heartbeat, pattern, plaintext })
+    let feed_header = engine.live_feed.dog_header(engine, &endpoint, owner).await;
+    Ok(Created { target: endpoint.url(), memo, inline, endpoint, source, hello, protocols, heartbeat, pattern, plaintext, feed_header })
 }
 
 #[nolog]
@@ -193,8 +196,9 @@ enum Smoke {
 /// its hellos are not sent twice and messages that arrive meanwhile wait.
 #[logged]
 pub(super) async fn smoke(engine: &Arc<Engine>, c: &Created) -> (Value, Option<Conn>) {
+    let extra_headers = c.feed_header.iter().map(|v| (crate::live_feed::AGENT_HEADER.to_string(), v.clone())).collect();
     let spec = Spec { endpoint: c.endpoint.clone(), protocols: c.protocols.clone(), hello: c.hello.clone(), heartbeat: c.heartbeat.clone(),
-                      pattern: c.pattern.clone(), source: c.source.clone() };
+                      pattern: c.pattern.clone(), source: c.source.clone(), extra_headers };
     let mut conn = engine.dogs.ws.open(spec, &engine.shutdown);
     let url = c.endpoint.url();
     let deadline = Instant::now() + SMOKE;
@@ -342,7 +346,8 @@ pub(super) async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationTok
                     return Ok(());
                 }
             };
-            engine.dogs.ws.open(cfg.spec(source), &engine.shutdown)
+            let header = engine.live_feed.dog_header(engine, &cfg.endpoint, dog.owner).await;
+            engine.dogs.ws.open(cfg.spec(source, header), &engine.shutdown)
         }
     };
     let _registered = engine.dogs.ws.register(dog.row, &conn);
@@ -391,9 +396,10 @@ impl Config {
     }
 
     #[nolog]
-    fn spec(&self, source: creds::Source) -> Spec {
+    fn spec(&self, source: creds::Source, feed_header: Option<String>) -> Spec {
         Spec { endpoint: self.endpoint.clone(), protocols: self.protocols.clone(), hello: self.hello.clone(), heartbeat: self.heartbeat.clone(),
-               pattern: self.pattern.clone(), source }
+               pattern: self.pattern.clone(), source,
+               extra_headers: feed_header.into_iter().map(|v| (crate::live_feed::AGENT_HEADER.to_string(), v)).collect() }
     }
 }
 

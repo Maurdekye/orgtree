@@ -612,6 +612,31 @@ pub async fn put_app_instructions(State(e): State<Arc<Engine>>, Json(b): Json<Or
                     "prompt_chars": delivered, "prompt_truncated": delivered > PROMPT_MAX, "warnings": warnings })))
 }
 
+// ------------------------------------------------------------ live feed access tokens
+
+#[nolog]
+pub async fn live_feed_tokens(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    let tokens = e.live_feed.list_tokens(&e).await.map_err(|x| ApiError::internal(format!("{x:#}")))?;
+    Ok(Json(json!({ "tokens": tokens })))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NewFeedToken { label: String, org: String, agent: String }
+
+/// The token appears in this response only. No orgtree tool can create or read one.
+#[nolog]
+pub async fn live_feed_token_create(State(e): State<Arc<Engine>>, Json(b): Json<NewFeedToken>) -> ApiResult<Json<Value>> {
+    let (id, token) = e.live_feed.create_token(&e, &b.label, &b.org, &b.agent).await.map_err(|x| ApiError::bad_request(format!("{x:#}")))?;
+    Ok(Json(json!({ "id": id, "token": token })))
+}
+
+#[nolog]
+pub async fn live_feed_token_revoke(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    if !e.live_feed.revoke_token(&id) { return Err(ApiError::not_found("no such live feed token")); }
+    Ok(Json(json!({ "revoked": id })))
+}
+
 // ------------------------------------------------------------ runtime settings
 
 #[logged]
@@ -644,6 +669,9 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "turn_idle_s": engine.settings.turn_idle_s(),
         "verbose_logging": crate::trace::verbose(),
         "verbose_logging_pinned": crate::trace::pinned().is_some(),
+        "live_feed_enabled": engine.settings.live_feed_enabled(),
+        "live_feed_port": engine.settings.live_feed_port(),
+        "live_feed_status": engine.live_feed.status(),
         "turn_slots": { "limit": stats.limit, "held": stats.held, "waiting": stats.waiting, "waiting_by_org": by_org },
     })
 }
@@ -688,6 +716,14 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
                 let on = v.as_bool().ok_or_else(|| ApiError::bad_request(format!("{k} is true or false")))?;
                 rt.insert(k.clone(), json!(on));
             }
+            "live_feed_enabled" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request("live_feed_enabled is true or false"))?;
+                rt.insert(k.clone(), json!(on));
+            }
+            "live_feed_port" => {
+                let n = v.as_u64().filter(|n| (1024..=65535).contains(n)).ok_or_else(|| ApiError::bad_request("live_feed_port is a number from 1024 to 65535"))?;
+                rt.insert(k.clone(), json!(n));
+            }
             "max_concurrent_turns" => {
                 let n = v.as_u64().filter(|n| (1..=1024).contains(n)).ok_or_else(|| {
                     ApiError::bad_request("max_concurrent_turns is a number from 1 to 1024")
@@ -724,6 +760,9 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut client = e.db.get().await?;
     e.settings.merge(&mut client, json!({ "runtime": rt })).await?;
     drop(client);
+    if b.contains_key("live_feed_enabled") || b.contains_key("live_feed_port") {
+        e.live_feed.apply(&e).await;
+    }
     if b.contains_key("antigravity_claude_enabled") {
         crate::providers::publish(&e);
         for org in e.orgs.all() {

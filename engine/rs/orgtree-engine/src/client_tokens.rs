@@ -188,7 +188,7 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
 
 #[cfg(windows)]
 #[nolog]
-fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
     let from: Vec<_> = from.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -200,7 +200,7 @@ fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
 
 #[cfg(not(windows))]
 #[nolog]
-fn replace(from: &Path, to: &Path) -> std::io::Result<()> { std::fs::rename(from, to) }
+pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> { std::fs::rename(from, to) }
 
 #[cfg(test)]
 mod tests;

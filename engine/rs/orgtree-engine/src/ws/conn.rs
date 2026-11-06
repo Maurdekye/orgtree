@@ -359,6 +359,9 @@ async fn dial(spec: &Spec, r: &creds::Resolved) -> Result<(Ws, Option<String>), 
     for (k, v) in &r.headers {
         req = req.with_header(k.clone(), v.expose().to_string());
     }
+    for (k, v) in &spec.extra_headers {
+        req = req.with_header(k.clone(), v.clone());
+    }
     for p in &spec.protocols {
         req = req.with_sub_protocol(p.clone());
     }

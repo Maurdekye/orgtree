@@ -188,6 +188,8 @@ pub struct Spec {
     /// every message, binary ones as their size).
     pub pattern: Option<fancy_regex::Regex>,
     pub source: creds::Source,
+    /// Headers added to the upgrade request (the live feed's `X-Orgtree-Feed-Agent`); never shown, never stored.
+    pub extra_headers: Vec<(String, String)>,
 }
 
 /// The counters a connection keeps for its dog (lists, cards, alerts).

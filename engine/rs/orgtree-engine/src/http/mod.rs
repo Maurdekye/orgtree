@@ -141,6 +141,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/orgmd", get(settings::get_orgmd).put(settings::put_orgmd))
         .route("/api/defaults", get(settings::get_defaults).post(settings::save_defaults))
         .route("/api/app-settings/runtime", get(settings::get_runtime).put(settings::put_runtime))
+        .route("/api/app-settings/live-feed/tokens", get(settings::live_feed_tokens).post(settings::live_feed_token_create))
+        .route("/api/app-settings/live-feed/tokens/{id}", delete(settings::live_feed_token_revoke))
         .route("/api/app-settings/instructions", get(settings::get_app_instructions).put(settings::put_app_instructions))
         .route(
             "/api/app-settings/charter-template-dirs",

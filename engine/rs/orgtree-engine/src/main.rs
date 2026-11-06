@@ -402,6 +402,7 @@ async fn run_with_cluster(
             .map_err(|e| anyhow::anyhow!("cannot publish managed engine attachment: {e}"))?;
     }
     launch::ready(port, &cfg.data_root_id);
+    engine.live_feed.apply(&engine).await;
     runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));
     tracing::info!(port, "engine ready");
     if cfg.standalone {
