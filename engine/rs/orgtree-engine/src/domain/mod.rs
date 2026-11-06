@@ -46,6 +46,8 @@ pub mod teams;
 pub mod templates;
 #[cfg(test)]
 pub(crate) mod native_fixture;
+#[cfg(test)]
+mod take_back_tests;
 pub mod template_notes;
 pub mod template_links;
 pub(crate) mod template_wire;
