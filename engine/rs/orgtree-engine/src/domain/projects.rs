@@ -2074,6 +2074,67 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
     Ok(out)
 }
 
+/// The unacked jobs held in an ACK-mode project, for `orgtree_project held_jobs` (agent take-back spec §3 and Amendment 1): oldest
+/// first, at most 200. A row carries the job's text up to `PREVIEW_CHARS` characters and attachment FILE NAMES only. `under`:
+/// only the jobs held by a strict descendant of that agent (a caller with the holder-chain right alone).
+#[logged]
+pub async fn held_jobs(client: &impl GenericClient, project: i64, under: Option<i64>) -> Result<Vec<Value>> {
+    let rows = client
+        .query(
+            "SELECT m.uid, m.body, m.attachments, m.extra->'claimed', coalesce((m.extra->>'attempts')::bigint, 0), m.extra->'relayed_from'->>'name'
+               FROM ot.mail m
+              WHERE m.recipient_agent_id = $1 AND m.state = 'read' AND m.extra->'claimed'->>'ack' = 'true'
+                AND m.extra->'claimed'->>'acked_at' IS NULL AND NOT (m.extra ? 'dead_letter')
+                AND ($2::bigint IS NULL OR coalesce((m.extra->'claimed'->>'by_id')::bigint, (m.extra->'claimed'->>'by_project')::bigint) IN
+                      (WITH RECURSIVE d(id) AS (SELECT id FROM ot.agents WHERE parent_id = $2
+                                                UNION SELECT a.id FROM ot.agents a JOIN d ON a.parent_id = d.id)
+                       SELECT id FROM d))
+              ORDER BY m.id LIMIT 200",
+            &[&project, &under],
+        )
+        .await?;
+    let now = Utc::now();
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let c: Value = r.get(3);
+            let by = c["by"].as_str().unwrap_or("?");
+            let held_at = json_time(&c["at"]);
+            let (text, truncated) = preview(&r.get::<_, String>(1));
+            let attachments: Vec<String> = r
+                .get::<_, Value>(2)
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|a| a["name"].as_str().or_else(|| a["path"].as_str()))
+                .filter_map(|n| n.rsplit(['/', '\\']).next())
+                .filter(|n| !n.is_empty())
+                .take(10)
+                .map(str::to_string)
+                .collect();
+            let mut v = json!({ "mail": r.get::<_, String>(0), "copy": c["copy"], "holder": by, "relay": c["by_project"].as_i64().is_some(),
+                "attempts": r.get::<_, i64>(4), "held_at": when(held_at), "waited_from": when(json_time(&c["waited_from"])),
+                "held_for_s": held_at.map(|t| now.signed_duration_since(t).num_seconds().max(0)),
+                "text": text, "truncated": truncated, "attachments": attachments });
+            if let Some(from) = r.get::<_, Option<String>>(5) { v["relayed_from"] = json!(from); }
+            v
+        })
+        .collect())
+}
+
+/// How many characters of a job's text the held-jobs list shows.
+pub const PREVIEW_CHARS: usize = 500;
+
+/// A job's text for the list: CR removed, trimmed, cut to `PREVIEW_CHARS` Unicode scalar values (never mid-character); whether it was cut.
+#[nolog]
+pub fn preview(body: &str) -> (String, bool) {
+    let text = body.replace('\r', "");
+    let text = text.trim();
+    let cut: String = text.chars().take(PREVIEW_CHARS).collect();
+    let truncated = text.chars().count() > PREVIEW_CHARS;
+    (cut, truncated)
+}
+
 /// After the user's take back commits (the desk's Working table, user
 /// 2026-10-20 06:42Z): the reclaim's own after-work, the holder is told
 /// to stop (its ack of it is refused from now on), and the queue runs, so

@@ -51,6 +51,8 @@ project-only synthetic event line, so payload-specific filters may be absent.
 The repository's `docs/skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md`
 records the exact implementation references; it is not a bundled glossary page.
 
+**Taking a stuck job back.** A holder that froze on a usage limit, got stuck or went quiet keeps its unacked job until it acks, its ack timeout reclaims it, or it is released. The user (the desk's **take back**), an agent above the project, or an agent above the holder takes it back at once with `orgtree_project take_back` (see `orgtree-tool-project`); `held_jobs` lists what is held first.
+
 ## Project audiences
 
 A live project may hold an audience with the user, another agent or another project. Every live agent directly under it can use that audience exactly as if it held the grant itself: user mail, questions, presentations, file delivery and agent mail all accept effective inherited access. Tool groups and other independent permissions still apply. Only direct members inherit; a nested project never relays its parent's inherited grants to deeper agents. Moving out, retiring, pausing or revoking the source grant removes that inherited route. An agent's independent explicit grants remain.

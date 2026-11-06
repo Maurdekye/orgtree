@@ -65,7 +65,7 @@ This folder lists `fair_queue` watchdogs that receive the project's mail. It is 
 
 Waited measures the listener's wait before assignment; Held measures its time holding the job. A listener's current waiting interval starts at its latest arming, hand-out, fire or released-job ending as applicable. Watchdog chips retain historical identities when a dog no longer exists. Older history loads as the table's final row comes into view; a failed read offers Retry.
 
-**take back** is available to the user and project ancestors. It puts a held job at the front of the queue, preferring a different listener for its next assignment and falling back to the same one. If the job has exhausted its attempts with Runtime working checkups enabled, it goes to dead letters instead, even when project Ack timeout is off. The former holder is told to stop and cannot acknowledge that reclaimed assignment. This does not terminate its process: coordinate any work already in progress before another worker repeats it.
+**take back** is available to the user and project ancestors (agents do the same with `orgtree_project take_back`, and an agent above a holder may take back that holder's jobs). An agent's take-back shows in Recently Finished with its reason. It puts a held job at the front of the queue, preferring a different listener for its next assignment and falling back to the same one. If the job has exhausted its attempts with Runtime working checkups enabled, it goes to dead letters instead, even when project Ack timeout is off. The former holder is told to stop and cannot acknowledge that reclaimed assignment. This does not terminate its process: coordinate any work already in progress before another worker repeats it.
 
 ## Project settings: Acknowledgement
 

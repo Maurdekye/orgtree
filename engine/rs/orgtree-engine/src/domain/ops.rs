@@ -89,6 +89,8 @@ pub(crate) struct Effects {
     /// jobs the user took back from their holders (`mail_take_back`): told
     /// and re-dealt after commit (`projects::after_take_back`)
     take_backs: Vec<(i64, crate::domain::projects::Reclaimed)>,
+    /// passive system notices to send after commit: (agent name, body) (a holder-chain take-back tells the project's nearest agent ancestor)
+    notices: Vec<(String, String)>,
 }
 
 /// A locked agent row.
@@ -899,6 +901,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "listener_history" => boxed(|| listener_history(org, &tx, actor, req)).await?,
         "mail_queue_history" => boxed(|| mail_queue_history(engine, org, &tx, actor, req)).await?,
         "mail_take_back" => boxed(|| mail_take_back(engine, org, &tx, actor, req, fx)).await?,
+        "held_jobs" => boxed(|| held_jobs(org, &tx, actor, req)).await?,
         "reallocate" => boxed(|| reallocate(engine, org, &tx, actor, req, fx)).await?,
         "switch_model" => boxed(|| switch_model(engine, org, &tx, actor, req, fx)).await?,
         "reorder" => boxed(|| reorder(org, &tx, actor, req, fx)).await?,
@@ -1106,6 +1109,14 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     }
     for (p, taken) in &fx.take_backs {
         crate::domain::projects::after_take_back(engine, org.id, *p, taken).await;
+    }
+    for (to, body) in &fx.notices {
+        let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, to, body);
+        out.notice = true;
+        out.grant_reply_audience = false;
+        if let Err(e) = Box::pin(crate::domain::mail::send(engine, org.id, out)).await {
+            tracing::warn!(to = %to, error = %format!("{e:#}"), "sending a take-back notice failed");
+        }
     }
     for (project, on, how, dogs) in &fx.listener_switches {
         crate::domain::listeners::tell_owners(engine, org.id, project, *on, how, dogs).await;
@@ -2939,11 +2950,73 @@ async fn mail_queue_history(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Tra
     Ok(out)
 }
 
+/// A job held in an ACK-mode project, as the take-back paths read it.
+struct HeldJob {
+    row: i64,
+    uid: String,
+    /// the agent holding it (`None`: the user, or a relay project)
+    holder: Option<i64>,
+    by: Option<String>,
+    copy: Option<String>,
+    /// the relay project holding it (R5)
+    by_project: Option<i64>,
+}
+
+const HELD_JOBS: &str = "SELECT id, uid, (extra->'claimed'->>'by_id')::bigint, extra->'claimed'->>'by', extra->'claimed'->>'copy',
+                                (extra->'claimed'->>'by_project')::bigint FROM ot.mail
+                          WHERE recipient_agent_id = $1 AND state = 'read' AND extra->'claimed'->>'ack' = 'true'
+                            AND extra->'claimed'->>'acked_at' IS NULL AND NOT (extra ? 'dead_letter')";
+
+#[nolog]
+fn held_job_of(r: &tokio_postgres::Row) -> HeldJob {
+    HeldJob { row: r.get(0), uid: r.get(1), holder: r.get(2), by: r.get(3), copy: r.get(4), by_project: r.get(5) }
+}
+
+/// The optional note of a take-back (agent take-back spec §5): trimmed, newlines made spaces, empty = none, at most 300 characters.
+#[nolog]
+pub(crate) fn take_back_reason(req: &Value) -> Result<Option<String>> {
+    let Some(raw) = req.get("reason").and_then(Value::as_str) else { return Ok(None) };
+    let text = raw.trim().replace("\r\n", " ").replace(['\r', '\n'], " ");
+    let text = text.trim();
+    if text.chars().count() > 300 {
+        refuse!(BadRequest, "reason is at most 300 characters");
+    }
+    Ok(Some(text.to_string()).filter(|t| !t.is_empty()))
+}
+
+/// What the holder's notice and the desk's Recently Finished row say: who took it back, by which right, and why.
+#[nolog]
+pub(crate) fn take_back_why(taker: &str, via: &str, reason: Option<&str>) -> String {
+    let mut why = format!("had it taken back by {taker}");
+    if via == "holder_chain" {
+        why.push_str(", your superior");
+    }
+    if let Some(r) = reason {
+        why.push_str(": ");
+        why.push_str(r);
+    }
+    why
+}
+
+/// Is `actor` a strict ancestor of `holder` (an agent, or a relay project)? The holder-chain right (take-back spec Amendment 1).
+#[logged]
+async fn above_holder(tx: &Transaction<'_>, actor: &Actor, holder: i64) -> Result<bool> {
+    Ok(match actor {
+        Actor::User => true,
+        Actor::Agent { id, .. } => *id != holder && within(tx, *id, holder).await?,
+    })
+}
+
 /// Take a held job back from its holder (the desk's Working table, user
-/// 2026-10-20 06:42Z): as Slots' force release, the user's or a project
-/// ancestor's act, confirmed on the desk and logged. The job goes back to
-/// the front of the queue for another listener first, or to the dead
-/// letters when it has used its last attempt; its holder is told.
+/// 2026-10-20 06:42Z; `orgtree_project take_back`, user 2026-11-06
+/// m2bc14aa1e045, ma80a037dbd26): the user's or a project ancestor's act,
+/// or the act of a strict ancestor of the holder (the holder-chain right),
+/// confirmed on the desk and logged. The job goes back to the front of the
+/// queue for another listener first, or to the dead letters when it has used
+/// its last attempt; its holder is told. `mail` takes one job; `holder` (an
+/// agent's or a relay project's name) takes all of that holder's jobs, in
+/// this one transaction. Both ways run `take_back_job`, so the semantics
+/// never differ.
 #[logged]
 async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value,
                         fx: &mut Effects) -> Result<Value> {
@@ -2951,54 +3024,191 @@ async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
     if !n.project() {
         refuse!(BadRequest, "{} is an agent: only a project hands out jobs", n.name);
     }
-    if let Actor::Agent { id, .. } = actor {
-        if !within(tx, *id, n.id).await? {
-            refuse!(Forbidden, "only the user or an agent above project {} takes its jobs back", n.name);
-        }
+    let project_right = match actor {
+        Actor::User => true,
+        Actor::Agent { id, .. } => within(tx, *id, n.id).await?,
+    };
+    let (mail, holder) = (str_arg(req, "mail"), str_arg(req, "holder"));
+    if mail.is_some() == holder.is_some() {
+        refuse!(BadRequest, "take_back takes id (one held job) or agent (all of one holder's jobs), not both");
     }
-    let Some(mail) = str_arg(req, "mail") else { refuse!(BadRequest, "mail_take_back needs mail: the held job's id in the project's mailbox") };
-    let held = tx
-        .query_opt(
-            "SELECT id, (extra->'claimed'->>'by_id')::bigint, extra->'claimed'->>'by', extra->'claimed'->>'copy',
-                    (extra->'claimed'->>'by_project')::bigint FROM ot.mail
-              WHERE uid = $1 AND recipient_agent_id = $2 AND state = 'read' AND extra->'claimed'->>'ack' = 'true'
-                AND extra->'claimed'->>'acked_at' IS NULL AND NOT (extra ? 'dead_letter')",
-            &[&mail, &n.id],
+    if !crate::domain::projects::ack_mode(&n.scope) {
+        refuse!(Conflict, "project {} hands out round-robin: nothing is held", n.name);
+    }
+    let reason = take_back_reason(req)?;
+    if let Some(mail) = mail {
+        let held = tx.query_opt(&format!("{HELD_JOBS} AND uid = $2"), &[&n.id, &mail]).await?.map(|r| held_job_of(&r));
+        let Some(held) = held else {
+            if !project_right {
+                refuse!(Forbidden, "only the user, an agent above project {} or an agent above the holder takes a job back", n.name);
+            }
+            refuse!(Conflict, "mail {mail} is not held by anyone in project {} (it waits, is acked or was already taken back)", n.name);
+        };
+        let Some((out, via)) = take_back_job(engine, org, tx, actor, &n, &held, reason.as_deref(), project_right, fx).await? else {
+            refuse!(Conflict, "mail {mail} is not held by anyone in project {} any more", n.name);
+        };
+        if via == "holder_chain" {
+            chain_notice(tx, &n, actor, out["holder"].as_str().unwrap_or("?"), reason.as_deref(), &[(held.uid.clone(), out["dead_letter"].as_bool().unwrap_or(false))], fx).await?;
+        }
+        return Ok(out);
+    }
+    // the batch: every job one holder holds here, oldest first
+    let who = holder.unwrap_or_default().trim_start_matches('@');
+    if who == user_regs::USER {
+        refuse!(BadRequest, "the user's own jobs are ended only by the user, by acknowledging them");
+    }
+    let Some(target) = tx
+        .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org.id, &who])
+        .await?
+        .map(|r| r.get::<_, i64>(0))
+    else {
+        refuse!(BadRequest, "no agent or project named {who}");
+    };
+    if !project_right && !above_holder(tx, actor, target).await? {
+        refuse!(Forbidden, "only the user, an agent above project {} or an agent above {who} takes {who}'s jobs back", n.name);
+    }
+    let rows = tx
+        .query(
+            &format!("{HELD_JOBS} AND ((extra->'claimed'->>'by_id')::bigint = $2 OR (extra->'claimed'->>'by_project')::bigint = $2) ORDER BY id LIMIT 200"),
+            &[&n.id, &target],
         )
         .await?;
+    let mut taken = Vec::new();
+    let mut chain = Vec::new();
+    for r in &rows {
+        let held = held_job_of(r);
+        // a row that turns out not to be held any more is skipped, not fatal
+        let Some((out, via)) = take_back_job(engine, org, tx, actor, &n, &held, reason.as_deref(), project_right, fx).await? else { continue };
+        let dead = out["dead_letter"].as_bool().unwrap_or(false);
+        if via == "holder_chain" {
+            chain.push((held.uid.clone(), dead));
+        }
+        taken.push(json!({ "mail": held.uid, "dead_letter": dead }));
+    }
+    if taken.is_empty() {
+        refuse!(Conflict, "{who} holds no job in project {}", n.name);
+    }
+    if !chain.is_empty() {
+        chain_notice(tx, &n, actor, who, reason.as_deref(), &chain, fx).await?;
+    }
+    Ok(json!({ "project": n.name, "holder": who, "count": taken.len(), "taken": taken }))
+}
+
+/// One held job taken back: the single path the desk, `take_back id` and `take_back agent` all run. `None`: it is not held any more.
+/// The second value is the right the taker used, `project` or `holder_chain`.
+#[logged]
+#[allow(clippy::too_many_arguments)]
+async fn take_back_job(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, n: &Node, held: &HeldJob,
+                       reason: Option<&str>, project_right: bool, fx: &mut Effects) -> Result<Option<(Value, &'static str)>> {
+    let mail = held.uid.as_str();
     // the user's own job has no agent holder: only the user ends it, by acknowledging it
-    if held.as_ref().is_some_and(|r| r.get::<_, Option<i64>>(1).is_none() && r.get::<_, Option<String>>(2).as_deref() == Some(user_regs::USER)) {
+    if held.holder.is_none() && held.by_project.is_none() && held.by.as_deref() == Some(user_regs::USER) {
         refuse!(Forbidden, "mail {mail} is the user's own job: only the user ends it, by acknowledging it");
     }
-    // R5: a job held by a relay goes back to this queue; its child is revoked in the relaying project
-    if let Some(r) = held.as_ref().filter(|r| r.get::<_, Option<i64>>(4).is_some()) {
-        let (row, q, by): (i64, i64, String) = (r.get(0), r.get::<_, Option<i64>>(4).unwrap_or_default(), r.get::<_, Option<String>>(2).unwrap_or_default());
-        let why = format!("had it taken back by {}", actor.label());
-        if !crate::domain::projects::relay_take_back(tx, org.id, n.id, row, &why).await? {
-            refuse!(Conflict, "mail {mail} is not held by anyone in project {} any more", n.name);
+    let via = if project_right {
+        "project"
+    } else {
+        let chain = match held.holder.or(held.by_project) {
+            Some(h) => above_holder(tx, actor, h).await?,
+            None => false,
+        };
+        if !chain {
+            refuse!(Forbidden, "only the user, an agent above project {} or an agent above the holder takes mail {mail} back", n.name);
         }
-        event(tx, org.id, "mail_take_back", actor, Some(n.id), json!({ "project": n.name, "mail": mail, "holder": by, "relay": true }), fx).await?;
+        "holder_chain"
+    };
+    let why = take_back_why(&actor.label(), via, reason);
+    // R5: a job held by a relay goes back to this queue; its child is revoked in the relaying project
+    if let Some(q) = held.by_project {
+        let by = held.by.clone().unwrap_or_default();
+        if !crate::domain::projects::relay_take_back(tx, org.id, n.id, held.row, &why).await? {
+            return Ok(None);
+        }
+        event(tx, org.id, "mail_take_back", actor, Some(n.id),
+            json!({ "project": n.name, "mail": mail, "holder": by, "relay": true, "via": via, "reason": reason }), fx).await?;
         fx.agents.insert(n.id);
         fx.mailboxes.push(n.id);
         fx.mailboxes.push(q);
-        return Ok(json!({ "project": n.name, "mail": mail, "holder": by, "taken": true, "dead_letter": false }));
+        return Ok(Some((json!({ "project": n.name, "mail": mail, "holder": by, "taken": true, "dead_letter": false }), via)));
     }
-    let Some((row, Some(holder), Some(by), copy)) = held.map(|r| (r.get::<_, i64>(0), r.get::<_, Option<i64>>(1), r.get::<_, Option<String>>(2), r.get::<_,Option<String>>(3))) else {
-        refuse!(Conflict, "mail {mail} is not held by anyone in project {} (it waits, is acked or was already taken back)", n.name);
-    };
-    let why = format!("had it taken back by {}", actor.label());
+    let (Some(holder), Some(by)) = (held.holder, held.by.clone()) else { return Ok(None) };
     let counted = crate::runtime::reminders::switches(engine).checkups;
-    let Some(taken) = crate::domain::projects::reclaim_in(tx, org.id, n.id, row, holder, &by, &why, "released", "taken_back", counted, copy.as_deref()).await? else {
-        refuse!(Conflict, "mail {mail} is not held by anyone in project {} any more", n.name);
+    let Some(taken) = crate::domain::projects::reclaim_in(tx, org.id, n.id, held.row, holder, &by, &why, "released", "taken_back", counted, held.copy.as_deref()).await? else {
+        return Ok(None);
     };
     event(tx, org.id, "mail_take_back", actor, Some(n.id),
-        json!({ "project": n.name, "mail": mail, "holder": by, "copy": taken.copy, "dead_letter": taken.dead }), fx).await?;
+        json!({ "project": n.name, "mail": mail, "holder": by, "copy": taken.copy, "dead_letter": taken.dead, "via": via, "reason": reason }), fx).await?;
     fx.agents.insert(n.id);
     fx.agents.insert(holder);
     fx.mailboxes.push(n.id);
     let dead = taken.dead;
     fx.take_backs.push((n.id, taken));
-    Ok(json!({ "project": n.name, "mail": mail, "holder": by, "taken": true, "dead_letter": dead }))
+    Ok(Some((json!({ "project": n.name, "mail": mail, "holder": by, "taken": true, "dead_letter": dead }), via)))
+}
+
+/// The project's nearest live AGENT ancestor hears of a take-back made under the holder-chain right alone (Amendment 1, A1.4): one
+/// passive notice per call, listing the mail ids. A top-level project has no agent ancestor, so none goes out.
+#[logged]
+async fn chain_notice(tx: &Transaction<'_>, n: &Node, actor: &Actor, holder: &str, reason: Option<&str>, jobs: &[(String, bool)],
+                      fx: &mut Effects) -> Result<()> {
+    let Some(r) = tx
+        .query_opt(
+            "WITH RECURSIVE up(id, parent_id, kind, state, name, depth) AS (
+               SELECT id, parent_id, kind, state, name, 0 FROM ot.agents WHERE id = $1
+               UNION ALL SELECT a.id, a.parent_id, a.kind, a.state, a.name, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id
+                WHERE up.depth < 1024)
+             SELECT name FROM up WHERE depth > 0 AND kind = 'agent' AND state = 'live' ORDER BY depth LIMIT 1",
+            &[&n.id],
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+    let to: String = r.get(0);
+    let note = reason.map(|r| format!(": {r}")).unwrap_or_default();
+    let body = match jobs {
+        [(id, dead)] => format!(
+            "{} (superior of {holder}) took mail {id} back from {holder} in project {}{note}; it went back to {}",
+            actor.label(), n.name, if *dead { "the dead letters" } else { "the front of the queue" }),
+        _ => format!(
+            "{} (superior of {holder}) took {} mails back from {holder} in project {}{note}: {}; each went back to the front of the queue, or to the dead letters when it had used its last attempt",
+            actor.label(), jobs.len(), n.name, jobs.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")),
+    };
+    fx.notices.push((to, body));
+    Ok(())
+}
+
+/// The unacked jobs held in an ACK-mode project (`orgtree_project held_jobs`; take-back spec §3, Amendment 1): the user and agents
+/// above or below the project see every job; an agent that is only above some holders sees theirs. Oldest first, at most 200, the
+/// text previewed to 500 characters, attachments by file name only.
+#[logged]
+async fn held_jobs(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project hands out jobs", n.name);
+    }
+    let ack = crate::domain::projects::ack_mode(&n.scope);
+    let reach = match actor {
+        Actor::User => true,
+        Actor::Agent { id, .. } => crate::domain::projects::reaches(tx, *id, n.id).await?,
+    };
+    let under = match actor {
+        Actor::Agent { id, .. } if !reach => Some(*id),
+        _ => None,
+    };
+    if under.is_some() && !ack {
+        refuse!(Forbidden, "only agents above or below project {}, or above a holder, list its held jobs", n.name);
+    }
+    if !ack {
+        return Ok(json!({ "project": n.name, "ack": false, "max_attempts": crate::domain::projects::max_attempts(&n.scope), "held": [],
+                          "note": "round-robin queue: jobs are not held" }));
+    }
+    let held = crate::domain::projects::held_jobs(tx, n.id, under).await?;
+    if under.is_some() && held.is_empty() {
+        // no reach, and nobody below the caller holds anything here: it has no right to look (it cannot be told apart from a caller above no holder)
+        refuse!(Forbidden, "only agents above or below project {}, or above a holder, list its held jobs", n.name);
+    }
+    Ok(json!({ "project": n.name, "ack": true, "max_attempts": crate::domain::projects::max_attempts(&n.scope), "held": held }))
 }
 
 /// A project's event listeners and listener watches (`orgtree_project

@@ -779,7 +779,15 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
   (`extra.taken_from`) and falling back to the same one; at the project's
   last attempt (checkups on) it goes to the dead letters instead, as a
   failed one does. The holder is told by a system mail, and its later ack
-  of the job is refused.
+  of the job is refused. Agents take back through `orgtree_project
+  take_back` (team; `held_jobs` lists the held jobs with a 500-character text
+  preview and attachment names): the same op, with `mail` (one job) or
+  `holder` (an agent's or relay project's name: every job it holds, oldest
+  first, in one transaction), an optional `reason` (at most 300 characters,
+  in the holder's notice, the ending's `why` and the event, with `via`
+  `project` or `holder_chain`). The right is the project ancestor's, or a
+  strict ancestor of the holder's, checked per job in the op. A holder-chain
+  take-back also tells the project's nearest agent ancestor.
 - **Recently Fired** (A4, A8): an event row names the firer (Agent), how
   long ago (Last fired) and its message on one line until clicked; a
   sub-row per listener reached says how long it had listened and links its

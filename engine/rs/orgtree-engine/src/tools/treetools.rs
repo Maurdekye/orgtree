@@ -80,7 +80,13 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
                 req["op"] = json!("project_listeners");
                 req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
             }
-            _ => crate::refuse!(BadRequest, "orgtree_project takes create, describe, settings, configure, slots, release_slot, unqueue_slot, purge_waiting, dead_letters, retry_dead_letter, drop_dead_letter, broadcast, fire_event, listeners, presentations or read_presentation. If these actions/tools are missing in your CLI, start a fresh CLI; running clients retain their startup tool schemas."),
+            // the unacked jobs held in a project, and a superior's take-back of one (id) or of a holder's all (agent): the desk's own op
+            Some("held_jobs") => {
+                req["op"] = json!("held_jobs");
+                req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
+            }
+            Some("take_back") => req = take_back_request(args)?,
+            _ => crate::refuse!(BadRequest, "orgtree_project takes create, describe, settings, configure, slots, release_slot, unqueue_slot, purge_waiting, dead_letters, retry_dead_letter, drop_dead_letter, broadcast, fire_event, listeners, presentations, read_presentation, held_jobs or take_back. If these actions/tools are missing in your CLI, start a fresh CLI; running clients retain their startup tool schemas."),
         },
         _ => {}
     }
@@ -93,6 +99,27 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
     let out = if own_slots { own_slot_status(out,&me.name) } else { out };
     let out = if slots { without_claim_dogs(out) } else { out };
     Ok(Done { text: serde_json::to_string_pretty(&out).unwrap_or_default(), card: None })
+}
+
+/// `orgtree_project take_back` as the desk's `mail_take_back` op: `id` takes one held job, `agent` all of one holder's jobs, never both
+/// (agent take-back spec §3). The op checks the rights and the reason.
+#[nolog]
+pub(crate) fn take_back_request(args: &Value) -> Result<Value> {
+    let (id, agent) = (arg_str(args, "id"), arg_str(args, "agent"));
+    if id.is_some() == agent.is_some() {
+        crate::refuse!(BadRequest, "take_back takes id (one held job) or agent (all of one holder's jobs), not both");
+    }
+    let mut req = json!({ "op": "mail_take_back", "node": args.get("name").cloned().unwrap_or(Value::Null) });
+    if let Some(id) = id {
+        req["mail"] = json!(id);
+    }
+    if let Some(agent) = agent {
+        req["holder"] = json!(agent);
+    }
+    if let Some(reason) = args.get("reason") {
+        req["reason"] = reason.clone();
+    }
+    Ok(req)
 }
 
 /// Project reach is already checked. Members without team see all holders
