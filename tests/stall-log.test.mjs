@@ -161,6 +161,16 @@ test('ST15b the release trigger, a touch, an adopt and the docket skip are allow
   assert.ok(!JSON.stringify(got).includes('ecret'))
 })
 
+test('ST15c a docket open/close line keeps kind, action, path and count as enums and numbers only', () => {
+  const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-06T14:00:00Z') }
+  const log = new StallLog({ file: () => file, clock: clockAt(t) })
+  log.write('attract', { ev: 'docket', kind: 'team', action: 'open', path: 'restore', count: 2, title: 'Secret', slug: 'acme' })
+  log.write('attract', { ev: 'docket', kind: 'agent', action: 'close', path: 'a typed secret', count: 1 })
+  const got = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))
+  assert.deepEqual(got.map(l => [l.ev, l.kind, l.action, l.path, l.count]), [['docket', 'team', 'open', 'restore', 2], ['docket', 'agent', 'close', 'other', 1]])
+  assert.ok(!JSON.stringify(got).includes('ecret') && !JSON.stringify(got).includes('acme'))
+})
+
 test('ST16 attract lines never crowd out freeze evidence: their own rate bucket, their own file with its own 1 MB x 2 rotation', () => {
   const dir = fresh(), file = path.join(dir, STALL_LOG), attractFile = path.join(dir, 'diagnostics', 'ui-attract.jsonl'), t = { now: Date.parse('2026-11-05T14:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t), attractMaxBytes: 2000 })

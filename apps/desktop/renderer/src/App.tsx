@@ -71,6 +71,7 @@ import { OrgtreeMenu } from './shell/menu'
 import type { AttractPanel } from './attract/canvas'
 import type { ReleaseVia } from './attract/attract'
 import { detachedKind } from './windowlife'
+import { docketChanged, markDocketPath } from './attract/docketlog'
 import { createAttractPanels } from './attract/panels'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -576,7 +577,7 @@ export default function App() {
   // 2026-10-18 16:42Z); detached panels retain their focus path.
   const toggleSurface = useCallback((kind: string, open: boolean,
     set: (v: boolean) => void, keepOpen = false) =>
-    toggleOrRaiseModal(kind, open, set, slug, keepOpen), [slug])
+    { if (kind === 'docket') markDocketPath('user'); toggleOrRaiseModal(kind, open, set, slug, keepOpen) }, [slug])
   const toggleUsage = useCallback(() =>
     toggleSurface('usage', showUsage, setShowUsage), [toggleSurface, showUsage])
   const toggleUsageHistory = useCallback(() =>
@@ -600,11 +601,11 @@ export default function App() {
     elsewhere: kind => kind === 'inbox' ? detachedKind('inbox') : detachedKind('docket') || floatingOtherDockets(slug).length > 0,
     show: (kind, id) => {
       if (kind === 'inbox') { showInboxNow.current = true; setInboxJump(jumpTo(id)); setShowInbox(true); raisePinnedModal('inbox', slug) }
-      else { showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }
+      else { markDocketPath('attract'); showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }
     },
     close: kind => {
       if (kind === 'inbox') { showInboxNow.current = false; setShowInbox(false) }
-      else { showDocketNow.current = false; setShowDocket(false) }
+      else { markDocketPath('attract'); showDocketNow.current = false; setShowDocket(false) }
     },
   }), [slug])
   const attractPanel = useCallback((panel: AttractPanel, via?: ReleaseVia) => attractPanels.apply(panel, via), [attractPanels])
@@ -614,6 +615,9 @@ export default function App() {
   usePersistedModalOpen('inbox', slug, showInbox)
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
+  // every org-docket open and close is logged, from any path (attract/docketlog.ts)
+  const loggedDocket = useRef(false)
+  useEffect(() => { if (showDocket !== loggedDocket.current) { loggedDocket.current = showDocket; docketChanged('org', showDocket ? 'open' : 'close') } }, [showDocket])
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
   const [focusAgentDesk, setFocusAgentDesk] = useState(false)
   // Quick chat: the agent it just hired, focused once the tree carries it
@@ -656,7 +660,7 @@ export default function App() {
   // reports what it finds.
   const galleryRefs = useShellRefs(slug ?? '', tree ?? null, {
     onOpenItem: (item) => {
-      setShowGallery(false); setDocketJump(jumpTo(item)); setShowDocket(true)
+      setShowGallery(false); markDocketPath('link'); setDocketJump(jumpTo(item)); setShowDocket(true)
       raisePinnedModal('docket', slug)
     },
     onFocusAgent: (id) => { setShowGallery(false); setFocusAgent(id) },
@@ -778,7 +782,7 @@ export default function App() {
     settingsOpen.setIn(slug, pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
-    setShowDocket(pinnedKind('docket') || restoreWindowKind('docket', slug))
+    { const pinned = pinnedKind('docket'), restored = !pinned && restoreWindowKind('docket', slug); if (pinned || restored) markDocketPath(pinned ? 'pin' : 'restore'); setShowDocket(pinned || restored) }
     // THE RENDERER'S HALF is COMPUTED here because this is the first moment
     // both facts exist: the saved open-set has just been read, and the tree
     // that resolves its targets has just arrived. It is ANNOUNCED lower down,
@@ -864,7 +868,7 @@ export default function App() {
       const agent = nativeTarget.agent && flatNodes(tree).get(nativeTarget.agent)
       if (agent && (agent.generation ?? 0) === nativeTarget.generation) setFocusAgent(agent.id)
     } else if (nativeTarget.item) {
-      setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug)
+      markDocketPath('link'); setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug)
     } else if (nativeTarget.kind === 'mention' && nativeTarget.agent && !nativeTarget.id.startsWith('mail:')) {
       const agent = flatNodes(tree).get(nativeTarget.agent)
       if (!agent || nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation) {
@@ -1575,7 +1579,7 @@ export default function App() {
       setFocusAgentDesk(true); setFocusAgent(target.node)
     } else if (target.kind === 'work' && target.item) {
       requestMentionLanding(org, mention)
-      setDocketJump(jumpTo(target.item)); setShowDocket(true); raisePinnedModal('docket', org)
+      markDocketPath('link'); setDocketJump(jumpTo(target.item)); setShowDocket(true); raisePinnedModal('docket', org)
     } else if (target.kind === 'mail' && target.id && target.to) {
       requestMentionLanding(org, mention)
       if (target.to === 'user_inbox') {
@@ -2191,7 +2195,7 @@ export default function App() {
                     closeIfCentred('inbox', () => {
                       setShowInbox(false); setInboxJump(null)
                     }, slug)
-                    setDocketJump(jumpTo(item)); setShowDocket(true)
+                    markDocketPath('link'); setDocketJump(jumpTo(item)); setShowDocket(true)
                     raisePinnedModal('docket', slug)
                   }}
                   onOpenDoc={(id) => {
