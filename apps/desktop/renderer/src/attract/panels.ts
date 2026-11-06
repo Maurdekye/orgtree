@@ -50,7 +50,10 @@ export function createAttractPanels(host: PanelHost): AttractPanels {
       },
       /** a run's start: close every docket open in this window, the user's included */
       closeAll() {
-        host.closeDockets?.(); foreignAt = null
+        foreignAt = null
+        // the shell closes every docket of its window and leaves a popped-out one alone (its isOpen still reads true for that one),
+        // so attract closes by itself only where the shell has no such hook
+        if (host.closeDockets) { host.closeDockets(); return }
         if (host.isOpen('docket')) { host.close('docket'); justClosed.add('docket'); queueMicrotask(() => justClosed.clear()) }
       },
     },

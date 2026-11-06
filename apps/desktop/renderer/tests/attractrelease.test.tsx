@@ -37,16 +37,17 @@ function shell() {
   const pending: Record<PanelKind, boolean> = { inbox: false, docket: false }
   let shown = 0
   let closeCalls = 0
+  let poppedOut = false
   let away = false
   const host = {
     isOpen: (k: PanelKind) => committed[k],
     elsewhere: () => away,
     show: (k: PanelKind) => { pending[k] = true; shown++ },
     close: (k: PanelKind) => { pending[k] = false },
-    closeDockets: () => { closeCalls++ },
+    closeDockets: () => { closeCalls++; if (!poppedOut) pending.docket = false },
   }
   const render = () => { committed.inbox = pending.inbox; committed.docket = pending.docket }
-  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown, closeCalls: () => closeCalls, elsewhere: (on: boolean) => { away = on } }
+  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown, popOut: (on: boolean) => { poppedOut = on }, closeCalls: () => closeCalls, elsewhere: (on: boolean) => { away = on } }
 }
 /** a cycle whose agent and one changed ticket are always new, with the docket as `docket` says */
 function routesWith(calls: string[], docket: AttractRoutes['docket']): AttractRoutes {
@@ -267,6 +268,15 @@ test('T7 after a takeover stop with Start-after 0 the next run waits 60 s with n
       assert.equal(sh.closeCalls(), closesBefore + 1, 'and closes the dockets')
     } finally { await view.unmount() }
   } finally { sc.root.remove(); realClock() }
+})
+
+test('T8 a docket popped out into its own window reads as open but is left alone at a run start: attract closes nothing itself when the shell has the closing hook', () => {
+  const sh = shell()
+  const panels = createAttractPanels(sh.host)
+  sh.user('docket', true); sh.popOut(true)   // isOpen is true; the shell's closeDockets leaves it, as App does for a popped-out docket
+  panels.docket.closeAll(); sh.render()
+  assert.equal(sh.closeCalls(), 1, 'the shell was asked to close the dockets of its window')
+  assert.equal(sh.open().docket, true, 'and attract did not close the one the shell left')
 })
 
 test('T6 a run start closes the org docket and every floating agent/team docket of the window, traced as close/attract/run_start; popped-out ones are untouched', async () => {
