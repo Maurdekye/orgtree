@@ -361,9 +361,8 @@ async fn parity_across_kinds() {
     events::emit(&w.e, events::event("mail.waiting", Scope::Agent(o, a2), json!({"agent_id": a2})));
     events::emit(&w.e, events::event("docket.status.changed", Scope::Docket(o, "feed-item".into()), json!({"slug":"feed-item","status":"review"})));
     events::emit(&w.e, events::event("account.signed_in", Scope::Account(None), json!({"account":"acct-x","state":"authenticated"})));
-    // the dog's baseline already holds the current credits, so make them change (a dog drops an unchanged payload)
-    w.sql("UPDATE ot.agents SET grant_credits=3 WHERE id=$1", &[&a2]).await;
-    events::emit(&w.e, events::event("credits.changed", Scope::Agent(o, a2), json!({"agent_id": a2})));
+    // A8: the same credits.changed twice with nothing changed between: the shared authorizer's dedupe drops the second for the dog and the feed
+    for _ in 0..2 { events::emit(&w.e, events::event("credits.changed", Scope::Agent(o, a2), json!({"agent_id": a2}))); tokio::time::sleep(Duration::from_millis(300)).await; }
     events::emit(&w.e, events::event("documents.created", Scope::Agent(o, a2), json!({"agent_id": a2, "id": "d1"})));
     events::emit(&w.e, events::event("audience.granted", Scope::Agent(o, a2), json!({"agent_id": a2})));
     events::emit(&w.e, events::event("project.event", Scope::Agent(o, pa), json!({"project": "PA"})));
@@ -371,7 +370,14 @@ async fn parity_across_kinds() {
     let msgs = cl.drain(1500).await;
     tokio::time::sleep(Duration::from_secs(2)).await;
     let mail = w.bodies(w.a).await.join("\n");
-    for k in kinds {
+    // the feed's AuthState starts empty at connect, so it delivers the first credits.changed and drops the second; a dog whose persisted
+    // baseline already holds these credits drops both. Either way the dog never delivers a line the feed did not, and never a second.
+    let credits: Vec<&Value> = msgs.iter().filter(|m| m["type"] == "event" && m["name"] == "credits.changed").collect();
+    assert_eq!(credits.len(), 1, "the feed delivers credits.changed once: {msgs:?}");
+    assert!(mail.matches("credits.changed").count() <= 1, "the dog never delivers the second: {mail}");
+    if mail.contains("credits.changed") { assert!(mail.contains(&format!("credits.changed {}", credits[0]["payload"])), "{mail}"); }
+    for k in kinds.iter().filter(|k| **k != "credits.changed") {
+        let k = *k;
         let m = msgs.iter().find(|m| m["type"] == "event" && m["name"] == k).unwrap_or_else(|| panic!("the feed lacks {k}: {msgs:?}"));
         let line = format!("{} {}", m["name"].as_str().unwrap(), m["payload"]);
         assert!(mail.contains(&line), "the dog's fire lacks the feed's line for {k}: {line}\n{mail}");
