@@ -214,7 +214,7 @@ impl Conn {
                 if c.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent'", &[agent_id]).await.ok().flatten().is_none() { return (4401, "agent is not live"); }
             }
         }
-        (1013, "storage error")
+        (1011, "storage error")
     }
 
     /// The count of one stateful kind, computed now.
@@ -226,8 +226,8 @@ impl Conn {
                 if name == "agents.active" {
                     return Ok(self.engine.agents.map.pin().iter().filter(|(_, h)| org_id.is_none_or(|o| h.org_id == o) && h.view.load()["busy"] == true).count() as i64);
                 }
-                let c = self.engine.db.get().await.map_err(|_| (1013, "storage error"))?;
-                let n: i64 = c.query_one("SELECT count(*) FROM ot.agents WHERE state='live' AND kind='agent' AND ($1::bigint IS NULL OR org_id=$1)", &[&org_id]).await.map_err(|_| (1013, "storage error"))?.get(0);
+                let c = self.engine.db.get().await.map_err(|_| (1011, "storage error"))?;
+                let n: i64 = c.query_one("SELECT count(*) FROM ot.agents WHERE state='live' AND kind='agent' AND ($1::bigint IS NULL OR org_id=$1)", &[&org_id]).await.map_err(|_| (1011, "storage error"))?.get(0);
                 Ok(n)
             }
             Subject::Agent { agent_id, .. } => {
@@ -266,9 +266,9 @@ impl Conn {
                     let Some(first) = got else { return Err((1001, "feed stopped")) };
                     let mut batch = vec![first];
                     while batch.len() < 256 { match rx.try_recv() { Ok(e) => batch.push(e), Err(_) => break } }
-                    let overflow = sub.overflow.swap(None).is_some();
+                    let sample = sub.overflow.swap(None);
                     self.batch(socket, batch).await?;
-                    if overflow { self.overflowed(socket).await?; }
+                    if let Some(sample) = sample { self.overflowed(socket, (*sample).clone()).await?; }
                 }
                 msg = socket.recv() => {
                     match msg {
@@ -292,9 +292,10 @@ impl Conn {
         }
     }
 
-    /// The events are lost (the queue overflowed): say so, then give the true state.
-    async fn overflowed(&mut self, socket: &mut WebSocket) -> R<()> {
+    /// The events are lost (the queue overflowed): say so, deliver the newest lost event if it is authorized, then give the true state.
+    async fn overflowed(&mut self, socket: &mut WebSocket, sample: Event) -> R<()> {
         self.send(socket, json!({"type": "gap", "reason": "overflow"})).await?;
+        self.batch(socket, vec![sample]).await?;
         self.states(socket, "resync").await
     }
 
@@ -304,8 +305,8 @@ impl Conn {
                 if let Some(t) = token {
                     if !self.inner.tokens(&self.engine).map(|x| x.exists(&t)).unwrap_or(false) { return Err((4401, "token revoked")); }
                 }
-                let c = self.engine.db.get().await.map_err(|_| (1013, "storage error"))?;
-                if c.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent'", &[&agent_id]).await.map_err(|_| (1013, "storage error"))?.is_none() { return Err((4401, "agent is not live")); }
+                let c = self.engine.db.get().await.map_err(|_| (1011, "storage error"))?;
+                if c.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent'", &[&agent_id]).await.map_err(|_| (1011, "storage error"))?.is_none() { return Err((4401, "agent is not live")); }
             }
             Subject::Public { org: Some((_, slug)) } => { if self.engine.orgs.get(&slug).is_none() { return Err((4404, "organization is gone")); } }
             _ => {}
@@ -357,6 +358,10 @@ impl Conn {
         let mut kinds: Vec<String> = Vec::new();
         for k in list {
             let Some(k) = k.as_str() else { errors.push(("bad_kind", "a kind is a string".into())); continue };
+            if !self.is_agent() && (k == "agents.*" || k == "*") {
+                for n in STATEFUL { if !kinds.iter().any(|x| x == n) { kinds.push(n.to_string()); } }
+                continue;
+            }
             if k != "*" && !events::valid_target(k) { errors.push(("bad_kind", format!("{k:?} is not a dotted event name, a dotted prefix ending in .*, or *"))); continue; }
             if !self.is_agent() && !STATEFUL.contains(&k) { errors.push(("needs_token", format!("{k} needs an access token; without one only agents.active and agents.live are served"))); continue; }
             if kinds.len() >= MAX_KINDS { errors.push(("bad_kind", format!("at most {MAX_KINDS} kinds"))); break; }

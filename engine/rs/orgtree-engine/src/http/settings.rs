@@ -620,6 +620,13 @@ pub async fn live_feed_tokens(State(e): State<Arc<Engine>>) -> ApiResult<Json<Va
     Ok(Json(json!({ "tokens": tokens })))
 }
 
+#[nolog]
+pub async fn live_feed_agents(State(e): State<Arc<Engine>>, Query(q): Query<std::collections::HashMap<String, String>>) -> ApiResult<Json<Value>> {
+    let org = q.get("org").cloned().unwrap_or_default();
+    let agents = e.live_feed.live_agents(&e, &org).await.map_err(|x| ApiError::bad_request(format!("{x:#}")))?;
+    Ok(Json(json!({ "agents": agents })))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewFeedToken { label: String, org: String, agent: String }

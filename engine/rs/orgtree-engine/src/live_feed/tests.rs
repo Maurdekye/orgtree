@@ -307,6 +307,13 @@ async fn public_refuses_non_count_kinds() {
         assert!(keys.iter().all(|k| ["count", "previous", "scope"].contains(k)), "name-free payload: {m}");
     }
     assert_eq!(counts(&after, "agents.active"), vec![1]);
+    // A1: agents.* and * expand to the two counts
+    for wild in ["agents.*", "*"] {
+        cl.send(json!({"op":"subscribe","kinds":[wild]})).await;
+        let m = cl.drain(300).await;
+        assert!(m.iter().any(|x| x["type"] == "hello" && x["kinds"] == json!(["agents.active", "agents.live"])), "{wild}: {m:?}");
+        assert!(m.iter().all(|x| x["type"] != "error"), "{wild}: {m:?}");
+    }
 }
 
 /// 7: `?org=` limits the count; an unknown slug is 404.
@@ -607,10 +614,11 @@ async fn overflow_gap_resync() {
     w.set_busy(w.a, true);
     let msgs = cl.drain(2500).await;
     let gap = msgs.iter().position(|m| m["type"] == "gap").unwrap_or_else(|| panic!("no gap: {} messages", msgs.len()));
-    let resync = &msgs[gap + 1];
+    let resync = msgs[gap + 1..].iter().find(|m| m["type"] == "state").expect("a resync state follows the gap");
     assert_eq!((resync["type"].clone(), resync["reason"].clone()), (json!("state"), json!("resync")), "{resync}");
     let truth = w.m.iter().chain([w.a].iter()).filter(|id| w.e.agents.get(**id).unwrap().view.load()["busy"] == true).count();
     assert_eq!(resync["payload"]["count"], truth);
+    // A3: the overflow sample (if authorized) follows the gap, before the resync; the public tier has none to deliver here
 }
 
 /// 18: subscribe validation.

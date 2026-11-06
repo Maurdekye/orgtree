@@ -27,6 +27,7 @@ function stub(seen: Seen[], opts: { state?: 'off' | 'listening' | 'error'; token
       }
       return new Response(JSON.stringify({ live_feed_enabled: enabled, live_feed_port: port, live_feed_status: status() }))
     }
+    if (path === '/api/app-settings/live-feed/agents') return new Response(JSON.stringify({ agents: ['A', 'B'] }))
     if (path === '/api/orgs') return new Response(JSON.stringify([{ slug: 'o1', name: 'One', nodes: 1, live: 1, created: null }]))
     if (path === '/api/app-settings/live-feed/tokens' && method === 'GET') return new Response(JSON.stringify({ tokens }))
     if (path === '/api/app-settings/live-feed/tokens' && method === 'POST') {
@@ -92,7 +93,7 @@ test('a new token is shown once, then only its row remains; revoke calls DELETE'
   const seen: Seen[] = []; t.after(stub(seen))
   const v = await mountView(<LiveFeedSetting />, h => h); t.after(() => v.unmount()); await flush()
   await typeInto(q<HTMLInputElement>('Token label'), 'overlay')
-  await typeInto(q<HTMLInputElement>('Token agent'), 'A')
+  assert.equal(q<HTMLSelectElement>('Token agent').value, 'A', 'the first live agent of the org is chosen')
   const create = [...document.querySelectorAll('button')].find(b => b.textContent === 'New token')!
   await inAct(() => { create.click() }); await flush()
   assert.deepEqual(seen.find(s => s.method === 'POST')?.body, { label: 'overlay', org: 'o1', agent: 'A' })

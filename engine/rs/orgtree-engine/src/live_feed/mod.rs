@@ -207,6 +207,14 @@ impl LiveFeed {
         Ok((record.id, token))
     }
 
+    /// The live agents of an org, sorted by name (the Settings picker for a new token).
+    pub async fn live_agents(&self, engine: &Arc<Engine>, org: &str) -> Result<Vec<String>> {
+        let Some(org) = engine.orgs.get(org) else { bail!("no organization {org}") };
+        let client = engine.db.get().await?;
+        let rows = client.query("SELECT name FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent' ORDER BY lower(name), name", &[&org.id]).await?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
     /// Revoke a token; its connections end with 4401 within a second.
     pub fn revoke_token(&self, id: &str) -> bool {
         let Some(t) = self.inner.tokens.lock().ok().and_then(|t| t.clone()) else { return false };

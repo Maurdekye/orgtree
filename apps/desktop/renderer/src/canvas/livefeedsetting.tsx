@@ -30,6 +30,7 @@ export function LiveFeedSetting() {
   const [label, setLabel] = useState('')
   const [org, setOrg] = useState('')
   const [agent, setAgent] = useState('')
+  const [agents, setAgents] = useState<string[]>([])
   const [fresh, setFresh] = useState<{ label: string; token: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -42,6 +43,14 @@ export function LiveFeedSetting() {
     load()
     listOrgs().then(list => { setOrgs(list); setOrg(o => o || list[0]?.slug || '') }).catch(() => {})
   }, [load])
+  useEffect(() => {
+    if (!org) { setAgents([]); return }
+    let live = true
+    req<{ agents: string[] }>(`/api/app-settings/live-feed/agents?org=${encodeURIComponent(org)}`)
+      .then(r => { if (live) { setAgents(r.agents); setAgent(a => (r.agents.includes(a) ? a : r.agents[0] ?? '')) } })
+      .catch(() => { if (live) setAgents([]) })
+    return () => { live = false }
+  }, [org])
   const save = (body: Record<string, unknown>) => {
     setBusy(true)
     req<RuntimeSettingsPayload>(RUNTIME, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -54,7 +63,7 @@ export function LiveFeedSetting() {
     setBusy(true)
     req<{ id: string; token: string }>(TOKENS, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: label.trim(), org, agent: agent.trim() }) })
-      .then(r => { setFresh({ label: label.trim(), token: r.token }); setCopied(false); setLabel(''); setAgent(''); setError(''); load() })
+      .then(r => { setFresh({ label: label.trim(), token: r.token }); setCopied(false); setLabel(''); setError(''); load() })
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
   }
   const revoke = (t: FeedToken) => {
@@ -82,7 +91,9 @@ export function LiveFeedSetting() {
         <select aria-label="Token organization" value={org} disabled={busy} onChange={e => setOrg(e.target.value)}>
           {orgs.map(o => <option key={o.slug} value={o.slug}>{o.name || o.slug}</option>)}
         </select>
-        <input aria-label="Token agent" placeholder="Live agent name" value={agent} disabled={busy} onChange={e => setAgent(e.target.value)} />
+        <select aria-label="Token agent" value={agent} disabled={busy} onChange={e => setAgent(e.target.value)}>
+          {agents.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
         <button type="button" disabled={busy || !label.trim() || !org || !agent.trim()} onClick={create}>New token</button>
       </SetRow>
       {fresh && <SetRow label={`Token for ${fresh.label}`} hint="Copy it now. It is not shown again.">

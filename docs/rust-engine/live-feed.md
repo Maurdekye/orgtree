@@ -25,17 +25,17 @@ Every server message is JSON with `v: 1`, `seq` (starts at 1, strictly increases
 - `{"type":"hello","subject":"public"|"agent","kinds":[...],"event_scope":"all"|"org"|"subtree"}` first on connect and as the ack of every subscribe.
 - `{"type":"state","name":"agents.active","payload":{"count","scope"},"reason":"connect"|"subscribe"|"heartbeat"|"resync"}` the current value of a stateful kind (`agents.active`, `agents.live`).
 - `{"type":"event","name","payload"}` one authorized event, `name` and `payload` exactly as an event watchdog's fire. An `agents.*` event is sent only when the count differs from the last one sent.
-- `{"type":"gap","reason":"overflow"}` the 256-event queue overflowed and events were lost; a `state` (`resync`) follows for each subscribed stateful kind.
+- `{"type":"gap","reason":"overflow"}` the 256-event queue overflowed and events were lost; the newest lost event follows if it is authorized, then a `state` (`resync`) for each subscribed stateful kind.
 - `{"type":"heartbeat"}` every 30 s when no stateful kind is subscribed; otherwise the heartbeat is a `state` (`heartbeat`) per stateful kind.
 - `{"type":"error","code":"bad_kind"|"needs_token"|"needs_full_visibility"|"bad_message","message"}` the connection stays open.
 
-Client: `{"op":"subscribe","kinds":["turn.*","agents.active"],"event_scope":"subtree"}`. `kinds` replaces the set (exact dotted names, `prefix.*`, or `*`; at most 64); the default is `["agents.active"]`. The public tier accepts only `agents.active` and `agents.live`. `event_scope: "org"` needs full organization visibility.
+Client: `{"op":"subscribe","kinds":["turn.*","agents.active"],"event_scope":"subtree"}`. `kinds` replaces the set (exact dotted names, `prefix.*`, or `*`; at most 64); the default is `["agents.active"]`. The public tier serves only `agents.active` and `agents.live`; `agents.*` and `*` expand to those two, anything else is `needs_token`. `event_scope: "org"` needs full organization visibility.
 
 Counts are computed when an event is authorized, from the live busy map, never from a publication-time snapshot, so the last count received is always current. There is no debounce and no replay: events while disconnected are not re-sent, and a reconnect starts with a fresh `hello` and the current state.
 
 ## Close codes
 
-1001 feed disabled, engine stopping or server stopped; 1003 binary frame; 1009 frame too big; 1012 port changed; 1013 slow consumer (a write took over 10 s) or a storage error; 4401 token revoked, agent not live, retired or halted; 4404 the `?org=` organization is gone.
+1001 feed disabled, engine stopping or server stopped; 1003 binary frame; 1009 frame too big; 1012 port changed; 1011 storage error; 1013 slow consumer (a write took over 10 s); 4401 token revoked, agent not live, retired or halted; 4404 the `?org=` organization is gone.
 
 ## Consumer guide
 
