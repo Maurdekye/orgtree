@@ -3048,7 +3048,7 @@ async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
             refuse!(Conflict, "mail {mail} is not held by anyone in project {} any more", n.name);
         };
         if via == "holder_chain" {
-            chain_notice(tx, &n, actor, out["holder"].as_str().unwrap_or("?"), reason.as_deref(), &[(held.uid.clone(), out["dead_letter"].as_bool().unwrap_or(false))], fx).await?;
+            chain_notice(tx, &n, actor, out["holder"].as_str().unwrap_or("?"), reason.as_deref(), &[(held.uid.clone(), out["dead_letter"].as_bool().unwrap_or(false))], false, fx).await?;
         }
         return Ok(out);
     }
@@ -3089,7 +3089,7 @@ async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
         refuse!(Conflict, "{who} holds no job in project {}", n.name);
     }
     if !chain.is_empty() {
-        chain_notice(tx, &n, actor, who, reason.as_deref(), &chain, fx).await?;
+        chain_notice(tx, &n, actor, who, reason.as_deref(), &chain, true, fx).await?;
     }
     Ok(json!({ "project": n.name, "holder": who, "count": taken.len(), "taken": taken }))
 }
@@ -3149,7 +3149,7 @@ async fn take_back_job(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
 /// The project's nearest live AGENT ancestor hears of a take-back made under the holder-chain right alone (Amendment 1, A1.4): one
 /// passive notice per call, listing the mail ids. A top-level project has no agent ancestor, so none goes out.
 #[logged]
-async fn chain_notice(tx: &Transaction<'_>, n: &Node, actor: &Actor, holder: &str, reason: Option<&str>, jobs: &[(String, bool)],
+async fn chain_notice(tx: &Transaction<'_>, n: &Node, actor: &Actor, holder: &str, reason: Option<&str>, jobs: &[(String, bool)], batch: bool,
                       fx: &mut Effects) -> Result<()> {
     let Some(r) = tx
         .query_opt(
@@ -3166,13 +3166,14 @@ async fn chain_notice(tx: &Transaction<'_>, n: &Node, actor: &Actor, holder: &st
     };
     let to: String = r.get(0);
     let note = reason.map(|r| format!(": {r}")).unwrap_or_default();
-    let body = match jobs {
-        [(id, dead)] => format!(
+    let body = match (batch, jobs) {
+        (false, [(id, dead)]) => format!(
             "{} (superior of {holder}) took mail {id} back from {holder} in project {}{note}; it went back to {}",
             actor.label(), n.name, if *dead { "the dead letters" } else { "the front of the queue" }),
         _ => format!(
-            "{} (superior of {holder}) took {} mails back from {holder} in project {}{note}: {}; each went back to the front of the queue, or to the dead letters when it had used its last attempt",
-            actor.label(), jobs.len(), n.name, jobs.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(", ")),
+            "{} (superior of {holder}) took {} jobs back from {holder} in project {}{note}: {}.",
+            actor.label(), jobs.len(), n.name,
+            jobs.iter().map(|(id, dead)| format!("{id} ({})", if *dead { "dead letters" } else { "back to the front of the queue" })).collect::<Vec<_>>().join(", ")),
     };
     fx.notices.push((to, body));
     Ok(())
@@ -3192,22 +3193,30 @@ async fn held_jobs(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, re
         Actor::User => true,
         Actor::Agent { id, .. } => crate::domain::projects::reaches(tx, *id, n.id).await?,
     };
+    // no project reach: only an agent with a live strict descendant (agent or project) may look, and then at its descendants' jobs
     let under = match actor {
         Actor::Agent { id, .. } if !reach => Some(*id),
         _ => None,
     };
-    if under.is_some() && !ack {
-        refuse!(Forbidden, "only agents above or below project {}, or above a holder, list its held jobs", n.name);
+    if let Some(me) = under {
+        let has_descendant: bool = tx
+            .query_one(
+                "SELECT EXISTS (WITH RECURSIVE d(id) AS (SELECT id FROM ot.agents WHERE parent_id = $1 AND state = 'live'
+                                                         UNION SELECT a.id FROM ot.agents a JOIN d ON a.parent_id = d.id WHERE a.state = 'live')
+                                SELECT 1 FROM d)",
+                &[&me],
+            )
+            .await?
+            .get(0);
+        if !has_descendant {
+            refuse!(Forbidden, "only agents above or below project {}, or above a holder, list its held jobs", n.name);
+        }
     }
     if !ack {
         return Ok(json!({ "project": n.name, "ack": false, "max_attempts": crate::domain::projects::max_attempts(&n.scope), "held": [],
                           "note": "round-robin queue: jobs are not held" }));
     }
     let held = crate::domain::projects::held_jobs(tx, n.id, under).await?;
-    if under.is_some() && held.is_empty() {
-        // no reach, and nobody below the caller holds anything here: it has no right to look (it cannot be told apart from a caller above no holder)
-        refuse!(Forbidden, "only agents above or below project {}, or above a holder, list its held jobs", n.name);
-    }
     Ok(json!({ "project": n.name, "ack": true, "max_attempts": crate::domain::projects::max_attempts(&n.scope), "held": held }))
 }
 

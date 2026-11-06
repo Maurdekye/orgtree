@@ -396,6 +396,10 @@ async fn tb14_chain_caller_lists_only_its_descendants_jobs() {
     assert_eq!(ids, vec!["JA"] , "C sees A's row only");
     let out = w.run(w.me(w.x, "X"), json!({"op":"held_jobs","node":"P"})).await.unwrap();
     assert_eq!(out["held"].as_array().unwrap().len(), 2, "a project ancestor sees both");
+    // A2.2: C has a live descendant, so with nothing held below it gets an empty list, not Forbidden
+    w.sql("UPDATE ot.mail SET extra = extra - 'claimed' WHERE uid = 'JA'", &[]).await;
+    let out = w.run(w.me(w.c, "C"), json!({"op":"held_jobs","node":"P"})).await.unwrap();
+    assert!(out["held"].as_array().unwrap().is_empty());
     w.e.shutdown.cancel();
 }
 
@@ -453,7 +457,7 @@ async fn tb17_chain_take_back_notices() {
     w.take_all(w.me(w.c, "C"), "A").await.unwrap();
     let to_x = w.notices(w.x).await;
     assert_eq!(to_x.len(), 2, "a batch sends one notice listing the ids");
-    assert!(to_x[1].contains("J2") && to_x[1].contains("J3"));
+    assert_eq!(to_x[1], "C (superior of A) took 2 jobs back from A in project P: J2 (back to the front of the queue), J3 (back to the front of the queue).");
     // a project-ancestor take-back sends X no extra notice
     w.job("J4", w.a, "A", "4").await;
     w.take(w.me(w.x, "X"), "J4", None).await.unwrap();
