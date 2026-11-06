@@ -108,6 +108,16 @@ impl AppSettings {
     pub fn keep_warm(&self) -> bool {
         self.runtime().get("warming_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    /// The built-in live engine feed (App settings > Runtime; default ON, USER 2026-11-06 m86783c79bd89).
+    #[nolog]
+    pub fn live_feed_enabled(&self) -> bool {
+        self.runtime().get("live_feed_enabled").and_then(Value::as_bool).unwrap_or(true)
+    }
+    /// The feed's fixed local port (default 47830).
+    #[nolog]
+    pub fn live_feed_port(&self) -> u16 {
+        self.runtime().get("live_feed_port").and_then(Value::as_u64).filter(|n| (1024..=65535).contains(n)).map(|n| n as u16).unwrap_or(47830)
+    }
     /// Wake an agent under a project to arm a fair_queue dog when the user's
     /// mail to the project has nobody to take it (user 2026-10-18 07:47Z;
     /// default on).

@@ -49,6 +49,7 @@ mod import_failures;
 mod importer;
 mod install_stop;
 mod langserver;
+mod live_feed;
 mod lsproxy;
 mod launch;
 mod local_orgs;
@@ -277,6 +278,7 @@ async fn run_with_cluster(
         net: net::Net::default(),
         custom_apps: Default::default(),
         elicitations: runtime::elicitation::Registry::default(),
+        live_feed: Default::default(),
     });
 
     progress("engine-load-orgs");

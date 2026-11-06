@@ -45,6 +45,7 @@ pub struct Engine {
     pub net: crate::net::Net,
     pub custom_apps: crate::domain::apps::bridge::Registry,
     pub elicitations: crate::runtime::elicitation::Registry,
+    pub live_feed: crate::live_feed::LiveFeed,
 }
 
 pub type EngineRef = Arc<Engine>;
@@ -103,6 +104,7 @@ impl Engine {
             net: Default::default(),
             custom_apps: Default::default(),
             elicitations: Default::default(),
+            live_feed: Default::default(),
         })
     }
 }
