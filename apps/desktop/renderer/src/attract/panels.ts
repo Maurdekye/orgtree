@@ -13,6 +13,7 @@
    what was closed in this same tick. */
 import type { AttractPanel } from './canvas'
 import { attractTrace } from './trace'
+import type { ReleaseVia } from './attract'
 
 export type PanelKind = 'inbox' | 'docket'
 
@@ -23,12 +24,18 @@ export interface PanelHost {
   close: (kind: PanelKind) => void
 }
 
-export function createAttractPanels(host: PanelHost): { apply: (panel: AttractPanel) => void } {
+export interface AttractPanels {
+  apply: (panel: AttractPanel, via?: ReleaseVia) => void
+  docket: { foreignSince: () => number | null; reclaim: () => void }
+}
+
+export function createAttractPanels(host: PanelHost): AttractPanels {
   /** panels attract opened and has not handed over */
   const mine = new Set<PanelKind>()
   /** closed by attract in this tick: the host may not show that yet */
   const justClosed = new Set<PanelKind>()
   return {
+    docket: { foreignSince: () => null, reclaim: () => {} },
     apply(panel) {
       if (panel === 'release') { if (mine.size) attractTrace({ ev: 'release' }); mine.clear(); return }
       if (!panel) {

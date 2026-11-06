@@ -173,6 +173,13 @@ export const attractDwell = (rng: () => number, atLeast = 0): number =>
       drag), a wheel (scroll or zoom), or a key while focus is on the canvas.
       Moving the mouse never does. Input in a desk, panel, menu, settings or
       field, or in another window, never does. */
+/** What a panel touch was, for the trace (enum only). 'stop' = the run ended and every panel it opened became the user's. */
+export type ReleaseVia = 'pointerdown' | 'wheel' | 'keydown' | 'touchstart' | 'stop'
+/** An unowned docket with no user input for this long, while attract runs, is taken back and closed. */
+export const DOCKET_RECLAIM_MS = 60_000
+/** Only real user input (event.isTrusted) counts as input. Tests drive synthetic events and switch this off. */
+let requireTrusted = true
+export function setRequireTrustedInput(on: boolean): void { void on; void requireTrusted /* skeleton */ }
 const INPUT_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const
 const RELEASE_EVENTS = ['pointerup', 'pointercancel'] as const
 /** a canvas press is down: a drag or pan in progress, so the interaction has not ended */
@@ -262,7 +269,10 @@ export interface AttractRoutes {
   poll?: () => Promise<void>
   /** the user touched a panel attract opened (a press, wheel or key in it): it is theirs now,
    *  and the run goes on without closing it */
-  release?: () => void
+  release?: (via?: ReleaseVia) => void
+  /** the docket as the cycle sees it: open and NOT attract's (since when, in ms; null when closed or attract's), and a way to
+   *  take it back (adopt it and close it) */
+  docket?: { foreignSince: () => number | null; reclaim: () => void }
 }
 
 /** Runs the cycle while `enabled` and the window has had no input for more

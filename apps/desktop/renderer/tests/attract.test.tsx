@@ -19,6 +19,9 @@ import {
 import { bindRoomSocket, reportAttract } from '../src/streamrooms'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { canvasAttractRoutes } from '../src/attract/canvas'
+import { setRequireTrustedInput } from '../src/attract/attract'
+// the tests drive synthetic events, which are never isTrusted: count them as the user's (the real window counts only trusted ones)
+setRequireTrustedInput(false)
 import { createAttractPanels } from '../src/attract/panels'
 import { setAttractTraceLive, setAttractTraceSink } from '../src/attract/trace'
 import type { PanelKind } from '../src/attract/panels'
