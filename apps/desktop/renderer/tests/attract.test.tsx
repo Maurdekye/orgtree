@@ -5,7 +5,7 @@ import { advance, flush, inAct, mountView, realClock, useFakeClock } from './har
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
-import {
+import { TAKEOVER_GAP_MS,
   ATTRACT_IDLE_MS, DWELL_MAX_MS, DWELL_MIN_MS, FIT_GAP_CAP, attractCandidates, attractDwell, fitGap, pickAttract,
   targetKey, useAttractCycle, watchInput,
 } from '../src/attract/attract'
@@ -467,15 +467,17 @@ test('§15 touching a panel (a press, wheel or non-modifier key in it) hands it 
       assert.deepEqual(calls, ['release', 'stop'], 'a press in a panel releases it and ends the run')
       assert.equal(running(), 'false')
       await advance(50, 10)
-      assert.equal(running(), 'true', 'with Start-after 0 the idle start is immediate')
+      assert.equal(running(), 'false', 'after a takeover even Start-after 0 waits the takeover gap')
+      await advance(TAKEOVER_GAP_MS + 2_000, 1_000)
+      assert.equal(running(), 'true', 'and then the run starts')
       calls.length = 0
       await inAct(() => { fire(sc.panels.overlay, 'wheel', { deltaY: 10 }) })
       assert.deepEqual(calls, ['release', 'stop'], 'a wheel in a panel counts too')
-      await advance(50, 10)
+      await advance(TAKEOVER_GAP_MS + 2_000, 1_000)
       calls.length = 0
       await inAct(() => { fire(sc.panels.pin, 'keydown', { key: 'x' }) })
       assert.deepEqual(calls, ['release', 'stop'], 'and so does a key')
-      await advance(50, 10)
+      await advance(TAKEOVER_GAP_MS + 2_000, 1_000)
       calls.length = 0
       await inAct(() => { fire(sc.panels.tray, 'pointerdown') })
       assert.deepEqual(calls, [], 'the agents tray is not an attract panel')

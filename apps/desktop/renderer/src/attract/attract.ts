@@ -177,6 +177,9 @@ export const attractDwell = (rng: () => number, atLeast = 0): number =>
 export type ReleaseVia = 'pointerdown' | 'wheel' | 'keydown' | 'touchstart' | 'stop'
 /** A Tab this soon after the window gained focus is the window switch (Alt+Tab, Cmd+Tab), not the user typing in a panel. */
 export const FOCUS_GRACE_MS = 500
+/** After a takeover stop the next run needs at least this long with no input (or the Start-after delay if longer), so an immediate
+ *  restart can never close the docket the user just touched (coordinator m8b77826c852d). */
+export const TAKEOVER_GAP_MS = 60_000
 /** Only real user input (event.isTrusted) counts as input. Tests drive synthetic events and switch this off. */
 let requireTrusted = true
 export function setRequireTrustedInput(on: boolean): void { requireTrusted = on }
@@ -321,18 +324,21 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
   const stopWhy = useRef<'canvas' | 'takeover_stop' | 'other'>('other')
   /** a run is going (the takeover stop applies only then) */
   const runningNow = useRef(false)
+  /** a takeover ended the last run: the next one waits TAKEOVER_GAP_MS (or the Start-after delay) */
+  const afterTakeover = useRef(false)
   rngRef.current = rng
 
   // idle → run; input → stop
   useEffect(() => {
     if (!enabled) { setRunning(false); return }
     let timer: ReturnType<typeof setTimeout> | undefined
+    const gap = () => afterTakeover.current ? Math.max(idleMs, TAKEOVER_GAP_MS) : idleMs
     const arm = () => {
       clearTimeout(timer)
-      const wait = Math.min(TIMER_MAX_MS, Math.max(0, lastInputAt() + idleMs - Date.now()) + 1)
+      const wait = Math.min(TIMER_MAX_MS, Math.max(0, lastInputAt() + gap() - Date.now()) + 1)
       timer = setTimeout(() => {
         // a held canvas press is an interaction still going: its release re-arms
-        if (!held && Date.now() - lastInputAt() > idleMs) setRunning(true)
+        if (!held && Date.now() - lastInputAt() > gap()) { afterTakeover.current = false; setRunning(true) }
         else if (!held) arm()
       }, wait)
     }
@@ -341,7 +347,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       else if (panel) {
         // a takeover ends the run like canvas interaction; the panel touched stays open and is the user's
         routesRef.current.release?.(via)
-        if (runningNow.current) { stopWhy.current = 'takeover_stop'; setRunning(false) }
+        if (runningNow.current) { stopWhy.current = 'takeover_stop'; afterTakeover.current = true; setRunning(false) }
       }
       arm()
     })

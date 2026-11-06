@@ -6,7 +6,7 @@ import { advance, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
-import { ATTRACT_IDLE_MS, FOCUS_GRACE_MS, isTakeoverInput, lastInputAt, setRequireTrustedInput, targetKey, useAttractCycle, watchInput } from '../src/attract/attract'
+import { ATTRACT_IDLE_MS, FOCUS_GRACE_MS, TAKEOVER_GAP_MS, isTakeoverInput, lastInputAt, setRequireTrustedInput, targetKey, useAttractCycle, watchInput } from '../src/attract/attract'
 import type { AttractRoutes } from '../src/attract/attract'
 import { createAttractPanels } from '../src/attract/panels'
 import type { PanelKind } from '../src/attract/panels'
@@ -15,8 +15,8 @@ import { updatePinSurface } from '../src/canvas/pinspace'
 import { pinSurfaceKey } from '../src/canvas/pinspace'
 import { setAttractTraceLive, setAttractTraceSink } from '../src/attract/trace'
 
-function Cycle({ routes }: { routes: AttractRoutes }) {
-  const running = useAttractCycle(true, routes, () => 0.99)
+function Cycle({ routes, idleMs }: { routes: AttractRoutes; idleMs?: number }) {
+  const running = useAttractCycle(true, routes, () => 0.99, idleMs)
   return <span data-running={String(running)} />
 }
 const key = () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a' }))
@@ -36,15 +36,17 @@ function shell() {
   const committed: Record<PanelKind, boolean> = { inbox: false, docket: false }
   const pending: Record<PanelKind, boolean> = { inbox: false, docket: false }
   let shown = 0
+  let closeCalls = 0
   let away = false
   const host = {
     isOpen: (k: PanelKind) => committed[k],
     elsewhere: () => away,
     show: (k: PanelKind) => { pending[k] = true; shown++ },
     close: (k: PanelKind) => { pending[k] = false },
+    closeDockets: () => { closeCalls++ },
   }
   const render = () => { committed.inbox = pending.inbox; committed.docket = pending.docket }
-  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown, elsewhere: (on: boolean) => { away = on } }
+  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown, closeCalls: () => closeCalls, elsewhere: (on: boolean) => { away = on } }
 }
 /** a cycle whose agent and one changed ticket are always new, with the docket as `docket` says */
 function routesWith(calls: string[], docket: AttractRoutes['docket']): AttractRoutes {
@@ -232,11 +234,39 @@ test('T5 a run starts by closing the docket that was open before the idle delay;
     try {
       assert.equal(sh.open().docket, true, 'open before the run')
       await advance(ATTRACT_IDLE_MS + 2_000, 500); sh.render()
+      assert.equal(sh.closeCalls(), 1, 'the run start asked the shell to close every docket, exactly once')
       assert.equal(sh.open().docket, false, 'the run start closed it')
       await advance(30_000, 1_000)
       assert.ok(calls.some(c => c.startsWith('show:')), 'steps run normally after')
     } finally { await view.unmount() }
   } finally { realClock() }
+})
+
+test('T7 after a takeover stop with Start-after 0 the next run waits 60 s with no input: at 59 s no run and the docket is open, at 61 s it starts and closes it', async () => {
+  useFakeClock()
+  setRequireTrustedInput(false)
+  const sc = overlay()
+  try {
+    watchInput(() => {})()
+    key()
+    const sh = shell(); const calls: string[] = []
+    const { routes } = wired(sh, calls)
+    const view = await mountView(<Cycle routes={routes} idleMs={0} />, el => el)
+    try {
+      const running = () => view.el.querySelector('span')!.dataset.running
+      await advance(50, 10)
+      await untilDocket(sh)
+      await inAct(() => { fire(sc.panel, 'pointerdown') })
+      assert.equal(running(), 'false', 'the takeover stops the run')
+      const closesBefore = sh.closeCalls()
+      await advance(TAKEOVER_GAP_MS - 1_000, 1_000); sh.render()
+      assert.equal(running(), 'false', 'no run at 59 s of no input')
+      assert.equal(sh.open().docket, true, 'and the touched docket is open')
+      await advance(2_000, 500); sh.render()
+      assert.equal(running(), 'true', 'at 61 s the run starts')
+      assert.equal(sh.closeCalls(), closesBefore + 1, 'and closes the dockets')
+    } finally { await view.unmount() }
+  } finally { sc.root.remove(); realClock() }
 })
 
 test('T6 a run start closes the org docket and every floating agent/team docket of the window, traced as close/attract/run_start; popped-out ones are untouched', async () => {
