@@ -594,8 +594,8 @@ export default function App() {
   const showInboxNow = useRef(showInbox); showInboxNow.current = showInbox
   const showDocketNow = useRef(showDocket); showDocketNow.current = showDocket
   const attractPanels = useMemo(() => createAttractPanels({
-    // a docket popped out into a window of its own is open too: attract reuses it (never mounts a second) and treats it as the user's
-    isOpen: kind => kind === 'inbox' ? showInboxNow.current : showDocketNow.current || detachedKind('docket'),
+    // a docket or inbox popped out into a window of its own is open too: attract reuses it (never mounts a second) and treats it as the user's
+    isOpen: kind => kind === 'inbox' ? showInboxNow.current || detachedKind('inbox') : showDocketNow.current || detachedKind('docket'),
     show: (kind, id) => {
       if (kind === 'inbox') { showInboxNow.current = true; setInboxJump(jumpTo(id)); setShowInbox(true); raisePinnedModal('inbox', slug) }
       else { showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }

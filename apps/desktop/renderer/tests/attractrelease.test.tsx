@@ -179,7 +179,7 @@ test('R6 the time an unowned docket is open counts toward the docket share (dock
   } finally { realClock(); setAttractTraceSink(null) }
 })
 
-test('R7 a docket opened twice is one instance, and attract's close leaves none open (at most one docket per window)', () => {
+test("R7 a docket opened twice is one instance, and attract's close leaves none open (at most one docket per window)", async () => {
   const sh = shell()
   const panels = createAttractPanels(sh.host)
   panels.apply({ kind: 'docket', item: 'a' }); sh.render()
@@ -188,10 +188,11 @@ test('R7 a docket opened twice is one instance, and attract's close leaves none 
   assert.deepEqual(sh.open(), { inbox: false, docket: true })
   panels.apply(null); sh.render()
   assert.equal(sh.open().docket, false, 'one close shuts it')
+  await Promise.resolve()   // the same-tick memory of what attract closed is gone by the next turn
   // a docket open anywhere (the user's, or popped out) is never opened over: the cycle keeps tickets away from it (R4), and if it
   // is reached anyway the open retargets that one docket and is not attract's to close
   sh.user('docket', true)
   panels.apply({ kind: 'docket', item: 'c' }); sh.render()
   panels.apply(null); sh.render()
-  assert.equal(sh.open().docket, true, 'the user's docket stays')
+  assert.equal(sh.open().docket, true, "the user's docket stays")
 })
