@@ -358,7 +358,6 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       let since = dk.foreignSince()
       const now = Date.now()
       if (since !== null && now - lastInputAt() >= DOCKET_RECLAIM_MS) {
-        attractTrace({ ev: 'adopt', panel: 'docket' })
         dk.reclaim()
         since = dk.foreignSince()
       }

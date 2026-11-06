@@ -10,6 +10,9 @@ import { ATTRACT_IDLE_MS, DOCKET_RECLAIM_MS, lastInputAt, setRequireTrustedInput
 import type { AttractRoutes } from '../src/attract/attract'
 import { createAttractPanels } from '../src/attract/panels'
 import type { PanelKind } from '../src/attract/panels'
+import { floatingOtherDockets } from '../src/canvas/modalpin'
+import { updatePinSurface } from '../src/canvas/pinspace'
+import { pinSurfaceKey } from '../src/canvas/pinspace'
 import { setAttractTraceLive, setAttractTraceSink } from '../src/attract/trace'
 
 function Cycle({ routes }: { routes: AttractRoutes }) {
@@ -33,13 +36,15 @@ function shell() {
   const committed: Record<PanelKind, boolean> = { inbox: false, docket: false }
   const pending: Record<PanelKind, boolean> = { inbox: false, docket: false }
   let shown = 0
+  let away = false
   const host = {
     isOpen: (k: PanelKind) => committed[k],
+    elsewhere: () => away,
     show: (k: PanelKind) => { pending[k] = true; shown++ },
     close: (k: PanelKind) => { pending[k] = false },
   }
   const render = () => { committed.inbox = pending.inbox; committed.docket = pending.docket }
-  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown }
+  return { host, render, user: (k: PanelKind, open: boolean) => { pending[k] = open; render() }, open: () => ({ ...pending }), shows: () => shown, elsewhere: (on: boolean) => { away = on } }
 }
 /** a cycle whose agent and one changed ticket are always new, with the docket as `docket` says */
 function routesWith(calls: string[], docket: AttractRoutes['docket']): AttractRoutes {
@@ -195,4 +200,33 @@ test("R7 a docket opened twice is one instance, and attract's close leaves none 
   panels.apply({ kind: 'docket', item: 'c' }); sh.render()
   panels.apply(null); sh.render()
   assert.equal(sh.open().docket, true, "the user's docket stays")
+})
+
+test("R8 a docket open where attract cannot close it (popped out, or an agent docket floating beside the org docket) is the user's: no second docket, nothing closed", () => {
+  const got: Record<string, unknown>[] = []
+  setAttractTraceSink(r => { got.push(r) })
+  setAttractTraceLive(true)
+  try {
+    const sh = shell()
+    const panels = createAttractPanels(sh.host)
+    assert.equal(panels.docket.foreignSince(), null)
+    sh.elsewhere(true)
+    assert.equal(typeof panels.docket.foreignSince(), 'number', 'elsewhere: foreign, so the cycle takes no ticket step into it')
+    panels.docket.reclaim(); sh.render()
+    assert.equal(sh.open().docket, false, "nothing of attract's to close")
+    assert.ok(!got.some(r => r.ev === 'adopt'), 'and no adopt is claimed')
+    assert.equal(typeof panels.docket.foreignSince(), 'number', 'it stays foreign until it is gone')
+    sh.elsewhere(false)
+    assert.equal(panels.docket.foreignSince(), null)
+  } finally { setAttractTraceSink(null); setAttractTraceLive(false) }
+})
+
+test("R9 an agent's or team's docket floating in this org is seen; the org docket itself, other orgs and other panels are not", () => {
+  const rect = { x: 0, y: 0, w: 100, h: 100 }
+  updatePinSurface(pinSurfaceKey('acme', 'agent-docket:cora', true), 'acme', rect, true)
+  updatePinSurface(pinSurfaceKey('acme', 'docket', true), 'acme', rect, true)
+  updatePinSurface(pinSurfaceKey('acme', 'node-inbox:cora', true), 'acme', rect, true)
+  updatePinSurface(pinSurfaceKey('other', 'agent-docket:max', true), 'other', rect, true)
+  assert.deepEqual(floatingOtherDockets('acme'), ['agent-docket:cora'])
+  assert.deepEqual(floatingOtherDockets('nobody'), [])
 })

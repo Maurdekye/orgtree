@@ -475,6 +475,13 @@ export const useModalPin = (kind: string, org: string | null = null): ModalPin |
   return modalPinsAvailable() ? pins[modalPinKey(kind, org)] ?? null : null
 }
 
+/** Docket panels of another kind floating in this org right now: an agent's docket or a team's. They are dockets the user
+ *  opened on purpose, several may stand at once, and none is the org docket attract drives (attract/panels.ts). */
+export const floatingOtherDockets = (org: string | null): string[] =>
+  readPinSurfaces().filter(p => p.org === (org ?? '') && p.modal)
+    .map(p => String(JSON.parse(p.key)[2]))
+    .filter(k => ['agent-docket', 'team-docket'].includes(k.split(':')[0]!))
+
 export const isModalPinned = (kind: string, org: string | null = null): boolean =>
   modalPinsAvailable() && Boolean(readModalPins()[modalPinKey(kind, org)])
 

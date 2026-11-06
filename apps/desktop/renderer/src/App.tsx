@@ -162,7 +162,7 @@ import { docketFeed } from './canvas/itemrefs'
 import { documentsFeed } from './canvas/docrefs'
 import { mailInboxRead, mailTreeChanged } from './canvas/mailrefs'
 import { requestPanelSample } from './canvas/apps/runtime'
-import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
+import { closeIfCentred, floatingOtherDockets, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
@@ -594,8 +594,10 @@ export default function App() {
   const showInboxNow = useRef(showInbox); showInboxNow.current = showInbox
   const showDocketNow = useRef(showDocket); showDocketNow.current = showDocket
   const attractPanels = useMemo(() => createAttractPanels({
-    // a docket or inbox popped out into a window of its own is open too: attract reuses it (never mounts a second) and treats it as the user's
-    isOpen: kind => kind === 'inbox' ? showInboxNow.current || detachedKind('inbox') : showDocketNow.current || detachedKind('docket'),
+    isOpen: kind => kind === 'inbox' ? showInboxNow.current : showDocketNow.current,
+    // open somewhere attract cannot close: a docket or inbox popped out into a window of its own, or an agent's or team's docket
+    // floating beside the org docket. Attract mounts no second docket next to it (it takes no ticket step) and leaves it alone.
+    elsewhere: kind => kind === 'inbox' ? detachedKind('inbox') : detachedKind('docket') || floatingOtherDockets(slug).length > 0,
     show: (kind, id) => {
       if (kind === 'inbox') { showInboxNow.current = true; setInboxJump(jumpTo(id)); setShowInbox(true); raisePinnedModal('inbox', slug) }
       else { showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }

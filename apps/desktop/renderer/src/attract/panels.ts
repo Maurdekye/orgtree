@@ -19,6 +19,8 @@ export type PanelKind = 'inbox' | 'docket'
 
 export interface PanelHost {
   isOpen: (kind: PanelKind) => boolean
+  /** `kind` is open somewhere attract cannot close or retarget (a popped-out window, an agent's docket floating beside the org docket): the user's */
+  elsewhere?: (kind: PanelKind) => boolean
   /** open `kind` (or move it) onto this mail / ticket */
   show: (kind: PanelKind, id: string) => void
   close: (kind: PanelKind) => void
@@ -40,12 +42,15 @@ export function createAttractPanels(host: PanelHost): AttractPanels {
     docket: {
       /** since when the docket has been open and NOT attract's (the user's, or one attract lost to a hand-over); null when closed or attract's */
       foreignSince() {
-        if (!host.isOpen('docket') || mine.has('docket')) { foreignAt = null; return null }
+        const elsewhere = host.elsewhere?.('docket') === true
+        if (!elsewhere && (!host.isOpen('docket') || mine.has('docket'))) { foreignAt = null; return null }
         return foreignAt ??= Date.now()
       },
       /** take it back and close it (the cycle does this after DOCKET_RECLAIM_MS without user input) */
       reclaim() {
+        // only the org docket attract can close: one that is open elsewhere stays the user's
         if (!host.isOpen('docket') || mine.has('docket')) return
+        attractTrace({ ev: 'adopt', panel: 'docket' })
         host.close('docket'); justClosed.add('docket'); foreignAt = null
         attractTrace({ ev: 'panel', action: 'close', panel: 'docket', owned: true })
         queueMicrotask(() => justClosed.clear())
