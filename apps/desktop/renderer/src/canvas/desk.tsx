@@ -117,7 +117,7 @@ import {
   addPending, bindPendingMail, failPending, CHAT_WINDOW, collapseWindow,
   dismissPending, dropPending,
   loadOlder as storeLoadOlder, markBusy, markGhostCommand, mintClientOp,
-  MAX_WINDOW, refreshConvo, useConvo,
+  MAX_WINDOW, refreshConvo, setFollowing, useConvo,
 } from '../convo'
 import type { PendingGhost } from '../convo'
 import type {
@@ -2708,6 +2708,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const setStuck = (v: boolean) => {
     stickRef.current = v
+    setFollowing(slug, node.id, v)
     syncJump()   // only on a real flip — useChangedState, not an updater
   }
   // A programmatic jump away from the tail ("jump to your message", a reply

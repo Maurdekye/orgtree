@@ -63,6 +63,58 @@ function retainTail(chat: ChatPayload, count: number): ChatPayload {
     ...(before === undefined ? { after: undefined } : {}) }
 }
 
+/** Rows a STREAM-fed desk may hold beyond its window before the oldest are
+ *  dropped (deskbounded.test.tsx: a pinned desk at the bottom of a busy stream
+ *  kept every committed row for ever, user report 2026-11-06). Slack keeps the
+ *  trim to once per STREAM_SLACK rows instead of once per row. */
+export const STREAM_SLACK = 32
+
+/** The most rows a desk keeps while its reader is up in history (`paged`): ten
+ *  live windows. Past it rows leave from the LIVE end, never from under the
+ *  reader; they come back through the ordinary tail fetch when the desk returns
+ *  to the bottom ("jump to bottom", or scrolling down: collapseWindow). */
+export const PAGED_CAP = 10 * (CHAT_WINDOW + STREAM_SLACK)
+
+/** Bound what a desk retains.
+ *  - At the bottom (not paged): the window plus STREAM_SLACK, oldest rows out;
+ *    older history stays reachable through the cursor retainTail leaves.
+ *  - Up in history (paged): at most PAGED_CAP rows, newest rows out. `after` is
+ *    cleared so the next fetch is the whole tail rather than a delta from a
+ *    newest row that is no longer held, and stream commits for rows beyond the
+ *    cut are forgotten (they are re-fetched on the way down). */
+function boundTranscript(e: Entry, chat: ChatPayload, paged = e.s.paged): ChatPayload {
+  if (paged) {
+    if (chat.messages.length <= PAGED_CAP) return chat
+    // A paged desk is not always a reader up in history: the desk's own
+    // viewport fill pages while the reader still follows the live end. That
+    // reader must keep the NEWEST rows (cut the oldest), or the tail goes stale
+    // with no jump-to-bottom shown (Session 0 capture, int-credit-sol-2).
+    if (e.following !== false) {
+      const kept = retainTail(chat, PAGED_CAP)
+      const oldest = kept.messages[0]?.seq
+      if (typeof oldest === 'number') {
+        for (const [id, row] of e.committedRows) if (typeof row.seq === 'number' && row.seq < oldest) e.committedRows.delete(id)
+      }
+      return kept
+    }
+    const messages = chat.messages.slice(0, PAGED_CAP)
+    const newest = messages.at(-1)?.seq
+    if (typeof newest === 'number') {
+      for (const [id, row] of e.committedRows) if (typeof row.seq === 'number' && row.seq > newest) e.committedRows.delete(id)
+    }
+    return { ...chat, messages, after: undefined }
+  }
+  if (e.s.loadingOlder || e.pageInFlight) return chat
+  const keep = Math.max(CHAT_WINDOW, e.s.win)
+  if (chat.messages.length <= keep + STREAM_SLACK) return chat
+  const bounded = retainTail(chat, keep)
+  const oldest = bounded.messages[0]?.seq
+  if (typeof oldest === 'number') {
+    for (const [id, row] of e.committedRows) if (typeof row.seq === 'number' && row.seq < oldest) e.committedRows.delete(id)
+  }
+  return bounded
+}
+
 function stalledPage(slug: string, nid: string, reason: string): void {
   console.warn('Transcript pagination stopped', { slug, nid, reason })
 }
@@ -235,6 +287,10 @@ type HistoryRetry = { kind: 'initial' | 'refresh' } | { kind: 'page'; before: st
   | { kind: 'growth'; win: number }
 
 interface Entry {
+  /** the desk's reader is following the live end (stuck to the bottom). Set by
+   *  the desk through setFollowing; default true. Decides which end of a paged
+   *  transcript is cut when it passes PAGED_CAP (see boundTranscript). */
+  following?: boolean
   outputAt?: number
   tokenAt?: number
   historyRetry?: HistoryRetry
@@ -707,6 +763,12 @@ function liveField<K extends keyof Convo>(e: Entry, field: K): Convo[K] {
  *  UNBOUNDED window — the full depth of a history visit, thousands of rows.
  *  Bounding it to the two screens the desk renders is the same order of cost
  *  as the old floor and is what the desk would immediately re-fetch anyway. */
+/** The desk tells the store whether its reader follows the live end. */
+export function setFollowing(slug: string, nid: string, following: boolean): void {
+  const e = M.get(key(slug, nid))
+  if (e) e.following = following
+}
+
 export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): void {
   const e = M.get(key(slug, nid))
   if (!e) return
@@ -725,9 +787,14 @@ export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): v
   const floor = Math.max(CHAT_WINDOW, Math.ceil(keep) || 0, e.pendingKeep ?? 0)
   e.pendingKeep = undefined
   if (e.s.win <= floor && !e.s.paged) return
+  const tail = e.s.chat ? retainTail(e.s.chat, floor) : null
+  // stream commits older than the tail we keep are no longer wanted: left in
+  // the map they are spliced back into every merge until a page confirms them
+  const from = tail?.messages[0]?.seq
+  if (typeof from === 'number') for (const [id, row] of e.committedRows) if (typeof row.seq === 'number' && row.seq < from) e.committedRows.delete(id)
   patchEntry(e, {
     win: floor, paged: false,
-    ...(e.s.chat ? { chat: retainTail(e.s.chat, floor) } : {}),
+    ...(tail ? { chat: tail } : {}),
   })
   e.dirty = true
   void refreshConvo(slug, nid, { force: true })
@@ -1290,6 +1357,7 @@ export function refreshConvo(slug: string, nid: string,
       : startedAt >= (e.tokenAt ?? 0) && Array.isArray(c.tool_tokens) ? readToolTokens(c.tool_tokens) : e.s.toolTokens
     const shellOutput = startedAt < (e.outputAt ?? 0) && !changedConversation ? e.s.shellOutput
       : !c.busy ? null : acceptShellOutput(changedConversation ? null : e.s.shellOutput,c.shell_output,c.turn_started_at)
+    if (!changedConversation && e.s.paged) c = boundTranscript(e, c)
     patchEntry(e, { chat: c, toolTokens, shellOutput, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
@@ -1423,8 +1491,8 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, _viewpo
       const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))
       cancelHistoryRetry(e)
       patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
-        chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
-          before: page.before, has_older: page.has_older }) }, version)
+        chat: boundTranscript(e, mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
+          before: page.before, has_older: page.has_older }), true) }, version)
     }).catch((error: unknown) => {
       const currentPage = e.pageSerial === pageSerial
       if (!currentPage) return
@@ -1662,7 +1730,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
       }
       const current = e.s.chat ?? { busy: true, queued: 0, responding: true,
         last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
-      let chat = mergeCommitted(e, { ...current, transient: (current.transient ?? []).filter(row =>
+      let chat = boundTranscript(e, mergeCommitted(e, { ...current, transient: (current.transient ?? []).filter(row =>
         !(ev.draft_clear && ['draft', 'delta'].includes(row.kind))
         && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))
         && !(Array.isArray(ev.tool_writing) && row.kind === 'tool_writing')),
@@ -1672,7 +1740,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
             && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))),
           ...ev.tool_writing.filter(row => row.kind === 'tool_writing' && !!row.tool_id && !!row.started_at),
         ] } : {}),
-      })
+      }))
       // A clear frame can reach the desk one frame BEFORE the committed row that takes the call over (rig-opus trace 2026-11-04: store
       // [call] -> [] with neither row on screen for a render = the transcript dips 28 px and the scrollbar bounces). A writing row that
       // the list no longer carries is therefore KEPT, marked retiring, until a saved row carries its tool id (the desk's dedup hides it
@@ -1730,8 +1798,8 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     const prior = e.assistantRows.get(row.assistant_id!)
     const latest = mergeAssistantRows(prior ? [prior, row] : [row])[0]!
     e.assistantRows.set(row.assistant_id!, latest)
-    const chat = mergeCommitted(e, { ...current, assistant_identity: 1,
-      assistant_scope: row.assistant_scope })
+    const chat = boundTranscript(e, mergeCommitted(e, { ...current, assistant_identity: 1,
+      assistant_scope: row.assistant_scope }))
     e.streamAt = Date.now()
     patch(k, { chat, draft: '', draftEventId: undefined, draftReplyQuote: undefined })
     if (row.assistant_state === 'complete') {
@@ -1752,7 +1820,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     if (!current.messages.some(row => (row.row_id ?? row.event_id) === received.row_id)) {
       e.committedRows.set(received.row_id, received)
     }
-    const chat = mergeCommitted(e, current)
+    const chat = boundTranscript(e, mergeCommitted(e, current))
     const mailIds = serverMailIds(chat)
     const opIds = serverOpIds(chat)
     // same order as the fetch path: the submission's own name decides first,
