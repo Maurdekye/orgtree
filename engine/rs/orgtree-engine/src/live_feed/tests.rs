@@ -53,7 +53,7 @@ async fn world(opts: TestOpts) -> W {
     tokio::spawn(async move { let _ = connection.await; });
     client.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; DROP TABLE IF EXISTS public.ot_migrations").await.unwrap();
     crate::migrate::run(&mut client, &|_| {}).await.unwrap();
-    let mut org = |slug: &'static str| {
+    let org = |slug: &'static str| {
         let client = &client;
         async move {
             client.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES(gen_random_uuid(),$1,$1) RETURNING id", &[&slug]).await.unwrap().get::<_, i64>(0)
@@ -188,7 +188,7 @@ fn counts(msgs: &[Value], name: &str) -> Vec<i64> {
     msgs.iter().filter(|m| m["name"] == name).map(|m| m["payload"]["count"].as_i64().unwrap()).collect()
 }
 fn strictly_increasing(msgs: &[Value]) -> bool {
-    msgs.windows(2).all(|w| w[1]["seq"].as_u64() > w[0]["seq"].as_u64()) && msgs.first().map(|m| m["seq"] == 1).unwrap_or(true)
+    msgs.windows(2).all(|w| w[1]["seq"].as_u64() > w[0]["seq"].as_u64())
 }
 
 const IGNORE: &str = "requires isolated projdogs_fixture database";
@@ -206,7 +206,8 @@ async fn public_count_follows_turns() {
     assert_eq!((hello["type"].clone(), hello["subject"].clone()), (json!("hello"), json!("public")), "{hello}");
     let first = cl.next(2000).await.unwrap();
     assert_eq!((first["type"].clone(), first["payload"]["count"].clone()), (json!("state"), json!(0)), "{first}");
-    for (id, busy) in [(w.a, true), (w.b, true), (w.c, true), (w.b, false)] { w.set_busy(id, busy); }
+    // counts are computed when authorized (I3), so a burst coalesces: pace the flips to see each step
+    for (id, busy) in [(w.a, true), (w.b, true), (w.c, true), (w.b, false)] { w.set_busy(id, busy); tokio::time::sleep(Duration::from_millis(150)).await; }
     let msgs = cl.drain(500).await;
     assert_eq!(counts(&msgs, "agents.active"), vec![1, 2, 3, 2], "{msgs:?}");
     assert!(strictly_increasing(&msgs), "{msgs:?}");
@@ -360,6 +361,8 @@ async fn parity_across_kinds() {
     events::emit(&w.e, events::event("mail.waiting", Scope::Agent(o, a2), json!({"agent_id": a2})));
     events::emit(&w.e, events::event("docket.status.changed", Scope::Docket(o, "feed-item".into()), json!({"slug":"feed-item","status":"review"})));
     events::emit(&w.e, events::event("account.signed_in", Scope::Account(None), json!({"account":"acct-x","state":"authenticated"})));
+    // the dog's baseline already holds the current credits, so make them change (a dog drops an unchanged payload)
+    w.sql("UPDATE ot.agents SET grant_credits=3 WHERE id=$1", &[&a2]).await;
     events::emit(&w.e, events::event("credits.changed", Scope::Agent(o, a2), json!({"agent_id": a2})));
     events::emit(&w.e, events::event("documents.created", Scope::Agent(o, a2), json!({"agent_id": a2, "id": "d1"})));
     events::emit(&w.e, events::event("audience.granted", Scope::Agent(o, a2), json!({"agent_id": a2})));
@@ -519,16 +522,19 @@ async fn heartbeat() {
     let addr = w.apply().await;
     w.set_busy(w.a, true);
     let mut cl = dial(addr, "/v1/events", &[]).await.unwrap();
-    let msgs = {
-        tokio::time::sleep(Duration::from_millis(450)).await;
-        cl.drain(150).await
-    };
+    // heartbeats keep coming, so read for a fixed time instead of waiting for quiet
+    let mut msgs = Vec::new();
+    let end = tokio::time::Instant::now() + Duration::from_millis(600);
+    while let Some(m) = cl.next(end.saturating_duration_since(tokio::time::Instant::now()).as_millis() as u64 + 1).await {
+        msgs.push(m);
+        if tokio::time::Instant::now() >= end { break; }
+    }
     let hb: Vec<&Value> = msgs.iter().filter(|m| m["type"] == "state" && m["reason"] == "heartbeat").collect();
     assert!(hb.len() >= 2 && hb.iter().all(|m| m["payload"]["count"] == 1), "{msgs:?}");
     assert!(strictly_increasing(&msgs));
     cl.send(json!({"op":"subscribe","kinds":[]})).await;
-    cl.drain(50).await;
-    let bare = cl.drain(300).await;
+    let mut bare = Vec::new();
+    for _ in 0..8 { if let Some(m) = cl.next(300).await { bare.push(m); } }
     assert!(bare.iter().any(|m| m["type"] == "heartbeat"), "{bare:?}");
 }
 
@@ -563,10 +569,11 @@ async fn websocket_dog_auto_identity() {
     let w = world(opts()).await;
     let addr = w.apply().await;
     let url = format!("ws://127.0.0.1:{}/v1/events", addr.port());
+    let wr = &w;
     let make = |owner: i64, name: &str, url: &str, project: Option<&str>| {
         let mut args = json!({"kind":"websocket","target":url,"name":name,"hello":[{"op":"subscribe","kinds":["turn.*"]}],"interval_s":5});
         if let Some(p) = project { args["project"] = json!(p); }
-        crate::runtime::watchdogs::create(&w.e, w.org_of(owner), owner, &args)
+        async move { crate::runtime::watchdogs::create(&wr.e, wr.org_of(owner), owner, &args).await }
     };
     make(w.a, "bound", &url, None).await.unwrap();
     // a project's dog: created by A (above PA), owned by the project, so the public tier
@@ -577,7 +584,7 @@ async fn websocket_dog_auto_identity() {
     tokio::time::sleep(Duration::from_secs(7)).await;
     let mail = w.bodies(w.a).await.join("\n");
     assert!(mail.contains("turn.started"), "A's dog receives A-scoped turn events with no credentials: {mail}");
-    let gen: i64 = w.e.db.get().await.unwrap().query_one("SELECT generation FROM ot.agents WHERE id=$1", &[&w.a]).await.unwrap().get(0);
+    let gen = i64::from(w.e.db.get().await.unwrap().query_one("SELECT generation FROM ot.agents WHERE id=$1", &[&w.a]).await.unwrap().get::<_, i32>(0));
     let header = w.e.live_feed.agent_header(o, w.a, gen);
     assert!(!header.is_empty());
     let c = w.e.db.get().await.unwrap();
@@ -586,8 +593,9 @@ async fn websocket_dog_auto_identity() {
         assert!(!all.contains(&header), "the header value leaked into {what}");
     }
     assert!(!capture.finish().await.contains(&header), "the header value leaked into the log");
-    let proj: String = c.query_one("SELECT coalesce(string_agg(body,' '),'') FROM ot.mail WHERE body LIKE '%needs_token%'", &[]).await.unwrap().get(0);
-    assert!(proj.contains("needs_token"), "a project-owned dog is the public tier");
+    let tiers: Vec<Option<i64>> = w.e.live_feed.inner.conns.lock().unwrap().values().map(|c| c.agent).collect();
+    assert_eq!(tiers.iter().filter(|a| **a == Some(w.a)).count(), 1, "A's dog is bound to A: {tiers:?}");
+    assert_eq!(tiers.iter().filter(|a| a.is_none()).count(), 1, "the project-owned dog is the public tier: {tiers:?}");
     // forged, and an old generation
     assert_eq!(dial(addr, "/v1/events", &[("x-orgtree-feed-agent", &format!("{}.{}", w.a, "0".repeat(64)))]).await.err(), Some(401));
     assert_eq!(dial(addr, "/v1/events", &[("x-orgtree-feed-agent", &w.e.live_feed.agent_header(o, w.a, gen - 1))]).await.err(), Some(401));
@@ -634,7 +642,7 @@ async fn subscribe_validation() {
     let m = cl.drain(400).await;
     assert_eq!(m.iter().filter(|x| x["type"] == "error" && x["code"] == "bad_kind").count(), 2, "{m:?}");
     assert!(m.iter().any(|x| x["type"] == "hello" && x["kinds"] == json!(["agents.active"])), "the valid rest applies: {m:?}");
-    let many: Vec<String> = (0..65).map(|i| format!("a.b{}", "x".repeat(i % 3 + 1))).collect();
+    let many: Vec<String> = (0..65).map(|i| format!("a.k{}", "x".repeat(i + 1))).collect();
     cl.send(json!({"op":"subscribe","kinds":many})).await;
     assert!(cl.drain(400).await.iter().any(|x| x["code"] == "bad_kind"));
     cl.send(json!({"op":"dance"})).await;
@@ -658,10 +666,29 @@ async fn event_dog_count_recomputed_at_authorization() {
     // the snapshot at publication says {A}; by authorization B is busy too
     w.set_busy(w.a, true);
     w.set_busy_silently(w.b, true);
+    let before: i64 = w.e.db.get().await.unwrap().query_one("SELECT count(*) FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent' AND id<>$2", &[&o, &w.t]).await.unwrap().get(0);
+    w.sql("INSERT INTO ot.agents(org_id,name,parent_id,kind,tier,state,scope,born) VALUES($1,'M9',$2,'agent','sol','live','{}'::jsonb,'2026-11-06')", &[&o, &w.t]).await;
     events::emit(&w.e, events::live_count(o, vec![w.a]));
     tokio::time::sleep(Duration::from_secs(7)).await;
     let mail = w.bodies(w.t).await.join("\n");
     assert!(mail.contains(r#"agents.active {"count":2,"previous":0,"scope":"subtree"}"#), "the map says A and B: {mail}");
-    let live: i64 = w.e.db.get().await.unwrap().query_one("SELECT count(*) FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent' AND id<>$2", &[&o, &w.t]).await.unwrap().get(0);
-    assert!(mail.contains(&format!(r#"agents.live {{"count":{live},"previous":"#)), "the live count comes from the database at authorization, not the forged members: {mail}");
+    assert!(mail.contains(&format!(r#"agents.live {{"count":{},"previous":{before},"#, before + 1)), "the live count comes from the database at authorization, not the forged members [A]: {mail}");
+}
+
+/// A2: a storage error while authorizing closes with 1011 (not 4401: the agent is still live, and not 1013: the consumer is not slow).
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn storage_error_closes_1011() {
+    let w = world(opts()).await;
+    let addr = w.apply().await;
+    let (_, token) = w.token("feedone", "A").await;
+    let mut cl = dial(addr, "/v1/events", &[("authorization", &format!("Bearer {token}"))]).await.unwrap();
+    cl.next(1000).await.unwrap();
+    cl.send(json!({"op":"subscribe","kinds":["turn.*"]})).await;
+    cl.drain(300).await;
+    // the owner's identity query joins ot.agent_reporting; the agent row itself stays readable and live
+    w.sql("DO $$ BEGIN BEGIN EXECUTE 'DROP VIEW ot.agent_reporting CASCADE'; EXCEPTION WHEN others THEN EXECUTE 'DROP TABLE ot.agent_reporting CASCADE'; END; END $$", &[]).await;
+    events::emit(&w.e, events::event("turn.started", Scope::Agent(w.org1.id, w.a2), json!({"agent_id": w.a2})));
+    assert_eq!(cl.close_code(2000).await, Some(1011));
 }

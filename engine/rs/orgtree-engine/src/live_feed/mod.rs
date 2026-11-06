@@ -12,7 +12,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,6 +47,8 @@ pub(crate) type Close = (u16, &'static str);
 pub(crate) struct Ctl {
     pub tx: mpsc::UnboundedSender<Close>,
     pub token: Option<String>,
+    /// the bound agent (None: the public tier)
+    pub agent: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -255,6 +257,6 @@ impl LiveFeed {
         if !ours { return None; }
         let client = engine.db.get().await.ok()?;
         let row = client.query_opt("SELECT org_id, generation FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent'", &[&owner]).await.ok()??;
-        Some(self.agent_header(row.get(0), owner, row.get(1)))
+        Some(self.agent_header(row.get(0), owner, i64::from(row.get::<_, i32>(1))))
     }
 }

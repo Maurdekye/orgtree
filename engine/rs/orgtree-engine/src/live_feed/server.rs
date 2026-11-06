@@ -114,7 +114,7 @@ async fn authenticate(ctx: &Ctx, headers: &HeaderMap, q: &HashMap<String, String
         let c = ctx.engine.db.get().await.map_err(unavailable)?;
         let row = c.query_opt("SELECT org_id, generation FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent'", &[&id]).await.map_err(unavailable)?
             .ok_or(StatusCode::UNAUTHORIZED)?;
-        let (org, generation): (i64, i64) = (row.get(0), row.get(1));
+        let (org, generation): (i64, i64) = (row.get(0), i64::from(row.get::<_, i32>(1)));
         if !super::tokens::constant_eq(mac.as_bytes(), ctx.inner.mac(org, id, generation).as_bytes()) { return Err(StatusCode::UNAUTHORIZED); }
         return Ok(Subject::Agent { org_id: org, agent_id: id, token: None });
     }
@@ -153,7 +153,7 @@ async fn run(ctx: Ctx, subject: Subject, mut socket: WebSocket, _place: Place) {
     let id = ctx.inner.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let (ctl_tx, mut ctl_rx) = mpsc::unbounded_channel::<Close>();
     let token = match &subject { Subject::Agent { token, .. } => token.clone(), _ => None };
-    if let Ok(mut c) = ctx.inner.conns.lock() { c.insert(id, Ctl { tx: ctl_tx, token }); }
+    if let Ok(mut c) = ctx.inner.conns.lock() { c.insert(id, Ctl { tx: ctl_tx, token, agent: match &subject { Subject::Agent { agent_id, .. } => Some(*agent_id), _ => None } }); }
     let key = -(id as i64);
     let (sub, mut rx) = events::subscribe(&ctx.engine, key);
     let mut conn = Conn { engine: ctx.engine.clone(), inner: ctx.inner.clone(), scope: match &subject { Subject::Public { org: Some(_) } => "org", Subject::Public { .. } => "all", _ => "subtree" }.into(),
@@ -356,7 +356,8 @@ impl Conn {
         let Some(list) = v["kinds"].as_array() else { return self.error(socket, "bad_message", "kinds is a list of names").await };
         let mut errors: Vec<(&str, String)> = Vec::new();
         let mut kinds: Vec<String> = Vec::new();
-        for k in list {
+        if list.len() > MAX_KINDS { errors.push(("bad_kind", format!("at most {MAX_KINDS} kinds; the first {MAX_KINDS} apply"))); }
+        for k in list.iter().take(MAX_KINDS) {
             let Some(k) = k.as_str() else { errors.push(("bad_kind", "a kind is a string".into())); continue };
             if !self.is_agent() && (k == "agents.*" || k == "*") {
                 for n in STATEFUL { if !kinds.iter().any(|x| x == n) { kinds.push(n.to_string()); } }
@@ -364,7 +365,6 @@ impl Conn {
             }
             if k != "*" && !events::valid_target(k) { errors.push(("bad_kind", format!("{k:?} is not a dotted event name, a dotted prefix ending in .*, or *"))); continue; }
             if !self.is_agent() && !STATEFUL.contains(&k) { errors.push(("needs_token", format!("{k} needs an access token; without one only agents.active and agents.live are served"))); continue; }
-            if kinds.len() >= MAX_KINDS { errors.push(("bad_kind", format!("at most {MAX_KINDS} kinds"))); break; }
             if !kinds.iter().any(|x| x == k) { kinds.push(k.to_string()); }
         }
         if let (Some(s), Subject::Agent { agent_id, .. }) = (v["event_scope"].as_str(), self.subject.clone()) {
