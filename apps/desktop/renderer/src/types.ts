@@ -2194,6 +2194,10 @@ export interface RuntimeSettingsPayload {
    *  listener, wake one agent under it to arm one. Absent from an older
    *  engine, which reads as on. */
   project_listener_wake_enabled?: boolean
+  /** The built-in live engine feed (default on, port 47830). Absent from an older engine. */
+  live_feed_enabled?: boolean
+  live_feed_port?: number
+  live_feed_status?: { state: 'off' | 'listening' | 'error'; url?: string; error?: string }
   /** Default on (app-wide, the USER's own actions only; agents always
    *  bubble): a hire / re-hire of yours raises ancestor grants when it needs
    *  more credits. Absent from an older engine, which reads as on. */

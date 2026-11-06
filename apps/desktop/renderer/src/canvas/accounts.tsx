@@ -9,6 +9,7 @@ import { setProjectBunchesOn, useProjectBunches, setProjectBunchRearrangeOn, use
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
+import { LiveFeedSetting } from './livefeedsetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { TemplateDocumentsSetting } from './templates'
 import { MailHubSettings } from './hosthub'
@@ -1022,6 +1023,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             + 'directly under it (an idle one first) is woken and asked to arm one. Off: the mail waits in '
             + 'the project’s mailbox until someone arms one.'} />
       </SetGroup>
+      <LiveFeedSetting />
       <SetGroup title="Credit cost bubbling">
         <SetToggle label="Your hires bubble their cost up the chain" checked={runtime?.credit_bubble_hire_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setCreditBubbleHire, v)}
