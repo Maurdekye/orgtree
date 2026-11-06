@@ -27,6 +27,7 @@ app-wide user preference for ordinary new agents and projects.
 - [orgtree-app-notifications](app-notifications/SKILL.md): Runtime > Notifications: the master switch and each notification kind.
 - [orgtree-app-quick-staff](app-quick-staff/SKILL.md): Runtime > Quick staff behavior: request staffing vs staff immediately.
 - [orgtree-app-turn-limits](app-turn-limits/SKILL.md): Runtime > Turn time limits: total and silence limits.
+- [orgtree-app-live-feed](app-live-feed/SKILL.md): Runtime > Live feed: the local engine event feed, its port, access tokens and the websocket-dog recipe.
 - [orgtree-app-concurrency-and-checkups](app-concurrency-and-checkups/SKILL.md): Runtime > Turns: concurrent turns, working checkups, MCP wait, docket reminders, process warming.
 - [orgtree-app-credit-bubbling](app-credit-bubbling/SKILL.md): Runtime > Credit cost bubbling: the user's two app-wide switches (agents always bubble).
 - [orgtree-app-charters-and-templates](app-charters-and-templates/SKILL.md): Runtime > Charter documents and Organization templates: template folders, populating documents, restoring default templates.

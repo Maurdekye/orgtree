@@ -60,8 +60,7 @@ a crossing on resumption.
 
 `event_scope: "subtree"` is the default and counts only visible strict descendants; the watcher is excluded from both subtree and org counts. `event_scope: "org"` requires full org visibility. It never counts
 another organization. Thresholds require an exact count target and cannot be
-combined with silence mode. Membership snapshots are captured at publication;
-org identity/visibility is checked again by the receiver.
+combined with silence mode. The `agents.active` and `agents.live` counts are recomputed when a batch is authorized, from the live busy map and the batch's live set, never from a snapshot taken at publication (decision 96); org identity/visibility is checked again by the receiver. The live engine feed passes through the same `events::authorize` ([live-feed](live-feed.md)).
 
 ## Recovery, smoke and bounded delivery
 

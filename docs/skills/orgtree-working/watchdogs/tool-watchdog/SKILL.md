@@ -328,6 +328,8 @@ A fire gathers the matching messages since the previous fire, at most one fire p
 
 `target` is a WebSocket server: `ws://host[:port][/path][?query]` (default port 80) or `wss://…` (TLS, default 443), such as `wss://ha.lan/api/websocket`, `ws://127.0.0.1:9222/devtools/page/…` or `wss://stream.example/ws?symbols=btc`. User info (`ws://u:p@host`), a fragment and query parameters named like secrets (`token`, `access_token`, `api_key`, `key`, `auth`, `sig`, `session`…, or ending in `token`, `secret`, `password`, `_key`) are refused: the target is shown everywhere, so those go in `credentials.query`. `pattern` is an optional **regex on text messages**, run on the whole message; without it every message fires, binary ones as their size. Each dog has its **own** connection, which a paused dog closes. Like mqtt, it needs your **web tool**: create checks it, the dog rechecks it every minute, and losing it pauses the dog.
 
+To watch the engine's own live feed, point a `websocket` dog at `ws://127.0.0.1:47830/v1/events` (your feed port, see `orgtree-app-live-feed`): no credentials are needed; the dog is bound to its owner and sees what an `event` dog of the same owner would. A project-owned dog sees the public counts only.
+
 What the dog says on its connection:
 
 - `hello`: up to 16 messages (64 KB in all) sent in order right after **every** connect and reconnect, for subscribe or identify messages. A string goes as it is; an object or array goes as compact JSON. They are shown in `list` and on the card.

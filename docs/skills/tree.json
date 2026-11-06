@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 188,
+  "leaves": 189,
   "tools": 49,
   "concepts": 58,
-  "total": 210
+  "total": 211
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -21,7 +21,7 @@
   "session0-docs-luna": 1,
   "providers-sol": 33,
   "machine-traps-sol": 1,
-  "skills-docs-sol": 13,
+  "skills-docs-sol": 14,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
   "skilltree-opus": 6,
@@ -4034,6 +4034,7 @@
     "app-notifications",
     "app-quick-staff",
     "app-turn-limits",
+    "app-live-feed",
     "app-concurrency-and-checkups",
     "app-credit-bubbling",
     "app-charters-and-templates",
@@ -4398,6 +4399,81 @@
      "file": "apps/desktop/renderer/src/canvas/turnlimitssetting.tsx",
      "component": "LimitRow",
      "label": "label"
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/app-settings/app-live-feed",
+   "name": "orgtree-app-live-feed",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "rt:live_feed_enabled",
+    "rt:live_feed_port"
+   ],
+   "purpose": "Runtime > Live feed: the local engine event feed, its port, access tokens and the websocket-dog recipe.",
+   "must_cover": [
+    "defaults and effect",
+    "the two tiers",
+    "the websocket-dog recipe"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/livefeedsetting.tsx:30"
+   ],
+   "see_also": [
+    "tool-watchdog"
+   ],
+   "writer": "skills-docs-sol",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "label": "Publish engine events to programs on this computer"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "label": "Port"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "label": "Status"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "label": "Access tokens"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "label": "New token"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:live_feed_enabled",
+     "file": "engine/rs/orgtree-engine/src/settings.rs",
+     "needles": [
+      "live_feed_enabled"
+     ]
+    },
+    {
+     "key": "rt:live_feed_port",
+     "file": "engine/rs/orgtree-engine/src/settings.rs",
+     "needles": [
+      "live_feed_port"
+     ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "component": "LiveFeedSetting",
+     "label": "`Token for ${fresh.label}`"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/livefeedsetting.tsx",
+     "component": "LiveFeedSetting",
+     "label": "t.label"
     }
    ]
   },
