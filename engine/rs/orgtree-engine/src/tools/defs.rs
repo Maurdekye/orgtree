@@ -989,7 +989,7 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     let mut project = tool(
         "orgtree_project",
-        "Read/use projects above/below; only ancestors/user change settings/name/order or purge. create needs name/index, parent defaults you; above wraps node; initial settings atomic (name/description top-level). settings reads; configure atomic. Broadcast checks recipient authority; purge unclaimed only. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors force/unqueue. held_jobs lists unacked jobs; ancestors take_back one (id) or a holder's all (agent).",
+        "Read/use projects above/below; only ancestors/user change settings/name/order or purge. create needs name/index, parent defaults you; above wraps node; initial settings atomic. settings reads; configure atomic. Broadcast checks authority; purge unclaimed only. Claim via slot watchdog; slots lists holders/line; release_slot frees yours. Ancestors force/unqueue. held_jobs/take_back: unacked jobs.",
         json!({
             "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","fire_event","listeners","presentations","read_presentation","held_jobs","take_back"] },
             "id": {"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id; take_back: the held job's mail id (see held_jobs)"},
@@ -1850,7 +1850,7 @@ mod builder_stack_tests {
         let project = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_project").unwrap();
         let actual: Vec<serde_json::Value> = serde_json::from_slice(&serde_json::to_vec(&super::all()).unwrap()).unwrap();
         let actual_project = actual.iter().find(|card| card["name"] == "orgtree_project").unwrap().clone();
-        assert!(actual_project["description"].as_str().unwrap().contains("Claim via slot watchdog; slots lists holders/line; release_slot releases yours."));
+        assert!(actual_project["description"].as_str().unwrap().contains("Claim via slot watchdog; slots lists holders/line; release_slot frees yours."));
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
         schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","fire_event","listeners","presentations","read_presentation","held_jobs","take_back"]);
@@ -2025,7 +2025,7 @@ mod builder_stack_tests {
         // Approved description-only trim; compare schemas and order unchanged.
         for (name, description) in [
             ("orgtree_work", "Docket by slug; read Guide first. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review=agents; ask(work_item)=user questions. Delete permanent/restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
-            ("orgtree_project", "Read/use projects above/below; only ancestors/user change settings/name/order or purge. create needs name/index, parent defaults you; above wraps node; initial settings atomic (name/description top-level). settings reads; configure atomic. Broadcast checks recipient authority; purge unclaimed only. Chunked presentations. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors force/unqueue. held_jobs lists unacked jobs; ancestors take_back one (id) or a holder's all (agent).\nGuide: orgtree-tool-project."),
+            ("orgtree_project", "Read/use projects above/below; only ancestors/user change settings/name/order or purge. create needs name/index, parent defaults you; above wraps node; initial settings atomic. settings reads; configure atomic. Broadcast checks authority; purge unclaimed only. Claim via slot watchdog; slots lists holders/line; release_slot frees yours. Ancestors force/unqueue. held_jobs/take_back: unacked jobs.\nGuide: orgtree-tool-project."),
             ("orgtree_watchdog", "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped/paged. create kind/target (usage default), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: inline effects/actions; else register. usage cached, no probes. slot grants lease; other kinds/fire_actions: Guide. mqtt/websocket send needs live connection (MQTT topic). configure health mail (default notice), no reconnect.\nGuide: orgtree-tool-watchdog."),
             ("orgtree_inbox", "Own mail: list previews, fetch<=20 IDs, chunk bodies, conversation recall. Fetch/chunk consume; previews do not. Project reads never claim/ack; keep project/folder/status on cursors. Org inbox: extern holders use settings, list org_inbox=true, or pull (consumes org-wide). Mode writes user-only. Guide: limits/continuations.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members only; reverse needs its own grant. User contact adds no personal access while inherited; Acquire can. Project decisions: nearest superior (user if none). Org-inbox holder: agent/project. An agent above both may grant, deny or revoke between two agents in its subtree.\nGuide: orgtree-tool-audience."),
@@ -2083,9 +2083,6 @@ mod builder_stack_tests {
             ("orgtree_org_logo",
              "Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size.",
              "Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP, stored as a square PNG; crop: Guide."),
-            ("orgtree_project",
-             " Chunked presentations.",
-             ""),
             ("orgtree_chart",
              " Team charters default on.",
              ""),

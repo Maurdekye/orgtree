@@ -5,8 +5,8 @@
 //! `ORGTREE_HOLDINGS_TEST_URL=... ORGTREE_HOLDINGS_TEST_ROOT=... cargo test -p orgtree-engine -- --ignored --test-threads=1 take_back_tests`.
 //! The pure tests (reason, preview, tool request) run anywhere.
 //!
-//! Tree: X (agent) > P (ack project) > { C > A, B }; X > S; D top-level. A and B listen to P. C is above the holder A but is
-//! neither above nor below P's queue except through P's subtree (C is BELOW P: it has reach but no project right).
+//! Tree: X (agent) > P (ack project) > B; X > S; C (top-level) > { A, Q (a relay project) }; D top-level. A and B hold jobs in P.
+//! C is above the holders A and Q but neither above nor below P: it has the holder-chain right only.
 use super::ops::{self, Actor};
 use super::UserError;
 use serde_json::{json, Value};
@@ -27,6 +27,8 @@ struct W {
     d: i64,
     s: i64,
     q: i64,
+    /// a second member of P that can listen (A, under C, cannot: it does not reach P)
+    m: i64,
 }
 
 #[nolog]
@@ -48,9 +50,10 @@ async fn world(scope: Value) -> W {
     };
     let x = agent("X", None).await;
     let p: i64 = client.query_one("INSERT INTO ot.agents(org_id,name,parent_id,kind,tier,state,scope,born) VALUES($1,'P',$2,'project','project','live',$3,'2026-11-06') RETURNING id", &[&id, &x, &scope]).await.unwrap().get(0);
-    let c = agent("C", Some(p)).await;
+    let c = agent("C", None).await;
     let a = agent("A", Some(c)).await;
     let b = agent("B", Some(p)).await;
+    let m = agent("M", Some(p)).await;
     let d = agent("D", None).await;
     let s = agent("S", Some(x)).await;
     // Q: a relay project under P's subtree, so an ancestor of Q that is not above P can be tested
@@ -60,7 +63,7 @@ async fn world(scope: Value) -> W {
     Arc::get_mut(&mut engine).unwrap().db = deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
     let org = crate::orgs::provisional(id, "fixture".into(), "take-back-fixture".into(), "fixture".into());
     engine.orgs.insert(org.clone());
-    W { e: engine, org, p, x, c, a, b, d, s, q }
+    W { e: engine, org, p, x, c, a, b, d, s, q, m }
 }
 
 fn ack() -> Value {
@@ -88,7 +91,7 @@ impl W {
         ).await;
         self.sql(
             "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
-             VALUES($1,$2,'@user','agent',$3,$4,$5,'unread',$6)",
+             VALUES($1,$2,'@user','agent',$3,$4,$5,'read',$6)",
             &[&copy, &self.org.id, &holder, &by, &body, &json!({"via_project":{"id":self.p,"name":"P","ack":true,"mail":uid}})],
         ).await;
     }
@@ -98,7 +101,7 @@ impl W {
         self.sql(
             "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
              VALUES($1,$2,'@user','agent',$3,'P','relayed','read',$4)",
-            &[&uid, &self.org.id, &self.p, &json!({"attempts":1,"claimed":{"by_project":self.q,"by":"Q","copy":null,"ack":true,"at":crate::util::now_iso()}})],
+            &[&uid, &self.org.id, &self.p, &json!({"attempts":1,"claimed":{"by_project":self.q,"by":"Q","copy":format!("child-{uid}"),"ack":true,"at":crate::util::now_iso()}})],
         ).await;
     }
     /// The user's own job.
@@ -163,26 +166,26 @@ fn refused(e: &anyhow::Error) -> &'static str {
 #[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
 async fn tb1_ancestor_takes_back_one_job_and_it_goes_to_the_other_listener() {
     let w = world(ack()).await;
-    w.listen(w.a).await;
     w.listen(w.b).await;
-    w.job("J", w.a, "A", "do the thing").await;
+    w.listen(w.m).await;
+    w.job("J", w.b, "B", "do the thing").await;
     let out = w.take(w.me(w.x, "X"), "J", None).await.unwrap();
     assert_eq!(out["taken"], true);
-    assert_eq!(out["holder"], "A");
+    assert_eq!(out["holder"], "B");
     assert_eq!(w.ending("J").await.0, "taken_back");
-    assert_eq!(w.holder_of("J").await.0, Some(w.b), "the other listener takes it first");
+    assert_eq!(w.holder_of("J").await.0, Some(w.m), "the other listener takes it first");
     w.e.shutdown.cancel();
 }
 
-/// TB1 (second half): with only A listening, the job goes back to A.
+/// TB1 (second half): with only B listening, the job goes back to B.
 #[tokio::test]
 #[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
 async fn tb1b_with_only_the_holder_listening_the_job_goes_back_to_it() {
     let w = world(ack()).await;
-    w.listen(w.a).await;
-    w.job("J", w.a, "A", "do the thing").await;
+    w.listen(w.b).await;
+    w.job("J", w.b, "B", "do the thing").await;
     w.take(w.me(w.x, "X"), "J", None).await.unwrap();
-    assert_eq!(w.holder_of("J").await.0, Some(w.a));
+    assert_eq!(w.holder_of("J").await.0, Some(w.b));
     w.e.shutdown.cancel();
 }
 
@@ -209,7 +212,7 @@ async fn tb2_unrelated_agent_refused() {
 #[tokio::test]
 #[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
 async fn tb3_attempt_counted_and_dead_letter() {
-    let w = world(json!({"mail_queue":"ack","max_attempts":2})).await;
+    let w = world(json!({"mail_queue":"ack","mail_queue_max_attempts":2})).await;
     w.job("J", w.a, "A", "x").await;
     w.sql("UPDATE ot.mail SET extra = jsonb_set(extra,'{attempts}','2') WHERE uid = 'J'", &[]).await;
     let out = w.take(w.me(w.x, "X"), "J", None).await.unwrap();
@@ -408,21 +411,22 @@ async fn tb14_chain_caller_lists_only_its_descendants_jobs() {
 #[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
 async fn tb15_chain_caller_takes_back_descendants_jobs() {
     let w = world(ack()).await;
-    w.listen(w.a).await;
     w.listen(w.b).await;
     w.job("JA", w.a, "A", "a").await;
-    w.job("JA2", w.a, "A", "a2").await;
-    w.job("JB", w.b, "B", "b").await;
     let out = w.take(w.me(w.c, "C"), "JA", Some("go")).await.unwrap();
     assert_eq!(out["taken"], true);
     assert_eq!(w.holder_of("JA").await.0, Some(w.b), "front of the queue, the other listener first");
     assert_eq!(w.ending("JA").await.1.as_deref(), Some("had it taken back by C, your superior: go"));
-    let out = w.take_all(w.me(w.c, "C"), "A").await.unwrap();
-    assert_eq!(out["count"], 1);
-    let err = w.take(w.me(w.c, "C"), "JB", None).await.unwrap_err();
+    // JA is B's now; B is not C's descendant
+    let err = w.take(w.me(w.c, "C"), "JA", None).await.unwrap_err();
     assert_eq!(refused(&err), "forbidden");
     let err = w.take_all(w.me(w.c, "C"), "B").await.unwrap_err();
     assert_eq!(refused(&err), "forbidden");
+    // by holder: all of A's jobs
+    w.job("JA2", w.a, "A", "a2").await;
+    w.job("JA3", w.a, "A", "a3").await;
+    let out = w.take_all(w.me(w.c, "C"), "A").await.unwrap();
+    assert_eq!(out["count"], 2);
     w.e.shutdown.cancel();
 }
 
@@ -445,8 +449,6 @@ async fn tb16_holder_has_no_chain_right_over_itself() {
 async fn tb17_chain_take_back_notices() {
     let w = world(ack()).await;
     w.job("J1", w.a, "A", "1").await;
-    w.job("J2", w.a, "A", "2").await;
-    w.job("J3", w.a, "A", "3").await;
     w.take(w.me(w.c, "C"), "J1", Some("why")).await.unwrap();
     assert!(w.notices(w.a).await[0].contains("C, your superior"), "{:?}", w.notices(w.a).await);
     let to_x = w.notices(w.x).await;
@@ -454,6 +456,8 @@ async fn tb17_chain_take_back_notices() {
     assert!(to_x[0].contains("C (superior of A) took mail J1 back from A in project P: why"), "{}", to_x[0]);
     let ev: Value = w.e.db.get().await.unwrap().query_one("SELECT detail FROM ot.events WHERE op = 'mail_take_back' ORDER BY id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert_eq!((ev["via"].as_str(), ev["reason"].as_str()), (Some("holder_chain"), Some("why")));
+    w.job("J2", w.a, "A", "2").await;
+    w.job("J3", w.a, "A", "3").await;
     w.take_all(w.me(w.c, "C"), "A").await.unwrap();
     let to_x = w.notices(w.x).await;
     assert_eq!(to_x.len(), 2, "a batch sends one notice listing the ids");
