@@ -448,3 +448,68 @@ test("§6 a fire mail no longer there: its tooltip leads with the words a narrow
   const gone = subRows(fireRow(view.el, 12))[1]!.querySelector<HTMLElement>('.fire-mail.unavailable')!
   assert.ok(gone.title.startsWith(`${gone.textContent}: `), gone.title)
 })
+
+/* ─── §7 the history list shows 10 and folds the rest (user 2026-11-06 14:23Z) ─ */
+
+// "the recently finished jobs list should show only 10 at most by default, and
+// collapse more. it should be expandable to show further jobs"; "in a project
+// mail queue". Coordinator decisions: the 10 newest; a "Show N more" control
+// (up to 25 a click) and "Show fewer"; not persisted; display only, and the
+// list's own scroll paging (history_next) goes on once every loaded row shows.
+function manyFinished(count: number, next: string | null = null) {
+  const h = ackHistory()
+  const history: FinishedJob[] = Array.from({ length: count }, (_, i) => ({ id: count - i, mail: `m${count - i}0`, gist: `job ${count - i}`,
+    copy: `c${count - i}`, agent: 'sb', dog: fq('sb', 'mail-b'), how: 'acked', attempt: 1, ack: `a${count - i}`, ack_gist: 'ok',
+    waited_from: '2026-10-19T06:00:00.000Z', held_at: '2026-10-19T06:10:00.000Z', ended_at: '2026-10-19T06:40:00.000Z' }))
+  return { ...h, history, history_next: next }
+}
+const finishedRows = (el: Element) => el.querySelectorAll(`${T} .mail-history tr.finished`).length
+const fold = (el: Element, which: 'more' | 'fewer') => el.querySelector<HTMLButtonElement>(`${T} .mail-history button[data-action="show-${which}"]`)
+const press = (b: HTMLElement) => inAct(async () => { b.click(); await flush(2) })
+
+test('§7 12 finished jobs: the 10 newest, "Show 2 more", then all, then "Show fewer" back to 10', async (t) => {
+  const { view } = await mailFolder(t, manyFinished(12), true)
+  assert.equal(finishedRows(view.el), 10, 'ten rows by default')
+  assert.equal(view.el.querySelector(`${T} .mail-history tr.finished`)?.textContent?.includes('job 12'), true, 'newest first, as the engine sends them')
+  assert.equal(fold(view.el, 'more')?.textContent, 'Show 2 more')
+  assert.equal(fold(view.el, 'fewer'), null, 'nothing to fold yet')
+  await press(fold(view.el, 'more')!)
+  assert.equal(finishedRows(view.el), 12)
+  assert.equal(fold(view.el, 'more'), null)
+  assert.equal(fold(view.el, 'fewer')?.textContent, 'Show fewer')
+  await press(fold(view.el, 'fewer')!)
+  assert.equal(finishedRows(view.el), 10)
+  assert.equal(fold(view.el, 'more')?.textContent, 'Show 2 more')
+})
+
+test('§7 40 finished jobs: 25 more a click, the count shows what the click adds', async (t) => {
+  const { view } = await mailFolder(t, manyFinished(40), true)
+  assert.equal(fold(view.el, 'more')?.textContent, 'Show 25 more')
+  await press(fold(view.el, 'more')!)
+  assert.equal(finishedRows(view.el), 35)
+  assert.equal(fold(view.el, 'more')?.textContent, 'Show 5 more')
+  await press(fold(view.el, 'more')!)
+  assert.equal(finishedRows(view.el), 40)
+})
+
+test('§7 10 or fewer finished jobs get no control', async (t) => {
+  const { view } = await mailFolder(t, manyFinished(10), true)
+  assert.equal(finishedRows(view.el), 10)
+  assert.equal(fold(view.el, 'more'), null)
+  assert.equal(fold(view.el, 'fewer'), null)
+})
+
+test('§7 the scroll paging waits until every loaded row shows, then goes on', async (t) => {
+  const { view } = await mailFolder(t, manyFinished(12, 'c0'), true)
+  assert.equal(view.el.querySelector(`${T} .slot-history-more`), null, 'rows are still folded: no "Scroll for older mail" yet')
+  await press(fold(view.el, 'more')!)
+  assert.match(view.el.querySelector(`${T} .slot-history-more`)?.textContent ?? '', /Scroll for older mail/, 'all loaded rows show: the lazy loader is back')
+})
+
+test('§7 round-robin Recently Delivered folds the same way', async (t) => {
+  const delivered: DeliveredJob[] = Array.from({ length: 13 }, (_, i) => ({ id: 13 - i, mail: `d${13 - i}`, gist: `mail ${13 - i}`, agent: 'sa',
+    dog: fq('sa', 'mail-a'), waited_from: '2026-10-19T06:00:00.000Z', held_at: '2026-10-19T06:10:00.000Z' }) as DeliveredJob)
+  const { view } = await mailFolder(t, { project: 'sync', ack: false, line: [], history: delivered, history_next: null }, false)
+  assert.equal(view.el.querySelectorAll(`${T} .mail-history tr.delivered`).length, 10)
+  assert.equal(fold(view.el, 'more')?.textContent, 'Show 3 more')
+})
