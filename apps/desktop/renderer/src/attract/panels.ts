@@ -23,12 +23,14 @@ export interface PanelHost {
   elsewhere?: (kind: PanelKind) => boolean
   /** open `kind` (or move it) onto this mail / ticket */
   show: (kind: PanelKind, id: string) => void
+  /** close every docket open in this window (a run's start): the org docket and any floating agent or team docket; popped-out windows stay */
+  closeDockets?: () => void
   close: (kind: PanelKind) => void
 }
 
 export interface AttractPanels {
   apply: (panel: AttractPanel, via?: ReleaseVia) => void
-  docket: { foreignSince: () => number | null; reclaim: () => void }
+  docket: { foreignSince: () => number | null; closeAll: () => void }
 }
 
 export function createAttractPanels(host: PanelHost): AttractPanels {
@@ -46,14 +48,10 @@ export function createAttractPanels(host: PanelHost): AttractPanels {
         if (!elsewhere && (!host.isOpen('docket') || mine.has('docket'))) { foreignAt = null; return null }
         return foreignAt ??= Date.now()
       },
-      /** take it back and close it (the cycle does this after DOCKET_RECLAIM_MS without user input) */
-      reclaim() {
-        // only the org docket attract can close: one that is open elsewhere stays the user's
-        if (!host.isOpen('docket') || mine.has('docket')) return
-        attractTrace({ ev: 'adopt', panel: 'docket' })
-        host.close('docket'); justClosed.add('docket'); foreignAt = null
-        attractTrace({ ev: 'panel', action: 'close', panel: 'docket', owned: true })
-        queueMicrotask(() => justClosed.clear())
+      /** a run's start: close every docket open in this window, the user's included */
+      closeAll() {
+        host.closeDockets?.(); foreignAt = null
+        if (host.isOpen('docket')) { host.close('docket'); justClosed.add('docket'); queueMicrotask(() => justClosed.clear()) }
       },
     },
     apply(panel, via) {

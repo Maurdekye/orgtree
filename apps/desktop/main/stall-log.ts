@@ -153,10 +153,10 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
   if (src === 'attract') {
     // the attract trace (renderer/src/attract/trace.ts): enums and numbers only. No id, title or text field exists here, whatever arrives.
     return compact({ ev: oneOf(r.ev, ['step', 'panel', 'release', 'stop', 'skip', 'touch', 'adopt', 'docket']), kind: r.kind === undefined ? undefined : oneOf(r.kind, ['org', 'agent', 'team', 'mail', 'doc', 'ticket', 'attention']),
-      path: r.path === undefined ? undefined : oneOf(r.path, ['attract', 'user', 'link', 'restore', 'pin', 'other']), count: int(r.count),
+      path: r.path === undefined ? undefined : oneOf(r.path, ['attract', 'user', 'link', 'restore', 'pin', 'other']), count: int(r.count), reason: r.reason === undefined ? undefined : oneOf(r.reason, ['run_start']),
       need_ms: num(r.need_ms), dwell_ms: num(r.dwell_ms), n: int(r.n), docket_pct: num(r.docket_pct, 100), action: r.action === undefined ? undefined : oneOf(r.action, ['open', 'close']),
       panel: r.panel === undefined ? undefined : oneOf(r.panel, ['inbox', 'docket']), owned: bool(r.owned),
-      why: r.why === undefined ? undefined : oneOf(r.why, ['canvas', 'share', 'docket']),
+      why: r.why === undefined ? undefined : oneOf(r.why, ['canvas', 'share', 'docket', 'takeover_stop']),
       via: r.via === undefined ? undefined : oneOf(r.via, ['pointerdown', 'wheel', 'keydown', 'touchstart', 'stop']), trusted: bool(r.trusted) })
   }
   return compact({ channel: str(r.channel, 80) })   // sync-ipc

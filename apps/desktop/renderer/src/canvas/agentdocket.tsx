@@ -7,7 +7,7 @@ import { AgentDocketView, agentItems, itemActorIds, teamItems, useNodeFacts } fr
 import { PinFrame, closeIfCentred } from './modalpin'
 import { readerScope, resumedReaderItem, useReaderSelection } from './readeropening'
 import { instanceKind } from '../modalkinds'
-import { docketChanged } from '../attract/docketlog'
+import { docketChanged, registerDocketCloser } from '../attract/docketlog'
 import { useSurfaceDocument } from '../popout'
 import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -28,7 +28,12 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
 }) {
   const [localTeam, setLocalTeam] = useState(!!team)
   // every agent or team docket standing is logged (attract/docketlog.ts: kind and count only)
-  useEffect(() => { const k = team ? 'team' : 'agent'; docketChanged(k, 'open'); return () => docketChanged(k, 'close') }, [])
+  const closeRef = useRef(close); closeRef.current = close
+  useEffect(() => {
+    const k = team ? 'team' : 'agent'; docketChanged(k, 'open')
+    const unregister = registerDocketCloser(() => closeRef.current())
+    return () => { unregister(); docketChanged(k, 'close') }
+  }, [])
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const isTeam = onTeamChange ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeamChange?.(next) }

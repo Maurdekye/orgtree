@@ -71,7 +71,7 @@ import { OrgtreeMenu } from './shell/menu'
 import type { AttractPanel } from './attract/canvas'
 import type { ReleaseVia } from './attract/attract'
 import { detachedKind } from './windowlife'
-import { docketChanged, markDocketPath } from './attract/docketlog'
+import { closeFloatingDockets, docketChanged, markDocketPath } from './attract/docketlog'
 import { createAttractPanels } from './attract/panels'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -599,6 +599,12 @@ export default function App() {
     // open somewhere attract cannot close: a docket or inbox popped out into a window of its own, or an agent's or team's docket
     // floating beside the org docket. Attract mounts no second docket next to it (it takes no ticket step) and leaves it alone.
     elsewhere: kind => kind === 'inbox' ? detachedKind('inbox') : detachedKind('docket') || floatingOtherDockets(slug).length > 0,
+    closeDockets: () => {
+      const floating = closeFloatingDockets()
+      const org = showDocketNow.current && !detachedKind('docket')
+      if (org) { showDocketNow.current = false; setShowDocket(false) }
+      if (floating + (org ? 1 : 0) > 0) markDocketPath('attract', 'run_start', floating + (org ? 1 : 0))
+    },
     show: (kind, id) => {
       if (kind === 'inbox') { showInboxNow.current = true; setInboxJump(jumpTo(id)); setShowInbox(true); raisePinnedModal('inbox', slug) }
       else { markDocketPath('attract'); showDocketNow.current = true; setDocketJump(jumpTo(id)); setShowDocket(true); raisePinnedModal('docket', slug) }

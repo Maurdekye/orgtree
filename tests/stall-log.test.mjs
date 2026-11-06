@@ -171,6 +171,17 @@ test('ST15c a docket open/close line keeps kind, action, path and count as enums
   assert.ok(!JSON.stringify(got).includes('ecret') && !JSON.stringify(got).includes('acme'))
 })
 
+test('ST15d a run-start close keeps reason run_start and a takeover stop keeps why takeover_stop; other values fall to other', () => {
+  const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-06T14:10:00Z') }
+  const log = new StallLog({ file: () => file, clock: clockAt(t) })
+  log.write('attract', { ev: 'docket', kind: 'org', action: 'close', path: 'attract', reason: 'run_start', count: 0 })
+  log.write('attract', { ev: 'docket', kind: 'org', action: 'close', path: 'attract', reason: 'a typed secret', count: 0 })
+  log.write('attract', { ev: 'stop', why: 'takeover_stop' })
+  const got = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))
+  assert.deepEqual(got.map(l => [l.ev, l.reason, l.why]), [['docket', 'run_start', undefined], ['docket', 'other', undefined], ['stop', undefined, 'takeover_stop']])
+  assert.ok(!JSON.stringify(got).includes('ecret'))
+})
+
 test('ST16 attract lines never crowd out freeze evidence: their own rate bucket, their own file with its own 1 MB x 2 rotation', () => {
   const dir = fresh(), file = path.join(dir, STALL_LOG), attractFile = path.join(dir, 'diagnostics', 'ui-attract.jsonl'), t = { now: Date.parse('2026-11-05T14:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t), attractMaxBytes: 2000 })

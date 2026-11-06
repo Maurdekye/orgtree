@@ -236,7 +236,7 @@ export interface OrgCanvasProps {
    *  opened (null): App owns both panels */
   onAttractPanel?: (panel: AttractPanel, via?: ReleaseVia) => void
   /** the docket as attract sees it (attract/panels.ts): open and not attract's, and how to take it back */
-  attractDocket?: { foreignSince: () => number | null; reclaim: () => void }
+  attractDocket?: { foreignSince: () => number | null; closeAll: () => void }
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
   /** Taskbar question/mention: raise an existing desk before Attention selection. */

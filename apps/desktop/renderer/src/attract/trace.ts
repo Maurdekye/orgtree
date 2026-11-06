@@ -20,7 +20,7 @@ export interface AttractTraceRecord {
   panel?: 'inbox' | 'docket'
   owned?: boolean
   /** stop: canvas interaction, or anything else (disabled, unmount) */
-  why?: 'canvas' | 'share' | 'docket' | 'other'
+  why?: 'canvas' | 'share' | 'docket' | 'takeover_stop' | 'other'
   /** release / touch: what the user did in a panel (or 'stop': the run ended and the panels became theirs); touch: false = a script-made event, ignored */
   via?: 'pointerdown' | 'wheel' | 'keydown' | 'touchstart' | 'stop'
   trusted?: boolean

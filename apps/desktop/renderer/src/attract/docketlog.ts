@@ -4,6 +4,7 @@
    THE USER STREAMS: kind, path and counts only - never an id, title or slug. */
 
 export type DocketKind = 'org' | 'agent' | 'team'
+export type DocketReason = 'run_start'
 export type DocketPath = 'attract' | 'user' | 'link' | 'restore' | 'pin' | 'other'
 
 type Sink = (record: Record<string, unknown>) => void
@@ -19,10 +20,15 @@ export function setDocketLogSink(next: Sink | null): void { sink = next ?? bridg
 
 const open: Record<DocketKind, number> = { org: 0, agent: 0, team: 0 }
 const MARK_MS = 2000
-let marked: { path: DocketPath; at: number } | null = null
+let marked: { path: DocketPath; reason?: DocketReason; at: number; left: number } | null = null
+/** how to close each floating agent or team docket of this window (a run's start closes them all) */
+const closers = new Set<() => void>()
+export function registerDocketCloser(fn: () => void): () => void { closers.add(fn); return () => { closers.delete(fn) } }
+/** close every floating agent or team docket of this window; how many were closed */
+export function closeFloatingDockets(): number { const all = [...closers]; for (const c of all) c(); return all.length }
 
-/** the caller says HOW the next docket change comes about; it counts for 2 s and for one change, else the path is `other` */
-export function markDocketPath(path: DocketPath): void { marked = { path, at: Date.now() } }
+/** the caller says HOW the next `changes` docket changes come about; it counts for 2 s, else the path is `other` */
+export function markDocketPath(path: DocketPath, reason?: DocketReason, changes = 1): void { marked = { path, reason, at: Date.now(), left: changes } }
 
 /** dockets standing now, of all kinds */
 export function docketInstances(): number { return open.org + open.agent + open.team }
@@ -31,7 +37,8 @@ export function resetDocketLog(): void { open.org = open.agent = open.team = 0; 
 /** a docket of `kind` opened or closed: one record with the instance count after the change */
 export function docketChanged(kind: DocketKind, action: 'open' | 'close'): void {
   open[kind] = Math.max(0, open[kind] + (action === 'open' ? 1 : -1))
-  const path: DocketPath = marked && Date.now() - marked.at <= MARK_MS ? marked.path : 'other'
-  marked = null
-  try { sink({ ev: 'docket', kind, action, path, count: docketInstances() }) } catch { /* diagnostics only */ }
+  const live = marked && marked.left > 0 && Date.now() - marked.at <= MARK_MS ? marked : null
+  if (live && --live.left <= 0) marked = null
+  const path: DocketPath = live ? live.path : 'other'
+  try { sink({ ev: 'docket', kind, action, path, ...(live?.reason ? { reason: live.reason } : {}), count: docketInstances() }) } catch { /* diagnostics only */ }
 }

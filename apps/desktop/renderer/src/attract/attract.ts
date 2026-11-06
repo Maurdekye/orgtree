@@ -175,8 +175,8 @@ export const attractDwell = (rng: () => number, atLeast = 0): number =>
       field, or in another window, never does. */
 /** What a panel touch was, for the trace (enum only). 'stop' = the run ended and every panel it opened became the user's. */
 export type ReleaseVia = 'pointerdown' | 'wheel' | 'keydown' | 'touchstart' | 'stop'
-/** An unowned docket with no user input for this long, while attract runs, is taken back and closed. */
-export const DOCKET_RECLAIM_MS = 60_000
+/** A Tab this soon after the window gained focus is the window switch (Alt+Tab, Cmd+Tab), not the user typing in a panel. */
+export const FOCUS_GRACE_MS = 500
 /** Only real user input (event.isTrusted) counts as input. Tests drive synthetic events and switch this off. */
 let requireTrusted = true
 export function setRequireTrustedInput(on: boolean): void { requireTrusted = on }
@@ -198,6 +198,22 @@ const inputSubs = new Set<(canvas: boolean, panel: boolean, via?: ReleaseVia) =>
  *  wheel or key in one hands it to the user. The agents tray is not one. */
 const PANEL_AREA = '.overlay, .pinwin, .custom-app-window'
 /** an event aimed at a panel attract may have opened */
+const MODIFIER_KEYS = new Set(['Alt', 'Control', 'Shift', 'Meta', 'AltGraph'])
+/** TAKEOVER (USER 2026-11-06 m6e48bbddcb1c, m8b95b99d947c "it shouldnt take it under my control unless i actually touch it"): real input
+ *  on a panel: a press or touch inside it, a wheel inside it, or a key that is not a lone modifier while focus is inside it. Hovering,
+ *  window focus changes and the Tab of an Alt+Tab (Alt held, or within FOCUS_GRACE_MS of the window gaining focus) are not. The trust
+ *  and window-focus checks are onInput's. */
+export function isTakeoverInput(e: Event, sinceFocusMs: number): boolean {
+  if (!isPanelEvent(e)) return false
+  if (e.type !== 'keydown') return e.type === 'pointerdown' || e.type === 'touchstart' || e.type === 'wheel'
+  const k = e as KeyboardEvent
+  if (MODIFIER_KEYS.has(k.key)) return false
+  if (k.key === 'Tab' && (k.altKey || sinceFocusMs < FOCUS_GRACE_MS)) return false
+  return true
+}
+/** when the window last gained focus */
+let focusedAt = 0
+
 export function isPanelEvent(e: Event): boolean {
   const t = e.target as Element | null
   if (e.type === 'pointermove' || !t || typeof t.closest !== 'function') return false
@@ -235,7 +251,7 @@ function onInput(e: Event): void {
   lastInput = Date.now()
   const canvas = isCanvasEvent(e)
   if (canvas && (e.type === 'pointerdown' || e.type === 'touchstart')) held = true
-  const panel = !canvas && isPanelEvent(e)
+  const panel = !canvas && isTakeoverInput(e, Date.now() - focusedAt) && (!requireTrusted || document.hasFocus())
   const via = VIA[e.type]
   if (panel && via) attractTrace({ ev: 'touch', via, trusted: true })
   for (const fn of [...inputSubs]) fn(canvas, panel, via)
@@ -257,6 +273,7 @@ export function watchInput(fn: (canvas: boolean, panel: boolean, via?: ReleaseVi
     for (const type of INPUT_EVENTS) window.addEventListener(type, onInput, { capture: true, passive: true })
     for (const type of RELEASE_EVENTS) window.addEventListener(type, onRelease, { capture: true, passive: true })
     window.addEventListener('blur', onRelease)
+    window.addEventListener('focus', () => { focusedAt = Date.now() })
   }
   inputSubs.add(fn)
   return () => { inputSubs.delete(fn) }
@@ -281,9 +298,9 @@ export interface AttractRoutes {
   /** the user touched a panel attract opened (a press, wheel or key in it): it is theirs now,
    *  and the run goes on without closing it */
   release?: (via?: ReleaseVia) => void
-  /** the docket as the cycle sees it: open and NOT attract's (since when, in ms; null when closed or attract's), and a way to
-   *  take it back (adopt it and close it) */
-  docket?: { foreignSince: () => number | null; reclaim: () => void }
+  /** the docket as the cycle sees it: open and NOT attract's (since when, in ms; null when closed or attract's). Attract never closes it
+   *  mid-run; `closeAll` (a run's start) closes every docket open in this window */
+  docket?: { foreignSince: () => number | null; closeAll?: () => void }
 }
 
 /** Runs the cycle while `enabled` and the window has had no input for more
@@ -301,7 +318,9 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
   routesRef.current = routes
   const rngRef = useRef(rng)
   /** why the run ended, for the trace: set by the canvas-interaction stop, otherwise disabled/unmounted */
-  const stopWhy = useRef<'canvas' | 'other'>('other')
+  const stopWhy = useRef<'canvas' | 'takeover_stop' | 'other'>('other')
+  /** a run is going (the takeover stop applies only then) */
+  const runningNow = useRef(false)
   rngRef.current = rng
 
   // idle → run; input → stop
@@ -319,7 +338,11 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     }
     const stop = watchInput((canvas, panel, via) => {
       if (canvas) { stopWhy.current = 'canvas'; setRunning(false) }
-      else if (panel) routesRef.current.release?.(via)
+      else if (panel) {
+        // a takeover ends the run like canvas interaction; the panel touched stays open and is the user's
+        routesRef.current.release?.(via)
+        if (runningNow.current) { stopWhy.current = 'takeover_stop'; setRunning(false) }
+      }
       arm()
     })
     arm()
@@ -330,6 +353,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
   useEffect(() => {
     if (!running || !enabled) return
     let alive = true
+    runningNow.current = true
     setAttractTraceLive(true)   // the trace exists only while a run is going
     let timer: ReturnType<typeof setTimeout> | undefined
     const since = lastInputAt()
@@ -350,17 +374,13 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     /** a docket open that is NOT attract's (the user's, or one attract lost): it counts toward the share like any visit */
     let foreignAt: number | null = null
     const endForeign = (at: number) => { if (foreignAt !== null) { docketVisits.push({ at: foreignAt, end: Math.max(foreignAt, at), attn: false }); foreignAt = null } }
-    /** look at the docket before each step: take it back when it has seen no user input for DOCKET_RECLAIM_MS, else keep the
-     *  share clock running; true while it is open and not attract's (no ticket step may go into it) */
+    /** look at the docket before each step: keep the share clock running; true while it is open and not attract's (the user's:
+     *  no ticket step may go into it, and attract never closes it mid-run) */
     const lookAtDocket = (): boolean => {
       const dk = routesRef.current.docket
       if (!dk) return false
-      let since = dk.foreignSince()
+      const since = dk.foreignSince()
       const now = Date.now()
-      if (since !== null && now - lastInputAt() >= DOCKET_RECLAIM_MS) {
-        dk.reclaim()
-        since = dk.foreignSince()
-      }
       if (since === null) { endForeign(now); return false }
       if (foreignAt === null) {
         foreignAt = since
@@ -415,9 +435,12 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       queue.push(...items)
       if (!busy && current?.kind !== 'attention') { clearTimeout(timer); void step() }
     })
+    // a run starts by closing every docket open in this window, whoever opened it (USER 2026-11-06 m0003855e5aa7)
+    routesRef.current.docket?.closeAll?.()
     void step()
     return () => {
       alive = false
+      runningNow.current = false
       clearTimeout(timer)
       stopWatching?.()
       closeVisit()

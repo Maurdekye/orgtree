@@ -212,9 +212,9 @@ test('§9 only the canvas stops a run: pointer down, drag, wheel, focused key; p
       assert.equal(running(), 'true')
       // input anywhere off the canvas leaves the run going
       const p = sc.panels
-      for (const el of [p.desk, p.deskText, p.overlay, p.tray, p.pin, p.app, p.field, p.outside, sc.root]) {
+      for (const el of [p.desk, p.deskText, p.tray, p.field, p.outside, sc.root]) {
         await inAct(() => { fire(el, 'pointerdown'); fire(el, 'keydown', { key: 'b' }); fire(el, 'wheel', { deltaY: 40 }); fire(el, 'touchstart') })
-        assert.equal(running(), 'true', 'panel input does not stop it: ' + (el as Element).className)
+        assert.equal(running(), 'true', 'input outside the attract panels does not stop it: ' + (el as Element).className)
       }
       await inAct(() => { fire(window, 'keydown', { key: 'c' }) })   // no focused element at all
       assert.equal(running(), 'true', 'a key with no canvas focus does not stop it')
@@ -314,7 +314,7 @@ test('§11 the delay is read live: a custom value, a change while waiting, and 0
   await flush()
 })
 
-test('§12 at 0 a canvas stop restarts as soon as the interaction ends (a held press waits for its release); panel input never stops it', async () => {
+test('§12 at 0 a canvas stop restarts as soon as the interaction ends (a held press waits for its release); a lone modifier in a panel never stops it', async () => {
   useFakeClock()
   try {
     watchInput(() => {})()
@@ -326,9 +326,9 @@ test('§12 at 0 a canvas stop restarts as soon as the interaction ends (a held p
       const running = () => view.el.querySelector('span')!.dataset.running
       await advance(50, 10)
       assert.equal(running(), 'true')
-      await inAct(() => { fire(sc.panels.field, 'keydown', { key: 'q' }) })
+      await inAct(() => { fire(sc.panels.field, 'keydown', { key: 'Alt' }) })
       await advance(50, 10)
-      assert.equal(running(), 'true', 'typing in a panel neither stops nor restarts it')
+      assert.equal(running(), 'true', 'a lone modifier in a panel neither stops nor restarts it')
       // a click: stops, then runs again right after
       await inAct(() => { fire(sc.node, 'pointerdown') })
       assert.equal(running(), 'false', 'the canvas press stops it')
@@ -445,7 +445,7 @@ test('§14 the reader attract opened closes (the node that owns the document), u
   } finally { localStorage.clear(); resetLocalReads() }
 })
 
-test('§15 touching a panel hands it to the user and the run goes on; a canvas interaction ends the run and releases too', async () => {
+test('§15 touching a panel (a press, wheel or non-modifier key in it) hands it to the user and ENDS the run; a canvas interaction ends it too', async () => {
   useFakeClock()
   try {
     watchInput(() => {})()
@@ -464,12 +464,21 @@ test('§15 touching a panel hands it to the user and the run goes on; a canvas i
       await advance(50, 10)
       assert.equal(running(), 'true')
       await inAct(() => { fire(sc.panels.overlay, 'pointerdown') })
-      assert.deepEqual(calls, ['release'], 'a press in a panel releases it')
-      assert.equal(running(), 'true', 'and the run goes on')
-      await inAct(() => { fire(sc.panels.overlay, 'wheel', { deltaY: 10 }); fire(sc.panels.pin, 'keydown', { key: 'x' }) })
-      assert.deepEqual(calls, ['release', 'release', 'release'], 'wheel and keys in a panel count too')
+      assert.deepEqual(calls, ['release', 'stop'], 'a press in a panel releases it and ends the run')
+      assert.equal(running(), 'false')
+      await advance(50, 10)
+      assert.equal(running(), 'true', 'with Start-after 0 the idle start is immediate')
+      calls.length = 0
+      await inAct(() => { fire(sc.panels.overlay, 'wheel', { deltaY: 10 }) })
+      assert.deepEqual(calls, ['release', 'stop'], 'a wheel in a panel counts too')
+      await advance(50, 10)
+      calls.length = 0
+      await inAct(() => { fire(sc.panels.pin, 'keydown', { key: 'x' }) })
+      assert.deepEqual(calls, ['release', 'stop'], 'and so does a key')
+      await advance(50, 10)
+      calls.length = 0
       await inAct(() => { fire(sc.panels.tray, 'pointerdown') })
-      assert.deepEqual(calls, ['release', 'release', 'release'], 'the agents tray is not an attract panel')
+      assert.deepEqual(calls, [], 'the agents tray is not an attract panel')
       await inAct(() => { fire(sc.node, 'pointerdown') })
       assert.equal(running(), 'false')
       assert.equal(calls.at(-1), 'stop')

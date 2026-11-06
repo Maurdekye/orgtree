@@ -42,7 +42,7 @@ export interface CanvasAttractDeps {
   closeReader: (id: string) => void
   onPanel?: (panel: AttractPanel, via?: ReleaseVia) => void
   /** the docket as the shell sees it (attract/panels.ts): open and not attract's, and a way to take it back */
-  docket?: { foreignSince: () => number | null; reclaim: () => void }
+  docket?: { foreignSince: () => number | null; closeAll: () => void }
 }
 
 const latest = (a?: string | null, b?: string | null): string | null =>
@@ -213,7 +213,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     // panel stays on screen - as the user's
     stop: () => { setAttractQuiet(false); endScroll(); release('stop') },
     release,
-    docket: { foreignSince: () => deps.current.docket?.foreignSince() ?? null, reclaim: () => deps.current.docket?.reclaim() },
+    docket: { foreignSince: () => deps.current.docket?.foreignSince() ?? null, closeAll: () => deps.current.docket?.closeAll() },
   }
 }
 
