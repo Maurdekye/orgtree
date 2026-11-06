@@ -6,7 +6,7 @@
 
 export interface AttractTraceRecord {
   /** what happened: a cycle step, a panel opened/closed by attract, a panel handed to the user, the run ended */
-  ev: 'step' | 'panel' | 'release' | 'stop' | 'skip'
+  ev: 'step' | 'panel' | 'release' | 'stop' | 'skip' | 'touch' | 'adopt'
   /** step: the target kind (org, agent, mail, doc, ticket, attention) */
   kind?: string
   /** step: the least time the step needs (a scroll), and the dwell actually chosen, in ms; n = targets since the last fit-the-org */
@@ -20,7 +20,10 @@ export interface AttractTraceRecord {
   panel?: 'inbox' | 'docket'
   owned?: boolean
   /** stop: canvas interaction, or anything else (disabled, unmount) */
-  why?: 'canvas' | 'share' | 'other'
+  why?: 'canvas' | 'share' | 'docket' | 'other'
+  /** release / touch: what the user did in a panel (or 'stop': the run ended and the panels became theirs); touch: false = a script-made event, ignored */
+  via?: 'pointerdown' | 'wheel' | 'keydown' | 'touchstart' | 'stop'
+  trusted?: boolean
 }
 
 type Sink = (record: Record<string, unknown>) => void

@@ -14,7 +14,7 @@ import { deskOpenElsewhere, deskShownAnywhere } from '../canvas/deskhosts'
 import { attentionLayout, orgView } from '../attention/mode'
 import { setAttractQuiet } from '../composerfocus'
 import { useAttractCycle } from './attract'
-import type { AttentionTarget, AttractAgent, AttractRoutes, AttractTarget } from './attract'
+import type { AttentionTarget, AttractAgent, AttractRoutes, AttractTarget, ReleaseVia } from './attract'
 import { scrollThrough } from './scroll'
 import type { Scroll } from './scroll'
 import { locateChange, recordTicketSnapshot, ticketSnapshot } from './ticketsnap'
@@ -40,7 +40,9 @@ export interface CanvasAttractDeps {
   /** agent readers open right now, and how to close one */
   readerIds: () => readonly string[]
   closeReader: (id: string) => void
-  onPanel?: (panel: AttractPanel) => void
+  onPanel?: (panel: AttractPanel, via?: ReleaseVia) => void
+  /** the docket as the shell sees it (attract/panels.ts): open and not attract's, and a way to take it back */
+  docket?: { foreignSince: () => number | null; reclaim: () => void }
 }
 
 const latest = (a?: string | null, b?: string | null): string | null =>
@@ -58,7 +60,7 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     return null
   }
   /** what attract opened now belongs to the user: it closes nothing of it later */
-  const release = () => { openedReader.current = null; ticket.current?.release(); ticket.current = null; deps.current.onPanel?.('release') }
+  const release = (via: ReleaseVia = 'stop') => { openedReader.current = null; ticket.current?.release(); ticket.current = null; deps.current.onPanel?.('release', via) }
   const endScroll = () => { scroll.current?.cancel(); scroll.current = null }
   /** the changed ticket the docket pane is being driven to, and the window's last input (what "new" is measured from) */
   const ticket: { current: TicketShow | null } = { current: null }
@@ -209,8 +211,9 @@ export function canvasAttractRoutes(get: () => CanvasAttractDeps): AttractRoutes
     },
     // canvas interaction ended the run: the scroll stops where it is and every
     // panel stays on screen - as the user's
-    stop: () => { setAttractQuiet(false); endScroll(); release() },
+    stop: () => { setAttractQuiet(false); endScroll(); release('stop') },
     release,
+    docket: { foreignSince: () => deps.current.docket?.foreignSince() ?? null, reclaim: () => deps.current.docket?.reclaim() },
   }
 }
 

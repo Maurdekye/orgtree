@@ -34,10 +34,29 @@ export function createAttractPanels(host: PanelHost): AttractPanels {
   const mine = new Set<PanelKind>()
   /** closed by attract in this tick: the host may not show that yet */
   const justClosed = new Set<PanelKind>()
+  /** when the docket first stood open without being attract's (a hand-over, or the user's own) */
+  let foreignAt: number | null = null
   return {
-    docket: { foreignSince: () => null, reclaim: () => {} },
-    apply(panel) {
-      if (panel === 'release') { if (mine.size) attractTrace({ ev: 'release' }); mine.clear(); return }
+    docket: {
+      /** since when the docket has been open and NOT attract's (the user's, or one attract lost to a hand-over); null when closed or attract's */
+      foreignSince() {
+        if (!host.isOpen('docket') || mine.has('docket')) { foreignAt = null; return null }
+        return foreignAt ??= Date.now()
+      },
+      /** take it back and close it (the cycle does this after DOCKET_RECLAIM_MS without user input) */
+      reclaim() {
+        if (!host.isOpen('docket') || mine.has('docket')) return
+        host.close('docket'); justClosed.add('docket'); foreignAt = null
+        attractTrace({ ev: 'panel', action: 'close', panel: 'docket', owned: true })
+        queueMicrotask(() => justClosed.clear())
+      },
+    },
+    apply(panel, via) {
+      if (panel === 'release') {
+        if (mine.size) attractTrace({ ev: 'release', via: via ?? 'stop' })
+        if (mine.has('docket')) foreignAt = Date.now()
+        mine.clear(); return
+      }
       if (!panel) {
         for (const kind of mine) { host.close(kind); justClosed.add(kind); attractTrace({ ev: 'panel', action: 'close', panel: kind, owned: true }) }
         mine.clear()

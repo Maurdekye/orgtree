@@ -179,7 +179,7 @@ export type ReleaseVia = 'pointerdown' | 'wheel' | 'keydown' | 'touchstart' | 's
 export const DOCKET_RECLAIM_MS = 60_000
 /** Only real user input (event.isTrusted) counts as input. Tests drive synthetic events and switch this off. */
 let requireTrusted = true
-export function setRequireTrustedInput(on: boolean): void { void on; void requireTrusted /* skeleton */ }
+export function setRequireTrustedInput(on: boolean): void { requireTrusted = on }
 const INPUT_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const
 const RELEASE_EVENTS = ['pointerup', 'pointercancel'] as const
 /** a canvas press is down: a drag or pan in progress, so the interaction has not ended */
@@ -192,7 +192,7 @@ const NOT_CANVAS = '.overlay, .desk-over, .tray, .tray-wrap, .pinwin, .custom-ap
 let lastInput = Date.now()
 let lastPointer: { x: number; y: number } | null = null
 let installed = false
-const inputSubs = new Set<(canvas: boolean, panel: boolean) => void>()
+const inputSubs = new Set<(canvas: boolean, panel: boolean, via?: ReleaseVia) => void>()
 
 /** the panels attract mode can have open (the shell's inbox and docket, readers): a press,
  *  wheel or key in one hands it to the user. The agents tray is not one. */
@@ -212,7 +212,16 @@ export function isCanvasEvent(e: Event): boolean {
   return !!t.closest('.viewport') && !t.closest(NOT_CANVAS)
 }
 
+const VIA: Record<string, ReleaseVia> = { pointerdown: 'pointerdown', wheel: 'wheel', keydown: 'keydown', touchstart: 'touchstart' }
+
 function onInput(e: Event): void {
+  // Only the user's own input is input (coordinator ruling 2026-11-06: a docket attract opened was handed over 7 s into its visit
+  // with nobody at the keyboard). A script-made event is neither a release nor a restart of the quiet time; one aimed at a
+  // panel is traced, so a source of such events is measurable.
+  if (requireTrusted && !e.isTrusted) {
+    if (VIA[e.type] && isPanelEvent(e)) attractTrace({ ev: 'touch', via: VIA[e.type], trusted: false })
+    return
+  }
   if (e.type === 'pointermove') {
     const p = e as PointerEvent
     // a move with no button down means the press ended without a pointerup
@@ -227,7 +236,9 @@ function onInput(e: Event): void {
   const canvas = isCanvasEvent(e)
   if (canvas && (e.type === 'pointerdown' || e.type === 'touchstart')) held = true
   const panel = !canvas && isPanelEvent(e)
-  for (const fn of [...inputSubs]) fn(canvas, panel)
+  const via = VIA[e.type]
+  if (panel && via) attractTrace({ ev: 'touch', via, trusted: true })
+  for (const fn of [...inputSubs]) fn(canvas, panel, via)
 }
 /** The press ended: the interaction is over, so the quiet time counts from now.
  *  (Only a press the canvas took; a release elsewhere is not input.) */
@@ -240,7 +251,7 @@ function onRelease(): void {
 
 /** Follow user input in this window (`canvas`: it was canvas interaction);
  *  also starts the window's tracker. */
-export function watchInput(fn: (canvas: boolean, panel: boolean) => void): () => void {
+export function watchInput(fn: (canvas: boolean, panel: boolean, via?: ReleaseVia) => void): () => void {
   if (!installed && typeof window !== 'undefined') {
     installed = true
     for (const type of INPUT_EVENTS) window.addEventListener(type, onInput, { capture: true, passive: true })
@@ -306,9 +317,9 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
         else if (!held) arm()
       }, wait)
     }
-    const stop = watchInput((canvas, panel) => {
+    const stop = watchInput((canvas, panel, via) => {
       if (canvas) { stopWhy.current = 'canvas'; setRunning(false) }
-      else if (panel) routesRef.current.release?.()
+      else if (panel) routesRef.current.release?.(via)
       arm()
     })
     arm()
@@ -332,9 +343,34 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
     const docketVisits: { at: number; end: number | null; attn: boolean }[] = []
     const isAttnTicket = (t: AttractTarget) => t.kind === 'attention' && t.what === 'ticket'
     const docketMs = (now: number) => docketVisits.reduce((n, v) => n + Math.max(0, Math.min(v.end ?? now, now) - Math.max(v.at, now - DOCKET_WINDOW_MS)), 0)
+      + (foreignAt === null ? 0 : Math.max(0, now - Math.max(foreignAt, now - DOCKET_WINDOW_MS)))
     const docketOk = (now: number) => docketMs(now) + DWELL_MAX_MS <= DOCKET_SHARE * DOCKET_WINDOW_MS
     const attnTicketOk = (now: number) => docketOk(now) && !docketVisits.some(v => v.attn && v.at > now - DOCKET_WINDOW_MS)
     const closeVisit = () => { const v = docketVisits.at(-1); if (v && v.end === null) v.end = Date.now() }
+    /** a docket open that is NOT attract's (the user's, or one attract lost): it counts toward the share like any visit */
+    let foreignAt: number | null = null
+    const endForeign = (at: number) => { if (foreignAt !== null) { docketVisits.push({ at: foreignAt, end: Math.max(foreignAt, at), attn: false }); foreignAt = null } }
+    /** look at the docket before each step: take it back when it has seen no user input for DOCKET_RECLAIM_MS, else keep the
+     *  share clock running; true while it is open and not attract's (no ticket step may go into it) */
+    const lookAtDocket = (): boolean => {
+      const dk = routesRef.current.docket
+      if (!dk) return false
+      let since = dk.foreignSince()
+      const now = Date.now()
+      if (since !== null && now - lastInputAt() >= DOCKET_RECLAIM_MS) {
+        attractTrace({ ev: 'adopt', panel: 'docket' })
+        dk.reclaim()
+        since = dk.foreignSince()
+      }
+      if (since === null) { endForeign(now); return false }
+      if (foreignAt === null) {
+        foreignAt = since
+        // a visit attract still has open ended where the hand-over began
+        const v = docketVisits.at(-1)
+        if (v && v.end === null) v.end = Math.max(v.at, since)
+      }
+      return true
+    }
     let jitter = 0.8 + 0.4 * rngRef.current()
     /** things needing attention that have arrived and are waiting their step, in arrival order */
     const queue: AttentionTarget[] = []
@@ -343,8 +379,10 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       if (!alive) return
       busy = true
       let next: AttractTarget
+      const foreign = lookAtDocket()
       for (let i = 0; i < queue.length;) {
-        if (isAttnTicket(queue[i]!) && !attnTicketOk(Date.now())) { queue.splice(i, 1); attractTrace({ ev: 'skip', kind: 'attention', why: 'share' }) } else i++
+        if (isAttnTicket(queue[i]!) && foreign) { queue.splice(i, 1); attractTrace({ ev: 'skip', kind: 'attention', why: 'docket' }) }
+        else if (isAttnTicket(queue[i]!) && !attnTicketOk(Date.now())) { queue.splice(i, 1); attractTrace({ ev: 'skip', kind: 'attention', why: 'share' }) } else i++
       }
       if (queue.length) next = queue.shift()!    // attention first, whatever the cadence says
       else {
@@ -352,7 +390,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
         try { input = await routesRef.current.collect(since) }
         catch { input = { agents: [], mail: [], docs: [], tickets: [] } }
         if (!alive) return
-        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter, sinceTicket, docketOk(Date.now()))
+        next = pickAttract(attractCandidates({ ...input, since }, shown), rngRef.current, current, run, jitter, sinceTicket, docketOk(Date.now()) && !foreign)
       }
       sinceTicket = next.kind === 'ticket' || (next.kind === 'attention' && next.what === 'ticket') ? 0 : sinceTicket + 1
       if (next.kind === 'org') { run = 0; jitter = 0.8 + 0.4 * rngRef.current() } else run++
@@ -384,6 +422,7 @@ export function useAttractCycle(enabled: boolean, routes: AttractRoutes,
       clearTimeout(timer)
       stopWatching?.()
       closeVisit()
+      endForeign(Date.now())
       routesRef.current.stop?.()
       attractTrace({ ev: 'stop', why: stopWhy.current })
       stopWhy.current = 'other'

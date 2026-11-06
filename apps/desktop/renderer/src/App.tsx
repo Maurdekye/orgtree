@@ -69,6 +69,7 @@ import type { NavigationMention } from './shell/mentionnavigation'
 import { requestMentionLanding } from './canvas/mentionlanding'
 import { OrgtreeMenu } from './shell/menu'
 import type { AttractPanel } from './attract/canvas'
+import type { ReleaseVia } from './attract/attract'
 import { createAttractPanels } from './attract/panels'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -602,7 +603,7 @@ export default function App() {
       else { showDocketNow.current = false; setShowDocket(false) }
     },
   }), [slug])
-  const attractPanel = useCallback((panel: AttractPanel) => attractPanels.apply(panel), [attractPanels])
+  const attractPanel = useCallback((panel: AttractPanel, via?: ReleaseVia) => attractPanels.apply(panel, via), [attractPanels])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -2109,6 +2110,7 @@ export default function App() {
                 agentList={agentList}
                 attract={attractOn}
                 onAttractPanel={attractPanel}
+                attractDocket={attractPanels.docket}
                 focusAgent={focusAgent}
                 focusAgentDesk={focusAgentDesk}
                 onFocusAgentHandled={() => { setFocusAgent(null); setFocusAgentDesk(false) }}

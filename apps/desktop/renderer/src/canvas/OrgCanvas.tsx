@@ -29,6 +29,7 @@ import { useAttractRefuseQuestions } from '../attract/pref'
 import { registerStallCounts } from '../stallwatch'
 import { reportAttract } from '../streamrooms'
 import type { AttractPanel } from '../attract/canvas'
+import type { ReleaseVia } from '../attract/attract'
 import { detachedPanel, revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
@@ -233,7 +234,9 @@ export interface OrgCanvasProps {
   attract?: boolean
   /** attract mode opening the inbox or docket at one row, or closing what it
    *  opened (null): App owns both panels */
-  onAttractPanel?: (panel: AttractPanel) => void
+  onAttractPanel?: (panel: AttractPanel, via?: ReleaseVia) => void
+  /** the docket as attract sees it (attract/panels.ts): open and not attract's, and how to take it back */
+  attractDocket?: { foreignSince: () => number | null; reclaim: () => void }
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
   /** Taskbar question/mention: raise an existing desk before Attention selection. */
@@ -559,7 +562,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, openDogAt, onOpenDogHandled, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
-  onActiveAgentsOnly, attract = false, onAttractPanel }: OrgCanvasProps) {
+  onActiveAgentsOnly, attract = false, onAttractPanel, attractDocket }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
@@ -3794,7 +3797,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const attractRunning = useCanvasAttract({
     enabled: attract, slug, tree, map, pinnedIds: () => pinnedIdsRef.current,
     goToAgent, fitAll: () => fitAll(), openDoc: openDocView,
-    readerIds: () => agentReaderIds, closeReader: closeAgentReader, onPanel: onAttractPanel,
+    readerIds: () => agentReaderIds, closeReader: closeAgentReader, onPanel: onAttractPanel, docket: attractDocket,
   })
   // UI stall tooling: node COUNTS for the stall record (never names), read only when a stall is being recorded
   const stallMap = useRef(map)
