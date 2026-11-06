@@ -330,10 +330,18 @@ impl AgentRegistry {
     pub fn count(&self) -> usize {
         self.map.pin().len()
     }
-    pub fn remove_if(&self, id: i64, handle: &Arc<AgentHandle>) {
+    pub fn remove_if(&self, id: i64, handle: &Arc<AgentHandle>) -> bool {
         let map = self.map.pin();
         if map.get(&id).map(|h| Arc::ptr_eq(h, handle)).unwrap_or(false) {
             map.remove(&id);
+            return true;
+        }
+        false
+    }
+    /// An actor ended: take its handle out and, if it was in a turn, tell `agents.active` listeners (the count must drop).
+    pub fn retire(&self, engine: &Engine, id: i64, handle: &Arc<AgentHandle>) {
+        if self.remove_if(id, handle) && handle.view.load()["busy"] == true {
+            crate::runtime::watchdogs::events::emit(engine, crate::runtime::watchdogs::events::event("agents.active", crate::runtime::watchdogs::events::Scope::Org(handle.org_id), serde_json::json!({})));
         }
     }
 }

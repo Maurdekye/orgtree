@@ -86,7 +86,7 @@ pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedR
             // with the channel, and their reply senders with them
             Ok((_, row)) if row.get::<_, String>(4) == crate::domain::projects::KIND => {
                 tracing::info!(agent = id, "a project node has no actor; the request is dropped");
-                engine.agents.remove_if(id, &handle);
+                engine.agents.retire(&engine, id, &handle);
             }
             Ok((client, row)) => {
                 let name: String = row.get(0);
@@ -96,12 +96,12 @@ pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedR
                         Ok(actor) => actor.run(rx).await,
                         Err(e) => tracing::warn!(agent = id, error = %format!("{e:#}"), "agent actor could not start"),
                     }
-                    engine.agents.remove_if(id, &handle);
+                    engine.agents.retire(&engine, id, &handle);
                 }, span).await;
             }
             Err(e) => {
                 tracing::warn!(agent = id, error = %format!("{e:#}"), "agent identity could not be read");
-                engine.agents.remove_if(id, &handle);
+                engine.agents.retire(&engine, id, &handle);
             }
         }
     }, origin));

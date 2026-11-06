@@ -42,7 +42,7 @@ pub enum Scope {
 }
 
 #[derive(Clone)]
-pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, private:bool, members: Option<Arc<Vec<i64>>>, at: DateTime<Utc>, suppressed_owner: Option<i64> }
+pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, private:bool, at: DateTime<Utc>, suppressed_owner: Option<i64> }
 
 impl std::fmt::Debug for Event {
     fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{
@@ -54,25 +54,27 @@ impl std::fmt::Debug for Event {
 
 // Provenance must cross channels/overflow and live past the producer's task.
 #[nolog]
-async fn app_event_scope<T>(private:bool,future:impl std::future::Future<Output=T>)->T {
+pub(crate) async fn app_event_scope<T>(private:bool,future:impl std::future::Future<Output=T>)->T {
     if private{crate::trace::private_app(future).await}else{future.await}
 }
 impl Event {
+    /// An app event: its content stays out of logs and diagnostics.
+    #[nolog] pub(crate) fn is_private(&self)->bool{self.private}
     #[nolog] fn diagnostic_line(&self)->String {
         if self.private{format!("{} [private app content omitted]",self.name)}else{format!("{} {}",self.name,self.payload)}
     }
 }
 
 #[derive(Clone)]
-pub(super) struct Subscription {
+pub(crate) struct Subscription {
     tx: Sender<Event>,
-    pub(super) target: Arc<arc_swap::ArcSwapOption<String>>,
-    pub(super) overflow: Arc<arc_swap::ArcSwapOption<Event>>,
+    pub(crate) target: Arc<arc_swap::ArcSwapOption<String>>,
+    pub(crate) overflow: Arc<arc_swap::ArcSwapOption<Event>>,
 }
 
 #[logged]
 pub fn event(name: &str, scope: Scope, payload: Value) -> Event {
-    Event { name: name.to_owned(), scope, payload, private:name=="app.event", members: None, at: Utc::now(), suppressed_owner: None }
+    Event { name: name.to_owned(), scope, payload, private:name=="app.event", at: Utc::now(), suppressed_owner: None }
 }
 
 /// Only engine producers call this: payloads are deliberately small allow-lists.
@@ -101,7 +103,7 @@ pub fn machine(engine: &Engine, name: &str, payload: Value) {
 }
 
 #[logged]
-pub(super) fn subscribe(engine: &Engine, row: i64) -> (Subscription, Receiver<Event>) {
+pub(crate) fn subscribe(engine: &Engine, row: i64) -> (Subscription, Receiver<Event>) {
     let (tx, rx) = channel(256);
     let sub = Subscription { tx, target: Arc::new(arc_swap::ArcSwapOption::empty()), overflow: Arc::new(arc_swap::ArcSwapOption::empty()) };
     engine.dogs.events.pin().insert(row, sub.clone());
@@ -109,7 +111,7 @@ pub(super) fn subscribe(engine: &Engine, row: i64) -> (Subscription, Receiver<Ev
 }
 
 #[logged]
-pub(super) fn unsubscribe(engine: &Engine, row: i64, sub: &Subscription) {
+pub(crate) fn unsubscribe(engine: &Engine, row: i64, sub: &Subscription) {
     let map = engine.dogs.events.pin();
     // Never remove a replacement runner's subscription.
     map.compute(row, |entry| match entry {
@@ -119,15 +121,21 @@ pub(super) fn unsubscribe(engine: &Engine, row: i64, sub: &Subscription) {
 }
 
 #[logged]
-fn accepts(target: &str, name: &str) -> bool {
+pub(crate) fn accepts(target: &str, name: &str) -> bool {
     target == name || target.strip_suffix('*').map(|p| name.starts_with(p)).unwrap_or(false)
 
 }
 
+/// A dotted event name or a dotted prefix ending in `.*` (the rule event dogs and the live feed share).
+#[nolog]
+pub(crate) fn valid_target(target: &str) -> bool {
+    let stem=target.strip_suffix(".*").unwrap_or(target);
+    !stem.is_empty() && stem.split('.').all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_lowercase() || c == b'_'))
+}
+
 #[logged]
 pub(super) fn validate(target: &str, args: &Value) -> Result<()> {
-    let stem=target.strip_suffix(".*").unwrap_or(target);
-    if stem.is_empty() || !stem.split('.').all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_lowercase() || c == b'_')) {
+    if !valid_target(target) {
         refuse!(BadRequest, "event target must be a dotted name or dotted prefix ending in .* ");
     }
     if args.get("threshold").is_some() {
@@ -162,7 +170,7 @@ async fn identity(engine: &Engine, owner: i64) -> Result<crate::tools::Me> {
 }
 
 /// One permission snapshot for a drained batch, including its pending delivery.
-pub(super) struct Access {
+pub(crate) struct Access {
     me: crate::tools::Me,
     org_slug: String,
     visible: Option<HashSet<i64>>,
@@ -177,10 +185,10 @@ pub(super) struct Access {
 }
 #[logged]
 impl Access {
-    pub(super) async fn read(engine: &Engine, d: &Dog, events: &[Event]) -> Result<Self> {
+    pub(crate) async fn read(engine: &Engine, d: &Dog, events: &[Event]) -> Result<Self> {
         Self::for_owner(engine,d.owner,events).await
     }
-    pub(super) async fn for_owner(engine: &Engine, owner: i64, events: &[Event]) -> Result<Self> {
+    pub(crate) async fn for_owner(engine: &Engine, owner: i64, events: &[Event]) -> Result<Self> {
         let me=identity(engine,owner).await?;
         let c=engine.db.get().await?;
         let visible=crate::tools::visible(&c,&me).await?;
@@ -209,7 +217,8 @@ impl Access {
         let org_slug=engine.orgs.by_id(me.org_id).map(|o|o.slug.clone()).unwrap_or_default();
         Ok(Self{me,org_slug,visible,names,ids,live,down,docket,credits,reach})
     }
-    pub(super) fn sees(&self,e:&Event)->bool {
+    pub(crate) fn visibility(&self)->&str{&self.me.visibility}
+    pub(crate) fn sees(&self,e:&Event)->bool {
         if e.suppressed_owner==Some(self.me.id){return false;}
         if e.name.starts_with("usage.") && !e.payload["account"].as_str().is_some_and(|id|crate::org_accounts::allowed(Some(&self.org_slug),id)){return false;}
         let id=match &e.scope {
@@ -228,11 +237,63 @@ impl Access {
         if id==self.me.id && e.name.starts_with("cli."){return false;}
         self.ids.contains(&id) && self.visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)
     }
-    fn count(&self,engine:&Engine,active:bool,scope:&str,members:Option<&Vec<i64>>)->i64 {
+    /// The agents this owner may count: never itself, `subtree` (strict descendants) or `org`. In a turn is read from the live
+    /// busy map now, live from this snapshot (USER 2026-11-06 m86783c79bd89: counts are recomputed at authorization).
+    pub(crate) fn count(&self,engine:&Engine,active:bool,scope:&str)->i64 {
         self.ids.iter().filter(|id|**id!=self.me.id && (scope=="org" || self.down.contains(id))
             && self.visible.as_ref().map(|v|v.contains(id)).unwrap_or(true)
-            && members.map(|m|m.contains(id)).unwrap_or_else(||if active{engine.agents.get(**id).map(|h|h.view.load()["busy"]==true).unwrap_or(false)}else{self.live.contains(id)})).count() as i64
+            && if active{engine.agents.get(**id).map(|h|h.view.load()["busy"]==true).unwrap_or(false)}else{self.live.contains(id)}).count() as i64
     }
+}
+
+/// What the authorizer remembers between batches: the last count per `agents.*` kind and the last `credits.changed` payloads.
+#[derive(Clone,Default,PartialEq)]
+pub(crate) struct AuthState { pub counts: HashMap<String,i64>, pub credits: Value }
+impl AuthState {
+    /// The state a dog row saved in its `run` JSON.
+    #[nolog]
+    pub(crate) fn from_run(run:&Value)->Self {
+        let counts=run["counts"].as_object().map(|o|o.iter().filter_map(|(k,v)|v.as_i64().map(|n|(k.clone(),n))).collect()).unwrap_or_default();
+        let credits=if run["credits"].is_object(){run["credits"].clone()}else{json!({})};
+        Self{counts,credits}
+    }
+    #[nolog]
+    pub(crate) fn write_run(&self,run:&mut Value) {
+        if !self.counts.is_empty() || run["counts"].is_object(){run["counts"]=json!(self.counts);}
+        if self.credits.as_object().is_some_and(|o|!o.is_empty()) || run["credits"].is_object(){run["credits"]=self.credits.clone();}
+    }
+    /// Both counts for `scope`, as a fresh baseline.
+    #[nolog]
+    pub(crate) fn baseline(&mut self,engine:&Engine,access:&Access,scope:&str) {
+        self.counts.insert("agents.active".into(),access.count(engine,true,scope));
+        self.counts.insert("agents.live".into(),access.count(engine,false,scope));
+    }
+}
+
+/// THE shared authorizer (live-feed spec 4, invariants I1 and I2): the event dog runner and the live feed both pass each batch
+/// through it, so a feed bound to an agent can never see more, or something else, than that agent's own event dog. It filters by
+/// what the owner may see, recomputes the `agents.*` counts at this moment (dropping a count that did not change), and builds the
+/// `credits.changed` payload (dropping an unchanged one). The dog keeps its regex, threshold, interval and coalescing after it.
+#[nolog]
+pub(crate) fn authorize(engine:&Engine,access:&Access,state:&mut AuthState,scope:&str,batch:&[Event])->Vec<Event> {
+    let mut out=Vec::new();
+    for original in batch {
+        if !access.sees(original){continue;}
+        let mut e=original.clone();
+        if matches!(e.name.as_str(),"agents.active"|"agents.live") {
+            let n=access.count(engine,e.name=="agents.active",scope);
+            let old=state.counts.insert(e.name.clone(),n);
+            if old==Some(n){continue;}
+            e.payload=json!({"count":n,"previous":old,"scope":scope});
+        }
+        if e.name=="credits.changed" {
+            let Scope::Agent(_,id)=e.scope else{continue};let key=id.to_string();
+            e.payload=access.credits[&key].clone();if e.payload.is_null() || state.credits[&key]==e.payload{continue;}
+            if !state.credits.is_object(){state.credits=json!({});}state.credits[&key]=e.payload.clone();
+        }
+        out.push(e);
+    }
+    out
 }
 
 #[derive(Clone,Default)]
@@ -342,26 +403,19 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
             }
             let fresh_baseline=baseline.is_none();
             let now=Utc::now();
-            if fresh_baseline {
-                next.run["counts"]=json!({"agents.active":access.count(engine,true,&scope,None),"agents.live":access.count(engine,false,&scope,None)});
-            }
+            let mut st=AuthState::from_run(&next.run);
+            if fresh_baseline {st.baseline(engine,&access,&scope);}
+            let before=st.clone();
             let mut staged=pending.clone();let mut hit_any=false;let mut dirty=fresh_baseline;
-            for original in &batch {
-                if original.at<next.created_at || !accepts(&next.target,&original.name) || !access.sees(original){continue;}
-                let mut e=original.clone();
-                if matches!(e.name.as_str(),"agents.active"|"agents.live") {
-                    if e.at<baseline.unwrap_or(now){continue;}
-                    let n=access.count(engine,e.name=="agents.active",&scope,e.members.as_deref());
-                    let old=next.run["counts"][&e.name].as_i64();
-                    next.run["counts"][&e.name]=json!(n);dirty=true;
-                    e.payload=json!({"count":n,"previous":old,"scope":scope});
-                    let crossing=if !next.memo["threshold"].is_null(){let (below,t)=threshold(&next.memo["threshold"])?;old.map(|o|if below{o>=t&&n<t}else{o<t&&n>=t}).unwrap_or(false)}else{old!=Some(n)};
-                    if !crossing{continue;}
-                }
-                if e.name=="credits.changed" {
-                    let Scope::Agent(_,id)=e.scope else{continue};let key=id.to_string();
-                    e.payload=access.credits[&key].clone();if e.payload.is_null() || next.run["credits"][&key]==e.payload{continue;}
-                    if !next.run["credits"].is_object(){next.run["credits"]=json!({});}next.run["credits"][&key]=e.payload.clone();
+            let eligible:Vec<Event>=batch.iter().filter(|o|!(o.at<next.created_at || !accepts(&next.target,&o.name)
+                || (matches!(o.name.as_str(),"agents.active"|"agents.live") && o.at<baseline.unwrap_or(now)))).cloned().collect();
+            let authorized=authorize(engine,&access,&mut st,&scope,&eligible);
+            st.write_run(&mut next.run);dirty|=st!=before;
+            for e in authorized {
+                if matches!(e.name.as_str(),"agents.active"|"agents.live") && !next.memo["threshold"].is_null() {
+                    let (below,t)=threshold(&next.memo["threshold"])?;
+                    let (n,old)=(e.payload["count"].as_i64().unwrap_or(0),e.payload["previous"].as_i64());
+                    if !old.map(|o|if below{o>=t&&n<t}else{o<t&&n>=t}).unwrap_or(false){continue;}
                 }
                 let hit=matches(&re,&e.payload.to_string());hit_any|=hit;dirty=true;
                 next.run["checks_run"]=json!(next.run_i64("checks_run")+1);
@@ -449,11 +503,7 @@ pub fn runtime(engine: &Engine, org: i64, agent: i64, old: &Value, next: &Value)
     let scope=Scope::Agent(org,agent);
     if old["busy"].as_bool().unwrap_or(false)!=next["busy"].as_bool().unwrap_or(false) {
         emit(engine,event(if next["busy"]==true{"turn.started"}else{"turn.finished"},scope.clone(),json!({"agent_id":agent})));
-        if interested(engine,"agents.active") {
-            let mut e=event("agents.active",Scope::Org(org),json!({}));
-            e.members=Some(Arc::new(engine.agents.map.pin().iter().filter(|(_,h)|h.org_id==org && h.view.load()["busy"]==true).map(|(id,_)|*id).collect()));
-            emit(engine,e);
-        }
+        emit(engine,event("agents.active",Scope::Org(org),json!({})));
     }
     if old["proc_live"].as_bool().unwrap_or(false)!=next["proc_live"].as_bool().unwrap_or(false) {
         emit(engine,event(if next["proc_live"]==true{"cli.started"}else{"cli.cold"},scope.clone(),json!({"agent_id":agent})));
@@ -498,10 +548,11 @@ async fn live_ids(engine: &Engine, org: i64) -> Result<Vec<i64>> {
     Ok(c.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent'", &[&org]).await?.iter().map(|r|r.get(0)).collect())
 }
 
-/// Capture live membership in the mutating transaction; emit only after commit.
+/// A change of the org's live agents, built in the mutating transaction and emitted after commit. The count itself is computed
+/// when the event is authorized, never taken from `_ids` (a publication-time snapshot can land out of order).
 #[logged]
-pub fn live_count(org: i64, ids: Vec<i64>) -> Event {
-    let mut e=event("agents.live",Scope::Org(org),json!({}));e.members=Some(Arc::new(ids));e
+pub fn live_count(org: i64, _ids: Vec<i64>) -> Event {
+    event("agents.live",Scope::Org(org),json!({}))
 }
 
 
