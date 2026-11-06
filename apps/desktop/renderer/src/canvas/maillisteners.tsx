@@ -61,6 +61,12 @@ import type { RefRoutes } from './reflinks'
 import { MailRefChip } from './mailchip'
 import { CurrentOrg } from '../popout'
 
+/** Recently Finished / Delivered show this many rows until asked for more (user
+ *  2026-11-06 14:23Z), and each "Show more" adds up to HISTORY_STEP. Display
+ *  only: the engine's rows and its own paging are unchanged. */
+export const HISTORY_FOLD = 10
+export const HISTORY_STEP = 25
+
 /** A stretch of time: open (`to` absent) while it is still going on. */
 export interface Stretch { from: string; to?: string }
 
@@ -218,6 +224,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const [asking, setAsking] = useState<WorkingJob | null>(null)
+  const [shown, setShown] = useState(HISTORY_FOLD)
+  useEffect(() => { setShown(HISTORY_FOLD) }, [node.id, ack])
   const generation = useRef(0), busy = useRef(false)
   // the host may hand a new `op` each render: read through a ref, so only
   // the queue's own moves re-read
@@ -284,6 +292,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
     ? hist.dead_letter_listeners.map((w) => treeDogs.find((d) => d.id === w.id && !d.metadata_only) ?? w)
     : treeDead
   const history = hist && hist.ack === ack ? hist.history : []
+  const hidden = Math.max(0, history.length - shown)
   // the user's own place in the queue, with its leave: an Action column (always there in ack mode, for take back)
   const myDog = state.listeners.find((w) => isUserName(w.owner))
   const actions = ack || !!myDog
@@ -428,7 +437,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
           )))}
           {section(ack ? 'Recently Finished' : 'Recently Delivered', 'mail-history', <>
             {history.length === 0 && empty(ack ? 'No mail of this project has finished yet.' : 'No mail of this project has been delivered yet.')}
-            {ack ? (history as FinishedJob[]).map((h) => (
+            {ack ? (history as FinishedJob[]).slice(0, shown).map((h) => (
               <tr key={h.id} className={'slot-row listener-row finished' + endingClass(h.how)} data-ending={h.how}>
                 <td className="slot-position"/>
                 <th scope="row" className="slot-agent">{h.agent.startsWith('relay ') ? <>project {agentLink(h.agent.slice(6))} (relay)</> : agentLink(h.agent)}</th>
@@ -445,7 +454,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <td className="listener-dog-cell"><HistoryDog dog={h.dog} className="listener-dog" /></td>
                 <td className="slot-action"/>
               </tr>
-            )) : (history as DeliveredJob[]).map((h) => (
+            )) : (history as DeliveredJob[]).slice(0, shown).map((h) => (
               <tr key={h.id} className="slot-row listener-row delivered">
                 <td className="slot-position"/>
                 <th scope="row" className="slot-agent">{h.relay ? <>project {agentLink(h.agent)} (relay)</> : agentLink(h.agent)}</th>
@@ -458,7 +467,13 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 {actions && <td className="slot-action"/>}
               </tr>
             ))}
-            {(loading || failed || hist?.history_next) && <tr ref={moreRef}><td colSpan={n} className="slot-history-more" role="status">
+            {(hidden > 0 || shown > HISTORY_FOLD) && <tr><td colSpan={n} className="history-fold">
+              {hidden > 0 && <button type="button" className="link" data-action="show-more"
+                onClick={() => setShown((v) => v + HISTORY_STEP)}>Show {Math.min(HISTORY_STEP, hidden)} more</button>}
+              {shown > HISTORY_FOLD && <button type="button" className="link" data-action="show-fewer"
+                onClick={() => setShown(HISTORY_FOLD)}>Show fewer</button>}
+            </td></tr>}
+            {hidden === 0 && (loading || failed || hist?.history_next) && <tr ref={moreRef}><td colSpan={n} className="slot-history-more" role="status">
               {loading ? 'Loading older mail…' : failed ? <>
                 Could not load older mail. <button type="button" onClick={loadOlder}>Retry</button>
               </> : 'Scroll for older mail'}

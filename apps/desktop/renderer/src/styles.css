@@ -3622,6 +3622,8 @@ button.project-slots-badge, button.project-listeners-badge, button.project-queue
 .listeners-table .fired-message.open .fired-message-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .listeners-table .fired-by { font-size: 12px; }
 .listeners-table .slot-history-more { color: var(--dim); font-size: 11px; }
+.listeners-table .history-fold { font-size: 11px; }
+.listeners-table .history-fold button.link + button.link { margin-left: 12px; }
 .project-listeners code { font-size: 11px; }
 /* the desk's Dead letters tab */
 .project-dead-letters { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
