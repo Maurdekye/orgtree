@@ -89,18 +89,18 @@ pub struct Preset {
 
 pub static PRESETS: &[Preset] = &[
     Preset { id: "ollama", label: "Ollama", address: "http://127.0.0.1:11434", claude: true, codex: true,
-             note: "Ollama 0.14 or later serves both harnesses. If its models sit on a slow disk, start Ollama with OLLAMA_LOAD_TIMEOUT=30m: by default it gives up on a model that takes more than 5 minutes to load. On an NVIDIA card its log should name CUDA: when its GPU check times out it falls back to Vulkan, which loads a model from a hard disk far more slowly (restarting Ollama usually brings CUDA back)."", base_path: "", key: false },
+             note: "Ollama 0.14 or later serves both harnesses. If its models sit on a slow disk, start Ollama with OLLAMA_LOAD_TIMEOUT=30m: by default it gives up on a model that takes more than 5 minutes to load. On an NVIDIA card its log should name CUDA: when its GPU check times out it falls back to Vulkan, which loads a model from a hard disk far more slowly (restarting Ollama usually brings CUDA back).", base_path: "", key: false },
     Preset { id: "lmstudio", label: "LM Studio", address: "http://127.0.0.1:1234", claude: true, codex: true,
-             note: "LM Studio 0.4.1 or later serves both harnesses."", base_path: "", key: false },
+             note: "LM Studio 0.4.1 or later serves both harnesses.", base_path: "", key: false },
     Preset { id: "llamacpp", label: "llama.cpp", address: "http://127.0.0.1:9931", claude: true, codex: true,
-             note: "Codex was tested with llama-server b11540; older builds' Responses API lacked fields Codex reads. Builds before b11521 listen on port 8080."", base_path: "", key: false },
+             note: "Codex was tested with llama-server b11540; older builds' Responses API lacked fields Codex reads. Builds before b11521 listen on port 8080.", base_path: "", key: false },
     Preset { id: "vllm", label: "vLLM", address: "http://127.0.0.1:8000", claude: true, codex: true,
-             note: "Serve each model under a name without \"/\" (--served-model-name): Claude Code cannot use names that contain one. With Codex, a reasoning model may fail: vLLM refuses the reasoning items Codex sends back."", base_path: "", key: false },
+             note: "Serve each model under a name without \"/\" (--served-model-name): Claude Code cannot use names that contain one. With Codex, a reasoning model may fail: vLLM refuses the reasoning items Codex sends back.", base_path: "", key: false },
     Preset { id: "opencodego", label: "OpenCode Go", address: "https://opencode.ai/inference/go", claude: false, codex: false,
              note: "An OpenCode Go subscription: only the OpenCode harness carries it. Enter your key, then Find models.",
              base_path: "openai/v1", key: true },
     Preset { id: "custom", label: "Custom…", address: "", claude: true, codex: true,
-             note: "Any server with an Anthropic-compatible Messages API (Claude Code) or an OpenAI-compatible Responses API (Codex)."", base_path: "", key: false },
+             note: "Any server with an Anthropic-compatible Messages API (Claude Code) or an OpenAI-compatible Responses API (Codex).", base_path: "", key: false },
 ];
 
 #[logged]
