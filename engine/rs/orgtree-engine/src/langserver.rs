@@ -79,19 +79,28 @@ pub struct Preset {
     pub codex: bool,
     /// why a harness is not offered, shown in the form
     pub note: &'static str,
+    /// the path every harness is pointed at under the address ("" = none: the
+    /// preset's own `/v1`, and Custom takes its server's); a server's own
+    /// `base_path` still wins
+    pub base_path: &'static str,
+    /// the add form asks for an API key (Custom always does)
+    pub key: bool,
 }
 
 pub static PRESETS: &[Preset] = &[
     Preset { id: "ollama", label: "Ollama", address: "http://127.0.0.1:11434", claude: true, codex: true,
-             note: "Ollama 0.14 or later serves both harnesses. If its models sit on a slow disk, start Ollama with OLLAMA_LOAD_TIMEOUT=30m: by default it gives up on a model that takes more than 5 minutes to load. On an NVIDIA card its log should name CUDA: when its GPU check times out it falls back to Vulkan, which loads a model from a hard disk far more slowly (restarting Ollama usually brings CUDA back)." },
+             note: "Ollama 0.14 or later serves both harnesses. If its models sit on a slow disk, start Ollama with OLLAMA_LOAD_TIMEOUT=30m: by default it gives up on a model that takes more than 5 minutes to load. On an NVIDIA card its log should name CUDA: when its GPU check times out it falls back to Vulkan, which loads a model from a hard disk far more slowly (restarting Ollama usually brings CUDA back)."", base_path: "", key: false },
     Preset { id: "lmstudio", label: "LM Studio", address: "http://127.0.0.1:1234", claude: true, codex: true,
-             note: "LM Studio 0.4.1 or later serves both harnesses." },
+             note: "LM Studio 0.4.1 or later serves both harnesses."", base_path: "", key: false },
     Preset { id: "llamacpp", label: "llama.cpp", address: "http://127.0.0.1:9931", claude: true, codex: true,
-             note: "Codex was tested with llama-server b11540; older builds' Responses API lacked fields Codex reads. Builds before b11521 listen on port 8080." },
+             note: "Codex was tested with llama-server b11540; older builds' Responses API lacked fields Codex reads. Builds before b11521 listen on port 8080."", base_path: "", key: false },
     Preset { id: "vllm", label: "vLLM", address: "http://127.0.0.1:8000", claude: true, codex: true,
-             note: "Serve each model under a name without \"/\" (--served-model-name): Claude Code cannot use names that contain one. With Codex, a reasoning model may fail: vLLM refuses the reasoning items Codex sends back." },
+             note: "Serve each model under a name without \"/\" (--served-model-name): Claude Code cannot use names that contain one. With Codex, a reasoning model may fail: vLLM refuses the reasoning items Codex sends back."", base_path: "", key: false },
+    Preset { id: "opencodego", label: "OpenCode Go", address: "https://opencode.ai/inference/go", claude: false, codex: false,
+             note: "An OpenCode Go subscription: only the OpenCode harness carries it. Enter your key, then Find models.",
+             base_path: "openai/v1", key: true },
     Preset { id: "custom", label: "Custom…", address: "", claude: true, codex: true,
-             note: "Any server with an Anthropic-compatible Messages API (Claude Code) or an OpenAI-compatible Responses API (Codex)." },
+             note: "Any server with an Anthropic-compatible Messages API (Claude Code) or an OpenAI-compatible Responses API (Codex)."", base_path: "", key: false },
 ];
 
 #[logged]
@@ -214,9 +223,14 @@ pub fn base_url(server: &Value) -> String {
 #[logged]
 pub fn base_url_for(server: &Value, harness: &str) -> String {
     let address = server["address"].as_str().unwrap_or("").trim().trim_end_matches('/').to_string();
+    let own = server["base_path"].as_str().unwrap_or("").trim().trim_matches('/');
     if server["preset"].as_str() == Some("custom") {
-        let path = server["base_path"].as_str().unwrap_or("").trim().trim_matches('/');
-        return if path.is_empty() { address } else { format!("{address}/{path}") };
+        return if own.is_empty() { address } else { format!("{address}/{own}") };
+    }
+    // a preset with a fixed path of its own (OpenCode Go); the server's own path wins
+    if let Some(fixed) = server["preset"].as_str().and_then(preset).map(|p| p.base_path.trim_matches('/')).filter(|b| !b.is_empty()) {
+        let path = if own.is_empty() { fixed } else { own };
+        return format!("{address}/{path}");
     }
     if openai_family(harness) { format!("{address}/v1") } else { address }
 }
@@ -700,7 +714,8 @@ pub async fn doc(engine: &Engine) -> Value {
     let presets: Vec<Value> = PRESETS
         .iter()
         .map(|p| json!({ "id": p.id, "label": p.label, "address": p.address, "claude": p.claude, "codex": p.codex,
-                         "note": p.note, "harnesses": harnesses(engine, p.id) }))
+                         "note": p.note, "base_path": p.base_path, "key": p.key || p.id == "custom",
+                         "harnesses": harnesses(engine, p.id) }))
         .collect();
     let seats = server_seats(engine).await;
     let list: Vec<Value> = servers(engine)
@@ -768,9 +783,13 @@ pub async fn probe(preset_id: &str, address: &str, key: Option<&str>, harness: &
         "llamacpp" => probe_llamacpp(&address, &get).await,
         _ => {
             // vLLM and custom servers: the OpenAI model list (vLLM adds max_model_len)
+            let fixed = preset(preset_id).map(|p| p.base_path.trim_matches('/')).filter(|b| !b.is_empty());
             let base = if preset_id == "custom" {
                 let p = base_path.unwrap_or("").trim().trim_matches('/');
                 if p.is_empty() { address.clone() } else { format!("{address}/{p}") }
+            } else if let Some(fixed) = fixed {
+                let own = base_path.unwrap_or("").trim().trim_matches('/');
+                format!("{address}/{}", if own.is_empty() { fixed } else { own })
             } else {
                 format!("{address}/v1")
             };
@@ -1517,7 +1536,7 @@ mod opencodego_preset_tests {
         assert_eq!(p.base_path, "openai/v1");
         assert!(p.key, "the add form asks for the key");
         assert!(!p.claude && !p.codex, "only OpenCode carries it");
-        assert_eq!(api_of("opencode"), "openai-chat".replace("openai-chat", "chat_completions"), "OpenAI Chat Completions");
+        assert_eq!(api_of("opencode"), "chat_completions", "OpenAI Chat Completions");
     }
 
     #[test]

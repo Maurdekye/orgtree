@@ -1831,10 +1831,14 @@ export interface LangServerHarness {
   why: string
 }
 export interface LangServerPreset {
-  id: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'custom'
+  id: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'opencodego' | 'custom'
   label: string
   /** the default address ('' for Custom…) */
   address: string
+  /** the path the preset sets under the address (OpenCode Go: openai/v1); '' for the rest */
+  base_path?: string
+  /** the add form asks for an API key */
+  key?: boolean
   claude: boolean
   codex: boolean
   note: string

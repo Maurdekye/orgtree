@@ -389,14 +389,17 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             </select>
           </SetRow>}
       <HarnessesLink />
+      {/* Custom and a preset that needs one (OpenCode Go) ask for the key */}
+      {(custom || preset?.key) && <SetRow label="API key"
+        hint={custom ? 'Optional. Stored on this machine and never shown again.'
+          : 'Your key for this service. Stored on this machine and never shown again; then Find models.'}>
+        <input data-streamer-field="secret" type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={key}
+          disabled={busy} onChange={(e) => setKey(e.target.value)} />
+      </SetRow>}
       {custom && <>
         <SetRow label="Base path" hint="Added to the address, e.g. v1 or api/anthropic. Leave empty if the address already ends there.">
           <input type="text" aria-label="Base path" spellCheck={false} value={basePath} disabled={busy}
             onChange={(e) => { setBasePath(e.target.value); setProbe(null) }} />
-        </SetRow>
-        <SetRow label="API key" hint="Optional. Stored on this machine and never shown again.">
-          <input data-streamer-field="secret" type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={key}
-            disabled={busy} onChange={(e) => setKey(e.target.value)} />
         </SetRow>
         <SetRow label="Model ids" hint="As the server names them, separated by spaces or commas (or find them below).">
           <input type="text" aria-label="Model ids" spellCheck={false} value={typed} disabled={busy}
