@@ -34,6 +34,10 @@ While hovering over a valid new superior, the dashed outline uses the moved agen
 
 Dropping on the org inbox tile is a different action: it grants that agent the org-inbox audience rather than reparenting it. Read [org inbox tile](../org-inbox-tile/SKILL.md) before suggesting this gesture. A toast may offer undo; the broader contract is [toasts and undo](../../app-shell/toasts-and-undo/SKILL.md).
 
+## Mail sparks
+
+When mail passes between two nodes on the canvas, a brief spark travels along the line that joins them: down or up the reporting line, along the peer line between coworkers, along a direct audience line, or along the curved line to the org inbox tile. The spark is decoration only and follows its line as it is drawn, so it stays on the wire while the layout moves (an agent is added or the layout changes). If the line goes away mid-flight the spark ends. The compact (phone-sized) canvas draws no sparks.
+
 Inspect the resulting parent/order and any error toast. A canvas gesture belongs to the human interface and does not give an agent permission to perform an equivalent action outside its tool scope.
 
 ## See also
