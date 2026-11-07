@@ -865,9 +865,16 @@ uiTest('§10.12 a node removed mid-flight ends its spark cleanly', async ({ moun
   assert.equal(q(s.el, 'circle.spark').length, 0, 'no orphan dot for a wire that is gone')
 })
 
-uiTest('§10.13 a node added mid-flight does not break or duplicate the spark', async ({ mount }) => {
+uiTest('§10.13 a node added mid-flight: one spark, still on the wire to its target', async ({ mount }) => {
   const s = await shifting(mount, ['ceo', 'cfo'])
   await s.fire('ceo', 'cfo')
-  await s.change(['ceo', 'cmo', 'cfo'])
-  assert.equal(q(s.el, 'circle.spark').length, 1)
+  const oldB = s.card('cfo')
+  await s.ahead(400, async () => {
+    await s.change(['ceo', 'a1', 'a2', 'a3', 'cfo'])
+    const b = s.card('cfo')
+    assert.ok(dist(oldB, b) > 100, 'fixture: adding siblings moved cfo')
+    assert.equal(q(s.el, 'circle.spark').length, 1, 'still exactly one spark')
+    const p = sparkAt(s.el)
+    assert.ok(dist(p, b) < 130, `the spark is ${Math.round(dist(p, b))}px from cfo's current card`)
+  })
 })
