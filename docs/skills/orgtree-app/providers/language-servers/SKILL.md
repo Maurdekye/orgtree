@@ -27,6 +27,32 @@ The form starts on Ollama, its preset address, first available compatible harnes
 
 Find models asks the server for reachability/catalog metadata without loading a model. The user can add without a selected model and offer models later. A reachable endpoint is not proof it implements the harness's inference API.
 
+## Registering an OpenCode Go subscription (current method)
+
+An OpenCode Go subscription is registered as a Custom language model server; there is no dedicated provider. Evidence: reported working by a user on [issue #8](https://github.com/Maurdekye/orgtree/issues/8#issuecomment-6706536279) in 4.5.6; not yet reproduced by the Orgtree team.
+
+1. Open App settings → Providers → Language model servers → Add, and choose **Custom**.
+2. Set these exact values:
+
+| Field | Value |
+| --- | --- |
+| Address | `https://opencode.ai/inference/go` |
+| Base path | `openai/v1` |
+| Harness | OpenCode (ACP) |
+| API style | OpenAI Chat Completions (OpenCode) |
+| API key | Your OpenCode Go key; stored locally, never shown again |
+
+3. Press **Find models**. The reporter's account listed 30; the list depends on the subscription. Offer the models to use (context and seat price as in the table above), then Save.
+4. Hire an agent on that server and pick the model. Chat, streaming and tool calls worked in the report.
+
+The endpoint requires an `x-opencode-session` header; the OpenCode harness sends it automatically. If the usage block shows a billing source such as `go` (the subscription allowance), that is what the report observed, not a documented guarantee; native subscription windows are not shown for this route (see [OpenCode](../../harnesses/harness-opencode/SKILL.md)).
+
+Troubleshooting:
+
+- **401 or 403:** the key is wrong, expired or the subscription is not active; re-enter the key (blank keeps the stored one) and check the subscription.
+- **MissingSessionID:** a harness other than OpenCode was chosen. Set the server's harness to OpenCode (ACP) with the Chat Completions API style.
+- **Find models finds nothing or fails:** recheck the address and base path (no trailing path in the address; `openai/v1` goes in Base path).
+
 ## Existing server and model browser
 
 Active/offering controls gate new hires and existing future turns. Configure edits name, address, harness, optional custom base path, enabled state, concurrency, seat price, models/windows and optional replacement key; blank keeps the stored key and “forget it” explicitly removes it. Save commits the configuration draft; Cancel drops it. Changing a server's harness moves every agent that follows the server at its next turn boundary on a fresh session with a summary while pinned agents keep theirs; on a custom server, changing the API family requires a new base path and warns if any pinned agents are on the other family. One agent on the server can still run another harness the server carries, from its Model tab's **Harness** row (`orgtree-agent-model-tab`); on a custom server only its own API family.

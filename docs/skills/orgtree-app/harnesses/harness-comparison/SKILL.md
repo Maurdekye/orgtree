@@ -113,6 +113,7 @@ Cache evidence and implementation discrepancy [FORECAST].
 - [Antigravity](../harness-antigravity/SKILL.md)
 - [Muse](../harness-muse/SKILL.md)
 - [OpenCode](../harness-opencode/SKILL.md)
+- [OpenCode Go subscription setup](../../providers/language-servers/SKILL.md#registering-an-opencode-go-subscription-current-method)
 - [OpenRouter](../route-openrouter/SKILL.md)
 - [Language model servers](../route-local-server/SKILL.md)
 - [Skills and instructions](../../providers/skills-and-instructions/SKILL.md)

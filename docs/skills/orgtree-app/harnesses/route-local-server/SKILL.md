@@ -69,4 +69,5 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 - [orgtree-harness-claude-code](../harness-claude-code/SKILL.md)
 - [orgtree-harness-codex](../harness-codex/SKILL.md)
 - [orgtree-harness-opencode](../harness-opencode/SKILL.md)
+- [OpenCode Go subscription setup](../../providers/language-servers/SKILL.md#registering-an-opencode-go-subscription-current-method)
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)

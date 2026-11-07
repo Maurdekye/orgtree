@@ -19,6 +19,7 @@ Read the harness leaf for runtime/permission caveats, which the compact row inte
 - [Claude Code](../harness-claude-code/SKILL.md)
 - [Codex](../harness-codex/SKILL.md)
 - [OpenCode](../harness-opencode/SKILL.md)
+- [OpenCode Go subscription setup](../../providers/language-servers/SKILL.md#registering-an-opencode-go-subscription-current-method)
 - [Antigravity](../harness-antigravity/SKILL.md)
 - [Muse Code](../harness-muse/SKILL.md)
 

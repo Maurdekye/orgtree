@@ -76,6 +76,7 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 
 - [orgtree-openrouter](../../providers/openrouter/SKILL.md)
 - [orgtree-language-servers](../../providers/language-servers/SKILL.md)
+- [OpenCode Go subscription setup](../../providers/language-servers/SKILL.md#registering-an-opencode-go-subscription-current-method)
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
 - [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
