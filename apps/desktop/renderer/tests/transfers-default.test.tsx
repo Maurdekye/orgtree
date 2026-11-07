@@ -24,7 +24,7 @@ function transport(t: TestContext, rows = [sample()]) {
 }
 
 for (const agent of [undefined, 'user', 'agent-fixture']) {
-  test(`Transfers starts collapsed and preserves expansion across polling: ${agent ?? 'org inbox'}`, async t => {
+  test(`Transfers starts collapsed and preserves expansion across polling: ${agent ?? 'org mailbox'}`, async t => {
     t.mock.timers.enable({apis:['setTimeout']})
     const rows = [sample()]; const requests = transport(t, rows)
     const v = await mountView(<TransferPanel slug="fixture" agent={agent}/>, el=>el)
@@ -68,7 +68,7 @@ test('a new mailbox scope starts collapsed even if its component is reused', asy
   assert.equal(heading(v.el).getAttribute('aria-expanded'),'false')
 })
 
-test('org inbox and desk mailbox use the same collapsed one-click disclosure',async t=>{
+test('org mailbox and desk mailbox use the same collapsed one-click disclosure',async t=>{
   transport(t)
   const surfaces=[<OrgInboxModal slug="fixture" map={new Map()} close={()=>{}} toast={()=>{}}
     inbox={{entries:[],total:0,unread:0,visible:true,holders:[]}}/>,

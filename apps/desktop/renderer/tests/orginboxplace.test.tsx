@@ -1,6 +1,6 @@
 // orginboxplace.test.tsx — user report 2026-10-01 (3.0.9): "in circular view,
 // when there are enough agents at the right depth, they can overlap this [the
-// org inbox]. can you make it so that no matter what the arrangement of agents
+// org mailbox]. can you make it so that no matter what the arrangement of agents
 // is, this always stays far enough out from the center to not overlap
 // anything?" Ruling: conservative — the inbox keeps its usual place while
 // nothing is drawn there, moves out only as far as it must, and comes back.
@@ -59,7 +59,7 @@ const arrangements: [string, CanvasNode][] = [
   ['1500 agents', eye(tree(10, 1).concat(Array.from({ length: 50 }, (_, i) => node(`w${i}`, tree(5, 1, `w${i}.`).concat(tree(2, 2, `w${i}x`))))))],
 ]
 
-test('circle view: the org inbox clears every card by the margin, whatever the rings hold', () => {
+test('circle view: the org mailbox clears every card by the margin, whatever the rings hold', () => {
   let moved = 0
   for (const [name, root] of arrangements) {
     const { t, at } = place(root, 'circular')

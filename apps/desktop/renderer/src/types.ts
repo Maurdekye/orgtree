@@ -231,7 +231,7 @@ export interface MailQueueState {
   ack_waived_at?: string
   released?: { by?: string; why?: string }
   ack_of?: string
-  /** an org-inbox follow-up: the queue job (project mail uid) it follows */
+  /** an org-mailbox follow-up: the queue job (project mail uid) it follows */
   follow_up_to?: string
   dead_letter?: { by?: string; why?: string; attempts?: number }
   purged?: { by?: string }
@@ -261,7 +261,7 @@ export interface OrgInboxEntry {
   last_err?: string
   attachments?: { name: string; bytes: number }[]
   /** the message this one answers: its quote (who, when, a gist) and the
-   *  org-inbox row it links to; only `net_id` when this org never had it */
+   *  org-mailbox row it links to; only `net_id` when this org never had it */
   reply_to?: { id?: string; kind?: 'mail'; box?: 'org'; from?: string; at?: string; gist?: string; net_id?: string }
   replies?: MailReplyWire[]
   /** received mail: every agent the engine delivered a copy to, in delivery
@@ -278,7 +278,7 @@ export interface NetPeer {
   username?: string | null
   blurb?: string | null
   online: boolean
-  /** mail hub 2.3.0: online, but busy (an org none of whose org-inbox
+  /** mail hub 2.3.0: online, but busy (an org none of whose org-mailbox
    *  holders can start a turn; a person away from Hubchat for an hour). A
    *  hub before 2.3.0 sends none: the address is online as before. */
   busy?: boolean

@@ -32,7 +32,7 @@ export default async function(rig) {
       {what:'visible download checkpoint',timeout:30000})
     const incoming=rig.one("SELECT id FROM ot.net_incoming WHERE net_id='ui-download'").id
     const filtered=await rig.api('GET',`/api/orgs/${rig.org}/transfers?agent=rhea`)
-    proof.check('agent mail panel is scoped to its own sends and held outside inbox',
+    proof.check('agent mail panel is scoped to its own sends and held outside mailbox',
       filtered.transfers.some(t=>t.id===mine.id) && !filtered.transfers.some(t=>t.id===user.id))
     const ui=await runDesktop(rig,path.join(path.dirname(fileURLToPath(import.meta.url)),'../desktop/net-transfer-ui.cjs'),
       {out:path.join(proof.dir,'desktop'),timeout:60000,args:{mine:mine.id,user:user.id,incoming,checkpoint,size}})

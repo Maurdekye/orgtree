@@ -54,7 +54,7 @@ test('a stationary pointer on a watchdog descendant keeps new shakes from moving
   assert.equal(f.stage.particleCount, 5, 'the other EPIC effects remain active')
 })
 
-test('links, inputs and the clickable org inbox receive the same hover protection', t => {
+test('links, inputs and the clickable org mailbox receive the same hover protection', t => {
   const f = fixture(t)
   f.root.innerHTML = '<a href="#"><span>link</span></a><input><div class="sq orginbox">inbox</div>'
   for (const target of f.root.querySelectorAll('span, input, .orginbox')) {

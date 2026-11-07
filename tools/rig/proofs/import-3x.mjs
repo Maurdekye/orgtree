@@ -82,7 +82,7 @@ function checkAll(p, label, a, { attention }) {
   c(attention ? 'the item\'s attention flag' : 'no attention flag (this database predates the column)',
     attention ? a.item?.attention === 'LEGACY32 attention' : a.item?.attention === null, a.item?.attention)
   c("the item's history", a.history === 1, a.history)
-  c('documents, watchdogs, audiences, events and org inbox', a.documents === 1 && a.watchdogs.includes('LEGACY32 dog') && a.audiences === 1
+  c('documents, watchdogs, audiences, events and org mailbox', a.documents === 1 && a.watchdogs.includes('LEGACY32 dog') && a.audiences === 1
     && a.audienceRequests === 1 && a.events === 1 && a.orgInbox === 1,
     { documents: a.documents, watchdogs: a.watchdogs, audiences: a.audiences, requests: a.audienceRequests, events: a.events, orgInbox: a.orgInbox })
 }

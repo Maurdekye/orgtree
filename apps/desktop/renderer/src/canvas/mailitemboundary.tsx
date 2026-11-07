@@ -1,5 +1,5 @@
 // ⚠ ONE MESSAGE MUST NEVER TAKE THE WINDOW DOWN (user bug 2026-10-29: one
-// org-inbox message whose sender rendered as nothing stopped the whole
+// org-mailbox message whose sender rendered as nothing stopped the whole
 // frontend, because the app-wide CrashBoundary was the only boundary above a
 // mailbox). A list row or a reading pane that throws while rendering ends
 // here instead: it says that one message could not be shown, the mailbox

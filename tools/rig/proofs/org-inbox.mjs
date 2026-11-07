@@ -2,8 +2,8 @@
 // who holds each org's inbox (P14, P15, P28), against a running engine.
 //   A is the rig org (boss top-level, alice under him); B is a second org
 //   made here (zoe top-level, yan under her).
-//   P14: alice, below the top and without the org-inbox audience, cannot
-//        write outside; boss, top-level, can, and holds A's org inbox.
+//   P14: alice, below the top and without the org-mailbox audience, cannot
+//        write outside; boss, top-level, can, and holds A's org mailbox.
 //   P15: B has no holder when the mail arrives; its first live top-level
 //        agent (zoe) is granted the audience and gets the mail. Her answer
 //        reaches A's holder.
@@ -35,10 +35,10 @@ export default async function (rig) {
 
   // ---------------------------------------------------------------- P14
   const low = await send('alice', A, `@org:${B}`, 'PROOF-1 from alice')
-  p.check('P14: alice (below the top, no org-inbox audience) cannot write outside', !low.ok && /org-inbox audience/.test(low.text ?? '')
+  p.check('P14: alice (below the top, no org-mailbox audience) cannot write outside', !low.ok && /org-inbox audience/.test(low.text ?? '')
     && rig.sql(`SELECT 1 FROM ot.org_inbox WHERE org_id = ${orgId(B)} AND body LIKE 'PROOF-1%'`).length === 0, low.text)
   const top = await send('boss', A, `@org:${B}`, 'PROOF-2 from boss')
-  p.check('P14: boss (top-level) writes outside and so holds A\'s org inbox', top.ok && holders(A).join(',') === 'boss', { text: top.text, holders: holders(A) })
+  p.check('P14: boss (top-level) writes outside and so holds A\'s org mailbox', top.ok && holders(A).join(',') === 'boss', { text: top.text, holders: holders(A) })
 
   // ---------------------------------------------------------------- P15
   p.check('P15: B had no holder; its first live top-level agent zoe now holds the inbox and got the mail', holders(B).join(',') === 'zoe'
@@ -48,7 +48,7 @@ export default async function (rig) {
   p.check('zoe\'s answer reaches A\'s holder (boss)', answer.ok && mailFrom(A, 'boss', `@org:${B}`, 'PROOF-3').length === 1, answer.text)
 
   // ---------------------------------------------------------------- P28
-  const g = await tryApi('POST', `/api/orgs/${A}/audiences`, { action: 'grant', node: 'alice', target: 'extern', reason: 'proof: alice takes the org inbox' })
+  const g = await tryApi('POST', `/api/orgs/${A}/audiences`, { action: 'grant', node: 'alice', target: 'extern', reason: 'proof: alice takes the org mailbox' })
   p.check('P28: in single-holder mode the user\'s grant to alice revokes boss\'s', g.ok && holders(A).join(',') === 'alice', { g, holders: holders(A) })
   await send('zoe', B, `@org:${A}`, 'PROOF-4 to the new holder')
   p.check('P28: the next outside mail reaches alice alone', mailFrom(A, 'alice', `@org:${B}`, 'PROOF-4').length === 1

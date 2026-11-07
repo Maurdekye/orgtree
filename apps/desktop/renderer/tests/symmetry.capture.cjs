@@ -1,4 +1,4 @@
-// Org settings › Connections, the org inbox's sent folder, Presentations and an
+// Org settings › Connections, the org mailbox's sent folder, Presentations and an
 // agent's docket, before (base) and after (tip) the UX symmetry fixes #2, #5,
 // #6, #7 and #23 (USER 2026-10-29 m019c9500d23a), dark and light, over
 // symmetry.visual.tsx's synthetic data. No engine, no real clipboard, no OS
@@ -89,11 +89,11 @@ app.whenReady().then(async()=>{
           assert.ok(conn.chips.some(c=>/net-mark-hubchat/.test(c.cls)),'before: the Hubchat mark')
         }
         measured.push(record)
-        // 2. the org inbox's sent folder, the queued message open (#6, #23, #7)
+        // 2. the org mailbox's sent folder, the queued message open (#6, #23, #7)
         // (a production bundle has no data-testid: the clock is known by its hands, the path MUI Schedule and Hubchat's schedule share)
         await show('orginbox',theme)
-        await until(`document.querySelectorAll('.mailrow .net-state').length>=5&&document.querySelector('.mailer-read .net-state')`,'org inbox sent folder not drawn');await paint()
-        await themed(theme,'org inbox')
+        await until(`document.querySelectorAll('.mailrow .net-state').length>=5&&document.querySelector('.mailer-read .net-state')`,'org mailbox sent folder not drawn');await paint()
+        await themed(theme,'org mailbox')
         const inbox=await evalJs(`(()=>{const rows=[...document.querySelectorAll('.mailrow')];const mark=m=>m?{text:m.textContent.trim(),role:m.getAttribute('role'),label:m.getAttribute('aria-label'),title:m.getAttribute('title'),clock:!!m.querySelector('svg path[d^="M12.5 7H11v6l5.25 3.15"]'),cls:m.className}:null
           return{rows:rows.map(r=>{const t=r.querySelector('.l1 .mtime');const c=r.querySelector('[data-hub-address]');return{text:(r.textContent||'').slice(0,160),mark:mark(r.querySelector('.net-state')),time:t?{text:t.textContent,title:t.getAttribute('title')}:null,chip:c?{address:c.dataset.hubAddress,icon:c.dataset.netIcon,dot:!!c.querySelector('.net-mark-dot')}:null}}),
             readerMark:mark(document.querySelector('.mailer-read .net-state')),reader:(document.querySelector('.mailer-read')?.textContent||'').slice(0,300)}})()`)

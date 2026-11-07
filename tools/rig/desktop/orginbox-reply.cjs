@@ -1,4 +1,4 @@
-// The org inbox panel's Reply (mail hub v2, Orgtree 4.0.2): open the panel
+// The org mailbox panel's Reply (mail hub v2, Orgtree 4.0.2): open the panel
 // from the canvas tile, select the inbound row whose body holds args.row,
 // read the reading pane (it quotes what that row answers), attach args.file
 // the way the file picker does, reply from the pane with args.reply, then
@@ -19,7 +19,7 @@ module.exports = async (page, { args }) => {
   await page.waitFor('.mailer-read .mail-reply textarea')
   await page.sleep(500)
   const pane = await page.eval(() => (document.querySelector('.mailer-read')?.innerText || '').trim())
-  // an outside recipient: no notice toggle; files are staged the org inbox's way
+  // an outside recipient: no notice toggle; files are staged the org mailbox's way
   const buttons = await page.eval(() => [...document.querySelectorAll('.mailer-read .mail-reply button')]
     .map((b) => ({ label: b.getAttribute('aria-label') || b.getAttribute('title') || (b.innerText || '').trim(), disabled: b.disabled })))
   await page.screenshot('reading-pane')

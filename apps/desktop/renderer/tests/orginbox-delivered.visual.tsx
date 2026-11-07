@@ -1,6 +1,6 @@
 // tests/orginbox-delivered.visual.tsx — what orginbox-delivered.capture.cjs draws for "the detail of
-// a mail in the org inbox lists every agent it was delivered to" (USER 2026-10-29 ma660da825904):
-// the real org inbox window over synthetic mail. A received mail delivered to two live agents, a
+// a mail in the org mailbox lists every agent it was delivered to" (USER 2026-10-29 ma660da825904):
+// the real org mailbox window over synthetic mail. A received mail delivered to two live agents, a
 // retired one and one since removed; a received mail with no delivery record; nine recipients (the
 // wrap); and the outbox's own "@agent as @org -> @recipient" line beside them. No engine, no real
 // hub, no clipboard: everything is synthetic.
@@ -19,7 +19,7 @@ const WHEN = '2026-10-29T12:00:00Z'
 const mail = (id: string, extra: Partial<OrgInboxEntry> & Record<string, unknown>): OrgInboxEntry =>
   ({ id, dir: 'in', peer: '@net:alice.fixture', at: WHEN, body: 'Hello org, a short outside message.', ...extra }) as OrgInboxEntry
 const ENTRIES: OrgInboxEntry[] = [
-  mail('in-many', { body: 'A message delivered to every agent that held the org inbox.',
+  mail('in-many', { body: 'A message delivered to every agent that held the org mailbox.',
     delivered_to: ['coordinator-opus', 'liaison-opus', 'rig-sol-b', 'build-sol', 'app-net-opus', 'desk-parity-opus', 'old-reviewer', 'old-builder', 'gone-agent'] }),
   mail('in-none', { body: 'An older message: no delivery record was kept for it.' }),
   mail('in-some', { body: 'Hello org, two agents got this one, a third has since been retired and a fourth removed.',

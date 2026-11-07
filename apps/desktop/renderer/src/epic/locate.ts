@@ -2,7 +2,7 @@
 
    Effects land on the thing they are about: an agent's card on the canvas,
    else its open desk (in this window, a pinned frame or a popped-out window),
-   the user's eye, the org inbox tile or a watchdog's chip. Everything is found
+   the user's eye, the org mailbox tile or a watchdog's chip. Everything is found
    by SCANNING data attributes the app already renders and comparing values,
    never by building a selector from an id (an agent's name is data, and `CSS`
    is not even defined under jsdom — see attention/dom.ts). Nothing is found

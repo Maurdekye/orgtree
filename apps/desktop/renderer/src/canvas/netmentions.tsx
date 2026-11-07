@@ -80,7 +80,7 @@ export interface NetMention {
 interface RosterEntry { kind: NetKind; name: string | null; picture: string | null; online: boolean; busy: boolean; dnd: boolean; about: string | null; language: string | null }
 
 /** An address's presence as the hubs list it: online, busy (mail hub 2.3.0:
- *  online, but no one can answer now: an org none of whose org-inbox holders
+ *  online, but no one can answer now: an org none of whose org-mailbox holders
  *  can start a turn, a person away from Hubchat for an hour), Do not disturb
  *  (mail hub 2.3.0: an org whose outside mail is set to it) or offline. */
 export type NetPresence = 'online' | 'busy' | 'dnd' | 'offline'

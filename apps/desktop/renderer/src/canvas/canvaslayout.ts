@@ -181,7 +181,7 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
         })
       }
     }
-    // the ORG INBOX panel (user spec): up and to the RIGHT of the overseer —
+    // the ORG MAILBOX panel (user spec): up and to the RIGHT of the overseer —
     // "out of the way" of the org structure, not stacked on its axis — and it
     // only exists once the org has received outside mail or granted an inbox
     // audience; until then the canvas is unchanged. Placed LAST of the cards,

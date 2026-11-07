@@ -153,7 +153,7 @@ test('streamed text plays each agent\'s pentatonic run, one note per gap', async
   } finally { show.stop(); EpicSynth.prototype.play = original }
 })
 
-test('the words name who it happened to — never the user, the org inbox or a watchdog\'s id', async () => {
+test('the words name who it happened to — never the user, the org mailbox or a watchdog\'s id', async () => {
   const rec = recordCanvas()
   const show = startEpic({ audio: null, greet: 'none' })
   try {

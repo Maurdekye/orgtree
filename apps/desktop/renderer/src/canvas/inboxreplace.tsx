@@ -5,7 +5,7 @@ import { ConfirmModal } from './modals'
 export function InboxReplaceConfirm({ id, current, onConfirm, close }: {
   id: string; current: string; onConfirm: () => void; close: () => void
 }) {
-  return <ConfirmModal title={`Replace ${current} as the org inbox's holder with ${id}?`}
-    body="Only one holder is allowed, so granting the org inbox to this node revokes the current holder. Turn on multiple org-inbox holders in the org's settings to keep both."
+  return <ConfirmModal title={`Replace ${current} as the org mailbox's holder with ${id}?`}
+    body="Only one holder is allowed, so granting the org mailbox to this node revokes the current holder. Turn on multiple org-mailbox holders in the org's settings to keep both."
     confirmLabel="Replace" onConfirm={onConfirm} close={close} />
 }

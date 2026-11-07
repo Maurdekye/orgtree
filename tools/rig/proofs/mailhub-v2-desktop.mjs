@@ -1,11 +1,11 @@
 // Desktop smoke for Orgtree 4.0.2's mail hub v2 UI, in the real renderer
 // against a rig run that hosts the hub (`up --hub`) and serves this
 // worktree's renderer (`up --ui <bundle>`, tools/rig/build-ui.mjs):
-//   - the org inbox panel's reading pane quotes what an inbound reply answers
+//   - the org mailbox panel's reading pane quotes what an inbound reply answers
 //     ("In reply to boss" and the quoted message);
 //   - its Reply goes out as the organization, naming that row (reply_to
 //     through the hub, quoted on arrival in the other org), with a file
-//     chosen in the reply box (staged the org inbox's way); the box offers
+//     chosen in the reply box (staged the org mailbox's way); the box offers
 //     no notice toggle (outside recipient);
 //   - the mailservers tab and the canvas tile name the hub's version.
 // Run: node tools/rig/build-ui.mjs, then
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { runDesktop } from '../desktop.mjs'
 import { Proof } from '../proof.mjs'
 
-const FILE_TEXT = 'a note attached to the reply, from the org inbox panel'
+const FILE_TEXT = 'a note attached to the reply, from the org mailbox panel'
 
 export async function setup(flags) {
   return { hub: flags.hub ?? true }
@@ -63,7 +63,7 @@ export default async function (rig) {
   p.check('the desktop script ran in the real renderer', ui.ok, ui.error ?? ui.electronOutput)
   p.check('the reading pane quotes what the inbound reply answers (In reply to boss, PROOF-SMOKE-1)',
     /In reply to boss/.test(v.pane ?? '') && (v.pane ?? '').includes('PROOF-SMOKE-1'), v.pane)
-  p.check('the reply box to an outside sender offers files (staged the org inbox\'s way) and no notice toggle',
+  p.check('the reply box to an outside sender offers files (staged the org mailbox\'s way) and no notice toggle',
     Array.isArray(v.buttons) && !v.buttons.some(b => /notice/i.test(b.label)) && v.buttons.some(b => b.label === 'attach a file' && !b.disabled), v.buttons)
   const sent = await rig.waitFor(() => outRow(A, 'PROOF-SMOKE-3%'), { what: 'the panel\'s reply in A\'s sent rows', timeout: 30000 })
   p.check('the Reply went out as the organization (by the user), naming the row it answers', sent.by_name === 'user'

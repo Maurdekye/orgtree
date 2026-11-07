@@ -682,14 +682,14 @@ export const measureRect = (el: HTMLElement | null): PinRect => {
 
 // ------------------------------------------------- a dialog OVER the windows
 /**
- * A modal opened from INSIDE a pinned window — compose from the org inbox, a
+ * A modal opened from INSIDE a pinned window — compose from the org mailbox, a
  * confirmation from the lineage panel. Two things must be true of it, and
  * neither is true of a plain nested overlay:
  *
  * 1. IT MUST NOT BE TRAPPED IN ITS HOST'S STACKING CONTEXT. A DOM descendant
  *    of a pinned panel paints inside that panel's z band whatever its own
  *    z-index says, so its backdrop covers its own host — MEASURED in Edge:
- *    with the org inbox pinned, `elementFromPoint` over the inbox's own title
+ *    with the org mailbox pinned, `elementFromPoint` over the inbox's own title
  *    bar returns the compose backdrop, and the window's drag handle and close
  *    button are unreachable. The same shape from the other side, measured by
  *    codex-delivery on the lineage panel's confirmation: a second pinned

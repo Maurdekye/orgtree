@@ -1,6 +1,6 @@
 // Busy presence (Mail hub 2.3.0; docket
 // org-presence-busy-orange-when-no-org-inbox-holde): an org none of whose
-// org-inbox holders can start a turn "appears as "busy" with an orange marker,
+// org-mailbox holders can start a turn "appears as "busy" with an orange marker,
 // instead of online" (USER 2026-10-30 23:03Z ma662ce2d2385), and so does a
 // person away from Hubchat for an hour (23:05Z mcb9aa2c7e4af, 23:06Z
 // mac1516a71553); the colour is "Amber (existing caution colour)" (23:19Z

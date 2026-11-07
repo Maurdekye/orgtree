@@ -73,6 +73,6 @@ export default async function(rig) {
   p.check('remote winner is adopted without a new local revision',(await rig.api('GET',route)).picture.revision===newer.revision)
   p.check('ordinary network projection includes revision but no image data',(await rig.api('GET',`/api/orgs/${rig.org}`)).net.picture_revision===newer.revision&&!JSON.stringify(net).includes(raw))
   p.keep(rig,{grep:/profile-picture|profile_pictures|ERROR/})
-  p.note('Measured actual isolated HTTP/store/hub publication; no device/pixel/WebView proof. Concurrent org-inbox disable after remote acceptance is not a recall guarantee.')
+  p.note('Measured actual isolated HTTP/store/hub publication; no device/pixel/WebView proof. Concurrent org-mailbox disable after remote acceptance is not a recall guarantee.')
   return p.summary()
 }

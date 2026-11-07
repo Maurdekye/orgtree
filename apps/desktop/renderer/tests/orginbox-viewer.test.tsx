@@ -47,7 +47,7 @@ test('the sent-as identity is the shared org link', async t => {
   assert.deepEqual(items, ['Open', 'Copy identity'], 'with the shared org identity menu')
 })
 
-test('org inbox reads retained mail and attachments without human composition', async t => {
+test('org mailbox reads retained mail and attachments without human composition', async t => {
   const calls: string[] = []
   const original = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {

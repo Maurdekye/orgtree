@@ -558,7 +558,7 @@ function DocOpening({ slug, docId, close, onLoaded }: {
   </PinFrame>
 }
 
-/** how long a spark waits for the org inbox node to appear (first outside mail) */
+/** how long a spark waits for the org mailbox node to appear (first outside mail) */
 const BOX_SPARK_HOLD_MS = 10_000
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
@@ -624,10 +624,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
   const [trayArch, setTrayArch] = useState(false)   // archived rows shown (user
                                                     // spec: hidden by default)
-  const [oiOpen, setOiOpen] = useState(false)       // the ORG-inbox viewer
+  const [oiOpen, setOiOpen] = useState(false)       // the ORG-mailbox viewer
   // inline mail links (user spec 2026-07-31): a chat's send chip opens the
   // box that HOLDS the mail, selected on it — user inbox, a node's inbox, or
-  // the org inbox for outbound. Jump ids clear when the modal closes.
+  // the org mailbox for outbound. Jump ids clear when the modal closes.
   // the REQUEST, not the target: two clicks on the same message are two
   // requests, and the panel's latch compares the request (`jumpKey`).
   // `agent` is the mailbox it is for: each agent's Mail is its own window.
@@ -640,7 +640,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // the org-mail a link or a reference targets — a REQUEST, so a repeat
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
-  // "Open in org inbox" on a Hub contact link: the panel's view of one
+  // "Open in org mailbox" on a Hub contact link: the panel's view of one
   // address, also a REQUEST. A jump and an address view replace each other.
   const [oiParty, setOiParty] = useState<{ address: string; seq: number } | null>(null)
   // the lineage panel is not rendered in Orgtree 4 (ledger B1), so its one
@@ -1155,7 +1155,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const renameLists = useRef<((from: string, to: string) => void)[]>([])
   renameLists.current = [...instanceLists, agentReaders, teamReaders].map(list => list.rename)
   useEffect(() => { if (tree.org_inbox?.enabled === false) setOiOpen(false) }, [tree.org_inbox?.enabled])
-  // every Hub contact link of this window reaches the org inbox through here
+  // every Hub contact link of this window reaches the org mailbox through here
   // (agentmentions.tsx `hubAddressMenuEntries`); closed off, the entry says so
   const orgInboxClosed = tree.org_inbox?.enabled === false
   useEffect(() => registerOrgInboxOpener({
@@ -1235,7 +1235,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // the mail-link router — STABLE identity (Msg is memoized on its props;
   // the ref carries the fresh closure). user_inbox → the eye's mailbox
   // (marking the glow seen, same as its ✉); @ext:/@org:/@mcp: → the org
-  // inbox; anything else → that node's inbox. Dead targets no-op.
+  // mailbox; anything else → that node's inbox. Dead targets no-op.
   const openMailRef = useRef<MailLinkFn | null>(null)
   openMailRef.current = (m) => {
     if (!m?.id || !m?.to) return
@@ -1342,7 +1342,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const bunches = useMemo(() => bunchProjects ? projectBunches(vroot, hidden, map, hideRetired) : new Map<string, ProjectBunch>(),
     [vroot, hidden, map, bunchProjects, hideRetired])
   const inSameBunch = (a: string, b: string) => !!bunches.get(a) && bunches.get(a) === bunches.get(b)
-  // the credit bars' scale, for the org inbox's clearance (= pxPerCredit below)
+  // the credit bars' scale, for the org mailbox's clearance (= pxPerCredit below)
   const inboxPxc = useMemo(() => orgPxc(tree), [tree])
   // the open hire draft's bar is drawn as tall as its tier seat + pending grant:
   // the grant it opens with, then whatever DraftNode reports (onGrant)
@@ -1776,7 +1776,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (compactRef.current) return null
     const m = mapRef.current
     const norm = (x: string) => (!x || x === 'user' || x === 'user_inbox' || x === USER) ? USER : x
-    // org-inbox mail (user spec 2026-08-05): a spark rides the mailbox↔node
+    // org-mailbox mail (user spec 2026-08-05): a spark rides the mailbox↔node
     // curve — the same facing-sides geometry the audience lines to holders
     // draw — in whichever direction the mail travels
     const isBox = (x: string) => x === 'org_inbox' || x === INBOX
@@ -3219,18 +3219,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return out
   }
 
-  /** The mailbox drop: grant the org-inbox audience to an agent, or to a project (it queues the mail). */
+  /** The mailbox drop: grant the org-mailbox audience to an agent, or to a project (it queues the mail). */
   const grantInbox = (id: string) => audienceAction(slug, 'grant', id, 'extern')
     .then(() => toast([mapRef.current.get(id)?.kind === 'project'
-        ? `${id} now receives the org inbox's outside mail in its queue`
-        : `${id} now reads and answers the org inbox`],
+        ? `${id} now receives the org mailbox's outside mail in its queue`
+        : `${id} now reads and answers the org mailbox`],
       () => audienceAction(slug, 'revoke', id, EXTERN).catch(() => {})))
     .catch((err: Error) => toast([`error: ${err.message}`]))
 
   const dropTargetAt = (world: Pt, dragId: string): string | null => {
     const banned = descendantsOf(dragId); banned.add(dragId); banned.add(DRAFT)
-    // C0: the org-inbox panel is a drop target too — dropping an agent on it
-    // GRANTS the org-inbox audience (reorder-style interaction, user ruling).
+    // C0: the org-mailbox panel is a drop target too — dropping an agent on it
+    // GRANTS the org-mailbox audience (reorder-style interaction, user ruling).
     // posOf(INBOX) exists only while the panel is laid out (= visible), which
     // keeps this check ref-safe inside a drag.
     {
@@ -3425,7 +3425,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     if (drop === INBOX) {
       if (!targetRef.current.has(INBOX)) { finish(); return }
-      // dropping on the mailbox grants the org-inbox audience, never reparents. With one holder
+      // dropping on the mailbox grants the org-mailbox audience, never reparents. With one holder
       // allowed, a different node would replace the current one: ask first (spec rev 2 §4.2).
       const holders = tree.org_inbox?.holders ?? []
       if (tree.org_inbox?.multi_holder_enabled !== true && holders.length > 0 && !holders.includes(id)) {
@@ -4969,8 +4969,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               transform: `translate(${posOf(INBOX)!.x}px, ${posOf(INBOX)!.y}px)`,
               width: USER_W, height: INBOX_H,
             }}
-            title="the org inbox — outside mail addressed to this organization"
-            aria-label="org inbox"
+            title="the org mailbox — outside mail addressed to this organization"
+            aria-label="org mailbox"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               toggleOrRaiseModal('org-inbox', oiOpen, setOiOpen, slug)
@@ -4984,7 +4984,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                   flex-shrank .oi-last to 2.3px inside the fixed-height tile
                   and clipped the last recipient (user bug 2026-08-07) */}
               <PublicIcon fontSize="inherit" />
-              <span className="oi-title">org inbox</span>
+              <span className="oi-title">org mailbox</span>
               {(() => {   // F-06: hub connectivity at a glance on the mailbox
                 const hubs = (tree.net?.hubs ?? [])
                   .filter((h) => h.enabled && !h.hidden)
@@ -4996,7 +4996,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                     + (h.connected ? `connected, hub version ${h.version || 'unknown'}` : h.error || 'connecting…'))
                     .join(' · ')} />
               })()}
-              {/* NO unread badge here (user 2026-08-10). Org-inbox mail is
+              {/* NO unread badge here (user 2026-08-10). Org-mailbox mail is
                   addressed to the ORGANIZATION and answered by its agents —
                   the user is not its reader. An unread count asks them to
                   clear something that was never theirs to clear, which is a

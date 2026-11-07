@@ -1285,7 +1285,7 @@ export default function App() {
     if (location.pathname !== want) history.pushState(null, '', want)
   }, [slug, v3, identity])
   useEffect(() => {                    // №38: the tab title carries the unread
-    // ⚠ the USER's inbox only. Org-inbox mail is addressed to the organization
+    // ⚠ the USER's inbox only. Org-mailbox mail is addressed to the organization
     // and answered by its agents, so counting it here billed the user for
     // someone else's correspondence — and once the tile's badge went (user
     // 2026-08-10), a tab reading "(3)" would have pointed at nothing the user

@@ -16,7 +16,7 @@
 //            other 8; fetch gives a cut message whole, sent or received
 //   user     the user's mail to alice and hers to the user (one with an
 //            attachment, named) in order; the user's mail to others not
-//   outside  boss holds the org inbox: @org: mail with a second org on this
+//   outside  boss holds the org mailbox: @org: mail with a second org on this
 //            machine and @net: mail through the hosted hub (--hub), his
 //            sends and the replies in order on both sides; a bare org name
 //            reads the same; alice (no holder) has none

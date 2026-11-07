@@ -1,8 +1,8 @@
-// orginboxqueue.visual.tsx — captures for projects holding the org inbox
+// orginboxqueue.visual.tsx — captures for projects holding the org mailbox
 // (docket org-inbox-project-queue-outside-mail-queued-in-a; spec rev 2 §4 R2-R5).
 // Real components, browser-only data: no engine, bridge, network or clipboard.
 // API: window.oiVisual.show(scene, light)   scene = 'holders' | 'replace-project' | 'replace-agent'
-//   holders:         AudienceHolderRows (an agent AND a project), the project desk header's "org inbox" chip with its
+//   holders:         AudienceHolderRows (an agent AND a project), the project desk header's "org mailbox" chip with its
 //                    revoke, and a real MailRowView (project mail) carrying the "follow-up to <job>" chip
 //   panel:           the REAL OrgInboxModal with both holders and its helper copy ("drag an agent or a project onto the mailbox")
 //   replace-project: the drop-replace confirm when a PROJECT replaces an AGENT holder
@@ -55,7 +55,7 @@ function Scenes() {
       {state.scene === 'holders' && <>
         <div data-fixture="holders">
           <AudienceHolderRows ids={['triage', 'intake']} nodes={map} onRemove={noop} audienceTarget={EXTERN}
-            label="org inbox audience holders" alert />
+            label="org mailbox audience holders" alert />
         </div>
         <div data-fixture="chip"><HeldAudienceChips slug="org" toast={noop} map={map} node={intake} /></div>
         <div data-fixture="followup" style={{ width: 640 }}>

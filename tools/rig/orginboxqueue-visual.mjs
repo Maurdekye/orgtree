@@ -1,4 +1,4 @@
-// Org inbox project captures (docket org-inbox-project-queue-outside-mail-queued-in-a). Bundles
+// Org mailbox project captures (docket org-inbox-project-queue-outside-mail-queued-in-a). Bundles
 // apps/desktop/renderer/tests/orginboxqueue.visual.tsx with an EXPLICIT tsconfigRaw/nodePaths (no local tsconfig
 // discovery; team note C CAPTURE CONFIG COLLISION), asserts ONE copy of React in the bundle, then runs Electron in
 // Session 0 (tools/rig/desktop/orginboxqueue-visual.cjs, which uses the shared chipcapture-guard.cjs): index.html is INERT

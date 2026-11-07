@@ -2,7 +2,7 @@
 //
 // Browser layout decides the threshold (seven holder chips fit one standard
 // mail row; eight begins another). These component checks pin the semantic
-// boundary and the security-facing org-inbox summary; the companion browser
+// boundary and the security-facing org-mailbox summary; the companion browser
 // probe owns pixels, real click behaviour, and screenshots.
 //
 // Run: cd frontend && node tests/run.mjs audiencefold
@@ -71,17 +71,17 @@ function liveMap(count: number) {
   return new Map(ids(count).map((id) => [id, { id, state: 'live' } as CanvasNode]))
 }
 
-uiTest('§3 org inbox uses the same threshold but makes an unexpected multi-holder count a warning',
+uiTest('§3 org mailbox uses the same threshold but makes an unexpected multi-holder count a warning',
   async (mount) => {
     const { el } = await mount(<OrgInboxModal inbox={inbox(AUDIENCE_FOLD_LIMIT)}
       map={liveMap(AUDIENCE_FOLD_LIMIT)} slug="mine" toast={noop} close={noop} />)
     await flush()
     const button = fold(el)
-    assert.ok(button, 'the org inbox uses the shared fold at the same boundary')
+    assert.ok(button, 'the org mailbox uses the shared fold at the same boundary')
     assert.equal(button.getAttribute('aria-expanded'), 'false', 'the org list also starts closed')
     assert.ok(button.classList.contains('alert'),
       'more than the expected single external-mail reader remains visibly anomalous')
-    assert.match(button.textContent ?? '', /⚠.*8 org inbox audience holders/,
+    assert.match(button.textContent ?? '', /⚠.*8 org mailbox audience holders/,
       'the security summary says exactly what is unusual before expanding')
     assert.equal(el.querySelectorAll('.chip-x').length, 0,
       'collapsed recipients are actually folded, so the warning cannot pass by counting exposed chips')
@@ -103,7 +103,7 @@ uiTest('§4 CONTROL: replacing 8 with 7 makes the folded-state witness go false'
       'and the control case proves the chip counter can be non-zero')
   })
 
-uiTest('§5 org inbox holders use the labeled audience-holder chips from Your inbox',
+uiTest('§5 org mailbox holders use the labeled audience-holder chips from Your inbox',
   async (mount) => {
     const map = new Map<string, CanvasNode>([['holder1', {
       id: 'holder1', state: 'live', tier: 'sol',
@@ -113,14 +113,14 @@ uiTest('§5 org inbox holders use the labeled audience-holder chips from Your in
     await flush()
     const label = [...el.querySelectorAll('.field-label')]
       .find((item) => item.textContent?.trim() === 'audience holders')
-    assert.ok(label, 'org inbox holders have the same visible label as Your inbox')
+    assert.ok(label, 'org mailbox holders have the same visible label as Your inbox')
     const row = el.querySelector('.aud-holders-row')
     assert.ok(row, 'holders render in the shared compact row')
     const chip = row.querySelector('.aud-badge')
     assert.ok(chip, 'each holder uses the shared pill styling')
     assert.equal(chip.getAttribute('title'),
-      'Can read and answer outside mail sent to the org inbox',
-      'org inbox holders explain the access they receive')
+      'Can read and answer outside mail sent to the org mailbox',
+      'org mailbox holders explain the access they receive')
     assert.equal(chip.querySelector('.tier')?.textContent, 'S',
       'the holder pill shows its agent tier')
     assert.equal(chip.querySelector('.cc-name')?.textContent, 'holder1',
@@ -149,7 +149,7 @@ uiTest('§6 audience chips explain the grant target and the remove control says 
   async (mount) => {
     const cases = [
       { id: 'user-holder', target: '@user', kind: 'agent', title: 'Can message you directly: send you mail and ask you questions' },
-      { id: 'extern-holder', target: '@extern', kind: 'agent', title: 'Can read and answer outside mail sent to the org inbox' },
+      { id: 'extern-holder', target: '@extern', kind: 'agent', title: 'Can read and answer outside mail sent to the org mailbox' },
       { id: 'agent-holder', target: 'agent-one', kind: 'agent', title: 'Can message agent agent-one directly, even though it is outside your normal chain' },
       { id: 'project-holder', target: 'project-one', kind: 'project', title: 'Can message project project-one directly, even though it is outside your normal chain' },
     ]

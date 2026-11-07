@@ -10,7 +10,7 @@
 // neighbours stay readable, and the same crash report is still filed.
 //
 // The failure here is made deterministic: a sender renderer that throws for
-// one sender, as the org inbox's did for a sender it was never given.
+// one sender, as the org mailbox's did for a sender it was never given.
 //
 //   §1  the row that cannot render is an error row; the others list and open.
 //   §2  that message opened by a link: the reading pane is the error, the

@@ -56,7 +56,7 @@ export default async function(rig) {
       const grant=await aud(who,{action:'grant',from:child,target:'user'})
       const revoke=await aud(who,{action:'revoke',grantee:child,target:'user'})
       const inbox=await aud(who,{action:'grant',from:who,target:'extern'})
-      p.check('root: top-level audience grant/revoke and org-inbox authority survive wrappers',grant.ok&&revoke.ok&&inbox.ok,{grant:grant.text,revoke:revoke.text,inbox:inbox.text})
+      p.check('root: top-level audience grant/revoke and org-mailbox authority survive wrappers',grant.ok&&revoke.ok&&inbox.ok,{grant:grant.text,revoke:revoke.text,inbox:inbox.text})
       if(inbox.ok) await aud(who,{action:'revoke',grantee:who,target:'extern'})
       const made=await rig.tool(who,'orgtree_work',{action:'create',title:'Root project disposable item',objective:'Synthetic top-level deletion proof.'})
       const deleted=made.ok?await rig.tool(who,'orgtree_work',{action:'delete',slug:made.json.slug}):made

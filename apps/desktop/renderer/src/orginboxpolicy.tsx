@@ -5,21 +5,21 @@ export function OrgInboxPolicy({ mode, onMode, multi, onMulti }: {
   mode: OrgInboxMode; onMode: (mode: OrgInboxMode) => void
   multi: boolean; onMulti: (on: boolean) => void
 }) {
-  return <SetGroup title="External org inbox">
+  return <SetGroup title="External org mailbox">
     <SetRow label="Outside communication" hint="Normal delivers outside mail to agents. Closed blocks outside communication and hides its retained history.">
-      <select aria-label="Org inbox mode" value={mode}
+      <select aria-label="Org mailbox mode" value={mode}
         aria-describedby={mode === 'dnd' ? 'org-inbox-dnd-warning' : undefined}
         onChange={e => onMode(e.target.value as OrgInboxMode)}>
         <option value="normal">Normal operations</option>
         <option value="dnd">Do not disturb</option>
-        <option value="closed">Closed off inbox</option>
+        <option value="closed">Closed off mailbox</option>
       </select>
     </SetRow>
     {mode === 'dnd' && <p className="orgmd-warn" id="org-inbox-dnd-warning" role="note">
       Hubchat and other outside messages are kept but not read or delivered automatically.
-      {' '}An agent must check the org inbox to receive them.
+      {' '}An agent must check the org mailbox to receive them.
     </p>}
-    <SetToggle label="Allow multiple org-inbox audience holders" checked={multi} onChange={onMulti}
+    <SetToggle label="Allow multiple org-mailbox audience holders" checked={multi} onChange={onMulti}
       hint="Off: granting a different holder moves the audience; turning this off with several holders requires revoking all but one first" />
   </SetGroup>
 }

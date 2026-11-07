@@ -1079,7 +1079,7 @@ export interface DraftNodeProps {
   onTierChange?: (tier: string) => void
   hires?: HireProviders
   /** told the pending grant whenever it changes (and on mount): the canvas
-   *  keeps the org inbox clear of this card's credit bar */
+   *  keeps the org mailbox clear of this card's credit bar */
   onGrant?: (grant: number) => void
   /** Optional parent-owned fields let the canvas and Attention desk present
    *  the same in-progress hire without losing edits when the host changes. */

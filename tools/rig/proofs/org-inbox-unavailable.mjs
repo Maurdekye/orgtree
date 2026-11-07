@@ -1,4 +1,4 @@
-// Proof: outside mail when the org-inbox holder cannot run (user 2026-10-09
+// Proof: outside mail when the org-mailbox holder cannot run (user 2026-10-09
 //   07:03Z: if the holder is halted or frozen, outside mail goes to another
 //   active agent who can take it, usually the first live top-level agent,
 //   and nothing is lost; decision 59).
@@ -16,7 +16,7 @@
 //      first top-level agent who can run, not to boss.
 //   7. nobody can run (every top-level agent halted): the mail waits with
 //      the holder, the user is told, and it is read once cleo is unhalted.
-//   Every message is in A's org inbox.
+//   Every message is in A's org mailbox.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-inbox-unavailable.mjs
 
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
@@ -46,7 +46,7 @@ export default async function (rig) {
   await rig.op({ op: 'hire', name: 'zoe', tier: 'haiku', title: 'B lead', grant: 5 }, { org: B })
 
   const orgId = slug => rig.one(`SELECT id FROM ot.orgs WHERE slug = '${slug}' AND state = 'active'`).id
-  // the holders as the org inbox shows them (a retired agent keeps its grant row for a rehire)
+  // the holders as the org mailbox shows them (a retired agent keeps its grant row for a rehire)
   const holders = () => rig.sql(`SELECT DISTINCT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
     WHERE au.org_id = ${orgId(A)} AND au.grantor = '@extern' AND au.revoked_at IS NULL AND a.state = 'live' ORDER BY au.grantee`).map(r => r.grantee)
   // which of A's agents got a copy of a message, and in what state
@@ -67,7 +67,7 @@ export default async function (rig) {
   const grant = (node, reason) => rig.api('POST', `/api/orgs/${A}/audiences`, { action: 'grant', node, target: 'extern', reason })
 
   // ---------------------------------------------------------------- 1. halted holder (@org)
-  await grant('alice', 'proof: alice holds the org inbox')
+  await grant('alice', 'proof: alice holds the org mailbox')
   await halt('alice')
   const s1 = await fromZoe('ORGIN-HALTED')
   const t1 = await taken('boss', 'ORGIN-HALTED')
@@ -85,7 +85,7 @@ export default async function (rig) {
     !!t2 && !('alice' in c2) && inInbox('ORGIN-NET'), { copies: c2, taken: t2 })
 
   // ---------------------------------------------------------------- 3. frozen holder
-  await grant('fay', 'proof: fay holds the org inbox')
+  await grant('fay', 'proof: fay holds the org mailbox')
   await rig.userMail('fay', 'PROOF-FREEZE: please do the limited thing.')
   const fz = await rig.waitFor(() => rig.agentRow('fay')?.frozen, { what: 'fay to be frozen', timeout: 60000 })
   const s3 = await fromZoe('ORGIN-FROZEN')

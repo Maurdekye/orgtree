@@ -49,7 +49,7 @@ try:
         check(m['dogs']==1 and m['dogWires']==1,'normal/baseline watchdog control missing')
         check(m['docs']==2,'normal/baseline document control missing')
         check(m['bar']==1,'normal/baseline infinite bar missing')
-        check(m['head']==1 and m['last']==1 and 'org inbox' in m['mailText'],'normal mailbox details missing')
+        check(m['head']==1 and m['last']==1 and 'org mailbox' in m['mailText'],'normal mailbox details missing')
         check(not hide or m['retired']==1,'normal/baseline retired control missing')
        page.screenshot(path=str(EVIDENCE/(case+'.png')))
        if phase=='after' and far:

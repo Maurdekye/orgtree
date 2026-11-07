@@ -162,7 +162,7 @@ uiTest('§9.2 …and a failing message can be found without already knowing '
   assert.equal(q(el, '.mailer-read .mailer-none').length, 1,
     'and nothing is selected — the reading pane invites a click (user spec)')
   // ← FIXED (promoted out of todo, 2026-08-05): MailList grew a `rowMark`
-  // prop and the org inbox's sent folder passes `glyph` — the whole clock/✓/✓✓/⚠
+  // prop and the org mailbox's sent folder passes `glyph` — the whole clock/✓/✓✓/⚠
   // ladder now renders per-row in `.l1`, which is where a webmail user looks
   const stuckRows = rows.filter((r) => r.querySelector('.net-state.stuck'))
   assert.equal(stuckRows.length, 1, 'exactly one row wears the ⚠ in the LIST')
@@ -306,7 +306,7 @@ uiTest('§9.6 …and it does so for the hub that mail actually queues on',
 // The server publishes `{type:'mail', from, to}` and nothing more; the whole
 // meaning of the animation is decided by `launchSpark` (OrgCanvas.tsx). Two
 // facts are worth pinning because both are invisible in review and obvious on
-// screen: a spark must LEAVE the sender, and an org-inbox spark must ride the
+// screen: a spark must LEAVE the sender, and an org-mailbox spark must ride the
 // mailbox↔node curve rather than the org tree.
 //
 // The direction lives in one flag — `rev: !isBox(from)` — read at render as
@@ -370,7 +370,7 @@ function sparkAt(el: HTMLElement): { x: number; y: number } {
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.hypot(a.x - b.x, a.y - b.y)
 
-/** mount the canvas with the org inbox visible and hand back the two anchors
+/** mount the canvas with the org mailbox visible and hand back the two anchors
  *  a mail spark travels between, measured off the rendered elements */
 async function canvas(mount: (el: React.ReactElement) => Promise<{ el: HTMLElement }>,
   ids: string[] = ['ceo'], mailEvt: { from: string; to: string; t: number } | null = null) {
@@ -461,7 +461,7 @@ uiTest('§10.5 agent-to-agent mail does not detour through the mailbox',
     await c.fire('ceo', 'cfo')
     const p = sparkAt(c.el)
     assert.ok(dist(p, c.mailbox) > dist(p, c.agent),
-      'a peer-to-peer spark was routed through the org inbox '
+      'a peer-to-peer spark was routed through the org mailbox '
       + `(spark ${JSON.stringify(p)})`)
   })
 
@@ -486,7 +486,7 @@ uiTest('§10.6 the WS event drives the spark on its own — the dev hook is not 
 // User bug 2026-08-07: "marking mail as read in my inbox takes several seconds
 // to process." The server was never the cause — /inbox/read answers in ~5 ms,
 // measured against the live backend. The delay was entirely in the client:
-// these rows come from a payload that refreshes on a HEARTBEAT (the org inbox
+// these rows come from a payload that refreshes on a HEARTBEAT (the org mailbox
 // from the 6 s tree poll, the user inbox from a 5 s usePolled), and the read
 // action refreshed either nothing or the wrong payload. So the row kept its
 // unread mark for 0–6 s after the write had already landed.
@@ -496,7 +496,7 @@ uiTest('§10.6 the WS event drives the spark on its own — the dev hook is not 
 // acknowledgement is local and immediate, which is the whole fix. Refreshing
 // the prop would pass with or without it.
 
-/** the org inbox marks read on click-OFF, like every MailList: select an
+/** the org mailbox marks read on click-OFF, like every MailList: select an
  *  unread row, then select another. Returns the rows after the handover. */
 async function readFirstRow(el: HTMLElement) {
   const rows = () => q(el, '.mailrow') as HTMLElement[]
@@ -507,7 +507,7 @@ async function readFirstRow(el: HTMLElement) {
   return rows()
 }
 
-uiTest('§11.1 an org-inbox row goes read on the POST, not on the next tree '
+uiTest('§11.1 an org-mailbox row goes read on the POST, not on the next tree '
   + 'poll — the prop never changes here', async ({ mount }) => {
     installFetch(new (await import('./harness')).FakeServer())
     // unread: 2 over two entries ⇒ BOTH rows start unread, and the prop that
@@ -555,10 +555,10 @@ uiTest('§11.2 …and a write that FAILS arms nothing (D-089)',
   })
 
 // ═══════════════════════════════════════════════════════════════════════ §12
-// THE ORG-INBOX TILE — nothing may evict the last-mail line, and no badge
+// THE ORG-MAILBOX TILE — nothing may evict the last-mail line, and no badge
 // ═══════════════════════════════════════════════════════════════════════ §12
 //
-// User bug 2026-08-07: "when there are unread mails in the org inbox, the
+// User bug 2026-08-07: "when there are unread mails in the org mailbox, the
 // tooltip showing the last outbound recipient gets pushed off the bottom and
 // cut off."
 //
@@ -566,7 +566,7 @@ uiTest('§11.2 …and a write that FAILS arms nothing (D-089)',
 // is a layout fault and jsdom has no layout at all:
 //   without a badge   .oi-head 13.5px · .oi-last 10.5px · not clipped
 //   WITH a badge      .oi-head 25.5px · .oi-last  2.3px · CLIPPED
-// The label "org inbox" was a bare text node — an anonymous flex item, and
+// The label "org mailbox" was a bare text node — an anonymous flex item, and
 // those wrap. The badge competing for width made it two lines, the tile's
 // height is fixed (INBOX_H, the canvas layout depends on it), so .oi-last was
 // flex-shrunk to a sliver and clipped its own overflow. Silently: nothing
@@ -579,8 +579,8 @@ uiTest('§11.2 …and a write that FAILS arms nothing (D-089)',
 // edit a future refactor would undo, and undoing it brings the wrap back.
 // The pixel proof lives in the commit message and the CSS comment.
 //
-// ⚠ THE BADGE ITSELF IS GONE (user 2026-08-10): "the org inbox doesn't need an
-// unread mail number tag, the user isn't meant to read them." Org-inbox mail
+// ⚠ THE BADGE ITSELF IS GONE (user 2026-08-10): "the org mailbox doesn't need an
+// unread mail number tag, the user isn't meant to read them." Org-mailbox mail
 // is addressed to the ORGANIZATION and answered by its agents, so a count
 // aimed at the user was an obligation the UI invented. That removes the
 // specific competitor for width, and NOT the structural rule — the hub-status
@@ -588,12 +588,12 @@ uiTest('§11.2 …and a write that FAILS arms nothing (D-089)',
 // as it did under the badge. §12.1 stands unchanged; §12.2 now pins the
 // absence, so restoring a count trips a test rather than a user.
 
-uiTest('§12.1 the org-inbox label is an element, not a loose text node — a '
+uiTest('§12.1 the org-mailbox label is an element, not a loose text node — a '
   + 'bare one wraps under the unread badge and evicts the last-mail line',
 async ({ mount }) => {
   const c = await canvas(mount)
   const head = c.el.querySelector('.oi-head')
-  assert.ok(head, 'the org-inbox tile did not render a head')
+  assert.ok(head, 'the org-mailbox tile did not render a head')
   const title = head.querySelector('.oi-title')
   assert.ok(title, 'the label is not in its own element — as a bare text node '
     + 'it is an anonymous flex item, and those WRAP when the badge takes width')
@@ -618,9 +618,9 @@ uiTest('§12.2 …and unread org mail adds NO badge, while the last-mail line '
       slug="mine" toast={noop} mailEvt={null} />)
   await flush()
   const tile = el.querySelector('.sq.orginbox')
-  assert.ok(tile, 'no org-inbox tile')
+  assert.ok(tile, 'no org-mailbox tile')
   assert.equal(tile.querySelector('.count'), null,
-    'the org inbox is showing an unread count. That mail is addressed to the '
+    'the org mailbox is showing an unread count. That mail is addressed to the '
     + 'organization and answered by its agents — a badge asks the user to '
     + 'clear something that was never theirs (user 2026-08-10)')
   const last = tile.querySelector('.oi-last')
@@ -706,7 +706,7 @@ test('§13.3 a downgrade raises nobody — the cascade is one-directional', () =
   assert.deepEqual(got, [], JSON.stringify(got))
 })
 
-uiTest('disabled org inbox disappears with its audience edges and returns without losing history', async ({ mount }) => {
+uiTest('disabled org mailbox disappears with its audience edges and returns without losing history', async ({ mount }) => {
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const saved = tree(['ceo'])
   let enable!: (enabled: boolean) => void
@@ -737,7 +737,7 @@ uiTest('disabled org inbox disappears with its audience edges and returns withou
 })
 
 // ── first outside mail: the inbox node does not exist yet (user 2026-11-07) ──
-// "when outside mail arrives for the first time and the org inbox appears,
+// "when outside mail arrives for the first time and the org mailbox appears,
 // there's no spark". The mail frame lands BEFORE the tree refresh that makes
 // the inbox visible, so launchSpark found no node and dropped the spark. The
 // spark must wait for the node (one spark, only once it is laid out), and an

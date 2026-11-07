@@ -16,7 +16,7 @@
 // (`mailInboxRead`), which reads just those links again. AN AGENT'S MESSAGE FLARES TOO (USER 2026-11-01 mc13db4358667 "only user
 // mail gets the highlight. can agent mail get it too? it has read / unread states"): the node box's lookup says `unread` by the
 // recipient's own row (the unread states the inbox counts), the same for the sender's view of what it sent, and the links on
-// screen read it again when the tree's pending-mail counts change (`mailTreeChanged`). The org inbox's message never flares. AN
+// screen read it again when the tree's pending-mail counts change (`mailTreeChanged`). The org mailbox's message never flares. AN
 // UNREAD URGENT MESSAGE'S EDGE IS THE URGENT COLOUR (USER 2026-11-01 m49a258f12e57 "urgent unread mail gets a highlight with the
 // urgent color"), user and agent mail alike: the class `mail-urgent` beside `mail-new`.
 

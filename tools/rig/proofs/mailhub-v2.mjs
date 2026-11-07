@@ -181,7 +181,7 @@ export default async function (rig, { flags }) {
   const s1 = await rig.tool('boss', 'orgtree_message', { to: `@net:${nB}`, body: 'PROOF-NET-1 hello B, from boss' })
   const got1 = await rig.waitFor(() => inRow(B, 'PROOF-NET-1%'), { what: 'B to receive PROOF-NET-1', timeout: 60000 })
   const ms1 = Date.now() - t0
-  p.check('@net mail A to B: queued, sent through the hub, delivered into B\'s org inbox', s1.ok && got1.peer === `@net:${nA}`, { send: s1.text, ms: ms1 })
+  p.check('@net mail A to B: queued, sent through the hub, delivered into B\'s org mailbox', s1.ok && got1.peer === `@net:${nA}`, { send: s1.text, ms: ms1 })
   const zoe1 = await rig.waitFor(() => { const m = mailOf(B, 'zoe', 'PROOF-NET-1%'); return m?.state === 'delivered' ? m : null },
     { what: 'zoe (B\'s holder) to read PROOF-NET-1', timeout: 60000 })
   const read1 = await rig.waitFor(() => outRow(A, 'PROOF-NET-1%')?.state === 'read' ? outRow(A, 'PROOF-NET-1%') : null,
@@ -189,7 +189,7 @@ export default async function (rig, { flags }) {
   p.check('receipts: A\'s outgoing row went sent, delivered, read (zoe\'s turn read it)', read1.state === 'read', { zoe: zoe1.state, row: read1 })
   const hubMsg1 = hubSql(`SELECT state, fetched_at IS NOT NULL AS fetched, delivered_at, read_at FROM mailhub.messages WHERE id = '${q(read1.net_id)}'`)[0]
   p.check('the hub recorded custody (acknowledged) and both receipts', hubMsg1?.state === 'fetched' && hubMsg1.delivered_at && hubMsg1.read_at, hubMsg1)
-  p.note(`PROOF-NET-1 reached B's org inbox ${ms1} ms after orgtree_message returned`)
+  p.note(`PROOF-NET-1 reached B's org mailbox ${ms1} ms after orgtree_message returned`)
 
   // attachment, from boss through the shared agent transport
   const file = crypto.randomBytes(300 * 1024 + 7)
@@ -213,7 +213,7 @@ export default async function (rig, { flags }) {
   p.check('agent reply over @net: the hub carried reply_to = the answered message\'s hub id', r1.ok && hubR1?.reply_to === read1.net_id,
     { tool: r1.text, hub: hubR1, answered: read1.net_id })
   const outA1 = outRow(A, 'PROOF-NET-1%')
-  p.check('…and A quotes its own message on arrival (the org inbox row links to it)', back1.reply_to?.id === outA1.uid
+  p.check('…and A quotes its own message on arrival (the org mailbox row links to it)', back1.reply_to?.id === outA1.uid
     && back1.reply_to.from === 'boss' && back1.reply_to.gist.startsWith('PROOF-NET-1') && back1.reply_to.box === 'org', back1.reply_to)
   const bossR1 = await rig.waitFor(() => { const m = mailOf(A, 'boss', 'PROOF-REPLY-1%'); return m?.state === 'delivered' ? m : null },
     { what: 'boss to read zoe\'s reply', timeout: 60000 })
@@ -232,7 +232,7 @@ export default async function (rig, { flags }) {
     && back2.reply_to.gist.startsWith('PROOF-REPLY-1'), { sent: r2, hub: hubR2, quote: back2.reply_to })
   const list = await rig.api('GET', `/api/orgs/${A}/org_inbox`)
   const listed2 = list.entries.find(e => e.body.startsWith('PROOF-REPLY-2'))
-  p.check('the org inbox list shows the reply\'s quote on the sent row', listed2?.reply_to?.gist?.startsWith('PROOF-REPLY-1'), listed2?.reply_to)
+  p.check('the org mailbox list shows the reply\'s quote on the sent row', listed2?.reply_to?.gist?.startsWith('PROOF-REPLY-1'), listed2?.reply_to)
   const zoeR2 = await rig.waitFor(() => { const m = mailOf(B, 'zoe', 'PROOF-REPLY-2%'); return m?.state === 'delivered' ? m : null },
     { what: 'zoe to read boss\'s reply', timeout: 60000 })
   const pr2 = unescape(promptWith('zoe', 'PROOF-REPLY-2'))

@@ -14,7 +14,7 @@ import { useMailboxHistory } from '../usemailhistory'
 import { useStaging, StagingRows } from './staging'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
-// the org-inbox viewer (OrgInboxModal), and the org record. One mail
+// the org-mailbox viewer (OrgInboxModal), and the org record. One mail
 // interface everywhere (user ruling: the user's and the agents' inboxes
 // function identically). Extracted verbatim from Canvas.tsx in the phase-3
 // split.
@@ -86,7 +86,7 @@ export interface MailListProps {
   /** Org outbox attribution owns the header's left side; metadata trails it. */
   compoundHeader?: boolean
   selectionRequest?: InboxSelectionRequest
-  /** a filter the host asks for (the org inbox's view of one address): set
+  /** a filter the host asks for (the org mailbox's view of one address): set
    *  in the filter box on mount and on each new seq, then the reader's own */
   filterRequest?: { text: string; seq: number } | null
   hiddenUnread?: {count:number;onOpen:()=>void}
@@ -111,7 +111,7 @@ export interface MailListProps {
    *
    *  ⚠ IT DEFAULTS TO `sender`, AND THE DIRECTION OF THAT DEFAULT IS THE
    *  POINT. The row and the reading pane name the same party, so a call site
-   *  that declared its counterparty plain text — the org inbox, whose peers
+   *  that declared its counterparty plain text — the org mailbox, whose peers
    *  came from OUTSIDE this org — gets plain text in the row too, WITHOUT
    *  having to remember a second prop. Forgetting `rowSender` can only ever
    *  make the row agree with the pane; it can never make the row resolve an
@@ -617,7 +617,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     cur && !outgoing ? curPile ?? [cur] : [], onRead, owner)
   const party = partyOf
   // a custom sender renderer owns the whole head identity (it receives the
-  // mail too — the org inbox uses this for "@agent as @org → @recipient")
+  // mail too — the org mailbox uses this for "@agent as @org → @recipient")
   const customS = outgoing && sender != null
   // reply from where you read (№11): only for incoming mail whose sender is a
   // plain agent id — @-sentinels (@user/@system/@ext:/@org:/@mcp:) route
@@ -1054,7 +1054,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   /** the displayed party of `cur` (the event actor, else the sender) */
   party: string
   outgoing?: boolean
-  /** the sender renderer owns the whole head identity (the org inbox) */
+  /** the sender renderer owns the whole head identity (the org mailbox) */
   customSender?: boolean
   waitLabel?: ReactNode
   /** a caller-supplied body that replaces the message AND the reply box
@@ -1519,7 +1519,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
  *  (user feature 2026-08-17, "all audience holding types") — the same
  *  collapse as the desk footer's retired reports (F-01). `ids` are the
  *  retired entries only; the host draws its own chip shape via `render`,
- *  so the fold works for user-audience holders, org-inbox holders, and a
+ *  so the fold works for user-audience holders, org-mailbox holders, and a
  *  desk's held-audience badges alike. */
 export function RetiredFold({ ids, render }: {
   ids: string[]
@@ -1552,7 +1552,7 @@ export function AudienceFold({ ids, label, alert = false, render, limit = AUDIEN
   ids: string[]
   /** plural visible noun, e.g. "audience holders" */
   label: string
-  /** org inboxes expect one holder: a larger folded count is an anomaly */
+  /** org mailboxes expect one holder: a larger folded count is an anomaly */
   alert?: boolean
   render: (id: string) => ReactNode
   /** folds from this many ids up; the desk's jump cards pass their own */
@@ -1774,7 +1774,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
   // two, the panel opens on `inbox`, and the Sent list was not even given the
   // jump — so a reference to a message this agent SENT could never be found,
   // and the panel opened looking ordinary with the mail one unmarked click
-  // away. The org inbox has always done this; the node box had not.
+  // away. The org mailbox has always done this; the node box had not.
   //
   // Keyed on the JUMP, not on the box: switching whenever the data changes
   // would drag the reader back out of a folder they had chosen by hand every
@@ -1906,7 +1906,7 @@ export interface MailFoldersProps {
   unread: number
   folders?: string[]
   /** provider-themes the inbox count by the mailbox OWNER (absent for the
-   *  user's own inbox and the org inbox, which belong to no provider) */
+   *  user's own inbox and the org mailbox, which belong to no provider) */
   tier?: string | null
   /** badges on folders other than the inbox (a project's mail listeners) */
   counts?: Record<string, number>
@@ -2026,9 +2026,9 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
     </PinFrame>
   )
 }
-// the ORG INBOX viewer (user spec): the org's correspondence with the outside
+// the ORG MAILBOX viewer (user spec): the org's correspondence with the outside
 // world — chatq sessions and other orgs — as one chronological thread. Also
-// where the user staffs the "client contact" role: grant/revoke org-inbox
+// where the user staffs the "client contact" role: grant/revoke org-mailbox
 // audiences so chosen sub-agents read and answer outside mail.
 interface OrgInboxModalProps {
   inbox: TreePayload['org_inbox'] | undefined
@@ -2044,7 +2044,7 @@ interface OrgInboxModalProps {
   /** canonical references in org-mail bodies, forwarded to the lists */
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   onFocusAgent?: (agentId: string) => void
-  /** "Open in org inbox" on a Hub contact link: this address's mail, filtered
+  /** "Open in org mailbox" on a Hub contact link: this address's mail, filtered
    *  to it, on the folder of the newest mail exchanged with it and that mail
    *  selected. A REQUEST like a jump: a new seq is a new one. */
   party?: { address: string; seq: number } | null
@@ -2053,7 +2053,7 @@ interface OrgInboxModalProps {
 const sameAddress = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 const entryFolder = (e: OrgInboxEntry) => e.dir === 'out' ? 'sent' : 'inbox'
 
-/** One org-inbox log entry as the row both folders read: received mail
+/** One org-mailbox log entry as the row both folders read: received mail
  *  (`dir` in) is a `message` from its peer, sent mail a `reply` to it, with
  *  the org's own sender in `_by`. Listed rows and a lookup by id both come
  *  through here, so a message found outside the loaded window reads exactly
@@ -2074,10 +2074,10 @@ function orgInboxRow(e: OrgInboxEntry, slug: string, unread: boolean): MailRow {
   }
 }
 
-/** the folder an org-inbox row lists in: the split between Received and Sent */
+/** the folder an org-mailbox row lists in: the split between Received and Sent */
 const orgFolderOf = (m: MailRow) => m.kind === 'reply' ? 'sent' : 'inbox'
 
-/** an outside party of the org inbox: a hub address is the shared contact link,
+/** an outside party of the org mailbox: a hub address is the shared contact link,
  *  anything else is written plain (it came from outside, so no name match is trusted) */
 const outsideParty = (id: string) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>
 
@@ -2143,7 +2143,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // on 'not in this folder' — a claim about the message made from a slice.
   // One id, asked once, only when that happens.
   //
-  // ⚠ THE ANSWER IS AN ORG-INBOX ENTRY, NOT A MAIL ROW. The engine answers an
+  // ⚠ THE ANSWER IS AN ORG-MAILBOX ENTRY, NOT A MAIL ROW. The engine answers an
   // org-box lookup with the entry GET org_inbox lists ({dir, peer, by}), so it
   // is mapped exactly as a listed row is. Cast instead, it had no `from` or
   // `to`, and reading it called the sender renderer with nothing: the neoja
@@ -2171,7 +2171,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // fetch landed.
   const logLen = full?.total ?? inbox?.total ?? entries.length
   const hubsVisible = (net?.hubs ?? []).some((h) => !h.hidden)
-  // the org inbox tracks read state as ONE high-water mark over the log — the
+  // the org mailbox tracks read state as ONE high-water mark over the log — the
   // tail beyond it renders as unread; any read action clears the whole mark
   //
   // ⚠ These rows come from the TREE payload (a prop), which refreshes on a 6 s
@@ -2286,9 +2286,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
       role="img" aria-label={tip} title={tip}> {g}</span>
   }
   return (
-    <PinFrame kind="org-inbox" title="The org inbox" panel="settings wide"
+    <PinFrame kind="org-inbox" title="The org mailbox" panel="settings wide"
       close={close}>
-        <h3><PublicIcon fontSize="inherit" /> The org inbox</h3>
+        <h3><PublicIcon fontSize="inherit" /> The org mailbox</h3>
         {hubsVisible && (
           <div className="adv-tabs">
             <button className={'adv-tab' + (tab === 'mail' ? ' on' : '')}
@@ -2301,9 +2301,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
           <TransferPanel slug={slug} />
           <div className="org-audience-holders">
             <AudienceHolderRows ids={holders} nodes={map}
-              foldLabel="org inbox audience holders" alert audienceTarget={EXTERN}
+              foldLabel="org mailbox audience holders" alert audienceTarget={EXTERN}
               onRemove={(h) => audienceAction(slug, 'revoke', h, EXTERN)
-                .then(() => toast([`org-inbox audience for ${h} rescinded`]))
+                .then(() => toast([`org-mailbox audience for ${h} rescinded`]))
                 .catch((e: Error) => toast([`error: ${e.message}`]))} />
             <span className="dim" style={{ fontSize: 11.5 }}>
               {holders.length === 0
@@ -2349,7 +2349,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     waitLabel="unread" onRead={markRead} jumpTo={listJump}
                     jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} onFound={onFound} toast={toast}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
-                    /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
+                    /* ⚠ AN INCOMING ORG-MAILBOX SENDER IS EXTERNAL BY
                        PROVENANCE, AND A NAME MATCH IS NOT EVIDENCE OTHERWISE.
                        These rows came from OUTSIDE this org, so the peer is an
                        outside party even when it spells itself exactly like

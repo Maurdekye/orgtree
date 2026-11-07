@@ -1168,7 +1168,7 @@ const above = (c: Cue, by = 70): number => (c.at.rect ? c.at.rect.y - 18 : c.at.
 
 /** Who an effect is about, written under its word (the Argon and Astra takes
  *  name the agent): an explicit caption, else the agent — never the user's
- *  eye, the org inbox or a watchdog's id. */
+ *  eye, the org mailbox or a watchdog's id. */
 const captionOf = (c: Cue): string | undefined => {
   if (c.ev.caption) return c.ev.caption
   const who = c.ev.node

@@ -1,4 +1,4 @@
-// orginbox-delivered-build.mjs — bundles orginbox-delivered.visual.tsx (the real org inbox window from
+// orginbox-delivered-build.mjs — bundles orginbox-delivered.visual.tsx (the real org mailbox window from
 // ../src, CSS in main.tsx's order) into probe.js and probe.css for orginbox-delivered.capture.cjs.
 //
 //   node orginbox-delivered-build.mjs <checkout root> <outdir>

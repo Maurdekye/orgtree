@@ -1,4 +1,4 @@
-// Proof: a project holds the org inbox (USER 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53,
+// Proof: a project holds the org mailbox (USER 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53,
 // m63e16cf45188; spec org-inbox-queue-spec.md rev 2.2), through the real engine and a fake hub peer.
 //   inbound hub mail becomes one job in the front-door project's queue (sender stays the outside peer)
 //   the worker the queue hands it to may reply to that sender (reply_to = its copy) before it acks
@@ -56,8 +56,8 @@ export default async function (rig) {
   // two listeners: wa listens now, wb later, so the first job is wa's
   const da = await rig.tool('wa', 'orgtree_watchdog', { action: 'create', name: 'door-queue', kind: 'fair_queue', target: 'door' })
   p.check('worker wa listens on the front-door project', !!da)
-  const g = await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'door', target: 'extern', reason: 'proof: the project queues the org inbox' })
-  p.check('a project can hold the org-inbox audience', rig.sql("SELECT 1 FROM ot.audiences WHERE grantee='door' AND grantor='@extern' AND revoked_at IS NULL").length === 1, g)
+  const g = await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'door', target: 'extern', reason: 'proof: the project queues the org mailbox' })
+  p.check('a project can hold the org-mailbox audience', rig.sql("SELECT 1 FROM ot.audiences WHERE grantee='door' AND grantor='@extern' AND revoked_at IS NULL").length === 1, g)
 
   // ------------------------------------------------------------ inbound becomes a job; the worker replies before acking
   await hub('inbound', { id: 'in1', body: 'Hello, I need help with my order.' })

@@ -1,4 +1,4 @@
-// The org inbox window's received-mail detail listing every agent the mail was delivered to, beside
+// The org mailbox window's received-mail detail listing every agent the mail was delivered to, beside
 // the outbox's own "@agent as @org -> @recipient" line (USER 2026-10-29 ma660da825904), dark and
 // light, over orginbox-delivered.visual.tsx's synthetic data. No engine, no real clipboard, no OS
 // input: Session 0 only, muted, offscreen; clipboard permissions denied and every clipboard path

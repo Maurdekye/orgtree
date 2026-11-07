@@ -1,13 +1,13 @@
-// orginbox-jumps.test.tsx — A LINK INTO THE ORG INBOX OPENS ITS MESSAGE IN THE
+// orginbox-jumps.test.tsx — A LINK INTO THE ORG MAILBOX OPENS ITS MESSAGE IN THE
 // FOLDER THAT HOLDS IT, AND A LOOKED-UP MESSAGE READS LIKE A LISTED ONE
 // (user bug 2026-10-29, @item:orgtree/frontend-crashes-when-opening-the-received-tab-o).
 //
-// On the neoja org the user opened the org inbox from a link to a message the
+// On the neoja org the user opened the org mailbox from a link to a message the
 // org had SENT, clicked Received, and the whole frontend stopped: "Cannot read
 // properties of undefined (reading 'startsWith')" in the reading pane's sender.
 // The panel's two folders are one MailList instance, so the jump went on into
 // Received, which did not hold the message and so looked it up by id. The
-// engine answers an org-box lookup with the org inbox's own entry ({dir, peer,
+// engine answers an org-box lookup with the org mailbox's own entry ({dir, peer,
 // by}); the panel handed that to the list as a mail row with no `from` or
 // `to`, and the pane's sender renderer called startsWith on nothing.
 //
@@ -103,7 +103,7 @@ test('§1 a link to a Sent message, then Received: Received lists its mail and t
   assert.ok(isOpen(el, 'sent'), 'the link opened Sent')
   assert.match(pane(el), /Queued while the recipient is offline/)
   await choose(el, 'inbox')
-  assert.ok(el.querySelector('.mailwrap'), 'the org inbox is still on screen')
+  assert.ok(el.querySelector('.mailwrap'), 'the org mailbox is still on screen')
   assert.ok(isOpen(el, 'inbox'), 'Received is the open folder')
   assert.match(list(el), /שלום! הקבצים מצורפים/)
   assert.match(list(el), /The newest received message/)

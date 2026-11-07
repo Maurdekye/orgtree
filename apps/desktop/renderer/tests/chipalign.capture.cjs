@@ -10,7 +10,7 @@
 //             line at most; and a chat row, or a React sentence, with as many lines as its chip-less control is no taller than it
 //             by 0.1 px (a chip adds nothing to its line).
 // and writes zoomed crops of every row. Surfaces: chipalign.visual.tsx (chat prose, mail body, docket, event head,
-// mail row, tray) in both mention layouts, and orginbox-delivered.visual.tsx (the org inbox's Sent line "@agent as
+// mail row, tray) in both mention layouts, and orginbox-delivered.visual.tsx (the org mailbox's Sent line "@agent as
 // @org -> @recipient" and the received mail's delivered-to line: the user's first screenshot).
 //
 //   electron.exe chipalign.capture.cjs <outDir> <repoRoot> <node_modules dir> <label> [baseline results.json]
@@ -194,7 +194,7 @@ app.whenReady().then(async () => {
       await js('window.chipFixture.run(true)'); await paint()
     }
 
-    // 2. the org inbox: the Sent line and the received mail's delivered-to line
+    // 2. the org mailbox: the Sent line and the received mail's delivered-to line
     await loadPage(pages.inbox, 'inbox')
     await wait('window.deliveredFixture'); await js(INSTALL)
     for (const surface of ['sent', 'some']) {

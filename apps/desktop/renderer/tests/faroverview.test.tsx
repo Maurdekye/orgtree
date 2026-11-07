@@ -74,7 +74,7 @@ test('switchboard credit bar disappears below the exact shared boundary and retu
     ['circulation 8','seats 2','free 6'],'every restored credit label keeps its exact value')
 })
 
-for (const zoom of [0.24, 0.8]) test(`org inbox tile and opened modal use the same globe at zoom ${zoom}`, async () => {
+for (const zoom of [0.24, 0.8]) test(`org mailbox tile and opened modal use the same globe at zoom ${zoom}`, async () => {
   const savedFetch = globalThis.fetch
   const slug = 'inbox-globe-' + zoom
   const tree = { slug, name: slug, roots: [], dirs: [], max_top_grant: 1000,

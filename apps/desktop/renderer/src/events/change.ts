@@ -17,9 +17,9 @@ export interface ChangePart { key: string; bits: Bit[]; detail?: Detail }
 
 const t = (text: string): Bit => ({ text })
 const agent = (name: string): Bit => ({ agent: name.replace(/^@/, '') })
-/** the user, the org inbox, or an agent */
+/** the user, the org mailbox, or an agent */
 const party = (name: string): Bit => name === '@user' || name === 'user' ? t('the user')
-  : name === '@extern' ? t('the org inbox') : agent(name)
+  : name === '@extern' ? t('the org mailbox') : agent(name)
 const part = (key: string, ...bits: (Bit | string)[]): ChangePart =>
   ({ key, bits: bits.map(b => typeof b === 'string' ? t(b) : b) })
 const signed = (n: number) => n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0'
@@ -104,9 +104,9 @@ function audienceParts(e: Of<'access.audience_changed'>): ChangePart[] {
     case 'audience_with': return [part('audience', 'Granted: audience with ', party(e.target))]
     case 'audience_from': return [part('audience', 'Granted: ', agent(other), ' may message you')]
     case 'user_audience_seen': return [part('audience', 'Granted: ', agent(other), ' may write to your inbox')]
-    case 'org_inbox': return [part('audience', 'Granted: the org inbox')]
-    case 'org_inbox_auto': return [part('audience', 'Granted: the org inbox (automatically)')]
-    case 'org_inbox_released': return [part('audience', 'Released: the org inbox')]
+    case 'org_inbox': return [part('audience', 'Granted: the org mailbox')]
+    case 'org_inbox_auto': return [part('audience', 'Granted: the org mailbox (automatically)')]
+    case 'org_inbox_released': return [part('audience', 'Released: the org mailbox')]
     case 'declined': return [part('audience', 'Declined: audience with ', party(e.target))]
     case 'rescinded': return [part('audience', 'Rescinded: audience with ', party(e.target)),
       ...(e.other ? [part('route', 'still reachable through project ', agent(e.other))]

@@ -1380,14 +1380,14 @@ export type WorkLinkFn = (
 export type MailRow = MailEntry & {
   to?: string                   // outgoing rows
   _wait?: boolean               // decorated inside MailList (pending group)
-  _wait0?: boolean              // org-inbox pre-split unread flag
-  _by?: string                  // org-inbox outbound attribution
-  _delivered?: string[]         // org-inbox received: the agents it was delivered to
+  _wait0?: boolean              // org-mailbox pre-split unread flag
+  _by?: string                  // org-mailbox outbound attribution
+  _delivered?: string[]         // org-mailbox received: the agents it was delivered to
   /** an ASK riding the inbox as its own mail row (user ruling 2026-08-04):
    *  the reading pane renders the response UI as the body instead of the
    *  reply UI. Never sent to markRead — it is not a real mail id. */
   _ask?: AskInfo
-  /** F-06: @net: outbound delivery state (org-inbox out rows) */
+  /** F-06: @net: outbound delivery state (org-mailbox out rows) */
   _state?: 'queued' | 'sent' | 'delivered' | 'read'
   _state_at?: string
   /** §10: wire-failure note copied off the spool entry (queued rows only) */
@@ -1565,12 +1565,12 @@ export const queuedAccountTitle = (n: {
   const who = p.by === USER ? 'the user' : p.by
   return `account rebind QUEUED by ${who}: ${n.account ?? 'primary'} → ${p.account} applies when the current turn ends`
 }
-export const EXTERN = '@extern'      // the org-inbox audience grantor sentinel
+export const EXTERN = '@extern'      // the org-mailbox audience grantor sentinel
 /** Plain-language explanation shown when hovering an audience grant chip. */
 export function audienceGrantTooltip(target: string, kind?: string): string {
   if (target === USER) return 'Can message you directly: send you mail and ask you questions'
-  if (target === EXTERN && kind === 'project') return 'Receives outside mail sent to the org inbox in its queue'
-  if (target === EXTERN) return 'Can read and answer outside mail sent to the org inbox'
+  if (target === EXTERN && kind === 'project') return 'Receives outside mail sent to the org mailbox in its queue'
+  if (target === EXTERN) return 'Can read and answer outside mail sent to the org mailbox'
   const recipient = kind === 'project' ? 'project' : kind === 'agent' ? 'agent' : 'agent or project'
   return `Can message ${recipient} ${target} directly, even though it is outside your normal chain`
 }
@@ -1615,7 +1615,7 @@ export const isSystemNotice = (m: MailRow): boolean =>
  *  to act on, and burying an action inside a summary is the failure this rule
  *  exists to avoid. In the user's own mailbox this clause is quiet by
  *  construction — D-173 lands notices already read — but MailList is the one
- *  mail interface everywhere, and the node and org inboxes do carry pending
+ *  mail interface everywhere, and the node and org mailboxes do carry pending
  *  rows.
  *
  *  This is a DISPLAY fold and deliberately nothing else: every entry survives
@@ -1633,7 +1633,7 @@ export const pileNotices = (rows: MailRow[], compatible: (a: MailRow, b: MailRow
   return out
 }
 
-export const INBOX = '__orginbox__'  // the org-inbox panel's layout id
+export const INBOX = '__orginbox__'  // the org-mailbox panel's layout id
 export const INBOX_H = 64
 // the eye's fixed world x (see layout()): generous enough that even a very
 // wide left subtree (~32 leaf columns) never crosses into negative space
@@ -2415,11 +2415,11 @@ export function sizeOf(id: string): { w: number; h: number } {
   return { w: NODE_W, h: NODE_H }
 }
 
-/** World px kept clear between the org inbox and any other card: room for a
+/** World px kept clear between the org mailbox and any other card: room for a
  *  card's popped-out name above it and its hover hire tokens beside it. */
 export const INBOX_CLEAR = 48
 
-/** Where the ORG INBOX panel goes, given every other laid-out position
+/** Where the ORG MAILBOX panel goes, given every other laid-out position
  *  (top-left corners; sizes from `sizeOf`). Its usual place is up and to the
  *  right of the eye. In the circle view the rings grow AROUND the eye, so a
  *  ring can reach that place (user report 2026-10-01). The panel then slides

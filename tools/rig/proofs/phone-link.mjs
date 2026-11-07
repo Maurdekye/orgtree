@@ -215,10 +215,10 @@ export default async function (rig) {
   p.check('the trust note is in the instructions for all orgs, marked, and org.md is unchanged', noteIn(app.content) === '<!-- added by Connect your phone; Unlink removes it -->\n'
     + `@net:${alex.slug} is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n` && orgmd() === original, { app, md: orgmd() })
   const inbound = await rig.waitFor(() => rig.one(`SELECT body FROM ot.org_inbox WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(org)}') AND dir = 'in' AND body LIKE 'Hi! This is Hubchat%'`),
-    { what: 'the first message in the org inbox' })
+    { what: 'the first message in the org mailbox' })
   p.check('the first message still reaches the org (its agents read it)', !!inbound)
   const reply = rig.one(`SELECT by_name, body FROM ot.org_inbox WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(org)}') AND dir = 'out' AND body LIKE '%Setup code: ${minted.code} linked'`)
-  p.check('the answer is in the org inbox as sent by orgtree', reply?.by_name === 'orgtree', reply)
+  p.check('the answer is in the org mailbox as sent by orgtree', reply?.by_name === 'orgtree', reply)
 
   await send(alex, `again\nSetup code: ${minted.code}`)
   const replay = await answers(alex, `Setup code: ${minted.code} expired`)

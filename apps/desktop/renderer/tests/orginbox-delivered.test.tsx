@@ -5,7 +5,7 @@ import { OrgInboxModal } from '../src/canvas/mail'
 import type { OrgInboxEntry } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 
-// USER 2026-10-29 ma660da825904: the detail of a mail in the org inbox lists
+// USER 2026-10-29 ma660da825904: the detail of a mail in the org mailbox lists
 // every agent the mail was delivered to, as the outbox lists who sent it as the
 // org. The engine records the list at delivery (`delivered_to`).
 const received = (delivered?: string[]): OrgInboxEntry => ({ id: 'in-1', dir: 'in', peer: '@net:alice.fixture',

@@ -1212,7 +1212,7 @@ uiTest('§17 OrgInboxModal inbox sender is external peer and stays plain (no age
   )
   await flush()
   const mRow = el.querySelector('.mailer-list .mailrow') as HTMLElement
-  assert.ok(mRow, 'org inbox row exists')
+  assert.ok(mRow, 'org mailbox row exists')
   await inAct(() => mRow.click())
   await flush()
 

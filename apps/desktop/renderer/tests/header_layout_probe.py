@@ -45,7 +45,7 @@ HTML = """
       <span class="statuschip working">working</span>
       <span class="badge frozen">usage halted until a deliberately long reset explanation</span>
       <span class="badge free">audience-with-a-very-long-name-that-cannot-be-clipped</span>
-      <span class="badge free">user</span><span class="badge free">org inbox</span>
+      <span class="badge free">user</span><span class="badge free">org mailbox</span>
       <span class="badge">$123.45</span><span class="badge">12 queued</span>
       <span class="badge">fallback 4 · safe-public-label</span>
     </div>

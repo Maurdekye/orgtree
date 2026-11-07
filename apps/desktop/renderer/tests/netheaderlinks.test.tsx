@@ -1,5 +1,5 @@
 // netheaderlinks.test.tsx — an outside address in a mail HEADER is the same
-// link it is in a message body, and that link can open the org inbox.
+// link it is in a message body, and that link can open the org mailbox.
 //
 // USER 2026-10-29 10:00:45Z m14ad537c5eb8, about a desk header reading
 // "Message @net:<address> <time>": "these addresses should also be embedded
@@ -12,12 +12,12 @@
 //   §1 the desk transcript header (the user's screenshot)
 //   §2 the shared header itself, on every surface that mounts it
 //   §3 the reading panes: desk/node inbox, user inbox (SenderChip)
-//   §4 "Open in org inbox" in the shared Hub contact menu, through the canvas
-//   §5 the org inbox's view of one address that entry opens
+//   §4 "Open in org mailbox" in the shared Hub contact menu, through the canvas
+//   §5 the org mailbox's view of one address that entry opens
 //
 // The click stays what every Hub contact link does (Hubchat when installed,
 // a local org's window, inert otherwise: DECISIONS "Hub-contact availability",
-// user 2026-10-18); the org inbox is the menu's other destination.
+// user 2026-10-18); the org mailbox is the menu's other destination.
 
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import { FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
@@ -239,7 +239,7 @@ test('§3.5 CONTROL: SenderChip keeps an agent\'s model chip and the user\'s "yo
 })
 
 // ═══════════════════════════════════════════════════════════════════ §4
-// "OPEN IN ORG INBOX" — the menu's other destination, through the canvas.
+// "OPEN IN ORG MAILBOX" — the menu's other destination, through the canvas.
 // ═══════════════════════════════════════════════════════════════════ §4
 
 const inboxRows: OrgInboxEntry[] = [
@@ -249,7 +249,7 @@ const inboxRows: OrgInboxEntry[] = [
   { id: 'o-out', dir: 'out', peer: OTHER, by: 'ceo', body: 'our answer to someone else', at: '2026-10-29T09:30:00Z', state: 'sent' },
 ]
 
-/** Every request answers: the org inbox log for /org_inbox, empty elsewhere. */
+/** Every request answers: the org mailbox log for /org_inbox, empty elsewhere. */
 function inboxServer(t: TestContext, rows: OrgInboxEntry[] = inboxRows) {
   const saved = globalThis.fetch
   globalThis.fetch = withoutMailTransfers((async (input: RequestInfo | URL) => {
@@ -299,19 +299,19 @@ async function canvas(t: TestContext, enabled = true) {
   await inAct(async () => { await flush(4) })
   return v.el.querySelector<HTMLElement>(`.outside-mail-head ${chipSel(PEER)}`)!
 }
-const orgInboxOpen = () => q(document, 'h3').some(h => txt(h).includes('The org inbox'))
+const orgInboxOpen = () => q(document, 'h3').some(h => txt(h).includes('The org mailbox'))
 
-test('§4.1 in an org window, the link\'s menu offers Open in org inbox, which opens that address\'s mail there', async t => {
+test('§4.1 in an org window, the link\'s menu offers Open in org mailbox, which opens that address\'s mail there', async t => {
   hubchat(t)
   const link = await canvas(t)
   assert.equal(orgInboxOpen(), false, 'positive control: the panel starts closed')
   const items = await openMenu(link)
-  assert.deepEqual(items.map(i => txt(i)), ['Open in Hubchat', 'Open in org inbox', 'Copy identity'],
+  assert.deepEqual(items.map(i => txt(i)), ['Open in Hubchat', 'Open in org mailbox', 'Copy identity'],
     'the second destination sits with the first')
   const entry = items[1]!
   assert.equal(entry.disabled, false)
   await inAct(async () => { entry.click(); await flush(6) })
-  assert.ok(orgInboxOpen(), 'the org inbox opened')
+  assert.ok(orgInboxOpen(), 'the org mailbox opened')
   const filter = document.querySelector<HTMLInputElement>('.mail-filter')
   assert.ok(filter, 'the panel shows its filter')
   assert.equal(filter!.value, PEER, 'filtered to the address')
@@ -322,15 +322,15 @@ test('§4.1 in an org window, the link\'s menu offers Open in org inbox, which o
 test('§4.2 an org whose inbox is closed off says so on the entry and opens nothing', async t => {
   hubchat(t)
   const link = await canvas(t, false)
-  const entry = (await openMenu(link)).find(i => txt(i) === 'Open in org inbox')
+  const entry = (await openMenu(link)).find(i => txt(i) === 'Open in org mailbox')
   assert.ok(entry, 'the entry is still offered in an org window')
   assert.equal(entry!.disabled, true)
-  assert.equal(entry!.title, 'The org inbox is closed off')
+  assert.equal(entry!.title, 'The org mailbox is closed off')
   await inAct(async () => { entry!.click(); await flush(3) })
   assert.equal(orgInboxOpen(), false)
 })
 
-test('§4.3 CONTROL: where no org inbox exists in the window the menu is unchanged', async t => {
+test('§4.3 CONTROL: where no org mailbox exists in the window the menu is unchanged', async t => {
   hubchat(t)
   const v = await mountView(<HubContactChip address={PEER} />, (host) => host)
   t.after(async () => { await closeMenu(); await v.unmount() })
@@ -340,7 +340,7 @@ test('§4.3 CONTROL: where no org inbox exists in the window the menu is unchang
 })
 
 // ═══════════════════════════════════════════════════════════════════ §5
-// THE ORG INBOX, OPENED ON ONE ADDRESS — OrgInboxModal's party view.
+// THE ORG MAILBOX, OPENED ON ONE ADDRESS — OrgInboxModal's party view.
 // ═══════════════════════════════════════════════════════════════════ §5
 
 async function orgInbox(t: TestContext, party: { address: string; seq: number } | null,

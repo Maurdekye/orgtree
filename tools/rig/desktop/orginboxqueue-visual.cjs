@@ -1,4 +1,4 @@
-// Org inbox project captures: the holder row (an agent AND a project), the project desk's "org inbox" chip with its
+// Org mailbox project captures: the holder row (an agent AND a project), the project desk's "org mailbox" chip with its
 // revoke, the Mail tab's follow-up chip, and the drop-replace confirm in BOTH directions (project replaces agent, agent
 // replaces project), in charcoal and light.
 //
@@ -78,15 +78,15 @@ app.whenReady().then(async () => {
         ? f.holders.length === 2 && /triage/.test(f.holders[0].text) && /intake/.test(f.holders[1].text)
           && /answer outside mail/.test(f.holders[0].title) && /in its queue/.test(f.holders[1].title)
           && f.holders.every(h => h.revoke)
-          && f.chip && /org inbox/.test(f.chip.text) && /in its queue/.test(f.chip.title) && f.chip.revoke
+          && f.chip && /org mailbox/.test(f.chip.text) && /in its queue/.test(f.chip.title) && f.chip.revoke
           && f.followup && /one more detail/.test(f.followup.text) && /follow-up to u0123456789ab/.test(f.followup.text)
         : scene === 'panel'
           ? !!f.panel && f.panel.holders.length === 2 && /triage/.test(f.panel.holders[0].text) && /intake/.test(f.panel.holders[1].text)
             && /in its queue/.test(f.panel.holders[1].title) && f.panel.holders.every(h => h.revoke)
             && /drag an agent or a project onto the mailbox/.test(f.panel.text)
         : scene === 'replace-project'
-          ? !!f.dialog && /Replace triage as the org inbox's holder with intake\?/.test(f.dialog) && /Replace/.test(f.dialog)
-          : !!f.dialog && /Replace intake as the org inbox's holder with triage\?/.test(f.dialog) && /Replace/.test(f.dialog))
+          ? !!f.dialog && /Replace triage as the org mailbox's holder with intake\?/.test(f.dialog) && /Replace/.test(f.dialog)
+          : !!f.dialog && /Replace intake as the org mailbox's holder with triage\?/.test(f.dialog) && /Replace/.test(f.dialog))
     const sized = shots.every(s => s.width === W && s.height === H)
     const quiet = errors.length === 0 // stock Electron CSP warnings (harnessNoise) are recorded, not failures
     const passed = checks.every(ok) && sized && quiet

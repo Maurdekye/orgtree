@@ -1920,7 +1920,7 @@ export function NavChip({ n, dir, onJump }:
 }
 
 /** The audiences a node holds, as header chips, the same on agent and project
- *  desks: the user, the org inbox and agents. Retired grantor agents fold
+ *  desks: the user, the org mailbox and agents. Retired grantor agents fold
  *  behind one chip (user feature 2026-08-17); USER/EXTERN are pseudo-peers,
  *  always "live". Only an explicit grant has the revoke ✕: inherited access
  *  names its source project and has no misleading personal revoke
@@ -1948,7 +1948,7 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
       tabIndex={inherited.length ? 0 : undefined}
       aria-label={inherited.length ? title : undefined}>
       <HearingIcon fontSize="inherit" />
-      {g === USER ? 'user' : g === EXTERN ? 'org inbox' : g}
+      {g === USER ? 'user' : g === EXTERN ? 'org mailbox' : g}
       {explicit && <button className="chip-x" title="Revoke"
         onClick={() => audienceAction(slug, 'revoke', node.id, g)
           .then(() => toast([`audience ${node.id}→${g} rescinded`]))

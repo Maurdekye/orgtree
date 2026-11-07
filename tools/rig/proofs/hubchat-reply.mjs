@@ -4,9 +4,9 @@
 // replying inline, even if that human is the user who already has direct
 // access to orgtree"). A reply that stays in the turn's text never reaches them.
 //   tess (a new top-level hire): her launch instructions carry the rule in
-//   their org-inbox passage.
+//   their org-mailbox passage.
 //   nova (a new report with no outside audience): her instructions have no
-//   org-inbox passage, as before.
+//   org-mailbox passage, as before.
 //   the inbox holder: a message from @net:peer.rig reaches his turn with a
 //   one-line reminder naming that address; the user's own mail has none.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/hubchat-reply.mjs
@@ -47,9 +47,9 @@ export default async function (rig) {
   }
   const tess = identity('tess'), nova = identity('nova')
   p.check('tess (a new top-level hire): her instructions say to answer a person on the hub with orgtree_message to their @net address, even when that person is the user',
-    tess.includes(RULE), { at: around(tess, 'over the hub') ?? around(tess, 'THE ORG INBOX'), bytes: tess.length })
-  p.check('nova (a new report with no outside audience): her instructions have no org-inbox passage, as before',
-    nova.length > 0 && !nova.includes('THE ORG INBOX') && !nova.includes('over the hub'), { bytes: nova.length })
+    tess.includes(RULE), { at: around(tess, 'over the hub') ?? around(tess, 'THE ORG MAILBOX'), bytes: tess.length })
+  p.check('nova (a new report with no outside audience): her instructions have no org-mailbox passage, as before',
+    nova.length > 0 && !nova.includes('THE ORG MAILBOX') && !nova.includes('over the hub'), { bytes: nova.length })
 
   // a person on the hub writes in
   await rig.api('POST', '/api/rig/hub-mail', { org: rig.org, op: 'inbound', id: 'hubchat-1', body: 'HUBCHAT-HELLO: are you there?' })

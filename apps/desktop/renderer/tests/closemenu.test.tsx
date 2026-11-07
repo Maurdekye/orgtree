@@ -462,7 +462,7 @@ const OTHER_SURFACES: {
   { name: 'node inbox', kind: 'node-inbox:worker', pinnable: true,
     render: (close) => <NodeInboxModal slug="mine" node={cnode('worker')} toast={noop}
       close={close} onFocusAgent={noop} /> },
-  { name: 'org inbox', kind: 'org-inbox', pinnable: true,
+  { name: 'org mailbox', kind: 'org-inbox', pinnable: true,
     render: (close) => <OrgInboxModal inbox={{ entries: [], unread: 0, holders: [], visible: true } as never}
       net={null} map={new Map()} slug="mine" toast={noop} close={close} jumpTo={null} /> },
   { name: 'agent docket', kind: 'agent-docket:worker', pinnable: true,

@@ -1,4 +1,4 @@
-// Synthetic node mailbox and retained org-inbox readers at the real HTTP boundary.
+// Synthetic node mailbox and retained org-mailbox readers at the real HTTP boundary.
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import {Proof} from '../proof.mjs'
@@ -12,7 +12,7 @@ export default async function(rig,{flags}){
  const orgId=rig.one(`SELECT id FROM ot.orgs WHERE slug='${rig.org}'`).id,node=rig.agentRow('worker')
  // Seed only this isolated rig database; no outside message or live org is used.
  rig.exec(`INSERT INTO ot.org_inbox(uid,org_id,dir,peer,body) VALUES('synthetic-retained',${orgId},'in','@org:synthetic','${orgText}')`)
- p.check('synthetic node mail, tagged user mail and retained org-inbox fixtures exist',tagged.ok&&!!rig.one(`SELECT id FROM ot.mail WHERE recipient_agent_id=${node.id} AND body='${nodeText}'`)&&!!rig.one(`SELECT id FROM ot.org_inbox WHERE org_id=${orgId} AND body='${orgText}'`))
+ p.check('synthetic node mail, tagged user mail and retained org-mailbox fixtures exist',tagged.ok&&!!rig.one(`SELECT id FROM ot.mail WHERE recipient_agent_id=${node.id} AND body='${nodeText}'`)&&!!rig.one(`SELECT id FROM ot.org_inbox WHERE org_id=${orgId} AND body='${orgText}'`))
  p.check('requested verbose mode is actually active',(await rig.api('GET','/api/app-settings/runtime')).verbose_logging===(mode==='on'))
  const pid=rig.refresh().enginePid
  const logFile=await rig.waitFor(()=>rig.engineLogFiles().find(file=>fs.readFileSync(file,'utf8').includes(`engine starting pid=${pid} `)),{what:'this engine session log',timeout:10000})

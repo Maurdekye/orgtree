@@ -415,7 +415,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 }
 .oi-dot.ok { background: var(--ok); }
 .oi-dot.mix { background: #e5c07b; }
-/* F-06: delivery-ladder glyph on org-inbox out rows */
+/* F-06: delivery-ladder glyph on org-mailbox out rows */
 .net-state { color: var(--dim); font-size: 11px; }
 .net-state.read { color: var(--ok); }
 .net-state.stuck { color: var(--bad); }
@@ -917,7 +917,7 @@ button.badge.frozen:hover { border-color: var(--button-accent); }
 button.badge.retired-fold { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.retired-fold:hover { border-color: var(--button-accent); }
 /* Long LIVE audience rows use the same small disclosure-chip vocabulary as
-   retired holders. The org inbox expects one outside-mail reader, so a folded
+   retired holders. The org mailbox expects one outside-mail reader, so a folded
    count above one deliberately keeps a warning colour: tidiness must not turn
    an unexpected second recipient into an invisible detail. */
 button.badge.audience-fold { cursor: pointer; font: inherit; font-size: inherit; }
@@ -6279,7 +6279,7 @@ svg.MuiSvgIcon-root {
   animation: pulse 1s ease-in-out infinite;
 }
 
-/* ---- the org inbox (outside-world correspondence) --------------------- */
+/* ---- the org mailbox (outside-world correspondence) --------------------- */
 /* sits ABOVE the overseer; steel = the outside-channel family (audience
    lines), never terracotta (that is the user's own color) */
 .sq.orginbox {
@@ -6297,7 +6297,7 @@ svg.MuiSvgIcon-root {
 /* ⚠ the head must stay ONE line. The tile's height is fixed (INBOX_H, the
    canvas layout depends on it), so anything that grows the head steals from
    .oi-last below it — and .oi-last clips its own overflow, so the theft is
-   silent. Measured 2026-08-07: with an unread badge the bare "org inbox" text
+   silent. Measured 2026-08-07: with an unread badge the bare "org mailbox" text
    node wrapped, head 13.5px → 25.5px, and .oi-last was flex-shrunk to 2.3px
    against a 14px line. nowrap + an ellipsis-able title element fixes the
    cause; the flex-shrink guards below make the symptom unreachable even if
@@ -6317,7 +6317,7 @@ svg.MuiSvgIcon-root {
    whole block exists to prevent was a lost fact. */
 .oi-title { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   letter-spacing: .02em; }
-/* (the unread badge that used to sit here is gone — user 2026-08-10: org-inbox
+/* (the unread badge that used to sit here is gone — user 2026-08-10: org-mailbox
    mail is the organization's to read, not the user's. The rule below keeps the
    hub-status dot from being the next thing to shrink into the label.) */
 .oi-head .oi-dot { flex: 0 0 auto; margin-left: auto; }
@@ -6327,7 +6327,7 @@ svg.MuiSvgIcon-root {
   flex: 0 0 auto;
 }
 /* the viewer itself is the SHARED webmail interface (.mailwrap/.mailer) — the
-   org inbox renders no bespoke thread UI (user ruling: identical to every
+   org mailbox renders no bespoke thread UI (user ruling: identical to every
    other inbox, deviations only for audience granting + sender attribution) */
 
 /* ---- hud eye + agent tray + lineage polish ---------------------------- */
@@ -8249,7 +8249,7 @@ label.set-row { cursor: pointer; }
   border-color: color-mix(in srgb, var(--warn, #e5c07b) 68%, var(--line));
 }
 
-/* org-inbox: the panel opens on the tree's preview and fetches the rest, so
+/* org-mailbox: the panel opens on the tree's preview and fetches the rest, so
    it says so rather than looking like a mailbox that lost its history. */
 .mailload {
   flex-shrink: 0; font-size: 12px; color: var(--dim);

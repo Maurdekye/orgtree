@@ -101,7 +101,7 @@ export default async function (rig) {
     p.check(`refused, in plain words: ${why}`, !r.ok && r.text.includes(why), r)
   }
   p.check('nothing refused was queued', last().id === before, results)
-  p.note('Agent tool, org-inbox row, payload builder, sender and the hosted hub are real; Pat is a person registered over HTTP and polled directly. Hubchat\'s own handling is its core tests (questions_v2 round trip) and browser proof.')
+  p.note('Agent tool, org-mailbox row, payload builder, sender and the hosted hub are real; Pat is a person registered over HTTP and polled directly. Hubchat\'s own handling is its core tests (questions_v2 round trip) and browser proof.')
   const result = p.summary()
   if (!result.passed) throw Error(JSON.stringify(result))
   return result

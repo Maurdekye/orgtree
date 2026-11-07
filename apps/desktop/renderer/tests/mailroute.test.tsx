@@ -4,7 +4,7 @@ import { withoutMailTransfers } from './mailtransfers.fixture'
 //
 // The docket can render a mail reference and decide whether it is real
 // (docketrefs §27/§32/§32b). It cannot OPEN one: the user's inbox, the org
-// inbox and a node's inbox are three different panels, two of them owned by
+// mailbox and a node's inbox are three different panels, two of them owned by
 // the canvas. So the pointer travels docket → App → OrgCanvas, and this suite
 // is about the two joints in that path.
 //
@@ -63,7 +63,7 @@ test('§1 each box is handed over in the ROUTER\'S vocabulary', () => {
 })
 
 test('§2 CONTROL — the org box is NOT handed over as a bare org name', () => {
-  // the router reads a leading `@` as "the org inbox" and ANYTHING ELSE as a
+  // the router reads a leading `@` as "the org mailbox" and ANYTHING ELSE as a
   // node id. An org box passed as `mine` would be looked up as a node called
   // `mine` — nothing today, and the wrong mailbox on the day one exists.
   const to = mailRefTarget(mail('@mail:mine/org/m2')).to
@@ -152,7 +152,7 @@ uiTest('§3 a NODE box pointer opens that node\'s inbox, once', async (mount) =>
   assert.equal(handled, 1, 'the pointer is consumed exactly once')
 })
 
-uiTest('§4 an ORG box pointer opens the org inbox', async (mount) => {
+uiTest('§4 an ORG box pointer opens the org mailbox', async (mount) => {
   quietServer()
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const el = await mount(
@@ -162,7 +162,7 @@ uiTest('§4 an ORG box pointer opens the org inbox', async (mount) => {
       onOpenMailHandled={noop} />)
   await flush()
   assert.ok(heads(el).some((h) => h.includes('org mailbox')),
-    `the org inbox did not open — panels: ${JSON.stringify(heads(el))}`)
+    `the org mailbox did not open — panels: ${JSON.stringify(heads(el))}`)
 })
 
 uiTest('§4b a USER box pointer is handed UP — the canvas does not own that '

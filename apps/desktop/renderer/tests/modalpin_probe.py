@@ -665,7 +665,7 @@ def run(html: pathlib.Path, verbose: bool = True) -> tuple[list[str], dict]:
         if not sel.strip():
             bad("select: text inside a pinned window cannot be selected")
 
-        # Read-only org-inbox title fixture. Retired compose scenarios removed.
+        # Read-only org-mailbox title fixture. Retired compose scenarios removed.
         page.open("inbox=1&two=1", ready=INBOX)
         page.pg.evaluate("() => localStorage.setItem('orgtree-modal-pins', JSON.stringify("
                          "{'org-inbox': {rect: {x: 20, y: 20, w: 520, h: 380}, z: 0}}))")

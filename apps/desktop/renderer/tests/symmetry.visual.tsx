@@ -1,6 +1,6 @@
 // tests/symmetry.visual.tsx — what symmetry.capture.cjs draws for the UX
 // symmetry fixes (USER 2026-10-29 m019c9500d23a): Org settings → Connections
-// (#2 the chip's avatar, #5 the grey offline ring), the org inbox's sent folder
+// (#2 the chip's avatar, #5 the grey offline ring), the org mailbox's sent folder
 // with a queued message open (#6 the clock, #23 the named marks, #7 the ages
 // and the header's full time), Presentations and an agent's docket with one
 // item open (#7). No engine: every read is answered here from synthetic data,

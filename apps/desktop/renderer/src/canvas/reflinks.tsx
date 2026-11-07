@@ -147,7 +147,7 @@ const KIND_WORD: Record<TypedRef['kind'], string> = {
 
 function boxWord(ref: TypedRef): string {
   if (ref.box === 'user') return "the user's inbox"
-  if (ref.box === 'org') return "the org inbox"
+  if (ref.box === 'org') return "the org mailbox"
   return ref.node ? `${ref.node}'s inbox` : 'a mailbox'
 }
 
@@ -281,7 +281,7 @@ export function refToken(ref: TypedRef): string {
  *  (`MailLinkFn`: the shape a chat chip's mail pointer already uses).
  *
  *  ⚠ ONE TRANSLATION, IN ONE PLACE, BECAUSE THE ROUTER'S VOCABULARY IS NOT
- *  THE TOKEN'S. `user_inbox` is a literal the router tests for, the org inbox
+ *  THE TOKEN'S. `user_inbox` is a literal the router tests for, the org mailbox
  *  is recognised by a LEADING `@`, and anything else is read as a node id — so
  *  an org box handed over as the bare slug would be routed to a node with the
  *  org's name, and on the day one exists it would open the wrong mailbox.

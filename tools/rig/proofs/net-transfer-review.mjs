@@ -55,7 +55,7 @@ export default async function(rig) {
     fs.mkdirSync(path.dirname(eof.path),{recursive:true});fs.writeFileSync(eof.path,Buffer.alloc(size,120))
     rig.exec(`UPDATE ot.net_downloads SET confirmed=${size},processed=${size},validator='"original"',complete=false WHERE id='${eof.id}'`)
     // Inject failure on the second holder after the first insert in the same
-    // publication. Both mail copies AND the org inbox must roll back.
+    // publication. Both mail copies AND the org mailbox must roll back.
     rig.exec(`INSERT INTO ot.audiences(org_id,grantee,grantor) SELECT org_id,name,'@extern' FROM ot.agents WHERE id IN (${sender.id},${other.id}) AND NOT EXISTS(SELECT 1 FROM ot.audiences x WHERE x.org_id=ot.agents.org_id AND x.grantee=ot.agents.name AND x.grantor='@extern' AND x.revoked_at IS NULL);
       ALTER TABLE ot.mail ADD CONSTRAINT proof_fanout CHECK(net_id IS DISTINCT FROM 'review-fanout' OR recipient_agent_id<>${other.id})`)
     await call({action:'receive',message:{id:'review-fanout',from:'fanout.rig',body:'Atomic holder delivery',attachments:[{id:'fanout',name:'fanout.bin',bytes:1024}]}})

@@ -128,7 +128,7 @@ test('the org: killswitch, docket, inbox, watchdogs, audiences, credit requests 
   assert.deepEqual(kinds(step(two, done)), ['ticketDone:'])
 })
 
-test('mail sparks: agent to agent zaps, the user, the org inbox and watchdogs are told apart', () => {
+test('mail sparks: agent to agent zaps, the user, the org mailbox and watchdogs are told apart', () => {
   assert.deepEqual(sparkEvent({ type: 'mail', from: 'boss', to: 'alice' }), { kind: 'zap', node: 'alice', other: 'boss' })
   assert.equal(sparkEvent({ type: 'mail', from: '@user', to: 'alice' })?.kind, 'userSend')
   assert.equal(sparkEvent({ type: 'mail', from: 'alice', to: '@user' })?.kind, 'toUser')

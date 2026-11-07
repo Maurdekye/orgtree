@@ -96,7 +96,7 @@ test('§3d a link in running text adds nothing to its line, in both mention layo
   assert.equal(declarationsOf(css(), objects).get('margin-block'), '-2px', 'a ticket, presentation, app or panel link: negative block margins')
   assert.equal(declarationsOf(css(), '.wrap-object-mentions ' + objects).get('line-height'), '0', 'in the wrapping layout the inline box contributes no line height')
   assert.equal(declarations(netCss(), '.ref-chip.ref-chip.ref-hub.net-chip').get('margin-block'), '-2px', 'a contact link: negative block margins')
-  assert.match(declarations(netCss(), '.mailer-head .ref-chip.ref-chip.ref-hub.net-chip').get('margin-block') ?? '', /^0(px)?$/, "the org inbox's address lines keep their height")
+  assert.match(declarations(netCss(), '.mailer-head .ref-chip.ref-chip.ref-hub.net-chip').get('margin-block') ?? '', /^0(px)?$/, "the org mailbox's address lines keep their height")
 })
 
 test('§4 the docket mention\'s badge sits on its name\'s line, not 2 px below it', () => {

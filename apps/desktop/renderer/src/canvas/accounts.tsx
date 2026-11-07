@@ -406,7 +406,7 @@ const STREAMER_SWITCHES: { type: StreamerType; label: string; hint: string }[] =
   { type: 'secrets', label: 'Secrets and keys', hint: 'API keys, bearer and OAuth tokens, passwords and private keys, e.g. api_key=sk-live-… or password=hunter2.' },
   { type: 'phones', label: 'Phone numbers', hint: 'International and grouped phone numbers, e.g. +1 (415) 555-0123.' },
   { type: 'tokenUrls', label: 'Token URLs', hint: 'Links that carry a credential: a token, key, signature or auth parameter, an invite or magic link, or user:pass@ in the address.' },
-  { type: 'externals', label: 'External addresses', hint: 'Hub and organization addresses such as @net:name.id and @org:slug, and org-inbox senders and recipients.' },
+  { type: 'externals', label: 'External addresses', hint: 'Hub and organization addresses such as @net:name.id and @org:slug, and org-mailbox senders and recipients.' },
   { type: 'orgs', label: 'Other orgs', hint: 'The names of the other organizations on this installation, in text and in the org switcher. This org is always visible.' },
 ]
 function StreamingSettings() {

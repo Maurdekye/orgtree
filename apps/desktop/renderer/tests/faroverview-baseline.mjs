@@ -11,7 +11,7 @@ export function beforeOverview(file, contents) {
     source=once(source,"{!compact && lod !== 'mini' && (tree.watchdogs ?? []).map",'{!compact && (tree.watchdogs ?? []).map');
     source=once(source,"{!(hideRetired && lod === 'mini') && [...retiredCounts.entries()].map",'{[...retiredCounts.entries()].map');
     source=once(source," + (lod === 'mini' ? ' orginbox-far' : '')",'');
-    source=once(source,'            aria-label="org inbox"\n','');
+    source=once(source,'            aria-label="org mailbox"\n','');
     source=once(source,'            {lod === \'mini\' ? <PublicIcon className="oi-far-icon" fontSize="inherit" /> : <>\n','');
     const closing=/(<div className="oi-last">[\s\S]*?<\/div>)\n            <\/>}/;
     if (!closing.test(source)) throw new Error('Expected mailbox-only fragment closing hunk');

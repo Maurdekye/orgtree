@@ -74,7 +74,7 @@ window.fetch = ((input: RequestInfo | URL) => {
   return Promise.resolve(json({}))
 }) as typeof fetch
 
-// Retained org-inbox viewer fixture; human composition is retired.
+// Retained org-mailbox viewer fixture; human composition is retired.
 const MAIL: OrgInboxEntry[] = Array.from({ length: 12 }, (_, i) => ({
   id: `mail-${i}`,
   dir: (i % 3 ? 'in' : 'out') as 'in' | 'out',

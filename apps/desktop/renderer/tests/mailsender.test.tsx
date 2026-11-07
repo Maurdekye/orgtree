@@ -515,7 +515,7 @@ uiTest('§4.2 …and clicking the sender of the mail you are READING does not '
   })
 
 // ═══════════════════════════════════════════════════════════════════ §5
-// THE ORG INBOX — the one mailbox whose counterparty is NOT this org's agent.
+// THE ORG MAILBOX — the one mailbox whose counterparty is NOT this org's agent.
 // ═══════════════════════════════════════════════════════════════════ §5
 
 const oiIn: OrgInboxEntry = {
@@ -530,7 +530,7 @@ const oiOut: OrgInboxEntry = {
 const inboxBox = (entries: OrgInboxEntry[]): TreePayload['org_inbox'] =>
   ({ entries, unread: 0, holders: ['ceo'], visible: true })
 
-uiTest('§5.1 an org-inbox row names the outside party as plain text — no chip, '
+uiTest('§5.1 an org-mailbox row names the outside party as plain text — no chip, '
   + 'no route — while the SENT pane still shows who sent it, in full',
   async ({ mount }) => {
     const map = new Map<string, CanvasNode>([['ceo', node('ceo', { tier: 'opus' })]])
@@ -568,7 +568,7 @@ uiTest('§5.2 …and a peer that spells itself EXACTLY like one of our live '
   + 'agents still gets nothing — the row obeys the call site, not the name',
   async ({ mount }) => {
     // ⚠ WHAT THIS IS AND IS NOT, corrected after mutating it. Today every
-    // org-inbox peer the backend mints is '@'-prefixed (`_extern_peer` →
+    // org-mailbox peer the backend mints is '@'-prefixed (`_extern_peer` →
     // @mcp:, api.py → @org:, net.py → @net:), so the bare-name collision
     // below cannot arrive from the server as things stand — this is DEFENCE
     // IN DEPTH against a frontend that must not rest on an invariant it does
@@ -577,7 +577,7 @@ uiTest('§5.2 …and a peer that spells itself EXACTLY like one of our live '
     // It is NOT the check that holds the row renderer's default in place. A
     // first draft of this comment said it was; mutating `rowSender ?? sender`
     // to `rowSender ?? <the built-in>` left this test GREEN, because the org
-    // inbox hands its lists no `tierOf` and no `onFocusAgent`, so the
+    // mailbox hands its lists no `tierOf` and no `onFocusAgent`, so the
     // built-in renderer draws nothing here either. §5.3 is that check, at the
     // one place the difference can be made visible.
     const map = new Map<string, CanvasNode>([
@@ -605,7 +605,7 @@ uiTest('§5.3 a list that DECLARES its counterparty plain text keeps a plain '
     // said "plain text" once cannot be undone by a row it never thought
     // about. The fixture supplies `tierOf` and `onFocusAgent` DELIBERATELY:
     // they are exactly what a well-meaning future edit would add to the org
-    // inbox, and they are what makes the wrong default draw a chip here.
+    // mailbox, and they are what makes the wrong default draw a chip here.
     const nav = recorder()
     const { el } = await mount(
       <MailList delivered={[row()]}

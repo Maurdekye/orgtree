@@ -132,7 +132,7 @@ def open_user_inbox(pg) -> None:
 
 def open_org_inbox(pg) -> None:
     pg.locator(".sq.orginbox").click()
-    pg.wait_for_selector(".settings:has-text('The org inbox')", timeout=10000)
+    pg.wait_for_selector(".settings:has-text('The org mailbox')", timeout=10000)
     pg.wait_for_timeout(700)
 
 
@@ -174,7 +174,7 @@ def main() -> int:
                 page.goto(f"{BASE}/o/{seven}")
                 open_org_inbox(page)
                 below_org = fold_state(page)
-                check("§1b seven org-inbox holders stay fully visible",
+                check("§1b seven org-mailbox holders stay fully visible",
                       not below_org["folds"] and len(below_org["chips"]) == 7,
                       str(below_org))
 
@@ -196,9 +196,9 @@ def main() -> int:
                 open_org(page, eight)
                 open_org_inbox(page)
                 org_at = fold_state(page)
-                check("§3a eight org-inbox holders use the same default fold",
+                check("§3a eight org-mailbox holders use the same default fold",
                       len(org_at["folds"]) == 1 and org_at["folds"][0]["expanded"] == "false"
-                      and "8 org inbox audience holders" in org_at["folds"][0]["text"], str(org_at))
+                      and "8 org mailbox audience holders" in org_at["folds"][0]["text"], str(org_at))
                 check("§3b the external-mail anomaly stays visible while folded",
                       org_at["folds"][0]["alert"] and "⚠" in org_at["folds"][0]["text"], str(org_at))
                 page.locator("[data-audience-fold]").click()
@@ -216,9 +216,9 @@ def main() -> int:
                 open_org(page, fourteen)
                 open_org_inbox(page)
                 fourteen_org = fold_state(page)
-                check("§4 a fourteen-holder org inbox remains an explicit warning",
+                check("§4 a fourteen-holder org mailbox remains an explicit warning",
                       len(fourteen_org["folds"]) == 1 and fourteen_org["folds"][0]["alert"]
-                      and "14 org inbox audience holders" in fourteen_org["folds"][0]["text"], str(fourteen_org))
+                      and "14 org mailbox audience holders" in fourteen_org["folds"][0]["text"], str(fourteen_org))
                 page.screenshot(path=os.path.join(HERE, "audiencefold-org-fourteen-collapsed.png"))
                 page.locator("[data-audience-fold]").click()
                 page.screenshot(path=os.path.join(HERE, "audiencefold-org-fourteen-expanded.png"))

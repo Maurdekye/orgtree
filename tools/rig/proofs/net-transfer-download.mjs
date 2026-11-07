@@ -55,7 +55,7 @@ export default async function(rig) {
         proof.check('successful downloads produce no failure notifications',rig.sql('SELECT id FROM ot.net_transfer_failures').length===0)
         const job=rig.one(`SELECT id FROM ot.net_incoming WHERE net_id='${id}'`)
         const tool=await rig.tool('rhea','orgtree_transfers',{action:'get',id:job.id})
-        proof.check('outside inbox holder can inspect incoming checkpoint',tool.ok && tool.json.transfers[0].files[0].confirmed===checkpoint,tool)
+        proof.check('outside mailbox holder can inspect incoming checkpoint',tool.ok && tool.json.transfers[0].files[0].confirmed===checkpoint,tool)
         const stopped=await rig.tool('rhea','orgtree_transfers',{action:'cancel',id:job.id})
         proof.check('holder cancellation persists intent without exposing partial mail',stopped.ok && stopped.json.transfers[0].state==='cancelled' && inbox(id).length===0,stopped)
         await rig.waitFor(async()=>{
