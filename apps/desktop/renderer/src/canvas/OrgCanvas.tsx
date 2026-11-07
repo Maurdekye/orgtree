@@ -558,6 +558,9 @@ function DocOpening({ slug, docId, close, onLoaded }: {
   </PinFrame>
 }
 
+/** how long a spark waits for the org inbox node to appear (first outside mail) */
+const BOX_SPARK_HOLD_MS = 10_000
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, openDogAt, onOpenDogHandled, canvasShortcuts,
@@ -1717,6 +1720,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     id: number; segs: (Seg & { rev: boolean })[]; start: number; segDur: number
   }[]>([])
   const sparkId = useRef(0)
+  const pendingBoxSparkRef = useRef<{ from: string; to: string; at: number } | null>(null)
   const audSetRef = useRef(new Set<string>())
   audSetRef.current = new Set((tree.audiences ?? []).map((a) => a.grantor + '→' + a.grantee))
 
@@ -1777,6 +1781,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (isBox(from) !== isBox(to)) {
       const other = norm(isBox(from) ? to : from)
       const at = posOf(INBOX), bt = posOf(other)
+      // the org's FIRST outside mail (either way): the mail frame lands before
+      // the tree refresh that makes the inbox node exist, so there is nothing
+      // to spark into yet. Hold the spark; the effect below plays it once the
+      // node is laid out (user 2026-11-07: "no spark" on first outside mail)
+      if (!at && bt && (other === USER || m.has(other))) {
+        pendingBoxSparkRef.current = { from, to, at: performance.now() }
+        return
+      }
       if (!at || !bt || (other !== USER && !m.has(other))) return
       const ga = sizeOf(INBOX), gb = sizeOf(other)
       const left = (bt.x + gb.w / 2) < (at.x + ga.w / 2)
@@ -1875,6 +1887,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
   useEffect(() => { if (mailEvt) launchSpark(mailEvt.from, mailEvt.to) },
     [mailEvt, launchSpark])
+  // a spark held for an inbox that did not exist yet plays once it does (one
+  // spark, after the commit that rendered the node); a held spark older than
+  // BOX_SPARK_HOLD_MS is stale and dropped, so a much later reveal replays nothing
+  useEffect(() => {
+    const held = pendingBoxSparkRef.current
+    if (!held || !targetRef.current.has(INBOX)) return
+    pendingBoxSparkRef.current = null
+    if (performance.now() - held.at <= BOX_SPARK_HOLD_MS) launchSpark(held.from, held.to)
+  })
   useEffect(() => {
     window.__spark = launchSpark        // dev/demo hook
     return () => { if (window.__spark === launchSpark) delete window.__spark }
