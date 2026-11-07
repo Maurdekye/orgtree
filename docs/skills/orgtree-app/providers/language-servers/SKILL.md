@@ -29,29 +29,22 @@ Find models asks the server for reachability/catalog metadata without loading a 
 
 ## Registering an OpenCode Go subscription (current method)
 
-An OpenCode Go subscription is registered as a Custom language model server; there is no dedicated provider. Evidence: reported working by a user on [issue #8](https://github.com/Maurdekye/orgtree/issues/8#issuecomment-6706536279) in 4.5.6; not yet reproduced by the Orgtree team.
+An OpenCode Go subscription is registered with the **OpenCode Go** preset. Evidence: the underlying settings were reported working by a user on [issue #8](https://github.com/Maurdekye/orgtree/issues/8#issuecomment-6706536279) in 4.5.6; not yet reproduced by the Orgtree team. No dedicated provider exists.
 
-1. Open App settings → Providers → Language model servers → Add, and choose **Custom**.
-2. Set these exact values:
+1. Open App settings → Providers → Language model servers → Add, and choose **OpenCode Go** as the kind of server.
+2. The preset has already filled the address `https://opencode.ai/inference/go`, the base path `openai/v1`, the OpenCode (ACP) harness and the OpenAI Chat Completions API style. Only OpenCode is offered: Claude Code and Codex cannot carry it.
+3. Enter your OpenCode Go key (stored locally, never shown again). Context size and typed model ids are not asked: use Find models, which lists the models and takes each window the server reports (65,536 when it reports none). Offer the models to use, then Add server.
+4. Hire an agent on that server and pick the model. Chat, streaming and tool calls worked in the report. Seat price and agents-at-once start at the usual defaults.
 
-| Field | Value |
-| --- | --- |
-| Address | `https://opencode.ai/inference/go` |
-| Base path | `openai/v1` |
-| Harness | OpenCode (ACP) |
-| API style | OpenAI Chat Completions (OpenCode) |
-| API key | Your OpenCode Go key; stored locally, never shown again |
+The endpoint requires an `x-opencode-session` header; the OpenCode harness sends it automatically. If the usage block shows a billing source such as `go` (the subscription allowance), that is what the report observed, not a documented guarantee; native subscription windows are not shown for this route (see [OpenCode](../../harnesses/harness-opencode/SKILL.md)). A second OpenCode Go entry is allowed and is named "OpenCode Go 2".
 
-3. Press **Find models**. The reporter's account listed 30; the list depends on the subscription. Offer the models to use (context and seat price as in the table above), then Save.
-4. Hire an agent on that server and pick the model. Chat, streaming and tool calls worked in the report.
-
-The endpoint requires an `x-opencode-session` header; the OpenCode harness sends it automatically. If the usage block shows a billing source such as `go` (the subscription allowance), that is what the report observed, not a documented guarantee; native subscription windows are not shown for this route (see [OpenCode](../../harnesses/harness-opencode/SKILL.md)).
+Fallback: the same server can be entered by hand as **Custom…** with address `https://opencode.ai/inference/go`, base path `openai/v1`, API style OpenAI Chat Completions (OpenCode) and your key, then Find models.
 
 Troubleshooting:
 
 - **401 or 403:** the key is wrong, expired or the subscription is not active; re-enter the key (blank keeps the stored one) and check the subscription.
-- **MissingSessionID:** a harness other than OpenCode was chosen. Set the server's harness to OpenCode (ACP) with the Chat Completions API style.
-- **Find models finds nothing or fails:** recheck the address and base path (no trailing path in the address; `openai/v1` goes in Base path).
+- **MissingSessionID:** a harness other than OpenCode was chosen, which the preset prevents; on a Custom entry set the harness to OpenCode (ACP) with the Chat Completions API style.
+- **Find models finds nothing or fails:** recheck the key and that the address was not edited; on a Custom entry the address has no trailing path (`openai/v1` goes in Base path).
 
 ## Existing server and model browser
 
