@@ -61,7 +61,8 @@ mod tests{
     /// A real response from the media streamer: 200, 206 or 416 for `range`.
     async fn streamed(range:Option<&str>)->Response{
         use std::io::Write;
-        let p=std::env::temp_dir().join(format!("app-media-cors-{}-{}.mp4",std::process::id(),range.map(|r|r.len()).unwrap_or(0)));
+        static NEXT:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);
+        let p=std::env::temp_dir().join(format!("app-media-cors-{}-{}.mp4",std::process::id(),NEXT.fetch_add(1,std::sync::atomic::Ordering::Relaxed)));
         std::fs::File::create(&p).unwrap().write_all(b"0123456789").unwrap();
         let f=tokio::fs::File::open(&p).await.unwrap();
         let r=super::super::media_file::serve_opened(f,"video/mp4",range,None).await.unwrap();
