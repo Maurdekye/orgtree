@@ -59,16 +59,16 @@ function server(ids: string[] = [LATEST, V64]): LangServer {
 
 /** a scripted engine: the server lists `list` (302 models by default), or does not answer */
 function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: boolean, offered?: string[], second?: boolean, keySet?: boolean,
-  harnesses?: unknown[], serverHarness?: string } = {}) {
+  harnesses?: unknown[], serverHarness?: string, presets?: unknown[] } = {}) {
   const s = server(opts.offered)
   if (opts.serverHarness) s.harness = opts.serverHarness as LangServer['harness']
   s.key_set = opts.keySet ?? false
   const other = { ...server(), id: 'other', label: 'Other server' }
   const doc = (): LangServerDoc => ({
     servers: opts.second ? [s, other] : [s],
-    presets: [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true,
+    presets: (opts.presets ?? [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true,
       harnesses: opts.harnesses ?? [{ id: 'claude-code', label: 'Claude Code', available: true, why: '' }],
-      note: 'Ollama 0.14 or later serves both harnesses.' }] as unknown as LangServerDoc['presets'],
+      note: 'Ollama 0.14 or later serves both harnesses.' }]) as unknown as LangServerDoc['presets'],
     default_seat: 1, max_seat: 100, min_context: 65536, default_context: 65536, user_enabled: true,
   })
   g.fetch = (url: string, init?: RequestInit) => {
@@ -402,6 +402,39 @@ test('add dialog: adding a server opens a separate dialog; Cancel discards and S
     assert.deepEqual(seen.find(r => r.path === '/api/langservers' && r.method === 'POST')?.body,
       { preset: 'ollama', address: 'http://127.0.0.1:11434', harness: 'claude-code', max_agents: 1, seat: 1, models: [] })
     assert.ok(view.el.querySelector('.ls-section'), 'Providers remains mounted')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('add dialog: the OpenCode Go preset fills the address and OpenCode, asks for the key only, and sends it with no base path', async () => {
+  const seen: Seen[] = []
+  const presets = [
+    { id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true, base_path: '', key: false, note: '',
+      harnesses: [{ id: 'claude-code', label: 'Claude Code', available: true, installed: true, why: '' }] },
+    { id: 'opencodego', label: 'OpenCode Go', address: 'https://opencode.ai/inference/go', claude: false, codex: false,
+      base_path: 'openai/v1', key: true, note: 'An OpenCode Go subscription: only the OpenCode harness carries it.',
+      harnesses: [
+        { id: 'claude-code', label: 'Claude Code', available: false, installed: true, why: 'only OpenCode carries it' },
+        { id: 'codex-cli', label: 'Codex', available: false, installed: true, why: 'only OpenCode carries it' },
+        { id: 'opencode', label: 'OpenCode (ACP)', available: true, installed: true, why: '' }] },
+  ]
+  stubFetch(seen, { presets, list: OFFERED })
+  const view = await mountSection([])
+  const dialog = () => document.querySelector('[role="dialog"][aria-label="Add language model server"]')!
+  try {
+    await click(view.el.querySelector('button[title^="Add a model server"]'))
+    assert.equal(dialog().querySelector('input[aria-label="API key"]'), null, 'Ollama asks for no key')
+    await choose(dialog().querySelector<HTMLSelectElement>('select[aria-label="Kind of server"]')!, 'opencodego')
+    assert.equal(dialog().querySelector<HTMLInputElement>('input[aria-label="Server address"]')!.value, 'https://opencode.ai/inference/go')
+    assert.equal(dialog().querySelector<HTMLSelectElement>('select[aria-label="Harness"]')!.value, 'opencode')
+    assert.ok(dialog().querySelector('input[aria-label="API key"]'), 'the key field is asked for')
+    assert.equal(dialog().querySelector('input[aria-label="Base path"]'), null, 'the preset sets the path')
+    assert.equal(dialog().querySelector('input[aria-label="Model ids"]'), null, 'Find models offers the models')
+    assert.equal(dialog().querySelector('input[aria-label="Context size"]'), null)
+    await typeInto(dialog().querySelector<HTMLInputElement>('input[aria-label="API key"]')!, 'sk-test')
+    await click([...dialog().querySelectorAll('button')].find((b) => b.textContent === 'Add server'))
+    const post = seen.find((r) => r.path === '/api/langservers' && r.method === 'POST')?.body
+    assert.deepEqual(post, { preset: 'opencodego', address: 'https://opencode.ai/inference/go', harness: 'opencode',
+      key: 'sk-test', max_agents: 1, seat: 1, models: [] })
   } finally { await view.unmount(); delete g.fetch }
 })
 
