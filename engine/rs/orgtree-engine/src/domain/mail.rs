@@ -273,7 +273,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     out.tags=super::mail_tags::normalize(Some(&json!(out.tags)))?;
     super::mail_tags::recipient(&out.to,&out.tags)?;
     if matches!(out.from, From::Extern(_)) {
-        crate::refuse!(Forbidden, "outside mail must publish through the org inbox");
+        crate::refuse!(Forbidden, "outside mail must publish through the org mailbox");
     }
     let org = engine.orgs.by_id(org_id).ok_or_else(|| anyhow::Error::new(UserError::NotFound("organization".into())))?;
     if out.body.contains('\0') { out.body.retain(|c| c != '\0'); }
@@ -755,7 +755,7 @@ async fn reply_event(client: &tokio_postgres::Client, org_id: i64, org: &str, wh
 
 /// The message an agent answers (`orgtree_message` `reply_to`): mail it
 /// received or sent (the id that ends its FROM line; orgtree_inbox lists
-/// them), or an outside message it sent from the org inbox (the id
+/// them), or an outside message it sent from the org mailbox (the id
 /// orgtree_message reported). The quote is what the recipient sees above the
 /// reply; `net_id` is what a reply over the mail hub carries.
 #[logged]

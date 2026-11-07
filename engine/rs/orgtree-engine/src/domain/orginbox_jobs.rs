@@ -1,4 +1,4 @@
-//! Project holders of the org inbox, and hub threading (USER 2026-11-03 m99ee62b87e70, mdf5da6c51202,
+//! Project holders of the org mailbox, and hub threading (USER 2026-11-03 m99ee62b87e70, mdf5da6c51202,
 //! m896fa990fc53, m63e16cf45188; spec org-inbox-queue-spec.md rev 2, D5-D8, D13, D14).
 //!
 //! Routing order for one received row (called from `publish_new` and `release_page`; Do not disturb acts first):
@@ -130,7 +130,7 @@ async fn live_by_name(tx: &Transaction<'_>, org: i64, name: &str) -> Result<Opti
         .map(|r| (r.get(0), r.get(1))))
 }
 
-/// The org-inbox rows a received row quotes (in order): `box = org` references.
+/// The org-mailbox rows a received row quotes (in order): `box = org` references.
 #[nolog]
 fn org_refs(row: &Value) -> Vec<String> {
     replies::snapshots(row.get("reply_to"), row.get("replies"))

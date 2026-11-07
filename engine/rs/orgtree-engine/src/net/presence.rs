@@ -1,7 +1,7 @@
 //! Busy presence (Mail hub 2.3.0; user 2026-10-30 23:03Z, docket
 //! org-presence-busy-orange-when-no-org-inbox-holde): each org tells the hubs
 //! it is connected to whether it is busy (`POST /api/presence {busy, dnd}`):
-//! online, but none of its org-inbox holders can start a turn
+//! online, but none of its org-mailbox holders can start a turn
 //! (`orginbox::busy`), and whether its outside mail is set to Do not disturb
 //! (`dnd`, a part of busy; user 2026-10-31 08:51Z, `presence_of`). The
 //! network pass (every 3 s, or at once on a kick)
@@ -58,7 +58,7 @@ pub(crate) fn due(last: Option<Said>, busy: bool, dnd: bool, now: Instant) -> bo
     }
 }
 
-/// What an org says to its hubs, from its settings and whether its org-inbox
+/// What an org says to its hubs, from its settings and whether its org-mailbox
 /// holders are busy (`orginbox::busy`): (busy, dnd). Do not disturb is its
 /// outside mail's mode, `orginbox::mode` "dnd" (a closed inbox is not DND and
 /// keeps today's presence, coordinator 2026-10-31 09:00Z). A DND org is busy
@@ -70,7 +70,7 @@ pub(crate) fn presence_of(settings: &Value, holders_busy: bool) -> (bool, bool) 
 }
 
 /// Whether the org is busy now, and whether its outside mail is set to Do not
-/// disturb (its settings also say whether several may hold its org inbox).
+/// disturb (its settings also say whether several may hold its org mailbox).
 #[logged]
 async fn org_presence(engine: &Engine, org_id: i64) -> anyhow::Result<(bool, bool)> {
     let client = engine.db.get().await?;

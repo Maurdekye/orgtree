@@ -134,7 +134,7 @@ async fn canonical_read_rechecks_project_reach_visibility_and_receipt_pairs() {
     assert_eq!(rows.iter().map(|r|r["uid"].as_str().unwrap()).collect::<Vec<_>>(),vec!["allowed-mail"]);
     client.execute("UPDATE ot.orgs SET settings='{}' WHERE id=1",&[]).await.unwrap();
     let rows=unseen(&client,1,1,&requests).await.unwrap();
-    assert_eq!(rows.len(),5,"only normal visible project mail becomes available when org inbox is enabled");
+    assert_eq!(rows.len(),5,"only normal visible project mail becomes available when org mailbox is enabled");
     client.execute("UPDATE ot.agents SET parent_id=NULL WHERE id=1",&[]).await.unwrap();
     assert!(unseen(&client,1,1,&requests).await.unwrap().is_empty(),"a completed dispatcher receipt cannot survive revoked project reach");
     assert_eq!(unseen(&client,1,1,&[json!({"uid":"personal","recipient":1})]).await.unwrap().len(),1);

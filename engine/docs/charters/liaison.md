@@ -9,7 +9,7 @@ Choose a model suited to long conversations, careful judgment and durable
 decision records. Keep every tool switch ON so the coordinator retains
 the capabilities it needs; your own work is conversation, records and
 delegation. Keep user contact available and, when this role also handles
-the org inbox, arrange its separate extern audience. A charter grants
+the org mailbox, arrange its separate extern audience. A charter grants
 neither tools nor audiences by itself.
 
 ---

@@ -1016,21 +1016,21 @@ to your inbox. Revoke it from the audience panel at will."
         )
     } else if is(oc, "org_inbox") {
         format!(
-            "{who} granted you audience with the ORG INBOX: you now receive \
+            "{who} granted you audience with the ORG MAILBOX: you now receive \
 outside messages addressed to this organization (chatq sessions, \
 other orgs) and may reply for it with orgtree_message to the \
 sender's @org:/@net: address. Replies speak for the org as a \
 whole — coordinate with the other recipients before answering."
         )
     } else if is(oc, "org_inbox_auto") {
-        "Outside mail arrived and no one held the ORG-INBOX audience, so it \
+        "Outside mail arrived and no one held the ORG-MAILBOX audience, so it \
 was auto-granted to you (the senior top-level agent). You now receive \
 outside messages addressed to this organization and reply for it. \
 Extend the audience to a better-suited agent with orgtree_audience \
 action=grant target=extern; revoke your own with action=revoke."
             .into()
     } else if is(oc, "org_inbox_released") {
-        "You gave up your ORG-INBOX audience — outside mail addressed to the \
+        "You gave up your ORG-MAILBOX audience — outside mail addressed to the \
 org no longer reaches you."
             .into()
     } else if is(oc, "declined") {

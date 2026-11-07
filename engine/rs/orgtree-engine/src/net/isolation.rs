@@ -86,7 +86,7 @@ pub async fn run<T>(engine: &Engine, orgs: &[i64], io: impl Future<Output = Resu
     tokio::select! {
         biased;
         _ = cancelled, if !epochs.is_empty() => {
-            crate::refuse!(Forbidden, "org inbox access changed; outside operation stopped");
+            crate::refuse!(Forbidden, "org mailbox access changed; outside operation stopped");
         }
         result = async {
             for id in ids { crate::domain::orginbox::require_enabled(engine, id).await?; }

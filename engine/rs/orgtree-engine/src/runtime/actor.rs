@@ -130,7 +130,7 @@ struct Ctx {
     cascade: Vec<(String, String)>,
     /// the superior's name (None: top-level)
     superior: Option<String>,
-    /// holds the org-inbox audience
+    /// holds the org-mailbox audience
     extern_holder: bool,
     org_md: Option<String>,
     /// the instructions for all orgs, as published now (nonblank only)

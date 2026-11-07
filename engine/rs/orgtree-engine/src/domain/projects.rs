@@ -1168,7 +1168,7 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
         )
         .await?;
     }
-    // org-inbox follow-ups that travelled with this job go out again with its next hand-out (the dead-letter retry does the
+    // org-mailbox follow-ups that travelled with this job go out again with its next hand-out (the dead-letter retry does the
     // same); without this the next worker would get the job and none of them. Uses `mail_bundled_with`.
     tx.execute(
         "UPDATE ot.mail SET extra = extra - 'bundled_handed'
@@ -1334,7 +1334,7 @@ pub async fn purge_waiting(tx: &impl GenericClient, project: i64, by: &str) -> R
             &[&project, &by],
         )
         .await?;
-    // org-inbox follow-ups bundled with a purged job (not handed out) go with it
+    // org-mailbox follow-ups bundled with a purged job (not handed out) go with it
     tx.execute(
         "UPDATE ot.mail b SET state = 'retracted', extra = b.extra || jsonb_build_object('purged', jsonb_build_object('by', $2::text, 'at', now()))
           WHERE b.recipient_agent_id = $1 AND b.extra ? 'bundled_with' AND NOT (b.extra ? 'bundled_handed') AND b.state = 'read'

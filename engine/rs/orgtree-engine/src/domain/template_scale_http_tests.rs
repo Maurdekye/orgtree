@@ -113,7 +113,7 @@ async fn audience_batch_notice_parity(e:&Arc<Engine>) {
     }
     assert_eq!(notices[0],notices[1],"persisted notices must match the former per-op path exactly");
     assert!(notices[0].iter().any(|n|n["body"].as_str().unwrap().contains("through project @team")),"inherited notices must be exercised");
-    assert!(notices[0].iter().any(|n|n["body"].as_str().unwrap().contains("org inbox")),"extern notices must be exercised");
+    assert!(notices[0].iter().any(|n|n["body"].as_str().unwrap().contains("org mailbox")),"extern notices must be exercised");
     let receipt=json!({"per_op_notices":notices[0],"batched_notices":notices[1],"identical":true,"effects_applied":false});
     std::fs::write(std::path::Path::new(&std::env::var("ORGTREE_CLAIM_TEST_OUTPUT").unwrap()).join("audience-batch-parity.json"),serde_json::to_vec_pretty(&receipt).unwrap()).unwrap();
     eprintln!("AUDIENCE_BATCH_NOTICE_PARITY identical notices={}",notices[0].len());

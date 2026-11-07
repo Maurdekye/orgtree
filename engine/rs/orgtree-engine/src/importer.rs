@@ -1114,7 +1114,7 @@ async fn copy_sections(
         .await?;
     }
 
-    // ---- org inbox ----
+    // ---- org mailbox ----
     *at = Section("org_inbox");
     let inbox = src
         .query(

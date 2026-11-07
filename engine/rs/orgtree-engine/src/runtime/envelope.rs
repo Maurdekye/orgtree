@@ -761,7 +761,7 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         if let Some(p) = m.via_project.as_ref().filter(|_| m.via_project_outside) {
             // outside mail queued in the project (spec D12): the worker answers the outside sender itself
             b.push_str(&format!("\n↳ Via project {p}: outside mail to the org, handed to you as one of {p}'s fair_queue watchers. \
-                                 Reply to {s} with orgtree_message to={s} reply_to={u}; your reply goes out from the org inbox.",
+                                 Reply to {s} with orgtree_message to={s} reply_to={u}; your reply goes out from the org mailbox.",
                                 s = m.sender, u = m.uid));
             if m.via_project_ack {
                 b.push_str(&format!(" ACK MODE: when done, ack it with orgtree_message to={p} reply_to={} (the ack sends nothing to {}). \

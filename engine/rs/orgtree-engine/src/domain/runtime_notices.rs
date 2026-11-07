@@ -147,9 +147,9 @@ pub async fn released(engine:&Arc<Engine>,org_id:i64,agent_id:i64,automatic:bool
 #[logged]
 pub async fn external_unroutable(engine:&Arc<Engine>,org_id:i64,org:&str,peer:&str,body:&str,waiting_for:&[String])->Result<()> {
     let text=if waiting_for.is_empty() {
-        format!("Mail from {peer} is in {org}'s org inbox, but no live agent holds it.")
+        format!("Mail from {peer} is in {org}'s org mailbox, but no live agent holds it.")
     } else {
-        format!("Mail from {peer} is in {org}'s org inbox, but no agent who could take it can run now (halted or frozen); it waits for {}.",waiting_for.join(", "))
+        format!("Mail from {peer} is in {org}'s org mailbox, but no agent who could take it can run now (halted or frozen); it waits for {}.",waiting_for.join(", "))
     };
     let mut c = engine.db.get().await?;
     let tx = c.transaction().await?;

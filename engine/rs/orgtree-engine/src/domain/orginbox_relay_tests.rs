@@ -90,7 +90,7 @@ impl World {
     }
 }
 
-/// P (holds the org inbox), Q (the relaying project) with a worker W that listens to Q.
+/// P (holds the org mailbox), Q (the relaying project) with a worker W that listens to Q.
 #[nolog]
 async fn rig(p_ack: bool, q_ack: bool, batch: i64) -> (World, i64, i64, i64) {
     let w = world(true).await;

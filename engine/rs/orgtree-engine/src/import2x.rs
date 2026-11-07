@@ -986,7 +986,7 @@ async fn insert_docket(src: &Source, tx: &Transaction<'_>, org_id: i64, ids: &Ha
     Ok(())
 }
 
-/// Documents, watchdogs, audiences, events and the org inbox.
+/// Documents, watchdogs, audiences, events and the org mailbox.
 #[logged]
 async fn insert_rest(src: &Source, tx: &Transaction<'_>, org_id: i64, ids: &HashMap<String, i64>) -> Result<()> {
     for d in src.logs.get("documents").into_iter().flatten() {

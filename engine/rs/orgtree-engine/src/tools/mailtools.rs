@@ -495,7 +495,7 @@ pub(super) async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, si
             }
         } else {
             if out.to.starts_with("@org:") || out.to.starts_with("org:") {
-                crate::refuse!(BadRequest, "attachments to another org inbox are not supported; path references are for local agents");
+                crate::refuse!(BadRequest, "attachments to another org mailbox are not supported; path references are for local agents");
             }
             let mut refs = Vec::new();
             for a in &letter.attachments {
@@ -721,7 +721,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         for id in a.iter().filter_map(Value::as_str) { if !ids.iter().any(|i| i == id) { ids.push(id.to_string()); } }
         ids
     };
-    // mail you received or sent, and outside mail you sent from the org inbox
+    // mail you received or sent, and outside mail you sent from the org mailbox
     // (what conversation lists; the same mail reply_to accepts)
     let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name, reply_to, replies, extra->'one_time'
           FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)

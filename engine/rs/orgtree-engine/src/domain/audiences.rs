@@ -1,8 +1,8 @@
 //! Audiences: who may write to whom beyond the chain of command. A grant
 //! lets its grantee write to its grantor — an agent, the user (`@user`), or
-//! the org inbox (`@extern`: mail from outside the org reaches its holders).
+//! the org mailbox (`@extern`: mail from outside the org reaches its holders).
 //! A request goes straight to whoever it names for a yes or a no; an
-//! org-inbox request goes to the requester's top-level agent.
+//! org-mailbox request goes to the requester's top-level agent.
 
 use std::sync::Arc;
 
@@ -50,7 +50,7 @@ pub(crate) async fn effective_holds(client: &impl tokio_postgres::GenericClient,
 pub fn party(raw: Option<&str>) -> String {
     match raw.map(str::trim).unwrap_or("") {
         "" | "user" | "@user" => USER.into(),
-        "extern" | "@extern" | "org-inbox" | "org_inbox" => EXTERN.into(),
+        "extern" | "@extern" | "org-inbox" | "org_inbox" | "org-mailbox" | "org_mailbox" => EXTERN.into(),
         other => other.trim_start_matches('@').to_string(),
     }
 }
@@ -58,7 +58,7 @@ pub fn party(raw: Option<&str>) -> String {
 fn spoken(p: &str) -> String {
     match p {
         USER => "the user".into(),
-        EXTERN => "the org inbox".into(),
+        EXTERN => "the org mailbox".into(),
         other => other.to_string(),
     }
 }
@@ -206,7 +206,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
         }
         EXTERN => {
             if my_parent.is_none() {
-                refuse!(Conflict, "you are a top-level agent: grant the org inbox to yourself (orgtree_audience grant target=extern)");
+                refuse!(Conflict, "you are a top-level agent: grant the org mailbox to yourself (orgtree_audience grant target=extern)");
             }
             top_of(&**client, my_id).await?
         }
@@ -242,7 +242,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     if holder == USER {
         ch.push(Change::UserMail);
     } else {
-        let what = if target == EXTERN { "the org inbox (outside mail)".to_string() } else { "you".to_string() };
+        let what = if target == EXTERN { "the org mailbox (outside mail)".to_string() } else { "you".to_string() };
         let why = if reason.is_empty() { String::new() } else { format!(": {reason}") };
         tell(
             engine,
@@ -343,7 +343,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                 }
                 EXTERN => {
                     if my_parent.is_some() && !(holds(client, org.id, name, EXTERN).await? && below) {
-                        refuse!(Forbidden, "the org inbox is granted by a top-level agent (or passed down by a holder)");
+                        refuse!(Forbidden, "the org mailbox is granted by a top-level agent (or passed down by a holder)");
                     }
                     if gid != *id && !below && !asked_me {
                         refuse!(Forbidden, "{grantee} is not in your subtree");
@@ -372,7 +372,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                     // any agent above both endpoints, at any depth and across projects (spec D1/D3)
                     let in_subtree = common_ancestor(client, *id, gid, oid).await?;
                     if !(peer || superior || delegated || in_subtree) {
-                        refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level), the org inbox, or between two live agents in your subtree");
+                        refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level), the org mailbox, or between two live agents in your subtree");
                     }
                     if !below {
                         refuse!(Forbidden, "{grantee} is not in your subtree");
@@ -464,7 +464,7 @@ pub(super) async fn grant_notice_tx(
     let ev = crate::events::audience_changed(org_slug, &grantee, generation, outcome, &by, &grantor, None);
     let body = match grantor {
         USER => "You now hold an audience with the user: you may write to the user (to=user), ask the user, and present documents.".to_string(),
-        EXTERN => "You now hold the org inbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
+        EXTERN => "You now hold the org mailbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
         g => format!("{g} granted you an audience: you may now write to {g} directly."),
     };
     let body = if project_manager(client, org_id, grantee).await?.is_some() {
@@ -540,8 +540,8 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
     Ok(json!({ "ok": true, "denied": requester, "target": sought }))
 }
 
-/// Rescind a grant: its grantor, the user, a holder of the org inbox for
-/// itself, and a top-level agent for user and org-inbox grants in its subtree.
+/// Rescind a grant: its grantor, the user, a holder of the org mailbox for
+/// itself, and a top-level agent for user and org-mailbox grants in its subtree.
 #[logged]
 pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, grantor: Option<&str>) -> Result<Value> {
     let mut attempt = 0;
@@ -593,7 +593,7 @@ async fn revoke_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, 
             }
         };
         if !allowed {
-            refuse!(Forbidden, "you can rescind audiences with yourself, audiences between two agents in your subtree, and (top-level) user and org-inbox grants in your subtree");
+            refuse!(Forbidden, "you can rescind audiences with yourself, audiences between two agents in your subtree, and (top-level) user and org-mailbox grants in your subtree");
         }
     }
     let inherited_before = super::audience_notices::snapshot(client, org.id).await?;

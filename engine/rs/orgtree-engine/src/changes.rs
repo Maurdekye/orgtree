@@ -35,7 +35,7 @@ pub enum Change {
     Credits,
     /// org settings, folders, killswitch: every record of the org
     Org,
-    /// the org inbox (outside mail)
+    /// the org mailbox (outside mail)
     OrgInbox,
     /// audience grants and requests
     Audiences,

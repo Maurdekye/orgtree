@@ -1,5 +1,5 @@
 //! Bounded transfer inspection and explicit control. No credentials or paths
-//! are exposed; agents see only their sends or their current outside inbox.
+//! are exposed; agents see only their sends or their current outside mailbox.
 use super::*;
 
 #[logged]

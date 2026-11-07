@@ -98,7 +98,7 @@ fn cards(org_scoped: bool) -> Vec<Value> {
                         "body":{"type":"string"}}), &["metadata","body"]);
             }
             "orgtree_inbox" => *card = user_card("orgtree_inbox",
-                "Read the user's own inbox. list (default): limit 1–200 per pending/delivered/sent list, default 50. fetch: 1–20 message_ids. settings reads the org outside-inbox mode; configure with mode normal|dnd|closed changes it as the user. Each action accepts only its own fields; no project/org-inbox pulls, chunk or conversation reads.",
+                "Read the user's own inbox. list (default): limit 1–200 per pending/delivered/sent list, default 50. fetch: 1–20 message_ids. settings reads the org outside-mailbox mode; configure with mode normal|dnd|closed changes it as the user. Each action accepts only its own fields; no project/org-mailbox pulls, chunk or conversation reads.",
                 json!({"action":{"type":"string","enum":["list","fetch","settings","configure"]},
                     "limit":{"type":"integer","minimum":1,"maximum":200},
                     "message_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":20},
@@ -362,7 +362,7 @@ async fn message(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value, force
         crate::refuse!(BadRequest, "`to` must name an agent in this organization");
     }
     if to.starts_with("@org:") || to.starts_with("@net:") || to == "extern" {
-        crate::refuse!(BadRequest, "outside mail goes through an agent holding the org inbox audience, not the user's own mail");
+        crate::refuse!(BadRequest, "outside mail goes through an agent holding the org mailbox audience, not the user's own mail");
     }
     if meta["kind"].as_str() == Some("question") {
         crate::refuse!(BadRequest, "send a plain message; question cards are what agents send the user (answer them with orgtree_answer)");
@@ -395,7 +395,7 @@ async fn inbox(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Resu
     if matches!(action,"settings"|"configure") {
         let keys:&[&str]=if action=="configure" {&["action","mode"]} else {&["action"]};
         if args.as_object().is_none_or(|a|a.keys().any(|k|!keys.contains(&k.as_str()))) {
-            crate::refuse!(BadRequest,"unexpected org inbox policy field");
+            crate::refuse!(BadRequest,"unexpected org mailbox policy field");
         }
         if action=="configure" {
             let mode=need_str(args,"mode")?;

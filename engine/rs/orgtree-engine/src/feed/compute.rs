@@ -321,7 +321,7 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(a) = x.get("ack_of").filter(|v| v.is_string()) {
         q.insert("ack_of".into(), a.clone());
     }
-    // an org-inbox follow-up: bundled with a job (the stored row) or handed alongside it (the copy)
+    // an org-mailbox follow-up: bundled with a job (the stored row) or handed alongside it (the copy)
     let follows = x.get("bundled_with").and_then(Value::as_str).or_else(|| {
         let v = &x["via_project"];
         (v["followup"] == true || v["bundled"] == true).then(|| v["job"].as_str()).flatten()

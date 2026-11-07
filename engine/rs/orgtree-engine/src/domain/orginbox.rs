@@ -1,4 +1,4 @@
-//! The org inbox: the organization's one face to the outside world (other
+//! The org mailbox: the organization's one face to the outside world (other
 //! orgs on this machine, and hosts reached through the mail hub).
 
 use std::sync::Arc;
@@ -125,7 +125,7 @@ pub fn entry(r: &Value) -> Value {
 /// The columns a reply's quote is made from (`inbox_quote`).
 const QUOTE_COLS: &str = "uid, dir, peer, by_name, at, body, net_id";
 
-/// What a reply quotes of an org-inbox row: who wrote it, when and a gist
+/// What a reply quotes of an org-mailbox row: who wrote it, when and a gist
 /// (the recipient's `↩ IN REPLY TO`), the row (the desk's link) and its hub
 /// id (`net_id`: the reference a reply over the mail hub carries).
 #[logged]
@@ -147,7 +147,7 @@ fn inbox_quote(r: &tokio_postgres::Row) -> Value {
     q
 }
 
-/// An outside message an agent sent from the org inbox (the id
+/// An outside message an agent sent from the org mailbox (the id
 /// orgtree_message reported), for that agent's reply.
 #[logged]
 pub async fn sent_quote(client: &tokio_postgres::Client, org_id: i64, uid: &str, by: &str) -> Result<Option<Value>> {
@@ -253,7 +253,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             uid,
             to,
             recipient_state: "remote".into(),
-            delivery: "Queued for the mail hub. The message waits until all files are uploaded; inspect transfer_ids with orgtree_transfers (the org inbox also shows progress).".into(),
+            delivery: "Queued for the mail hub. The message waits until all files are uploaded; inspect transfer_ids with orgtree_transfers (the org mailbox also shows progress).".into(),
             deferred: false,
         });
     }
@@ -339,20 +339,20 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     }
     let everyone: Vec<String> = holders.iter().chain(route.projects.iter()).cloned().collect();
     let delivery = if held {
-        format!("Stored in {}'s org inbox under Do not disturb or its ordered release queue; no agent copy or wake. An extern-audience holder can pull it.",dst.slug)
+        format!("Stored in {}'s org mailbox under Do not disturb or its ordered release queue; no agent copy or wake. An extern-audience holder can pull it.",dst.slug)
     } else if everyone.is_empty() {
-        format!("Stored in {}'s org inbox; it has no live agent to read it yet.", dst.slug)
+        format!("Stored in {}'s org mailbox; it has no live agent to read it yet.", dst.slug)
     } else if route.waiting {
-        format!("Delivered to {}'s org inbox and to {}; none of them can run now (halted or frozen), so it waits for them.", dst.slug, holders.join(", "))
+        format!("Delivered to {}'s org mailbox and to {}; none of them can run now (halted or frozen), so it waits for them.", dst.slug, holders.join(", "))
     } else {
-        format!("Delivered to {}'s org inbox and to {}.", dst.slug, everyone.join(", "))
+        format!("Delivered to {}'s org mailbox and to {}.", dst.slug, everyone.join(", "))
     };
     resume_pending(engine,dst.id).await;
     Ok(Sent { dnd_held: held, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: held || everyone.is_empty() || route.waiting })
 }
 
 /// Effective live audience holders, agents AND projects (USER 2026-11-03 mdf5da6c51202: a project
-/// holds the org inbox "like an agent node"); newest grant wins in single-holder mode.
+/// holds the org mailbox "like an agent node"); newest grant wins in single-holder mode.
 /// Each is `(name, kind)`, kind `agent` or `project`.
 #[logged]
 pub async fn holder_rows<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<(String, String)>> {
@@ -394,7 +394,7 @@ async fn runnable<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
 
 /// Busy presence (Mail hub 2.3.0; user 2026-10-30 23:03Z, docket
 /// org-presence-busy-orange-when-no-org-inbox-holde): the org shows busy on
-/// its hubs while none of its org-inbox holders can start a turn: no live
+/// its hubs while none of its org-mailbox holders can start a turn: no live
 /// holder, every one halted or frozen (`runnable`: any freeze, usage limit,
 /// rate limit, auth, balance, account or lane), or the org's killswitch
 /// latched. One that can run means online. Holders only, as the user put it:
@@ -449,7 +449,7 @@ struct Route {
 }
 
 /// Whether `ensure_holders` would let this agent send outside mail now,
-/// changing nothing: the org inbox is enabled, and the agent holds its
+/// changing nothing: the org mailbox is enabled, and the agent holds its
 /// audience or is a live top-level agent (whom a send auto-grants). Typing
 /// in Hubchat (2026-10-13) checks the send's own gate, and must never grant.
 #[logged]
@@ -495,14 +495,14 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
     let target = if let Some((id, name)) = sender {
         if holders.iter().any(|h| h == name) { None } else {
             let top = tx.query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.outside_top_level(id)", &[&id, &org_id]).await?.is_some();
-            if !top { crate::refuse!(Forbidden, "outside mail needs the org-inbox audience; ask your superior"); }
+            if !top { crate::refuse!(Forbidden, "outside mail needs the org-mailbox audience; ask your superior"); }
             Some((id, name.to_string(), "auto-granted: top-level agent messaged an outside party"))
         }
     } else if holders.is_empty() && projects.is_empty() {
         // the first top-level agent who can run; when none can, the first live one
         tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND ot.outside_top_level(id) AND state = 'live' AND kind = 'agent'
                        ORDER BY (halt IS NULL AND frozen IS NULL) DESC, sibling_order, id LIMIT 1", &[&org_id]).await?
-            .map(|r| (r.get(0), r.get(1), "auto-granted: outside mail arrived with no live org-inbox holder"))
+            .map(|r| (r.get(0), r.get(1), "auto-granted: outside mail arrived with no live org-mailbox holder"))
     } else { None };
     let mut changed = false;
     if let Some((id, name, reason)) = target {
@@ -696,7 +696,7 @@ pub async fn resume_pending(engine:&Arc<Engine>,org:i64) {
         match release_page(engine,org).await {
             Ok(100)=>tokio::task::yield_now().await,
             Ok(_)=>break,
-            Err(error)=>{tracing::warn!(org_id=org,%error,"org inbox release deferred to runtime recovery");break;}
+            Err(error)=>{tracing::warn!(org_id=org,%error,"org mailbox release deferred to runtime recovery");break;}
         }
     }
 }

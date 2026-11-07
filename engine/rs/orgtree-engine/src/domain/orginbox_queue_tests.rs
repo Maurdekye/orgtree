@@ -1,4 +1,4 @@
-//! Project holders of the org inbox (USER 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53,
+//! Project holders of the org mailbox (USER 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53,
 //! m63e16cf45188; spec rev 2.1 T4-T19). Each test builds its own disposable `ot` schema in the isolated
 //! `orginbox_queue_fixture` database (`ORGTREE_ORGINBOX_TEST_URL`, user and database both
 //! `orginbox_queue_fixture`; `ORGTREE_ORGINBOX_TEST_ROOT` = an owned engine root), so run them one at a time:
@@ -44,7 +44,7 @@ impl World {
     async fn grant(&self, name: &str) {
         self.c.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1,$2,'@extern','fixture')", &[&self.org, &name]).await.unwrap();
     }
-    /// A received hub message, published through the router. Returns its org-inbox uid.
+    /// A received hub message, published through the router. Returns its org-mailbox uid.
     #[nolog]
     async fn arrive(&mut self, net_id: &str, peer: &str, body: &str, replies: Value) -> (String, jobs::Published) {
         let uid = uid("x");
@@ -535,7 +535,7 @@ async fn t30_the_hand_out_and_carry_lookups_use_their_partial_indexes() {
 
 // ---------------------------------------------------------------- a nested descendant of the holder project (locks in 40f1bc6)
 
-/// P (ACK) holds the org inbox; Q is a project under P; A and B are agents inside Q. A has armed a fair_queue on P and
+/// P (ACK) holds the org mailbox; Q is a project under P; A and B are agents inside Q. A has armed a fair_queue on P and
 /// holds the claim on the job; B did not.
 #[tokio::test]
 #[ignore = "requires an isolated orginbox_queue_fixture database"]
@@ -595,7 +595,7 @@ async fn t31_a_nested_descendant_that_claimed_the_job_replies_and_gets_the_threa
     // 6. control: B, in Q but not the claimant, has no reply right
     assert!(!matches!(jobs::reply_right(&w.e, w.org, b, &mk(b, "B")).await.unwrap(), jobs::Reply::Allowed(_)), "B is not the claimant");
     let refused = send_extern(&w.e, w.org, &mk(b, "B")).await.expect_err("B's outside reply is refused");
-    assert!(format!("{refused:#}").contains("org-inbox audience"), "refused by the right check, not by the hub: {refused:#}");
+    assert!(format!("{refused:#}").contains("org-mailbox audience"), "refused by the right check, not by the hub: {refused:#}");
 }
 
 // ---------------------------------------------------------------- job-scoped replies for ANY project mail (relay spec rev 1.2, G1-G3, GR1-GR9)

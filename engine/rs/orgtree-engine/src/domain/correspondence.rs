@@ -5,7 +5,7 @@
 //!
 //! It reads only what the agent may already read, the same mail `reply_to`
 //! accepts: mail it received or sent (to an agent or the user), and the
-//! outside mail it sent from the org inbox. Each side of a conversation is
+//! outside mail it sent from the org mailbox. Each side of a conversation is
 //! one short index range (migration 0015), so a page never scans the rest of
 //! a long mailbox.
 
@@ -232,7 +232,7 @@ pub async fn page(client: &impl GenericClient, me: &Me, peer: &Peer, cursor: Opt
         Peer::Outside(address) => {
             let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&me.org_id]).await?.get(0);
             super::orginbox::check(&settings)?;
-            // sent from the org inbox under the caller's name, since the
+            // sent from the org mailbox under the caller's name, since the
             // caller existed (a deleted namesake's mail is not its own)
             let born: DateTime<Utc> = client.query_one("SELECT created_at FROM ot.agents WHERE id = $1", &[&me.id]).await?.get(0);
             (

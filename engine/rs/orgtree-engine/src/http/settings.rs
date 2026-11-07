@@ -330,7 +330,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     }
     if patch.get("org_inbox_multi_holder").and_then(Value::as_bool) == Some(false) {
         let holders = crate::domain::orginbox::live_holders(&*client, o.id, true).await?;
-        if holders.len() > 1 { return Err(ApiError::bad_request("revoke extra org-inbox holders before disabling multi-holder mode")); }
+        if holders.len() > 1 { return Err(ApiError::bad_request("revoke extra org-mailbox holders before disabling multi-holder mode")); }
     }
     let row = client
         .query_one(
@@ -463,7 +463,7 @@ pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(b): Json<Map<Strin
     let mut top = Map::new();
     for (k, v) in &b {
         match k.as_str() {
-            "org_inbox_enabled" => return Err(ApiError::bad_request("org inbox access is an organization setting, not a hire default")),
+            "org_inbox_enabled" => return Err(ApiError::bad_request("org mailbox access is an organization setting, not a hire default")),
             "org_dirs" => {
                 defaults.insert("dirs".into(), Value::Array(dirs_of(v).0));
             }

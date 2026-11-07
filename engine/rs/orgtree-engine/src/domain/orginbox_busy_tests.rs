@@ -1,6 +1,6 @@
 //! Busy presence (Mail hub 2.3.0; user 2026-10-30 23:03Z, docket
 //! org-presence-busy-orange-when-no-org-inbox-holde): an org shows busy on
-//! its hubs while none of its org-inbox holders can start a turn. One test
+//! its hubs while none of its org-mailbox holders can start a turn. One test
 //! per holder state: none, one that can run, halted, frozen, retired, a
 //! revoked grant, several holders, single-holder mode's newest grant, and
 //! the org's killswitch. Each builds its own disposable `ot` schema in the
@@ -38,7 +38,7 @@ async fn agent(c: &tokio_postgres::Client, org: i64, name: &str) -> i64 {
         .get(0)
 }
 
-/// The org-inbox (@extern) audience for `name`.
+/// The org-mailbox (@extern) audience for `name`.
 #[nolog]
 async fn grant(c: &tokio_postgres::Client, org: i64, name: &str) {
     c.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, '@extern', 'fixture')", &[&org, &name])

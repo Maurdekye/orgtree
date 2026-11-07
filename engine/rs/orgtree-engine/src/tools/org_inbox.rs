@@ -20,20 +20,20 @@ fn after(args:&Value,org:i64,agent:i64)->Result<i64> {
     let Some(v)=args.get("cursor") else {return Ok(0);};
     let prefix=format!("oi1:{org}:{agent}:");
     v.as_str().and_then(|s|s.strip_prefix(&prefix)).and_then(|s|s.parse::<i64>().ok())
-        .filter(|n|*n>=0).ok_or_else(||anyhow::anyhow!("invalid org inbox cursor"))
+        .filter(|n|*n>=0).ok_or_else(||anyhow::anyhow!("invalid org mailbox cursor"))
 }
 
 #[logged]
 pub(super) fn check_args(args:&Value)->Result<()> {
     let allowed:&[&str]=match args["action"].as_str() {
         Some("settings")=>&["action"],
-        Some("configure")=>crate::refuse!(Forbidden,"org inbox mode changes are user-only; ask your superior or the user"),
+        Some("configure")=>crate::refuse!(Forbidden,"org mailbox mode changes are user-only; ask your superior or the user"),
         Some("list") if args["org_inbox"]==true=>&["action","org_inbox","limit","cursor"],
         Some("pull")=>&["action","limit"],
-        _=>crate::refuse!(BadRequest,"org inbox supports settings, list with org_inbox=true, or pull"),
+        _=>crate::refuse!(BadRequest,"org mailbox supports settings, list with org_inbox=true, or pull"),
     };
     if args.as_object().is_none_or(|a|a.keys().any(|k|!allowed.contains(&k.as_str()))) {
-        crate::refuse!(BadRequest,"unexpected org inbox field; do not combine org and project/own-mail reads");
+        crate::refuse!(BadRequest,"unexpected org mailbox field; do not combine org and project/own-mail reads");
     }
     Ok(())
 }
@@ -49,7 +49,7 @@ pub async fn read(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> 
     let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE",&[&who.org_id]).await?.get(0);
     let multi=crate::feed::groups::effective_settings(&raw,&engine.settings.defaults())["org_inbox_multi_holder"].as_bool().unwrap_or(false);
     if !orginbox::holder_agents(&*tx,who.org_id,multi).await?.contains(&who.name) {
-        crate::refuse!(Forbidden,"reading the org inbox requires its current extern audience; fallback delivery grants no audience");
+        crate::refuse!(Forbidden,"reading the org mailbox requires its current extern audience; fallback delivery grants no audience");
     }
     if action=="settings" {return Done::json(&json!({"mode":orginbox::mode(&raw),"enabled":orginbox::enabled(&raw),"can_configure":false}));}
     orginbox::check(&raw)?;

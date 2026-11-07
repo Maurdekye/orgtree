@@ -1,4 +1,4 @@
-//! The org inbox viewer: retained log, read mark, network and transfer inspection.
+//! The org mailbox viewer: retained log, read mark, network and transfer inspection.
 
 use std::sync::Arc;
 

@@ -1125,7 +1125,7 @@ pub fn note_read(engine: &Engine, org_id: i64, read: &[(String, String)]) {
 
 // ------------------------------------------------------------ sending
 
-/// Queue one `@net:` message from the org inbox (the send itself is the
+/// Queue one `@net:` message from the org mailbox (the send itself is the
 /// sender's job). Refuses when no hub is enabled or no hub knows the peer.
 /// `reply_to` is the quote of the message it answers (its `net_id` rides
 /// the payload).
@@ -1474,7 +1474,7 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
                 "connected": inbox_enabled && st.connected,
                 // the implicit local hub stays out of sight until it has answered once
                 "hidden": id == LOCAL_HUB_ID && !(st.connected || registered),
-                "last_ok": st.last_ok, "error": if inbox_enabled { st.error } else { Some("org inbox disabled".into()) },
+                "last_ok": st.last_ok, "error": if inbox_enabled { st.error } else { Some("org mailbox disabled".into()) },
                 "queued": if mine { queued } else { 0 },
                 "roster": roster,
             });
