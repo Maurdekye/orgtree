@@ -71,12 +71,47 @@ export default async function (rig) {
   p.check('and only their own org.md', !a.includes('SECOND_ORG_NOTES') && !b.includes('FIRST_ORG_NOTES'))
   p.check('a file named like the block reaches nobody', !a.includes('FILE_SENTINEL') && !b.includes('FILE_SENTINEL'))
 
-  // ---- an edit reaches every agent at its next turn, through a fresh CLI
+  // ---- an edit reaches a RESUMED Claude session as a turn block, with no restart
+  // (docs/rust-engine/app-instructions.md, Resumed Claude sessions: Claude Code
+  // restores the session's first prompt snapshot on --resume, so the engine
+  // cannot refresh the system prompt; coordinator ruling 2026-11-07 22:49Z).
+  const BLOCK = '[SYSTEM PROMPT UPDATE'
+  const turns = name => rig.fakeLog(name).filter(row => row.kind === 'turn')
+  const lastPrompt = name => String(turns(name).at(-1)?.prompt ?? '')
+  p.check('control: a session created with the text gets no update block on its first turns',
+    !turns('appwa').some(t => String(t.prompt ?? '').includes(BLOCK)) && !turns('appwb').some(t => String(t.prompt ?? '').includes(BLOCK)))
   const count = starts('appwa').length
+  const pidBefore = turns('appwa').at(-1)?.pid
   r = await put('APPWIDE_SENTINEL_v2\n', (await get()).rev)
   await turn(rig.org, 'appwa', 'After the edit.')
-  p.check('the next turn starts a fresh CLI with the new text only', r.ok && starts('appwa').length === count + 1
-    && prefix('appwa').includes('APPWIDE_SENTINEL_v2') && !prefix('appwa').includes('APPWIDE_SENTINEL_v1'))
+  const edited = lastPrompt('appwa')
+  p.check('the next turn keeps the same CLI: no new start, the same process', r.ok && starts('appwa').length === count
+    && turns('appwa').at(-1)?.pid === pidBefore && pidBefore, { starts: starts('appwa').length, count, pidBefore, now: turns('appwa').at(-1)?.pid })
+  p.check('and carries one update block naming only the app-wide section with its full current text',
+    edited.includes(`${BLOCK} — 1 section changed]`) && edited.includes('## Instructions for all orgs (app-wide) (current)\nAPPWIDE_SENTINEL_v2')
+    && !edited.includes('## Organization notes (org.md) (current)') && !edited.includes('## Orgtree system rules (current)')
+    && edited.indexOf(BLOCK) < edited.indexOf('[ORG STATE'), edited.slice(0, 700))
+  await turn(rig.org, 'appwa', 'Second turn after the edit.')
+  p.check('the turn after that adds no block', !lastPrompt('appwa').includes(BLOCK) && starts('appwa').length === count)
+  await turn(rig.org, 'appwa', 'A third turn.')
+  p.check('unchanged text never adds one', !lastPrompt('appwa').includes(BLOCK))
+
+  // a change to anything else still restarts the CLI, and the fresh launch file has the current text
+  await rig.op({ op: 'retool', node: 'appwa', tools: { web: true } })
+  await turn(rig.org, 'appwa', 'After the tools change.')
+  p.check('a tools change still starts a fresh CLI, whose launch file carries the new text',
+    starts('appwa').length > count && prefix('appwa').includes('APPWIDE_SENTINEL_v2') && !lastPrompt('appwa').includes(BLOCK),
+    { starts: starts('appwa').length, count })
+
+  // a session with no stored digests (every session older than this mechanism): every non-empty section, once
+  rig.exec(`UPDATE ot.agents a SET extra = extra #- '{envelope,prompt_sections}' FROM ot.orgs o WHERE o.id = a.org_id AND o.slug = '${q(rig.org)}' AND a.name = 'appwa'`)
+  await turn(rig.org, 'appwa', 'After the record was lost.')
+  const legacy = lastPrompt('appwa')
+  p.check('a session with no stored digests gets every non-empty section once',
+    legacy.includes(BLOCK) && legacy.includes('## Orgtree system rules (current)') && legacy.includes('## Instructions for all orgs (app-wide) (current)\nAPPWIDE_SENTINEL_v2')
+    && legacy.includes('FIRST_ORG_NOTES'), legacy.slice(0, 500))
+  await turn(rig.org, 'appwa', 'And once only.')
+  p.check('and then nothing more', !lastPrompt('appwa').includes(BLOCK))
 
   // ---- the one-time move at engine start
   const orgmd = slug => fs.readFileSync(path.join(rig.data, 'workspaces', slug, 'org.md'), 'utf8')
