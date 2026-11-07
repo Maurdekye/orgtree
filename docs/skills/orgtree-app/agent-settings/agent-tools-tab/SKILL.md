@@ -55,7 +55,7 @@ Org-modifying tools is **on by default**, including existing agents. A missing
 orgmod key preserves an explicit legacy logo denial; an explicit orgmod value
 takes precedence. The Tools tab retains Save for these changes. Organization Logo It inherits
 the same ceiling as other groups. Enabled agents at any depth need neither a user nor
-an org-inbox audience to change their own org's Logo. Details and file/crop limits:
+an org-mailbox audience to change their own org's Logo. Details and file/crop limits:
 `orgtree-tool-org-logo` (orgtree-working › team).
 
 ## MCP servers

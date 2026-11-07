@@ -36,7 +36,7 @@ If the glossary is vague, missing details or incorrect, read [Orgtree's public s
 | Find attention items or recover a failed view | [orgtree-app-shell](app-shell/SKILL.md) |
 | Read an agent card, draft hire or pile | [orgtree-canvas](canvas/SKILL.md) |
 | Pin, move or reopen a panel | [orgtree-canvas](canvas/SKILL.md) |
-| Understand the user node or outside inbox tile | [orgtree-canvas](canvas/SKILL.md) |
+| Understand the user node or outside mailbox tile | [orgtree-canvas](canvas/SKILL.md) |
 | Read the desk Chat tab or an agent's event history | [orgtree-desk](desk/SKILL.md) and [orgtree-agent-settings](agent-settings/SKILL.md) |
 | Find project tabs, queue workers, slots or event history | [orgtree-desk](desk/SKILL.md) |
 | Open Mail, Docket or Presented windows | [orgtree-desk](desk/SKILL.md) |

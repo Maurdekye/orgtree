@@ -29,7 +29,7 @@ and time in header of detail tab").
   in place of the red `--bad` ring: Org settings > Connections, App settings >
   Mail hub and the mailbox's network tab. Online stays the filled green dot
   with its halo; a filled grey bullet is neither.
-- **Queued is the clock (#6).** The org inbox's @net delivery ladder (a Sent
+- **Queued is the clock (#6).** The org mailbox's @net delivery ladder (a Sent
   row and the reading pane's header) draws a queued message as `ScheduleIcon`
   (MUI Schedule, the path of Hubchat's `schedule` tick) instead of `▫`. Sent
   `✓`, delivered `✓✓` and read `✓✓` (green) are unchanged; a queued message
@@ -89,7 +89,7 @@ and time in header of detail tab").
 Tests: `listage.test.tsx`, `docket.test.tsx` §38f and §38i,
 `attnmentionrow.test.tsx` §1, `mailwire.test.tsx`, `connectionlist.test.tsx`
 and `netmentions.test.tsx`. The capture `tests/symmetry.capture.cjs` (fixture
-`tests/symmetry.visual.tsx`) draws Connections, the org inbox, Presentations
+`tests/symmetry.visual.tsx`) draws Connections, the org mailbox, Presentations
 and an agent's docket at base and tip, dark and light, in Session 0.
 
 [decided: user 2026-10-29 13:25Z m019c9500d23a, 13:47Z m134c95331ab0]
@@ -2422,7 +2422,7 @@ the chip shows a name, then the click. It is the one @net hover, so every
 surface that draws an `@net:` chip changed with it: plain and Markdown text in
 transcripts and mail (`reflinks`, `refmd`), tool-call cards (`toolrefs`),
 event-card headers (`events/card.tsx`), the user Inbox and Attention senders
-(`senderchip`), the history view, the org inbox's lists and reading pane
+(`senderchip`), the history view, the org mailbox's lists and reading pane
 (`mail.tsx`), the Sender submenu (`objectactions`), the Connections lists and
 the mailbox's network tab. An address listed on several hubs reads Online
 when any of them says so. An unlisted address, the org's own address and `@org:` keep
@@ -2440,9 +2440,9 @@ history view and nested cards agree; `SenderChip` (user Inbox pane, Attention
 view) does the same for untyped rows. Other outside ids (`@mcp:` from before its
 retirement) stay recorded text, and the user Inbox and Sent list rows keep the
 plain names the user chose (e56a491, 2026-09-11). The click is unchanged; the
-menu's other destination is **Open in org inbox**. `OrgCanvas` registers the
-window's org inbox (`registerOrgInboxOpener`; pins and pop-outs share its
-realm): the entry is disabled with "The org inbox is closed off" in that mode,
+menu's other destination is **Open in org mailbox**. `OrgCanvas` registers the
+window's org mailbox (`registerOrgInboxOpener`; pins and pop-outs share its
+realm): the entry is disabled with "The org mailbox is closed off" in that mode,
 and left out where no canvas registered one. It opens `OrgInboxModal` with a
 `party` request: the newest loaded mail with the address picks the folder and
 the selection (the preview first, then the fetched log), and the list's
@@ -2490,7 +2490,7 @@ be communicated more clearly", m0537fdb73608).
   none last, A-Z by the chip's name (`Intl.Collator`, base sensitivity,
   numeric), then by address. The row's presence is the one the hover gives
   (`rowPresence`). The org tab reads the times from `GET
-  /api/orgs/{slug}/net/recent`. It reads again when the org inbox's total or
+  /api/orgs/{slug}/net/recent`. It reads again when the org mailbox's total or
   newest row changes, or a roster grows; a failed read keeps the order shown.
 - **Lazy loading** ("lazily loading and scrollable past a certain length"):
   past `VISIBLE_ROWS` (10) the list scrolls in a ten-row window. Only the rows
@@ -2570,7 +2570,7 @@ name.
 m79e889ce1609, md30a04a62550; verified: `canvas/{agentmentions.tsx,mentionsearch.ts,workrefs.tsx,reflinks.tsx,refmd.tsx}`,
 `domain/mention_candidates.rs`]
 
-## Org inbox links and mail item boundaries (2026-10-29, 4.5.2)
+## Org mailbox links and mail item boundaries (2026-10-29, 4.5.2)
 
 User bug 2026-10-29 (the neoja org, 4.5.1): opened from a
 link to a message the org had sent, clicking Received stopped the whole
@@ -2578,11 +2578,11 @@ frontend with "Cannot read properties of undefined (reading 'startsWith')" in
 the reading pane's sender. Three rules hold now:
 
 - An org-box lookup, `GET /api/orgs/{slug}/mail/org/{id}`, answers with the
-  org inbox's own entry (`orginbox::entry`: `dir`, `peer`, `by`), the shape
+  org mailbox's own entry (`orginbox::entry`: `dir`, `peer`, `by`), the shape
   `GET org_inbox` lists, not a mail row. `OrgInboxModal` maps listed rows and
   a lookup's answer through one function, `orgInboxRow`. The answer used to be
   cast to a mail row, with no `from` or `to`.
-- The org inbox's Received and Sent folders are one `MailList` instance, so
+- The org mailbox's Received and Sent folders are one `MailList` instance, so
   the panel decides where each jump belongs, as the node inbox does: the row's
   direction in the loaded log, else the lookup's answer (`onFound`). It moves
   there once per jump request and hands the jump only to that folder. A reader
@@ -2667,7 +2667,7 @@ button resets cannot override it):
 An inline link chip (an agent or project link, a network contact, a ticket, presentation, app or panel link) lines up
 with the words around it: the NAME sits on the text's baseline, and the chip adds nothing to the line's height. The
 user's report was "agent links are sometimes vertically misaligned with the surrounding text in places"
-(m4b300ae4cbd1), with the org inbox's Sent line (`@agent as @org -> @recipient`) and a chat message as examples.
+(m4b300ae4cbd1), with the org mailbox's Sent line (`@agent as @org -> @recipient`) and a chat message as examples.
 
 - **Cause, measured** (`tests/chipalign.capture.cjs`, Session 0): an agent or project chip is an inline-flex box
   (`.ref-chip.ref-agent`, `.node-link`: a 16px badge, then the name). A flex box takes its baseline from its first
@@ -2697,7 +2697,7 @@ user's report was "agent links are sometimes vertically misaligned with the surr
   the same sentence with no chip): `.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)` and the contact
   chip (`netmentions.css`) carry `margin-block: -2px`, and in the opt-in wrapping layout, where the link is an inline
   box that margins cannot shorten, the object chips carry `line-height: 0` (their text, underline, outline and icon do
-  not depend on it). The org inbox's address lines (`.mailer-head`) are flex rows in which the chips are the tallest
+  not depend on it). The org mailbox's address lines (`.mailer-head`) are flex rows in which the chips are the tallest
   items, so a contact chip there keeps `margin-block: 0` and the delivered-to line keeps its 94.1 px. A new kind of
   chip follows the same rule: its sentence is no taller than the same sentence without it
   (`chipalign.capture.cjs`, 0.1 px).
@@ -2708,7 +2708,7 @@ user's report was "agent links are sometimes vertically misaligned with the surr
   baseline of every text run on every line (at most 0.5 px apart), each badge against its label's line centre (1 px)
   and lowercase centre (2 px), and each row against a run at the base (0.5 px a line, and no taller than the same message without the chip), in both mention layouts, over
   chat prose, a mail body, the docket, an event head, a mail row, an ask fold, an idle ticket, a tool row, and the
-  org inbox's Sent and delivered-to lines.
+  org mailbox's Sent and delivered-to lines.
 [decided: user 2026-10-31 m4b300ae4cbd1, mb6da9f3ee862; verified: `styles.css`, `canvas/identity.tsx`, `tests/chipalign.{test.tsx,capture.cjs,visual.tsx}`]
 
 ## @mail: links are chips named by their message (2026-10-31, 4.5.3)
@@ -2752,7 +2752,7 @@ object links: the mail icon on the left, then the first words of the message (m3
   Markdown chip lead the static title with it, and the hover (`objecttooltip.ts`, `mailTitle`'s `state`) leads with it from its
   fresh read, so the sent-mail tool rows, the listener tables, Markdown and React links all show it. The user's inbox and an
   agent's mailbox keep per-message read state (an agent's, since 2026-11-01: see the agent-mail section at the end of this file); the
-  org inbox's message, a read one and `@user` never flare. It clears under the presentation's
+  org mailbox's message, a read one and `@user` never flare. It clears under the presentation's
   rule, when the message is read: a read made in this window (`mailread.ts` `markReadNow`) re-decides every link at once through
   `subscribeLocalReads` -> `refNames.touch()` with no read, an accepted save is recorded on the kept answer (`onReadSaved` ->
   `refNames.amend`) so the link stays read when the store forgets the read, and a refused save puts the flare back. A read made
@@ -2900,7 +2900,7 @@ a sender's view of a message it sent answers for that recipient). Each recipient
 recipients has one chip target per row. `mailFlare` flares it as for user mail; an unread message with `urgent` gets the extra class
 `mail-urgent`, which `styles.css` draws in `#ff4500` (the urgent mail row's literal; there is no token), after the unread rule. Read
 urgent mail has no edge. Live: `mailTreeChanged` (called where the tree is set in `App.tsx`) reads the unread node-box links again when
-the tree's per-agent `mail_pending` counts change. The org inbox's mail never flares. Proof: `tests/mailagentunread.test.tsx` (the
+the tree's per-agent `mail_pending` counts change. The org mailbox's mail never flares. Proof: `tests/mailagentunread.test.tsx` (the
 engine change itself has no jsdom proof).
 
 ## Subtree fold is a second display prune, chained after hide-retired (2026-11-01)

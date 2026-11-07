@@ -78,7 +78,7 @@ real model).
 2. **The send's own checks, changing nothing.**
    - `tools::typing_peers`: the metadata would pass the handler's checks, and
      it names `@net:` peers.
-   - `orginbox::may_send_extern`: the org inbox is enabled, and the agent
+   - `orginbox::may_send_extern`: the org mailbox is enabled, and the agent
      holds its audience or is a live top-level agent. This is a read-only
      twin of `ensure_holders`, which grants.
    - Safe start is not on.

@@ -1,6 +1,6 @@
-# Org inbox viewer
+# Org mailbox viewer
 
-User 2026-10-12 08:41Z made Hubchat the canonical human hub-mail client and requested removal of the org-inbox Compose mail button and feature. The Orgtree window now reads the retained inbox and sent records, shows attachments and recorded reply quotes, marks incoming mail read, navigates older mail by reference, and displays mailservers and transfers. Human outside replies were another composition entry point and are removed with the modal.
+User 2026-10-12 08:41Z made Hubchat the canonical human hub-mail client and requested removal of the org-mailbox Compose mail button and feature. The Orgtree window now reads the retained inbox and sent records, shows attachments and recorded reply quotes, marks incoming mail read, navigates older mail by reference, and displays mailservers and transfers. Human outside replies were another composition entry point and are removed with the modal.
 
 The renderer no longer exports human send/upload or saved-draft API helpers. The engine no longer registers `/org_inbox/send`, `/org_inbox/upload`, `/org_inbox/upload_limit`, or any `/org_inbox/staging` route. They return 404, including legacy clients that still try them. These endpoints had no other production caller. No substitute human route or Hubchat launch flow was added.
 
@@ -8,7 +8,7 @@ Retiring a file-upload route does not retire its body-log exclusion: legacy stag
 
 Agent `orgtree_message`, same-org human-to-agent sends and contextual internal reply composers retain their existing paths. Shared transport, transfer inspection/control, audience admission and the engine-local disabled-inbox boundary are unchanged. The old human-only quote helper and HTTP staging module are removed; agent and incoming reply-quote helpers remain.
 
-No database migration or record/file deletion is needed. Existing org-inbox entries, upload metadata, completed staging records, downloaded files and accepted transfer jobs retain custody. Domain staging cleanup stays for interrupted legacy uploads and preserves completed files. Disabled history and file access restore on re-enable. Stored pin configuration is not rewritten. The historical compose scenarios in the modal-pin browser probe are retired; its org-inbox title fixture remains a viewer.
+No database migration or record/file deletion is needed. Existing org-mailbox entries, upload metadata, completed staging records, downloaded files and accepted transfer jobs retain custody. Domain staging cleanup stays for interrupted legacy uploads and preserves completed files. Disabled history and file access restore on re-enable. Stored pin configuration is not rewritten. The historical compose scenarios in the modal-pin browser probe are retired; its org-mailbox title fixture remains a viewer.
 
 ## Measured verification
 

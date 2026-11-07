@@ -20,7 +20,7 @@ The 16:42Z ruling supersedes always-raise for panel buttons: the same button
 hides its already open local pin, including a pin behind another panel. The next
 click reopens at the saved rectangle. `toggleOrRaiseModal` applies this to the
 global Inbox, Docket, Presentations, Usage, Usage history and Settings buttons;
-Agents list and the org inbox use it too. App settings and defaults already
+Agents list and the org mailbox use it too. App settings and defaults already
 toggle their pins. `toggleNodePanel` shares that decision for node Inbox, Team,
 Docket, Presentations, Settings, lineage and watchdog buttons, per target since
 2026-10-20 (below): another target opens its own window; an ensure-open request

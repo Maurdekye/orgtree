@@ -22,7 +22,7 @@ See [storage, tools and evidence limits](../rust-engine/org-inbox-dnd.md).
 
 Delivery, mentions, inboxes, outside authority, files, Hubchat and hub transport.
 
-## Org inbox rows record who got each copy (2026-10-29, 4.5.2)
+## Org mailbox rows record who got each copy (2026-10-29, 4.5.2)
 
 `ot.org_inbox.delivered_to` (migration 0079, jsonb array of agent names) is the
 record of who received a copy of a received message, in delivery order, each
@@ -33,7 +33,7 @@ recompute it from today's holders, and never guess it: rows with no record (mail
 between two orgs of one engine, imported rows, mail still held) stay empty. The
 migration backfilled hub mail only, by the exact `(org_id, net_id)` key. The
 wire (`orginbox::entry`) carries it only on received rows with a non-empty list.
-The org inbox window draws it after a received mail's sender (`@sender -> @agent
+The org mailbox window draws it after a received mail's sender (`@sender -> @agent
 as @org:x @agent as @org:x`) in the outbox's `org-mail-attribution`/
 `org-mail-recipient` markup. Each agent is followed by the Sent tab's own
 `as @org:<slug>` (`AsOrg`: the `org-mail-via` markup and the shared org link) and
@@ -48,7 +48,7 @@ outside listeners [decided: user 2026-10-30 mc1739129bbfa]: no hub payload
 (`net::outgoing_payload`, whose SELECTs never name the column), receipt (id,
 state, time), ack (ids) or reply quote (`QUOTE_COLS`, seven named columns, never
 a row dump) carries `delivered_to` or a name from it. Only the delivery, the
-local views (`orginbox::entry`: the org inbox list, the mail-by-id route and the
+local views (`orginbox::entry`: the org mailbox list, the mail-by-id route and the
 tree preview) and the migration name the column. Check anything new that reads
 it against this first. `delivered_to_stays_inside_the_org` in
 `domain/orginbox.rs` pins it at the source: a scan of `src/` for the column (the
@@ -380,7 +380,7 @@ Original section: AGENTS.md — working on Orgtree. Source lines 2716–2716.
 
 <a id="e-8c61a2eb68eabebb"></a>
 
-## Human hub mail is composed in Hubchat. The Orgtree org-inbox window is a viewer: no compose/reply/upload controls or ded
+## Human hub mail is composed in Hubchat. The Orgtree org-mailbox window is a viewer: no compose/reply/upload controls or ded
 
 Original section: AGENTS.md — working on Orgtree. Source lines 2718–2718.
 
@@ -390,7 +390,7 @@ Original section: AGENTS.md — working on Orgtree. Source lines 2718–2718.
 
 <a id="e-c2f741691526d825"></a>
 
-## Org inbox isolation is an org-local, default-on boundary: org_inbox_enabled=false rejects new external sends before queu
+## Org mailbox isolation is an org-local, default-on boundary: org_inbox_enabled=false rejects new external sends before queu
 
 Original section: AGENTS.md — working on Orgtree. Source lines 2720–2720.
 
@@ -768,7 +768,7 @@ audience holders are frozen / halted / retired, or otherwise indisposed and unab
 but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen to Mail hub 2.3.0" and "Amber
 (existing caution colour)" (23:19Z mfb051a00d947).
 
-- The org: `orginbox::busy` is true while none of the org-inbox holders can run: no live holder (`live_holders`),
+- The org: `orginbox::busy` is true while none of the org-mailbox holders can run: no live holder (`live_holders`),
   every one halted or frozen (`runnable`: any freeze), or the org killswitch latched. Holders only, as the user worded
   it: `route_tx` still hands outside mail to a runnable top-level agent when no holder can run (coordinator 2026-10-30
   23:18Z). The network pass (`net/presence.rs`, every 3 s) sends `POST /api/presence {busy}` to each connected hub when
@@ -823,7 +823,7 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 13 (Mail hub
   2.4.0) replaced 12 as the step to name in release notes.
 
-## Org inbox: project holders, job replies, hub threading
+## Org mailbox: project holders, job replies, hub threading
 
 - A project may hold `@extern` like an agent (`audiences::grant_tx`); `orginbox::holder_rows` returns agents and projects, `holder_agents` is what acts as a holder (send, pull, read, notices), `holder_projects` gets jobs. Busy presence counts a project holder with an armed fair_queue listener owned by a runnable agent.
 - Routing (`orginbox_jobs::publish`, called by `publish_new` and `release_page`): DnD first; then `threaded` (D13 reply to an agent's sent row, D14 follow-up to the sender's own row, by the quote's `box=org` id); then `route_tx` agents plus `publish_jobs`. The top-level fallback and auto-grant do not run while a project holder exists.

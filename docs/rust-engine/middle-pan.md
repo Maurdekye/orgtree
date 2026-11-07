@@ -24,7 +24,7 @@ pointer on the viewport, never on a desk wrapper.
 
 Pinned frames use `pinLayerFor`/`adoptPinLayer`: their layer is also a DOM child
 of the viewport. Middle drag pans the camera while their rectangle stays fixed.
-Presentation cards and the org-inbox tile are ordinary canvas descendants;
+Presentation cards and the org-mailbox tile are ordinary canvas descendants;
 the same boundary handles them. A presentation in a pinned modal uses the same
 adopted pin layer. Unpinned modal overlays, separate HTML-preview documents and
 separate desk popout windows have no containing canvas viewport, so these native

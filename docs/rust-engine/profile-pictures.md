@@ -31,7 +31,7 @@ holds that transaction. Organization trash retains the record with the org.
 
 Any agent with effective `tools.orgtree.logo` can `set` from a local image in
 its own or held folders, or `remove`. It defaults **on** (user 22:10Z) and is
-inherited like other tool groups; user/team tools and org-inbox audience are
+inherited like other tool groups; user/team tools and org-mailbox audience are
 not prerequisites. A relative path starts in the agent's stored working folder.
 Read-only grants suffice. The existing canonical file resolver bounds reads;
 reading stops at 5 MiB + 1 byte. Unknown actions/selectors, animated/unsupported
@@ -106,7 +106,7 @@ The existing network pass dispatches at most four optional picture jobs,
 deduplicated per organization/hub. Attempts are at least ten seconds apart;
 capability readings expire after five minutes. Removed memberships prune their
 retry/ack/capability entries. Picture I/O does not block the mail pass. Each
-request is bounded, refuses redirects, and holds the existing org-inbox
+request is bounded, refuses redirects, and holds the existing org-mailbox
 isolation gate; cancellation stops the request when the policy changes. Current
 organization identity and enabled hub membership are rechecked before each
 request and merge. Local edits remain possible while outside access is disabled.

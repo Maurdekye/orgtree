@@ -28,7 +28,7 @@ parity constraint (decision 55).
   whether older mail exists (with the exact next call) or that this is the start, and how to
   fetch a cut message.
 - **`fetch`** now returns mail the caller sent too, so a cut preview can be read whole. That
-  covers mail to agents, to the user, and outside mail it sent from the org inbox. A sent
+  covers mail to agents, to the user, and outside mail it sent from the org mailbox. A sent
   message is marked `direction: sent` with its `to`.
 
 ## Caps (so a recall cannot flood a context)
@@ -51,10 +51,10 @@ It reads exactly what `reply_to` already accepts:
 - mail the caller received (`recipient_agent_id`), excluding mail retracted before it was
   delivered;
 - mail the caller sent to an agent or to the user (`sender_agent_id`);
-- outside mail the caller sent from the org inbox (`org_inbox` `dir = 'out'` under its name),
+- outside mail the caller sent from the org mailbox (`org_inbox` `dir = 'out'` under its name),
   only since the caller was created, so a deleted namesake's mail is not its own.
 
-An org-inbox holder sees the outside mail delivered to it and its own replies. An agent that held
+An org-mailbox holder sees the outside mail delivered to it and its own replies. An agent that held
 nothing sees none.
 
 ## Bounded queries
@@ -80,7 +80,7 @@ latest message. Engine notices and watchdog mail are not correspondents.
 
 `start_turn` claimed the 64 oldest waiting mails, and started no turn when all 64 were notices.
 Every later wake read the same rows. So an agent with more than 64 unread notices never started a
-turn for a new real message, for example a superior collecting status notices, or an org-inbox
+turn for a new real message, for example a superior collecting status notices, or an org-mailbox
 holder.
 
 The claim now also takes the oldest real message when the 64 oldest are all notices. The

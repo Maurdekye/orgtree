@@ -136,7 +136,7 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 - **Credit cost bubbling** is app-wide and controls your own hires separately from allocations/model upgrades. On raises intervening grants as needed within the top-level cap; Off requires the paying parent to have free capacity already. Agents remain bounded by their own allocation under their separate funding rules.
 - **Quick staff behavior** chooses request staffing, hire under the assignee or hire at top level. If the assignee is unavailable, the disclosed fallback can be immediate top-level staffing.
 - **Policies > Cache-protective cheap compaction** allows summarized fresh sessions before eligible known-cold turns, using measured occupancy. New orgs start on at 25%; existing saved choices remain. This is separate from ordinary context-size compaction and other recovery paths.
-- **Connections > External org inbox** offers Normal operations, Do not disturb and Closed off inbox. Org DND keeps all outside mail, including your Hubchat messages, without automatic agent delivery; Closed blocks outside communication and hides retained history. These fields save immediately. Multiple inbox holders are off by default; revoke extras before disabling that policy. See [outside inbox modes](collaborating.md#choose-an-outside-inbox-mode).
+- **Connections > External org mailbox** offers Normal operations, Do not disturb and Closed off mailbox. Org DND keeps all outside mail, including your Hubchat messages, without automatic agent delivery; Closed blocks outside communication and hides retained history. These fields save immediately. Multiple inbox holders are off by default; revoke extras before disabling that policy. See [outside mailbox modes](collaborating.md#choose-an-outside-mailbox-mode).
 - **Autonomy** controls same-provider account fallback (off by default), reset-time auto-resume (on by default) and **Resume frozen agents now**. These actions are immediate and do not create capacity; details are in [Providers](providers-and-tools.md) and [Operation](operating-orgtree.md).
 - **Charter documents/template folders** manage reusable text choices. Populate/Restore writes missing bundled choices without overwriting local files. Selecting a charter supplies text, not tools or audiences. External charter folders are distinct from installed skills and agent folder grants.
 
@@ -153,7 +153,7 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | F4 | Toggle Canvas/Attention, or return to Canvas from an open panel. |
 | Shift+F4 | Jump to the newest recorded user mention across transcript, mail and docket sources; separate presses visit older entries without wrapping. |
 | F5 | Refresh the app view. |
-| F6 / F7 / F8 / F9 | Toggle current-org Inbox / Docket / Presentations / Settings. |
+| F6 / F7 / F8 / F9 | Toggle current-org Mailbox / Docket / Presentations / Settings. |
 | F10 | Open the STOP ALL guard; does not halt or release an already halted org. |
 | Shift+F10 | Halt all immediately, whether armed or not. |
 | Shift+F1 / Shift+F2 / Shift+F3 | New Homepage window / app menu at Open organization / create organization. |

@@ -1,6 +1,6 @@
 ---
 name: orgtree-inbox-screens
-description: Explain user and agent mail views, the org inbox viewer, record search and attachment transfer controls.
+description: Explain user and agent mail views, the org mailbox viewer, record search and attachment transfer controls.
 ---
 Up: [orgtree-desk](../SKILL.md)
 
@@ -36,7 +36,7 @@ One gesture must stay within one source part; a rendering/source mismatch
 disables the reply action with a reason. Ref chips and rendered math map to
 whole original tokens. Copy buttons and other display-only chrome are excluded.
 Limit eight passages, 4,096 UTF-8 bytes each and 48 KiB combined metadata.
-Ordinary editable-field menus stay intact. The org inbox remains a viewer;
+Ordinary editable-field menus stay intact. The org mailbox remains a viewer;
 selection does not add outside composition or acknowledge project jobs.
 Agents have matching exact source reads (`orgtree-tool-read-reply-source`,
 orgtree-working › inspection) and selection replies (`orgtree-tool-message`,
@@ -52,7 +52,7 @@ reply. A failed send restores the draft and its selected object. See
 
 Tag-filtered user Inbox pages have the same diagnostic privacy boundary as ordinary reads: the HTTP body and private handler return are omitted in both logging modes; filtering results and tag labels remain available to the client.
 
-The org inbox viewer omits retained outside-mail bodies from HTTP and handler-return diagnostics with verbose logging off or on. The viewer still receives complete entries and counts, and route/status metadata remains logged.
+The org mailbox viewer omits retained outside-mail bodies from HTTP and handler-return diagnostics with verbose logging off or on. The viewer still receives complete entries and counts, and route/status metadata remains logged.
 
 Agent and project mailbox reads, including history pages, omit private HTTP bodies and mailbox helper returns from diagnostics in both logging modes. The reader still receives full message content; route/status metadata remains logged.
 
@@ -62,7 +62,7 @@ Single-message reader requests under the mail-by-id route omit their HTTP bodies
 
 User Inbox reads, including historical pages, omit HTTP bodies from wire diagnostics with verbose logging off or on. Private mail projections are also excluded from function-return logging; paths/status and normal client content remain available.
 
-These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views; the org inbox is the organization's outside correspondence.
+These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views; the org mailbox is the organization's outside correspondence.
 
 ## Lists, read panes and replies
 
@@ -149,15 +149,15 @@ The user's Record view shows org operations/events. Search can request the wider
 
 For the project Mail tab/window, listeners folder and queue history, see [orgtree-project-desk](../project-desk/SKILL.md).
 
-## Org inbox
+## Org mailbox
 
-The org inbox viewer shows external received/sent entries, network custody/read state, attachments and holders. Its unread boundary uses the stored log position, not just the currently rendered tail. Holder controls identify which agents may receive outside mail; applicable org policy can restrict grants. A received message's detail names, after its sender, every agent the engine delivered it to (`-> @agent as @org:<slug> @agent as @org:<slug>`, the outbox's attribution line the other way round, each agent followed by the Sent tab's own "as @org:<slug>"): a live agent is a link to its desk, a retired or removed one is still named in a dim chip that goes nowhere, and a message with no delivery record (older mail, or mail held under Do not disturb that nobody has pulled) names no one. The list row names only the sender. The list is never sent outside: no hub message, receipt or reply quote carries it.
+The org mailbox viewer shows external received/sent entries, network custody/read state, attachments and holders. Its unread boundary uses the stored log position, not just the currently rendered tail. Holder controls identify which agents may receive outside mail; applicable org policy can restrict grants. A received message's detail names, after its sender, every agent the engine delivered it to (`-> @agent as @org:<slug> @agent as @org:<slug>`, the outbox's attribution line the other way round, each agent followed by the Sent tab's own "as @org:<slug>"): a live agent is a link to its desk, a retired or removed one is still named in a dim chip that goes nowhere, and a message with no delivery record (older mail, or mail held under Do not disturb that nobody has pulled) names no one. The list row names only the sender. The list is never sent outside: no hub message, receipt or reply quote carries it.
 
-A link into the org inbox opens Received or Sent, whichever holds the message, including one older than the loaded list. Picking the other folder then shows that folder. Back in the first one, the linked message is still open unless you opened another message meanwhile.
+A link into the org mailbox opens Received or Sent, whichever holds the message, including one older than the loaded list. Picking the other folder then shows that folder. Back in the first one, the linked message is still open unless you opened another message meanwhile.
 
-Contacts are shown as network contact links: click to open in Hubchat, right-click for more. **Open in org inbox** on any outside address link (a mail header, a message, a contact list) opens this viewer on that address: filtered to it, on the folder of the newest mail exchanged with it, with that mail selected. Edit or clear the filter to see everything again. While the org inbox is closed off, the entry says so. Your own account's link is the exception: it opens your chat with the org it is shown in, never your Hubchat settings.
+Contacts are shown as network contact links: click to open in Hubchat, right-click for more. **Open in org mailbox** on any outside address link (a mail header, a message, a contact list) opens this viewer on that address: filtered to it, on the folder of the newest mail exchanged with it, with that mail selected. Edit or clear the filter to see everything again. While the org mailbox is closed off, the entry says so. Your own account's link is the exception: it opens your chat with the org it is shown in, never your Hubchat settings.
 
-Human outside composition has moved to Hubchat: the org inbox is a viewer, not a hidden second compose window. Do not suggest a removed reply/composer action. External sender authority belongs to current trust rules; a delivery/read badge does not make content authoritative. See `orgtree-mail-basics` (orgtree-working › mail) for the communication rules.
+Human outside composition has moved to Hubchat: the org mailbox is a viewer, not a hidden second compose window. Do not suggest a removed reply/composer action. External sender authority belongs to current trust rules; a delivery/read badge does not make content authoritative. See `orgtree-mail-basics` (orgtree-working › mail) for the communication rules.
 
 ## Attachment transfers
 

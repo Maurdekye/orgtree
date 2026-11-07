@@ -1088,7 +1088,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-mailbox"
    ],
    "writer": "comms-sol",
    "status": "fixed"
@@ -1133,7 +1133,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox",
+    "org-mailbox",
     "committee-mode",
     "dev-team",
     "do-not-disturb"
@@ -1168,7 +1168,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-mailbox"
    ]
   },
   {
@@ -1200,7 +1200,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox",
+    "org-mailbox",
     "do-not-disturb"
    ]
   },
@@ -1235,7 +1235,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox",
+    "org-mailbox",
     "committee-mode",
     "dev-team"
    ]
@@ -1269,7 +1269,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-mailbox"
    ]
   },
   {
@@ -1301,7 +1301,7 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-mailbox"
    ]
   },
   {
@@ -1386,7 +1386,7 @@
     "docs/rust-engine/bare-mail-routing.md"
    ],
    "see_also": [
-    "org-inbox",
+    "org-mailbox",
     "tool-list-orgs",
     "phone-link"
    ],
@@ -1394,13 +1394,13 @@
    "status": "fixed"
   },
   {
-   "path": "orgtree-working/mail/org-inbox",
-   "name": "orgtree-org-inbox",
+   "path": "orgtree-working/mail/org-mailbox",
+   "name": "orgtree-org-mailbox",
    "level": 3,
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "The org inbox: outside mail to the org, holding its audience, and multiple holders.",
+   "purpose": "The org mailbox: outside mail to the org, holding its audience, and multiple holders.",
    "must_cover": [
     "what lands there",
     "extern audience",
@@ -1413,7 +1413,7 @@
    ],
    "see_also": [
     "external-mail",
-    "org-policies-inbox",
+    "org-policies-mailbox",
     "front-door-queue"
    ],
    "writer": "comms-sol",
@@ -3429,7 +3429,7 @@
     "agent-card",
     "user-node",
     "draft-hires",
-    "org-inbox-tile",
+    "org-mailbox-tile",
     "piles",
     "agents-list",
     "context-menus",
@@ -3558,15 +3558,15 @@
    "ui_dynamic_labels": []
   },
   {
-   "path": "orgtree-app/canvas/org-inbox-tile",
-   "name": "orgtree-org-inbox-tile",
+   "path": "orgtree-app/canvas/org-mailbox-tile",
+   "name": "orgtree-org-mailbox-tile",
    "level": 3,
    "kind": "screen",
    "registered": false,
    "covers": [
-    "screen:org-inbox-tile"
+    "screen:org-mailbox-tile"
    ],
-   "purpose": "The org inbox tile on the canvas and its hub status dots.",
+   "purpose": "The org mailbox tile on the canvas and its hub status dots.",
    "must_cover": [
     "when shown"
    ],
@@ -3575,7 +3575,7 @@
    ],
    "see_also": [
     "inbox-screens",
-    "org-inbox"
+    "org-mailbox"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -3850,11 +3850,11 @@
    "covers": [
     "screen:user-inbox",
     "screen:agent-inbox",
-    "screen:org-inbox",
+    "screen:org-mailbox",
     "screen:desk-inbox-tab",
     "screen:transfers-panel"
    ],
-   "purpose": "The user inbox, an agent's inbox (modal and desk tab), the org inbox, and the transfers panel.",
+   "purpose": "The user inbox, an agent's inbox (modal and desk tab), the org mailbox, and the transfers panel.",
    "must_cover": [
     "list, read pane, reply box",
     "responsive list width and popout resizing",
@@ -5346,7 +5346,7 @@
     "org-hire-defaults-scope",
     "org-hire-defaults-tools",
     "org-policies-compaction",
-    "org-policies-inbox",
+    "org-policies-mailbox",
     "org-autonomy",
     "org-accounts",
     "org-history",
@@ -5742,8 +5742,8 @@
    ]
   },
   {
-   "path": "orgtree-app/org-settings/org-policies-inbox",
-   "name": "orgtree-org-policies-inbox",
+   "path": "orgtree-app/org-settings/org-policies-mailbox",
+   "name": "orgtree-org-policies-mailbox",
    "level": 3,
    "kind": "setting",
    "registered": false,
@@ -5752,7 +5752,7 @@
     "org:org_inbox_enabled",
     "org:org_inbox_multi_holder"
    ],
-   "purpose": "Connections > Normal operations, Do not disturb, Closed off inbox and multiple holders.",
+   "purpose": "Connections > Normal operations, Do not disturb, Closed off mailbox and multiple holders.",
    "must_cover": [
     "each mode",
     "Hubchat warning",
@@ -5765,7 +5765,7 @@
     "engine/rs/orgtree-engine/src/domain/orginbox.rs"
    ],
    "see_also": [
-    "org-inbox"
+    "org-mailbox"
    ],
    "writer": "orgsettings-sol",
    "status": "fixed",
@@ -5776,7 +5776,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
-     "label": "Allow multiple org-inbox audience holders"
+     "label": "Allow multiple org-mailbox audience holders"
     }
    ],
    "key_sources": [
@@ -8214,9 +8214,9 @@
    "covers": [
     "workflow:front-door-queue"
    ],
-   "purpose": "A project holding the org-inbox audience in place of a coordinator: the worker pool, what arrives, ACK on or off, conversations, when to choose it, limits and a setup recipe.",
+   "purpose": "A project holding the org-mailbox audience in place of a coordinator: the worker pool, what arrives, ACK on or off, conversations, when to choose it, limits and a setup recipe.",
    "must_cover": [
-    "the shape: a top-level front-door project holds the org-inbox audience, workers below it listen with fair_queue, optional agent holder under multiple holders",
+    "the shape: a top-level front-door project holds the org-mailbox audience, workers below it listen with fair_queue, optional agent holder under multiple holders",
     "what arrives: one job per outside message, the phone's user authority reaches every worker, DnD holds first",
     "ACK on or off: custody and dead letters against fire-and-forget; reply right until the ack, unlimited without ACK mode; the ack sends nothing outside",
     "conversations: a hub reply goes to the worker who wrote; a follow-up is bundled, sent to the holder, or a new job; @org: threads by message id",
@@ -8224,14 +8224,14 @@
     "setup recipe"
    ],
    "sources": [
-    "User 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53, m63e16cf45188, m75a647c6e3d8 (org inbox project queue; document a queue project in place of a coordinator)",
+    "User 2026-11-03 m99ee62b87e70, mdf5da6c51202, m896fa990fc53, m63e16cf45188, m75a647c6e3d8 (org mailbox project queue; document a queue project in place of a coordinator)",
     "engine/rs/orgtree-engine/src/domain/orginbox_jobs.rs",
     "engine/rs/orgtree-engine/src/domain/orginbox.rs",
     "engine/rs/orgtree-engine/src/domain/projects.rs"
    ],
    "see_also": [
     "work-queues",
-    "org-inbox",
+    "org-mailbox",
     "external-mail",
     "team-shape"
    ],

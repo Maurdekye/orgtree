@@ -592,7 +592,7 @@ Client content and path/status metadata remain unchanged.
 [verified: http/mod.rs, feed/compute.rs::agent_mailbox;
 real-engine synthetic regression remaining-inbox-wire-privacy.mjs]
 
-## Org inbox diagnostic boundary (2026-10-22)
+## Org mailbox diagnostic boundary (2026-10-22)
 
 Retained outside correspondence uses the outer org_inbox quiet-body family,
 including rejected child routes. The list handler is nolog; its pure entry

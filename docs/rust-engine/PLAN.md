@@ -469,7 +469,7 @@ preset; explicit legacy choices migrate silently to Custom #b6bdc8, while the
 old unset sentinel keeps provider detection. See [migration](removed-grey-theme.md).
 
 Org Do not disturb (USER/coordinator 2026-10-23,4.4.2): Connections offers Normal,
-Do not disturb and Closed off inbox, with a visible Hubchat warning. DnD holds
+Do not disturb and Closed off mailbox, with a visible Hubchat warning. DnD holds
 all outside senders without agent copies/wakes; extern holders pull org-wide.
 Normal resumes unextracted mail once, oldest first. Mode writes stay user-only
 through desktop and standalone user MCP. See [contract](org-inbox-dnd.md).
@@ -660,7 +660,7 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 | B4 | Warm-process indicators; every live agent keeps a parked CLI from boot | As in 3.x (decision 42): every live agent's CLI starts at engine start and on hire and stays parked between turns; at most 64 idle CLIs (longest idle closed first); warming pauses below 6 GB of free commit memory. Desk start/stop control kept. New (user 2026-10-14, decision 77): a process the cap would close while it runs background work is kept open for that work instead, outside the 64 |
 | B5 | Codex "luna" reserve-pool routing (prefer reserve first, reserve card, `gpt-reserve`) | Removed; luna runs on its model directly. The "prefer reserve" switch is not shown (decision 31) |
 | B6 | Remote control (hand a session to claude.ai / mobile) | Removed; the control is refused |
-| B7 | Org inbox card and network hub chips on the canvas | Kept (see D2) |
+| B7 | Org mailbox card and network hub chips on the canvas | Kept (see D2) |
 | B8 | "Primed restart" header chip | Removed (never shown) |
 | B9 | Fable lock and Fable limit/filter policies | Removed; their settings and the lock are not shown (decision 31) |
 | B10 | Hire with automatic credit cascade (cascade hire / cascade allocate settings) | Kept: hire, allocation and model upgrades may raise descendant grants using free credits up to the acting agent, but never its own grant or anything above it (decision 50, user 2026-10-07). User actions retain the top-level grant cap. Off or insufficient actor allocation = atomic refusal. Moves transfer existing credits along both paths below their common ancestor; batches validate the final net allocation before commit. |
@@ -723,11 +723,11 @@ See [`helper-transcripts.md`](helper-transcripts.md).
 | # | Today | After the rewrite |
 |---|---|---|
 | D1 | System messages arrive as typed cards (docket assigned, review requested, decisions, lifecycle notices) | Kept: the engine emits the same typed event envelopes (`ev`, schema in `renderer/src/generated/events.schema.json`) |
-| D2 | Mail between orgs (`@org:`), over the mail hub (`@net:`), the org inbox panel (read and attachment viewing; human composition moved to Hubchat, user 2026-10-12), extern-mail holders and the multi-holder setting, hub settings and connection status, peer roster, network identity reveal, hub probe | Kept. Local `@org:` mail is a single database transaction; `@net:` mail goes through a native client for the bundled mail hub (same hub protocol as today, so Claude Code sessions and other hosts keep working) |
+| D2 | Mail between orgs (`@org:`), over the mail hub (`@net:`), the org mailbox panel (read and attachment viewing; human composition moved to Hubchat, user 2026-10-12), extern-mail holders and the multi-holder setting, hub settings and connection status, peer roster, network identity reveal, hub probe | Kept. Local `@org:` mail is a single database transaction; `@net:` mail goes through a native client for the bundled mail hub (same hub protocol as today, so Claude Code sessions and other hosts keep working) |
 | D3 | User inbox (pending / read / sent), mark read, clear, urgent tag, retract unsent mail, notices, reply quoting | Kept |
 | D3a | Optional custom user-mail tags | New (user 2026-10-17; 4.4.0): up to eight tags, normalized org dictionary and atomic memberships; searchable wrapping tag toggles require all selected tags (AND), match retained mail before cursor windowing and intersect search. Used choices page completely and update on arrivals/deletions;10px nowrap pills use one plus +N in the preview line. User-inbox Mail reply kind label/icon is hidden; quote and other kinds remain. Stable hashed hues with dark/light contrast. No tags over the hub. See [mail tags](mail-tags.md) |
 | D4 | An agent can list only its waiting mail (`orgtree_inbox` list/fetch/chunk); nothing recalls what it and one correspondent said, and the cheap-compact notice names no correspondents | New (user 2026-10-09, decision 55): `orgtree_inbox action=conversation peer=…` lists the mail both ways with one agent, the user, `@org:` or `@net:` (20 a page, at most 100, 500-character previews, 16,000 characters a page); `fetch` also returns mail the agent sent; the fresh-session note tells the agent to recall a conversation before replying and names its six most recent correspondents |
-| D5 | Outside mail (`@org:`, `@net:`) goes to the org-inbox holders even when they are halted or frozen: it waits in their queue, nobody else gets it, and an `@org:` sender is told it was delivered. With no live holder, the inbox goes to the first live top-level agent even if it is halted | Changed (user 2026-10-09, decision 59): it goes to the holders who can run; while none can, to the first top-level agent who can run (the audience stays with the holders); with no live holder, the inbox goes to the first top-level agent who can run. When nobody can run it waits with the holders and the user is told |
+| D5 | Outside mail (`@org:`, `@net:`) goes to the org-mailbox holders even when they are halted or frozen: it waits in their queue, nobody else gets it, and an `@org:` sender is told it was delivered. With no live holder, the inbox goes to the first live top-level agent even if it is halted | Changed (user 2026-10-09, decision 59): it goes to the holders who can run; while none can, to the first top-level agent who can run (the audience stays with the holders); with no live holder, the inbox goes to the first top-level agent who can run. When nobody can run it waits with the holders and the user is told |
 
 ### E. Questions and requests
 
@@ -785,7 +785,7 @@ See [`helper-transcripts.md`](helper-transcripts.md).
 |---|---|---|
 | I1 | Org settings: folders, grants, compact threshold, default tools/visibility/account/permission mode/effort, auto-resume | Kept. The compact threshold is handed to the CLI: Claude Code compacts at it (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) and Codex at that share of its context window (`model_auto_compact_token_limit`); a running CLI keeps the value it started with. Antigravity has no such setting |
 | I2 | Org settings: auto cheap compact (before a known-cold turn) | Kept: before a turn whose prompt cache is known to be cold (expired, or the prompt prefix changed) and whose context is above the setting's occupancy, the agent continues on a fresh session seeded with a summary of the old one. An unknown forecast never resets. The default occupancy is 25% (user 2026-10-08; 3.x 50%), and an agent's override merges key by key over the org's setting, as in 3.x |
-| I2b | Org settings: account fallback default, org-inbox multi-holder, network hubs and autoconnect | Kept |
+| I2b | Org settings: account fallback default, org-mailbox multi-holder, network hubs and autoconnect | Kept |
 | I2c | Org settings: cheap-compact before auto-resume, headless | Inert |
 | I3 | Runtime: max concurrent turns, turn time limits | Kept |
 | I4 | Runtime: "keep agents warm" | "Keep agent processes warm" works as in 3.x (B4, decision 42); off = close each CLI after its turn. Changed (user 2026-10-14, decision 77): with warming off (or switched off), a Claude Code process or Muse host running background work stays open until that work is over and its result has reached the agent, then closes; 3.x kept such a Claude turn open until the CLI exited instead. See `background-work.md` |
@@ -851,7 +851,7 @@ Credential lookup deadlines (coordinator2026-10-24): both signed-in brokers allo
 2. **The ledger above** — approved 2026-10-06. Decided along the way: HTTP for loading and
    actions with the existing push sockets (one-socket-per-window was considered and dropped),
    agents over their CLIs' own pipes; kept in the MVP: the boot-time background engine, cache
-   forecasting, the MCP waiting state, the org inbox with `@org:`/`@net:` mail, the hiring credit
+   forecasting, the MCP waiting state, the org mailbox with `@org:`/`@net:` mail, the hiring credit
    cascade, account fallback, mid-turn effort changes for Claude, typed system-message cards (D1),
    API-key accounts with the fallback and subscription-inference switches (H3), and the agent
    tools listed as kept in §10 P. Everything else as written.

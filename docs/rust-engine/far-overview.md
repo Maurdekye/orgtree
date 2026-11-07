@@ -3,16 +3,16 @@
 User rulings, 2026-10-13 19:00?19:01Z: hide attached cards, simplify the
 mailbox, hide the retired marker when Hide Retired is on, hide the infinite
 switchboard credit bar, and colour agent left-edge accents by model.
-Coordinator confirmed at 19:05Z that ?outbox? means the existing org inbox.
+Coordinator confirmed at 19:05Z that ?outbox? means the existing org mailbox.
 
 The existing `z < Z_MINI` tier (0.55) remains the only threshold. Watchdog
 satellites and their wires, side presentation chips and the user
 credit bar do not mount there. Hidden-retired tokens do not mount when
 Hide Retired is on; the off setting preserves its current behaviour.
 The mailbox keeps its location, hit area and opening callback, displaying
-only a Public globe glyph with an accessible org-inbox label. User 2026-10-14
+only a Public globe glyph with an accessible org-mailbox label. User 2026-10-14
 18:41UTC chose Globe, replacing the original OutboxOutlined glyph to match
-the normal tile and org-inbox modal header. Class/size/title/aria are unchanged.
+the normal tile and org-mailbox modal header. Class/size/title/aria are unchanged.
 Model colour is the existing `--tier-accent`, falling back to
 `--provider-accent` for unknown tiers; normal zoom is unchanged.
 
@@ -51,7 +51,7 @@ D:/orgtree-work/far-overview-proof.py copy is identical. No product change.
 
 Ticket `org-inbox-uses-the-globe-icon-at-far-zoom-too`, source base `0f8638f`.
 Audit: normal OrgCanvas tile and OrgInboxModal heading already use PublicIcon.
-Renderer menus/status bars/shortcut explainer have no additional org-inbox icon
+Renderer menus/status bars/shortcut explainer have no additional org-mailbox icon
 destination. The main-header Inbox is the user's inbox, a separate control.
 The shared unused OutboxIcon export is retained for the synthetic red fixture;
 it is removed from the production OrgCanvas import.

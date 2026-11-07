@@ -11,7 +11,7 @@ This tab controls the selected organization's network identity and the hubs it c
 
 ## Address and secret
 
-The **External org inbox** group selects Normal operations, Do not disturb, or Closed off inbox and the multiple-holder policy. These fields save immediately, as do hub membership actions. DnD warns that Hubchat and other outside mail is kept but is not read or delivered automatically, including the user's own messages. An agent must check the org inbox. See [inbox policy](../../org-settings/org-policies-inbox/SKILL.md) for extraction, resuming Normal and the user-only mode tool.
+The **External org mailbox** group selects Normal operations, Do not disturb, or Closed off mailbox and the multiple-holder policy. These fields save immediately, as do hub membership actions. DnD warns that Hubchat and other outside mail is kept but is not read or delivered automatically, including the user's own messages. An agent must check the org mailbox. See [inbox policy](../../org-settings/org-policies-mailbox/SKILL.md) for extraction, resuming Normal and the user-only mode tool.
 
 The organization has a permanent public network address. **Copy address** copies it for peers. It is separate from a person's Hubchat identity and from a bare local org slug. The address is minted with its ownership secret; changing hub membership does not create a new identity.
 
@@ -25,11 +25,11 @@ Remote rows have an enabled toggle. Rows show Connected with hub version, Disabl
 
 ## A hub's connections
 
-Each hub lists its connections as rows: a presence dot and the contact's link, nothing else. A filled green dot means online, a filled amber dot means busy, a filled red dot means Do not disturb and a hollow grey ring means offline, as in Hubchat; hovering the dot says which. Busy means connected, but no one can answer right now: an org none of whose org-inbox holders can start a turn, or a person who hasn't had Hubchat in front on any of their devices for an hour. Do not disturb means an org has set its outside mail to Do not disturb. Hubs before mail hub 2.3.0 report neither; their contacts show online. Hovering the link shows its presence and type (org, person or independent chat), then its name, the hub's description of it when there is one (for example "Waiting to be linked to a Hubchat identity") and its address. That hover is the same on every link to the address.
+Each hub lists its connections as rows: a presence dot and the contact's link, nothing else. A filled green dot means online, a filled amber dot means busy, a filled red dot means Do not disturb and a hollow grey ring means offline, as in Hubchat; hovering the dot says which. Busy means connected, but no one can answer right now: an org none of whose org-mailbox holders can start a turn, or a person who hasn't had Hubchat in front on any of their devices for an hour. Do not disturb means an org has set its outside mail to Do not disturb. Hubs before mail hub 2.3.0 report neither; their contacts show online. Hovering the link shows its presence and type (org, person or independent chat), then its name, the hub's description of it when there is one (for example "Waiting to be linked to a Hubchat identity") and its address. That hover is the same on every link to the address.
 
 Online contacts come first, then busy ones, then Do not disturb ones, then offline ones. Within each group the most recent mail with this organization, sent or received, comes first; contacts with no mail come last, A-Z. Past ten rows the list scrolls inside its own box, and rows are drawn as they scroll into view, so a hub with hundreds of contacts stays fast. While the pointer is over the list, rows keep their places; the dots still change, and the new order applies when the pointer leaves.
 
-This organization shows busy to the hubs it is connected to while none of its org-inbox holders can start a turn: there are none, or every one is halted, frozen or retired, or Stop all is latched. One holder that can start a turn makes it online again within a few seconds. Mail sent to it while busy still arrives and waits, as before. While its External org inbox is set to Do not disturb, it shows Do not disturb (red) instead, even when a holder can start a turn.
+This organization shows busy to the hubs it is connected to while none of its org-mailbox holders can start a turn: there are none, or every one is halted, frozen or retired, or Stop all is latched. One holder that can start a turn makes it online again within a few seconds. Mail sent to it while busy still arrives and waits, as before. While its External org mailbox is set to Do not disturb, it shows Do not disturb (red) instead, even when a holder can start a turn.
 
 Contacts are shown as network contact links: click to open in Hubchat, right-click for more. Your own account's link is the exception: it opens your chat with the org it is shown in, never your Hubchat settings.
 
@@ -55,7 +55,7 @@ connection worker can pick them up. Verified 2026-10-21 at `2ec8c0e`:
 `canvas/connections.tsx::AddHub`, `net/discovery.rs`, `net/transport.rs`,
 and `net.rs`.
 
-Settings changes can establish connectivity; they do not grant a person user authority or give every agent outside-mail permission. For those rules see `orgtree-external-mail` and `orgtree-org-inbox` (orgtree-working › mail). For an agent's address discovery use `orgtree-tool-list-orgs` (orgtree-working › mail).
+Settings changes can establish connectivity; they do not grant a person user authority or give every agent outside-mail permission. For those rules see `orgtree-external-mail` and `orgtree-org-mailbox` (orgtree-working › mail). For an agent's address discovery use `orgtree-tool-list-orgs` (orgtree-working › mail).
 
 ## See also
 

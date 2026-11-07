@@ -167,7 +167,7 @@ reference the stable org id. No migration drops these immediate constraints.
 No source path changes the referenced id/uuid; deleted-org lifecycle is separate.
 
 Explicit org-lock audit: the affected direct/batch/settings/ops/audience paths
-all take the above mode consistently. Org-inbox admission/holder selection,
+all take the above mode consistently. Org-mailbox admission/holder selection,
 net failure notices, external-unroutable notices and profile revision serialization
 retain their original FOR UPDATE locks. These still conflict with the new mode,
 so inbox disable/admission and profile edit serialization are not relaxed.

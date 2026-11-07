@@ -2450,3 +2450,21 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     excluded from its own counts. The feed's messages still arrive in a websocket
     dog as untrusted external input. Design and consumer guide:
     [live-feed](live-feed.md); invariants I1-I4 in AGENTS.md.
+
+97. **The "org inbox" is renamed the "org mailbox"** (USER 2026-11-07 22:39:33Z mb0175e053ee5
+    "the org inbox will now be called the org mailbox in all locations"; 22:40:36Z
+    m0f78b5e938bd glossary, GitHub docs and README; rulings by the coordinator
+    2026-11-07). Everything a user or an agent reads says "org mailbox" (canvas node,
+    desk and window title, settings group and its "Closed off mailbox" option, toasts,
+    tool Guides, prompts and notices, the skills glossary, `docs/`, READMEs). Compatibility
+    spellings stay: the `ot.org_inbox` table, the `org_inbox*` settings keys, routes and
+    change-event kinds, the `@org-inbox` upload folder, the persisted modal kind
+    `'org-inbox'`, CSS ids, `orginbox*` file and module names, and the `orgtree_inbox`
+    tool with its `org_inbox=true` argument (its description says "org mailbox").
+    `orgtree_audience` accepts `org-mailbox` and `org_mailbox` next to `org-inbox`,
+    `org_inbox` and `extern`. Glossary leaves `orgtree-org-inbox`,
+    `orgtree-org-inbox-tile` and `orgtree-org-policies-inbox` became
+    `orgtree-org-mailbox`, `orgtree-org-mailbox-tile` and `orgtree-org-policies-mailbox`,
+    without aliases. The legacy Python engine, past release notes, earlier DECISIONS
+    entries, `docs/test-baseline.json` and `docs/state-system/` keep the old name as
+    history.

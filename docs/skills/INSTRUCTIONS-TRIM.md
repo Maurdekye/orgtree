@@ -19,7 +19,7 @@ to named skill pages, and the inline rule names the page that holds the detail.
 |---|---|---|---|
 | Non-top seat with docket, messaging and inspection only (skilltree-opus's own seat) | 20,892 B, measured | 6,417 B | −69% |
 | Non-top Claude seat with every tool group | about 34 KB, computed from source | 9,072 B (about 2,270 tokens) | −73% |
-| Top-level seat with every tool group | 35,284 B, measured on coordinator-opus | 9,804 B (top-level Codex seat with org inbox and a repo) | −72% |
+| Top-level seat with every tool group | 35,284 B, measured on coordinator-opus | 9,804 B (top-level Codex seat with org mailbox and a repo) | −72% |
 
 - **Antigravity.** Its 24 KB-per-file limit still depends on the dynamic content. That
   content is charters, org.md, and standing, team and org notes, and it is capped at
@@ -133,7 +133,7 @@ section 7 lists the addition.
 | TOOLS_SENTENCE (1,521) / scoped tool list | a + c | the available tool list; message wakes and notice does not; HIRING ALONE STARTS NO ONE; state every hire field; never grant above own scope; own-id retool changes only team_charter (490 plus the list) | the `orgtree-tool-*` pages | the per-tool reach, list-`to`, index and live_child_count detail, which defs.rs already carries |
 | READ_REPORTS + REHIRE + TEAM_SHAPE (2,681) | a + b | read before asking and verify claims; check retired agents before hiring; retire to free a seat; keep teams flat (378) | `orgtree-reading-reports`, `orgtree-team-shape`, `orgtree-hiring` (rehire vs fresh cold-read trade-off), `orgtree-context-and-compaction` (cheap compact for idle long-context reports) | — |
 | BACKGROUND (299) | a | **verbatim** | — | — |
-| ORG_INBOX (1,029; top or extern holder) | a + c | org-addressed mail; one reply as the org; ALWAYS answer an @net: sender with orgtree_message, keeping the exact phrase the phone tests pin (384) | `orgtree-org-inbox` (halted-holder fallback) | audience grant/revoke syntax (defs.rs) |
+| ORG_INBOX (1,029; top or extern holder) | a + c | org-addressed mail; one reply as the org; ALWAYS answer an @net: sender with orgtree_message, keeping the exact phrase the phone tests pin (384) | `orgtree-org-mailbox` (halted-holder fallback) | audience grant/revoke syntax (defs.rs) |
 | QUESTIONS_AND_FILES (3,789; user group) | a + b + c | headless with no AskUserQuestion; ask, then end the turn; withdraw when moot; DOCUMENTS ARE PRESENTED, FILES ARE SENT; a path is not a delivery; angle-bracket path links (611) | `orgtree-reaching-the-user` (image rendering, relative image paths, path links reveal and never run anything); `orgtree-tool-ask` (options, batching, persistence); `orgtree-tool-present`, `orgtree-tool-send-file` | repeated "AskUserQuestion is blocked"; option-count detail already in defs.rs |
 | DOCKET (12,077; docket group, scoped) | a + b | durable record the user reads; list before create; "dock" means create; problem-first, authoritative description, rulings go into it; update at boundaries with both lists; honest statuses (blocked reason, review by agents, dropped terminal, never fake done); own update claims the item; question vs attention flag criteria and retracting own flags; mandatory pointer to the docket pages before writing (1,258) | `orgtree-docket-items` (structure, slugs, keep/append + expected_rev, evidence, bounded fields refused, rulings), `orgtree-docket-statuses` (backlogged, dropped/reopen, archive timing, permanent delete, completion without superior), `orgtree-docket-review-and-attention` (reviewer field, exact-match rule, attention_reason content, amend vs raise, dismissal), `orgtree-tool-staff` (staffing, progress fields omitted) | — |
 | WATCHDOGS (350) | a | never poll; keep a watchdog (160) | `orgtree-waiting-for-events` | — |
@@ -179,8 +179,8 @@ Your Orgtree tools: {names}. Each tool's own description is its contract; its sk
 @@ READ_REPORTS [inspection / team groups]
 {inspection: LOOK AT YOUR REPORTS, DO NOT INTERROGATE THEM: read orgtree_read_transcript and orgtree_read_scratch first, and verify a claimed result by opening it.} {team: Before hiring new, check retired agents (orgtree_chart include_archived=true) and rehire one who did this work. Retire finished reports when you need the seat; keep teams flat by default (orgtree-team-shape, orgtree-delegating).}
 @@ BACKGROUND [always] — verbatim, unchanged
-@@ ORG_INBOX [top-level or org-inbox holder, messaging group]
-THE ORG INBOX: @org: and @net: mail is addressed to the org; apply EXTERNAL MAIL AUTHORITY. Every holder gets the same copy: agree internally who answers, send ONE reply as the organization. A person writing over the hub sees only what you send: ALWAYS answer with orgtree_message to that @net: address, because a reply only in your turn's text never reaches them (orgtree-org-inbox).
+@@ ORG_INBOX [top-level or org-mailbox holder, messaging group]
+THE ORG MAILBOX: @org: and @net: mail is addressed to the org; apply EXTERNAL MAIL AUTHORITY. Every holder gets the same copy: agree internally who answers, send ONE reply as the organization. A person writing over the hub sees only what you send: ALWAYS answer with orgtree_message to that @net: address, because a reply only in your turn's text never reaches them (orgtree-org-mailbox).
 @@ QUESTIONS_AND_FILES [user group]
 You run headless: AskUserQuestion and plan mode do not exist. {user: To ask the user, use orgtree_ask and end your turn; withdraw the question (orgtree_withdraw_ask) as soon as new information makes it moot.} {messaging: To ask an agent, orgtree_message kind=question and end your turn.} DOCUMENTS ARE PRESENTED, FILES ARE SENT (user rule 2026-10-09): anything the user should read goes through orgtree_present, even when they say "send"; orgtree_send_file only for things they want as a file. A path is never a delivery; when you name a local path, write it as [name](<path>) — angle brackets required (orgtree-reaching-the-user).
 @@ DOCKET [docket group; the user-group sentence is scoped as today]
@@ -206,7 +206,7 @@ full 41-tool list):
 | Seat profile | Bytes | Estimated tokens |
 |---|---|---|
 | Non-top Claude seat, every tool group, gated mode, org and team folders | 9,072 | about 2,270 |
-| Top-level Codex seat, every tool group, org-inbox holder, workspace-write with a repo and helper | 9,804 | about 2,450 |
+| Top-level Codex seat, every tool group, org-mailbox holder, workspace-write with a repo and helper | 9,804 | about 2,450 |
 | skilltree-opus's own profile (docket, messaging and inspection groups) | 6,417 | about 1,600 |
 
 ## 6. Rulings ledger

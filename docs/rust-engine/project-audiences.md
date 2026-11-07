@@ -30,7 +30,7 @@ Projects retain explicit grants in `ot.audiences`. Migration 0030 adds the read-
 of its live project holder. The inherited branch reads the base grant table, never
 the view, so a nested project cannot relay a parent's inherited authority. Moving or
 retiring nodes changes the computed result without copying or deleting member grants.
-Paused and revoked grants contribute no authority. Org-inbox grants remain agent-only.
+Paused and revoked grants contribute no authority. Org-mailbox grants remain agent-only.
 
 User rulings of 2026-10-18 14:09–14:12 retain that inheritance. Migration 0032
 extends the effective relation to the direct live agent members of a project
@@ -92,7 +92,7 @@ indicators use `audiences_held`; `audiences_explicit` is reserved for Acquire/Dr
 and explicit-grant badges. Tool groups and independent scope checks still apply.
 
 Explicit-table reads remain intentional for grant creation/revocation, grant
-editing/history/imports/renames, and the agent-only org-inbox audience. The
+editing/history/imports/renames, and the agent-only org-mailbox audience. The
 runtime actor's explicit audience query is for `@extern`, not user access.
 
 Phase 1 validation is limited to the focused menu regressions, projection/tool-contract

@@ -19,7 +19,7 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | F4 | Toggle Canvas/Attention; return to Canvas from an open panel. |
 | Shift+F4 | Go to the newest recorded @user mention in the current org, across agent transcripts, mail and tickets. Separate presses step backward, including seen mentions; no wrap. A newer mention resets the position. |
 | F5 | Refresh app view, using the header button's action. |
-| F6 | Toggle the current org Inbox. |
+| F6 | Toggle the current org Mailbox. |
 | F7 | Toggle the current org Docket. |
 | F8 | Toggle the current org Presentations. |
 | F9 | Toggle the current org Settings. |

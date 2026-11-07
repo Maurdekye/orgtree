@@ -42,4 +42,4 @@ There are no tool-specific argument refusals because the exposed schema has no a
 - [orgtree-mail-basics](../mail-basics/SKILL.md)
 - [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
 - [orgtree-external-mail](../external-mail/SKILL.md)
-- [orgtree-org-inbox](../org-inbox/SKILL.md)
+- [orgtree-org-mailbox](../org-mailbox/SKILL.md)

@@ -39,7 +39,7 @@ keep a plain badge. Verified: `local_orgs.rs`, `appfeed.rs`, `main/jumplist.ts`.
 
 ## How an organization receives and answers
 
-A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-inbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org inbox is a viewer of retained correspondence.
+A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-mailbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org mailbox is a viewer of retained correspondence.
 
 An agent must actually send its response to the person's `@net:` address. Local assistant text, a desktop question card, and a presented-document card do not automatically become a Hubchat reply. The message tool supplies hub question options and reply references; see `orgtree-tool-message` (orgtree-working › mail). Files attached to mail use the transfer path, whose progress and custody controls are described by `orgtree-tool-transfers` (orgtree-working › mail), rather than local file-card delivery.
 

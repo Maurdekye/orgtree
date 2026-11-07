@@ -19,7 +19,7 @@ This covers live append/update across provider lanes, imported history, old
 argument repair, full native tool-input caching, and tool-image text metadata.
 Mail send cleans content, attachments, reply metadata and typed events; direct
 transaction writers and legacy mail imports use the same helper at SQL insertion.
-Inbound and outbound org-inbox content also uses the helper. Routing identities
+Inbound and outbound org-mailbox content also uses the helper. Routing identities
 are not rewritten. No schema change, live rewrite, or historical data recovery.
 
 ## A rejected row

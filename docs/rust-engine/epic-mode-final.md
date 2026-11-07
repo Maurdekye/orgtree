@@ -155,7 +155,7 @@ adds nothing the final version lacks:
   tree: a process started or stopped (the CLI waking or going to sleep), a
   compaction, a reorder, each retirement of a dissolve-all, the kill switch
   released, and frozen agents resumed or unstuck (**THAWED!**).
-- An org-inbox read or a settings save is the user's own click: a Save gets
+- An org-mailbox read or a settings save is the user's own click: a Save gets
   the stars and the confirm ding, and a change to the org's own settings
   also turns the gears.
 - Its new socket events (`hired`, `retired`, `interrupted`, `halted` and the
@@ -195,7 +195,7 @@ in 4.4.0 are specified in [EPIC activity sound](epic-activity-sound.md).
 | `epic/tap.ts` | The null-checked taps App.tsx and api.ts call |
 | `epic/director.ts` | The show: taps, hands, popped-out windows, other orgs' notices, usage readings, the combo, THE PLAYBOOK (one picture and one sound per event), and each event's weight (`WEIGHT`: how hard it shakes and blurs the window) |
 | `epic/diff.ts` | Pure detectors: tree snapshots and their differences; spark, pulse and stream frames |
-| `epic/locate.ts` | Where an agent, the eye, the org inbox or a watchdog is drawn |
+| `epic/locate.ts` | Where an agent, the eye, the org mailbox or a watchdog is drawn |
 | `epic/stage.ts` | One canvas per window: particles (glow, streak, shard, confetti, snow, coin, paw, smoke, star) and actors (rings, lightning, comets, impact words with captions, ice spikes, crystals, ice slabs, stop signs, warning signs, portals, radar, beams, vortices, fireworks, meteors, cracks, gears, frames, flashes, flicker, CRT, the urgent alarm), the combo badge, the window shake and blur, and element glow and pop. It holds every shake, blur, flash and dip to the comfort bounds. Impact words, names and glyphs draw over every glow and particle |
 | `epic/audio.ts` | The synthesizer: 58 sounds from oscillators, FM pairs and filtered noise through a generated reverb and a limiter |
 
@@ -336,7 +336,7 @@ below is the effect's own, and the stronger of the two plays.
 | --- | --- | --- |
 | **Message spark** (agent → agent) | **Lightning** from sender to recipient, sparks at both ends, **ZAP!** | Electric arc with crackle (`zap`) |
 | The user sends / mail to the user | Gold comet from the eye, **INCOMING!** / gold lightning to the eye, **FOR YOU!** | Rocket launch / high zap and notice |
-| Org inbox (outside mail) | A meteor strikes the org-inbox tile, leaving a scorch mark with embers rising from it, **OUTSIDE MAIL!** | Explosion |
+| Org mailbox (outside mail) | A meteor strikes the org-mailbox tile, leaving a scorch mark with embers rising from it, **OUTSIDE MAIL!** | Explosion |
 | User inbox grew / urgent mail | **MAIL!** at the ask bell / **the alarm**: every window showing the org tinted red, deepest at the edges, in smooth pulses 0.8 s apart under **URGENT MAIL!** + sender, until the mail is read or for 8 s; a giant **!**, shake | Chime / a klaxon and a red ping from the ask bell every pulse (`klaxon`) |
 | Question opened / answered | Giant **?**, lightning from the sky, flash, ring, name / **ANSWERED!** + name, rising sparks | Three brass hits over a timpani roll (`question`) / harp glissando |
 | Document presented | Beam, **TA-DA!** + name, confetti | Two-note brass ta-da |
@@ -1135,7 +1135,7 @@ The shared app-root shake can displace every control by 20 screen pixels, so
 `Stage` stops a running shake on pointer movement or a held press and restores
 the root's temporary overflow clipping. New shakes wait for a 250ms settling
 interval and remain suppressed while a clickable control is hovered. Buttons,
-links, inputs, the org inbox and agent cards share the same protection. A native
+links, inputs, the org mailbox and agent cards share the same protection. A native
 hover query also protects a control already under the mouse when EPIC starts.
 Pointer exit or window blur clears stale state; input blur does not clear it.
 

@@ -15,7 +15,7 @@ Use to recover your own mail context, especially after a fresh session or compac
 
 ## Actions and parameters
 
-`action` is required. Each action accepts only its listed fields; a `node`, `agent`, `org` or `mailbox` argument is refused. Org-inbox reads use the dedicated actions/flag below rather than an org name.
+`action` is required. Each action accepts only its listed fields; a `node`, `agent`, `org` or `mailbox` argument is refused. Org-mailbox reads use the dedicated actions/flag below rather than an org name.
 
 | Action | Fields and defaults | Returned content |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ Successful `fetch` and valid `chunk` consume the pending received messages whose
 
 Opened received and project mail appears as ordinary mail entries immediately after the containing tool call in your transcript. Only genuine Orgtree dispatcher receipts can create these entries; a similarly named external MCP tool cannot. Transcript insertion rechecks current project reach and outside-mail visibility, so a later access change can omit the copy without widening the original read's authority. Existing delivery receipts prevent duplicates, including repeated chunks and already displayed automatic deliveries. Sent history, `list` and `conversation` previews add no transcript entries. Project reads leave the queue unclaimed and unchanged.
 
-Disabling the organization's outside inbox hides its outside history/related copies from these reads; it does not erase them. Re-enabling can restore access. Same-org mail remains separate. Reading an old external body does not reinstate a removed sender-authority note.
+Disabling the organization's outside mailbox hides its outside history/related copies from these reads; it does not erase them. Re-enabling can restore access. Same-org mail remains separate. Reading an old external body does not reinstate a removed sender-authority note.
 
 Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. A manual read records an explicit content read; it does not prove understanding or human acceptance.
 
@@ -74,11 +74,11 @@ These agent calls require the current **extern audience**, plus the usual messag
 
 Pull returns up to 256 KiB of body content, each initial chunk at most 64 KiB at a UTF-8 boundary. Each item contains its new personal `message_id`, ordinary `delivery_id`, and original `org_message_id`. For cut bodies use ordinary `chunk` with that personal ID/handle or fetch the personal ID again. Full retained bodies and attachments stay available without duplicate holder delivery. Successful pulls enter the caller's transcript once through normal read receipts; previews and human viewing do not extract mail. Closed refuses list/pull and retains data.
 
-Agents cannot change the mode, including top-level agents and extern holders. A configure attempt refuses: **org inbox mode changes are user-only; ask your superior or the user**. Standalone **user** MCP supports `action=settings` and `action=configure mode=normal|dnd|closed`, through the desktop policy writer. Its authority comes from the user token, never an agent audience. Ordinary list/fetch there still read the user's personal inbox.
+Agents cannot change the mode, including top-level agents and extern holders. A configure attempt refuses: **org mailbox mode changes are user-only; ask your superior or the user**. Standalone **user** MCP supports `action=settings` and `action=configure mode=normal|dnd|closed`, through the desktop policy writer. Its authority comes from the user token, never an agent audience. Ordinary list/fetch there still read the user's personal inbox.
 
 ## See also
 
 - [orgtree-mail-basics](../mail-basics/SKILL.md)
 - [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
 - [orgtree-external-mail](../external-mail/SKILL.md)
-- [orgtree-org-inbox](../org-inbox/SKILL.md)
+- [orgtree-org-mailbox](../org-mailbox/SKILL.md)

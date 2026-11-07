@@ -432,8 +432,8 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   Ticket links share `Status · slug` hover text (2026-10-29); an unknown status
   leaves the slug alone. See [ticket identity hover](docs/agents/desktop-and-renderer.md#ticket-identity-hover).
   [decided: user 2026-10-21 17:38:28Z; verified: `canvas/objecttooltip.ts`]
-- An org inbox row's `delivered_to` records who got its copies, written at delivery, never recomputed [decided: user 2026-10-29]; it stays inside the org: no hub payload, receipt, ack or reply quote carries it [decided: user 2026-10-30]. [doc](docs/agents/mail-and-hub.md)
-- An org is busy on its hubs while no org-inbox holder can run (`orginbox::busy`), DND while its org-inbox mode is dnd; a person's hour is the hub's. One `--busy`/`--dnd` token each; offline > DND > busy. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03Z-10-31 09:03Z]
+- An org mailbox row's `delivered_to` records who got its copies, written at delivery, never recomputed [decided: user 2026-10-29]; it stays inside the org: no hub payload, receipt, ack or reply quote carries it [decided: user 2026-10-30]. [doc](docs/agents/mail-and-hub.md)
+- An org is busy on its hubs while no org-mailbox holder can run (`orginbox::busy`), DND while its org-mailbox mode is dnd; a person's hour is the hub's. One `--busy`/`--dnd` token each; offline > DND > busy. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03Z-10-31 09:03Z]
 - Follow the [Windows machine-traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md) before shell/file edits: preserve UTF-8/CRLF, write escape-heavy scripts as files, do not treat JSON quoting as shell escaping, and verify resolved paths/activity before authorized cleanup. [decided: user/coordinator 2026-10-16]
 - Project-owned watchdogs (`owner_kind='project'`) fire its event, never mail it; filter `a.kind='agent'` on owner joins. [decided: user 2026-11-03; doc](docs/rust-engine/project-watchdogs.md)
 - Dog `configure`/create lock the parent row (project/owner) first. [doc](docs/rust-engine/watchdog-on-behalf.md)
@@ -441,6 +441,8 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - Project dogs have three forms (2026-11-04: `memo.project_delivery`, event by default, broadcast to direct agent members, queue as project jobs); only event goes through listeners and `project_fires`. [decided: user 2026-11-04]
 - Only `domain/orginbox_jobs.rs` writes `mail.extra.org_inbox`/`outside_job`; a worker's outside reply right comes from its job. [decided: user 2026-11-03; doc](docs/agents/mail-and-hub.md)
 - Job route: a job's holder may reply to its sender (user too) and back (`orginbox_jobs::job_route`, rechecked at send). Relay: `fair_queue` requeues P's jobs in Q (`projects/relay.rs`; claim `by_project`; chain<=8). Take back: tool `take_back` = desk op `mail_take_back`. [decided: user mff00b3454f55, m8bb8c9368e2d, m2bc14aa1e045]
+
+- **"Org inbox" is now "org mailbox"** in visible text and docs; internal ids keep the old name. [decided: user 2026-11-07 mb0175e053ee5; DECISIONS 97]
 
 ## Find the detailed rule
 
@@ -468,7 +470,7 @@ The [built-in glossary](docs/skills/orgtree-working/SKILL.md) covers agent tools
 - **Put detailed facts in their topic document in the same landing as the change.** Date them in UTC, keep the existing `[decided: …]` / `[verified: …]` attribution and source links, and state what changed or was superseded. New signed Rust decisions go in [DECISIONS](docs/rust-engine/DECISIONS.md). Add a root line only when it is essential before any work starts. Do not prepend per-feature or per-landing logs here. [decided: user 2026-10-20, repository instruction reduction]
 - Consolidate repeated current guidance in the relevant topic; keep superseded details in the [history reference](docs/agents/legacy-and-superseded.md). The earlier entries have preservation markers: if moving one, update its destination in [coverage.json](docs/agents/coverage.json); if superseding one, retain its original record in history and write the replacement with its date/source. Do not silently rewrite or remove an attributed record.
 - Keep this guide **well below 60,000 bytes**. It is loaded into agent sessions. Topic docs are read on demand. Keep `main` public-safe: no credentials, secrets, email addresses, personal names/paths or live data; use generic examples. Do not add a root `CLAUDE.md`. [decided: user 2026-10-05, 2026-10-20]
-- Check documentation-only changes with `node docs/agents/check-coverage.mjs --self-test` and `git diff --check`. The checker proves all original nonblank lines/entry bodies and ruling/verification tags remain reachable; it also checks the root budget and local navigation. Its [usage and reconciliation procedure](docs/agents/README.md#preservation-check) explains how to incorporate concurrent landings before handing an exact SHA to the coordinator.
+- Check docs-only changes with `node docs/agents/check-coverage.mjs --self-test` and `git diff --check`: it proves the original entries and tags stay reachable and checks the root budget and links. Follow its [procedure](docs/agents/README.md#preservation-check) before handing in an exact SHA.
 
 ## Older section links
 

@@ -23,7 +23,7 @@ returns at most 2,000 selectable agents, live first, then by name.
 | Agent mail | Yes |
 | Read user mail | No |
 | User sent mail | No |
-| Organization mail | No; omitted while the org inbox is disabled |
+| Organization mail | No; omitted while the org mailbox is disabled |
 | Notices | No |
 | Presented documents | No |
 | Organization events | No |
@@ -52,4 +52,4 @@ Use the separate undo history for reversing supported actions; see
 ## See also
 
 - [orgtree-toasts-and-undo](../../app-shell/toasts-and-undo/SKILL.md).
-- [orgtree-org-policies-inbox](../org-policies-inbox/SKILL.md).
+- [orgtree-org-policies-mailbox](../org-policies-mailbox/SKILL.md).

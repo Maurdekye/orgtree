@@ -20,7 +20,7 @@ The switchboard's auto toggle controls whether a newly arriving direct line open
 | --- | --- |
 | Focus | Navigate to the user root/switchboard. |
 | Hire an agent | Choose an offered tier and open a top-level [draft hire](../draft-hires/SKILL.md). |
-| Open inbox | User inbox, not the outside-org inbox. |
+| Open inbox | User inbox, not the outside-org mailbox. |
 | Open global docket | Organization work view; see [docket screens](../../desk/docket-screens/SKILL.md). |
 | Open presentations | Organization document gallery; see [presentations](../../desk/presentations/SKILL.md). |
 | Open shared scratch folder | Open this org's shared scratch folder in the OS file manager, creating it on demand. Supported native shells only; available on the overview card and focused switchboard header. |

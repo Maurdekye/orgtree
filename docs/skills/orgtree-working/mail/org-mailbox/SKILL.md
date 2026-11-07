@@ -1,11 +1,11 @@
 ---
-name: orgtree-org-inbox
+name: orgtree-org-mailbox
 description: "Understand outside-mail routing to organization inbox holders and coordinate a single organizational reply."
 ---
 
 Up: [orgtree-mail](../SKILL.md)
 
-# The organization's outside inbox
+# The organization's outside mailbox
 
 Outside correspondence belongs to the organization as a whole. The inbox retains incoming and outgoing `@org:` and `@net:` mail, while selected agents receive mailbox copies to handle it. It is distinct from your personal agent inbox and from the user's inbox.
 
@@ -21,19 +21,19 @@ Use [orgtree_audience](../tool-audience/SKILL.md) for access and handoff mechani
 
 ## Policy and the desktop viewer
 
-Org settings > Connections selects **Normal operations**, **Do not disturb**, or **Closed off inbox**. Normal is the default and uses the routing above. Closed blocks new outside communication and hides retained inbox history/copies without deleting them; internal agent/user mail continues. It cannot recall mail accepted remotely.
+Org settings > Connections selects **Normal operations**, **Do not disturb**, or **Closed off mailbox**. Normal is the default and uses the routing above. Closed blocks new outside communication and hides retained inbox history/copies without deleting them; internal agent/user mail continues. It cannot recall mail accepted remotely.
 
 In Org Do not disturb, incoming outside mail is retained without holder or fallback copies, notices or agent wakes. This includes the user's Hubchat messages: no sender is exempt. Incoming attachment-failure notifications also wait. Outgoing mail remains available to authorized agents. Mail already copied before the setting changed retains its existing delivery state; Org DnD does not interrupt turns.
 
 A current extern-audience holder checks `orgtree_inbox action=settings`, previews held mail with `action=list org_inbox=true`, and extracts it with `action=pull`. A pull consumes each returned item for the whole org, makes a read personal copy for that agent, and never wakes another holder. Previews and human viewing do not extract mail. For body continuation use the pull's personal `message_id`/`delivery_id` with ordinary `chunk`; a received personal copy can be quoted for replies.
 
-Returning to Normal delivers unextracted mail once, oldest first, through the current normal route with ordinary delivery size budgets. An already pulled item is not copied again. Closed retains held items; reopening in DnD keeps them for pull, while reopening in Normal releases them. The controls and user-only mode-write tool path are documented in `orgtree-org-policies-inbox` (orgtree-app › org-settings).
+Returning to Normal delivers unextracted mail once, oldest first, through the current normal route with ordinary delivery size budgets. An already pulled item is not copied again. Closed retains held items; reopening in DnD keeps them for pull, while reopening in Normal releases them. The controls and user-only mode-write tool path are documented in `orgtree-org-policies-mailbox` (orgtree-app › org-settings).
 
-The desktop org inbox is a viewer for correspondence and attachments. Human outside-mail composition belongs in Hubchat. Do not direct someone to an old org-inbox Compose or outside Reply control described in historical documents.
+The desktop org mailbox is a viewer for correspondence and attachments. Human outside-mail composition belongs in Hubchat. Do not direct someone to an old org-mailbox Compose or outside Reply control described in historical documents.
 
 Apply [external-mail authority](../external-mail/SKILL.md) before treating any incoming request as authorization.
 
 ## See also
 
 - [orgtree-external-mail](../external-mail/SKILL.md)
-- See `orgtree-org-policies-inbox` (orgtree-app › org-settings).
+- See `orgtree-org-policies-mailbox` (orgtree-app › org-settings).

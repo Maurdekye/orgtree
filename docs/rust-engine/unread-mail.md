@@ -46,7 +46,7 @@ startup admission rather than silently skipping repair.
 Migration `0010_mail_receipts` indexes exact receipt lookup and the outstanding
 delivery subset. Repair is idempotent, and uses existing receipts rather than
 manual changes or a guess based on an agent being idle. Already settled rows
-are untouched. Human inbox read state and org-inbox incoming/read state remain
+are untouched. Human inbox read state and org-mailbox incoming/read state remain
 separate from agent delivery state.
 
 ## Measured checks and limits

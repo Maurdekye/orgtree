@@ -10,7 +10,7 @@ The canvas lays out the user root, agents, structural projects, reporting lines 
 
 The canvas fills the available organization window, including at fractional display scaling. Resize or maximize the window to make more room; the canvas pans and zooms rather than scrolling the whole page. Canvas and Attention share the same area.
 
-Drag the background with the primary button to pan. Middle-button drag pans from anywhere on the visible canvas, including a desk's header, transcript or composer, presentation cards, the org inbox tile and pinned frames. It moves the canvas camera, leaving the desk's scroll and a pinned frame's placement unchanged. It does not open a link or select text; left and right buttons keep their usual actions. A popped-out desk has no canvas to pan.
+Drag the background with the primary button to pan. Middle-button drag pans from anywhere on the visible canvas, including a desk's header, transcript or composer, presentation cards, the org mailbox tile and pinned frames. It moves the canvas camera, leaving the desk's scroll and a pinned frame's placement unchanged. It does not open a link or select text; left and right buttons keep their usual actions. A popped-out desk has no canvas to pan.
 
 The wheel over canvas space zooms about the cursor; over a modal, desk, agent tray or pinned window it stays a scrolling gesture. Move the pointer out of the desk before trying to zoom the canvas. Narrow windows retain this desktop layout; see [narrow layout](../../app-shell/mobile-layout/SKILL.md) before assuming a mobile sheet or touch-only navigation mode.
 
@@ -32,11 +32,11 @@ A valid drop on another live parent reparents the agent; a drop on the user root
 
 While hovering over a valid new superior, the dashed outline uses the moved agent's final offset from that superior, anchored to the superior's current position. This keeps the preview beside the visible destination even when the move will shift the superior during relayout. After release, the whole tree moves to its actual final layout. The same preview rule applies to row and circular layouts and the user root.
 
-Dropping on the org inbox tile is a different action: it grants that agent the org-inbox audience rather than reparenting it. Read [org inbox tile](../org-inbox-tile/SKILL.md) before suggesting this gesture. A toast may offer undo; the broader contract is [toasts and undo](../../app-shell/toasts-and-undo/SKILL.md).
+Dropping on the org mailbox tile is a different action: it grants that agent the org-mailbox audience rather than reparenting it. Read [org mailbox tile](../org-mailbox-tile/SKILL.md) before suggesting this gesture. A toast may offer undo; the broader contract is [toasts and undo](../../app-shell/toasts-and-undo/SKILL.md).
 
 ## Mail sparks
 
-When mail passes between two nodes on the canvas, a brief spark travels along the line that joins them: down or up the reporting line, along the peer line between coworkers, along a direct audience line, or along the curved line to the org inbox tile. The spark is decoration only and follows its line as it is drawn, so it stays on the wire while the layout moves (an agent is added or the layout changes). If the line goes away mid-flight the spark ends. The compact (phone-sized) canvas draws no sparks.
+When mail passes between two nodes on the canvas, a brief spark travels along the line that joins them: down or up the reporting line, along the peer line between coworkers, along a direct audience line, or along the curved line to the org mailbox tile. The spark is decoration only and follows its line as it is drawn, so it stays on the wire while the layout moves (an agent is added or the layout changes). If the line goes away mid-flight the spark ends. The compact (phone-sized) canvas draws no sparks.
 
 Inspect the resulting parent/order and any error toast. A canvas gesture belongs to the human interface and does not give an agent permission to perform an equivalent action outside its tool scope.
 

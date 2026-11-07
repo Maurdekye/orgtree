@@ -48,7 +48,7 @@ Moving a card is a structural operation, not just rearranging a picture. It move
 
 When you hover over a new superior, a dashed outline previews the moved agent relative to that superior's current position. It keeps their final spacing, so a superior that will shift during the move does not pull the preview away from the visible target. Releasing the card lets the whole tree settle into its final layout.
 
-There is one special drop target: dropping an agent on the **organization inbox** tile gives it an org-inbox audience. It does not move the agent under the tile. [Collaboration](collaborating.md) explains what that contact permission allows.
+There is one special drop target: dropping an agent on the **organization inbox** tile gives it an org-mailbox audience. It does not move the agent under the tile. [Collaboration](collaborating.md) explains what that contact permission allows.
 
 ## Use the switchboard and header
 

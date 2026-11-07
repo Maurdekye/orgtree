@@ -9,7 +9,7 @@ Up: [orgtree-team](../SKILL.md)
 Use this tool to change the picture representing your own organization. Requires
 the `orgmod` (Org-modifying tools) group, on by default. An explicit denial on you or any
 ancestor disables the tool and also refuses remembered calls. Any enabled agent
-may use it at any depth, without a user or org-inbox audience. There
+may use it at any depth, without a user or org-mailbox audience. There
 is no top-level-only restriction and no org selector: the engine gets your
 identity from the calling process.
 
@@ -62,7 +62,7 @@ Success returns the picture revision, digest, dimensions, byte count, `removed`
 and a `history_entry` (id, kind `logo`, label). No image bytes are returned.
 The same native storage and hub publisher as the human Logo editor update every
 surface. A disconnected or unsupported hub does not make a local edit fail;
-enabled supported hubs converge later. Outside-inbox isolation blocks publishing
+enabled supported hubs converge later. Outside-mailbox isolation blocks publishing
 while retaining the local change for re-enable.
 
 The user undoes/redoes through existing history. Restoration mints a fresh

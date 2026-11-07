@@ -26,7 +26,7 @@ available. All other tools require these groups:
 The shared `tool_groups::allows_call` rechecks actions at dispatch, including calls retained from an older/full card. `defs::scoped` narrows the watchdog-only card; this does not grant project administration through tool discovery.
 
 User 2026-10-15 22:10Z explicitly made `logo` on by default, including older
-scopes with no key. It is independent of `team`, `user` and org-inbox audiences.
+scopes with no key. It is independent of `team`, `user` and org-mailbox audiences.
 The shared Tools controls and org hire defaults expose **Organization logo**.
 Execution rechecks current identity, inherited permission and file grants under
 the org mutation lock after decoding, in addition to the ordinary dispatch gate.

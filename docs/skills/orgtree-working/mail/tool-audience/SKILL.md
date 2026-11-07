@@ -7,15 +7,15 @@ Up: [orgtree-mail](../SKILL.md)
 
 # orgtree_audience
 
-Save as template can capture active explicit grants among its saved nodes, plus user and extern grants, with a default-on Include audiences choice. It stores directional grantee/grantor pairs, never effective/inherited routes. The creation preview lists the grants per node, explicitly naming user and outside-mail access. Renamed endpoints remap; omitted/outside endpoints are dropped with warnings. All restored grants use the normal grant checks after the nodes exist, in the same transaction; org-inbox and multi-holder policy remain enforced. Audiences grant contact only, never tools or folders. There is no template agent tool: the existing template HTTP endpoints carry the include field. See orgtree-org-templates (orgtree-app > org-settings).
+Save as template can capture active explicit grants among its saved nodes, plus user and extern grants, with a default-on Include audiences choice. It stores directional grantee/grantor pairs, never effective/inherited routes. The creation preview lists the grants per node, explicitly naming user and outside-mail access. Renamed endpoints remap; omitted/outside endpoints are dropped with warnings. All restored grants use the normal grant checks after the nodes exist, in the same transaction; org-mailbox and multi-holder policy remain enforced. Audiences grant contact only, never tools or folders. There is no template agent tool: the existing template HTTP endpoints carry the include field. See orgtree-org-templates (orgtree-app > org-settings).
 
 ## Call contract
 
-Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Project grants reach direct live members as their own, not nested. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail grants only the project; members inherit. Direct contact adds no user grant while access exists; manual Acquire can. Project decisions go to the nearest agent superior (user if none). A project may hold the org-inbox (`extern`) audience like an agent node (single-holder replacement and multi-holder grants apply); its members inherit nothing from it, and each outside message becomes one job in its queue. An agent above both may grant, deny or revoke between two agents in its subtree. Requests do not grant access.
+Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Project grants reach direct live members as their own, not nested. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail grants only the project; members inherit. Direct contact adds no user grant while access exists; manual Acquire can. Project decisions go to the nearest agent superior (user if none). A project may hold the org-mailbox (`extern`) audience like an agent node (single-holder replacement and multi-holder grants apply); its members inherit nothing from it, and each outside message becomes one job in its queue. An agent above both may grant, deny or revoke between two agents in its subtree. Requests do not grant access.
 
 Use when the missing permission is **who may communicate**, rather than a folder/tool grant. An audience lets the grantee write to the grantor; it is directional and does not change reporting lines, tool groups or file authority. Required tool group: `messaging`, inherited through the ancestor chain.
 
-Ordinary [mail reach](../tool-message/SKILL.md) already includes the nearest agent superior, descendants and physical siblings subject to their parent's peer-mail switch. Coworkers in different projects need an audience even when they share that superior. Do not request an audience you already hold. `user` means direct access to the user; `extern` means the org inbox and outside `@org:`/`@net:` correspondence. These are different grants.
+Ordinary [mail reach](../tool-message/SKILL.md) already includes the nearest agent superior, descendants and physical siblings subject to their parent's peer-mail switch. Coworkers in different projects need an audience even when they share that superior. Do not request an audience you already hold. `user` means direct access to the user; `extern` means the org mailbox and outside `@org:`/`@net:` correspondence. These are different grants.
 
 ## Actions and arguments
 
@@ -26,7 +26,7 @@ Ordinary [mail reach](../tool-message/SKILL.md) already includes the nearest age
 | `deny` | `from`: pending requester. | Optional `target` selects a request; without it, the handler resolves pending requests from that requester that wait on you, or, as an agent above both, a request between two agents in your subtree. |
 | `revoke` | `grantee`: current holder. | Optional `target` names the grantor instead of you; from is accepted as a grantee alias. |
 
-`action` is required. Public party spellings are `user`/`extern`; the engine also normalizes `@user`, `@extern`, `org-inbox` and `org_inbox`. Agent and project targets must be live. Reasons are explanatory text, not an authority source.
+`action` is required. Public party spellings are `user`/`extern`; the engine also normalizes `@user`, `@extern`, `org-inbox`, `org_inbox`, `org-mailbox` and `org_mailbox`. Agent and project targets must be live. Reasons are explanatory text, not an authority source.
 
 Minimal request:
 
@@ -44,15 +44,15 @@ Send the request and end your turn if its answer blocks further work. Requests n
 - With `user`: only a top-level agent can grant this to its descendants. A top-level agent already has direct user access and need not request it.
 - With `extern`: a top-level agent can grant to itself, descendants, or a live requester whose audience request waits on it, including one outside its subtree. A lower existing holder can pass extern only to descendants. A lower non-holder cannot grant itself outside access.
 
-Requesting extern is refused if the org inbox is disabled. A top-level agent requesting extern is told to grant it to itself instead. Requesting yourself or an audience already held refuses. A repeat pending request updates its reason/time rather than requiring a forwarding chain.
+Requesting extern is refused if the org mailbox is disabled. A top-level agent requesting extern is told to grant it to itself instead. Requesting yourself or an audience already held refuses. A repeat pending request updates its reason/time rather than requiring a forwarding chain.
 
 Grants to a waiting requester resolve its request and wake it with the answer. Access notices describe the new permission. Permission can still be paused/revoked later; do not infer a permanent grant from old mail.
 
 ## Holder selection and revocation
 
-In the default single-holder org-inbox mode, a new extern grant revokes previous holders. Multi-holder mode allows several. This consequence matters when assigning outside correspondence: an extern grant can replace someone else's routing role. Agents explain/suggest settings changes rather than changing the setting themselves.
+In the default single-holder org-mailbox mode, a new extern grant revokes previous holders. Multi-holder mode allows several. This consequence matters when assigning outside correspondence: an extern grant can replace someone else's routing role. Agents explain/suggest settings changes rather than changing the setting themselves.
 
-You can revoke audiences with yourself, audiences between two agents in your subtree, and (top-level) user and org-inbox grants in your subtree; an extern holder can revoke its own extern access. Grants survive moves: after A or B leaves your subtree you can no longer rescind it, and only a current common ancestor, the grantor or the user can. Other grants are not yours to rescind. Deny is for a pending request; revoke is for an existing grant. Neither deletes correspondence.
+You can revoke audiences with yourself, audiences between two agents in your subtree, and (top-level) user and org-mailbox grants in your subtree; an extern holder can revoke its own extern access. Grants survive moves: after A or B leaves your subtree you can no longer rescind it, and only a current common ancestor, the grantor or the user can. Other grants are not yours to rescind. Deny is for a pending request; revoke is for an existing grant. Neither deletes correspondence.
 
 Revoke removes only the explicit grant, not an audience inherited through a
 project. A remaining project route stays usable and its source is named in the
@@ -62,7 +62,7 @@ access starts or ends, including joining/leaving a project with an audience.
 
 ## Refusals to act on
 
-Missing target/from/grantee fields are reported with the action that needs them. Other common refusals are no live named agent, self-request/self-grant, already-held audience, no request waiting on you, grantee outside the allowed relationship for that grant, non-top-level user grant, invalid grantor relationship, no current grant to revoke, or disabled outside inbox. Apply the pending-request exceptions above before treating an outside-subtree grantee as forbidden. Correct the relationship/party field or ask the actual holder; changing an audience is not a way to expand your own tools or settings authority.
+Missing target/from/grantee fields are reported with the action that needs them. Other common refusals are no live named agent, self-request/self-grant, already-held audience, no request waiting on you, grantee outside the allowed relationship for that grant, non-top-level user grant, invalid grantor relationship, no current grant to revoke, or disabled outside mailbox. Apply the pending-request exceptions above before treating an outside-subtree grantee as forbidden. Correct the relationship/party field or ask the actual holder; changing an audience is not a way to expand your own tools or settings authority.
 
 
 ## Project audiences
@@ -75,13 +75,13 @@ When the user sends to a project's mailbox or uses its megaphone broadcast, only
 
 Direct user mail or commands create an agent's own user grant only when it has no effective user audience already. While it inherits user access from a project, user mail of any kind does not give it an independent grant. To give it one, the user can choose Acquire audience in that agent's context menu, even while it inherits access; alternatively, remove the project's user audience and then mail the agent directly. Once an inherited-only agent leaves the project, its inherited access ends; direct user contact can then grant it access normally. Existing explicit grants are not removed automatically.
 
-A project's nearest real-agent superior manages its audience requests and decisions; the user does so if there is no such superior. Members cannot manage the project's grants. Use orgtree_audience action=request from=project-name target=agent-or-project for a managed project; its context menu also offers Acquire/Drop audience. Chart and state inspection identify inherited source projects. Drop audience acts on explicit grants, not inherited-only routes; change the source project's grant to remove an inherited route. The org-inbox/outside-mail audience may be held by a project (its members inherit nothing; see orgtree-front-door-queue). The separate permission to present within one's own project includes nested members and does not imply recursive audience inheritance.
+A project's nearest real-agent superior manages its audience requests and decisions; the user does so if there is no such superior. Members cannot manage the project's grants. Use orgtree_audience action=request from=project-name target=agent-or-project for a managed project; its context menu also offers Acquire/Drop audience. Chart and state inspection identify inherited source projects. Drop audience acts on explicit grants, not inherited-only routes; change the source project's grant to remove an inherited route. The org-mailbox/outside-mail audience may be held by a project (its members inherit nothing; see orgtree-front-door-queue). The separate permission to present within one's own project includes nested members and does not imply recursive audience inheritance.
 
 ## See also
 
 - [orgtree-mail-basics](../mail-basics/SKILL.md)
 - [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
 - [orgtree-external-mail](../external-mail/SKILL.md)
-- [orgtree-org-inbox](../org-inbox/SKILL.md)
+- [orgtree-org-mailbox](../org-mailbox/SKILL.md)
 
 For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

@@ -4,7 +4,7 @@ The internal desk and user inbox collect several targets within one transcript
 or conversation, regardless of author (USER correction 2026-10-14 23:11Z).
 Reply appends and deduplicates; each target can be removed and Cancel All clears
 the set. Different authors are allowed; another transcript is refused by both
-the collector and engine. There is one recipient and no fan-out. The external org-inbox viewer
+the collector and engine. There is one recipient and no fan-out. The external org-mailbox viewer
 remains a viewer under the signed October 12 rule.
 
 `orgtree_message` accepts `metadata.replies`, a list of 1–50 message IDs from

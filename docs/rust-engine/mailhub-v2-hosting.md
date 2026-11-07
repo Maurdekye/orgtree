@@ -134,7 +134,7 @@ delete it unless the user chose a number of days, and an idle address stays
 listed. So the engine never passes `HUB_ORG_RETENTION_DAYS`, and passes
 `HUB_RETENTION_DAYS` only when the user picked a number of days in App settings
 → Mail hub (the 36500-day "forever" is gone). Client scope for 4.0.2: reply_to
-both ways (the org inbox panel's Reply and an optional `reply_to` on
+both ways (the org mailbox panel's Reply and an optional `reply_to` on
 `orgtree_message`), the person kind, long `@net:` mail fetched whole, and (user
 request) the hub's version shown; not the directory search, not resumable
 uploads (that waits for the transfers item).
@@ -159,7 +159,7 @@ uploads (that waits for the transfers item).
   recipients get the quote; over a hub the payload's `reply_to` is the answered
   message's hub id, when that message came over a hub (otherwise the agent is
   told the reply goes without a link). `POST /api/orgs/{slug}/org_inbox/send`
-  takes `reply_to` (an org-inbox row id) for the panel's Reply. Inbound hub
+  takes `reply_to` (an org-mailbox row id) for the panel's Reply. Inbound hub
   mail with `reply_to` is quoted from this org's own record of that message
   (`ot.org_inbox`, sent or received; two index-backed lookups), else kept as
   the bare reference; holders read "↩ IN REPLY TO your message …" when they
@@ -183,9 +183,9 @@ uploads (that waits for the transfers item).
   asking anything.
 
 **Desktop:** the person kind labelled; the hub's version in Connections, the
-mailservers tab, the status bar chip, the canvas org inbox tile and App
-settings → Mail hub; the org inbox's Reply on inbound outside mail (with
-files, staged the org inbox's way; no notice toggle), and the quote on rows
+mailservers tab, the status bar chip, the canvas org mailbox tile and App
+settings → Mail hub; the org mailbox's Reply on inbound outside mail (with
+files, staged the org mailbox's way; no notice toggle), and the quote on rows
 that answer something; the v2 import report and "Until it is deleted"
 retention wording.
 
@@ -200,5 +200,5 @@ package was built.
 
 **Proof:** `tools/rig/proofs/mailhub-v2.mjs` (the engine through the real net
 client: 36/36, 38/38 with `--big`) and `tools/rig/proofs/mailhub-v2-desktop.mjs`
-(the org inbox panel in the real renderer: 8/8), measured 2026-10-08; both in
+(the org mailbox panel in the real renderer: 8/8), measured 2026-10-08; both in
 `docs/rust-engine/test-rig.md`.

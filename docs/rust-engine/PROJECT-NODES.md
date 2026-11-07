@@ -186,7 +186,7 @@ same agent relations; structural project context remains available. State
 inspection retains its existing ability to inspect all descendants.
 
 Top-level authority is `ot.superior_of(agent) IS NULL`, including agents beneath
-root projects: audience grant/revoke, org-inbox routing, docket deletion/recovery,
+root projects: audience grant/revoke, org-mailbox routing, docket deletion/recovery,
 phone eligibility, grant caps and cap warnings. Org-folder revocation and downgrade
 sweep these agents so a removed grant cannot reappear when the org re-adds a folder.
 Credit requests skip project mirrors, rescind debits the real payer, and swap
@@ -234,7 +234,7 @@ the metamorphic rig proofs establish behavior across the different tree shapes.
 The actor refuses to start for a project (`runtime::actor::spawn` reads `kind` first), so no
 CLI, warming, turn, checkup, reminder, freeze or session placement can happen to one, whatever
 path asked for it. The sweeps that pick agents (warming, restart notices, waiting-mail recovery,
-reminders, checkups, sign-in notices, org-inbox fallback) also filter `kind = 'agent'`.
+reminders, checkups, sign-in notices, org-mailbox fallback) also filter `kind = 'agent'`.
 
 ## Cost
 
@@ -908,6 +908,6 @@ desk shows the user as the @user mention chip, user 13:50Z). The full list of ru
 
 A project can own watchdogs (`orgtree_watchdog create project=P`, kinds file/command/process/stream/websocket/mqtt). Each fire is the project's event, broadcast to its armed `project_listener`s; any agent above or below the project may create, pause, resume, remove and `send` on them. The listeners tab lists them as **Event sources**. Design and decisions: [project watchdogs](project-watchdogs.md).
 
-## Outside jobs (org inbox)
+## Outside jobs (org mailbox)
 
-A project that holds the org-inbox audience receives each outside message as one pending job (`extra.org_inbox = {uid, peer}`). The queue hands it out as usual, except that the user's desk listener is never offered it. The listener's copy carries `via_project.outside` and `extra.outside_job`; the worker may reply to the job's sender while it holds the job and (ACK mode) has not acked it. The ack sends nothing outside. A follow-up from the sender before hand-out is bundled (`extra.bundled_with`, state read) and handed to the same listener with the job; to a held unacked job it goes straight to the holder; otherwise it becomes a new job. A worker's outside reply right needs the job's claim (before the ACK in ACK mode), a still-open job and current membership of the job's project (a worker moved out loses it at once and regains it moving back); it is checked again `FOR SHARE` in the send's own transaction. Follow-up copies never ask for an ack: the worker acks the job.
+A project that holds the org-mailbox audience receives each outside message as one pending job (`extra.org_inbox = {uid, peer}`). The queue hands it out as usual, except that the user's desk listener is never offered it. The listener's copy carries `via_project.outside` and `extra.outside_job`; the worker may reply to the job's sender while it holds the job and (ACK mode) has not acked it. The ack sends nothing outside. A follow-up from the sender before hand-out is bundled (`extra.bundled_with`, state read) and handed to the same listener with the job; to a held unacked job it goes straight to the holder; otherwise it becomes a new job. A worker's outside reply right needs the job's claim (before the ACK in ACK mode), a still-open job and current membership of the job's project (a worker moved out loses it at once and regains it moving back); it is checked again `FOR SHARE` in the send's own transaction. Follow-up copies never ask for an ack: the worker acks the job.

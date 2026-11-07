@@ -27,7 +27,7 @@ private and never appears in a public tool chip.
 Before selecting any canonical body, the transcript reader rechecks that every
 non-self recipient is a nondeleted project in the same organization and the
 caller currently reaches it. It shares the protected project-inbox visibility
-predicate, including the outside-inbox setting, and requires project inbox
+predicate, including the outside-mailbox setting, and requires project inbox
 recipient kind. UID/recipient pairs and existing transcript receipts still bind
 the exact read and prevent duplicates across chunks/reloads. Queue custody is
 unchanged: projecting a project read never claims or acknowledges it.

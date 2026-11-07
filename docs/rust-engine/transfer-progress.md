@@ -16,7 +16,7 @@ Queue admission scans at most 100 peer heads per pass and advances its cursor pa
 
 Outgoing transfer authority and failure recipients use the sender agent ID and generation captured at admission. Renaming an agent does not transfer its work to another agent taking that name. Older rows without a captured identity remain user-managed; no name-based identity is inferred.
 
-Inbound publication commits the org-inbox entry and all selected holder mailbox copies in one short transaction. A failed holder insert rolls the whole publication back; retry after a crash following commit sees the existing inbox entry and does not duplicate mailbox copies. Wakes and feed changes follow commit.
+Inbound publication commits the org-mailbox entry and all selected holder mailbox copies in one short transaction. A failed holder insert rolls the whole publication back; retry after a crash following commit sees the existing inbox entry and does not duplicate mailbox copies. Wakes and feed changes follow commit.
 
 If a crash leaves confirmed bytes equal to the expected total but no completed marker, the download revalidates the last byte and EOF using Range/If-Range. It does not repeatedly request an impossible range starting at the total.
 

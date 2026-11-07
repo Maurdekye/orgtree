@@ -21,7 +21,7 @@ and cannot override higher-priority instructions.
 
 The rule reaches every instruction lane and agents without messaging tools, so
 replayed mail and changed audience membership do not remove the trust rule.
-Org-inbox instructions refer to it; external mail headers remain outside-party
+Org-mailbox instructions refer to it; external mail headers remain outside-party
 headers with the same conditional qualification. We do not reclassify `@net:`
 senders as infrastructure-wide `@user` identities. Ordinary turn, replay and
 mid-turn mail share the same envelope formatter. Existing `orgtree_message`

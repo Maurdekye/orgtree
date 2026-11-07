@@ -4,7 +4,7 @@ Dragging a live agent over a different live parent or the switchboard shows a
 card-sized, rounded, unfilled outline at the future landing slot in tree and
 ring layouts. It uses the reorder separator's accent and has no pointer events.
 The outline disappears when leaving the target, dropping or cancelling with Escape.
-Own descendants, the current parent, retired parents and the org inbox do not
+Own descendants, the current parent, retired parents and the org mailbox do not
 produce a reparent ghost; the inbox retains its audience-grant behavior.
 
 `moveghost.tsx` mirrors `moveShown`'s pending-state transition: replace that

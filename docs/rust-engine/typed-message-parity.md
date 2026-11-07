@@ -102,7 +102,7 @@ The inventory distinguishes a flattened producer from a detector or workflow whi
 | Question, credit and scope request cards | Separate request-card inventory | Retained request cards; answers already typed except direct credit path | Direct credit and routed requests typed; batch answer shape retained |
 | File / image deliveries | Tool card and attachment fields, no extra event leaf | Tool-card and attachment projection retained | Preserved; no invented event kind |
 | Presentations | Document card and reply.document | Document gallery retained, reply plain | Structured presentation replies restored |
-| Org inbox / @net | Outside sender plus ordinary message, attachments | Sender and attachments retained, forwarded tag absent | Forwarded ordinary envelope uses external actor; no trust of remote event payloads |
+| Org mailbox / @net | Outside sender plus ordinary message, attachments | Sender and attachments retained, forwarded tag absent | Forwarded ordinary envelope uses external actor; no trust of remote event payloads |
 | Tool results | Native tool result/card, not mail event | Runtime tool-chip projection retained | Preserved |
 | Halt | State/controls, not lifecycle.halted | Retained state | No invented halt event; thaw emits existing policy variants |
 | Docket handoff and attention | Linked request, item attention state and typed dismissal | Item state and dismissal retained, handoff generic mail | Central ordinary envelope restored; no removed review-seat operation |

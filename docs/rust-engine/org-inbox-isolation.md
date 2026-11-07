@@ -1,4 +1,4 @@
-# Org-inbox isolation
+# Org-mailbox isolation
 
 User rulings (2026-10-12): the Orgtree engine stops an external message before it leaves a disabled org or contacts a hub. Sends fail before queue admission. Retained inbox history is hidden from humans and agents until re-enabled, as is the canvas inbox node. Same-org agent/user correspondence remains available. Preserve stored records, audiences and network identity.
 

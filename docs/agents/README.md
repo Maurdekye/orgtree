@@ -307,8 +307,8 @@ The token figure is an explicitly labeled characters/4 heuristic; byte and line 
 | [e-a2a8e8e316dcba04](desktop-and-renderer.md#e-a2a8e8e316dcba04) | AGENTS.md — working on Orgtree | Native popout Close dismisses PinFrame through its existing close callback; |
 | [e-f79cd7d648b48a3a](docket-and-presentations.md#e-f79cd7d648b48a3a) | AGENTS.md — working on Orgtree | Language model servers setup is documented in README. |
 | [e-21addef93d80e64c](mail-and-hub.md#e-21addef93d80e64c) | AGENTS.md — working on Orgtree | Recommend each developer installs Orgtree and Hubchat, both connected to a shared standalone mailhub on a company-access |
-| [e-8c61a2eb68eabebb](mail-and-hub.md#e-8c61a2eb68eabebb) | AGENTS.md — working on Orgtree | Human hub mail is composed in Hubchat. The Orgtree org-inbox window is a viewer: no compose/reply/upload controls or ded |
-| [e-c2f741691526d825](mail-and-hub.md#e-c2f741691526d825) | AGENTS.md — working on Orgtree | Org inbox isolation is an org-local, default-on boundary: org_inbox_enabled=false rejects new external sends before queu |
+| [e-8c61a2eb68eabebb](mail-and-hub.md#e-8c61a2eb68eabebb) | AGENTS.md — working on Orgtree | Human hub mail is composed in Hubchat. The Orgtree org-mailbox window is a viewer: no compose/reply/upload controls or ded |
+| [e-c2f741691526d825](mail-and-hub.md#e-c2f741691526d825) | AGENTS.md — working on Orgtree | Org mailbox isolation is an org-local, default-on boundary: org_inbox_enabled=false rejects new external sends before queu |
 | [e-a12504529fb2c73c](development-and-verification.md#e-a12504529fb2c73c) | AGENTS.md — working on Orgtree | This is the one file every agent working in this repository reads first. It collects the |
 | [e-de9dba5c10b37700](legacy-and-superseded.md#e-de9dba5c10b37700) | AGENTS.md — working on Orgtree | Since 2026-10-06 the app runs Orgtree 4.0.0, a Rust engine, built on the local branch |
 | [e-f76fd81794788f25](development-and-verification.md#e-f76fd81794788f25) | Orgtree 4.0.0 (Rust engine): read this first | Orgtree 4.0.0 (Rust engine): read this first |

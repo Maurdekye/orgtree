@@ -1,17 +1,17 @@
 ---
 name: orgtree-front-door-queue
-description: Run an org with a project in place of a coordinator - the project holds the org-inbox audience and a worker pool takes each outside message as a queued job.
+description: Run an org with a project in place of a coordinator - the project holds the org-mailbox audience and a worker pool takes each outside message as a queued job.
 ---
 
 Up: [orgtree-collaboration-patterns](../SKILL.md)
 
 # Queue project in place of a coordinator
 
-Most orgs put one coordinator agent between the outside world and the work. This is the alternative: a **front-door project** holds the org-inbox audience, and a pool of workers below it takes the outside mail as jobs from the project's [work queue](../work-queues/SKILL.md). No agent sits in the middle deciding who handles what.
+Most orgs put one coordinator agent between the outside world and the work. This is the alternative: a **front-door project** holds the org-mailbox audience, and a pool of workers below it takes the outside mail as jobs from the project's [work queue](../work-queues/SKILL.md). No agent sits in the middle deciding who handles what.
 
 ## The shape
 
-- A top-level project holds the org-inbox audience, exactly as an agent node would (drag it onto the org mailbox, or `orgtree_audience action=grant from=<project> target=extern`). Its members inherit nothing from the grant. Workers under a holding project reply to outside people only through their jobs: for outside mail, members of a holding project are not top-level agents, so they cannot start an outside conversation or be auto-granted the audience.
+- A top-level project holds the org-mailbox audience, exactly as an agent node would (drag it onto the org mailbox, or `orgtree_audience action=grant from=<project> target=extern`). Its members inherit nothing from the grant. Workers under a holding project reply to outside people only through their jobs: for outside mail, members of a holding project are not top-level agents, so they cannot start an outside conversation or be auto-granted the audience.
 - Workers sit below the project and each arm a `fair_queue` listener on it.
 - Optionally an agent holder (the liaison) keeps its own copies of every message: turn on the org's multiple-holder option and grant both. With that option off, the newest grant wins, so granting the project replaces the agent holder (the drag asks first).
 
@@ -29,7 +29,7 @@ Most orgs put one coordinator agent between the outside world and the work. This
 | Reply right | a worker may reply to the sender until it acks the job; the ack sends nothing outside | no limit: reply as often as needed |
 | Choose it when | every message must be finished and recorded; you want timeouts and dead letters | fire-and-forget handling, throughput first |
 
-A worker replies with `orgtree_message to=<the outside sender> reply_to=<the job copy's id>`; the reply leaves from the org inbox. It can reply only to that job's own sender. Taking the job back, or acking it in ACK mode, ends the right.
+A worker replies with `orgtree_message to=<the outside sender> reply_to=<the job copy's id>`; the reply leaves from the org mailbox. It can reply only to that job's own sender. Taking the job back, or acking it in ACK mode, ends the right.
 
 ## Conversations
 
@@ -60,10 +60,10 @@ A front door can feed team projects through relays: each team project Q relays t
 1. Create the project and write its Summary: reply tone, what never to disclose, when to escalate.
 2. Hire workers under it; each arms `orgtree_watchdog action=create kind=fair_queue target=<project>`.
 3. Pick the mode and its batch, timeout and attempts (project settings, "Mail queue").
-4. Turn on multiple org-inbox holders if an agent should keep copies too.
+4. Turn on multiple org-mailbox holders if an agent should keep copies too.
 5. Drag the project onto the org mailbox.
 6. Watch the project's Mail tab and its dead letters; escalate by mail to the project's superior.
 
 ## See also
 
-[orgtree-work-queues](../work-queues/SKILL.md) · orgtree-org-inbox (orgtree-working › mail) · orgtree-external-mail (orgtree-working › mail) · orgtree-team-shape (orgtree-working › team)
+[orgtree-work-queues](../work-queues/SKILL.md) · orgtree-org-mailbox (orgtree-working › mail) · orgtree-external-mail (orgtree-working › mail) · orgtree-team-shape (orgtree-working › team)
