@@ -41,4 +41,51 @@ mod tests{
         assert!(!ticket_route("/api/orgs/demo/apps/media",&Method::POST));
         assert!(serde_json::from_str::<MediaQuery>(r#"{"ticket":"x","path":"elsewhere"}"#).is_err());
     }
+
+    /// A real response from the media streamer: 200, 206 or 416 for `range`.
+    async fn streamed(range:Option<&str>)->Response{
+        use std::io::Write;
+        let p=std::env::temp_dir().join(format!("app-media-cors-{}-{}.mp4",std::process::id(),range.map(|r|r.len()).unwrap_or(0)));
+        std::fs::File::create(&p).unwrap().write_all(b"0123456789").unwrap();
+        let f=tokio::fs::File::open(&p).await.unwrap();
+        let r=super::super::media_file::serve_opened(f,"video/mp4",range,None).await.unwrap();
+        let _=std::fs::remove_file(&p);
+        r
+    }
+    fn origin(value:Option<&str>)->HeaderMap{
+        let mut h=HeaderMap::new();
+        if let Some(v)=value{h.insert(header::ORIGIN,v.parse().unwrap());}
+        h
+    }
+    fn acao(r:&Response)->Option<String>{r.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).map(|v|v.to_str().unwrap().to_string())}
+    fn varies_on_origin(r:&Response)->bool{r.headers().get_all(header::VARY).iter().any(|v|v.to_str().unwrap().split(',').any(|t|t.trim().eq_ignore_ascii_case("origin")))}
+
+    #[tokio::test]
+    async fn the_sandboxed_panel_s_null_origin_may_read_ok_partial_and_unsatisfiable_responses(){
+        for (range,status) in [(None,StatusCode::OK),(Some("bytes=2-5"),StatusCode::PARTIAL_CONTENT),(Some("bytes=90-99"),StatusCode::RANGE_NOT_SATISFIABLE)]{
+            let r=with_media_cors(streamed(range).await,&origin(Some("null")));
+            assert_eq!(r.status(),status);
+            assert_eq!(acao(&r).as_deref(),Some("null"),"{status}");
+            assert!(varies_on_origin(&r),"{status}");
+            assert!(r.headers().get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none(),"no credentials header");
+        }
+    }
+
+    #[tokio::test]
+    async fn any_other_origin_or_none_gets_no_allow_origin_but_the_response_still_varies(){
+        for o in [Some("http://127.0.0.1:5173"),Some("https://evil.example"),Some("NULL"),Some(""),None]{
+            let r=with_media_cors(streamed(Some("bytes=0-3")).await,&origin(o));
+            assert_eq!(r.status(),StatusCode::PARTIAL_CONTENT);
+            assert_eq!(acao(&r),None,"{o:?}");
+            assert!(varies_on_origin(&r),"{o:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_streamer_s_own_headers_are_kept(){
+        let r=with_media_cors(streamed(Some("bytes=2-5")).await,&origin(Some("null")));
+        assert_eq!(r.headers().get(header::CONTENT_RANGE).unwrap(),"bytes 2-5/10");
+        assert_eq!(r.headers().get(header::CACHE_CONTROL).unwrap(),"no-store");
+        assert_eq!(r.headers().get(header::CONTENT_TYPE).unwrap(),"video/mp4");
+    }
 }
