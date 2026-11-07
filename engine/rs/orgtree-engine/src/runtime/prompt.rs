@@ -157,6 +157,12 @@ fn continues_note(remaining: usize) -> String {
 #[nolog]
 pub fn context_parts(context: &str, handoff: Option<&str>) -> Vec<(String, String)> {
     let mut parts = Vec::new();
+    // changed standing text for a resumed session (runtime/prompt_sections.rs) leads the context
+    let (update, context) = match context.strip_prefix(super::prompt_sections::OPEN).and(context.find(super::prompt_sections::CLOSE)) {
+        Some(at) => { let end = at + super::prompt_sections::CLOSE.len(); (Some(&context[..end]), context[end..].trim_start()) }
+        None => (None, context),
+    };
+    if let Some(u) = update { parts.push(("System prompt update".into(), u.into())); }
     if !context.is_empty() {
         match context.find("[PROVIDER USAGE") {
             Some(at) if at > 0 => { parts.push(("Org state".into(), context[..at].into())); parts.push(("Provider usage".into(), context[at..].into())); }
@@ -286,6 +292,30 @@ pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
 mod token_part_tests {
     use super::*;
     use serde_json::json;
+    /// The changed-standing-text block counts as its own extra, apart from the org state.
+    #[test]
+    fn a_system_prompt_update_is_its_own_extra() {
+        let block = format!("{} — 1 section changed]
+body
+{}", crate::runtime::prompt_sections::OPEN, crate::runtime::prompt_sections::CLOSE);
+        let parts = context_parts(&format!("{block}
+
+[ORG STATE - now]
+reports
+[END ORG STATE]
+
+[PROVIDER USAGE - now]
+rows
+[END PROVIDER USAGE]"), None);
+        let names: Vec<&str> = parts.iter().map(|p| p.0.as_str()).collect();
+        assert_eq!(names, ["System prompt update", "Org state", "Provider usage"]);
+        assert!(parts[0].1.ends_with(crate::runtime::prompt_sections::CLOSE) && !parts[1].1.contains("section changed"));
+        // no block: unchanged behaviour
+        let plain = context_parts("[ORG STATE - now]
+x
+[END ORG STATE]", None);
+        assert_eq!(plain.iter().map(|p| p.0.as_str()).collect::<Vec<_>>(), ["Org state"]);
+    }
     fn mail(uid: &str, sender: &str, body: &str) -> Mail {
         Mail { uid: uid.into(), sender: sender.into(), kind: "message".into(), body: body.into(),
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]), notice: false, one_time: false, urgent: false,

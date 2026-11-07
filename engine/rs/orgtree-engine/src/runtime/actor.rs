@@ -232,6 +232,8 @@ struct Plan {
     add_dirs: Vec<String>,
     external: Vec<String>,
     print: Fingerprint,
+    /// the refreshable parts of the appended system prompt (runtime/prompt_sections.rs)
+    sections: Vec<super::prompt_sections::Section>,
     /// the org's shared notes block, the end of `identity`
     notes: String,
     /// where the standing notes begin in `identity`: everything before is
@@ -259,6 +261,7 @@ struct Fit {
     resume: Option<String>,
     effort: Option<String>,
     print: Fingerprint,
+    sections: Vec<super::prompt_sections::Section>,
     notes: String,
     external: Vec<String>,
 }
@@ -960,6 +963,15 @@ impl Fingerprint {
             .and_then(|p| serde_json::from_value(p[1].clone()).ok());
         let compact_at = all.iter().find(|p| p.get(0).and_then(Value::as_str) == Some("compact_at")).and_then(|p| p[1].as_f64());
         (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts, org_notes, instructions, compact_at })
+    }
+
+    /// Equal but for the system prompt's TEXT. A resumed Claude session cannot
+    /// reload that text (the CLI restores the one it started with), so a warm
+    /// CLI serves the launch and the changed sections ride the next turn
+    /// (runtime/prompt_sections.rs). Every other part still decides a respawn.
+    fn same_but_prompt_text(&self, other: &Fingerprint) -> bool {
+        self.parts.len() == other.parts.len()
+            && self.parts.iter().zip(other.parts.iter()).all(|(a, b)| a.0 == "system_prompt" || a == b)
     }
 
     fn part(&self, name: &str) -> Option<&str> {
@@ -2026,8 +2038,12 @@ impl Actor {
                 let _ = reply.send(r);
             }
             AgentMsg::Reconfigured => {
-                self.reconfigured = self.proc.is_some();
-                boxed(|| self.replace_idle_process()).await;
+                // a text-only change (app-wide instructions, org.md, a charter) keeps a
+                // warm Claude CLI: the changed sections ride its next turn
+                if !self.text_only_change().await {
+                    self.reconfigured = self.proc.is_some();
+                    boxed(|| self.replace_idle_process()).await;
+                }
                 boxed(|| self.update_forecast()).await;
                 self.publish();
             }
@@ -2288,6 +2304,17 @@ impl Actor {
     /// A local CLI replacement does not erase a provider cache receipt.
     /// The replacement starts off the loop (`launch_idle`), so the agent's
     /// mail, turns and controls never wait for it.
+    /// Whether the running Claude CLI differs from what would launch now in the
+    /// system prompt's text alone (and nothing else is pending).
+    async fn text_only_change(&self) -> bool {
+        if self.reconfigured || self.launch.is_some() || self.turn.is_some() { return false; }
+        let (Some(Proc::Claude(_)), Some(running)) = (self.proc.as_ref(), self.proc_print.as_ref()) else { return false };
+        let Ok(ctx) = self.load_ctx().await else { return false };
+        if !Self::claude_lane(&ctx, None) { return false }
+        let plan = self.plan(&ctx);
+        running != &plan.print && running.same_but_prompt_text(&plan.print)
+    }
+
     async fn replace_idle_process(&mut self) {
         if self.turn.is_some() || self.stopping {
             return;
@@ -2419,6 +2446,7 @@ impl Actor {
                     resume: spec.resume.clone(),
                     effort: spec.effort.clone(),
                     print: plan.print,
+                    sections: plan.sections,
                     notes: plan.notes,
                     external: plan.external,
                 };
@@ -3007,7 +3035,7 @@ impl Actor {
     /// standing notes). Reads the
     /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
     #[nolog] // snapshot and return value contain private instruction text
-    fn identity(&self, ctx: &Ctx, external: &[String], own_notes: &startup::Notes, folder_notes: &startup::Notes) -> (String, String) {
+    fn identity(&self, ctx: &Ctx, external: &[String], own_notes: &startup::Notes, folder_notes: &startup::Notes, bare: bool) -> (String, String) {
         let lane = skill_lane(ctx);
         let tools = &ctx.effective["tools"];
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
@@ -3022,12 +3050,13 @@ impl Actor {
             org_name: &ctx.org_name,
             org_slug: &ctx.org_slug,
             scratch: &ctx.scratch.to_string_lossy(),
-            charter: ctx.charter.as_deref(),
-            team_charter: ctx.own_team_charter.as_deref(),
-            cascade: &ctx.cascade,
+            // `bare`: the rules alone, without the parts that have their own section
+            charter: if bare { None } else { ctx.charter.as_deref() },
+            team_charter: if bare { None } else { ctx.own_team_charter.as_deref() },
+            cascade: if bare { &[] } else { &ctx.cascade },
             superior: ctx.superior.as_deref(),
-            org_md: ctx.org_md.as_deref(),
-            app_md: ctx.app_md.as_deref(),
+            org_md: if bare { None } else { ctx.org_md.as_deref() },
+            app_md: if bare { None } else { ctx.app_md.as_deref() },
             lane,
             scope: &ctx.effective,
             codex_sandbox: if lane == prompt::Lane::Codex { Some(sandbox) } else { None },
@@ -3071,7 +3100,8 @@ impl Actor {
             .filter(|d| !scope::is_shared(d))
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
         let (own_notes, folder_notes) = startup.standing_notes(&ctx.scratch, &folders);
-        let (rules, standing) = self.identity(ctx, &external, &own_notes, &folder_notes);
+        let (rules, standing) = self.identity(ctx, &external, &own_notes, &folder_notes, false);
+        let (bare_rules, _) = self.identity(ctx, &external, &own_notes, &folder_notes, true);
         let rules_len = rules.len();
         let base = rules + &standing;
         let mut instructions = startup.instructions.clone();
@@ -3147,7 +3177,20 @@ impl Actor {
             ],
             org_notes: Some(hash(&notes)),
         };
-        Plan { skills, identity, settings, mcp, disallowed, allowed, add_dirs, external, print, notes, rules_len }
+        use super::prompt_sections::Section;
+        let team = ctx.own_team_charter.iter().map(|t| format!("Your team charter: {}
+", t.trim()))
+            .chain(ctx.cascade.iter().map(|(who, t)| format!("Standing charter from {who}: {}
+", t.trim()))).collect::<String>();
+        let sections = vec![
+            Section { key: "rules", label: "Orgtree system rules", text: bare_rules },
+            Section { key: "charter", label: "Your charter", text: ctx.charter.clone().unwrap_or_default() },
+            Section { key: "team_charter", label: "Team and standing charters", text: team },
+            Section { key: "app_instructions", label: "Instructions for all orgs (app-wide)", text: ctx.app_md.clone().unwrap_or_default() },
+            Section { key: "org_md", label: "Organization notes (org.md)", text: ctx.org_md.clone().unwrap_or_default() },
+            Section { key: "standing_notes", label: "Standing notes (AGENTS.md / CLAUDE.md of your folders and the global ones)", text: format!("{standing}{}", startup.global_notes) },
+        ];
+        Plan { skills, identity, settings, mcp, disallowed, allowed, add_dirs, external, print, sections, notes, rules_len }
     }
 
     /// The fingerprint's account part: the seat's binding, and once the
@@ -3629,7 +3672,7 @@ impl Actor {
         let want = self.want_hosted(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
-                !p.is_codex() && !p.is_agy() && !p.is_muse() && !p.is_acp() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
+                !p.is_codex() && !p.is_agy() && !p.is_muse() && !p.is_acp() && self.proc_print.as_ref().is_some_and(|pp| pp.same_but_prompt_text(&plan.print)) && !self.reconfigured && p.alive()
                     && p.hosted_in() == want
             }
             None => false,
@@ -3653,6 +3696,7 @@ impl Actor {
             resume: spec.resume.clone(),
             effort: spec.effort.clone(),
             print: plan.print,
+            sections: plan.sections,
             notes: plan.notes,
             external: plan.external,
         };
@@ -3686,6 +3730,12 @@ impl Actor {
                     &[&self.id, &fit.generation, &fit.provider, &session_id],
                 )
                 .await?;
+            // this session starts with the text just launched: record it, so later
+            // changes are delivered as a turn block (runtime/prompt_sections.rs)
+            let held = super::prompt_sections::record(&session_id, &fit.sections);
+            if let Err(e) = crate::runtime::envelope::commit(&self.engine, self.id, &json!({ "prompt_sections": held })).await {
+                tracing::info!(agent = %self.name, error = %format!("{e:#}"), "prompt section digests not stored");
+            }
         }
         self.engine.credential_bridge.bind(self.id,proc.pid);
         crate::providers::skills::retention::remember(&self.engine, self.id, &skill_use, Some(&session_id)).await;
@@ -5291,12 +5341,16 @@ impl Actor {
                 None
             }
         };
-        let (context, envelope_record, board_record) = self.turn_context(&ctx).await;
+        let (context, envelope_record, board_record, sections_update) = self.turn_context(&ctx).await;
         let budget = self.mail_input_budget();
         let composed = async {
             // Only generated org state + usage can be persisted here; not the
             // identity, credentials, attachments or arbitrary handoff history.
             let context = prompt::context_reference(&ctx.scratch, &context, budget / 4)?;
+            // changed standing text is sent in full, outside the spill-to-file budget (coordinator ruling)
+            let context = match &sections_update { Some((block, _)) => format!("{block}
+
+{context}"), None => context };
             let handoff = reset_note.or(handoff).map(|h| prompt::handoff_reference(&h, budget / 4));
             self.mail_batch(turn_id, raw, &context, handoff.as_deref(), false).await
         }.await;
@@ -5379,6 +5433,7 @@ impl Actor {
         self.board_sent = board_record.clone();
         let mut accepted = serde_json::Map::new();
         if let Some(r) = envelope_record { accepted.insert("org_state".into(), r); }
+        if let Some((_, r)) = sections_update { accepted.insert("prompt_sections".into(), r); }
         if let Some(r) = board_record { accepted.insert("usage".into(), r); }
         if !accepted.is_empty() {
             // D-223: the agent now holds this snapshot; later turns may point at it
@@ -5442,7 +5497,7 @@ impl Actor {
     /// stay out of the system prompt so the provider's cache survives hires
     /// and status changes. Returns the text and the D-223 record to store once
     /// the turn was sent.
-    async fn turn_context(&self, ctx: &Ctx) -> (String, Option<Value>, Option<Value>) {
+    async fn turn_context(&self, ctx: &Ctx) -> (String, Option<Value>, Option<Value>, Option<(String, Value)>) {
         let (mut s, record, persisted) = match crate::runtime::envelope::org_state(&self.engine, self.id).await {
             Ok(st) => (st.text, st.record, st.prior_usage),
             Err(e) => {
@@ -5456,7 +5511,21 @@ impl Actor {
             s.push_str("\n\n");
             s.push_str(&usage.text);
         }
-        (s, record, usage.record)
+        (s, record, usage.record, self.sections_update(ctx).await)
+    }
+
+    /// The changed standing-text sections a Claude session has not been told
+    /// about (runtime/prompt_sections.rs); None for every other lane, which
+    /// read their prompt afresh when they start.
+    async fn sections_update(&self, ctx: &Ctx) -> Option<(String, Value)> {
+        let Some(Proc::Claude(p)) = self.proc.as_ref() else { return None };
+        let sid = p.session_id.clone();
+        let prior: Option<Value> = match self.engine.db.get().await {
+            Ok(client) => client.query_opt("SELECT extra->'envelope'->'prompt_sections' FROM ot.agents WHERE id=$1", &[&self.id]).await
+                .ok().flatten().and_then(|r| r.get::<_, Option<Value>>(0)).filter(|v| !v.is_null()),
+            Err(_) => return None,
+        };
+        super::prompt_sections::update(&self.plan(ctx).sections, prior.as_ref(), &sid)
     }
 
     /// How each sender stands to this agent, for the `[MAIL]` headers.
@@ -9415,6 +9484,7 @@ impl Actor {
         let previous = saved.as_ref().or(self.sent_print.as_ref());
         let files = current.instructions.as_ref().map(|m| m.compare(saved.as_ref().and_then(|p| p.instructions.as_ref()))).unwrap_or_default();
         let mut reasons = previous.map(|p| current.changed(p)).unwrap_or_default();
+        if Self::claude_lane(&ctx, None) { reasons.retain(|r| r != "system_prompt"); }   // delivered in the turn, no restart (prompt_sections.rs)
         let queued_switch = pending_switch.as_ref().is_some_and(|p| p["tier"].as_str().is_some_and(|t| t != ctx.tier));
         let queued_account = pending_account.as_ref().is_some_and(|p| p.get("account").is_some()
             && p["account"].as_str().filter(|a| *a != "primary" && !a.is_empty()) != ctx.account.as_deref());
@@ -9533,6 +9603,8 @@ impl Actor {
             None => { planned = self.plan(ctx).print; &planned },
         };
         let mut changed = now_print.changed(sent);
+        // a Claude session is told changed standing text in its next turn instead of restarting (prompt_sections.rs)
+        if lane == "claude" { changed.retain(|c| c != "system_prompt"); }
         // the org's shared notes reach only a CLI that starts: a warm one
         // serving the next turn keeps its copy
         let starts = self.proc.is_none() || self.reconfigured || !changed.is_empty();
@@ -10048,6 +10120,21 @@ mod print_tests {
     /// Another agent's edit of the org's shared notes leaves a warm CLI
     /// usable (coordinator ruling (b), 2026-10-13), and the notes' digest
     /// survives an engine restart beside the parts.
+    /// A text-only change of the system prompt keeps a warm Claude CLI (the changed
+    /// sections ride its next turn: runtime/prompt_sections.rs); any other part still respawns.
+    #[test]
+    fn a_prompt_text_change_alone_keeps_a_warm_claude_cli() {
+        let a = print("p", None);
+        assert!(a.same_but_prompt_text(&print("q", None)));
+        assert!(a.same_but_prompt_text(&a.clone()));
+        let mut other = print("q", None);
+        other.parts.iter_mut().find(|(k, _)| *k == "tools").unwrap().1 = "tools-2".into();
+        assert!(!a.same_but_prompt_text(&other), "a tools change still respawns");
+        let mut folders = print("p", None);
+        folders.parts.iter_mut().find(|(k, _)| *k == "folders").unwrap().1 = "x".into();
+        assert!(!a.same_but_prompt_text(&folders));
+    }
+
     #[test]
     fn org_notes_never_make_a_warm_cli_stale_and_are_kept_across_restarts() {
         let a = print("p", Some("n1"));

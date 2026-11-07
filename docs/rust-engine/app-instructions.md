@@ -36,9 +36,11 @@ below. Docket `app-wide-instructions-one-instructions-for-all-o`.
 `## Organization notes (org.md)`, on all five lanes (they share
 `plan.identity`). Blank text adds nothing, byte for byte. Delivery has org.md's
 16,000-character cap and cut notice. The block sits in the rules part, so the
-startup fingerprint's `system_prompt` covers it: an edit means a fresh CLI at
-each agent's next turn, never mid-turn, and a new prompt prefix (one cold
-cache read each). `orgtree_next_turn` lists it as source `app_instructions`,
+startup fingerprint's `system_prompt` covers it. For Claude an edit no longer
+restarts the CLI (a resumed session cannot reload it; see Resumed Claude
+sessions below); other lanes get a fresh CLI at each agent's next turn, never
+mid-turn, and a new prompt prefix (one cold cache read each).
+`orgtree_next_turn` lists it as source `app_instructions`,
 path label `Instructions for all orgs (App settings > Runtime)`; the entry is
 always present, so clearing the text reads as a change.
 
@@ -81,3 +83,43 @@ Limits: after a downgrade to 4.5.2 or earlier the old org.md notes are gone,
 so the user relinks (ruling 5; also for the 4.5.3 release notes). Hand-written
 text in org.md or in a template that names an address without the markers is
 still trusted org configuration, as before.
+
+## Resumed Claude sessions (4.5.8)
+
+MEASURED 2026-11-07 (docket `4-5-8-resumed-claude-sessions-keep-a-stale-syste`;
+USER md53ba71edd88): Claude Code writes a `prompt_snapshot` attachment of the
+appended system prompt into the session transcript when the session is
+created and, on `--resume`, restores THAT copy; the `--append-system-prompt-file`
+the engine writes at every launch is ignored. A seat whose session predates
+a rule-text, app-wide instructions, org.md or charter change kept the old
+text for the session's life (the coordinator of a long-lived org refused the
+user's authority this way). The engine's fingerprint and respawn were correct.
+
+`runtime/prompt_sections.rs` delivers the change in the next turn instead
+(coordinator ruling 2026-11-07 22:49Z):
+
+- Sections: the engine rules text (the identity without the parts below),
+  the seat's charter, its team and standing charters, the app-wide block,
+  org.md, and the standing notes (own/folder AGENTS.md and the global ones).
+  The org's shared notes folder is not a section (ruling (b), 2026-10-13).
+- Record: `agents.extra.envelope.prompt_sections` = {sid, digest per section}.
+  A new Claude session records the text it launched with (`install_claude`);
+  each delivery records the new digests once the turn was accepted.
+- A turn whose current digests differ gets ONE `[SYSTEM PROMPT UPDATE ...]`
+  block ahead of the org state, naming only the changed sections with their
+  full current text, marked as superseding the earlier text; a cleared section
+  says so. Unchanged text adds nothing; the next turn adds nothing. The block
+  is sent in full (it is not spilled to a file like the org state). It is its
+  own extra ("System prompt update") in the token parts.
+- A session with no record for its id (older than this mechanism) has an
+  unknown baseline: every non-empty section is delivered once.
+- No restart: when the only fingerprint part that differs for a warm Claude
+  CLI is `system_prompt`, the CLI stays (`Fingerprint::same_but_prompt_text`,
+  `ensure_claude`, the `Reconfigured` handler), and the forecast and next-turn
+  reasons ignore it for Claude. Any other part (tools, folders, model,
+  account, startup files) still respawns.
+- Other lanes: Codex passes `developerInstructions` on `thread/resume` as well
+  as `thread/start`; Muse and Antigravity regenerate their identity file at each
+  launch. From the code alone they pass fresh text on every launch; whether the
+  vendor honours it on resume was not measured (no live CLI), so they are
+  unchanged.
