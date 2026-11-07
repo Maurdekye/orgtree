@@ -89,6 +89,10 @@ fits, including after resizing or folding content. This does not change follow
 state or discard earlier history: scrolling down to within eight pixels of the
 tail, or explicitly jumping to the bottom, resumes follow as before.
 
+A desk keeps a bounded transcript. While it follows the live end it keeps its
+newest rows and drops the oldest from memory; a reader scrolled up keeps those
+rows and the newest are trimmed instead, and jumping to the bottom reloads the tail.
+
 Chat Markdown can display inline images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
 ## Markdown image limits
