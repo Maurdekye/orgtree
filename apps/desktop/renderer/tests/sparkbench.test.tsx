@@ -1,5 +1,5 @@
-// sparkbench-probe.tsx — per-frame cost of in-flight sparks during a layout glide.
-// Not part of the suite. Run: node tests/run.mjs sparkbench-probe
+// sparkbench.tsx — per-frame cost of in-flight sparks during a layout glide.
+// Not part of the suite. Run: node tests/run.mjs sparkbench
 // 50 sparks are held in flight (performance.now frozen) while 40 layout changes
 // re-render the canvas; each change's wall time is sampled. Compare base vs tip.
 declare const __SRC_DIR__: string
@@ -19,7 +19,8 @@ const tree = (ids: string[]) => ({ slug: 'mine', name: 'mine', workspace: null, 
   fable_lock: null, auto_resume: false, fable_limit_policy: 'freeze', fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true,
   audience_requests: [], org_inbox: { entries: [], unread: 0, holders: ['n0'], visible: true }, net: null }) as unknown as TreePayload
 
-test('spark bench', async () => {
+// skipped unless ORGTREE_SPARKBENCH=1 (it prints timings; it asserts nothing)
+test('spark bench', { skip: !process.env.ORGTREE_SPARKBENCH }, async () => {
   useFakeClock()
   try {
     const { OrgCanvas } = await import('../src/canvas/OrgCanvas')

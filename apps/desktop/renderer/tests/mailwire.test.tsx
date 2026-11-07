@@ -870,7 +870,7 @@ uiTest('§10.13 a node added mid-flight: one spark, still on the wire to its tar
   await s.fire('ceo', 'cfo')
   const oldB = s.card('cfo')
   await s.ahead(400, async () => {
-    await s.change(['ceo', 'a1', 'a2', 'a3', 'cfo'])
+    await s.change(['ceo', 'cfo', 'a1', 'a2', 'a3'])
     const b = s.card('cfo')
     assert.ok(dist(oldB, b) > 100, 'fixture: adding siblings moved cfo')
     assert.equal(q(s.el, 'circle.spark').length, 1, 'still exactly one spark')
