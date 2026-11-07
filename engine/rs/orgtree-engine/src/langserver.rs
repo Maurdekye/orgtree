@@ -1499,3 +1499,70 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+mod opencodego_preset_tests {
+    use super::*;
+
+    fn go(base_path: &str) -> Value {
+        json!({ "id": "opencodego", "preset": "opencodego", "address": "https://opencode.ai/inference/go",
+                "harness": "opencode", "base_path": base_path })
+    }
+
+    #[test]
+    fn the_preset_fills_exactly_the_four_values_and_asks_for_a_key() {
+        let p = preset("opencodego").expect("the OpenCode Go preset exists");
+        assert_eq!(p.label, "OpenCode Go");
+        assert_eq!(p.address, "https://opencode.ai/inference/go");
+        assert_eq!(p.base_path, "openai/v1");
+        assert!(p.key, "the add form asks for the key");
+        assert!(!p.claude && !p.codex, "only OpenCode carries it");
+        assert_eq!(api_of("opencode"), "openai-chat".replace("openai-chat", "chat_completions"), "OpenAI Chat Completions");
+    }
+
+    #[test]
+    fn only_the_opencode_harness_is_offered() {
+        let all = |_: &str| true;
+        let h = harnesses_with("opencodego", &all);
+        let avail = |id: &str| h.iter().find(|o| o["id"] == id).unwrap()["available"] == json!(true);
+        assert!(avail("opencode") && !avail("claude-code") && !avail("codex-cli"));
+        let c = seat_choices(&go(""), &all);
+        let ok = |id: &str| c.iter().find(|o| o["id"] == id).unwrap()["available"] == json!(true);
+        assert!(ok("opencode") && !ok("claude-code") && !ok("codex-cli"));
+    }
+
+    #[test]
+    fn the_harness_is_pointed_at_the_preset_path_unless_the_server_names_its_own() {
+        assert_eq!(base_url(&go("")), "https://opencode.ai/inference/go/openai/v1");
+        let mut s = go("");
+        s["address"] = json!("https://opencode.ai/inference/go/");
+        assert_eq!(base_url(&s), "https://opencode.ai/inference/go/openai/v1", "a trailing slash is dropped");
+        assert_eq!(base_url(&go("/v2/")), "https://opencode.ai/inference/go/v2", "the server's own base path wins");
+    }
+
+    #[test]
+    fn the_other_presets_are_pointed_exactly_as_before() {
+        let s = |preset: &str, harness: &str| json!({ "preset": preset, "address": "http://127.0.0.1:11434", "harness": harness, "base_path": "" });
+        assert_eq!(base_url(&s("ollama", "opencode")), "http://127.0.0.1:11434/v1");
+        assert_eq!(base_url(&s("ollama", "codex-cli")), "http://127.0.0.1:11434/v1");
+        assert_eq!(base_url(&s("ollama", "claude-code")), "http://127.0.0.1:11434");
+        assert_eq!(base_url(&s("vllm", "opencode")), "http://127.0.0.1:11434/v1");
+        assert!(["ollama", "lmstudio", "llamacpp", "vllm", "custom"].iter().all(|id| preset(id).is_some_and(|p| p.base_path.is_empty())));
+    }
+
+    #[test]
+    fn a_second_add_of_the_preset_gets_its_own_id() {
+        let mut e = crate::engine::Engine::for_tests("synthetic-unused-opencodego".into());
+        let engine = std::sync::Arc::get_mut(&mut e).unwrap();
+        engine.settings = crate::settings::AppSettings::new(json!({ "language_servers": { "servers": {} } }));
+        assert_eq!(new_id(&e, "opencodego"), "opencodego");
+        let engine = std::sync::Arc::get_mut(&mut e).unwrap();
+        engine.settings = crate::settings::AppSettings::new(json!({ "language_servers": { "servers": {
+            "opencodego": { "id": "opencodego" } } } }));
+        assert_eq!(new_id(&e, "opencodego"), "opencodego-2");
+        let engine = std::sync::Arc::get_mut(&mut e).unwrap();
+        engine.settings = crate::settings::AppSettings::new(json!({ "language_servers": { "servers": {
+            "opencodego": { "id": "opencodego" }, "opencodego-2": { "id": "opencodego-2" } } } }));
+        assert_eq!(new_id(&e, "opencodego"), "opencodego-3");
+    }
+}
