@@ -13,9 +13,9 @@ test('Org DnD Connections exposes three modes, Hubchat warning, and saves the se
   const view = await mountView(<SettingsPanel tree={orgDndTree} initialTab="mailserver" toast={() => {}} close={() => {}} />, el => el)
   try {
     await inAct(async () => { await flush(8) })
-    const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="Org inbox mode"]')
-    assert.equal(!!select, true, 'Connections must contain the org inbox dropdown')
-    assert.deepEqual([...select!.options].map(o => o.text), ['Normal operations', 'Do not disturb', 'Closed off inbox'])
+    const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="Org mailbox mode"]')
+    assert.equal(!!select, true, 'Connections must contain the org mailbox dropdown')
+    assert.deepEqual([...select!.options].map(o => o.text), ['Normal operations', 'Do not disturb', 'Closed off mailbox'])
     assert.equal(select!.value, 'dnd')
     assert.equal(view.el.querySelector('#org-inbox-dnd-warning')?.textContent?.includes('Hubchat'), true)
     assert.equal(view.el.querySelector('#org-inbox-dnd-warning')?.textContent?.includes('not read or delivered automatically'), true)

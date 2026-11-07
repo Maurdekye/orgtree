@@ -597,7 +597,7 @@ async ({ mount }) => {
   const title = head.querySelector('.oi-title')
   assert.ok(title, 'the label is not in its own element — as a bare text node '
     + 'it is an anonymous flex item, and those WRAP when the badge takes width')
-  assert.equal((title.textContent ?? '').trim(), 'org inbox')
+  assert.equal((title.textContent ?? '').trim(), 'org mailbox')
   // nothing else may sit loose in the row either, for the same reason
   const loose = [...head.childNodes].filter((n) =>
     n.nodeType === 3 && (n.textContent ?? '').trim() !== '')
@@ -724,7 +724,7 @@ uiTest('disabled org inbox disappears with its audience edges and returns withou
   assert.ok(edges > 0, 'fixture includes a visible holder edge')
   const contents = JSON.stringify(saved.org_inbox)
   await inAct(async () => { (el.querySelector('.sq.orginbox') as HTMLElement).click(); await flush() })
-  const openHeading = () => [...document.querySelectorAll('h3')].find(n => n.textContent?.includes('The org inbox'))
+  const openHeading = () => [...document.querySelectorAll('h3')].find(n => n.textContent?.includes('The org mailbox'))
   assert.ok(openHeading(), 'fixture opens the actual inbox panel')
   await inAct(async () => { enable(false); await flush() })
   assert.equal(el.querySelector('.sq.orginbox'), null)

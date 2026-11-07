@@ -97,8 +97,8 @@ for (const zoom of [0.24, 0.8]) test(`org inbox tile and opened modal use the sa
       slug={slug} op={op} toast={noop} mailEvt={null} /></CurrentOrg.Provider>, el => el)
     const tile = view.el.querySelector<HTMLElement>('.sq.orginbox')!
     assert.ok(tile)
-    assert.equal(tile.getAttribute('aria-label'), 'org inbox')
-    assert.equal(tile.title, 'the org inbox — outside mail addressed to this organization')
+    assert.equal(tile.getAttribute('aria-label'), 'org mailbox')
+    assert.equal(tile.title, 'the org mailbox — outside mail addressed to this organization')
     const icon = tile.querySelector('svg')!
     assert.equal(icon.getAttribute('data-testid'), 'PublicIcon', 'tile uses globe')
     assert.equal(icon.classList.contains('oi-far-icon'), zoom < Z_MINI, 'far sizing class preserved')

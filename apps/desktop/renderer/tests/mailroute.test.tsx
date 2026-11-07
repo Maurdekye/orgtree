@@ -161,7 +161,7 @@ uiTest('§4 an ORG box pointer opens the org inbox', async (mount) => {
       openMailAt={mailRefTarget(mail('@mail:mine/org/m2'))}
       onOpenMailHandled={noop} />)
   await flush()
-  assert.ok(heads(el).some((h) => h.includes('org inbox')),
+  assert.ok(heads(el).some((h) => h.includes('org mailbox')),
     `the org inbox did not open — panels: ${JSON.stringify(heads(el))}`)
 })
 
