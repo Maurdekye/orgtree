@@ -35,7 +35,7 @@ export default async function (rig) {
 
   // ---------------------------------------------------------------- P14
   const low = await send('alice', A, `@org:${B}`, 'PROOF-1 from alice')
-  p.check('P14: alice (below the top, no org-mailbox audience) cannot write outside', !low.ok && /org-inbox audience/.test(low.text ?? '')
+  p.check('P14: alice (below the top, no org-mailbox audience) cannot write outside', !low.ok && /org-mailbox audience/.test(low.text ?? '')
     && rig.sql(`SELECT 1 FROM ot.org_inbox WHERE org_id = ${orgId(B)} AND body LIKE 'PROOF-1%'`).length === 0, low.text)
   const top = await send('boss', A, `@org:${B}`, 'PROOF-2 from boss')
   p.check('P14: boss (top-level) writes outside and so holds A\'s org mailbox', top.ok && holders(A).join(',') === 'boss', { text: top.text, holders: holders(A) })
