@@ -788,3 +788,80 @@ uiTest('§10.9 a stale pending spark is not launched much later', async ({ mount
   try { await inAct(async () => { c.show(true); await flush() }) } finally { performance.now = realNow }
   assert.equal(q(c.el, 'circle.spark').length, 0, 'an hour-old mail does not spark when the inbox shows later')
 })
+
+// ── a spark follows its wire's LIVE path while the layout moves (user 2026-11-07:
+// "fix this generally for all mail that's sent while the org's structure is
+// shifting") ───────────────────────────────────────────────────────────────
+// The spark used to carry a path fixed at launch. These tests park a spark
+// near the far end of its wire (performance.now is advanced, so progress is
+// ~0.95), then change the layout under it, and ask where the spark is against
+// where the wire's end card is NOW.
+
+async function shifting(mount: (el: React.ReactElement) => Promise<{ el: HTMLElement }>, first: string[]) {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  let setIds!: (ids: string[]) => void
+  function Scene() {
+    const [ids, set] = useState(first)
+    setIds = set
+    return <OrgCanvas tree={tree(ids)} op={() => Promise.resolve({} as never)} slug="mine" toast={noop} />
+  }
+  const { el } = await mount(<Scene />)
+  await flush()
+  const card = (id: string) => {
+    const n = q(el, '.sq').find((e) => !e.classList.contains('orginbox') && !e.classList.contains('user')
+      && txt(e as HTMLElement).includes(id))
+    assert.ok(n, `card ${id} is on the canvas`)
+    const p = at(n); return { x: p.x + 62, y: p.y + 62 }
+  }
+  const fire = (from: string, to: string) => inAct(() => {
+    (globalThis as unknown as { window: { __spark: (a: string, b: string) => void } }).window.__spark(from, to)
+  })
+  const ahead = async (ms: number, run: () => Promise<void>) => {
+    const real = performance.now.bind(performance)
+    performance.now = () => real() + ms
+    try { await run() } finally { performance.now = real }
+  }
+  return { el, card, fire, ahead, change: (ids: string[]) => inAct(async () => { setIds(ids); await flush(4) }) }
+}
+
+uiTest('§10.10 a layout shift under an in-flight inbox spark: the spark stays on the wire', async ({ mount }) => {
+  const s = await shifting(mount, ['ceo'])
+  await s.fire('org_inbox', 'ceo')
+  const before = s.card('ceo')
+  await s.ahead(400, async () => {
+    await s.change(['a1', 'a2', 'a3', 'ceo'])
+    const now = s.card('ceo')
+    assert.ok(dist(before, now) > 150, `fixture: the layout really moved ceo (${dist(before, now)}px)`)
+    const p = sparkAt(s.el)
+    assert.ok(dist(p, now) < 110, `the spark is ${Math.round(dist(p, now))}px from the card its wire now ends at `
+      + `(old place ${Math.round(dist(p, before))}px away): it followed the old path`)
+  })
+})
+
+uiTest('§10.11 both endpoints move: an agent-to-agent spark stays between them', async ({ mount }) => {
+  const s = await shifting(mount, ['ceo', 'cfo'])
+  await s.fire('ceo', 'cfo')
+  const oldB = s.card('cfo')
+  await s.ahead(400, async () => {
+    await s.change(['a1', 'a2', 'a3', 'ceo', 'cfo'])
+    const b = s.card('cfo')
+    assert.ok(dist(oldB, b) > 100, 'fixture: cfo moved')
+    const p = sparkAt(s.el)
+    assert.ok(dist(p, b) < 130, `the spark is ${Math.round(dist(p, b))}px from cfo's current card`)
+  })
+})
+
+uiTest('§10.12 a node removed mid-flight ends its spark cleanly', async ({ mount }) => {
+  const s = await shifting(mount, ['ceo', 'cfo'])
+  await s.fire('ceo', 'cfo')
+  assert.equal(q(s.el, 'circle.spark').length, 1)
+  await s.change(['ceo'])
+  assert.equal(q(s.el, 'circle.spark').length, 0, 'no orphan dot for a wire that is gone')
+})
+
+uiTest('§10.13 a node added mid-flight does not break or duplicate the spark', async ({ mount }) => {
+  const s = await shifting(mount, ['ceo', 'cfo'])
+  await s.fire('ceo', 'cfo')
+  await s.change(['ceo', 'cmo', 'cfo'])
+  assert.equal(q(s.el, 'circle.spark').length, 1)
+})
