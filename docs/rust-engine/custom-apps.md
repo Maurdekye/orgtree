@@ -933,6 +933,10 @@ and never change tree layout; the canvas wheel ignores a panel's frame and title
 bar. A hidden running panel is parked (Background panels).
 Panel state, not renderer geometry globals, persists placements and open panels.
 
+App media links (`apps/media?ticket=`) answer a request whose `Origin` is exactly `null` (the sandboxed
+panel's opaque origin) with `Access-Control-Allow-Origin: null` and always with `Vary: Origin`, on the
+200, 206 and 416 responses, so a `crossOrigin` video can be drawn to a canvas and read; any other origin
+gets no allow-origin header. The ticket stays the only credential: no credentials header, no preflight.
 PanelHtml uses sandbox=allow-scripts (no same-origin), an opaque-origin exact-frame
 message check, a per-mount random channel and a restrictive prefixed CSP.
 The iframe supplies a reply MessagePort in its ready handshake. Replies use that

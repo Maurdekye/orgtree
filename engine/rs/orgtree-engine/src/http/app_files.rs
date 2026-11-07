@@ -29,7 +29,23 @@ pub async fn media(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,Quer
     let (file,path,lease)=crate::domain::apps::file_access::media(&engine,&org,&query.ticket).await?;
     let mime=super::media_file::media_type(&path).ok_or_else(||ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE,"unsupported app media format"))?;
     let mut ranges=headers.get_all(header::RANGE).iter();let range=ranges.next().map(|v|v.to_str().unwrap_or(""));let range=if ranges.next().is_some(){Some("")}else{range};
-    super::media_file::serve_opened(tokio::fs::File::from_std(file),mime,range,Some(lease.cancel)).await.map_err(|status|ApiError::new(status,"app media could not be streamed"))
+    let response=super::media_file::serve_opened(tokio::fs::File::from_std(file),mime,range,Some(lease.cancel)).await.map_err(|status|ApiError::new(status,"app media could not be streamed"))?;
+    Ok(with_media_cors(response,&headers))
+}
+
+/// A panel is a `sandbox="allow-scripts"` iframe with no same-origin, so its origin is opaque and a
+/// `crossOrigin` media load sends `Origin: null`. Echo exactly that, so the panel can draw the video
+/// to a canvas and read its pixels; any other origin (or none) gets no allow-origin header. The
+/// ticket in the URL stays the only credential: nothing else about the route changes, no credentials
+/// header is sent and there is no preflight (a media element's GET needs none).
+#[nolog]
+pub(crate) fn with_media_cors(mut response:Response,request:&HeaderMap)->Response{
+    let headers=response.headers_mut();
+    headers.append(header::VARY,header::HeaderValue::from_static("Origin"));
+    if request.get_all(header::ORIGIN).iter().count()==1&&request.get(header::ORIGIN).is_some_and(|v|v.as_bytes()==b"null"){
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN,header::HeaderValue::from_static("null"));
+    }
+    response
 }
 
 #[cfg(test)]
