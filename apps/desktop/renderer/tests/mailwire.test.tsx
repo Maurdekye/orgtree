@@ -21,7 +21,7 @@
 //
 // Run:  cd frontend && node tests/run.mjs mailwire
 
-import { flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { advance, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import { useState } from 'react'
 import type { TestContext } from 'node:test'
@@ -743,6 +743,9 @@ uiTest('disabled org inbox disappears with its audience edges and returns withou
 // spark must wait for the node (one spark, only once it is laid out), and an
 // ordinary later mail is untouched.
 
+/** the frame loop (a 16 ms timer under the harness) plays a held spark */
+const frames = () => advance(100, 20)
+
 async function hiddenInbox(mount: (el: React.ReactElement) => Promise<{ el: HTMLElement }>) {
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const base = tree(['ceo'])
@@ -767,16 +770,19 @@ uiTest('§10.7 the first inbound mail sparks into the inbox once it appears', as
   assert.equal(q(c.el, 'circle.spark').length, 0, 'no spark into a node that is not on the canvas')
   await inAct(async () => { c.show(true); await flush() })
   assert.ok(c.el.querySelector('.sq.orginbox'), 'the inbox appeared')
+  await frames()
   assert.equal(q(c.el, 'circle.spark').length, 1, 'the first mail’s spark plays once the inbox is there')
   await inAct(async () => { c.show(false); await flush() })
   await inAct(async () => { c.show(true); await flush() })
-  assert.equal(q(c.el, 'circle.spark').length, 1, 'and it is not replayed when the inbox reappears')
+  await frames()
+  assert.equal(q(c.el, 'circle.spark').length, 0, 'it ended when the inbox went away, and is not replayed when it reappears')
 })
 
 uiTest('§10.8 the first outgoing send sparks into the inbox the same way', async ({ mount }) => {
   const c = await hiddenInbox(mount)
   await inAct(async () => { c.ev({ from: 'ceo', to: 'org_inbox', t: 1 }); await flush() })
   await inAct(async () => { c.show(true); await flush() })
+  await frames()
   assert.equal(q(c.el, 'circle.spark').length, 1)
 })
 
@@ -785,7 +791,7 @@ uiTest('§10.9 a stale pending spark is not launched much later', async ({ mount
   await inAct(async () => { c.ev({ from: 'org_inbox', to: 'ceo', t: 1 }); await flush() })
   const realNow = performance.now.bind(performance)
   performance.now = () => realNow() + 60_000
-  try { await inAct(async () => { c.show(true); await flush() }) } finally { performance.now = realNow }
+  try { await inAct(async () => { c.show(true); await flush() }); await frames() } finally { performance.now = realNow }
   assert.equal(q(c.el, 'circle.spark').length, 0, 'an hour-old mail does not spark when the inbox shows later')
 })
 

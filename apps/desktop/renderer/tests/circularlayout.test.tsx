@@ -216,7 +216,7 @@ test('the animated sibling route uses the same neighbour order as the drawn line
   const { readFileSync } = await import('node:fs')
   const path = await import('node:path')
   const src = readFileSync(path.join(__SRC_DIR__, 'canvas', 'OrgCanvas.tsx'), 'utf8').split('\r\n').join('\n')
-  const at = src.indexOf('const launchSpark = useCallback')
+  const at = src.indexOf('const sparkSegs = useCallback')
   const body = src.slice(at, src.indexOf('}, [])', at))
   assert.match(body, /peerOrder\(/, 'the route orders siblings through peerOrder')
   assert.doesNotMatch(body, /\.sort\(/, 'and does not x-sort them itself')

@@ -1717,9 +1717,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const wireRef = useRef({ treeSeg, peerSeg, circular: chartLayout === 'circular' })
   wireRef.current = { treeSeg, peerSeg, circular: chartLayout === 'circular' }
   const sparksRef = useRef<{
-    id: number; segs: (Seg & { rev: boolean })[]; start: number; segDur: number
+    id: number; from: string; to: string; segs: (Seg & { rev: boolean })[]; start: number; segDur: number
   }[]>([])
   const sparkId = useRef(0)
+  const refreshSparksRef = useRef<() => void>(() => {})
+  const launchSparkRef = useRef<(from: string, to: string) => void>(() => {})
   const pendingBoxSparkRef = useRef<{ from: string; to: string; at: number } | null>(null)
   const audSetRef = useRef(new Set<string>())
   audSetRef.current = new Set((tree.audiences ?? []).map((a) => a.grantor + '→' + a.grantee))
@@ -1768,10 +1770,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
   // a mail event rides the org's wires: down/up the tree, along the peer line
   // between coworkers, or along a direct audience line when one connects the two
-  const launchSpark = useCallback((from: string, to: string) => {
+  const sparkSegs = useCallback((from: string, to: string): (Seg & { rev: boolean })[] | null => {
     // compact map: sparks re-render the whole canvas at 60fps for 420ms per
     // mail — the worst paint on a mobile GPU for pure decoration (§5.1 perf)
-    if (compactRef.current) return
+    if (compactRef.current) return null
     const m = mapRef.current
     const norm = (x: string) => (!x || x === 'user' || x === 'user_inbox' || x === USER) ? USER : x
     // org-inbox mail (user spec 2026-08-05): a spark rides the mailbox↔node
@@ -1781,33 +1783,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (isBox(from) !== isBox(to)) {
       const other = norm(isBox(from) ? to : from)
       const at = posOf(INBOX), bt = posOf(other)
-      // the org's FIRST outside mail (either way): the mail frame lands before
-      // the tree refresh that makes the inbox node exist, so there is nothing
-      // to spark into yet. Hold the spark; the effect below plays it once the
-      // node is laid out (user 2026-11-07: "no spark" on first outside mail)
-      if (!at && bt && (other === USER || m.has(other))) {
-        pendingBoxSparkRef.current = { from, to, at: performance.now() }
-        return
-      }
-      if (!at || !bt || (other !== USER && !m.has(other))) return
+      if (!at || !bt || (other !== USER && !m.has(other))) return null
       const ga = sizeOf(INBOX), gb = sizeOf(other)
       const left = (bt.x + gb.w / 2) < (at.x + ga.w / 2)
       const x1 = left ? at.x : at.x + ga.w
       const x2 = left ? bt.x + gb.w : bt.x
       const y1 = at.y + ga.h / 2, y2 = bt.y + gb.h / 2
       const bulge = 64 + Math.abs(y2 - y1) * 0.12
-      sparksRef.current.push({
-        id: ++sparkId.current,
-        segs: [{ kind: 'c', pts: [
-          { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
-          { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }],
-          rev: !isBox(from) }],
-        start: performance.now(), segDur: 420 })
-      if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
-      return
+      return [{ kind: 'c', pts: [
+        { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
+        { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }],
+        rev: !isBox(from) }]
     }
     const a = norm(from), b = norm(to)
-    if (a === b) return
+    if (a === b) return null
     // ⚠ presence in `m` is NOT a position (neoja org, 2026-08-12 — a crash,
     // not a cosmetic gap). The seg builders assert `posOf(id)!` and the
     // contract at the top of this block says every caller pre-checks BOTH
@@ -1833,17 +1822,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (aDog || bDog) {
       const dog = aDog ? a : b
       const owner = aDog ? b : a
-      if (!m.has(owner) || !placed(dog) || !placed(owner)) return
+      if (!m.has(owner) || !placed(dog) || !placed(owner)) return null
       const dp = posOf(dog)!, op = posOf(owner)!
-      sparksRef.current.push({ id: ++sparkId.current, segs: [{ kind: 'l', pts: [
+      return [{ kind: 'l', pts: [
         { x: dp.x + DOG_W / 2, y: dp.y + 4 },
         { x: op.x + NODE_W / 2, y: op.y + NODE_H - 8 },
-      ], rev: !aDog }], start: performance.now(), segDur: 420 })
-      if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
-      return
+      ], rev: !aDog }]
     }
-    if (!m.has(a) || !m.has(b)) return
-    if (!placed(a) || !placed(b)) return
+    if (!m.has(a) || !m.has(b)) return null
+    if (!placed(a) || !placed(b)) return null
     const segs: (Seg & { rev: boolean })[] = []
     const aud = audSetRef.current
     if (aud.has(a + '→' + b) || aud.has(b + '→' + a)) {
@@ -1855,7 +1842,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         .filter((k) => m.has(k) && k !== DRAFT && placed(k) && (k === a || k === b || m.get(k)?.kind !== 'project')),
         targetRef.current, wireRef.current.circular)
       const ia = sibs.indexOf(a), ib = sibs.indexOf(b)
-      if (ia < 0 || ib < 0) return
+      if (ia < 0 || ib < 0) return null
       const step = ia < ib ? 1 : -1
       for (let i = ia; i !== ib; i += step) {
         segs.push({ ...wireRef.current.peerSeg(sibs[Math.min(i, i + step)]!, sibs[Math.max(i, i + step)]!), // nUIA: i walks ia..ib, both valid indices
@@ -1869,7 +1856,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         return out
       }
       const ca = chain(a), cb = chain(b)
-      if (!ca.every(placed) || !cb.every(placed)) return
+      if (!ca.every(placed) || !cb.every(placed)) return null
       const inB = new Set(cb)
       const lca = ca.find((k) => inB.has(k))!   // both chains end at USER
       for (let i = 0; ca[i] !== lca; i++) segs.push({ ...wireRef.current.treeSeg(ca[i + 1]!, ca[i]!), rev: true }) // nUIA: lca ∈ ca ⇒ i+1 stays in range
@@ -1879,23 +1866,51 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         prev = k
       }
     }
-    if (!segs.length) return
-    sparksRef.current.push({ id: ++sparkId.current, segs,
-      start: performance.now(), segDur: 420 })
-    if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
+    return segs.length ? segs : null
   }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A spark records its endpoints, not a path: its wire moves while the layout
+  // animates (an inbox or agent added, one removed, a collapse, a reorder), so
+  // the segments are re-read from the live geometry whenever it is drawn and the
+  // spark keeps only its progress. A wire that is gone ends the spark.
+  const refreshSparks = () => {
+    const list = sparksRef.current
+    if (!list.length) return
+    const live: typeof list = []
+    for (const sp of list) {
+      const segs = sparkSegs(sp.from, sp.to)
+      if (segs) { sp.segs = segs; live.push(sp) }
+    }
+    if (live.length !== list.length) sparksRef.current = live
+  }
+  refreshSparksRef.current = refreshSparks
+
+  const launchSpark = useCallback((from: string, to: string) => {
+    const segs = sparkSegs(from, to)
+    if (!segs) {
+      // the org's FIRST outside mail (either way): the mail frame lands before
+      // the tree refresh that makes the inbox node exist, so there is nothing
+      // to spark into yet. Hold it; the frame loop plays it once the node is
+      // laid out (user 2026-11-07: "no spark" on the first outside mail)
+      const isBox = (x: string) => x === 'org_inbox' || x === INBOX
+      const other = isBox(from) ? to : from
+      const norm = (x: string) => (!x || x === 'user' || x === 'user_inbox' || x === USER) ? USER : x
+      if (!compactRef.current && isBox(from) !== isBox(to) && !targetRef.current.has(INBOX)
+        && (norm(other) === USER || mapRef.current.has(norm(other)))) {
+        pendingBoxSparkRef.current = { from, to, at: performance.now() }
+      }
+      return
+    }
+    sparksRef.current.push({ id: ++sparkId.current, from, to, segs, start: performance.now(), segDur: 420 })
+    if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
+  }, [sparkSegs])
 
   useEffect(() => { if (mailEvt) launchSpark(mailEvt.from, mailEvt.to) },
     [mailEvt, launchSpark])
-  // a spark held for an inbox that did not exist yet plays once it does (one
-  // spark, after the commit that rendered the node); a held spark older than
-  // BOX_SPARK_HOLD_MS is stale and dropped, so a much later reveal replays nothing
-  useEffect(() => {
-    const held = pendingBoxSparkRef.current
-    if (!held || !targetRef.current.has(INBOX)) return
-    pendingBoxSparkRef.current = null
-    if (performance.now() - held.at <= BOX_SPARK_HOLD_MS) launchSpark(held.from, held.to)
-  })
+  // a spark held for an inbox that did not exist yet plays from the frame loop
+  // once the node exists (its path then follows the gliding layout, see
+  // refreshSparks). A held spark older than BOX_SPARK_HOLD_MS is dropped.
+  launchSparkRef.current = launchSpark
   useEffect(() => {
     window.__spark = launchSpark        // dev/demo hook
     return () => { if (window.__spark === launchSpark) delete window.__spark }
@@ -2004,6 +2019,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         frozen: (id) => !!(nodeDrag.current?.moved && nodeDrag.current.bases?.has(id)),
       })
       if (frame.active) active = true
+      const held = pendingBoxSparkRef.current
+      if (held && targetRef.current.has(INBOX)) {
+        pendingBoxSparkRef.current = null
+        if (performance.now() - held.at <= BOX_SPARK_HOLD_MS) launchSparkRef.current(held.from, held.to)
+      }
       for (const [id, sd] of seedRef.current) {   // a hire that never landed
         if (t - sd.at > 10000) seedRef.current.delete(id)
       }
@@ -4549,6 +4569,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (!l) return
       l.resize(size.w, size.h, window.devicePixelRatio || 1)
       if (!l.setWires(wiresRef.current, styles)) { glDrawRef.current = null; glWires.fail(); return }
+      refreshSparksRef.current()
       l.draw(committedViewRef.current, sparksRef.current, performance.now())
     }
     glDrawRef.current = draw
@@ -4688,7 +4709,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 className={cls} d="M 0 0" visibility="hidden" />)}
               <circle data-glprobe="@spark" className="spark" r="0" visibility="hidden" />
             </>
-            : sparksRef.current.map((sp) => {
+            : (refreshSparks(), sparksRef.current).map((sp) => {
               const p = sparkPoint(sp, performance.now())
               if (!intersectsViewport({ x: p.x - 4, y: p.y - 4, w: 8, h: 8 }, visibleRect)) return null
               return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
