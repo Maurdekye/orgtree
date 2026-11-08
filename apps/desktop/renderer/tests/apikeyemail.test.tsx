@@ -14,6 +14,7 @@
 //   §5 the Providers row of a key account: no Sign in button, no sign-in status, no email text; Refresh and Remove stay
 //   §4 the controls: subscription rows without an email keep the wording
 import { flush, inAct, mountView } from './harness'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -89,4 +90,13 @@ test('§5 Providers row: a key account has no Sign in button, no sign-in status 
   assert.ok(buttons(key).includes('Refresh') && buttons(key).includes('Remove'), 'Refresh and Remove stay')
   assert.doesNotMatch(key.textContent ?? '', /sign-in|signed-in|email unavailable/i, key.textContent ?? '')
   assert.match(key.textContent ?? '', /claude-6/)
+})
+
+test('§6 the Account hints in agent settings are provider-neutral (no "signed-in account" for a key account)', () => {
+  const src = readFileSync(new URL('../src/canvas/modals.tsx', import.meta.url), 'utf8')
+  const hints = src.split('
+').filter((l) => /label="Account"/.test(l) || /Choose the .*account/.test(l))
+  assert.ok(hints.length >= 3, `account hint lines found: ${hints.length}`)
+  assert.equal(hints.filter((l) => /signed-in account/.test(l)).length, 0, hints.filter((l) => /signed-in account/.test(l)).join('
+'))
 })
