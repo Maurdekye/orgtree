@@ -1043,6 +1043,32 @@ const sessionOptions = (current: string): [string, string][] => {
 const PM_RANK = ['plan', 'default', 'acceptEdits', 'bypassPermissions']
 const VIS_RANK = ['self', 'team', 'subtree', 'full']
 
+/** The engine's folder normalisation (scope::norm_path): separators to a
+ *  backslash, `.` and `..` resolved, case folded for Windows-style paths only. */
+const BS = String.fromCharCode(92)
+function normFolder(p: string): string {
+  let s = p.split('/').join(BS)
+  if (/^[a-z]:/i.test(s) || s.startsWith(BS)) s = s.toLowerCase()
+  const unc = s.startsWith(BS + BS), rooted = s.startsWith(BS) || /^.:/.test(s) && s[2] === BS
+  const parts: string[] = []
+  for (const part of s.split(BS).filter((x) => x && x !== '.')) {
+    if (part === '..') {
+      const last = parts[parts.length - 1]
+      const canPop = last !== undefined && last !== '..' && !last.endsWith(':') && (!unc || parts.length > 2)
+      if (canPop) parts.pop(); else if (!rooted) parts.push(part)
+    } else parts.push(part)
+  }
+  const prefix = unc ? BS + BS : s.startsWith(BS) ? BS : ''
+  let out = prefix + parts.join(BS)
+  if (rooted && out.endsWith(':')) out += BS
+  return out
+}
+/** Is `child` the same as or inside `parent` (the engine's path_within)? */
+export function folderWithin(child: string, parent: string): boolean {
+  const c = normFolder(child), p = normFolder(parent)
+  return c === p || (c.startsWith(p) && (p.endsWith(BS) || c[p.length] === BS))
+}
+
 export function cascadePreview(
   map: Map<string, CanvasNode>, nodeId: string, want: {
     dirs?: DirGrant[]; tools?: ToolGrant; vis?: string; pm?: string
@@ -1057,10 +1083,13 @@ export function cascadePreview(
     if (!n.scope) break
     const gains: string[] = []
     if (want.dirs) {
-      const held = new Map((n.scope.add_dirs ?? []).map((d) => [d.path, d.mode]))
+      // the engine's rule (scope::raise): a wanted folder is covered when a
+      // held folder CONTAINS it and is rw, or the want is ro
+      const held = n.scope.add_dirs ?? []
       for (const d of want.dirs) {
-        if (!held.has(d.path)) gains.push(`${d.path} ${d.mode}`)
-        else if (held.get(d.path) === 'ro' && d.mode === 'rw') gains.push(`${d.path} ro→rw`)
+        if (held.some((x) => folderWithin(d.path, x.path) && (d.mode === 'ro' || x.mode === 'rw'))) continue
+        const same = held.some((x) => normFolder(x.path) === normFolder(d.path))
+        gains.push(same ? `${d.path} ro→rw` : `${d.path} ${d.mode}`)
       }
     }
     if (want.tools) {
@@ -1461,10 +1490,16 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const accOcc = val<number | string>('accOcc',
     Math.round((srvAcc?.occ ?? tree.auto_cheap_compact?.occ ?? 0.25) * 100))
   const setAccOcc = set('accOcc', accOcc)
-  // D-106: who this pending grant would raise, recomputed as the form changes
+  // D-106: who this pending grant would raise, recomputed as the form changes.
+  // Only the capability fields the save will SEND count (they ride only when
+  // edited, see scopeBody; the engine raises ancestors for exactly those), so
+  // an untouched form raises nobody (agent-settings-the-this-also-raises-the-
+  // agents-b: the banner used to show for an agent's saved scope itself).
   const cascade = useMemo(
-    () => cascadePreview(map, node.id,
-      { dirs, tools, vis, pm }), [map, node.id, dirs, tools, vis, pm])
+    () => cascadePreview(map, node.id, {
+      ...('dirs' in edit ? { dirs } : {}), ...('tools' in edit ? { tools } : {}),
+      ...('vis' in edit ? { vis } : {}), ...('pm' in edit ? { pm } : {}),
+    }), [map, node.id, edit, dirs, tools, vis, pm])
   // a model VERSION is a subcategory of the TIER, so it lives here in the gear
   // and never on a chip (user ruling 2026-08-04). It resets when the tier
   // changes: a version belongs to one tier, and the ledger re-validates it
@@ -1997,13 +2032,20 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
             grant is legal either way, so this warns, never blocks */}
-        {cascade.length > 0 && (
+        {cascade.length > 0 && (tab === 'scope' || tab === 'tools') && (
           <div className="cascade-warn" title={cascade.map((c) =>
             `${c.id} gains ${c.gains.join(', ')}`).join('\n')}>
             ⚠ this also raises {cascade.length === 1 ? 'the agent' : 'the agents'}
             {' '}between you and {node.id}:{' '}
             <b>{cascade.map((c) => c.id).join(', ')}</b>
             {' — hover for exactly what each one gains. Each also restarts.'}
+          </div>
+        )}
+        {/* the other tabs: no banner, but Save must still say it */}
+        {cascade.length > 0 && tab !== 'scope' && tab !== 'tools' && (
+          <div className="cascade-note" title={cascade.map((c) =>
+            `${c.id} gains ${c.gains.join(', ')}`).join('\n')}>
+            ⚠ Save also raises <b>{cascade.map((c) => c.id).join(', ')}</b> (see Scope / Tools).
           </div>
         )}
         <div className="row">
