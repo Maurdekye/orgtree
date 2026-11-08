@@ -2083,6 +2083,18 @@ the settings dialog's words, shared through `canvas/settinglabels.ts`. [decided:
 `events/{change,card,project,systemruns}`, `tests/changenotices.test.tsx`; details:
 `docs/rust-engine/change-notices.md`]
 
+**Project lifecycle notice cards (2026-11-08).** Recognise only the engine's exact
+SYSTEM `ordinary.notice` project lifecycle text; the source pin test guards the
+wording. Historical node-object envelopes are normalised to null for display
+before strict validation; all other schema failures stay rejected. The engine
+emits null objects for new project notices. Use the existing lifecycle card,
+actor/name formatting and Context fields (Node, By, raw Nodes for dissolves).
+Each recognised project notice stays its own transcript card. The dissolve line
+counts other nodes as N-1, since raw N includes the project itself and nested
+projects. Stored/model text remains unchanged. [decided: coordinator 2026-11-08;
+verified: `events/{projectnotice,decode,wire,project,change,card,systemruns}`,
+`canvas/mail.tsx`, `domain/lifecycle.rs`, `tests/projectnotice.test.tsx`]
+
 <a id="e-e31eec2ea2cef16b"></a>
 
 ## Every keyboard shortcut is listed in renderer/src/shortcuts.ts, which App
