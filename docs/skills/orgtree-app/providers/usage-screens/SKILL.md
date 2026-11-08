@@ -10,7 +10,7 @@ Usage is the current account snapshot; Usage history is the recorded timeline. O
 
 ## Usage cards
 
-Cards group accounts by provider, keeping native and registered identities distinct without duplicating native-home rows. Native Claude/Codex/Antigravity/Muse cards show reported bars and observation freshness; OpenRouter cards show each key's spending/cap and account balance. Local servers show local/no-provider-limit and their concurrency cap. API-key accounts use local metering.
+Cards group accounts by provider, keeping native and registered identities distinct without duplicating native-home rows. Native Claude/Codex/Antigravity/Muse cards show reported bars and observation freshness; OpenRouter cards show each key's spending/cap and account balance. Local servers show local/no-provider-limit and their concurrency cap. API-key accounts use local metering. An API-key account has no email, so its heading and the account pickers name only its id (for example "Claude Code · claude-6"), with no key fragment; a subscription account whose email could not be read still shows "email unavailable".
 
 Read status/error and observation date with the bars; unavailable is not zero. Structured credential rejection can expose Sign in again. That uses the same native desktop sign-in component as Providers, with terminal-opened versus verified-success distinguished. A provider/network error alone is not evidence that sign-in is required.
 
