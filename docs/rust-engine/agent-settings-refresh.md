@@ -42,7 +42,7 @@ existing confirmation dialogs are unchanged.
 | model (switchable on the fly — context survives; cheaper frees the seat difference…); provider/cache explanation | **Model** — Choose its model; switching providers starts a new conversation. |
 | model version | **Model version** — Choose a specific version or use the latest. |
 | thinking effort (user-approved: a deep setting, never a hire-row control) | **Thinking effort** — Choose how much effort the model spends reasoning. |
-| account / PARKED missing-account marker | **Account** — Choose the signed-in account this agent uses; when missing, the description names the missing account instead. |
+| account / PARKED missing-account marker | **Account** — Choose the account this agent uses; when missing, the description names the missing account instead. |
 | Automatic account fallback; multiple sentences about switching, capacity and providers | **Switch accounts when limited** — Use another account with room when this one reaches its limit; unsupported providers say so, and Codex retains its new-conversation warning in one sentence. |
 | cache-protective cheap compaction; detailed cache expiry rules | **Start fresh when needed** — Start a new conversation with a summary when reusing the old one would cost more. |
 | context ≥ | **Conversation size** — Start fresh once the conversation reaches this share of its limit. |

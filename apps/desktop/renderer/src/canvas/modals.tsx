@@ -644,7 +644,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
         </SetRow>
         <SetRow label="Account"
           hint={account
-            ? 'Choose the signed-in account future hires use unless a hire picks another.'
+            ? 'Choose the account future hires use unless a hire picks another.'
             : "Uses each hire's default account; existing agents keep theirs."}>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
             host={hostIdentity} eligible={orgAllowed} ineligibleNote="not used by this org"
@@ -883,7 +883,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
       {supportsFastMode && <SetToggle label="Fast mode" checked={fastOverride ?? tree.default_fast_mode?.[draft.tier] ?? false}
         hint={FAST_MODE_HELP} onChange={setFastOverride} />}
-      <SetRow label="Account" hint="Choose the signed-in account this agent uses."><AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount} host={hostIdentity}
+      <SetRow label="Account" hint="Choose the account this agent uses."><AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount} host={hostIdentity}
         eligible={peekStaffingOptions(tree.slug)?.tiers.find(t => t.tier === draft.tier)?.accounts.map(a => a.value)}
         onChange={value => { setAcct(value); setAcctTouched(true) }} /></SetRow>
       {selectedAccount && <button type="button" onClick={() => { setAcct(''); setAcctTouched(true) }}>Use machine default</button>}
@@ -1888,7 +1888,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         {/* Primary is selectable even if no registry row exists. */}
         {['claude', 'openai', 'google', 'muse'].includes(providerOf(model)) && (
           <>
-        <SetRow label="Account" hint={node.account?.startsWith('missing:') ? `The saved account is missing: ${node.account}.` : 'Choose the signed-in account this agent uses.'}><AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
+        <SetRow label="Account" hint={node.account?.startsWith('missing:') ? `The saved account is missing: ${node.account}.` : 'Choose the account this agent uses.'}><AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
               host={hostIdentity} onChange={value => { setAccountPicked(true); setAcct(value) }}
               eligible={museModel ? museEligible : undefined}
               ineligibleNote={museModel ? `does not offer ${tierLabel(model)}${museVersion ? ' ' + museVersion : ''}` : undefined} /></SetRow>
