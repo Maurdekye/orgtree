@@ -127,6 +127,16 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
       { keys: ['A-Z'], action: 'Jump to an agent', note: 'In the reply recipient list',
         sources: [R('canvas/docket.tsx')] },
     ] },
+    { title: 'Settings', items: [
+      { keys: ['Mod+F'], action: 'Search this settings window', note: 'App, Org and Agent settings',
+        sources: [R('canvas/settingssearch.tsx')] },
+      { keys: ['ArrowUp', 'ArrowDown'], action: 'Choose a result', note: 'In the search box',
+        sources: [R('canvas/settingssearch.tsx')] },
+      { keys: ['Enter'], action: 'Open the chosen result', note: 'In the search box',
+        sources: [R('canvas/settingssearch.tsx')] },
+      { keys: ['Escape'], action: 'Clear the search', note: 'In the search box',
+        sources: [R('canvas/settingssearch.tsx')] },
+    ] },
     { title: 'Canvas', items: [
       { keys: ['Escape'], action: 'Cancel a drag', note: 'Agent, pin or window',
         sources: [R('canvas/OrgCanvas.tsx'), R('canvas/pins.tsx'), R('canvas/modalpin.tsx')] },
