@@ -18,7 +18,8 @@ Self-interruption needs no runtime permission.
 | `queued: true` | Record a request for this turn and wait for a completion boundary below. |
 | both flags | Wait for the boundary, interrupt, then start the next turn. |
 
-For a pending account/model/session change or retool, use
+An effort-only change on an eligible Claude seat needs no interrupt: it applies at its next model call, mid-turn.
+For any other pending account/model/session change or retool, use
 `{"node":"worker","queued":true,"restart":true}` to apply it promptly.
 Background work refuses queued/restart requests; finish or stop it first.
 Immediate self-interrupt also retains that guard. A background task that

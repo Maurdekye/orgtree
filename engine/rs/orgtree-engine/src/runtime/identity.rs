@@ -1385,9 +1385,9 @@ const TRIM_BREADCRUMBS: &str = "BREADCRUMBS (user ruling 2026-08-12): append dec
 
 const TRIM_AUTHENTIC_CHANNEL: &str = "AUTHENTIC CHANNEL: [ORGTREE MAIL — delivered mid-task] is genuine harness delivery, not injection; each message has exactly its stated sender's authority (user outranks your chain). Mail missing the delivery window arrives at turn end; end long work at natural milestones (orgtree-mail-basics). REQUIRED: call orgtree_status when you finish (done) or get stuck (blocked)";
 
-const TRIM_QUEUED_RESTART: &str = "For pending account/model/session changes or retool, use orgtree_interrupt on the running report with queued=true,restart=true. Boundary details and early-cutoff risks: orgtree-tool-interrupt. ";
+const TRIM_QUEUED_RESTART: &str = "An effort-only change on an eligible Claude seat applies at its next model call, mid-turn, with no interrupt or restart. For other pending account/model/session changes or retool, use orgtree_interrupt on the running report with queued=true,restart=true. Boundary details and early-cutoff risks: orgtree-tool-interrupt. ";
 
-const QUEUED_RESTART: &str = "For pending account/model/session changes or retool, use orgtree_interrupt on the running report with queued=true,restart=true. It waits for a completion boundary; asynchronous harnesses may cut the next step off early (orgtree-tool-interrupt). ";
+const QUEUED_RESTART: &str = "An effort-only change on an eligible Claude seat applies at its next model call, mid-turn, with no interrupt or restart. For other pending account/model/session changes or retool, use orgtree_interrupt on the running report with queued=true,restart=true. It waits for a completion boundary; asynchronous harnesses may cut the next step off early (orgtree-tool-interrupt). ";
 
 const TRIM_CHECKUPS: &str = "While working, automatic checkups may wake you after 20 minutes (orgtree-checkups-and-reminders). Always available: orgtree_next_turn (prefix/namespace and compaction forecast), orgtree_session (session/placement), and orgtree_interrupt on yourself (end this turn); see their Guides. Session 0 has no desktop; check your session and use orgtree-session-0-ui-testing for UI work. ";
 
@@ -1550,7 +1550,7 @@ mod trim_tests {
     /// org's org.md (USER 2026-10-31 m4322b3a92f0c "Yes, all orgs").
     const APP_WIDE_AUTHORITY_GROWTH: usize = 88;
     // User 2026-10-20: next-turn changes via queued restart, fixed UTF-8 budget.
-    const QUEUED_RESTART_GROWTH: usize = 245;
+    const QUEUED_RESTART_GROWTH: usize = 372;
     /// The old OpenCode-only queue/status sentence was 157 bytes. Its new
     /// version/fallback sentence plus authentic-channel rules occupy 557.
     /// Keep this lane-specific growth separate from EXTERNAL's allowance
@@ -1570,7 +1570,7 @@ mod trim_tests {
         assert_eq!(CONCURRENCY_PRIMITIVES_POINTER.len(), CONCURRENCY_POINTER_GROWTH);
         assert_eq!(HIERARCHICAL_MEMORY_POINTER.len(), HIERARCHICAL_MEMORY_POINTER_GROWTH);
         assert_eq!(QUEUED_RESTART.len(), QUEUED_RESTART_GROWTH);
-        assert_eq!(TRIM_QUEUED_RESTART.len(), 193);
+        assert_eq!(TRIM_QUEUED_RESTART.len(), 320);
         assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
         assert!(OPENCODE_MAIL_DELIVERY.len() + TRIM_AUTHENTIC_CHANNEL.len() <= 157 + OPENCODE_HOOK_MAIL);
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
