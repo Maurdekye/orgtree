@@ -2468,3 +2468,19 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     without aliases. The legacy Python engine, past release notes, earlier DECISIONS
     entries, `docs/test-baseline.json` and `docs/state-system/` keep the old name as
     history.
+
+98. **Hubchat draws Orgtree mentions as chips that open in Orgtree through orgtree://**
+    (USER 2026-11-08: 14:49Z m601d7df721da idea; 14:52Z m0dc5cb44bd7f one icon for agents and
+    projects; 14:54Z m888c908115a5 people's messages too; 14:55Z m60c68ee07683 build it;
+    15:08Z mb3e5b66f1e00 "i suggest we mirror it", an orgtree:// protocol mirroring
+    hubchat://; 15:09Z mb6a4bdb7c944 a menu entry opening just the org; 15:10Z
+    m7c183781895c edge cases accepted as proposed; docket
+    `hubchat-render-orgtree-mentions-as-chips-linking`). Orgtree 4.5.9 accepts one strict link
+    shape per kind whose path is the canonical token (`orgtree://item/<org>/<slug>`, ...,
+    `orgtree://org/<org>`). A link only navigates, opens only an org the engine lists (an
+    unknown org opens nothing) and reaches a reference through the org window's own chip
+    routes, so a missing target shows that route's usual not-found state. The installed app
+    registers the per-user class at start the way Hubchat registers hubchat:// (packaged,
+    Windows, real profile; no installer change). Hubchat enables a chip only for an org of
+    this PC by address (`local-orgs.json`) and an Orgtree of 4.5.9 or later. Contract:
+    [orgtree-links](orgtree-links.md).

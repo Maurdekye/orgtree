@@ -37,6 +37,16 @@ Orgtree, starting Orgtree when it isn't running, through the taskbar argument
 `--orgtree-taskbar=org:<slug>`. Orgs on other computers and Hubchat on a phone
 keep a plain badge. Verified: `local_orgs.rs`, `appfeed.rs`, `main/jumplist.ts`.
 
+Desktop Hubchat 1.3.3 or later also draws Orgtree's mentions as chips: tickets,
+documents, apps, panels, mails, `@agent:`/`@project:` and, in a conversation with
+an org, a bare `@name` (one icon for agents and projects). It uses the mention
+text only. A chip opens its target in Orgtree 4.5.9 or later through an
+`orgtree://` link when the message's org and the mentioned org run on this PC,
+matched by address. Its right-click menu also opens just that org. Every other
+chip, and every chip on a phone, is display-only, with the hint "Opens in
+Orgtree on the PC that runs <org>". The contract is `docs/rust-engine/orgtree-links.md`
+in the Orgtree repository.
+
 ## How an organization receives and answers
 
 A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-mailbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org mailbox is a viewer of retained correspondence.

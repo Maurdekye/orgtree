@@ -1553,6 +1553,15 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1877–1887.
   verified: `main/{jumplist,jumplist-icons,index}.ts`, `appfeed.rs`, `profile_pictures/mod.rs`;
   contract and verification limits: `docs/rust-engine/taskbar-jumplist.md`]
 <!-- /preserved:e-9fd820a2479bbb12 -->
+- An `orgtree://` link (Hubchat's Orgtree mention chips) is one more one-shot
+  command-line destination in the same taskbar queue: strict shapes whose path
+  is the canonical token, an engine org-list check per link (unknown org opens
+  nothing), a held `open-reference` event that the org window opens through
+  its gallery chip routes once its tree has arrived. The token grammar lives in
+  `packages/contracts/reference-tokens.ts` so main parses with the renderer's
+  own parser. [decided: user 2026-11-08 mb3e5b66f1e00, m7c183781895c;
+  verified: `main/{orgtree-link,jumplist,index}.ts`, `canvas/openreference.ts`;
+  contract: `docs/rust-engine/orgtree-links.md`]
 
 <a id="e-013a31e734ef85cd"></a>
 

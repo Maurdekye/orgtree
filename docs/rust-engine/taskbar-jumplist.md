@@ -41,6 +41,12 @@ windows. Internal relaunches omit this one-shot argument and follow their
 ordinary saved-window behavior. A stale/deleted task takes the existing org
 window error route rather than silently selecting a different organization.
 
+An `orgtree://` link from Hubchat ([orgtree-links](orgtree-links.md)) is the other
+accepted destination and shares this queue: one link or one taskbar argument per
+command line, never both. Unlike a task, a link opens only an org the engine lists,
+a malformed link is consumed without bringing Orgtree forward, and relaunches drop it
+too.
+
 Shell refusal is logged without crashing the app or retrying on every agent
 activity pulse. A later changed list makes another attempt. While the app feed
 is disconnected, the last known list stays until a current snapshot arrives.
