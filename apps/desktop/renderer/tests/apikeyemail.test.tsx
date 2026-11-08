@@ -94,8 +94,7 @@ test('§5 Providers row: a key account has no Sign in button, no sign-in status 
 
 test('§6 the Account hints in agent settings are provider-neutral (no "signed-in account" for a key account)', () => {
   const src = readFileSync(new URL('../src/canvas/modals.tsx', import.meta.url), 'utf8')
-  const hints = src.split(/?
-/).filter((l) => /label="Account"/.test(l) || /Choose the .*account/.test(l))
+  const hints = src.split(/\r?\n/).filter((l) => /label="Account"/.test(l) || /Choose the .*account/.test(l))
   assert.ok(hints.length >= 3, `account hint lines found: ${hints.length}`)
   assert.equal(hints.filter((l) => /signed-in account/.test(l)).length, 0, hints.filter((l) => /signed-in account/.test(l)).join(' | '))
 })
