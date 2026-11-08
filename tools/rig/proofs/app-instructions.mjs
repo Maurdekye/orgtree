@@ -97,11 +97,13 @@ export default async function (rig) {
   p.check('unchanged text never adds one', !lastPrompt('appwa').includes(BLOCK))
 
   // a change to anything else still restarts the CLI, and the fresh launch file has the current text
-  await rig.op({ op: 'retool', node: 'appwa', tools: { web: true } })
+  // web is ON in the seat's first launch (--allowedTools carries WebSearch/WebFetch), so turn it OFF: a real tools change
+  const beforeTools = starts('appwa').length
+  await rig.op({ op: 'retool', node: 'appwa', tools: { web: false } })
   await turn(rig.org, 'appwa', 'After the tools change.')
   p.check('a tools change still starts a fresh CLI, whose launch file carries the new text',
-    starts('appwa').length > count && prefix('appwa').includes('APPWIDE_SENTINEL_v2') && !lastPrompt('appwa').includes(BLOCK),
-    { starts: starts('appwa').length, count })
+    starts('appwa').length > beforeTools && prefix('appwa').includes('APPWIDE_SENTINEL_v2') && !lastPrompt('appwa').includes(BLOCK),
+    { starts: starts('appwa').length, beforeTools })
 
   // a session with no stored digests (every session older than this mechanism): every non-empty section, once
   rig.exec(`UPDATE ot.agents a SET extra = extra #- '{envelope,prompt_sections}' FROM ot.orgs o WHERE o.id = a.org_id AND o.slug = '${q(rig.org)}' AND a.name = 'appwa'`)
