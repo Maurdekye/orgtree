@@ -24,8 +24,8 @@ Orgtree 4.5.9 opens Hubchat's Orgtree mention chips in Orgtree, adds a search bo
 
 ## Untested
 
-- A chip click was tested end to end by the user on the 4.5.9 test build with Hubchat 1.3.3's test build. The link parser and registration were tested by automated tests; other Windows set-ups (several Orgtree installs, a non-default profile) were not.
-- Settings search, the raise warning and the API-key account lines were tested by automated renderer tests and by the user on the test build, not on every settings tab of a large live organization.
+- The link parser, the registration and Hubchat's chip rules were tested by automated tests, and the chips were tried on the test builds. Other Windows set-ups (several Orgtree installs, a non-default profile) were not tested.
+- Settings search, the raise warning and the API-key account lines were tested by automated renderer tests, not on every settings tab of a large live organization.
 - macOS and Linux don't register `orgtree://` in this release.
 
 ## Notes
