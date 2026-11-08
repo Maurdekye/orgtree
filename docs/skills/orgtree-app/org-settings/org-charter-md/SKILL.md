@@ -37,7 +37,7 @@ and returned warnings are visible next to the editor.
 The endpoint writes the file and marks live agents for process reconfiguration
 before their next turn. A running turn is not an instantaneous restart barrier.
 Do not equate process replacement with a proven provider cache miss. Changed
-delivered instructions change the cached prefix.
+delivered instructions change the cached prefix. A Claude agent does not restart for a text-only change: its next turn carries the changed org.md as a superseding update block (`orgtree-harness-claude-code`).
 
 Save includes the revision read when the editor opened. If another writer,
 including Connect your phone, changed the file meanwhile, it refuses with
