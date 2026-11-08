@@ -2526,7 +2526,7 @@ function UsageAcctHead({ label, parts, provider, state, disabledReason }: {
   return <div className="usage-acct-head">
     <span className="usage-acct-who"><span className="acct-label">{label}</span>
       {shown.length > 0 && <span className="dim">{shown.map((part, i) => typeof part === 'string' ? ` · ${part}`
-        : <Fragment key={i}>{part.id ? ` · ${part.id}` : ''} · <span data-streamer-field="email">{part.email}</span></Fragment>)}</span>}
+        : <Fragment key={i}>{part.id ? ` · ${part.id}` : ''}{part.email ? <> · <span data-streamer-field="email">{part.email}</span></> : null}</Fragment>)}</span>}
     </span>
     <UsageRefresh provider={provider} state={state} disabledReason={disabledReason} />
   </div>
@@ -2550,7 +2550,7 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
   const u = state.value
   const provider = registryProviderName(row.provider)
   return <div className="usage-acct" data-account={row.id}>
-    <UsageAcctHead label={provider} parts={[usageIdentityPart(row.id, row.identity?.email, multiple)]}
+    <UsageAcctHead label={provider} parts={[usageIdentityPart(row.id, row.identity?.email, multiple, row.mode === 'apikey')]}
       provider={row.id} state={state} disabledReason={usageRefreshDisabledReason(row.provider)} />
     {u
       ? <><UsageBars u={{ ...u, provider: registryPlanName(row.provider) }} />

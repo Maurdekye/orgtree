@@ -105,7 +105,7 @@ export function ClearMarkDialog({ row, mark, toast, reload, close }: {
   const [notice, setNotice] = useState('')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
-  const who = accountIdentity(accountDisplayId(row), row.identity?.email)
+  const who = accountIdentity(accountDisplayId(row), row.identity?.email, row.mode === 'apikey')
   const submit = async () => {
     if (!shown || busy) return
     setBusy(true); setNotice('')
@@ -258,7 +258,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
     setBusy(row.id)
     try {
       const result = await req<{ auth: string }>(`/api/accounts/${row.id}/identity`)
-      toast([`${accountIdentity(accountDisplayId(row), row.identity?.email)}: ${result.auth}`])
+      toast([`${accountIdentity(accountDisplayId(row), row.identity?.email, row.mode === 'apikey')}: ${result.auth}`])
       await registry.reload()
     } catch (e) { toast([e instanceof Error ? e.message : 'Could not refresh account']) }
     finally { setBusy(null) }
@@ -284,7 +284,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
       const frozen = rebound.filter((r) => r.frozen).length
       const moved = rebound.filter((r) => !r.frozen && toDefault(r)).length
       const elsewhere = rebound.filter((r) => !r.frozen && !toDefault(r))
-      const who = accountIdentity(accountDisplayId(row), row.identity?.email)
+      const who = accountIdentity(accountDisplayId(row), row.identity?.email, row.mode === 'apikey')
       toast([[`${who} removed`,
         moved > 0 ? `${moved} agent(s) moved to ${LABELS[provider]} default` : '',
         elsewhere.length > 0 ? `${elsewhere.length} agent(s) moved to ${[...new Set(elsewhere.map((r) => r.account))].join(', ')}` : '',
@@ -318,7 +318,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         : provider === 'claude' ? 'claude' : provider === 'openai' ? 'codex'
           // a Muse API-key row has no sign-in; a managed one runs `muse login`
           : provider === 'muse' && row.mode !== 'apikey' ? 'muse' : null
-      const who = accountIdentity(accountDisplayId(row), row.identity?.email)
+      const who = accountIdentity(accountDisplayId(row), row.identity?.email, row.mode === 'apikey')
       const active = row.ambient ? nativeActive : row.enabled !== false
       return <div key={row.id} className={'account-row' + (active === false ? ' inactive' : '')}>
         <div className="account-identity">

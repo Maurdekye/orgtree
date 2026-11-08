@@ -2372,6 +2372,8 @@ export interface AccountRegistryRow {
   origin_org?: string
   registered_from?: string
   ambient?: boolean
+  /** 'apikey' = a metered API-key account (absent = subscription) */
+  mode?: string
   /** App-wide active switch; older registry payloads omit it. */
   enabled?: boolean
   standing: AccountStanding

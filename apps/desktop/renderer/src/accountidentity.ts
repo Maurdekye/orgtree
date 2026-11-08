@@ -7,6 +7,8 @@ export interface AccountChoiceRow {
   name?: string
   label?: string
   ambient?: boolean
+  /** 'apikey' = a metered API-key account: it has no email to show */
+  mode?: string
   identity?: { email?: string | null }
   standing?: { state?: string; auth?: string }
 }
@@ -28,8 +30,11 @@ export interface AccountChoicePayload {
 }
 
 export const accountEmail = (email?: string | null): string => email?.trim() || 'email unavailable'
-export const accountIdentity = (id: string, email?: string | null): string =>
-  `${id} · ${accountEmail(email)}`
+/** `keyOnly` = an API-key account (row.mode === 'apikey'): it has no email, so
+ *  the line names the id alone rather than "email unavailable" (USER
+ *  2026-11-08 mc6c4d386f4ab; no key fragment: the screen may be streamed). */
+export const accountIdentity = (id: string, email?: string | null, keyOnly = false): string =>
+  keyOnly ? id : `${id} · ${accountEmail(email)}`
 export const accountDisplayId = (row: AccountChoiceRow): string => row.ambient ? 'default' : row.id
 export const primaryAccount = (provider: string): string => `${provider}/primary`
 /** The host login's address: the ambient registry row when one carries it,
@@ -72,7 +77,7 @@ export function providerAccounts(rows: AccountChoiceRow[], provider: string,
     { value: primaryAccount(provider), text: accountIdentity('default', primaryEmail(rows, provider, host)) },
     ...rows.filter(row => row.provider === provider && !row.ambient).map(row => ({
       value: row.id,
-      text: accountIdentity(row.id, row.identity?.email)
+      text: accountIdentity(row.id, row.identity?.email, row.mode === 'apikey')
         + (row.standing?.state === 'limited' ? ' (limited — will wait)'
           : row.standing?.auth === 'unauthenticated' ? ' (sign-in required)' : ''),
     })),
@@ -82,8 +87,8 @@ export function providerAccounts(rows: AccountChoiceRow[], provider: string,
 /** The same identity as `usageIdentity`, split so the account EMAIL can be its own element: Streamer mode blurs that field
  *  always (it is always an email), and never touches the account id beside it (USER 2026-11-03 m63438d6bebc3). */
 export interface UsagePart { id?: string; email: string }
-export const usageIdentityPart = (id: string, email: string | null | undefined, multiple: boolean): UsagePart =>
-  ({ ...(multiple ? { id } : {}), email: accountEmail(email) })
-export function usageIdentity(id: string, email: string | null | undefined, multiple: boolean): string {
-  return multiple ? accountIdentity(id, email) : accountEmail(email)
+export const usageIdentityPart = (id: string, email: string | null | undefined, multiple: boolean, keyOnly = false): UsagePart =>
+  keyOnly ? { id, email: '' } : ({ ...(multiple ? { id } : {}), email: accountEmail(email) })
+export function usageIdentity(id: string, email: string | null | undefined, multiple: boolean, keyOnly = false): string {
+  return keyOnly ? id : multiple ? accountIdentity(id, email) : accountEmail(email)
 }
