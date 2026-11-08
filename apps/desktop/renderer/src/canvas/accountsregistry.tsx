@@ -314,7 +314,9 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
           toast={toast} onRefresh={() => native.onRefresh?.()} />}
       </div>}
     {rows.map(row => {
-      const login: LoginProvider | null = row.credential.kind === 'token' ? null
+      // a key account has no sign-in: no Sign in button, no sign-in status (USER 2026-11-08 ma8580cbc0ddb)
+      const keyRow = row.mode === 'apikey'
+      const login: LoginProvider | null = row.credential.kind === 'token' || keyRow ? null
         : provider === 'claude' ? 'claude' : provider === 'openai' ? 'codex'
           // a Muse API-key row has no sign-in; a managed one runs `muse login`
           : provider === 'muse' && row.mode !== 'apikey' ? 'muse' : null
@@ -324,7 +326,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         <div className="account-identity">
           <span className={'account-swatch swatch-' + provider} aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
           <strong>{who}</strong>
-          <span className="dim">{row.ambient ? 'Signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>
+          {!keyRow && <span className="dim">{row.ambient ? 'Signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>}
         </div>
         {active !== undefined && (row.ambient
           ? <ActiveBox active={active} disabled={!native || native.busy} who={who} onChange={v => native?.onActive(v)} />

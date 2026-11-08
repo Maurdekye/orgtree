@@ -79,7 +79,7 @@ export function providerAccounts(rows: AccountChoiceRow[], provider: string,
       value: row.id,
       text: accountIdentity(row.id, row.identity?.email, row.mode === 'apikey')
         + (row.standing?.state === 'limited' ? ' (limited — will wait)'
-          : row.standing?.auth === 'unauthenticated' ? ' (sign-in required)' : ''),
+          : row.standing?.auth === 'unauthenticated' && row.mode !== 'apikey' ? ' (sign-in required)' : ''),
     })),
   ]
 }
