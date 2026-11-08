@@ -807,7 +807,7 @@ fn build_tool_read_scratch() -> Value {
 fn build_tool_interrupt() -> Value {
     tool(
         "orgtree_interrupt",
-        "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status.",
+        "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status. Effort-only changes on eligible Claude seats apply mid-turn, no interrupt.",
         json!({
             "node": { "type": "string" },
             "restart": { "type": "boolean", "description": "start one next turn after this turn settles" },
@@ -1059,7 +1059,7 @@ fn build_tool_dissolve() -> Value {
 fn build_tool_retool() -> Value {
     tool(
         "orgtree_retool",
-        "Change a descendant's supplied scope/charter fields. Folder additions preserve others; removing/restricting folders also restricts descendants. Unspecified fields stay unchanged.",
+        "Change a descendant's supplied scope/charter fields. Folder additions preserve others; removing/restricting folders also restricts descendants. Unspecified fields stay unchanged. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn; no restart.",
         merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
                       "remove_dirs": { "type": "array", "items": { "type": "string" },
                                        "description": "folders it holds to remove" },
@@ -1075,7 +1075,7 @@ fn build_tool_retool() -> Value {
 fn build_tool_switch_model() -> Value {
     tool(
         "orgtree_switch_model",
-        "Move an agent below you to another tier at its next turn boundary.",
+        "Move an agent below you to another tier at its next turn boundary. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn.",
         json!({ "node": { "type": "string" }, "tier": { "type": "string" } }),
         &["node", "tier"],
     )
@@ -2042,7 +2042,7 @@ mod builder_stack_tests {
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [
             ("orgtree_hire", "Hire within your team or insert a superior. index: zero-based live siblings 0..count, excluding insertion target. Seat+grant must fit; self-parent spends your free credits, external budget fixed. Insertion inherits scope. kickoff sends first mail."),
-            ("orgtree_interrupt", "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status."),
+            ("orgtree_interrupt", "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status. Effort-only changes on eligible Claude seats apply mid-turn, no interrupt."),
             ("orgtree_halt", "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes."),
             ("orgtree_unhalt", "Unhalt descendant agents; waiting mail may start their next turn."),
             ("orgtree_unstick", "Release a descendant agent's usage freeze and let it continue."),
@@ -2059,6 +2059,17 @@ mod builder_stack_tests {
         let interrupt=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_interrupt").unwrap();
         interrupt["inputSchema"]["properties"]["restart"]=serde_json::json!({"type":"boolean","description":"start one next turn after this turn settles"});
         interrupt["inputSchema"]["properties"]["queued"]=serde_json::json!({"type":"boolean","description":"wait for a completion boundary before interrupting this turn"});
+        // Effort-only changes apply mid-turn on eligible Claude seats (USER 2026-11-08 m489e84c06613, docket
+        // agent-instructions-say-that-effort-changes-on-cl): one clause on the interrupt (carried by its override above), retool and switch_model cards.
+        for (name, old, new) in [
+            ("orgtree_retool", "Unspecified fields stay unchanged.", "Unspecified fields stay unchanged. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn; no restart."),
+            ("orgtree_switch_model", "at its next turn boundary.", "at its next turn boundary. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn."),
+        ] {
+            let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == name).unwrap();
+            let text = card["description"].as_str().unwrap();
+            assert_eq!(text.matches(old).count(), 1, "{name}");
+            card["description"] = serde_json::json!(text.replacen(old, new, 1));
+        }
         // Approved 4.5.0 startup-card trim (coordinator 2026-10-27, docket
         // 4-5-0-two-pre-existing-tools-defs-test-failures-s): text repeating a
         // card's own fields or Guide pointer leaves the card, and Logo's output
