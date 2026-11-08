@@ -101,9 +101,19 @@ export default async function (rig) {
   const beforeTools = starts('appwa').length
   await rig.op({ op: 'retool', node: 'appwa', tools: { web: false } })
   await turn(rig.org, 'appwa', 'After the tools change.')
+  // The restarted CLI RESUMES the old session, whose first prompt snapshot cannot reload, and turning web off
+  // really changes the rules text (identity.rs adds 'Disabled for you: web access'), so that one section rides
+  // the turn; the app-wide text is unchanged and stays out.
+  const afterTools = lastPrompt('appwa')
   p.check('a tools change still starts a fresh CLI, whose launch file carries the new text',
-    starts('appwa').length > beforeTools && prefix('appwa').includes('APPWIDE_SENTINEL_v2') && !lastPrompt('appwa').includes(BLOCK),
+    starts('appwa').length > beforeTools && prefix('appwa').includes('APPWIDE_SENTINEL_v2'),
     { starts: starts('appwa').length, beforeTools })
+  p.check('and the rules text that tools change altered rides that turn alone: no app-wide section',
+    afterTools.includes(`${BLOCK} \u2014 1 section changed]`) && afterTools.includes('## Orgtree system rules (current)')
+    && afterTools.includes('Disabled for you: web access') && !afterTools.includes('## Instructions for all orgs (app-wide) (current)'),
+    afterTools.slice(0, 400))
+  await turn(rig.org, 'appwa', 'The turn after the tools change.')
+  p.check('and it is not repeated', !lastPrompt('appwa').includes(BLOCK))
 
   // a session with no stored digests (every session older than this mechanism): every non-empty section, once
   rig.exec(`UPDATE ot.agents a SET extra = extra #- '{envelope,prompt_sections}' FROM ot.orgs o WHERE o.id = a.org_id AND o.slug = '${q(rig.org)}' AND a.name = 'appwa'`)
