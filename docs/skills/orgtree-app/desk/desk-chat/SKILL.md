@@ -71,6 +71,15 @@ remain unlinked because no attempted file path is known.
 
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
 
+Project lifecycle notices use the same cards as agent lifecycle notices:
+**Project created**, **Project retired**, **Project dissolved**, **Project deleted**
+and **Project restored**. Each delivered project notice has its own card, with
+the actor, timestamp, **no reply expected** and a closed **Context** expander.
+A dissolve names how many other nodes retired with the project; nodes include
+agents and nested projects. Context lists **Node**, **By** and, for dissolves,
+**Nodes** (the raw count includes the project itself). Older stored notices use
+these cards too; matching prose written by a user or agent stays ordinary mail.
+
 Completed Codex reasoning steps without readable text retain a sealed thought
 placeholder in saved history, like Claude's sealed thoughts. The placeholder
 records that thinking occurred; it does not reveal encrypted reasoning or

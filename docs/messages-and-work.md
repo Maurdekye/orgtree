@@ -47,6 +47,13 @@ The **Notice** control makes the next message passive: it waits for a later turn
 
 Chat contains delivered messages, thoughts when supplied, tool calls/results, event cards, attachments and pending messages. Expand a tool row to inspect its arguments and result. A spinner or a call being written is not a completed operation. A live command preview is output so far, not an exit result. When an agent ends its own turn (for example to restart in another session), its interrupt call reads "Ended this turn as requested", not an error, although Claude Code's own log records it as "The user doesn't want to proceed with this tool use".
 
+Project lifecycle notices appear as individual **Project created**, **Project
+retired**, **Project dissolved**, **Project deleted** or **Project restored**
+cards, with the actor, time and **Context**. A dissolve names the other nodes
+retired with the project, including agents and nested projects. Context's
+**Nodes** count also includes the project itself. Existing stored notices gain
+the same cards automatically.
+
 When an earlier message from you is above the visible transcript, **↑ you**
 previews one message and jumps back to its delivered batch. If that batch
 contains several messages from you, the preview uses the last one. Automatic

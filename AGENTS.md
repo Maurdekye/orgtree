@@ -243,6 +243,8 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 ## Engine and desktop invariants
 
+- Project lifecycle notice cards recognise only the engine's exact SYSTEM notice text; historical node-object envelopes are normalised for display before strict validation. The source pin test guards this wording. [verified: `events/projectnotice.ts`, `events/decode.ts`, `tests/projectnotice.test.tsx`, `domain/lifecycle.rs`; 2026-11-08]
+
 - Chat audio is click-to-load; video opens on render, paused; maximize needs
   the `fullscreen` grant in `main/windows.ts`. Capped at256MiB, streamed only
   after file authorization, ranges bounded to the opened size. Keep image
