@@ -181,7 +181,7 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             let actor=if by==crate::events::USER {"the user".to_string()} else {format!("\"{by}\"")};
             let mut body=format!("Project \"{}\" was {verb} by {actor}.",n.name);
             if op=="dissolve" {body.push_str(&format!(" Its whole subtree was retired ({} node(s)).",d["nodes"].as_i64().unwrap_or(1)));}
-            let ev=crate::events::typed("ordinary.notice",crate::events::SYSTEM,object.clone(),json!({"body":body}));
+            let ev=crate::events::typed("ordinary.notice",crate::events::SYSTEM,Value::Null,json!({"body":body}));
             if let Some(id)=store(tx,org,target,by,ev,&body).await? {changed.push(id);}
             continue;
         }
