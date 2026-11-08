@@ -1551,7 +1551,8 @@ mod startup_card_tests {
                 assert!(description.len() <= 900,"{name}: {} bytes",description.len());
                 total += description.len();
             }
-            assert!(total <= 12000,"description total {total}");
+            // cap 12000 -> 12300 for the effort-only clause on three cards (coordinator 2026-11-08, docket agent-instructions-say-that-effort-changes-on-cl)
+            assert!(total <= 12300,"description total {total}");
         }
     }
 
