@@ -30,7 +30,7 @@ import { usePanelSteps } from './panelsteps'
 import { usePendingAttention } from '../pending-attention'
 import { askSubmitted, useSubmittedAsks } from '../asksubmitted'
 import { dismissAttention, flaggedNow, manualNow, useDismissedAttention } from '../attndismiss'
-import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
+import type { ComponentProps, InputHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import type {
@@ -738,7 +738,8 @@ export function makeHaystack(): (it: WorkItem) => string {
  *  The count region stays mounted so assistive tech is already watching it; the
  *  clear is a real button because the native one is not keyboard-reachable. */
 export function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, onClear, count,
-  placeholder = 'Search tickets…', ariaLabel = 'Search work items by title, name, description or latest progress' }: {
+  placeholder = 'Search tickets…', ariaLabel = 'Search work items by title, name, description or latest progress',
+  inputProps }: {
   searchId: string
   query: string
   setQuery: (q: string) => void
@@ -748,10 +749,12 @@ export function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, 
   count: string
   placeholder?: string
   ariaLabel?: string
+  /** extra input attributes: settings search makes the box a combobox over its results */
+  inputProps?: InputHTMLAttributes<HTMLInputElement>
 }) {
   return (
     <div className="docket-search" role="search">
-      <input data-stall-id="search" ref={boxRef} type="search" className="docket-search-input"
+      <input {...inputProps} data-stall-id="search" ref={boxRef} type="search" className="docket-search-input"
         id={`${searchId}-q`}
         placeholder={placeholder}
         aria-label={ariaLabel}

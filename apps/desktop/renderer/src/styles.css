@@ -5023,13 +5023,13 @@ main.solo { width: 100%; }
   flex: 1 1 200px; max-width: 360px; min-width: 150px;
   display: flex; align-items: center; gap: 4px;
 }
-.docket-head .docket-search-input {
+.docket-head .docket-search-input, .set-search .docket-search-input {
   flex: 1 1 auto; min-width: 0; height: var(--docket-ctl-h); box-sizing: border-box;
   font-size: 12px; font-family: var(--sans); padding: 0 8px;
   background: var(--input); color: var(--ink);
   border: 1px solid var(--line-soft); border-radius: 4px;
 }
-.docket-head .docket-search-input:hover { border-color: var(--line); }
+.docket-head .docket-search-input:hover, .set-search .docket-search-input:hover { border-color: var(--line); }
 /* the engine's OWN in-field ✕ is not in the tab order, carries no accessible
    name, and does not exist outside WebKit-derived engines. `.docket-search-
    clear` is the one clear action this control has, so this must not double it
@@ -5038,13 +5038,13 @@ main.solo { width: 100%; }
 .docket-search-input::-webkit-search-decoration {
   -webkit-appearance: none; appearance: none;
 }
-.docket-head .docket-search-clear {
+.docket-head .docket-search-clear, .set-search .docket-search-clear {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; padding: 0; font-size: 14px; line-height: 1; cursor: pointer;
   background: none; color: var(--dim);
   border: 1px solid transparent; border-radius: 4px;
 }
-.docket-head .docket-search-clear:hover { color: var(--ink); border-color: var(--line); }
+.docket-head .docket-search-clear:hover, .set-search .docket-search-clear:hover { color: var(--ink); border-color: var(--line); }
 .docket-search-count { font-size: 11px; color: var(--dim); white-space: nowrap; }
 .docket-search-count:empty { display: none; }
 /* quiet labels: they name the control, the value inside it is what reads */
@@ -8066,11 +8066,41 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 /* a row a link just opened the panel at (useSettingsTarget): the theme's own
    accent, held a moment and faded out, so the eye finds the control without a
    layout shift (an inset bar and a wash, no margin or border change) */
-.set-row.set-target-hl { border-radius: 6px; animation: set-target-fade 1.8s ease-out forwards; }
+.set-row.set-target-hl, .set-block.set-target-hl { border-radius: 6px; animation: set-target-fade 1.8s ease-out forwards; }
 @keyframes set-target-fade {
   0%, 40% { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
   100% { background: transparent; box-shadow: inset 3px 0 0 transparent; }
 }
+/* SETTINGS SEARCH (canvas/settingssearch.tsx; docket settings-search-idea-
+   backlogged). The box IS the docket's search box and takes its look from the
+   docket bar's rules above. While a query is typed the results stand in for
+   the tab strip, the panels and the rows over them, which are hidden here by
+   CSS alone: nothing unmounts, so every draft survives the search. */
+.set-search { --docket-ctl-h: 26px; display: flex; flex-direction: column; gap: 8px; flex: none; }
+.set-search .docket-search { flex: none; max-width: none; }
+.settings:has(> .set-search[data-searching]) > :is([role="tablist"], [role="tabpanel"], .set-row, .set-block, .set-group, p.set-hint) {
+  display: none !important;
+}
+.set-search-results { display: flex; flex-direction: column; gap: 12px; }
+.set-search-group { display: flex; flex-direction: column; gap: 1px; }
+/* the tab, then the section: quiet small caps over the group head's own type */
+.set-search-tab { font-size: 11px; font-weight: 600; color: var(--dim); padding: 0 8px 2px; }
+.set-search-section {
+  font-size: 13px; font-weight: 600; color: var(--ink-strong);
+  border-bottom: 1px solid var(--line-soft); padding: 2px 8px 3px; margin-bottom: 2px;
+}
+.set-search-hit {
+  display: flex; flex-direction: column; padding: 6px 8px; border-radius: 6px;
+  font-size: 13.5px; line-height: 1.45; color: var(--ink); cursor: pointer;
+}
+.set-search-hit:hover { background: var(--panel-2); }
+/* the one Enter opens: the settings mark's own inset bar, without its wash */
+.set-search-hit[aria-selected="true"] { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
+.set-search-hit .set-hint {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.set-search mark { background: var(--accent-soft); color: var(--ink-strong); border-radius: 2px; }
+.set-search-empty { margin: 2px 8px; }
 /* hairlines, not gaps: a stack of rows separated by whitespace reads as
    loose cards, and the eye loses the column. The first row in a group has
    the group head's own rule above it already. */

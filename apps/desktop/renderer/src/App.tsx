@@ -173,6 +173,7 @@ import {
   SettingsTabs, SetToggle, useSettingsAsk, useSettingsTarget, useVisitedTabs,
 } from './canvas/settingskit'
 import type { SettingsTab, SettingsTarget } from './canvas/settingskit'
+import { SettingsSearch, settingsSearchEscape } from './canvas/settingssearch'
 import { OrgInboxPolicy } from './orginboxpolicy'
 import type { OrgInboxMode } from './orginboxpolicy'
 import { ingestPulse, ingestStream, resetConvos, socketLost } from './convo'
@@ -3456,7 +3457,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   // "Basic" first — one surface, one Escape, and no
   // modal-over-a-modal. (AdvancedOrgModal itself stays for the create form,
   // which opens it from an inline form rather than from another modal.)
-  const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>(initialTab ?? (target?.tab as OrgSettingsTab | undefined) ?? 'basic')
+  const [tab, setTab, visited, visitAll] = useVisitedTabs<OrgSettingsTab>(initialTab ?? (target?.tab as OrgSettingsTab | undefined) ?? 'basic')
   useEffect(() => { if (initialTab) setTab(initialTab) }, [initialTab])  // eslint-disable-line react-hooks/exhaustive-deps
   // a link into one control (the desk's "Turn off in settings"): this tab, that row
   const stripRef = useRef<HTMLDivElement | null>(null)
@@ -3584,8 +3585,14 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const orgTitle = <><OrgHeaderLogo slug={tree.slug} revision={tree.net?.picture_revision} />{tree.name} - Org settings</>
   return (
     <PinFrame kind="org-settings" title={`${tree.name} - Org settings`}
-      titleBar={orgTitle} panel="settings" close={closeSettings} closeInModal>
+      titleBar={orgTitle} panel="settings" close={closeSettings} closeInModal
+      onEsc={() => { if (!settingsSearchEscape()) closeSettings() }}>
         <h3><SettingsIcon fontSize="inherit" /> {orgTitle}</h3>
+        {/* a search reads every tab's rows, so it mounts the tabs not yet
+            visited (their reads, never a write); History holds no settings */}
+        <SettingsSearch tabs={orgTabs} idBase="org-settings" setTab={setTab} target={target}
+          onSearching={(on) => { if (on) visitAll(orgTabs.map((t) => t.id).filter((id) => id !== 'history')) }}
+          label="Search organization settings" />
         <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase="org-settings" label="Organization settings sections" />
 

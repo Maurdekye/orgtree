@@ -13,6 +13,7 @@ import { LiveFeedSetting } from './livefeedsetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { TemplateDocumentsSetting } from './templates'
 import { MailHubSettings } from './hosthub'
+import { SettingsSearch, settingsSearchEscape } from './settingssearch'
 import { AppInstructionsSetting } from './appinstructions'
 import { useEffect, useRef, useState } from 'react'
 import { useAppValue } from '../appfeed'
@@ -776,6 +777,9 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   // the providers page lists each provider's tiers: re-read agy's model list
   useAgyModelsRefresh(tab === 'providers')
   const [openingLogs, setOpeningLogs] = useState(false)
+  // a search reads every tab's rows: the Mail hub section loads its settings
+  // only once shown, so a search wakes it too (canvas/settingssearch.tsx)
+  const [searching, setSearching] = useState(false)
   // the Model tiers list leaves Gemini Pro out unless "show legacy models" is on
   useShowLegacyModels()
   useEffect(() => {
@@ -885,8 +889,11 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     return rank < 0 ? PROVIDER_THEME_PRESETS.length : rank
   }
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
-    close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false) : close()}>
+    close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false)
+      : settingsSearchEscape() ? undefined : close()}>
     <h3>App settings</h3>
+    <SettingsSearch tabs={APP_TABS} idBase="app-settings" setTab={setTab} target={target}
+      onSearching={setSearching} label="Search app settings" />
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} stripRef={stripRef} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
     <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
@@ -1048,7 +1055,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       </SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
-      <MailHubSettings active={tab === 'mailhub'} />
+      <MailHubSettings active={tab === 'mailhub' || searching} />
     </SettingsTabPanel>
     <SettingsTabPanel id="streamer" idBase="app-settings" active={tab === 'streamer'}>
       <StreamingSettings />

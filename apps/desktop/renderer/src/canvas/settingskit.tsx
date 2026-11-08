@@ -131,16 +131,26 @@ export function useSettingsTarget(strip: RefObject<HTMLElement | null>,
         .find((el) => el.getAttribute('data-settings-field') === target.field)
       if (!row) { if (tries++ < 100) retry = setTimeout(land, 40); return }
       handled.current = target.seq
-      scope?.querySelectorAll('.' + TARGET_MARK).forEach((el) => el.classList.remove(TARGET_MARK))
-      row.scrollIntoView?.({ block: 'center' })
-      row.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true })
-      row.classList.add(TARGET_MARK)
-      clearTimeout(fade.current)
-      fade.current = setTimeout(() => row.classList.remove(TARGET_MARK), SETTINGS_TARGET_MS)
+      markSettingsRow(scope, row, fade)
     }
     land()
     return () => { clearTimeout(retry) }
   }, [target?.seq, ready])  // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Lands on one row: the window's other marks cleared, the row scrolled to
+ *  the middle, its first enabled control focused, and the row marked for
+ *  SETTINGS_TARGET_MS. `scope` is the window (the tab strip's parent); `fade`
+ *  holds the caller's fade timer, cleared on its unmount. Shared by a link into
+ *  settings (above) and settings search (canvas/settingssearch.tsx). */
+export function markSettingsRow(scope: ParentNode | null | undefined, row: HTMLElement,
+  fade: { current: ReturnType<typeof setTimeout> | undefined }): void {
+  scope?.querySelectorAll('.' + TARGET_MARK).forEach((el) => el.classList.remove(TARGET_MARK))
+  row.scrollIntoView?.({ block: 'center' })
+  row.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true })
+  row.classList.add(TARGET_MARK)
+  clearTimeout(fade.current)
+  fade.current = setTimeout(() => row.classList.remove(TARGET_MARK), SETTINGS_TARGET_MS)
 }
 
 /** one tab's region. `hidden` rather than unmounted, so a half-typed field
@@ -166,7 +176,7 @@ export function SettingsTabPanel({ id, idBase, active, children, className = 'ap
  *  fetch, and one that HAS been opened keeps its state while you look
  *  elsewhere. */
 export function useVisitedTabs<T extends string>(first: T):
-[T, (id: T) => void, (id: T) => boolean] {
+[T, (id: T) => void, (id: T) => boolean, (ids: T[]) => void] {
   const [tab, setTabState] = useState<T>(first)
   const [seen, setSeen] = useState<T[]>([first])
   const setTab = useCallback((id: T) => {
@@ -174,7 +184,15 @@ export function useVisitedTabs<T extends string>(first: T):
     setSeen((s) => (s.includes(id) ? s : [...s, id]))
   }, [])
   const visited = useCallback((id: T) => seen.includes(id), [seen])
-  return [tab, setTab, visited]
+  /** mounts these tabs' bodies without showing them: settings search reads
+   *  every tab's rows, so a search is the one ask that opens them all */
+  const visitAll = useCallback((ids: T[]) => {
+    setSeen((s) => {
+      const fresh = ids.filter((id) => !s.includes(id))
+      return fresh.length ? [...s, ...fresh] : s
+    })
+  }, [])
+  return [tab, setTab, visited, visitAll]
 }
 
 /* ── THE ROW ──────────────────────────────────────────────────────────────

@@ -47,6 +47,7 @@ import { ModalOverPins, PinFrame } from './modalpin'
 import { instanceKind } from '../modalkinds'
 import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel, renameReady, useSettingsTarget } from './settingskit'
 import type { SettingsTarget } from './settingskit'
+import { SettingsSearch, settingsSearchEscape } from './settingssearch'
 import { fmtAge } from '../timefmt'
 import { ageTitle, turnEndedTitle } from './listage'
 import { AccountSelect } from './accountselect'
@@ -1762,7 +1763,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
     <PinFrame kind={instanceKind('node-config', node.id)} restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier letter-chip agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
-      panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
+      panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}
+      onEsc={() => { if (!settingsSearchEscape()) close() }}>
         <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
           <span className="agent-config-title"><span className={'tier letter-chip agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span>
           {(node.state === 'live' || node.state === 'archived') &&
@@ -1771,6 +1773,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               {onTeamScratchFolder && <button type="button" onClick={onTeamScratchFolder}>Open team scratch folder</button>}
             </span>}
         </h3>
+        {/* above Name: the rows over the tabs are settings too (canvas/settingssearch.tsx) */}
+        <SettingsSearch tabs={agentSettingsTabs(hasHistory)} idBase={tabId} setTab={setTab} target={target}
+          label="Search agent settings" />
         {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
             working folder and session all move; history keeps the old name
             (the warning rides the toast). Refused while mid-turn. */}

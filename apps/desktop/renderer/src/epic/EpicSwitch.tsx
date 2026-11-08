@@ -18,7 +18,8 @@ import './epic.css'
 export function EpicModeSwitch() {
   const on = useEpicMode()
   return (
-    <label className={'set-row epic-switch' + (on ? ' on' : '')}>
+    // a secret stays one: settings search never lists it (canvas/settingssearch.tsx)
+    <label className={'set-row epic-switch' + (on ? ' on' : '')} data-settings-search="skip">
       <span className="set-lead">
         <input type="checkbox" role="switch" aria-label="EPIC mode" checked={on}
           onChange={e => { void setEpicMode(e.target.checked) }} />
