@@ -15,6 +15,8 @@ function load(file) {
   return module.exports
 }
 const { taskbarTarget, taskbarOrgs, taskbarTasks } = load('apps/desktop/main/jumplist.ts')
+// the router consumes orgtree:// links too (tests/orgtree-links.test.mjs)
+const { isOrgtreeLinkArg } = load('apps/desktop/main/orgtree-link.ts')
 const { AppFeedState } = load('packages/contracts/app-feed.ts')
 const { JumpListIcons, actionPng, picturePng } = load('apps/desktop/main/jumplist-icons.ts')
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -205,7 +207,7 @@ test('second-instance and cold launch queue the requested view until window rout
   let release
   const ready = new Promise(resolve => { release = resolve })
   const context = vm.createContext({
-    process: { argv: ['app.exe', '--orgtree-taskbar=org:alpha'] }, taskbarTarget,
+    process: { argv: ['app.exe', '--orgtree-taskbar=org:alpha'] }, taskbarTarget, isOrgtreeLinkArg,
     quitting: false, installerUpgradeShutdown: false, console, path,
     app: { getPath: () => 'C:/synthetic/taskbar' }, JumpListIcons: class {},
     requestOrgWindow: async (slug, caller) => { opens.push({ slug, caller }); await ready },

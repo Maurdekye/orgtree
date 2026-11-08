@@ -165,7 +165,8 @@ import { mailInboxRead, mailTreeChanged } from './canvas/mailrefs'
 import { requestPanelSample } from './canvas/apps/runtime'
 import { closeIfCentred, floatingOtherDockets, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
-import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
+import { mailRefTarget, refToken, resolveRef, useRefRoutes } from './canvas/reflinks'
+import { useLinkedReference } from './canvas/openreference'
 import type { TypedRef } from './canvas/workrefs'
 import {
   OPEN_APP_SETTINGS_EVENT, SetBlock, SetGroup, SetRow, SettingsTabPanel,
@@ -673,6 +674,9 @@ export default function App() {
     onOpenDoc: (id) => { setShowGallery(false); setDocJump(id) },
     onOpenMail: (r) => { setShowGallery(false); setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq }) },
   })
+  // an orgtree:// link from a Hubchat mention chip lands where this world's
+  // chip would (canvas/openreference.ts, docs/rust-engine/orgtree-links.md)
+  useLinkedReference(slug, tree?.slug, ref => galleryRefs.onOpen(resolveRef(ref, galleryRefs.world)))
   // Apps windows: a Connections row's agent link focuses that agent on the
   // canvas like the shell's other agent links (user 2026-10-27 m6ca9f88d5812)
   const appsRefs = useShellRefs(slug ?? '', tree ?? null, {

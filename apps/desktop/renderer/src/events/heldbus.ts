@@ -56,6 +56,8 @@ export const HELD_TYPES = [
   'open-org', 'notification-click', 'taskbar-attention', 'window-identity', 'restore-skipped',
   // the tray's "Connect your phone…" (phonelink.tsx)
   'phone-panel',
+  // an orgtree:// link's reference for this org window (canvas/openreference.ts)
+  'open-reference',
 ] as const
 export type HeldType = (typeof HELD_TYPES)[number]
 

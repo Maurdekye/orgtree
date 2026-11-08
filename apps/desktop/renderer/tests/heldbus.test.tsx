@@ -360,6 +360,7 @@ test('§4.1 every held type has a real consumer in the product', () => {
     'taskbar-attention': 'notifications.ts',
     'window-identity': 'shell/identity.ts',
     'phone-panel': 'canvas/phonelink.tsx',
+    'open-reference': 'canvas/openreference.ts',
   }
   for (const type of HELD_TYPES) {
     const file = where[type]!

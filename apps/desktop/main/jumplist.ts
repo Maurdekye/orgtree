@@ -1,18 +1,30 @@
 import type { AppFeedState } from '../../../packages/contracts/app-feed'
 import { isTaskbarAttentionNotice } from './taskbar-badge'
+import { isOrgtreeLinkArg, orgtreeLink } from './orgtree-link'
 
-export type TaskbarTarget = { kind: 'homepage' | 'create' } | { kind: 'org'; slug: string }
+export type TaskbarTarget = { kind: 'homepage' | 'create' } | { kind: 'org'; slug: string; link?: true }
   | { kind: 'attention'; org: string; id: string }
+  /** an orgtree:// link to one canonical reference (main/orgtree-link.ts) */
+  | { kind: 'reference'; org: string; token: string }
 export type TaskbarOrg = { slug: string; name: string; logo?: string }
 export type TaskbarIcons = { home?: string; create?: string; mail?: string; ticket?: string; mention?: string; orgs?: Record<string, string> }
 export type TaskbarAttentionItem = { org: string; id: string; title: string; icon: 'mail' | 'ticket' | 'mention' }
 const PREFIX = '--orgtree-taskbar='
 const SLUG = /^[a-z0-9@-]+$/
 
-/** One argument, never a URL, shell command or renderer script. */
+/** One argument, never a shell command or renderer script: a taskbar entry,
+ *  or an orgtree:// link (docs/rust-engine/orgtree-links.md), whose org is
+ *  only a request until the router has checked this Orgtree holds it (`link`). */
 export function taskbarTarget(argv: readonly string[]): TaskbarTarget | null {
   const args = argv.filter(arg => arg.startsWith(PREFIX))
-  if (args.length !== 1) return null
+  const links = argv.filter(isOrgtreeLinkArg)
+  if (args.length + links.length !== 1) return null
+  if (links.length) {
+    const link = orgtreeLink(links[0])
+    if (!link) return null
+    return link.kind === 'org' ? { kind: 'org', slug: link.org, link: true }
+      : { kind: 'reference', org: link.org, token: link.token }
+  }
   const target = args[0].slice(PREFIX.length)
   if (target === 'home') return { kind: 'homepage' }
   if (target === 'new') return { kind: 'create' }

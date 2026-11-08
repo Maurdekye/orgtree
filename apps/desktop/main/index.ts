@@ -65,6 +65,7 @@ import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './traylist'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
+import { isOrgtreeLinkArg, registerOrgtreeScheme } from './orgtree-link'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
@@ -109,7 +110,7 @@ const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refus
  *  inside this run's mount (see appImageRelaunch). Called before app.quit()
  *  or app.exit(), like app.relaunch(). `args` are for the AppImage only. */
 const relaunchApp = (args: string[] = []) => {
-  if (!linuxAppImage) return app.relaunch({ args: process.argv.slice(1).filter(arg => !arg.startsWith('--orgtree-taskbar=')) })
+  if (!linuxAppImage) return app.relaunch({ args: process.argv.slice(1).filter(arg => !arg.startsWith('--orgtree-taskbar=') && !isOrgtreeLinkArg(arg)) })
   const command = appImageRelaunch(linuxAppImage, process.pid, args)
   const child = spawnProcess(command.file, command.args, { detached: true, stdio: 'ignore', cwd: os.homedir(), env: appImageRelaunchEnv(process.env) })
   child.on('error', error => console.warn('The AppImage could not be relaunched', error))
@@ -143,6 +144,15 @@ let stallWindowOf: ((event: unknown) => string) | undefined
 if (stallOn) trackIpc(ipcMain as unknown as IpcLike, stallTracker, Date.now, (channel, ms) => stallSync?.(channel, ms), event => stallWindowOf?.(event) ?? '')
 const installerUpgradeRequested = hasInstallerUpgradeRequest(process.argv)
 const single = app.requestSingleInstanceLock()
+// orgtree:// links from Hubchat's mention chips (main/orgtree-link.ts): the
+// installed app claims the scheme as Hubchat claims hubchat://, at start.
+if (single && !installerUpgradeRequested) {
+  try {
+    registerOrgtreeScheme({ isPackaged: app.isPackaged, appData: app.getPath('appData'),
+      isDefaultProtocolClient: protocol => app.isDefaultProtocolClient(protocol),
+      setAsDefaultProtocolClient: protocol => app.setAsDefaultProtocolClient(protocol) })
+  } catch (error) { console.warn('The orgtree:// link scheme could not be registered', error) }
+}
 if (!single) app.quit()
 else if (installerUpgradeRequested) {
   // The upgrade helper only launches this command after it has path-verified
@@ -604,6 +614,11 @@ else {
   const pendingTaskbar: TaskbarTarget[] = initialTaskbar ? [initialTaskbar] : []
   let taskbarReady = false
   let taskbarDraining: Promise<void> | undefined
+  // An orgtree:// link names an org; it opens only one this Orgtree holds
+  // (docs/rust-engine/orgtree-links.md). Asked per link, as the tray asks per
+  // click; an engine that cannot answer opens nothing.
+  const linkOrgKnown = async (org: string): Promise<boolean> =>
+    (await engine.orgActivity())?.some(row => row.slug === org) ?? false
   const drainTaskbar = (): Promise<void> => {
     taskbarReady = true
     if (taskbarDraining) return taskbarDraining
@@ -611,8 +626,14 @@ else {
       while (pendingTaskbar.length && !quitting && !installerUpgradeShutdown) {
         const target = pendingTaskbar.shift()!
         try {
-          if (target.kind === 'org') await requestOrgWindow(target.slug, null)
-          else if (target.kind === 'attention') await revealOrgItem(target.org, { type: 'taskbar-attention',
+          if (target.kind === 'org') {
+            if (!target.link || await linkOrgKnown(target.slug)) await requestOrgWindow(target.slug, null)
+          } else if (target.kind === 'reference') {
+            // revealed in that org's own window, which opens it through its
+            // chips' routes (renderer canvas/openreference.ts)
+            if (await linkOrgKnown(target.org)) await revealOrgItem(target.org, { type: 'open-reference',
+              data: { org: target.org, token: target.token } })
+          } else if (target.kind === 'attention') await revealOrgItem(target.org, { type: 'taskbar-attention',
             data: { org: target.org, id: target.id, questionTarget: preferences.get().questionTarget ?? 'desk' } })
           else {
             const record = await createMainWindow?.({ kind: target.kind })
@@ -628,7 +649,9 @@ else {
   }
   const acceptTaskbar = (argv: readonly string[]): boolean => {
     const target = taskbarTarget(argv)
-    if (!target) return false
+    // a link that names nothing here is still consumed: it opens nothing, and
+    // a running Orgtree does not come forward for it
+    if (!target) return argv.some(isOrgtreeLinkArg)
     if (!quitting && !installerUpgradeShutdown) pendingTaskbar.push(target)
     if (taskbarReady) void drainTaskbar()
     return true
@@ -671,7 +694,7 @@ else {
    *  reveal, an identity that changed, a report of what could not be restored.
    *  Each happens once, and a renderer that was not listening yet has no way
    *  to discover it afterwards. */
-  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'taskbar-attention', 'window-identity', 'restore-skipped', 'phone-panel'])
+  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'taskbar-attention', 'window-identity', 'restore-skipped', 'phone-panel', 'open-reference'])
   /** ⚠ THERE IS NO TIMER, and that is the point. An earlier revision sent
    *  held events anyway once a grace expired, which marks them delivered
    *  whether or not anybody was listening - the original loss with a delay in
