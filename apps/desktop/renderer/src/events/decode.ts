@@ -1,5 +1,6 @@
 ﻿import schema from '../generated/events.schema.json'
 import type { Event } from '../generated/events'
+import { projectLifecycleNotice } from './projectnotice'
 
 export type EventProfile = 'operator'
 export type DecodeResult<T> =
@@ -79,11 +80,19 @@ export function decodeEventRow(row: unknown, _profile: EventProfile): DecodeResu
   if (!record(row)) return { kind: 'unsupported', fallback, code: 'invalid' }
   if (!own(row, 'ev')) return own(row, 'ev_error') || own(row, 'ev_raw')
     ? { kind: 'unsupported', fallback, code: 'invalid' } : { kind: 'legacy', fallback }
-  const value = row.ev
+  let value = row.ev
   if (!record(value)) return { kind: 'unsupported', fallback, code: 'invalid' }
   if (value.v !== 1) return { kind: 'unsupported', fallback, code: 'version' }
   if (typeof value.variant !== 'string' || !privateLeaves.has(value.variant))
     return { kind: 'unsupported', fallback, code: 'variant' }
+  // Historical project notices carried a NodeRef where ordinary.notice permits
+  // only null. Repair this one engine shape in a copy, then validate normally.
+  // isEvent remains strict; all other schema errors still fail closed.
+  if (value.variant === 'ordinary.notice' && (value.engine_authored === true || row.from === '@system')
+    && typeof value.body === 'string' && projectLifecycleNotice(value.body)
+    && matches(value.object, defs.NodeRef, { left: 200000 }, 0)) {
+    value = { ...value, object: null }
+  }
   if (isEvent(value)) return { kind: 'known', event: value, fallback }
   return { kind: 'unsupported', fallback, code: 'invalid' }
 }

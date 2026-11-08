@@ -12,7 +12,7 @@ function validError(value: unknown): boolean {
 function validEventFields(row: Record<string, unknown>, segment = false): boolean {
   const key = segment ? 'event' : 'ev'
   if (own(row, 'ev_error') && !validError(row.ev_error)) return false
-  return !own(row, key) || isEvent(row[key])
+  return !own(row, key) || (segment ? isEvent(row[key]) : decodeEventRow(row, 'operator').kind === 'known')
 }
 /** Wire composition is validated separately from its leaves. An unknown shape
  * keeps the original transcript text; it never enters the exhaustive renderer. */

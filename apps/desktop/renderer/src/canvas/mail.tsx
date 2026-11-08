@@ -346,7 +346,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   const typedView = (m: MailRow) => {
     if (views.has(m)) return views.get(m)!
     const result = decodeEventRow(m, profile)
-    const view = result.kind === 'known' ? projectEvent(result.event) : null
+    const view = result.kind === 'known' ? projectEvent(result.event, m.from) : null
     views.set(m, view)
     return view
   }
@@ -1023,7 +1023,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           <TagChips tags={m.tags} onTag={onTag} preview filterTags={filterTags}/>
           <span className="mail-preview-text">{reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>
             ↩ {briefLine(reply.gist || 'original unavailable')} · </span>}
-          {briefLine(view ? noticeSummary(view.event) : m.body)}</span></div>}
+          {briefLine(view ? noticeSummary(view.event, m.from) : m.body)}</span></div>}
     </div>
   )
 }
@@ -1068,7 +1068,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   const profile = 'operator'
   const typed = (m: MailRow) => {
     const result = decodeEventRow(m, profile)
-    return result.kind === 'known' ? projectEvent(result.event) : null
+    return result.kind === 'known' ? projectEvent(result.event, m.from) : null
   }
   const S = sender
   const messageContent = (m: MailRow, standalone = false) => {

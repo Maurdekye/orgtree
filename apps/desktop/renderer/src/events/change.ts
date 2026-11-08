@@ -1,5 +1,6 @@
 import { eventSummary } from './project'
 import type { KnownEvent } from './project'
+import { projectNotice } from './projectnotice'
 import type { ScopeFolders, ScopeTools, SettingChange, TextDiff } from '../generated/events'
 import { ORGTREE_GROUPS, PERMISSION_OPTIONS, SESSION_OPTIONS, TOOL_LABELS, VIS_OPTIONS } from '../canvas/settinglabels'
 
@@ -121,7 +122,17 @@ const whose = (relation: string, node: string, own: string, theirs: string) =>
   relation === 'self' ? [own] : [agent(node), theirs]
 
 /** Every change kind's line, or null for an event that is not a change notice. */
-export function changeParts(event: KnownEvent): ChangePart[] | null {
+export function changeParts(event: KnownEvent, from?: string): ChangePart[] | null {
+  const notice = projectNotice(event, from)
+  if (notice) {
+    const op = notice.op === 'permanently deleted' ? 'deleted' : notice.op
+    const parts = [part(op, agent(notice.project), ' ' + op)]
+    if (notice.nodes !== null && notice.nodes > 1) {
+      const k = notice.nodes - 1
+      parts.push(part('nodes', `${k} ${k === 1 ? 'node' : 'nodes'} retired with it`))
+    }
+    return parts
+  }
   const e = event
   switch (e.variant) {
     case 'access.scope_changed': return scopeParts(e)
@@ -167,12 +178,12 @@ export const bitsText = (bits: Bit[]) => bits.map(b => 'agent' in b ? `@${b.agen
 export const partsText = (parts: ChangePart[]) => parts.map(p => bitsText(p.bits)).join(' · ')
 
 /** The change line's words, or null for an event that is not a change notice. */
-export function changeText(event: KnownEvent): string | null {
-  const parts = changeParts(event)
+export function changeText(event: KnownEvent, from?: string): string | null {
+  const parts = changeParts(event, from)
   return parts?.length ? partsText(parts) : null
 }
 
 /** The one line the inbox list row and jump labels show for an event. */
-export function noticeSummary(event: KnownEvent): string {
-  return changeText(event) ?? eventSummary(event)
+export function noticeSummary(event: KnownEvent, from?: string): string {
+  return changeText(event, from) ?? eventSummary(event)
 }

@@ -8,6 +8,7 @@ import { isSegments } from './wire'
 import { projectEvent } from './project'
 import { isSystemNotice } from '../canvas/shared'
 import { changeText } from './change'
+import { projectNotice } from './projectnotice'
 
 /** `change`: a change notice's line (events/change.ts), for the folded run's tooltip */
 export interface SystemEntry { key: string; system: boolean; label: string; restart?: boolean; change?: string }
@@ -29,11 +30,11 @@ export function systemEntry(row: unknown, passiveContainer = false): Omit<System
     : event?.engine_authored ? '@system' : ''
   const change = event && changeText(event)
   return {
-    system: !waiting && !tools && !row.cmd_out
+    system: !waiting && !tools && !row.cmd_out && !(event && projectNotice(event, from))
       && isSystemNotice({ id: '', from, kind: typeof row.kind === 'string' ? row.kind : 'message', ev: event,
         notice: typeof row.notice === 'boolean' ? row.notice : passiveContainer ? true : undefined,
         body: '', at: '' }),
-    label: event ? projectEvent(event).title : 'System notice',
+    label: event ? projectEvent(event, from).title : 'System notice',
     ...(change ? { change } : {}),
     restart: event?.variant === 'context.drive_restart_interrupted' || event?.variant === 'runtime.restart_notice',
   }

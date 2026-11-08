@@ -179,7 +179,7 @@ export function eventSurface(row: unknown, profile: EventProfile) {
   const decoded = decodeEventRow(row, profile)
   const notice = isNoticeRow(row) ? ' event-notice' : ''
   return decoded.kind === 'known'
-    ? { className: 'event-surface event-card event-' + projectEvent(decoded.event).family + notice,
+    ? { className: 'event-surface event-card event-' + projectEvent(decoded.event, record(row) && typeof row.from === 'string' ? row.from : undefined).family + notice,
         'data-event-variant': decoded.event.variant }
     : { className: notice.trim(), 'data-event-variant': undefined }
 }
@@ -197,8 +197,9 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
       {preview ? <ReceivedMailBody foldKey={keys}>{text}</ReceivedMailBody> : text}
     </div>
   }
-  const view = projectEvent(decoded.event)
-  const event = decoded.event
+  const from = record(row) && typeof row.from === 'string' ? row.from : undefined
+  const view = projectEvent(decoded.event, from)
+  const event = view.actor ? { ...decoded.event, actor: view.actor } : decoded.event
   // A self-report's subject is its sender. Keep the qualified agent link
   // once, while retaining both identities for reports about someone else.
   const selfStatus = view.family === 'status' && event.actor.kind === 'agent'
@@ -262,7 +263,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
         title={EXTERNAL_NOTE[dogFire.source]}>{EXTERNAL_TAG}</small>}
     </>
   if (part === 'header') return heading
-  const change = changeParts(event)
+  const change = changeParts(event, from)
   const contents = <>
     {change && change.length > 0 && <ChangeLine parts={change} actor={actor} />}
     {(body.length > 0 || fireFields.length > 0 || idleDocket || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch

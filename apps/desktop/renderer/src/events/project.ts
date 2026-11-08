@@ -3,11 +3,12 @@ import { FAMILY_OF } from '../generated/events'
 import { record } from './decode'
 import { fieldType, humanValue } from './value'
 import type { HumanValue } from './value'
+import { projectNotice, PROJECT_TITLES } from './projectnotice'
 
 export type KnownEvent = Event
 export type Placement = 'header' | 'body' | 'context'
 export interface EventField { key: string; label: string; placement: Placement; value: unknown; type: string }
-export interface EventView { event: KnownEvent; family: Family; title: string; fields: EventField[] }
+export interface EventView { event: KnownEvent; family: Family; title: string; fields: EventField[]; actor?: Event['actor'] }
 type Keys<T> = T extends unknown ? keyof T : never
 type Spec<T> = readonly [Keys<T> & string, string, Placement]
 
@@ -30,7 +31,15 @@ export function assertNever(event: never): never {
 
 /** Every canonical leaf names its title and the placement of each human field.
  *  Legacy/unsupported rows never enter this switch. */
-export function projectEvent(event: KnownEvent): EventView {
+export function projectEvent(event: KnownEvent, from?: string): EventView {
+  const notice = projectNotice(event, from)
+  if (notice) return { event, family: 'lifecycle', title: PROJECT_TITLES[notice.op],
+    actor: notice.by === 'user' ? { kind: 'user', id: '@user' } : { kind: 'agent', id: notice.by },
+    fields: [
+      { key: 'node', label: 'Node', placement: 'context', value: notice.project, type: 'str' },
+      { key: 'by', label: 'By', placement: 'context', value: notice.by, type: 'str' },
+      ...(notice.nodes === null ? [] : [{ key: 'nodes', label: 'Nodes', placement: 'context' as const, value: notice.nodes, type: 'int' }]),
+    ] }
   switch (event.variant) {
     case "ordinary.message": return layout(event, "Message", [["body", "Message", "body"]])
     case "ordinary.question": return layout(event, "Question", [["body", "Message", "body"]])
