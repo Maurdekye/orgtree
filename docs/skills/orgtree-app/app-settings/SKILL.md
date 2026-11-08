@@ -17,6 +17,10 @@ off); see [appearance](app-display-appearance/SKILL.md#object-mentions).
 
 Inside an organization window App settings has the same ↗ pop-out and pin buttons as Org settings, Usage and the other modals: pin it to the window (drag, resize, it stays while the canvas pans), or open it in a window of its own. Placement is kept per organization, so each organization remembers its own pinned or popped-out App settings and one organization's does not follow the user home or into another. At home, with no organization to pin it into, it is an ordinary centred modal (as Usage is there). A link that points at one setting, such as the turn-slot banner's **Open settings** (the Runtime row *Most agent turns running at once*), opens the panel, or raises it if it is pinned behind another window or popped out, and never closes it; the panel switches to the tab, scrolls the row into view, focuses its control and highlights it for about two seconds, in the window where it lives.
 
+## Search
+
+The box at the top of App settings searches every tab of this window. Typing filters to the settings whose name, help text, section or tab matches all of the typed words, in any order and case; the results are grouped under their tab and section, with the matches marked. Click a result, or choose one with Up/Down and press Enter: the box clears and the window opens that tab with the row scrolled into view, its control focused and the row highlighted for about two seconds. A tab whose name matches but that holds no settings (such as Harnesses) is offered as a result that opens it. Ctrl+F (⌘F on macOS) in the window focuses the box; Esc clears it, and Esc on an empty box closes an unpinned window as before. Nothing matching reads "No settings match" with the query. A search also loads the Mail hub section so its settings can be found. Org settings and Agent settings have the same box.
+
 ## Settings
 
 For **New hires go** (End / Start / Centre), use

@@ -30,6 +30,8 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Shift+F3 | Open the create-organization window. |
 | Shift+F7 | Focus the last live agent desk and bring it into view. |
 
+In App, Org and Agent settings, Mod+F focuses the window's search box; in the box Up/Down choose a result, Enter opens it and Escape clears the search ([search](../SKILL.md#search)).
+
 ## Organization navigation
 
 In the main org window, use these outside text fields, code editors, dropdowns,

@@ -12,6 +12,8 @@ one organization. Agents explain the controls and suggest changes; the user
 changes settings. For machine-wide defaults, use
 [orgtree-app-default-org-settings](../app-settings/app-default-org-settings/SKILL.md).
 
+The search box at the top searches every tab of Org settings, as in [App settings](../app-settings/SKILL.md#search). The first search loads the tabs not opened yet (their reads only); History holds no settings and stays unloaded until opened.
+
 The tabs are Basic, Hire defaults, Policies, Connections, Autonomy, Accounts and History. The former `orgtype` tab is
 not rendered. Connections is documented in
 [orgtree-org-connections](../mailhub/org-connections/SKILL.md).

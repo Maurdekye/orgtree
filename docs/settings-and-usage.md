@@ -16,6 +16,10 @@ Use settings to make ordinary work easier first: text size, Enter behavior and t
 
 Do not close a form assuming every visible edit was saved. A failed multi-part save may have applied an earlier part. Check the current state before retrying. A setting read that failed can display a fallback; it is not authoritative evidence of your stored value.
 
+### Search settings
+
+App settings, Organization settings and Agent settings each have a **Search settings…** box above their tabs. It searches every tab of that window: type words from a setting's name, help text, section or tab, in any order and case. The results list each matching setting under its tab and section, with the matching words marked; when nothing matches, the window says *No settings match* with your words. Click a result, or choose one with Up/Down and press Enter: the window opens that tab, scrolls the setting into view, focuses it and highlights it for a moment. A matching tab that holds no settings of its own, such as Harnesses, is offered as a result that opens the tab. Ctrl+F (Command+F on macOS) in the window focuses the box. Escape clears the search; once the box is empty, Escape works as before. A search only hides the tabs, so unsaved edits in them are kept.
+
 ## Make the workspace comfortable
 
 In **App settings > Display > Text**, turn on **Wrap object mentions** to let a
@@ -167,6 +171,7 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | Escape | Close the top menu/dialog, cancel a drag/draft or clear a staged reply, according to focus. |
 | Mod+Z / Ctrl+Y or Mod+Shift+Z | Undo / redo supported persistent actions, deferring to text editing while typing. |
 | Mod+Enter | Send or submit a ready answer; ordinary Enter follows the typing preference. |
+| Mod+F in App, Organization or Agent settings | Focus that window's [settings search](#search-settings), using the physical F key on non-Latin layouts such as Hebrew. In the box, Up/Down choose a result, Enter opens it and Escape clears the search. |
 | Alt+N | Toggle a passive notice in a desk composer. |
 | Alt+Up/Down | Previous/next mail; in focused Docket/Presentations, previous/next eligible rendered item. |
 
