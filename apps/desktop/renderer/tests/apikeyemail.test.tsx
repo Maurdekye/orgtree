@@ -15,6 +15,7 @@
 //   §4 the controls: subscription rows without an email keep the wording
 import { flush, inAct, mountView } from './harness'
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -22,6 +23,7 @@ import { AccountsPanel } from '../src/canvas/accounts'
 import { accountIdentity, providerAccounts, usageIdentity, usageIdentityPart } from '../src/accountidentity'
 import type { AccountChoiceRow } from '../src/accountidentity'
 
+declare const __SRC_DIR__: string
 const rows: AccountChoiceRow[] = [
   { id: 'claude-5', provider: 'claude', identity: { email: 'a@example.test' } },
   { id: 'claude-6', provider: 'claude', mode: 'apikey', identity: {} },
@@ -93,7 +95,7 @@ test('§5 Providers row: a key account has no Sign in button, no sign-in status 
 })
 
 test('§6 the Account hints in agent settings are provider-neutral (no "signed-in account" for a key account)', () => {
-  const src = readFileSync(new URL('../src/canvas/modals.tsx', import.meta.url), 'utf8')
+  const src = readFileSync(path.join(__SRC_DIR__, 'canvas', 'modals.tsx'), 'utf8')
   const hints = src.split(/\r?\n/).filter((l) => /label="Account"/.test(l) || /Choose the .*account/.test(l))
   assert.ok(hints.length >= 3, `account hint lines found: ${hints.length}`)
   assert.equal(hints.filter((l) => /signed-in account/.test(l)).length, 0, hints.filter((l) => /signed-in account/.test(l)).join(' | '))
