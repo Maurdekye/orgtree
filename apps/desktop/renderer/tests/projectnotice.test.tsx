@@ -36,7 +36,7 @@ for (const historic of [false, true]) test(`project notices: two ${historic ? 'h
   const rows = ['p1', 'p2'].map((name, i) => notice(body(name, i ? 5 : 2), historic ? node(name) : null))
   const el = await render(t, rows)
   assert.deepEqual(titles(el), ['Project dissolved', 'Project dissolved'])
-  assert.deepEqual(lines(el), ['@p1 dissolved · 1 node retired with it', '@p2 dissolved · 4 nodes retired with it'])
+  assert.deepEqual(lines(el), ['p1 dissolved · 1 node retired with it', 'p2 dissolved · 4 nodes retired with it'])
   assert.equal(el.querySelectorAll('.event-lifecycle').length, 2)
   assert.equal(el.querySelectorAll('.turn-mail-passive').length, 2)
   assert.equal(el.querySelectorAll('.turn-mail-head time').length, 2)
@@ -72,7 +72,7 @@ for (const [verb, title, action] of [
 ]) test(`project notices: ${verb} uses lifecycle layout and the recorded agent actor`, async t => {
   const el = await render(t, [notice(`Project "team-x" was ${verb} by "lead-x".`)])
   assert.deepEqual(titles(el), [title])
-  assert.deepEqual(lines(el), [`@team-x ${action}`])
+  assert.deepEqual(lines(el), [`team-x ${action}`])
   assert.equal(flat(el.querySelector('.event-actor')?.textContent), 'lead-x')
   const context = el.querySelector('.event-context')!
   assert.deepEqual([...context.querySelectorAll('[data-event-field]')].map(e => e.getAttribute('data-event-field')), ['node', 'by'])
@@ -81,7 +81,7 @@ for (const [verb, title, action] of [
 
 test('project notices: one raw node means no accompanying node suffix; one trailing newline is accepted', async t => {
   const el = await render(t, [notice(body('solo', 1) + '\n')])
-  assert.deepEqual(lines(el), ['@solo dissolved'])
+  assert.deepEqual(lines(el), ['solo dissolved'])
 })
 
 test('project notices: an envelope SYSTEM sender also proves authorship', async t => {

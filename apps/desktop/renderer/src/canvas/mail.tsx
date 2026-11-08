@@ -923,7 +923,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
   // holds yet reads like the rest. Any other row is unchanged.
   const queued = !m._ask && showsQueueState(m.queue)
   const kind = !m._ask && view && view.event.variant !== 'ordinary.message'
-    && view.event.variant !== 'ordinary.notice'
+    && (view.event.variant !== 'ordinary.notice' || view.family === 'lifecycle')
     && !(hideMailReplyKind && view.event.variant === 'reply.mail') ? view.title : null
   const noticeRun = !m._ask && isMailNotice(m) && isPile
   const urgentMail = Boolean(m.urgent)
