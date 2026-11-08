@@ -78,7 +78,7 @@ Add a typed path with **add**, or use the folder picker. New entries start writa
 
 The in-app picker browses the **engine computer**, even from a remote UI. Enter a folder and choose **Select current folder**. It selects an existing directory rather than a file or a newly created folder. Choosing only fills the calling field; Save applies the grant. After a failed navigation, verify the displayed path before selecting the previous folder still shown.
 
-Folder and tool grants are bounded by the organization and the agent's superiors. The human settings form can expand intermediate grants to carry a new grant down the tree, and previews that expansion. Restricting a parent restricts descendants' effective access even if a wider configured value is retained below it.
+Folder and tool grants are bounded by the organization and the agent's superiors. The human settings form can expand intermediate grants to carry a new grant down the tree, and previews that expansion only for the fields you have edited: the full warning shows on the Scope and Tools tabs, and a one-line note above Save shows on the other tabs while a raise is pending. A folder an ancestor already covers through a parent folder raises nobody. Restricting a parent restricts descendants' effective access even if a wider configured value is retained below it.
 
 | File and command access | Intended use |
 | --- | --- |
