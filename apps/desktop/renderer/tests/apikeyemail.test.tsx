@@ -13,8 +13,11 @@
 //   §3 the usage head part carries no email for a key account (and always names the account)
 //   §5 the Providers row of a key account: no Sign in button, no sign-in status, no email text; Refresh and Remove stay
 //   §4 the controls: subscription rows without an email keep the wording
+import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { AccountsPanel } from '../src/canvas/accounts'
 import { accountIdentity, providerAccounts, usageIdentity, usageIdentityPart } from '../src/accountidentity'
 import type { AccountChoiceRow } from '../src/accountidentity'
 
@@ -57,7 +60,6 @@ test('§2b a key account in a chooser carries no sign-in-required suffix', () =>
 })
 
 test('§5 Providers row: a key account has no Sign in button, no sign-in status and no email text', async (t: TestContext) => {
-  const { AccountsPanel } = await import('../src/canvas/accounts')
   const mk = (id: string, mode?: string) => ({ id, provider: 'claude', label: id, name: id, ambient: false,
     credential: { kind: 'managed', path: 'C:/fixture/' + id }, ...(mode ? { mode } : {}),
     identity: {}, auth: 'unauthenticated', tint_ordinal: 1,
