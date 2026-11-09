@@ -49,9 +49,7 @@ async fn hub(status: &'static str) -> (String, tokio::sync::mpsc::UnboundedRecei
                 let n = socket.read(&mut buf).await.unwrap_or(0);
                 got.extend_from_slice(&buf[..n]);
                 let text = String::from_utf8_lossy(&got).to_string();
-                let Some((head, body)) = text.split_once("
-
-") else {
+                let Some((head, body)) = text.split_once("\r\n\r\n") else {
                     if n == 0 { break } else { continue }
                 };
                 let want = head.to_ascii_lowercase().split("content-length:").nth(1).and_then(|v| v.trim().split_whitespace().next().and_then(|v| v.parse::<usize>().ok())).unwrap_or(0);
