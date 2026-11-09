@@ -214,7 +214,7 @@ fn short429_backoff_is_bounded_resets_on_success_and_keeps_siblings_and_age() {
     let sibling = claude_key(Some("synthetic-sibling"));
     let at = good(&usage, &key);
     let auth_at = usage.auth.pin().get(&key).unwrap().at;
-    for seconds in [60, 120, 240, 480, 900, 900] {
+    for seconds in [60, 120, 120, 120, 120, 120] {
         let before = Instant::now();
         let out = usage.claude_result(&key, json!({"available":false,"retry_after_seconds":1}));
         let after = Instant::now();

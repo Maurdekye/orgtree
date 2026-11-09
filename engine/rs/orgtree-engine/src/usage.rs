@@ -2445,6 +2445,9 @@ Your turns run on {selected_lane} (tier {tier}): the user's own model server. It
 
 #[cfg(test)]
 mod header_delta_tests;
+mod claude_failure;
+#[cfg(test)]
+mod claude_failure_tests;
 
 mod langserver_usage;
 #[cfg(test)]
