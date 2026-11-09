@@ -69,14 +69,14 @@ async fn a_renamed_org_sends_one_profile_post_and_then_nothing() {
     let (addr, mut rx) = hub("200 OK").await;
     set_row(&engine, &addr, "Old");
     let parts = vec![part("New", &addr)];
-    sync(&engine, &parts).await;
+    run(&engine, &parts, false).await;
     let req = rx.try_recv().expect("one POST");
     assert!(req.starts_with("POST /api/profile"), "{req}");
     assert!(req.to_ascii_lowercase().contains("x-org-auth: acme.user.abc123:s3cret"), "{req}");
     let body: Value = serde_json::from_str(req.rsplit("\r\n\r\n").next().unwrap()).unwrap();
     assert_eq!(body, json!({ "slug": "acme.user.abc123", "name": "New" }), "only slug and name are sent");
     assert_eq!(roster_name(&engine, &addr), "New", "the cached row follows");
-    sync(&engine, &parts).await;
+    run(&engine, &parts, false).await;
     assert!(rx.try_recv().is_err(), "the second pass sends nothing");
 }
 
@@ -86,7 +86,7 @@ async fn a_long_name_sends_its_first_48_characters() {
     let (addr, mut rx) = hub("200 OK").await;
     set_row(&engine, &addr, "Old");
     let long = "x".repeat(60);
-    sync(&engine, &[part(&long, &addr)]).await;
+    run(&engine, &[part(&long, &addr)], false).await;
     let req = rx.try_recv().expect("one POST");
     let body: Value = serde_json::from_str(req.rsplit("\r\n\r\n").next().unwrap()).unwrap();
     assert_eq!(body["name"], "x".repeat(48));
@@ -99,8 +99,8 @@ async fn a_refused_name_is_not_retried_in_the_same_run() {
     let (addr, mut rx) = hub("404 Not Found").await;
     set_row(&engine, &addr, "Old");
     let parts = vec![part("New", &addr)];
-    sync(&engine, &parts).await;
-    sync(&engine, &parts).await;
+    run(&engine, &parts, false).await;
+    run(&engine, &parts, false).await;
     assert!(rx.try_recv().is_ok(), "tried once");
     assert!(rx.try_recv().is_err(), "not again");
     assert_eq!(roster_name(&engine, &addr), "Old", "the cache is not changed on a refusal");
@@ -110,14 +110,14 @@ async fn a_refused_name_is_not_retried_in_the_same_run() {
 async fn nothing_is_sent_without_our_roster_row_or_an_unregistered_hub() {
     let engine = Engine::for_tests(std::env::temp_dir().join("orgtree-profile-unused"));
     let (addr, mut rx) = hub("200 OK").await;
-    sync(&engine, &[part("New", &addr)]).await;
+    run(&engine, &[part("New", &addr)], false).await;
     assert!(rx.try_recv().is_err(), "roster not loaded");
     set_roster(&engine, &addr, None, None, vec![json!({ "slug": "other", "org_name": "Other" })]);
-    sync(&engine, &[part("New", &addr)]).await;
+    run(&engine, &[part("New", &addr)], false).await;
     assert!(rx.try_recv().is_err(), "own row missing");
     set_row(&engine, &addr, "Old");
     let mut p = part("New", &addr);
     p.registered.clear();
-    sync(&engine, &[p]).await;
+    run(&engine, &[p], false).await;
     assert!(rx.try_recv().is_err(), "not registered there: register sends the name");
 }

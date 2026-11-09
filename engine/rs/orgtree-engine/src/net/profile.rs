@@ -33,6 +33,13 @@ pub(crate) fn due(roster_name: Option<&str>, want: &str, tried: Option<&str>) ->
 /// Bring each registered hub's roster name in line with each org's name.
 #[logged]
 pub(super) async fn sync(engine: &Engine, parts: &[Part]) {
+    run(engine, parts, true).await
+}
+
+/// `isolated` false skips the org-mailbox isolation gate (it reads the
+/// database; a test has none) and sends directly.
+#[nolog]
+async fn run(engine: &Engine, parts: &[Part], isolated: bool) {
     for p in parts {
         let want = wanted(&p.name);
         for (hid, addr) in &p.hubs {
@@ -46,15 +53,12 @@ pub(super) async fn sync(engine: &Engine, parts: &[Part]) {
             if !due(Some(roster[at]["org_name"].as_str().unwrap_or("")), &want, tried.as_deref()) {
                 continue;
             }
-            let res = request(
-                engine,
-                &[p.org_id],
-                HTTP.post(format!("{addr}/api/profile"))
-                    .timeout(Duration::from_secs(10))
-                    .header("X-Org-Auth", p.auth())
-                    .json(&json!({ "slug": p.net_slug, "name": want })),
-            )
-            .await;
+            let req = HTTP
+                .post(format!("{addr}/api/profile"))
+                .timeout(Duration::from_secs(10))
+                .header("X-Org-Auth", p.auth())
+                .json(&json!({ "slug": p.net_slug, "name": want }));
+            let res = if isolated { request(engine, &[p.org_id], req).await } else { transport::send(req).await };
             match res {
                 Ok(r) if r.status().is_success() => {
                     succeeded(engine, addr);
