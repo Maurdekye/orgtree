@@ -83,6 +83,7 @@ pub struct Cleared {
 }
 
 impl Cleared {
+    #[nolog]
     pub fn is_empty(&self) -> bool {
         self.by_project.is_empty()
     }
