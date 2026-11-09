@@ -42,6 +42,7 @@ pub mod recent;
 pub(crate) mod transport;
 pub(crate) mod typing;
 pub(crate) mod presence;
+pub(crate) mod profile;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
@@ -208,6 +209,8 @@ pub struct Net {
     pub(crate) typing: typing::State,
     /// What each org last told each hub about being busy (`presence`).
     pub(crate) presence: presence::State,
+    /// What each org last sent each hub as its display name (`profile`).
+    pub(crate) profile: profile::State,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
@@ -597,6 +600,7 @@ async fn pass(engine: &Arc<Engine>) -> Result<()> {
     let parts = participants(engine).await?;
     engine.net.parts.store(Arc::new(parts.clone()));
     register_pending(engine, &parts).await;
+    profile::sync(engine, &parts).await;
     let parts = participants(engine).await?;
     engine.net.parts.store(Arc::new(parts.clone()));
     reconcile_pollers(engine, &parts);
