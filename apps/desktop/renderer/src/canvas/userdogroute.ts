@@ -4,6 +4,7 @@
 // agent, so the detail dialog cannot read them: their chip opens the project
 // surface that lists the registration instead.
 import type { Watchdog } from '../types'
+import { isUserName } from './username'
 
 export type DogClick =
   | { to: 'dialog' }
@@ -11,6 +12,11 @@ export type DogClick =
   | { to: 'gone' }
 
 export function dogClick(dog: Watchdog | undefined, hasProject: (id: string) => boolean): DogClick {
-  void dog; void hasProject
-  return { to: 'dialog' }
+  if (!dog) return { to: 'gone' }
+  if (!isUserName(dog.owner)) return { to: 'dialog' }
+  const project = dog.target.replace(/^@/, '')
+  if (!hasProject(project)) return { to: 'gone' }
+  if (dog.kind === 'project_listener' || dog.kind === 'listener_watch') return { to: 'listeners', project }
+  if (dog.kind === 'slot') return { to: 'slots', project }
+  return { to: 'desk', project }
 }
