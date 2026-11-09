@@ -285,6 +285,13 @@ pub(crate) fn spends(provider: &str, tier: &str, w: &Value) -> bool {
 #[nolog]
 pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
+    // a model server that reports usage windows (its own lane, not an account's):
+    // a window at 100% is evidence like any other provider's
+    if provider == crate::providers::catalog::LANGSERVER {
+        let (srv, _) = crate::langserver::route_of(engine, tier)?;
+        let v = engine.usage.peek(&format!("langserver:{}", srv["id"].as_str()?), provider);
+        return v["limits"].as_array()?.iter().find_map(|w| spent_window(provider, w));
+    }
     let v = reading_of(engine, provider, account)?;
     v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| spent_window(provider, w))
 }
@@ -1846,6 +1853,30 @@ fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
     vec![row(None, "normal", false, format!("${usage:.2} spent · no spend cap"))]
 }
 
+// ------------------------------------------------------------ model servers
+
+/// Ask every enabled language-model server for its usage windows (see
+/// `langserver_usage`) and push what answers as `langserver_usage`, by server
+/// id. Only a connection with something to show has an entry; the usage loop
+/// does this on its ordinary cadence.
+#[logged]
+pub async fn refresh_langservers(engine: &Engine) {
+    let mut by_id = serde_json::Map::new();
+    for srv in crate::langserver::servers(engine).iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
+        let id = srv["id"].as_str().unwrap_or("");
+        let lane = format!("langserver:{id}");
+        let key = crate::langserver::key(engine, id).await;
+        match langserver_usage::read_server(&engine.usage, srv, key.as_deref()).await {
+            Some(v) => {
+                engine.usage.put(&lane, &v);
+                by_id.insert(id.to_string(), v);
+            }
+            None => { engine.usage.cache.pin().remove(&lane); }
+        }
+    }
+    engine.app.set_value("langserver_usage", Value::Object(by_id));
+}
+
 // ------------------------------------------------------------ API-key accounts
 
 /// A metered key account's spend so far (local metering is the figure).
@@ -2100,6 +2131,10 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         refresh_openrouter(engine, false).await;
         last.insert("openrouter", Instant::now());
     }
+    if due(last, "langserver_usage", open_every) {
+        refresh_langservers(engine).await;
+        last.insert("langserver_usage", Instant::now());
+    }
     if due(last, "usage_history_prune", 3600) {
         crate::usage_history::prune(engine).await;
         crate::account_marks::prune(engine).await;
@@ -2153,6 +2188,7 @@ fn reset_span(kind: &str) -> i64 {
     match kind {
         "session" => 5 * 3600,
         k if k.starts_with("weekly") => 7 * 86400,
+        "monthly" => 30 * 86400,
         _ => 86400,
     }
 }
@@ -2221,6 +2257,14 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
     // every OpenRouter key this org may see, by its id (its lane and cache key)
     for a in registered.iter().filter(|a| a.provider == "openrouter") {
         lanes.push((a.id.clone(), a.id.clone(), None));
+    }
+    // a model server that reports usage windows is a lane like the rest
+    let langservers = crate::langserver::servers(engine);
+    for srv in langservers.iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
+        let lane = format!("langserver:{}", srv["id"].as_str().unwrap_or(""));
+        if pin.get(&lane).is_some() {
+            lanes.push((lane.clone(), lane, None));
+        }
     }
     // only the accounts this org may use: an agent never plans onto one it
     // switched off (Org settings › Accounts)
@@ -2340,9 +2384,9 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
         roster.push(format!("{} (API key, metered)", a.id));
     }
     // the user's own model servers: no usage window, only an agents-at-once cap
-    for srv in crate::langserver::servers(engine).iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
+    for srv in langservers.iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
         let lane = format!("langserver:{}", srv["id"].as_str().unwrap_or(""));
-        if !crate::org_accounts::allowed(Some(org_slug), &lane) {
+        if !crate::org_accounts::allowed(Some(org_slug), &lane) || pin.get(&lane).is_some() {
             continue;
         }
         let star = if lane == selected_lane { "*" } else { "" };
@@ -2364,7 +2408,7 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
         text.push_str(l);
     }
     text.push_str("\n* your account for this turn; - = not authoritatively reported.");
-    if provider == crate::providers::catalog::LANGSERVER {
+    if provider == crate::providers::catalog::LANGSERVER && pin.get(&selected_lane).is_none() {
         text.push_str(&format!(
             "
 Your turns run on {selected_lane} (tier {tier}): the user's own model server. It has no usage limit; it runs a set number of agents at once and the others wait."
