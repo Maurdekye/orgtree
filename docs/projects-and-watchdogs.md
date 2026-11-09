@@ -107,7 +107,7 @@ The tab shows Event listeners, Listener watches and Recently Fired. Fire history
 
 In events, **Register…** offers a one-time listener, continuous listener or watcher for N armed listeners. You keep one listener and one watch per project; switching mode or count updates the same registration. A watch already at its count can fire immediately. Use remove on your row when finished. The watch range is 1–1,024.
 
-Your event/watch notifications arrive as normal Inbox mail without running an agent turn. The eye card's project lines and watchdog chips show your participation. A chip navigates to its project.
+Your event/watch notifications arrive as normal Inbox mail without running an agent turn. The eye card's project lines and watchdog chips show your participation. A chip click opens the project panel that lists that registration (the listeners panel for a listener or watch, the slots panel for a slot, the project desk for a queue place); if the dog or its project is gone, a message says it is no longer available.
 
 ## Join the mail queue yourself
 
