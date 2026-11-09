@@ -528,7 +528,7 @@ mod fast_tools_tests {
 #[nolog]
 pub(crate) fn tier_entry(t: &catalog::Tier) -> Value {
     json!({ "tier": t.tier, "provider": catalog::provider_label(t.provider), "seat": t.seat,
-            "model": t.model, "context": t.context }) // stub (red commit): still the legacy model
+            "model": catalog::new_hire_model(t), "context": t.context })
 }
 
 #[logged]
@@ -550,8 +550,7 @@ pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
         if !engine.settings.provider_enabled(t.provider) {
             continue;
         }
-        out.push(json!({ "tier": t.tier, "provider": catalog::provider_label(t.provider), "seat": t.seat,
-                         "model": catalog::new_hire_model(t), "context": t.context }));
+        out.push(tier_entry(t));
     }
     for (tier, seat, model) in engine.providers.openrouter_tiers() {
         out.push(json!({ "tier": tier, "provider": "OpenRouter", "seat": seat, "model": model }));

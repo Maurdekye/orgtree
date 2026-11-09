@@ -41,7 +41,8 @@ pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
     };
     for (tier, enabled) in rows {
         if catalog::tier(tier).is_none() { crate::refuse!(BadRequest, "unknown fast-mode tier {tier}"); }
-        validate(st,tier,None,enabled)?;
+        // a default applies to FUTURE hires: validate it against the model a new hire of the tier gets (Fable 5.2)
+        validate(st,tier,catalog::tier(tier).and_then(catalog::new_hire_version),enabled)?;
     }
     Ok(value.clone())
 }
