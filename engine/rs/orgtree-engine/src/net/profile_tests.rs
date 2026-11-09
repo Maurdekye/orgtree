@@ -152,9 +152,7 @@ async fn a_name_the_hub_strips_is_sent_once_even_when_the_roster_comes_back_stri
     let parts = vec![part(&spaced, &addr)];
     run(&engine, &parts, false).await;
     let req = rx.try_recv().expect("one POST");
-    let body: Value = serde_json::from_str(req.rsplit("
-
-").next().unwrap()).unwrap();
+    let body: Value = serde_json::from_str(req.rsplit("\r\n\r\n").next().unwrap()).unwrap();
     let sent = body["name"].as_str().unwrap().to_string();
     assert_eq!(sent, sent.trim(), "the sent name has no surrounding whitespace");
     // a roster refresh brings back what the hub stored (stripped)
@@ -165,9 +163,7 @@ async fn a_name_the_hub_strips_is_sent_once_even_when_the_roster_comes_back_stri
     let parts = vec![part(&cut, &addr)];
     run(&engine, &parts, false).await;
     let req = rx.try_recv().expect("one POST for the cut name");
-    let body: Value = serde_json::from_str(req.rsplit("
-
-").next().unwrap()).unwrap();
+    let body: Value = serde_json::from_str(req.rsplit("\r\n\r\n").next().unwrap()).unwrap();
     assert_eq!(body["name"], "x".repeat(47));
     set_row(&engine, &addr, &"x".repeat(47));
     run(&engine, &parts, false).await;
