@@ -188,6 +188,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         // the user's own model servers (App settings › Providers › Language model server)
         .route("/api/harnesses", get(accounts::harnesses))
         .route("/api/langservers", get(langserver::list).post(langserver::add))
+        .route("/api/langservers/usage", get(langserver::usage))
         .route("/api/langservers/probe", post(langserver::probe))
         .route("/api/langservers/ollama-variant", post(langserver::ollama_variant))
         .route("/api/langservers/{id}", axum::routing::patch(langserver::update).delete(langserver::remove))

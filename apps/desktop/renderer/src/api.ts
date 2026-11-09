@@ -1216,6 +1216,9 @@ export const setOpenRouterFavorite = (
 // the Language model server lane: the user's own model servers (Ollama, LM Studio,
 // llama.cpp, vLLM, custom). A key crosses the wire once, inward.
 export const getLangServers = (): Promise<LangServerDoc> => req('/api/langservers')
+/** The usage windows of the model servers that report them, by server id
+ *  (cache-only; the engine's usage loop reads each server's /usage route). */
+export const getLangServerUsage = (): Promise<Record<string, AccountUsage>> => req('/api/langservers/usage')
 export interface LangServerModelPick {
   id: string
   context?: number | null

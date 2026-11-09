@@ -1877,6 +1877,21 @@ pub async fn refresh_langservers(engine: &Engine) {
     engine.app.set_value("langserver_usage", Value::Object(by_id));
 }
 
+/// The cached readings of the model servers that have one, by server id: what
+/// `langserver_usage` pushes, and `GET /api/langservers/usage` answers. Never a fetch.
+#[nolog]
+pub fn langserver_readings(engine: &Engine) -> Value {
+    let pin = engine.usage.cache.pin();
+    let mut out = serde_json::Map::new();
+    for srv in crate::langserver::servers(engine).iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
+        let id = srv["id"].as_str().unwrap_or("");
+        if let Some(c) = pin.get(&format!("langserver:{id}")) {
+            out.insert(id.to_string(), c.data.clone());
+        }
+    }
+    Value::Object(out)
+}
+
 // ------------------------------------------------------------ API-key accounts
 
 /// A metered key account's spend so far (local metering is the figure).

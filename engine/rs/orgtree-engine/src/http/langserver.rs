@@ -67,6 +67,13 @@ impl std::fmt::Debug for AddBody {
 }
 
 /// `POST /api/langservers`: add a server (its key, if any, stored apart).
+/// `GET /api/langservers/usage`: the usage windows of the servers that report
+/// them, by server id (cache-only; the usage loop reads them).
+#[nolog]
+pub async fn usage(State(e): State<Arc<Engine>>) -> Json<Value> {
+    Json(crate::usage::langserver_readings(&e))
+}
+
 #[logged]
 pub async fn add(State(e): State<Arc<Engine>>, Json(b): Json<AddBody>) -> ApiResult<Json<Value>> {
     let rec = langserver::add_server(

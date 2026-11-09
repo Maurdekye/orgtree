@@ -39,7 +39,7 @@ import {
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
   getMuseUsage, getMuseUsagePeek,
-  getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterKeysUsage, getOpenRouterUsagePeek,
+  getCodexUsage, getCodexUsagePeek, getLangServers, getLangServerUsage, getOpenRouterKeysUsage, getOpenRouterUsagePeek,
   getProviders, getAppTree, patchedTreeCache,
   getUsage, getUsagePeek, killAll,
   markRead, openWs,
@@ -2605,6 +2605,8 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   // the user's own model servers: nothing to meter, so each shows as local
   // with no usage limit, and the one limit it does have — agents at once
   const langservers = useAppRead('langservers', getLangServers)
+  // …unless the server answers a usage route: then its windows, like any provider's
+  const lsUsage = useAppRead('langserver_usage', getLangServerUsage)
   // D-202. ⚠ `codex` IS TRUTHY ON A MACHINE WITH NO CODEX — measured, not
   // assumed: codex_limits.fetch returns {available:false, error:"Codex CLI is
   // not installed"} rather than nothing, so the bare `codex &&` gate below
@@ -2726,7 +2728,8 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
     const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)
     cards.push({ provider: 'langserver', lane: 'langserver:' + srv.id, node: <div className="usage-acct" key={'langserver:' + srv.id}>
       <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">LM server: {srv.label}</span></span></div>
-      <div className="dim">local · no usage limit · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
+      {lsUsage?.[srv.id] && <UsageBars u={{ ...lsUsage[srv.id], account: 'langserver:' + srv.id, label: srv.label, provider: 'LM server' }} />}
+      <div className="dim">{lsUsage?.[srv.id] ? 'local' : 'local · no usage limit'} · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
         {offered.length ? ` · ${offered.join(', ')}` : ' · no model offered'}</div>
     </div> })
   }
