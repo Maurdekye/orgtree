@@ -2729,7 +2729,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
     cards.push({ provider: 'langserver', lane: 'langserver:' + srv.id, node: <div className="usage-acct" key={'langserver:' + srv.id}>
       <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">LM server: {srv.label}</span></span></div>
       {lsUsage?.[srv.id] && <UsageBars u={{ ...lsUsage[srv.id], account: 'langserver:' + srv.id, label: srv.label, provider: 'LM server' }} />}
-      <div className="dim">{lsUsage?.[srv.id] ? 'local' : 'local · no usage limit'} · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
+      <div className="dim">local · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
         {offered.length ? ` · ${offered.join(', ')}` : ' · no model offered'}</div>
     </div> })
   }

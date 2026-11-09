@@ -2401,7 +2401,7 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
         let cap = srv["max_agents"].as_i64().unwrap_or(1);
         let display = format!("LM server: {}", gist(srv["label"].as_str().unwrap_or(""), 40));
         roster.push(format!("{lane} ({display}, local)"));
-        lines.push(format!("{display} ({lane}){star} | local | - | - | - | - | no limit; {cap} agent(s) at once"));
+        lines.push(format!("{display} ({lane}){star} | local | - | - | - | - | {cap} agent(s) at once"));
         key_lines.push(format!("{lane}|local|{cap}"));
         row_ids.push(format!("{lane}|local"));
     }
@@ -2419,7 +2419,7 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
     if provider == crate::providers::catalog::LANGSERVER && pin.get(&selected_lane).is_none() {
         text.push_str(&format!(
             "
-Your turns run on {selected_lane} (tier {tier}): the user's own model server. It has no usage limit; it runs a set number of agents at once and the others wait."
+Your turns run on {selected_lane} (tier {tier}): the user's own model server. It runs a set number of agents at once and the others wait."
         ));
     } else if provider == crate::providers::catalog::MUSE {
         text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above; Muse reports one window set per account and does not say which models share it."));

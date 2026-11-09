@@ -191,7 +191,7 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
         <p className="dim acct-prov-note">
           Run agents on models served from this machine or your network: Ollama, LM Studio,
           llama.cpp, vLLM, or any server with an Anthropic- or OpenAI-compatible API. Claude Code
-          or Codex drives them; nothing is billed and no usage limit applies.
+          or Codex drives them; nothing is billed.
         </p>
       )}
       {doc?.servers.map((s) => (
