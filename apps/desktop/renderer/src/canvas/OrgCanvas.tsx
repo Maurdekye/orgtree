@@ -143,7 +143,7 @@ import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
 import { projectLineLanes, slotLinks } from './slots'
 import { isUserName } from './username'
-import { dogClick } from './userdogroute'
+import { dogClick, withRoutedDogs } from './userdogroute'
 import { listenerLinks, listenersLive } from './listeners'
 import type { ListenerLive } from './listeners'
 import { projectHeaderFacts } from './projectheaderfacts'
@@ -1156,11 +1156,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (!w && !isUserName(id.split('/')[0])) { toggleDog(id, keepOpen); return }
     const r = dogClick(w, p => mapRef.current.get(p)?.kind === 'project')
     if (r.to === 'dialog') toggleDog(id, keepOpen)
-    else if (r.to === 'listeners') openListeners(r.project)
-    else if (r.to === 'slots') openSlots(r.project)
+    else if (r.to === 'listeners' || r.to === 'slots') {
+      if (w) setRoutedDogs(prev => prev.some(x => x.id === w.id) ? prev.map(x => x.id === w.id ? w : x) : [...prev, w])
+      if (r.to === 'listeners') openListeners(r.project); else openSlots(r.project)
+    }
     else if (r.to === 'desk') openProjectDesk(r.project)
     else toast(['This watchdog is no longer available.'])
   }
+  // a registration opened from the paged list is not in the tree's eight-dog preview: the project panel it opens shows it too
+  const [routedDogs, setRoutedDogs] = useState<Watchdog[]>([])
+  const panelTree = useMemo(() => routedDogs.length ? { ...tree, watchdogs: withRoutedDogs(tree.watchdogs ?? [], routedDogs) } : tree, [tree, routedDogs])
+  useEffect(() => {
+    const open = new Set([...listenersPanels.ids, ...slotsPanels.ids])
+    setRoutedDogs(prev => { const keep = prev.filter(w => open.has(w.target.replace(/^@/, ''))); return keep.length === prev.length ? prev : keep })
+  }, [listenersPanels.ids, slotsPanels.ids])
   const routeDog = useCallback((id: string, keepOpen = false, dog?: Watchdog) => routeDogRef.current(id, keepOpen, dog), [])
   // every list at once: a dismissed retiree closes its windows in all of
   // them, a rename moves its instances in all of them, and the tree
@@ -5290,12 +5299,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       ))}
       {slotsPanels.ids.map(projectSlotsId => (
         <MaybePortal key={`${slug}/${projectSlotsId}`}><ProjectSlotsModal key={`${slug}/${projectSlotsId}`} slug={slug} nid={projectSlotsId}
-          tree={tree} map={map} op={op} toast={toast} onJump={goToAgent}
+          tree={panelTree} map={map} op={op} toast={toast} onJump={goToAgent}
           close={() => slotsPanels.close(projectSlotsId)} /></MaybePortal>
       ))}
       {listenersPanels.ids.map(projectListenersId => (
         <MaybePortal key={`${slug}/${projectListenersId}`}><ProjectListenersModal key={`${slug}/${projectListenersId}`} slug={slug} nid={projectListenersId}
-          tree={tree} map={map} op={op} toast={toast} onJump={goToAgent} refs={canvasRefs}
+          tree={panelTree} map={map} op={op} toast={toast} onJump={goToAgent} refs={canvasRefs}
           close={() => listenersPanels.close(projectListenersId)} /></MaybePortal>
       ))}
       {teams.ids.map(teamId => map.has(teamId) && (

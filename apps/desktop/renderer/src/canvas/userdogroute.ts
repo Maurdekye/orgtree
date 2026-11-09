@@ -20,3 +20,11 @@ export function dogClick(dog: Watchdog | undefined, hasProject: (id: string) => 
   if (dog.kind === 'slot') return { to: 'slots', project }
   return { to: 'desk', project }
 }
+
+/** The canvas's watchdog preview holds a few dogs per owner; a registration opened from the paged list is not in it.
+ *  A project panel shows the preview plus the dogs a click routed to it (the preview's own copy of a dog wins). */
+export function withRoutedDogs(dogs: Watchdog[], routed: Watchdog[]): Watchdog[] {
+  const have = new Set(dogs.map(w => w.id))
+  const extra = routed.filter(w => !have.has(w.id))
+  return extra.length ? [...dogs, ...extra] : dogs
+}

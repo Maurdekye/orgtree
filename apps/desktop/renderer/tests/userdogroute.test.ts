@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dogClick } from '../src/canvas/userdogroute'
+import { dogClick, withRoutedDogs } from '../src/canvas/userdogroute'
 import type { Watchdog } from '../src/types'
 
 const dog = (over: Partial<Watchdog>): Watchdog => ({ id: 'user/u1', owner: 'user', name: 'user-listener', kind: 'project_listener',
@@ -30,4 +30,12 @@ test('a user dog whose project is gone, or a dog that is gone, says so', () => {
 test('an agent-owned dog still opens the detail dialog', () => {
   assert.deepEqual(dogClick(dog({ id: 'worker/w', owner: 'worker', kind: 'file', target: 'build.log' }), has), { to: 'dialog' })
   assert.deepEqual(dogClick(dog({ id: 'worker/p', owner: 'worker' }), has), { to: 'dialog' }, 'an agent-owned listener too')
+})
+
+test("a dog opened from the paged list is added to the panel's dogs, so its own row shows", () => {
+  const preview = [dog({ id: 'user/u1' })]
+  const ninth = dog({ id: 'user/u9', name: 'ninth' })
+  assert.deepEqual(withRoutedDogs(preview, [ninth]).map(w => w.id), ['user/u1', 'user/u9'])
+  assert.equal(withRoutedDogs(preview, [dog({ id: 'user/u1', name: 'stale copy' })]), preview, 'a dog the preview has is not duplicated, and its copy wins')
+  assert.equal(withRoutedDogs(preview, []), preview)
 })
