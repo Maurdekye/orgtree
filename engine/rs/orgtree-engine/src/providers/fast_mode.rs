@@ -90,6 +90,18 @@ mod tests {
         assert!(hire_enabled(&st, "fable", &json!({}), &json!({"default_fast_mode": {"fable": true}})).unwrap());
     }
 
+    /// The default is for FUTURE hires, so it is validated against the new-hire model: Fable's default can be turned on.
+    #[test]
+    fn a_fable_fast_default_is_valid_because_future_fable_hires_are_5_2() {
+        let st = State::default();
+        assert!(validate_defaults(&st, &json!({"fable": true})).is_ok());
+        assert!(validate_defaults(&st, &json!({"fable": false})).is_ok());
+        assert!(validate_defaults(&st, &json!({"opus": true})).is_ok());
+        assert!(validate_defaults(&st, &json!({"haiku": true})).is_err(), "a tier without fast mode is still refused");
+        // an explicit old version stays unsupported
+        assert!(validate(&st, "fable", Some("5.1"), &json!(true)).is_err());
+    }
+
     #[test]
     fn draft_hire_speed_uses_the_selected_version() {
         let mut st = State::default();

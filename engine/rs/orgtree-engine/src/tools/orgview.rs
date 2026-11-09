@@ -524,6 +524,13 @@ mod fast_tools_tests {
     }
 }
 
+/// One catalog tier as `orgtree_list_tiers` lists it: its model is what a NEW hire of the tier gets.
+#[nolog]
+pub(crate) fn tier_entry(t: &catalog::Tier) -> Value {
+    json!({ "tier": t.tier, "provider": catalog::provider_label(t.provider), "seat": t.seat,
+            "model": t.model, "context": t.context }) // stub (red commit): still the legacy model
+}
+
 #[logged]
 pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
     if args.get("refresh").is_some_and(|v| !v.is_boolean()) {
@@ -817,4 +824,20 @@ pub async fn read_scratch(engine: &Arc<Engine>, caller: &Caller, args: &Value) -
     let text = String::from_utf8_lossy(&bytes);
     let (clipped, cut) = crate::runtime::convo::clip(&text, 60_000);
     Done::text(if cut { format!("{clipped}\n… (file continues; {} bytes in all)", bytes.len()) } else { clipped })
+}
+
+#[cfg(test)]
+mod list_tiers_new_hire_tests {
+    use super::*;
+
+    /// `orgtree_list_tiers` says what a NEW hire gets: Fable 5.2 (coordinator 2026-11-09 22:05Z); seat-less legacy
+    /// reads elsewhere still say 5.1.
+    #[test]
+    fn list_tiers_names_the_model_a_new_fable_hire_gets() {
+        let fable = tier_entry(catalog::tier("fable").unwrap());
+        assert_eq!(fable["model"], "claude-fable-5-2");
+        assert_eq!(fable["tier"], "fable");
+        let opus = tier_entry(catalog::tier("opus").unwrap());
+        assert_eq!(opus["model"], catalog::tier("opus").unwrap().model, "a tier whose latest is its default is unchanged");
+    }
 }
