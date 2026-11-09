@@ -394,6 +394,9 @@ pub struct Usage {
     manual: papaya::HashMap<String, Instant>,
     /// a provider that told us to wait: not before this
     cooldown: papaya::HashMap<String, Instant>,
+    /// what each language-model server's usage probe has learned (in memory only:
+    /// a restart starts over)
+    langserver: papaya::HashMap<String, langserver_usage::State>,
     /// the last usage-history row of each series
     pub history: papaya::HashMap<String, crate::usage_history::Last>,
 }
@@ -2390,6 +2393,10 @@ Your turns run on {selected_lane} (tier {tier}): the user's own model server. It
 
 #[cfg(test)]
 mod header_delta_tests;
+
+mod langserver_usage;
+#[cfg(test)]
+mod langserver_usage_tests;
 
 #[cfg(test)]
 mod wham_tests {
