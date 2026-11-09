@@ -22,7 +22,7 @@ fn a_recognised_response_gives_the_three_windows() {
     let r = rows(GOOD);
     assert_eq!(r.len(), 3);
     assert_eq!((r[0]["label"].as_str(), r[0]["kind"].as_str(), r[0]["percent"].as_f64()), (Some("5 h"), Some("session"), Some(12.5)));
-    assert_eq!(r[0]["resets_at"].as_str(), Some("2026-11-09T12:00:00Z"));
+    assert_eq!(r[0]["resets_at"].as_str(), Some("2026-11-09T12:00:00.000Z"), "in the app's own timestamp form");
     assert_eq!((r[1]["label"].as_str(), r[1]["kind"].as_str(), r[1]["percent"].as_f64()), (Some("weekly"), Some("weekly_all"), Some(100.0)));
     assert_eq!(r[1]["is_active"], json!(true), "rate-limited reads as spent");
     assert_eq!((r[2]["label"].as_str(), r[2]["kind"].as_str(), r[2]["percent"].as_f64()), (Some("monthly"), Some("monthly"), Some(3.0)));
@@ -101,7 +101,7 @@ impl Mock {
     }
     fn set(&self, path: &str, status: u16, body: &str) { self.routes.lock().unwrap().insert(path.into(), (status, body.into())); }
     fn hits(&self) -> usize { self.hits.lock().unwrap().len() }
-    fn server(&self) -> Value { json!({"id":"srv","preset":"custom","address":self.base,"harness":"opencode","label":"Mock"}) }
+    fn server(&self) -> Value { json!({"id":"srv","preset":"ollama","address":self.base,"harness":"opencode","label":"Mock"}) }
 }
 
 #[tokio::test]
@@ -157,7 +157,7 @@ async fn a_connection_without_the_route_shows_nothing_and_is_not_probed_again() 
     assert_eq!(m.hits(), 2);
     // so is a new address
     let mut moved = m.server();
-    moved["base_path"] = json!("v2");
+    moved["address"] = json!(format!("{}/other", m.base));
     assert!(read_server(&usage, &moved, Some("sk-other")).await.is_none());
     assert_eq!(m.hits(), 3);
 }
