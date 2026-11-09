@@ -3403,7 +3403,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const srvTools = useMemo(() => orgDefaultTools(tree), [tree])
   const srvDirs = useMemo(() => orgDirHoldings(tree), [tree])
   const server = {
-    maxTop: tree.max_top_grant ?? 1000, defTop: tree.default_top_grant ?? 50,
+    orgName: tree.name, maxTop: tree.max_top_grant ?? 1000, defTop: tree.default_top_grant ?? 50,
     compactAt: Math.round((tree.compact_at ?? .8) * 100), defEffort: tree.default_effort ?? '',
     orgInboxMode: tree.org_inbox?.mode ?? (tree.org_inbox?.enabled === false ? 'closed' : 'normal'),
     multiHolder: tree.org_inbox?.multi_holder_enabled === true,
@@ -3417,6 +3417,9 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
     const admin: SettingsRequest = {}, defaults: HireDefaultsRequest = {}
     for (const [key, value] of Object.entries(fields)) {
       switch (key) {
+        case 'orgName':
+          if (String(value).trim() === '') throw new Error('Enter a name for the organization')
+          admin.org_name = String(value); break
         case 'maxTop': admin.max_top_grant = settingNumber(value, 1); break
         case 'defTop': admin.default_top_grant = settingNumber(value, 0); break
         case 'compactAt': admin.compact_at = settingNumber(value, 50, 95); break
@@ -3442,7 +3445,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   }, toast)
   const val = autosave.value
   const set = <T,>(key: string, previous: T) => autosave.set(key, previous,
-    ['maxTop', 'defTop', 'compactAt', 'accOcc'].includes(key) ? 750 : 0)
+    ['orgName', 'maxTop', 'defTop', 'compactAt', 'accOcc'].includes(key) ? 750 : 0)
   const closeSettings = () => { void autosave.queue.flush().then(ok => { if (ok) close() }) }
   const [orgMd, setOrgMd] = useState<string | null>(null)
   const [orgMdLoad, setOrgMdLoad] = useState<'pending' | 'error' | 'ready'>('pending')
@@ -3488,6 +3491,8 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
 
   // the shadowing pair below keeps every USE SITE unchanged: same name, same
   // setter signature — only where the value comes from has changed
+  const orgName = val<string>('orgName', tree.name)
+  const setOrgName = set('orgName', orgName)
   const maxTop = val<number | string>('maxTop', tree.max_top_grant ?? 1000)
   const setMaxTop = set('maxTop', maxTop)
   const defTop = val<number | string>('defTop', tree.default_top_grant ?? 50)
@@ -3602,6 +3607,13 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
         <SettingsTabPanel id="basic" idBase="org-settings"
           active={tab === 'basic'}>
         {/* folder access lives on the eye's ⚙ gear panel (user ruling) */}
+        <SetGroup title="Organization">
+          <SetRow label="Name"
+            hint={`ID: ${tree.slug}. Used in mentions, addresses and folders; it doesn't change.`}>
+            <input type="text" value={orgName} aria-label="Organization name"
+              onChange={(e) => setOrgName(e.target.value)} />
+          </SetRow>
+        </SetGroup>
         <OrgPictureEditor slug={tree.slug} name={tree.name} revision={tree.net?.picture_revision} />
         {sharedScratch && <SetGroup title="Shared scratch folder">
           <SetRow label="Organization folder" hint="Shared with every agent in this organization.">

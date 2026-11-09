@@ -2710,6 +2710,8 @@ export interface ScopeRequest {
 
 // api.py Settings — shared by /api/defaults and /api/orgs/{slug}/settings
 export interface SettingsRequest {
+  /** the org's DISPLAY name (Org settings > Basic > Name); the slug never changes */
+  org_name?: string
   default_fast_mode?: Record<string,boolean>
   account_fallback_default?: boolean | null
   /** the account lanes this org may not use (Org settings › Accounts) */
