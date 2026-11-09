@@ -64,7 +64,7 @@ impl ProbeCache {
 
 #[nolog]
 pub fn valid_context(value: &Value) -> Option<i64> {
-    value.as_i64().filter(|n| (1..=10_000_000).contains(n))
+    value.as_f64().filter(|n| n.is_finite() && n.fract() == 0.0 && (1.0..=10_000_000.0).contains(n)).map(|n| n as i64)
 }
 
 /// Mirrors renderer Models.startWindow; shared fixture rows pin agreement.
