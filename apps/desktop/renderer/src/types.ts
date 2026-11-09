@@ -1880,6 +1880,8 @@ export interface LangServer {
   /** per harness id, how many live seats on this server are pinned to it */
   pinned_harnesses?: Record<string, number>
   models: Record<string, LangServerModel>
+  /** Last successful stored-server probe, retained only for this engine run. */
+  last_probe?: LangServerProbe & { at: string }
   created_at: string
 }
 /** one org's agents brought to a server's new seat price (PATCH reply) */

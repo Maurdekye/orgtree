@@ -8,6 +8,7 @@ import type { LangServerProbeModel } from '../src/types'
 
 test('lsrefresh_ shared context fixtures: uncapped, fallback, validity and Ollama precedence', () => {
   for (const row of rows) assert.equal(startWindow(row as LangServerProbeModel, 1000000), row.expected, row.id)
+  assert.equal(startWindow({ id: 'trained', max_context: 262144 }, 65536), 262144, 'a stale default never caps a report')
   assert.equal(langServerDoc({})?.default_context, 1000000)
 })
 

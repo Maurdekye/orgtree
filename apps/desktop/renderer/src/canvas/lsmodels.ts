@@ -20,11 +20,12 @@ export const fmtBytes = (n: number | null | undefined): string | null =>
 
 /** the window a model found on a server should start with: the one its
  *  Modelfile sets (Ollama: every request that names none gets it), else the
- *  one it runs with now, else the default (never more than it was trained for) */
+ *  one it runs with now, else its trained window uncapped, else the default.
+ *  Reported windows must be integer token counts in 1..=10,000,000. */
 export const startWindow = (m: LangServerProbeModel, dflt: number): number => {
-  if (m.configured_context && m.configured_context > 0) return m.configured_context
-  if (m.loaded_context && m.loaded_context > 0) return m.loaded_context
-  if (m.max_context && m.max_context > 0) return Math.min(m.max_context, dflt)
+  for (const value of [m.configured_context, m.loaded_context, m.max_context]) {
+    if (value != null && Number.isInteger(value) && value >= 1 && value <= 10_000_000) return value
+  }
   return dflt
 }
 

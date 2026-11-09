@@ -112,7 +112,7 @@ export const langServerDoc = (d: unknown): LangServerDoc | null => {
     default_seat: typeof x.default_seat === 'number' ? x.default_seat : 1,
     max_seat: typeof x.max_seat === 'number' ? x.max_seat : 100,
     min_context: typeof x.min_context === 'number' ? x.min_context : 65536,
-    default_context: typeof x.default_context === 'number' ? x.default_context : 65536,
+    default_context: typeof x.default_context === 'number' ? x.default_context : 1_000_000,
     user_enabled: x.user_enabled !== false,
   }
 }
@@ -512,9 +512,9 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   // what the server itself says about the models the card knows (their real
   // windows) and, when it lists at most ROW_MAX, about all of them, each a
   // chip: asked when the card shows and by ⟳; it loads no model
-  const [check, setCheck] = useState<LangServerProbe | null>(null)
+  const [check, setCheck] = useState<LangServerProbe | null>(() => s.last_probe?.reachable ? s.last_probe : null)
   /** `check` describes every model the server lists, not only the known ones */
-  const [whole, setWhole] = useState(false)
+  const [whole, setWhole] = useState(!!s.last_probe?.reachable)
   const [checking, setChecking] = useState(false)
   const checkNow = () => {
     setChecking(true)
