@@ -991,6 +991,7 @@ async fn fetch_claude(dir: &Path) -> Value {
 }
 
 /// Add `extra`'s fields to the probe result `out`.
+#[nolog]
 fn merge(out: &mut Value, extra: Value) {
     if let (Some(o), Value::Object(e)) = (out.as_object_mut(), extra) {
         o.extend(e);

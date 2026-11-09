@@ -22,11 +22,13 @@ const C1010: &str = "failure_1010";
 
 /// The fields a non-OK answer adds to the probe's result (taken out again by `take`).
 /// The body is only searched, never kept.
+#[nolog]
 pub(super) fn status_failure(status: u16, body: &str) -> Value {
     json!({ KIND: "http", HTTP: status, C1010: body.contains("error code: 1010") })
 }
 
 /// The closed kind of a transport error.
+#[nolog]
 pub(super) fn error_failure(e: &reqwest::Error) -> &'static str {
     if e.is_timeout() {
         return "timeout";
@@ -50,16 +52,19 @@ pub(super) fn error_failure(e: &reqwest::Error) -> &'static str {
 
 /// A failure that came from this side (an expired stored sign-in, a client
 /// that would not build): no kind of the closed transport list fits.
+#[nolog]
 pub(super) fn local_failure() -> Value {
     json!({ KIND: "other", HTTP: 0, C1010: false })
 }
 
 /// The same for a transport error.
+#[nolog]
 pub(super) fn transport_failure(e: &reqwest::Error) -> Value {
     json!({ KIND: error_failure(e), HTTP: 0, C1010: false })
 }
 
 /// Remove the failure fields from a probe result and return them.
+#[nolog]
 pub(super) fn take(raw: &mut Value) -> ProbeFailure {
     let Some(o) = raw.as_object_mut() else { return ProbeFailure { kind: "none", ..Default::default() } };
     let kind = match o.remove(KIND).as_ref().and_then(Value::as_str) {
