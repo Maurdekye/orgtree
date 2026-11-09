@@ -199,8 +199,10 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
         // Common cards stay eager; explicit rare cards permit native tool search.
         "_meta": { "anthropic/alwaysLoad": !deferred(name) },
     });
-    // A plain object schema, nothing conditional at the top: newer Claude Code drops an MCP tool whose schema has a
-    // top-level allOf/if/then (USER 2026-11-09 ma7d2896dc898). The conditional rules are in the text above and the
+    // A plain object schema, nothing conditional at the top (USER 2026-11-09 ma7d2896dc898, "Fix in 4.5.10"):
+    // schema hygiene. A headless org reported these three tools missing on Claude Code 2.1.319; the top-level
+    // allOf was the inferred cause, but a later measurement showed 2.1.319 loading them and flattening the allOf,
+    // so the cause of the disappearance is NOT confirmed. The conditional rules are in the text above and the
     // engine enforces them (`domain::hire_requirements`, `ops`), naming each missing or forbidden field.
     if name == "orgtree_staff" {
         out["inputSchema"]["properties"]["node"]["minLength"] = json!(1);
@@ -1371,8 +1373,8 @@ mod hire_contract_tests {
         println!("HIRE_SCHEMAS {}",serde_json::to_string(&cards).unwrap());
     }
 
-    /// Newer Claude Code (2.1.319, reported by a headless org, USER 2026-11-09 ma7d2896dc898 "Fix in 4.5.10")
-    /// drops an MCP tool whose input schema has a top-level combinator, so hire, rehire and staff vanished.
+    /// Schema hygiene (USER 2026-11-09 ma7d2896dc898 "Fix in 4.5.10"): a headless org reported hire, rehire and
+    /// staff missing on Claude Code 2.1.319 and the top-level allOf was suspected; the cause is unconfirmed.
     /// Every card is a plain object: properties and required, nothing conditional at the top.
     #[test]
     fn no_agent_card_has_a_top_level_schema_combinator() {
@@ -2190,8 +2192,9 @@ mod builder_stack_tests {
                 want["inputSchema"]["properties"]["harness"]["description"] = serde_json::json!(
                     "OpenRouter and language model server tiers: pins this seat to the harness (on a server, one it can carry); omitted, it follows its key's or server's harness");
             }
-            // USER 2026-11-09 ma7d2896dc898: these three cards lose the top-level allOf (newer Claude Code drops such a
-            // schema) and say their conditional rules in the text instead; nothing else about them changed.
+            // USER 2026-11-09 ma7d2896dc898: these three cards lose the top-level allOf (schema hygiene; the reported
+            // disappearance on Claude Code 2.1.319 has an unconfirmed cause) and say their conditional rules in the
+            // text instead; nothing else about them changed.
             if matches!(name, "orgtree_hire" | "orgtree_rehire" | "orgtree_staff") {
                 assert!(want["inputSchema"].as_object_mut().unwrap().remove("allOf").is_some(), "{name}: the snapshot had the allOf");
                 assert!(got["inputSchema"].get("allOf").is_none());
