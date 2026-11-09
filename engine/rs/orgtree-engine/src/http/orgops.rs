@@ -403,6 +403,8 @@ const KILLSWITCH_PAUSE: &str =
 #[cfg(test)]
 mod stop_all_tests;
 #[cfg(test)]
+mod rename_tests;
+#[cfg(test)]
 tokio::task_local! {
     /// Stop All ends right after its latch commits, as a crash or a failed
     /// request would there (stop_all_tests).
