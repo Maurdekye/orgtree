@@ -656,45 +656,68 @@ pub(crate) async fn record_delivered(tx:&tokio_postgres::Transaction<'_>,row:&Va
     Ok(())
 }
 
+/// The rows a release pass hands out: held by Do not disturb, or WAITING. Waiting mail is an unread
+/// inbound row nobody got a copy of (`delivered_to` empty) and no one pulled: it arrived while no
+/// org-mailbox holder existed (USER 2026-11-09 m01535356a9d7; docket
+/// `org-mail-that-arrives-before-any-mailbox-holder-e`). The partial indexes `org_inbox_dnd_held` and
+/// `org_inbox_waiting` serve the two halves, so an idle org costs two index probes.
+const RELEASABLE: &str = "(dnd_held OR (dir='in' AND NOT read AND pulled_by IS NULL AND delivered_to='[]'::jsonb))";
+
 /// One bounded transaction. Retained inactive history is never scanned.
 #[logged]
 pub async fn release_page(engine:&Arc<Engine>,org:i64) -> Result<usize> {
+    Ok(release_after(engine,org,0).await?.0)
+}
+
+/// `release_page` for the rows after `after` (their id): how many it handled, and the last id seen.
+/// Waiting mail goes only to a holder that already exists: this pass never grants the audience
+/// (only a Do not disturb backlog keeps the auto-grant it always had).
+#[logged]
+async fn release_after(engine:&Arc<Engine>,org:i64,after:i64) -> Result<(usize,i64)> {
     let mut c=engine.db.get().await?;
     // Cheap indexed negative probe before taking the policy lock.
-    if c.query_opt("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND dnd_held LIMIT 1",&[&org]).await?.is_none() {return Ok(0);}
+    if c.query_opt(&format!("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND id>$2 AND {RELEASABLE} LIMIT 1"),&[&org,&after]).await?.is_none() {return Ok((0,after));}
     let tx=c.transaction().await?;
     let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE",&[&org]).await?.get(0);
-    if mode(&raw)!="normal" {return Ok(0);}
-    let rows=tx.query("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id=$1 AND dnd_held ORDER BY id LIMIT 100 FOR UPDATE",&[&org]).await?;
-    if rows.is_empty() {return Ok(0);}
+    if mode(&raw)!="normal" {return Ok((0,after));}
+    let rows=tx.query(&format!("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id=$1 AND id>$2 AND {RELEASABLE} ORDER BY id LIMIT 100 FOR UPDATE"),&[&org,&after]).await?;
+    if rows.is_empty() {return Ok((0,after));}
+    let rows:Vec<Value>=rows.iter().map(|r|r.get(0)).collect();
+    if !rows.iter().any(|r|r["dnd_held"]==true) {
+        let settings=crate::feed::groups::effective_settings(&raw,&engine.settings.defaults());
+        let multi=settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+        if holder_rows(&*tx,org,multi).await?.is_empty() {return Ok((0,after));}
+    }
     let (route,_)=route_tx(&tx,org,None,&raw,&engine.settings.defaults()).await?;
-    if route.to.is_empty() && route.projects.is_empty() {return Ok(0);}
+    if route.to.is_empty() && route.projects.is_empty() {return Ok((0,after));}
     let mut copies=Vec::new();
     let mut queued=Vec::new();
     let mut changed=false;
+    let mut last=after;
     for row in &rows {
-        let row:Value=row.get(0);
-        let p=jobs::publish(engine,&tx,org,&raw,&row).await?;
+        let p=jobs::publish(engine,&tx,org,&raw,row).await?;
         changed|=p.changed;
         copies.extend(p.copies);
         queued.extend(p.jobs);
         tx.execute("UPDATE ot.org_inbox SET dnd_held=false WHERE uid=$1",&[&row["uid"].as_str().unwrap()]).await?;
+        last=row["id"].as_i64().unwrap_or(last);
     }
     tx.commit().await?;
     drop(c);
     if changed {changes::notify_id(engine,org,vec![Change::Audiences,Change::Events]);}
     wake_copies(engine,org,copies);
     jobs::wake_jobs(engine,org,queued);
-    Ok(rows.len())
+    Ok((rows.len(),last))
 }
 
 /// Save and inbound paths start the drain now. The normal runtime tick retries
 /// after a restart/failure; committed publication never gets reported as failed.
 #[logged]
 pub async fn resume_pending(engine:&Arc<Engine>,org:i64) {
+    let mut after=0;
     loop {
-        match release_page(engine,org).await {
-            Ok(100)=>tokio::task::yield_now().await,
+        match release_after(engine,org,after).await {
+            Ok((100,last))=>{after=last;tokio::task::yield_now().await}
             Ok(_)=>break,
             Err(error)=>{tracing::warn!(org_id=org,%error,"org mailbox release deferred to runtime recovery");break;}
         }
