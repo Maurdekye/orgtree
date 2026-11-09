@@ -1,0 +1,9 @@
+[
+  { "id": "trained", "max_context": 262144, "expected": 262144 },
+  { "id": "unknown", "expected": 1000000 },
+  { "id": "variant", "configured_context": 65536, "loaded_context": 4096, "max_context": 262144, "expected": 65536 },
+  { "id": "loaded", "loaded_context": 131072, "max_context": 262144, "expected": 131072 },
+  { "id": "invalid", "configured_context": -1, "loaded_context": 0, "max_context": 10000001, "expected": 1000000 },
+  { "id": "fractional", "configured_context": 1.5, "loaded_context": 10000001, "max_context": 32768, "expected": 32768 },
+  { "id": "maximum", "max_context": 10000000, "expected": 10000000 }
+]

@@ -40,6 +40,10 @@ pub const KEY_ENV: &str = "ORGTREE_LANGSERVER_KEY";
 pub const NO_KEY: &str = "orgtree-local";
 /// A model's window when neither the server nor the user names one.
 pub const DEFAULT_CONTEXT: i64 = 65_536;
+
+#[cfg(test)]
+#[path = "langserver/refresh_tests.rs"]
+mod refresh_tests;
 /// Below this an agent has almost no room to work. MEASURED in the GPU
 /// spike (2026-10-10, llama.cpp): a turn starts at 35.5K tokens on Claude
 /// Code and 28.6K on Codex (identity, tools, the turn envelope), and one
