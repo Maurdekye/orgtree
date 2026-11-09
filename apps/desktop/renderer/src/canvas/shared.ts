@@ -81,7 +81,7 @@ export const TIER_SEAT: Record<string, number> =
  *  the head, or the menu reads as though the node is pinned to the older
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
-  { haiku: ['5.5', '4.5'], opus: ['5.5', '5', '4.8'], sonnet: ['5.5', '5'], fable: ['5.1', '5'],
+  { haiku: ['5.5', '4.5'], opus: ['5.5', '5', '4.8'], sonnet: ['5.5', '5'], fable: ['5.2', '5.1', '5'],
     flash: ['3.8', '3.7', '3.6'], sol: ['6.1', '6', '5.6'], terra: ['6.1', '5.6'], luna: ['6', '5.6'],
     spark: ['1.3', '1.2'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A

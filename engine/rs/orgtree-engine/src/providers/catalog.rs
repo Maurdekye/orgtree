@@ -34,8 +34,10 @@ pub struct Tier {
 }
 
 pub static TIERS: &[Tier] = &[
+    // `model` stays 5.1: what "no version saved" has always meant for a seat that exists. Fable 5.2 leads `versions`
+    // and is what a NEW hire gets (`new_hire_version`).
     Tier { tier: "fable", provider: CLAUDE, seat: 10.0, model: "claude-fable-5-1",
-        versions: &[("5.1", "claude-fable-5-1"), ("5", "claude-fable-5")], letter: "F",
+        versions: &[("5.2", "claude-fable-5-2"), ("5.1", "claude-fable-5-1"), ("5", "claude-fable-5")], letter: "F",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
     Tier { tier: "opus", provider: CLAUDE, seat: 4.0, model: "claude-opus-5-5",
         versions: &[("5.5", "claude-opus-5-5"), ("5", "claude-opus-5"), ("4.8", "claude-opus-4-8")], letter: "O",
@@ -226,20 +228,20 @@ pub fn tier(name: &str) -> Option<&'static Tier> {
 /// when it differs from the tier's legacy default (`model`, what "no version saved" has always meant for a seat
 /// that exists). Fable 5.2 (USER 2026-11-09 21:52Z): `None` for every tier whose latest IS its default.
 #[nolog]
-pub fn new_hire_version(_t: &Tier) -> Option<&'static str> {
-    None // stub (red commit)
+pub fn new_hire_version(t: &Tier) -> Option<&'static str> {
+    t.versions.first().filter(|(_, model)| *model != t.model).map(|(version, _)| *version)
 }
 
 /// The model a new hire of the tier runs: its default model, or the one `new_hire_version` names.
 #[nolog]
 pub fn new_hire_model(t: &Tier) -> &'static str {
-    t.model // stub (red commit)
+    t.versions.first().filter(|(_, model)| *model != t.model).map_or(t.model, |(_, model)| *model)
 }
 
 /// The user-facing name of what a new hire of the tier gets.
 #[logged]
 pub fn new_hire_display_name(t: &Tier) -> Option<String> {
-    display_name(t, None) // stub (red commit)
+    display_name(t, new_hire_version(t))
 }
 
 /// Product and family names shown beside an agent's selected model. Keep

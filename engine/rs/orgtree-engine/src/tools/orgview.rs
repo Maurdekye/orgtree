@@ -544,7 +544,7 @@ pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
             continue;
         }
         out.push(json!({ "tier": t.tier, "provider": catalog::provider_label(t.provider), "seat": t.seat,
-                         "model": t.model, "context": t.context }));
+                         "model": catalog::new_hire_model(t), "context": t.context }));
     }
     for (tier, seat, model) in engine.providers.openrouter_tiers() {
         out.push(json!({ "tier": tier, "provider": "OpenRouter", "seat": seat, "model": model }));

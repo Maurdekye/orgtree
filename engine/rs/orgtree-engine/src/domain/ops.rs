@@ -1211,6 +1211,13 @@ fn normalize_hire_preferences(tier: &str, sc: &mut Value) -> Result<()> {
             }
         }
     }
+    // a new hire that names no version gets the tier's new-hire version written (Fable 5.2); a seat with no saved
+    // version keeps meaning the tier's legacy default, so seats that exist never move
+    if sc.get("model_version").is_none() {
+        if let Some(version) = catalog::tier(tier).and_then(catalog::new_hire_version) {
+            sc["model_version"] = json!(version);
+        }
+    }
     if sc.get("peer_mail").is_some_and(|v| !v.is_boolean()) {
         refuse!(BadRequest, "peer_mail must be a boolean");
     }

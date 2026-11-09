@@ -48,7 +48,8 @@ pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
 /// Explicit hire values are validated; a stale default never forces an unsupported model.
 #[nolog]
 pub fn hire_enabled(st: &State, tier: &str, req: &Value, settings: &Value) -> anyhow::Result<bool> {
-    let version = req["model_version"].as_str().filter(|v| !v.is_empty());
+    // a hire that names no version gets the tier's new-hire version (Fable 5.2), so its speed support is that model's
+    let version = req["model_version"].as_str().filter(|v| !v.is_empty()).or_else(|| catalog::tier(tier).and_then(catalog::new_hire_version));
     match req.get("fast_mode") {
         Some(value) => validate(st,tier,version,value),
         None => Ok(settings["default_fast_mode"][tier].as_bool().unwrap_or(false) && supported(st,tier,version)),

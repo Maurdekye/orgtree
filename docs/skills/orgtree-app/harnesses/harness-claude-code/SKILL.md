@@ -78,7 +78,7 @@ Headless approvals and tool capability checks remain distinct from account/model
 
 ## Models and effort
 
-Claude tiers include Fable, Opus, Sonnet and Haiku; the effective offer and version pin determine the selected model. Claude effort vocabulary is `low`, `medium`, `high`, `xhigh`, `max`; unsupported saved values clamp at launch while the stored value remains unchanged. Eligible Claude seats receive `apply_flag_settings` for the next model call, mid-turn or while the CLI is idle; the CLI is kept, so an effort-only change never restarts it (one that has exited or does not answer is replaced). Acknowledgement is not proof of model compliance. Other routes/model catalogs have their own limits.
+Claude tiers include Fable, Opus, Sonnet and Haiku; the effective offer and version pin determine the selected model. Fable offers versions 5.2, 5.1 and 5. A NEW Fable hire that names no version is pinned to 5.2 (the latest; fast mode available); a Fable seat that already exists with no saved version keeps meaning 5.1, and a rehire keeps the seat's stored version. A seat started with an older Claude Code than 2.1.321 does not know the 5.2 id (Orgtree does not check the version first). Claude effort vocabulary is `low`, `medium`, `high`, `xhigh`, `max`; unsupported saved values clamp at launch while the stored value remains unchanged. Eligible Claude seats receive `apply_flag_settings` for the next model call, mid-turn or while the CLI is idle; the CLI is kept, so an effort-only change never restarts it (one that has exited or does not answer is replaced). Acknowledgement is not proof of model compliance. Other routes/model catalogs have their own limits.
 
 ## Gotchas and workarounds
 
