@@ -97,17 +97,67 @@ impl Cleared {
 /// behind by older versions go too. Idempotent. Restoring a project never
 /// brings them back (they are removed, not paused). Agent- and project-owned
 /// dogs are not touched. A held lease is ended as the user's own release
-/// ends it; the caller grants the line behind it after commit.
+/// ends it; nothing is granted behind it (the project is gone).
 #[logged]
-pub async fn clear(_tx: &impl tokio_postgres::GenericClient, _org: Option<i64>, _only: Option<&[i64]>, _why: &str) -> Result<Cleared> {
-    Ok(Cleared::default()) // stub (red commit)
+pub async fn clear(tx: &impl tokio_postgres::GenericClient, org: Option<i64>, only: Option<&[i64]>, why: &str) -> Result<Cleared> {
+    let mut out = Cleared::default();
+    let leases = tx
+        .query(
+            "SELECT l.id, l.project_id FROM ot.slot_leases l
+              WHERE l.holder_agent_id IS NULL AND l.ended_at IS NULL
+                AND ($1::bigint IS NULL OR l.org_id = $1) AND ($2::bigint[] IS NULL OR l.project_id = ANY($2))
+                AND NOT EXISTS (SELECT 1 FROM ot.agents p WHERE p.id = l.project_id AND p.state = 'live')
+              ORDER BY l.id FOR UPDATE OF l",
+            &[&org, &only],
+        )
+        .await?;
+    for l in &leases {
+        let (id, project): (i64, i64) = (l.get(0), l.get(1));
+        if crate::domain::slots::end(tx, id, why, "the engine").await? {
+            out.by_project.entry(project).or_default().1 += 1;
+        }
+    }
+    let dogs = tx
+        .query(
+            "UPDATE ot.watchdogs w SET state = 'removed', memo = w.memo || jsonb_build_object('reason', $3::text)
+              WHERE w.owner_kind = 'user' AND w.state IN ('armed', 'paused') AND w.memo->>'target_id' IS NOT NULL
+                AND ($1::bigint IS NULL OR w.org_id = $1) AND ($2::bigint[] IS NULL OR (w.memo->>'target_id')::bigint = ANY($2))
+                AND NOT EXISTS (SELECT 1 FROM ot.agents p WHERE p.id = (w.memo->>'target_id')::bigint AND p.state = 'live')
+              RETURNING w.uid, w.kind, w.org_id, (w.memo->>'target_id')::bigint",
+            &[&org, &only, &why],
+        )
+        .await?;
+    for r in &dogs {
+        let (uid, kind, org_id, project): (String, String, i64, i64) = (r.get(0), r.get(1), r.get(2), r.get(3));
+        out.by_project.entry(project).or_default().0 += 1;
+        out.dogs.push((uid, kind, org_id, project));
+    }
+    Ok(out)
 }
 
 /// Engine start: clear what retired, dissolved or deleted projects left
 /// behind. Safe on every start (nothing left means nothing done); each
 /// removed dog id is logged, nothing else about it.
 #[logged]
-pub async fn startup_sweep(_engine: &Arc<Engine>) {} // stub (red commit)
+pub async fn startup_sweep(engine: &Arc<Engine>) {
+    let res: Result<Cleared> = async {
+        let mut client = engine.db.get().await?;
+        let tx = client.transaction().await?;
+        let cleared = clear(&*tx, None, None, "its project is no longer live (cleared at engine start)").await?;
+        tx.commit().await?;
+        Ok(cleared)
+    }
+    .await;
+    match res {
+        Ok(c) => {
+            for (uid, kind, org_id, project) in &c.dogs {
+                tracing::info!(watchdog = %uid, kind = %kind, project, "removed a user registration left on a project that is no longer live");
+                changes::notify_id(engine, *org_id, vec![Change::Watchdogs]);
+            }
+        }
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "the start-up sweep of the user's registrations on retired projects failed"),
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -2124,6 +2124,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         .await?;
     let kids: Vec<i64> = rows.iter().map(|r| r.get::<_, i64>(0)).filter(|id| *id != n.id).collect();
     moot_asks(tx, &ids, fx).await?;
+    user_regs::clear_on_departing(org, tx, actor, &ids, fx).await?;
     fx.slot_rechecks.extend(super::slots::departing_projects(tx, org.id, &ids).await?);
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &ids).await?);
     let mut clawed = 0.0;
@@ -2186,6 +2187,7 @@ async fn dissolve(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req
         .await?;
     let done: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
     moot_asks(tx, &done, fx).await?;
+    user_regs::clear_on_departing(org, tx, actor, &done, fx).await?;
     fx.slot_rechecks.extend(super::slots::departing_projects(tx, org.id, &done).await?);
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &done).await?);
     event(tx, org.id, "dissolve", actor, Some(n.id), json!({ "node": n.name, "nodes": done.len() }), fx).await?;
@@ -2218,6 +2220,7 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     )
     .await?;
     moot_asks(tx, &ids, fx).await?;
+    user_regs::clear_on_departing(org, tx, actor, &ids, fx).await?;
     fx.slot_rechecks.extend(super::slots::departing_projects(tx, org.id, &ids).await?);
     let gone = tx
         .query(

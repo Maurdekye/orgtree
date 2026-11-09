@@ -876,7 +876,9 @@ desk shows the user as the @user mention chip, user 13:50Z). The full list of ru
   Hubchat equivalent): `user_slot_hold`, `user_slot_cancel`, `user_listener_register`,
   `user_watch_register`, `user_registration_remove`, `user_queue_join`, `user_queue_leave`,
   `user_job_ack`. `slot_release`, `slot_unqueue agent=user`, `set_event_listeners` and
-  `fire_project_event` accept the user's rows.
+  `fire_project_event` accept the user's rows. Retire, dissolve and delete of a project remove the
+  user's own registrations on it (same transaction, `user_registrations_cleared`); an engine-start
+  sweep clears leftovers on non-live projects; restoring a project does not bring them back.
 - **One of each, changed in place.** The user keeps one listener, one watch and one queue place per
   project. Registering again changes that dog rather than refusing (docket
   `slots-tab-header-hold-n-slots-button-with-number`, user 16:39Z-16:43Z): `user_listener_register`

@@ -297,11 +297,25 @@ pub(super) async fn registration_remove(org: &Arc<OrgHandle>, tx: &Transaction<'
 
 /// Retire, dissolve and delete of projects clear the user's own registrations
 /// on them in the same transaction (`user_regs::clear`; USER 2026-11-09
-/// 20:30Z "Clean up on retire"). `ids` are the archived nodes; the lines
-/// behind an ended lease are granted after commit.
+/// 20:30Z "Clean up on retire"). `ids` are the archived nodes. A released
+/// hold hands nothing on: the project is gone, so nobody is granted a slot on
+/// it (coordinator 2026-11-09).
 #[logged]
-pub(super) async fn clear_on_departing(_org: &Arc<OrgHandle>, _tx: &Transaction<'_>, _actor: &Actor, _ids: &[i64], _fx: &mut Effects) -> Result<()> {
-    Ok(()) // stub (red commit)
+pub(super) async fn clear_on_departing(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, ids: &[i64], fx: &mut Effects) -> Result<()> {
+    let projects: Vec<i64> =
+        tx.query("SELECT id FROM ot.agents WHERE id = ANY($1) AND kind = 'project'", &[&ids]).await?.iter().map(|r| r.get(0)).collect();
+    if projects.is_empty() {
+        return Ok(());
+    }
+    let cleared = crate::domain::user_regs::clear(tx, Some(org.id), Some(&projects), "its project was retired, dissolved or deleted").await?;
+    for (project, (dogs, leases)) in &cleared.by_project {
+        event(tx, org.id, "user_registrations_cleared", actor, Some(*project), json!({ "dogs": dogs, "leases": leases }), fx).await?;
+        fx.agents.insert(*project);
+    }
+    if !cleared.is_empty() {
+        fx.pulses.push(crate::changes::Change::Watchdogs);
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------ the mail queue

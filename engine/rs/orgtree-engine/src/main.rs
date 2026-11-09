@@ -350,6 +350,8 @@ async fn run_with_cluster(
         }
     });
     runtime::warm_all(&engine);
+    // the user's own registrations left on retired, dissolved or deleted projects go before the watchdog runtime starts
+    domain::user_regs::startup_sweep(&engine).await;
     runtime::watchdogs::start(&engine).await;
     // project slots: a holder that went away while the engine was down loses
     // its slot, and free slots go to the line (domain/slots.rs)
