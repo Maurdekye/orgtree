@@ -238,6 +238,13 @@ pub fn new_hire_model(t: &Tier) -> &'static str {
     t.versions.first().filter(|(_, model)| *model != t.model).map_or(t.model, |(_, model)| *model)
 }
 
+/// The version a seat that EXISTS with no saved version still means, when that differs from what a new hire gets
+/// (Fable: "5.1"); `None` when blank and the latest are the same. (stub in the red commit)
+#[nolog]
+pub fn legacy_version(_t: &Tier) -> Option<&'static str> {
+    None
+}
+
 /// The user-facing name of what a new hire of the tier gets.
 #[logged]
 pub fn new_hire_display_name(t: &Tier) -> Option<String> {
@@ -509,6 +516,15 @@ mod effort_tests {
         assert_eq!(display_name(t, None).as_deref(), Some("Claude Fable 5.1"), "the seat-less legacy read");
         assert_eq!(new_hire_display_name(t).as_deref(), Some("Claude Fable 5.2"));
         assert_eq!(t.context, Some(1_000_000));
+    }
+
+    /// The picker's blank option on an EXISTING seat names the legacy default (Fable: 5.1), only where it differs.
+    #[test]
+    fn the_legacy_version_is_named_only_where_blank_differs_from_the_latest() {
+        assert_eq!(legacy_version(tier("fable").unwrap()), Some("5.1"));
+        for t in TIERS.iter().filter(|t| t.tier != "fable") {
+            assert_eq!(legacy_version(t), None, "{}", t.tier);
+        }
     }
 
     /// Only a tier whose latest version is not its default gets an explicit version for a new hire.

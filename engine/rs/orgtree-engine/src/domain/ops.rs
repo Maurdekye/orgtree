@@ -597,6 +597,12 @@ fn pinned(scope: &Value) -> Option<&str> {
     scope.get("model_version").and_then(Value::as_str).filter(|v| !v.is_empty())
 }
 
+/// A seat that moves INTO a tier whose new hires get an explicit version (Fable 5.2) behaves like a new hire and is
+/// pinned to it; a move that leaves the tier, or stays in it, keeps the stored value (an absent one stays absent).
+/// (stub in the red commit)
+#[nolog]
+fn scope_on_switch(_old_tier: &str, _new_tier: &str, _scope: &mut Value) {}
+
 /// Whether an op places or tunes a Muse seat: its tier, or the tier of the
 /// node it names. Its logins are read before the transaction (bounded).
 #[logged]
@@ -1257,6 +1263,28 @@ mod draft_hire_preference_tests {
         assert_eq!(sc["org_visibility"], "self");
         assert_eq!(scope::normalize(&sc)["peer_mail"], false);
         assert_eq!(scope::clamp(&sc, &scope::org_ceiling(&json!([])))["session"], sc["session"]);
+    }
+
+    /// A switch INTO Fable pins 5.2 like a new hire; a switch within Fable or to another tier keeps the stored value.
+    #[test]
+    fn a_switch_into_fable_pins_5_2_and_a_stay_within_fable_keeps_the_stored_value() {
+        let mut sc = json!({"effort": "high", "model_version": "5.5"});
+        scope_on_switch("opus", "fable", &mut sc);
+        assert_eq!(sc["model_version"], "5.2", "a stale version of the old tier is replaced");
+        let mut sc = json!({});
+        scope_on_switch("sonnet", "fable", &mut sc);
+        assert_eq!(sc, json!({"model_version": "5.2"}));
+        for before in [json!({}), json!({"model_version": "5.1"}), json!({"model_version": "5"})] {
+            let mut sc = before.clone();
+            scope_on_switch("fable", "fable", &mut sc);
+            assert_eq!(sc, before, "within Fable nothing changes; absent stays absent (legacy 5.1)");
+        }
+        let mut sc = json!({"model_version": "5.1"});
+        scope_on_switch("fable", "opus", &mut sc);
+        assert_eq!(sc, json!({"model_version": "5.1"}), "leaving Fable touches nothing");
+        let mut sc = json!({});
+        scope_on_switch("opus", "sonnet", &mut sc);
+        assert_eq!(sc, json!({}), "no other tier writes a version");
     }
 
     /// A new Fable hire that names no version is written 5.2 (coordinator 2026-11-09 22:05Z); explicit versions stay.

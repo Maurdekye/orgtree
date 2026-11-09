@@ -19,6 +19,8 @@ export function fastModeSupported(tier?: string | null, version?: string | null,
   const row = catalog ?? tiers.get(tier ?? '')
   return version ? row?.fast_mode_versions?.[version] === true : row?.fast_mode === true
 }
+/** (stub in the red commit) */
+export function tierLegacyVersion(_tier?: string | null): string | undefined { return undefined }
 export function useFastMode(tier?: string | null, version?: string | null): boolean {
   useSyncExternalStore(subscribe, () => revision)
   return fastModeSupported(tier, version)

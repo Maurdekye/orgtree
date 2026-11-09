@@ -1504,6 +1504,9 @@ mod model_version_tests {
         assert_eq!(row["display_name"], "Claude Fable 5.2");
         assert_eq!(row["display_versions"]["5.1"], "Claude Fable 5.1");
         assert_eq!(row["display_versions"]["5.2"], "Claude Fable 5.2");
+        assert_eq!(row["legacy_version"], "5.1", "what blank means on a seat that exists");
+        let opus = tier_rows(catalog::CLAUDE, false).into_iter().find(|r| r["tier"] == "opus").unwrap();
+        assert!(opus["legacy_version"].is_null());
     }
 
     #[test]
