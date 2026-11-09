@@ -20,7 +20,10 @@ pub(crate) struct State {
 /// The name as the hub accepts it: the first `NAME_MAX` characters.
 #[nolog]
 pub(crate) fn wanted(name: &str) -> String {
-    name.chars().take(NAME_MAX).collect()
+    // the hub strips whitespace: send it already stripped (also after the cut),
+    // or the roster never equals the wanted name and it is sent every pass
+    let cut: String = name.trim().chars().take(NAME_MAX).collect();
+    cut.trim_end().to_string()
 }
 
 /// Whether to send: our row is known, differs from `want`, and this name was

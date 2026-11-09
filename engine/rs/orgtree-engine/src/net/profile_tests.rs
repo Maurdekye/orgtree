@@ -15,6 +15,16 @@ fn the_name_is_cut_to_48_characters_not_bytes() {
 
 #[test]
 #[nolog]
+fn the_hub_strips_whitespace_so_the_wanted_name_is_already_stripped() {
+    assert_eq!(wanted("  Acme  "), "Acme");
+    // 47 characters, a space as the 48th, then more: the cut must not end in a space
+    let cut = format!("{} {}", "x".repeat(47), "yy");
+    assert_eq!(cut.chars().count(), 50);
+    assert_eq!(wanted(&cut), "x".repeat(47));
+}
+
+#[test]
+#[nolog]
 fn it_is_due_only_when_the_row_is_known_and_differs() {
     assert!(due(Some("Old"), "New", None), "differs: send");
     assert!(!due(Some("New"), "New", None), "same: nothing");
@@ -120,4 +130,35 @@ async fn nothing_is_sent_without_our_roster_row_or_an_unregistered_hub() {
     p.registered.clear();
     run(&engine, &[p], false).await;
     assert!(rx.try_recv().is_err(), "not registered there: register sends the name");
+}
+
+#[tokio::test]
+async fn a_name_the_hub_strips_is_sent_once_even_when_the_roster_comes_back_stripped() {
+    let engine = Engine::for_tests(std::env::temp_dir().join("orgtree-profile-unused"));
+    let (addr, mut rx) = hub("200 OK").await;
+    set_row(&engine, &addr, "Old");
+    let spaced = format!("  {} {}  ", "x".repeat(46), "yyy");
+    let parts = vec![part(&spaced, &addr)];
+    run(&engine, &parts, false).await;
+    let req = rx.try_recv().expect("one POST");
+    let body: Value = serde_json::from_str(req.rsplit("
+
+").next().unwrap()).unwrap();
+    let sent = body["name"].as_str().unwrap().to_string();
+    assert_eq!(sent, sent.trim(), "the sent name has no surrounding whitespace");
+    // a roster refresh brings back what the hub stored (stripped)
+    set_row(&engine, &addr, sent.trim());
+    run(&engine, &parts, false).await;
+    assert!(rx.try_recv().is_err(), "nothing again");
+    let cut = format!("{} {}", "x".repeat(47), "yy");
+    let parts = vec![part(&cut, &addr)];
+    run(&engine, &parts, false).await;
+    let req = rx.try_recv().expect("one POST for the cut name");
+    let body: Value = serde_json::from_str(req.rsplit("
+
+").next().unwrap()).unwrap();
+    assert_eq!(body["name"], "x".repeat(47));
+    set_row(&engine, &addr, &"x".repeat(47));
+    run(&engine, &parts, false).await;
+    assert!(rx.try_recv().is_err(), "nothing again after the stripped roster");
 }
