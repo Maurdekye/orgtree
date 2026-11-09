@@ -24,7 +24,8 @@ fn a_long_run_of_429s_still_retries_within_two_minutes_and_recovers() {
     // the first good read clears the streak
     usage.claude_result(&key, json!({"available": true, "limits": []}));
     assert!(usage.claude_throttles.pin().get(&key).is_none());
-    assert!(usage.claude_next_attempt(&key).unwrap().saturating_duration_since(Instant::now()) <= Duration::from_secs(60));
+    // the probe above ran 121 s on: a minute after that, no more
+    assert!(usage.claude_next_attempt(&key).unwrap() <= Instant::now() + Duration::from_secs(121 + 60 + 2));
 }
 
 #[test]
@@ -60,12 +61,13 @@ fn the_failure_fields_are_taken_out_of_the_result() {
 
 #[tokio::test]
 async fn transport_errors_have_a_closed_kind() {
-    let client = reqwest::Client::builder().timeout(Duration::from_millis(150)).build().unwrap();
-    let refused = client.get("http://127.0.0.1:1/usage").send().await.unwrap_err();
+    let patient = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().unwrap();
+    let refused = patient.get("http://127.0.0.1:1/usage").send().await.unwrap_err();
     assert_eq!(error_failure(&refused), "connect");
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/usage", l.local_addr().unwrap());
     let hold = tokio::spawn(async move { let (s, _) = l.accept().await.unwrap(); tokio::time::sleep(Duration::from_secs(2)).await; drop(s) });
+    let client = reqwest::Client::builder().timeout(Duration::from_millis(150)).build().unwrap();
     let slow = client.get(&url).send().await.unwrap_err();
     assert_eq!(error_failure(&slow), "timeout");
     hold.abort();
