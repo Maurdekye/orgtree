@@ -90,7 +90,7 @@ async fn an_invalid_name_is_refused_with_the_create_rule_and_changes_nothing() {
 #[nolog]
 async fn two_orgs_may_share_a_display_name() {
     let (e, c, _, other) = two_orgs("dup").await;
-    rename(&e, "old-name", "Other").await.unwrap();
+    let _ = rename(&e, "old-name", "Other").await.unwrap();
     assert_eq!(stored(&c, other).await, ("other".to_string(), "Other".to_string()));
     let n: i64 = c.query_one("SELECT count(*) FROM ot.orgs WHERE name = 'Other'", &[]).await.unwrap().get(0);
     assert_eq!(n, 2);

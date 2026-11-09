@@ -12,6 +12,19 @@ Agents suggest changes; the user edits them. The following keys live in org
 settings. Effective values include app defaults and the org's own overrides;
 the defaults below are the engine values when neither overrides them.
 
+The **Organization** group at the top has a **Name** field holding the org's
+display name. Edit it and it saves automatically a moment after you stop
+typing (the same autosave as the other Basic fields); an empty name, or one
+with no letters or digits, is refused with the usual inline save error and
+nothing is written. Two orgs may share a display name. Under the field the
+read-only line "ID: <id>. Used in mentions, addresses and folders; it doesn't
+change." names the org's permanent id (its slug): mentions, folders, the mail
+hub address, docket references and links keep using the id after a rename.
+The new name shows in the org switcher, window titles, Home, the tray menu and
+the local org list at once, and each agent's next turn names the org by it (one
+prompt-cache miss per agent). The mail hub keeps the name the org registered
+with; a rename does not re-send it. A trashed org cannot be renamed.
+
 On supported native desktop shells, the **Shared scratch folder** group has
 an **Open shared scratch folder** button with the folder icon. It opens the
 same org-wide `_shared` directory as the switchboard context entry, creating a
