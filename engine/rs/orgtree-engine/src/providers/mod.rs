@@ -1495,6 +1495,16 @@ mod model_version_tests {
         assert_eq!(catalog::model_for("luna", Some("5.6")), "gpt-5.6-luna");
     }
 
+    /// What a NEW Fable hire gets is what the tier rows tell the user: 5.2.
+    #[test]
+    fn the_fable_tier_row_names_what_a_new_hire_gets() {
+        let row = tier_rows(catalog::CLAUDE, false).into_iter().find(|r| r["tier"] == "fable").unwrap();
+        assert_eq!(row["model"], "claude-fable-5-2");
+        assert_eq!(row["display_name"], "Claude Fable 5.2");
+        assert_eq!(row["display_versions"]["5.1"], "Claude Fable 5.1");
+        assert_eq!(row["display_versions"]["5.2"], "Claude Fable 5.2");
+    }
+
     #[test]
     fn every_numbered_static_model_has_a_default_display_version() {
         for tier in catalog::TIERS.iter().filter(|tier| tier.model.bytes().any(|c| c.is_ascii_digit())) {

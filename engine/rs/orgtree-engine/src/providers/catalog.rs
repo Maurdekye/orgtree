@@ -222,6 +222,26 @@ pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }
 
+/// The version a NEW hire of the tier gets written into its scope when it names none: the latest offered version
+/// when it differs from the tier's legacy default (`model`, what "no version saved" has always meant for a seat
+/// that exists). Fable 5.2 (USER 2026-11-09 21:52Z): `None` for every tier whose latest IS its default.
+#[nolog]
+pub fn new_hire_version(_t: &Tier) -> Option<&'static str> {
+    None // stub (red commit)
+}
+
+/// The model a new hire of the tier runs: its default model, or the one `new_hire_version` names.
+#[nolog]
+pub fn new_hire_model(t: &Tier) -> &'static str {
+    t.model // stub (red commit)
+}
+
+/// The user-facing name of what a new hire of the tier gets.
+#[logged]
+pub fn new_hire_display_name(t: &Tier) -> Option<String> {
+    display_name(t, None) // stub (red commit)
+}
+
 /// Product and family names shown beside an agent's selected model. Keep
 /// these with the model catalog so every renderer uses the same vendor names.
 fn display_family(t: &Tier) -> Option<&'static str> {
@@ -469,6 +489,33 @@ mod effort_tests {
 
     fn names(provider: &str) -> Vec<&'static str> {
         listed().iter().filter(|t| t.provider == provider).map(|t| t.tier).collect()
+    }
+
+    /// Fable 5.2 (USER 2026-11-09 21:52Z "throw that into the next release"): the latest offered Fable version, the
+    /// default for NEW hires; a seat with no saved version keeps meaning 5.1 (coordinator 2026-11-09 22:05Z).
+    #[test]
+    fn fable_5_2_is_the_new_hire_default_and_unpinned_seats_stay_on_5_1() {
+        let t = tier("fable").unwrap();
+        assert_eq!(t.versions.iter().map(|(k, _)| *k).collect::<Vec<_>>(), ["5.2", "5.1", "5"]);
+        assert_eq!(t.model, "claude-fable-5-1", "no saved version still means 5.1");
+        assert_eq!(model_for("fable", None), "claude-fable-5-1");
+        assert_eq!(model_for("fable", Some("5.2")), "claude-fable-5-2");
+        assert_eq!(model_for("fable", Some("5.1")), "claude-fable-5-1");
+        assert_eq!(model_for("fable", Some("5")), "claude-fable-5");
+        assert_eq!(new_hire_version(t), Some("5.2"));
+        assert_eq!(new_hire_model(t), "claude-fable-5-2");
+        assert_eq!(display_name(t, None).as_deref(), Some("Claude Fable 5.1"), "the seat-less legacy read");
+        assert_eq!(new_hire_display_name(t).as_deref(), Some("Claude Fable 5.2"));
+        assert_eq!(t.context, Some(1_000_000));
+    }
+
+    /// Only a tier whose latest version is not its default gets an explicit version for a new hire.
+    #[test]
+    fn no_other_tier_writes_a_version_for_a_new_hire() {
+        for t in TIERS.iter().filter(|t| t.tier != "fable") {
+            assert_eq!(new_hire_version(t), None, "{}", t.tier);
+            assert_eq!(new_hire_model(t), t.model, "{}", t.tier);
+        }
     }
 
     /// The user's rule (2026-10-13): every provider lists its tiers dearest

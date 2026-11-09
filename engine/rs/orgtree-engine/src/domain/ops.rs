@@ -1252,6 +1252,24 @@ mod draft_hire_preference_tests {
         assert_eq!(scope::clamp(&sc, &scope::org_ceiling(&json!([])))["session"], sc["session"]);
     }
 
+    /// A new Fable hire that names no version is written 5.2 (coordinator 2026-11-09 22:05Z); explicit versions stay.
+    #[test]
+    fn a_new_fable_hire_without_a_version_is_pinned_to_5_2() {
+        for req in [json!({}), json!({"model_version": ""})] {
+            let mut sc = req;
+            normalize_hire_preferences("fable", &mut sc).unwrap();
+            assert_eq!(sc, json!({"model_version": "5.2"}));
+        }
+        for v in ["5.2", "5.1", "5"] {
+            let mut sc = json!({"model_version": v});
+            normalize_hire_preferences("fable", &mut sc).unwrap();
+            assert_eq!(sc["model_version"], v);
+        }
+        let mut sc = json!({});
+        normalize_hire_preferences("opus", &mut sc).unwrap();
+        assert_eq!(sc, json!({}), "no other tier gets a version written");
+    }
+
     #[test]
     fn draft_hire_preferences_omission_and_explicit_inheritance() {
         for req in [json!({}),json!({"model_version":"","session":"signed-in","auto_cheap_compact":{}})] {

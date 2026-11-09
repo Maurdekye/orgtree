@@ -75,6 +75,19 @@ pub fn advertised_tier(row: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    /// Fable 5.2 offers fast mode (Claude Code 2.1.321 metadata); 5.1 does not. A hire that names no version gets 5.2.
+    #[test]
+    fn fable_5_2_offers_fast_mode_and_5_1_does_not() {
+        let st = State::default();
+        assert!(supported(&st, "fable", Some("5.2")));
+        assert!(!supported(&st, "fable", Some("5.1")));
+        assert!(!supported(&st, "fable", Some("5")));
+        assert!(claude_model("claude-fable-5-2") && !claude_model("claude-fable-5-1"));
+        assert!(hire_enabled(&st, "fable", &json!({"fast_mode": true}), &json!({})).unwrap(), "an unversioned new hire is 5.2");
+        assert!(hire_enabled(&st, "fable", &json!({"model_version": "5.1", "fast_mode": true}), &json!({})).is_err());
+        assert!(hire_enabled(&st, "fable", &json!({}), &json!({"default_fast_mode": {"fable": true}})).unwrap());
+    }
+
     #[test]
     fn draft_hire_speed_uses_the_selected_version() {
         let mut st = State::default();
