@@ -22,8 +22,10 @@ change." names the org's permanent id (its slug): mentions, folders, the mail
 hub address, docket references and links keep using the id after a rename.
 The new name shows in the org switcher, window titles, Home, the tray menu and
 the local org list at once, and each agent's next turn names the org by it (one
-prompt-cache miss per agent). The mail hub keeps the name the org registered
-with; a rename does not re-send it. A trashed org cannot be renamed.
+prompt-cache miss per agent). A rename is sent to each mail hub the org is
+registered on (Mail hub 2.0.0 and later, the first 48 characters), so the hub directory
+(Hubchat, other Orgtrees) shows the new name at its next roster sync; an older
+hub keeps the registered name. A trashed org cannot be renamed.
 
 On supported native desktop shells, the **Shared scratch folder** group has
 an **Open shared scratch folder** button with the folder icon. It opens the
