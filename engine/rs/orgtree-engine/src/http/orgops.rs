@@ -47,13 +47,21 @@ fn org_slug(name: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
+/// The one org-name check: Create organization and a rename (Org settings >
+/// Basic > Name) both run it. Returns the trimmed name.
 #[logged]
-pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> ApiResult<Json<Value>> {
-    let name = b.name.trim().to_string();
-    let slug = org_slug(&name);
-    if slug.is_empty() {
+pub(crate) fn validate_org_name(name: &str) -> Result<String, ApiError> {
+    let name = name.trim().to_string();
+    if org_slug(&name).is_empty() {
         return Err(ApiError::bad_request("name is mandatory and must contain letters or digits (§4.7)"));
     }
+    Ok(name)
+}
+
+#[logged]
+pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> ApiResult<Json<Value>> {
+    let name = validate_org_name(&b.name)?;
+    let slug = org_slug(&name);
     // 3.x refuses a name an org already holds (a trashed org frees it)
     let taken = || ApiError::bad_request(format!("org '{slug}' already exists"));
     let mut client = e.db.get().await?;

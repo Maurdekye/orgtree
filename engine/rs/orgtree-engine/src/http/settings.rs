@@ -275,11 +275,17 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     let o = org(&e, &slug)?;
     let mut patch = Map::new();
     let mut warnings = Vec::new();
+    // a display-name change (Org settings > Basic > Name): the slug never moves
+    let mut new_name: Option<String> = None;
     for (k, v) in &b {
         if v.is_null() {
             continue;
         }
         match k.as_str() {
+            "org_name" => {
+                let raw = v.as_str().ok_or_else(|| ApiError::unprocessable("org_name is text"))?;
+                new_name = Some(crate::http::orgops::validate_org_name(raw)?);
+            }
             "org_dirs" => {
                 // 3.x: a malformed entry is refused, never read as "no folders"
                 let entries = v.as_array().ok_or_else(|| ApiError::unprocessable("org_dirs is a list of folders"))?;
@@ -339,6 +345,23 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         )
         .await?;
     let stored: Value = row.get(0);
+    if let Some(name) = &new_name {
+        let old_name = o.name.load_full();
+        if name != old_name.as_str() {
+            let n = client
+                .execute("UPDATE ot.orgs SET name = $2, row_version = row_version + 1 WHERE id = $1 AND state = 'active'", &[&o.id, name])
+                .await?;
+            if n == 0 {
+                return Err(ApiError::conflict("this organization is not active, so it cannot be renamed"));
+            }
+            client
+                .execute(
+                    "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'org_renamed', '@user', $2)",
+                    &[&o.id, &json!({ "from": old_name.as_str(), "to": name })],
+                )
+                .await?;
+        }
+    }
     if let Some(Value::Array(dirs)) = patch.get("dirs") {
         let workspace = e.cfg.workspace_dir(&o.slug).to_string_lossy().to_string();
         warnings.extend(sweep_top_grants(&*client, o.id, &workspace, &old["dirs"], dirs).await?);
@@ -404,7 +427,15 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         changes::notify(&e, &o, vec![Change::OrgInbox, Change::Net]);
         crate::domain::orginbox::resume_pending(&e,o.id).await;
     }
-    changes::notify(&e, &o, vec![Change::Org, Change::Events]);
+    let mut changed = vec![Change::Org, Change::Events];
+    if let Some(name) = new_name {
+        if name != o.name.load().as_str() {
+            // agents read the name from the handle on their next turn
+            o.name.store(Arc::new(name));
+            changed.push(Change::Registry);
+        }
+    }
+    changes::notify(&e, &o, changed);
     if patch.contains_key("dirs") || patch.contains_key("permission_mode") {
         reconfigure_org(&e, o.id).await?;
     }
@@ -418,7 +449,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         crate::accounts::publish(&e);
     }
     let eff = effective_settings(&stored, &e.settings.defaults());
-    Ok(Json(json!({ "dirs": eff["dirs"], "warnings": warnings })))
+    Ok(Json(json!({ "dirs": eff["dirs"], "warnings": warnings, "name": o.name.load().as_str() })))
 }
 
 /// The org's hire defaults (tools, visibility, effort, account).
