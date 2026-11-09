@@ -2,10 +2,11 @@
 use serde_json::Value;
 use super::{catalog, State};
 
-/// Only exact first-party Opus families verified in installed Claude Code 2.1.292.
+/// Only exact first-party Opus families verified in installed Claude Code 2.1.292, and Fable 5.2 (its published
+/// metadata in Claude Code 2.1.321 offers fast mode; 5.1 does not).
 #[nolog]
 pub fn claude_model(model: &str) -> bool {
-    model.starts_with("claude-opus-5") || model.starts_with("claude-opus-4-8")
+    model.starts_with("claude-opus-5") || model.starts_with("claude-opus-4-8") || model == "claude-fable-5-2"
 }
 
 #[nolog]
