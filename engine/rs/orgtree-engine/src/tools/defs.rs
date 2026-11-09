@@ -1562,7 +1562,8 @@ mod startup_card_tests {
                 total += description.len();
             }
             // cap 12000 -> 12300 for the effort-only clause on three cards (coordinator 2026-11-08, docket agent-instructions-say-that-effort-changes-on-cl)
-            assert!(total <= 12300,"description total {total}");
+            // cap 12300 -> 12500 (coordinator 2026-11-09, hire/rehire/staff schema rules moved from schema to text, docket hire-rehire-and-staff-tools-vanish-on-newer-clau)
+            assert!(total <= 12500,"description total {total}");
         }
     }
 
