@@ -859,3 +859,95 @@ async fn rq1_a_hubchat_reply_to_our_message_is_stored_without_its_quote_line() {
     let kept: String = w.c.query_one("SELECT body FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND net_id='rq-in-net-2'", &[&w.org]).await.unwrap().get(0);
     assert_eq!(kept, mine, "a quote that is not Hubchat's exact one stays");
 }
+
+// ---- mail that arrived before any holder existed waits for the first holder ---------------------------------------
+// Docket `org-mail-that-arrives-before-any-mailbox-holder-e` (USER 2026-11-09 m01535356a9d7 "Fix in 4.5.10"):
+// outside mail that finds no org-mailbox holder stays in the org mailbox; the first holder(s) to gain the audience
+// get it as normal mail, oldest first, and the recurring `release_page` pass is what hands it over (it runs every
+// 20 s per org and at start-up, so a grant, a hire with the audience and an engine restart are all covered).
+
+#[nolog]
+async fn copies_of(w: &World, name: &str) -> Vec<(String, Option<String>, Option<String>)> {
+    w.c.query("SELECT body, net_id, net_hub FROM ot.mail WHERE org_id=$1 AND recipient_name=$2 AND sender LIKE '@net:%' ORDER BY id", &[&w.org, &name])
+        .await.unwrap().iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect()
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn waiting_mail_goes_to_the_first_holder_oldest_first_once() {
+    let mut w = world(false).await;
+    let (u1, p1) = w.arrive("n1", "@net:bob.1", "first", json!([])).await;
+    let (_u2, p2) = w.arrive("n2", "@net:bob.1", "second", json!([])).await;
+    assert!(p1.copies.is_empty() && p2.copies.is_empty(), "nobody holds the org mailbox yet");
+    w.agent("front", None).await;
+    w.grant("front").await;
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 2, "both waiting rows are handed over");
+    assert_eq!(copies_of(&w, "front").await, [("first".to_string(), Some("n1".into()), Some("hub1".into())), ("second".to_string(), Some("n2".into()), Some("hub1".into()))],
+        "oldest first, carrying the hub id so reading them marks them read on the hub");
+    let delivered: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE uid=$1", &[&u1]).await.unwrap().get(0);
+    assert_eq!(delivered, json!(["front"]));
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 0, "handed over once");
+    assert_eq!(copies_of(&w, "front").await.len(), 2, "no duplicate");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn waiting_mail_goes_to_every_holder_that_gains_the_audience_together_and_not_to_later_ones() {
+    let mut w = world(true).await;
+    w.arrive("n1", "@net:bob.1", "hello", json!([])).await;
+    w.agent("a", None).await;
+    w.agent("b", None).await;
+    w.grant("a").await;
+    w.grant("b").await;
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 1);
+    assert_eq!(copies_of(&w, "a").await.len(), 1, "every holder gets a copy");
+    assert_eq!(copies_of(&w, "b").await.len(), 1);
+    w.agent("c", None).await;
+    w.grant("c").await;
+    release_page(&w.e, w.org).await.unwrap();
+    assert!(copies_of(&w, "c").await.is_empty(), "a holder added later does not get it again");
+    assert_eq!(copies_of(&w, "a").await.len(), 1);
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn waiting_mail_reaches_a_project_holder_as_a_queued_job() {
+    let mut w = world(false).await;
+    w.arrive("n1", "@net:bob.1", "hello", json!([])).await;
+    let p = w.project("intake", true).await;
+    w.grant("intake").await;
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 1);
+    let jobs: Vec<(String, String)> = w.c.query("SELECT state, body FROM ot.mail WHERE recipient_agent_id=$1 AND extra ? 'org_inbox'", &[&p])
+        .await.unwrap().iter().map(|r| (r.get(0), r.get(1))).collect();
+    assert_eq!(jobs, [("pending".to_string(), "hello".to_string())]);
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn waiting_mail_that_was_read_or_is_not_waiting_is_left_alone() {
+    let mut w = world(false).await;
+    let (read_uid, _) = w.arrive("n1", "@net:bob.1", "already read", json!([])).await;
+    w.c.execute("UPDATE ot.org_inbox SET read=true WHERE uid=$1", &[&read_uid]).await.unwrap();
+    w.agent("front", None).await;
+    w.grant("front").await;
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 0, "the user read it themselves: not waiting");
+    assert!(copies_of(&w, "front").await.is_empty());
+    // an outgoing row is never "waiting mail"
+    w.c.execute("INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body) VALUES ('o1', $1, 'out', '@net:bob.1', 'sent')", &[&w.org]).await.unwrap();
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 0);
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn without_a_holder_the_waiting_mail_keeps_waiting() {
+    let mut w = world(false).await;
+    w.arrive("n1", "@net:bob.1", "hello", json!([])).await;
+    assert_eq!(release_page(&w.e, w.org).await.unwrap(), 0, "still nobody to give it to");
+    let delivered: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(delivered, json!([]));
+}
