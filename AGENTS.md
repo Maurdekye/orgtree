@@ -304,7 +304,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   [verified: `runtime/reminders{,/pages}.rs`; 2026-10-23]
 
 - Claude usage retries honor both the per-key minute floor and provider deadline;
-  repeated 429s back off to 15 minutes, with only genuine success resetting them.
+  repeated 429s back off to 2 minutes, with only genuine success resetting them.
   Failed usage refreshes retain the last-good bars and original `observed_at` age
   (`Usage::retain_last_good`, renderer hooks) until the next good read or
   `reauth_required`/`unsupported` (in-memory for Claude/Codex/Antigravity/OpenRouter;

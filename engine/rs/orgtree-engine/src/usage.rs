@@ -31,7 +31,9 @@ pub(crate) mod agy_reading_tests;
 
 const TTL: Duration = Duration::from_secs(30);
 const CLAUDE_ATTEMPT_EVERY: Duration = Duration::from_secs(60);
-const CLAUDE_BACKOFF_MAX: Duration = Duration::from_secs(15 * 60);
+/// USER 2026-11-09 m5e200b615c8d: a failed Claude usage read waits "around 1-2m at most"
+/// (was 15 min). A longer provider Retry-After is still honoured (`claude_result`).
+const CLAUDE_BACKOFF_MAX: Duration = Duration::from_secs(2 * 60);
 
 /// The floor between two attempts at one Claude login: a minute, except where
 /// a rig proof lowered it (`crate::rig::claude_attempt_floor`).
@@ -885,7 +887,9 @@ async fn claude_probe(engine: &Engine, config_dir: Option<&str>) -> Value {
 /// Only closed status labels, registry IDs and retry timing reach diagnostics.
 /// Never serialize provider bodies, sign-in paths, credentials or raw results.
 #[nolog]
-fn finish_claude_probe(engine: &Engine, config_dir: Option<&str>, raw: Value) -> Value {
+fn finish_claude_probe(engine: &Engine, config_dir: Option<&str>, mut raw: Value) -> Value {
+    // what a failure says about itself goes to the log only (closed values)
+    let failure = claude_failure::take(&mut raw);
     let status = if raw["retry_after_seconds"].is_u64() { "rate_limited" }
         else if raw["available"] == true { "ok" }
         else if raw["reauth_required"] == true { "signed_out" }
@@ -902,7 +906,8 @@ fn finish_claude_probe(engine: &Engine, config_dir: Option<&str>, raw: Value) ->
         else { view.all().into_iter().find(|a| a.provider == "claude" && a.config_dir.as_deref() == config_dir)
             .map(|a| a.id.as_str()).unwrap_or("claude/managed") };
     tracing::info!(account, provider = "claude", status, consecutive_429s = streak,
-        provider_retry_seconds, retry_in_seconds = wait.as_secs_f64(),
+        provider_retry_seconds, failure_kind = failure.kind, failure_http = failure.http, failure_1010 = failure.cloudflare_1010,
+        retry_in_seconds = wait.as_secs_f64(),
         next_attempt_at = %iso(next_attempt_at), "Claude usage probe completed");
     result
 }
@@ -924,12 +929,18 @@ async fn fetch_claude(dir: &Path) -> Value {
                        "reauth_required": true, "reauth_evidence": "not_connected" });
     };
     if expires_ms > 0 && expires_ms < Utc::now().timestamp_millis() + 60_000 {
-        return json!({ "available": false, "error": NOT_YET,
-                       "detail": "the stored sign-in has expired; Claude Code renews it on its next turn" });
+        let mut out = json!({ "available": false, "error": NOT_YET,
+                              "detail": "the stored sign-in has expired; Claude Code renews it on its next turn" });
+        merge(&mut out, claude_failure::local_failure());
+        return out;
     }
     let client = match reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(USER_AGENT).build() {
         Ok(c) => c,
-        Err(e) => return json!({ "available": false, "error": NOT_YET, "detail": e.to_string() }),
+        Err(e) => {
+            let mut out = json!({ "available": false, "error": NOT_YET, "detail": e.to_string() });
+            merge(&mut out, claude_failure::local_failure());
+            return out;
+        }
     };
     let resp = client
         .get(USAGE_URL)
@@ -941,7 +952,11 @@ async fn fetch_claude(dir: &Path) -> Value {
     drop(token);
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return json!({ "available": false, "error": NOT_YET, "detail": gist(&e.to_string(), 300) }),
+        Err(e) => {
+            let mut out = json!({ "available": false, "error": NOT_YET, "detail": gist(&e.to_string(), 300) });
+            merge(&mut out, claude_failure::transport_failure(&e));
+            return out;
+        }
     };
     let status = resp.status().as_u16();
     let retry = resp.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|s| s.trim().parse::<u64>().ok());
@@ -967,7 +982,18 @@ async fn fetch_claude(dir: &Path) -> Value {
             "available": false, "error": "Claude Code needs to sign in again for this account",
             "detail": format!("HTTP {status}"), "reauth_required": true, "reauth_evidence": "measured_403",
         }),
-        _ => json!({ "available": false, "error": NOT_YET, "detail": format!("HTTP {status}: {}", gist(&body, 200)) }),
+        _ => {
+            let mut out = json!({ "available": false, "error": NOT_YET, "detail": format!("HTTP {status}: {}", gist(&body, 200)) });
+            merge(&mut out, claude_failure::status_failure(status, &body));
+            out
+        }
+    }
+}
+
+/// Add `extra`'s fields to the probe result `out`.
+fn merge(out: &mut Value, extra: Value) {
+    if let (Some(o), Value::Object(e)) = (out.as_object_mut(), extra) {
+        o.extend(e);
     }
 }
 
