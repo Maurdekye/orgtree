@@ -295,6 +295,15 @@ pub(super) async fn registration_remove(org: &Arc<OrgHandle>, tx: &Transaction<'
     Ok(json!({ "node": n.name, "removed": dog, "kind": kind }))
 }
 
+/// Retire, dissolve and delete of projects clear the user's own registrations
+/// on them in the same transaction (`user_regs::clear`; USER 2026-11-09
+/// 20:30Z "Clean up on retire"). `ids` are the archived nodes; the lines
+/// behind an ended lease are granted after commit.
+#[logged]
+pub(super) async fn clear_on_departing(_org: &Arc<OrgHandle>, _tx: &Transaction<'_>, _actor: &Actor, _ids: &[i64], _fx: &mut Effects) -> Result<()> {
+    Ok(()) // stub (red commit)
+}
+
 // ------------------------------------------------------------ the mail queue
 
 /// Join a project's mail queue as the user (`op user_queue_join`; the
@@ -407,6 +416,10 @@ pub(super) async fn job_ack(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &
 #[cfg(test)]
 #[path = "user_regs/slot_limit_tests.rs"]
 mod slot_limit_tests;
+
+#[cfg(test)]
+#[path = "user_regs/retire_tests.rs"]
+mod retire_tests;
 
 #[cfg(test)]
 mod tests {

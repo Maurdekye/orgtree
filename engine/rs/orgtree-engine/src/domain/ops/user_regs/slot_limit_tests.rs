@@ -3,7 +3,7 @@ use super::*;
 use tokio_postgres::NoTls;
 
 #[nolog]
-async fn fixture(cap: i64) -> (Arc<Engine>, Arc<OrgHandle>, i64, i64) {
+pub(super) async fn fixture(cap: i64) -> (Arc<Engine>, Arc<OrgHandle>, i64, i64) {
     let url=std::env::var("ORGTREE_SLOT_LIMIT_TEST_URL").expect("explicit synthetic fixture URL");
     let cfg:tokio_postgres::Config=url.parse().unwrap();
     assert_eq!(cfg.get_dbname(),Some("slot_limit_fixture"));

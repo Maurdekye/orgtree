@@ -73,6 +73,42 @@ pub async fn fire_dog(engine: &Arc<Engine>, org_id: i64, row: i64, prefix: &str,
     Ok(once)
 }
 
+/// What `clear` took away, per project.
+#[derive(Debug, Default)]
+pub struct Cleared {
+    /// project id -> (user dogs removed, user slot leases ended)
+    pub by_project: std::collections::BTreeMap<i64, (usize, usize)>,
+    /// every removed dog: (uid, kind, org id, project id), for the log
+    pub dogs: Vec<(String, String, i64, i64)>,
+}
+
+impl Cleared {
+    pub fn is_empty(&self) -> bool {
+        self.by_project.is_empty()
+    }
+}
+
+/// Remove the user's own registrations (listeners, watches, queue places, slot
+/// requests and held slot leases) on projects that are no longer live
+/// (docket switchboard-clicking-the-user-s-own-watchdog-chi, USER 2026-11-09
+/// 20:30Z "Clean up on retire"). Retire, dissolve and delete call it in the
+/// same transaction as the archive, with `only` the departing project ids;
+/// the engine-start sweep calls it with no filter, so registrations left
+/// behind by older versions go too. Idempotent. Restoring a project never
+/// brings them back (they are removed, not paused). Agent- and project-owned
+/// dogs are not touched. A held lease is ended as the user's own release
+/// ends it; the caller grants the line behind it after commit.
+#[logged]
+pub async fn clear(_tx: &impl tokio_postgres::GenericClient, _org: Option<i64>, _only: Option<&[i64]>, _why: &str) -> Result<Cleared> {
+    Ok(Cleared::default()) // stub (red commit)
+}
+
+/// Engine start: clear what retired, dissolved or deleted projects left
+/// behind. Safe on every start (nothing left means nothing done); each
+/// removed dog id is logged, nothing else about it.
+#[logged]
+pub async fn startup_sweep(_engine: &Arc<Engine>) {} // stub (red commit)
+
 #[cfg(test)]
 mod tests {
     use super::*;
