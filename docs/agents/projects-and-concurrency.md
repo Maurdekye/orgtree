@@ -1028,11 +1028,6 @@ Original section: AGENTS.md — working on Orgtree. Source lines 765–813.
   has `claimed.by_user` true and `by_id` null, is never released by
   `release_stale` or taken back, and stays held after `user_queue_leave` until
   `user_job_ack` (which keeps the user's reply mail as the completion record);
-  retire, dissolve and delete of a project remove the user's own registrations on it in the same
-  transaction (`ops::user_regs::clear_on_departing` -> `domain::user_regs::clear`: dogs set
-  removed, a held lease ended, nothing granted behind it; event `user_registrations_cleared`),
-  and `user_regs::startup_sweep` (before the watchdog runtime starts) clears leftovers on projects
-  that are not live; a restored project does not get them back (USER 2026-11-09 20:30Z);
   `queue.job` on a mail entry (`feed/compute.rs`) drives the inbox's
   acknowledge pane (`canvas/jobackpane.tsx`, `jobacks.ts`). Migration 0048's holder-first
   indexes (`slot_leases_active_holder`, `mail_active_claim_holder`) are not unique and
@@ -1048,6 +1043,14 @@ Original section: AGENTS.md — working on Orgtree. Source lines 765–813.
   `project-user-{slots,listeners,queue}.mjs`,
   `user{mention,slots,listeners,mailqueue,jobs,links}.test.tsx`; 2026-10-20]
 <!-- /preserved:e-6fc02399a07ff81a -->
+
+**Current (4.5.10): the user's registrations leave with their project.** Retire, dissolve and delete of
+a project remove the user's own registrations on it in the same transaction
+(`ops::user_regs::clear_on_departing` -> `domain::user_regs::clear`: dogs set removed, a held lease
+ended, nothing granted behind it; event `user_registrations_cleared`), and `user_regs::startup_sweep`
+(before the watchdog runtime starts) clears leftovers on projects that are not live. A restored
+project does not get them back (USER 2026-11-09 20:30Z, docket
+switchboard-clicking-the-user-s-own-watchdog-chi).
 
 <a id="e-2d03829c2d345c95"></a>
 
