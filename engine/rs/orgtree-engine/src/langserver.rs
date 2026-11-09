@@ -39,7 +39,9 @@ pub const KEY_ENV: &str = "ORGTREE_LANGSERVER_KEY";
 /// insist on sending one; local servers ignore it).
 pub const NO_KEY: &str = "orgtree-local";
 /// A model's window when neither the server nor the user names one.
-pub const DEFAULT_CONTEXT: i64 = 65_536;
+pub const DEFAULT_CONTEXT: i64 = 1_000_000;
+
+pub mod refresh;
 
 #[cfg(test)]
 #[path = "langserver/refresh_tests.rs"]
@@ -507,7 +509,7 @@ pub async fn add_server(engine: &Engine, b: NewServer) -> Result<Value> {
     });
     let mut models = Map::new();
     for (mid, ctx) in &b.models {
-        add_model(&id, &mut models, mid, *ctx, true);
+        add_model(&id, &mut models, mid, *ctx, true)?;
     }
     let rec = json!({
         "id": id, "preset": p.id, "label": label, "address": address, "harness": b.harness,
@@ -526,10 +528,13 @@ pub async fn add_server(engine: &Engine, b: NewServer) -> Result<Value> {
 /// Add one model to a server's model map, under a tier name no other model
 /// of that server holds.
 #[logged]
-fn add_model(server: &str, models: &mut Map<String, Value>, id: &str, context: i64, offered: bool) {
+fn add_model(server: &str, models: &mut Map<String, Value>, id: &str, context: i64, offered: bool) -> Result<()> {
+    if !(0..=10_000_000).contains(&context) {
+        crate::refuse!(BadRequest, "a context window is a token count");
+    }
     let id = id.trim();
     if id.is_empty() || models.contains_key(id) {
-        return;
+        return Ok(());
     }
     let base = tier_name(server, id);
     let taken = |t: &str| models.values().any(|m| m["tier"].as_str() == Some(t));
@@ -539,6 +544,7 @@ fn add_model(server: &str, models: &mut Map<String, Value>, id: &str, context: i
         json!({ "id": id, "tier": tier, "label": id, "offered": offered,
                 "context": if context > 0 { json!(context) } else { Value::Null } }),
     );
+    Ok(())
 }
 
 /// What the edit form may change. The server's preset (kind) stays as created.
@@ -658,7 +664,7 @@ pub fn patch_server_with(engine: &Engine, id: &str, patch: ServerPatch, installe
         let mut mp = Map::new();
         for (mid, offered, ctx, label) in patch.models {
             if !models.contains_key(&mid) {
-                add_model(id, &mut models, &mid, ctx.unwrap_or(0), offered.unwrap_or(true));
+                add_model(id, &mut models, &mid, ctx.unwrap_or(0), offered.unwrap_or(true))?;
                 mp.insert(mid.clone(), models[&mid].clone());
                 continue;
             }
@@ -684,10 +690,22 @@ pub fn patch_server_with(engine: &Engine, id: &str, patch: ServerPatch, installe
 
 #[logged]
 pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Result<Value> {
+    Ok(update_server_if(engine, id, patch, &[]).await?.unwrap_or(Value::Null))
+}
+
+/// Guarded refresh upgrades use the ordinary model patch and atomic settings
+/// merge. With no expectations, the existing user update behavior is unchanged.
+#[nolog]
+pub async fn update_server_if(engine: &Engine, id: &str, patch: ServerPatch, expected: &[(String, Value)]) -> Result<Option<Value>> {
+    if !crate::settings::matches_expected(&engine.settings.get(), expected) {
+        return Ok(None);
+    }
+    let evict_probe = patch.address.is_some() || patch.base_path.is_some();
     let p = patch_server_with(engine, id, patch, &|h| crate::harnesses::installed(engine, h))?;
     let mut client = engine.db.get().await?;
-    let doc = engine.settings.merge(&mut client, json!({ "language_servers": { "servers": { id: p } } })).await?;
-    Ok(doc.pointer("/language_servers/servers").and_then(|m| m.get(id)).cloned().unwrap_or(Value::Null))
+    let doc = engine.settings.merge_if(&mut client, json!({ "language_servers": { "servers": { id: p } } }), expected).await?;
+    if doc.is_some() && evict_probe { engine.langserver_probes.evict(id); }
+    Ok(doc.map(|doc| doc.pointer("/language_servers/servers").and_then(|m| m.get(id)).cloned().unwrap_or(Value::Null)))
 }
 
 /// Replace or clear a server's key (`None` or blank clears it). Not logged:
@@ -697,6 +715,7 @@ pub async fn update_key(engine: &Engine, id: &str, key: Option<&str>) -> Result<
         crate::refuse!(NotFound, "no language model server {id}");
     }
     set_key(engine, id, key).await?;
+    engine.langserver_probes.evict(id);
     let set = key.map(|k| !k.trim().is_empty()).unwrap_or(false);
     let mut client = engine.db.get().await?;
     engine.settings.merge(&mut client, json!({ "language_servers": { "servers": { id: { "key_set": set } } } })).await?;
@@ -713,6 +732,7 @@ pub async fn remove_server(engine: &Engine, id: &str) -> Result<()> {
     set_key(engine, id, None).await?;
     let mut client = engine.db.get().await?;
     engine.settings.merge(&mut client, json!({ "language_servers": { "servers": { id: Value::Null } } })).await?;
+    engine.langserver_probes.evict(id);
     prune_catalogs(&engine.cfg.path("profiles").join(CODEX_HOME_DIR).join("catalogs"), id, 0);
     Ok(())
 }
@@ -736,6 +756,9 @@ pub async fn doc(engine: &Engine) -> Value {
             s["following_seats"] = json!(counts.following);
             s["pinned_seats"] = json!(counts.pinned);
             s["pinned_harnesses"] = json!(counts.pinned_harnesses);
+            if let Some(probe) = s["id"].as_str().and_then(|id| engine.langserver_probes.get(id)) {
+                s["last_probe"] = probe;
+            }
             if let Some(models) = s["models"].as_object_mut() {
                 for m in models.values_mut() {
                     let ctx = context_of(m);
@@ -862,7 +885,7 @@ where
         .and_then(|ps| ps["models"].as_array().cloned())
         .unwrap_or_default()
         .iter()
-        .filter_map(|m| Some((m["name"].as_str()?.to_string(), m["context_length"].as_i64()?)))
+        .filter_map(|m| Some((m["name"].as_str()?.to_string(), refresh::valid_context(&m["context_length"])?)))
         .collect();
     let named: Vec<(String, Value)> = tags["models"]
         .as_array()
@@ -892,7 +915,7 @@ where
         let name = name.as_str();
         let trained = show["model_info"]
             .as_object()
-            .and_then(|info| info.iter().find(|(k, _)| k.ends_with(".context_length")).and_then(|(_, v)| v.as_i64()));
+            .and_then(|info| info.iter().filter(|(k, _)| k.ends_with(".context_length")).find_map(|(_, v)| refresh::valid_context(v)));
         let caps: Vec<Value> = show["capabilities"].as_array().cloned().unwrap_or_default();
         // an embedding model cannot drive an agent
         if !caps.is_empty() && !caps.iter().any(|c| c == "completion") {
@@ -903,7 +926,7 @@ where
             "id": name, "size": m["size"], "family": m["details"]["family"], "parameters": m["details"]["parameter_size"],
             "quantization": m["details"]["quantization_level"], "max_context": trained, "loaded_context": loaded,
             // the window its Modelfile sets: what every request that names no window gets
-            "configured_context": show["parameters"].as_str().and_then(num_ctx_of),
+            "configured_context": show["parameters"].as_str().and_then(num_ctx_of).filter(|n| (1..=10_000_000).contains(n)),
             "tools": caps.iter().any(|c| c == "tools"), "capabilities": caps,
         }));
     }
@@ -1078,10 +1101,10 @@ where
         let Some(id) = m["key"].as_str().or_else(|| m["id"].as_str()) else { continue };
         let loaded = m["loaded_instances"]
             .as_array()
-            .and_then(|a| a.iter().filter_map(|i| i["config"]["context_length"].as_i64().or_else(|| i["context_length"].as_i64())).max())
-            .or_else(|| if m["state"].as_str() == Some("loaded") { m["loaded_context_length"].as_i64() } else { None });
+            .and_then(|a| a.iter().filter_map(|i| refresh::valid_context(&i["config"]["context_length"]).or_else(|| refresh::valid_context(&i["context_length"]))).max())
+            .or_else(|| if m["state"].as_str() == Some("loaded") { refresh::valid_context(&m["loaded_context_length"]) } else { None });
         models.push(json!({
-            "id": id, "max_context": m["max_context_length"], "loaded_context": loaded,
+            "id": id, "max_context": refresh::valid_context(&m["max_context_length"]), "loaded_context": loaded,
             "quantization": m["quantization"].get("name").cloned().unwrap_or_else(|| m["quantization"].clone()),
             "tools": m["capabilities"].as_array().map(|c| c.iter().any(|x| x == "tool_use")).or_else(|| m["trained_for_tool_use"].as_bool()),
         }));
@@ -1097,12 +1120,12 @@ where
     let list = fetch_json(get(format!("{address}/v1/models"))).await?;
     // the running window and the slots of a single-model server
     let props = fetch_json(get(format!("{address}/props"))).await.unwrap_or(Value::Null);
-    let n_ctx = props["default_generation_settings"]["n_ctx"].as_i64().or_else(|| props["n_ctx"].as_i64());
+    let n_ctx = refresh::valid_context(&props["default_generation_settings"]["n_ctx"]).or_else(|| refresh::valid_context(&props["n_ctx"]));
     let slots = props["total_slots"].as_i64();
     let mut models = Vec::new();
     for m in list["data"].as_array().cloned().unwrap_or_default() {
         let Some(id) = m["id"].as_str() else { continue };
-        models.push(json!({ "id": id, "max_context": m["meta"]["n_ctx_train"], "loaded_context": n_ctx }));
+        models.push(json!({ "id": id, "max_context": refresh::valid_context(&m["meta"]["n_ctx_train"]), "loaded_context": n_ctx }));
     }
     Ok(json!({ "version": props["build_info"], "models": models, "slots": slots,
                "note": "llama-server runs with the window set by -c; with several slots (-np) each slot may get only a share of it." }))
@@ -1116,8 +1139,8 @@ where
     let mut models = Vec::new();
     for m in list["data"].as_array().cloned().unwrap_or_default() {
         let Some(id) = m["id"].as_str() else { continue };
-        models.push(json!({ "id": id, "max_context": m["max_model_len"].as_i64().or_else(|| m["context_length"].as_i64()),
-                            "loaded_context": m["max_model_len"] }));
+        models.push(json!({ "id": id, "max_context": refresh::valid_context(&m["max_model_len"]).or_else(|| refresh::valid_context(&m["context_length"])),
+                            "loaded_context": refresh::valid_context(&m["max_model_len"]) }));
     }
     Ok(json!({ "version": Value::Null, "models": models }))
 }

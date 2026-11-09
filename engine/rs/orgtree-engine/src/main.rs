@@ -271,6 +271,7 @@ async fn run_with_cluster(
         app_instructions: app_instructions::AppInstructions::new(app_doc),
         accounts: accounts::Accounts::default(),
         providers: providers::Providers::default(),
+        langserver_probes: Default::default(),
         hub: mailhub::MailHub::default(),
         phone: phone::Phone::default(),
         dogs: runtime::watchdogs::Registry::default(),
@@ -405,6 +406,7 @@ async fn run_with_cluster(
     engine.live_feed.apply(&engine).await;
     runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));
     tracing::info!(port, "engine ready");
+    langserver::refresh::start(&engine);
     if cfg.standalone {
         axum::serve(client_tokens::transport::ClientListener(listener),
                     app.into_make_service_with_connect_info::<client_tokens::transport::ClientInfo>())

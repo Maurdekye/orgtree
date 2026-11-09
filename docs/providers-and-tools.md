@@ -120,6 +120,12 @@ Output settings depend on the harness. Orgtree configures an 8,192-token generat
 
 If setup fails, use the server card's **refresh** button to check its answer and reported windows. Check the address, actual listening port and API style; **401/403** indicates an API-key problem. An unavailable harness needs its CLI installed on the Orgtree machine. If a model is absent from hiring, check that it is offered, that both app switches are on, and that the org allows the server. A successful model-list query establishes discovery; try one small agent task to check the model's tool-call behavior. For slow Ollama model loading, its preset notes describe `OLLAMA_LOAD_TIMEOUT=30m` and checking the GPU backend in Ollama's own log.
 
+Model lists refresh once in the background, about 30 seconds after engine startup, for each enabled saved server. The last successful list stays in memory for the settings card; opening the card and clicking its refresh arrow still ask the server. Offline servers keep their last successful list without a background popup. New models still need to be offered by you, and missing models are not automatically removed or withdrawn.
+
+Removing a server or changing its address, base path or key clears its cached list. An empty response keeps an existing non-empty cached list; the manual check still shows the server's response.
+
+Initial context sizes use the server's configured window, then loaded window, then trained maximum, without a 65,536 cap. Valid reports are integer token counts from 1 to 10,000,000; with no valid report, Orgtree assumes **1,000,000 tokens**, including for Ollama. Successful saved-server probes upgrade an old saved size of exactly 65,536 to that reported size or default. Other saved sizes are kept, and an Ollama 64K variant that reports its configured 65,536 stays at 65,536. This changes what agents are told; it does not enlarge the server's actual window. A newer edit or server removal takes precedence over the background upgrade.
+
 ## Add MCP tools
 
 Configure an external MCP server in an installed harness's own user configuration, then use the shared **Refresh** in Orgtree. Orgtree discovers portable definitions from Claude, Codex, Antigravity, Muse and OpenCode, plus applicable recorded installed Claude plugins. It reads configuration; discovery does not execute a server, sign in or edit the original files.

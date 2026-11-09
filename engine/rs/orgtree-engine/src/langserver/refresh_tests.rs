@@ -6,7 +6,7 @@ fn lsrefresh_default_context_is_one_million() {
     assert_eq!(context_of(&json!({"context": 70_000})), 70_000);
 }
 
-async fn mock_models(data: Value) -> (String, tokio::task::JoinHandle<()>) {
+pub(super) async fn mock_models(data: Value) -> (String, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = format!("http://{}", listener.local_addr().unwrap());
     let app = axum::Router::new().route("/v1/models", axum::routing::get(move || {

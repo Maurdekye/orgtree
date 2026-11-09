@@ -12,6 +12,11 @@ use serde_json::{json, Map, Value};
 
 pub const KEY: &str = "app_settings";
 
+#[nolog]
+pub fn matches_expected(doc: &Value, expected: &[(String, Value)]) -> bool {
+    expected.iter().all(|(path, value)| doc.pointer(path).unwrap_or(&Value::Null) == value)
+}
+
 pub struct AppSettings {
     snapshot: ArcSwap<Value>,
 }
@@ -43,6 +48,12 @@ impl AppSettings {
     /// Deep-merge `patch` into the stored document (null removes a key) under
     /// the document's own row lock, and publish the result.
     pub async fn merge(&self, client: &mut tokio_postgres::Client, patch: Value) -> Result<Arc<Value>> {
+        Ok(self.merge_if(client, patch, &[]).await?.expect("unconditional settings merge"))
+    }
+
+    /// Compare under the same row lock as the merge. Existing writers use no
+    /// expectations; background metadata upgrades must not overwrite newer edits.
+    pub async fn merge_if(&self, client: &mut tokio_postgres::Client, patch: Value, expected: &[(String, Value)]) -> Result<Option<Arc<Value>>> {
         let tx = client.transaction().await?;
         tx.execute(
             "INSERT INTO ot.kv (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING",
@@ -51,13 +62,18 @@ impl AppSettings {
         .await?;
         let row = tx.query_one("SELECT value FROM ot.kv WHERE key = $1 FOR UPDATE", &[&KEY]).await?;
         let mut next: Value = row.get(0);
+        if !matches_expected(&next, expected) {
+            tx.commit().await?;
+            self.snapshot.store(Arc::new(next));
+            return Ok(None);
+        }
         deep_merge(&mut next, &patch);
         tx.execute("UPDATE ot.kv SET value = $2, updated_at = now() WHERE key = $1", &[&KEY, &next])
             .await?;
         tx.commit().await?;
         let arc = Arc::new(next);
         self.snapshot.store(arc.clone());
-        Ok(arc)
+        Ok(Some(arc))
     }
 
     // ---- typed readers with the documented defaults ----

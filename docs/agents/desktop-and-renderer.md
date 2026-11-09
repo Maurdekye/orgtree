@@ -1,5 +1,34 @@
 # Desktop and renderer
 
+## Language model server discovery and windows (2026-11-09, 4.5.10)
+
+One background task starts a sequential enabled-server probe pass 30 seconds
+after the engine-ready boundary. Stored-server HTTP probes share its result
+handler; successful lists alone enter the engine's in-memory cache and appear
+as `last_probe` in the settings doc. Cards seed `check` from that result while
+retaining their mount/arrow probes and existing browser `found` behavior.
+Discovery never offers, removes or withdraws models. Failed probes keep the
+last successful entry and emit one key-free warning per server.
+Endpoint/key edits and removal evict that server's cache and invalidate old
+in-flight results. An empty success retains a prior non-empty cached list with
+one warning, without changing what the HTTP probe returns.
+
+Rust `langserver::refresh::start_window` and renderer `lsmodels::startWindow`
+share fixture rows: valid configured > loaded > trained maximum > 1,000,000,
+with integer reports in 1..=10,000,000 and no 65,536 cap. Every preset, including
+Ollama, follows this rule. A successful stored-server probe upgrades only listed
+saved models still at exactly 65,536 through the ordinary patch/merge path,
+guarded atomically against newer context edits and endpoint changes/removal.
+Configured Ollama 64K variants keep 65,536. Cache success survives an upgrade
+failure; one warning per failed model leaves it for the next successful probe.
+MIN_CONTEXT, VARIANT_CONTEXT, mismatch/4K warnings, seat pricing and the
+unrelated OpenCode route fallback are unchanged. Add/update context 0 still
+means null; explicit negative or >10M values are refused.
+
+[decided: user 2026-11-09, all servers; coordinator phase-2 decisions;
+verified: `langserver/{refresh,refresh_unit_tests}.rs`, `settings.rs`,
+`canvas/langserver.tsx`, `canvas/lsmodels.ts`, shared `tests/fixtures/langserver-context.json`]
+
 ## UX symmetry (2026-10-29)
 
 USER 2026-10-29 12:50:22Z mb6da9f3ee862, verbatim: "in my eyes, the perfect ux for a piece of software is highly symmetrical, like a high-order group. it contains lots of symmetries: lots of throughlines, common ui elements, common ui patterns, common icon and link types, common panel structures, common ways of presenting information, choices, etc. the more symmetries a program contains, the closer to "perfect" it is. a completely perfect ux would be something akin to a perfect crystal: perfectly symmetrical along every conceivable axis of interaction. when i design software, i aim to optimize for this maximal crystalline symmetry in the ux. orgtree follows this design principle."

@@ -252,16 +252,7 @@ pub async fn ollama_variant(State(e): State<Arc<Engine>>, Json(b): Json<VariantB
 pub async fn probe(State(e): State<Arc<Engine>>, Json(b): Json<ProbeBody>) -> ApiResult<Json<Value>> {
     if let Some(id) = b.server.as_deref() {
         let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language model server {id}"))) };
-        let key = langserver::key(&e, id).await;
-        let v = langserver::probe(
-            s["preset"].as_str().unwrap_or("custom"),
-            s["address"].as_str().unwrap_or(""),
-            key.as_deref(),
-            s["harness"].as_str().unwrap_or("claude-code"),
-            s["base_path"].as_str(),
-            &b.only,
-        )
-        .await;
+        let v = langserver::refresh::stored_probe(&e, &s, &b.only).await;
         return Ok(Json(v));
     }
     let v = langserver::probe(
