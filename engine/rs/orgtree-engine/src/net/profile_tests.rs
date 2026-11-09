@@ -42,9 +42,22 @@ async fn hub(status: &'static str) -> (String, tokio::sync::mpsc::UnboundedRecei
     tokio::spawn(async move {
         loop {
             let Ok((mut socket, _)) = listener.accept().await else { return };
-            let mut buf = vec![0u8; 8192];
-            let n = socket.read(&mut buf).await.unwrap_or(0);
-            let _ = tx.send(String::from_utf8_lossy(&buf[..n]).to_string());
+            // headers and body can arrive in separate reads: read until the body is complete
+            let mut got = Vec::new();
+            loop {
+                let mut buf = vec![0u8; 8192];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                got.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&got).to_string();
+                let Some((head, body)) = text.split_once("
+
+") else {
+                    if n == 0 { break } else { continue }
+                };
+                let want = head.to_ascii_lowercase().split("content-length:").nth(1).and_then(|v| v.trim().split_whitespace().next().and_then(|v| v.parse::<usize>().ok())).unwrap_or(0);
+                if body.len() >= want || n == 0 { break }
+            }
+            let _ = tx.send(String::from_utf8_lossy(&got).to_string());
             let body = "{\"ok\":true}";
             let resp = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
             let _ = socket.write_all(resp.as_bytes()).await;
