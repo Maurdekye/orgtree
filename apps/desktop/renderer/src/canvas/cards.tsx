@@ -49,7 +49,7 @@ import {
 } from './desk'
 import { EffortLevelBadge, QueuedEffortBadge } from './effort'
 import { liveTeamCount } from './team'
-import { useFastMode } from './fastmode'
+import { seatVersion, useFastMode } from './fastmode'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -1641,7 +1641,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
   const showShortcuts = useAgentShortcuts()
-  const supportsFast = useFastMode(node.tier, node.scope?.model_version)
+  const supportsFast = useFastMode(node.tier, seatVersion(node.tier, node.scope?.model_version))
   // Active speed, never a queued preference: unknown running evidence is silent.
   const activeFast = supportsFast && (node.busy
     ? node.fast_mode_current === true : node.scope?.fast_mode === true)

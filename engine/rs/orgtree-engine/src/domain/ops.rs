@@ -599,9 +599,18 @@ fn pinned(scope: &Value) -> Option<&str> {
 
 /// A seat that moves INTO a tier whose new hires get an explicit version (Fable 5.2) behaves like a new hire and is
 /// pinned to it; a move that leaves the tier, or stays in it, keeps the stored value (an absent one stays absent).
-/// (stub in the red commit)
 #[nolog]
-fn scope_on_switch(_old_tier: &str, _new_tier: &str, _scope: &mut Value) {}
+fn scope_on_switch(old_tier: &str, new_tier: &str, scope: &mut Value) {
+    if old_tier == new_tier {
+        return;
+    }
+    if let Some(version) = catalog::tier(new_tier).and_then(catalog::new_hire_version) {
+        if !scope.is_object() {
+            *scope = json!({});
+        }
+        scope["model_version"] = json!(version);
+    }
+}
 
 /// Whether an op places or tunes a Muse seat: its tier, or the tier of the
 /// node it names. Its logins are read before the transaction (bounded).
@@ -3591,6 +3600,13 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             &[&n.id, &tier, &seat, &account, &clear],
         )
         .await?;
+    }
+    // a move INTO a tier whose new hires get an explicit version (Fable 5.2) pins it like a new hire; a gear save
+    // that names a version of its own lands after this and wins
+    let mut next_scope = n.scope.clone();
+    scope_on_switch(&n.tier, &tier, &mut next_scope);
+    if next_scope != n.scope {
+        tx.execute("UPDATE ot.agents SET scope = $2 WHERE id = $1", &[&n.id, &next_scope]).await?;
     }
     if catalog::antigravity_claude(&tier) {
         tx.execute("UPDATE ot.agents SET context_window = NULL, scope = scope - 'model_version' WHERE id = $1", &[&n.id]).await?;

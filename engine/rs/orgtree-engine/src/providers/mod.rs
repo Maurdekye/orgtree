@@ -874,6 +874,8 @@ fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
                 "model": catalog::new_hire_model(t), "letter": t.letter,
                 "display_name": catalog::new_hire_display_name(t),
                 "display_versions": display_versions,
+                // what blank means on a seat that already exists, where it differs from what a new hire gets
+                "legacy_version": catalog::legacy_version(t),
             })
         })
         .collect()

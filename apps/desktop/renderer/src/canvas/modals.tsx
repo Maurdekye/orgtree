@@ -24,7 +24,8 @@ import { lineageCount } from '../archived'
 // below; moving it out would have had to export all three.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { FAST_MODE_HELP, useFastMode } from './fastmode'
+import { FAST_MODE_HELP, seatVersion, useFastMode } from './fastmode'
+import { blankVersionLabel, versionScopePayload } from './modelversion'
 import { FastHireDefaults } from './fastdefaults'
 import { NativeReplacementToggle } from './nativepermissions'
 import { ORGTREE_GROUPS, PERMISSION_OPTIONS, SESSION_OPTIONS, TOOL_LABELS, VIS_OPTIONS } from './settinglabels'
@@ -1508,7 +1509,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const modelVersion = val('modelVersion', scope.model_version ?? '')
   const setModelVersion = set<string>('modelVersion', modelVersion)
   const versions = MODEL_VERSIONS[model] ?? []
-  const supportsFastMode = useFastMode(model, versions.includes(modelVersion) ? modelVersion : undefined)
+  // a seat that exists with no pin runs its tier's legacy default (Fable: 5.1), which decides fast mode
+  const supportsFastMode = useFastMode(model, versions.includes(modelVersion) ? modelVersion : model === node.tier ? seatVersion(model) : undefined)
   const fastMode = val('fastMode', scope.fast_mode === true)
   const setFastMode = set<boolean>('fastMode', fastMode)
   // a Muse seat's levels and model are the login it runs on, the pinned
@@ -1595,8 +1597,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     auto_cheap_compact: accMode === '' ? {}
       : { enabled: accMode === 'on',
           occ: (+accOcc || 25) / 100 },
-    ...('modelVersion' in edit || (modelRequested && model !== node.tier)
-      ? { model_version: versions.includes(modelVersion) ? modelVersion : '' } : {}),
+    ...versionScopePayload({ tier: model, switching: modelRequested && model !== node.tier, edited: 'modelVersion' in edit, version: modelVersion }),
     ...fallbackPayload }
   const runSave = () => {
     if (tree.undo_history) {
@@ -1872,7 +1873,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           <>
             <SetRow label="Model version" hint="Choose a specific version or use the latest."><select value={versions.includes(modelVersion) ? modelVersion : ''}
               onChange={(e) => setModelVersion(e.target.value)}>
-              <option value="">{`latest (${versions[0]})`}</option>
+              <option value="">{blankVersionLabel(model, model !== node.tier)}</option>
               {versions.map((v) => (
                 <option key={v} value={v}>{`${tierLabel(model)} ${v}`}</option>
               ))}

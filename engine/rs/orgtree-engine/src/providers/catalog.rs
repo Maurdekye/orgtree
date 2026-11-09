@@ -239,10 +239,11 @@ pub fn new_hire_model(t: &Tier) -> &'static str {
 }
 
 /// The version a seat that EXISTS with no saved version still means, when that differs from what a new hire gets
-/// (Fable: "5.1"); `None` when blank and the latest are the same. (stub in the red commit)
+/// (Fable: "5.1"); `None` when blank and the latest are the same.
 #[nolog]
-pub fn legacy_version(_t: &Tier) -> Option<&'static str> {
-    None
+pub fn legacy_version(t: &Tier) -> Option<&'static str> {
+    new_hire_version(t)?;
+    t.versions.iter().find(|(_, model)| *model == t.model).map(|(version, _)| *version)
 }
 
 /// The user-facing name of what a new hire of the tier gets.

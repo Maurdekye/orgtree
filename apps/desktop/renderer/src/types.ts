@@ -1623,6 +1623,8 @@ export interface ProviderTier {
   display_name?: string
   /** Catalog display names indexed by the selected model version. */
   display_versions?: Record<string, string>
+  /** What a blank model version means on a seat that already exists, when that is not the latest (Fable: "5.1"). */
+  legacy_version?: string | null
   /** the OpenRouter lane (2026-09-02): its tiers are minted at runtime from
    *  the user's favorites, so the payload carries what a static CSS class
    *  would otherwise hold — the canonical chip color — plus the catalog
