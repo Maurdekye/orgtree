@@ -285,13 +285,6 @@ pub(crate) fn spends(provider: &str, tier: &str, w: &Value) -> bool {
 #[nolog]
 pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
-    // a model server that reports usage windows (its own lane, not an account's):
-    // a window at 100% is evidence like any other provider's
-    if provider == crate::providers::catalog::LANGSERVER {
-        let (srv, _) = crate::langserver::route_of(engine, tier)?;
-        let v = engine.usage.peek(&format!("langserver:{}", srv["id"].as_str()?), provider);
-        return v["limits"].as_array()?.iter().find_map(|w| spent_window(provider, w));
-    }
     let v = reading_of(engine, provider, account)?;
     v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| spent_window(provider, w))
 }
