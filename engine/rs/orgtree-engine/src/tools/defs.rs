@@ -186,9 +186,9 @@ fn deferred(name: &str) -> bool {
 #[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     let requirements = match name {
-        "orgtree_hire" => "Required: name, tier, grant, charter, index. A new hire (the default) ALSO requires add_dirs, org_visibility and tools{bash,web,edit,subagents,mcp} (every tools key). A superior insertion (hire_type=superior, target = the node it goes above) inherits the target's scope: add_dirs, tools, org_visibility and permission_mode are NOT allowed with it.",
-        "orgtree_rehire" => "Required: node. Other fields retain saved values when omitted. index is NOT allowed (a rehire keeps the node's place; use reorder after). With a superior insertion (hire_type=superior) add_dirs, tools, org_visibility and permission_mode are NOT allowed (inherited from the target).",
-        "orgtree_staff" => "Creating an item: title and objective are required; updating one: slug. Hiring a new seat adds name, tier, grant, charter, index and (new hire) add_dirs, org_visibility, tools{bash,web,edit,subagents,mcp}; restoring a seat (node, or staff_mode=rehire) requires node and index is NOT allowed. With a superior insertion (hire_type=superior) add_dirs, tools, org_visibility and permission_mode are NOT allowed (inherited from the target).",
+        "orgtree_hire" => "Required: name, tier, grant, charter, index; a new hire also add_dirs, org_visibility, tools{bash,web,edit,subagents,mcp}. Superior insertion (hire_type=superior): add_dirs, tools, org_visibility, permission_mode NOT allowed.",
+        "orgtree_rehire" => "Required: node. Other fields retain saved values when omitted; index NOT allowed. Superior insertion (hire_type=superior): add_dirs, tools, org_visibility, permission_mode NOT allowed.",
+        "orgtree_staff" => "Required: create title+objective, update slug; new seat name,tier,grant,charter,index plus (new hire) add_dirs,org_visibility,tools{bash,web,edit,subagents,mcp}; restored seat node, index NOT allowed. Superior insertion (hire_type=superior): add_dirs, tools, org_visibility, permission_mode NOT allowed.",
         _ => "",
     };
     let description = if requirements.is_empty() { description.to_owned() } else { format!("{description}\n{requirements}") };
@@ -1394,17 +1394,17 @@ mod hire_contract_tests {
     #[test]
     fn the_conditional_hire_rules_are_in_the_card_text() {
         let cards = list();
-        let text = |n: &str| cards.iter().find(|c| c["name"] == n).unwrap()["description"].as_str().unwrap().to_string();
+        let text = |n: &str| cards.iter().find(|c| c["name"] == n).unwrap()["description"].as_str().unwrap().to_lowercase();
         let hire = text("orgtree_hire");
-        for needle in ["new hire", "superior insertion", "add_dirs", "org_visibility", "tools", "NOT allowed"] {
+        for needle in ["new hire", "superior insertion", "add_dirs", "org_visibility", "tools", "not allowed"] {
             assert!(hire.contains(needle), "orgtree_hire text lacks `{needle}`: {hire}");
         }
         let rehire = text("orgtree_rehire");
-        for needle in ["node", "index", "NOT allowed", "superior insertion"] {
+        for needle in ["node", "index", "not allowed", "superior insertion"] {
             assert!(rehire.contains(needle), "orgtree_rehire text lacks `{needle}`: {rehire}");
         }
         let staff = text("orgtree_staff");
-        for needle in ["title", "objective", "slug", "node", "index", "NOT allowed", "superior insertion", "add_dirs"] {
+        for needle in ["title", "objective", "slug", "node", "index", "not allowed", "superior insertion", "add_dirs"] {
             assert!(staff.contains(needle), "orgtree_staff text lacks `{needle}`: {staff}");
         }
         let schema = |n: &str| cards.iter().find(|c| c["name"] == n).unwrap()["inputSchema"].clone();
@@ -2188,6 +2188,13 @@ mod builder_stack_tests {
             if matches!(name, "orgtree_hire" | "orgtree_staff") {
                 want["inputSchema"]["properties"]["harness"]["description"] = serde_json::json!(
                     "OpenRouter and language model server tiers: pins this seat to the harness (on a server, one it can carry); omitted, it follows its key's or server's harness");
+            }
+            // USER 2026-11-09 ma7d2896dc898: these three cards lose the top-level allOf (newer Claude Code drops such a
+            // schema) and say their conditional rules in the text instead; nothing else about them changed.
+            if matches!(name, "orgtree_hire" | "orgtree_rehire" | "orgtree_staff") {
+                assert!(want["inputSchema"].as_object_mut().unwrap().remove("allOf").is_some(), "{name}: the snapshot had the allOf");
+                assert!(got["inputSchema"].get("allOf").is_none());
+                want["description"] = got["description"].clone();
             }
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
             *want=got.clone();
