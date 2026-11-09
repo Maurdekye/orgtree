@@ -33,7 +33,7 @@ export function watchdogGroups(dogs: Watchdog[], counts: Record<string, Watchdog
 }
 
 export function WatchdogCanvasCards({dogs,counts,org,onOpen,position,visible}: {
-  dogs:Watchdog[];counts?:Record<string,WatchdogCount>;org:string;onOpen:(id:string)=>void
+  dogs:Watchdog[];counts?:Record<string,WatchdogCount>;org:string;onOpen:(id:string,dog?:Watchdog)=>void
   position:(id:string)=>{x:number;y:number}|undefined
   visible:(owner:string,p:{x:number;y:number;w:number;h:number})=>boolean
 }) {
@@ -56,7 +56,7 @@ export function WatchdogCanvasCards({dogs,counts,org,onOpen,position,visible}: {
 
 export function WatchdogGroup({ owner, dogs, total, org, onOpen, className = 'desk-nav-chip', style, kept=false }: {
   owner: string; dogs: Watchdog[]; total: number; org?: string
-  onOpen: (id: string) => void; className?: string; style?: CSSProperties; kept?:boolean
+  onOpen: (id: string, dog?: Watchdog) => void; className?: string; style?: CSSProperties; kept?:boolean
 }) {
   const [open, setOpen] = useState(false)
   return <>
@@ -65,12 +65,12 @@ export function WatchdogGroup({ owner, dogs, total, org, onOpen, className = 'de
       aria-haspopup="dialog" aria-expanded={open} onPointerDown={e=>e.stopPropagation()}
       onClick={e=>{e.stopPropagation();setOpen(true)}}>{total} watchdogs</button>
     {open && <WatchdogList key={(org??'')+':'+owner} owner={owner} dogs={dogs} total={total} org={org} kept={kept}
-      onOpen={id=>{setOpen(false);onOpen(id)}} close={()=>setOpen(false)}/>}
+      onOpen={(id,dog)=>{setOpen(false);onOpen(id,dog)}} close={()=>setOpen(false)}/>}
   </>
 }
 
 function WatchdogList({owner,dogs,total,org,onOpen,close,kept}: {
-  owner:string;dogs:Watchdog[];total:number;org?:string;onOpen:(id:string)=>void;close:()=>void;kept:boolean
+  owner:string;dogs:Watchdog[];total:number;org?:string;onOpen:(id:string,dog?:Watchdog)=>void;close:()=>void;kept:boolean
 }) {
   useEsc(close)
   const [cursor,setCursor]=useState('0'),[back,setBack]=useState<string[]>([])

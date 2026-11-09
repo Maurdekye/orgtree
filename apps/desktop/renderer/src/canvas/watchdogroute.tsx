@@ -10,7 +10,7 @@ export interface DeskDogs {
   dogs: Watchdog[]
   counts?: Record<string, WatchdogCount>
   slotLeases?: SlotLease[]
-  open: (id: string) => void
+  open: (id: string, dog?: Watchdog) => void
 }
 const Ctx = createContext<DeskDogs | null>(null)
 export const DeskDogsProvider = Ctx.Provider

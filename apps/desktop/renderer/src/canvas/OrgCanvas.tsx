@@ -1149,9 +1149,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }, [openDogView])
   // a click on a watchdog chip (or its menu's Open): the user's own dogs have no detail dialog (no owning
   // agent), so they open the project surface that lists the registration; a gone one says so
-  const routeDogRef = useRef<(id: string, keepOpen: boolean) => void>(() => {})
-  routeDogRef.current = (id, keepOpen) => {
-    const w = (tree.watchdogs ?? []).find(x => x.id === id)
+  const routeDogRef = useRef<(id: string, keepOpen: boolean, dog?: Watchdog) => void>(() => {})
+  routeDogRef.current = (id, keepOpen, dog) => {
+    // the caller's own dog first (a paged list row is not in the tree's preview), then the tree's
+    const w = dog ?? (tree.watchdogs ?? []).find(x => x.id === id)
     if (!w && !isUserName(id.split('/')[0])) { toggleDog(id, keepOpen); return }
     const r = dogClick(w, p => mapRef.current.get(p)?.kind === 'project')
     if (r.to === 'dialog') toggleDog(id, keepOpen)
@@ -1160,7 +1161,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     else if (r.to === 'desk') openProjectDesk(r.project)
     else toast(['This watchdog is no longer available.'])
   }
-  const routeDog = useCallback((id: string, keepOpen = false) => routeDogRef.current(id, keepOpen), [])
+  const routeDog = useCallback((id: string, keepOpen = false, dog?: Watchdog) => routeDogRef.current(id, keepOpen, dog), [])
   // every list at once: a dismissed retiree closes its windows in all of
   // them, a rename moves its instances in all of them, and the tree
   // selection keeps every open instance's node
@@ -4396,7 +4397,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }, [openReader, openAgentDocket, openProjectSlots, openProjectListeners, openTeam, openInbox, toggleLineage, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
-  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], counts: tree.watchdog_counts, slotLeases: tree.slot_leases ?? [], open: routeDog }),
+  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], counts: tree.watchdog_counts, slotLeases: tree.slot_leases ?? [], open: (id, dog) => routeDog(id, false, dog) }),
     [slug, tree.watchdogs, tree.watchdog_counts, tree.slot_leases, routeDog])
 
   // ------------------------------------------------------ wires, one list
@@ -4972,7 +4973,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             count-dot and the sheet header carries the list. */}
         {!compact && lod !== 'mini' && <WatchdogCanvasCards dogs={tree.watchdogs ?? []} counts={tree.watchdog_counts} org={slug}
           position={id=>posOf('dog:'+id)} visible={(owner,p)=>!hidden.has(owner)&&intersectsViewport(p,visibleRect)}
-          onOpen={id=>routeDog(id)}/>}
+          onOpen={(id, dog) => routeDog(id, false, dog)}/>}
         {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
           <div className={'sq orginbox' + (lod === 'mini' ? ' orginbox-far' : '') + (dropId === INBOX ? ' drop' : '')}
             style={{
@@ -5366,9 +5367,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               {sheetDogs && myDogs.length > 0 && (
                 <div className="ms-doglist">
                   {myDogTotal > WATCHDOG_CARD_LIMIT ? <WatchdogGroup owner={sheetId} dogs={myDogs} total={myDogTotal} org={slug}
-                    onOpen={id=>{routeDog(id);setSheetDogs(false)}}/> : myDogs.map((w) => (
+                    onOpen={(id,dog)=>{routeDog(id,false,dog);setSheetDogs(false)}}/> : myDogs.map((w) => (
                     <WatchdogLink key={w.id} dog={w} org={slug} countdown
-                      onOpen={() => { routeDog(w.id); setSheetDogs(false) }}>
+                      onOpen={() => { routeDog(w.id, false, w); setSheetDogs(false) }}>
                       {w.name} · {w.once ? 'one-shot dog · ' : ''}
                       {w.spent ? 'departing' : w.state}
                     </WatchdogLink>

@@ -12,7 +12,7 @@ export interface WatchdogLinkProps {
   owner?: string
   name?: string
   org?: string
-  onOpen?: (id: string) => void
+  onOpen?: (id: string, dog?: Watchdog) => void
   className?: string
   children?: ReactNode
   countdown?: boolean
@@ -49,7 +49,7 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
     aria-disabled={gone?'true':undefined}
     onMouseDown={e=>{if(e.button!==0)e.stopPropagation()}}
     onPointerDown={e=>e.stopPropagation()}
-    onClick={e=>{e.stopPropagation();open?.(key)}}>
+    onClick={e=>{e.stopPropagation();open?.(key,dog)}}>
     <span className="wd-glyph" aria-hidden="true">{gone?'✕':dog?watchdogGlyph(dog):'◉'}</span>
     {dog?.once&&!gone&&<span className="wd-once" aria-label="one-shot dog">1×</span>}
     <span className="watchdog-link-name">{children??label}</span>

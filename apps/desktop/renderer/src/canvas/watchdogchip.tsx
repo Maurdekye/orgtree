@@ -17,14 +17,14 @@ export const watchdogGlyph=(w:Watchdog)=>w.spent||w.state==='spent'?'↗':w.disa
 
 /** The canvas satellite, shared with the isolated visual fixture. */
 export function WatchdogSatellite({ dog:w, dogs, org, style, onOpen }: {
-  dog:Watchdog; dogs:Watchdog[]; org:string; style?:CSSProperties; onOpen:(id:string)=>void
+  dog:Watchdog; dogs:Watchdog[]; org:string; style?:CSSProperties; onOpen:(id:string,dog?:Watchdog)=>void
 }) {
   const tooltip=useWatchdogTooltip(w)
   const place=w.kind==='slot'?slotPlace(w,dogs):null
   return <button {...(!w.spent?objectNavProps('watchdog',w.id,org):{})}
     className={'wd-chip '+w.state+' '+watchdogKindClass(w)+(w.once?' oneshot':'')+(w.spent?' spent':'')+(w.disabled?' disabled':'')}
     style={style} {...tooltip} onPointerDown={e=>e.stopPropagation()}
-    onClick={e=>{e.stopPropagation();onOpen(w.id)}}>
+    onClick={e=>{e.stopPropagation();onOpen(w.id,w)}}>
     <span className="wd-glyph">{watchdogGlyph(w)}</span>
     {w.once&&!place&&<span className="wd-once" aria-label="one-shot dog">1×</span>}
     <span className="wd-name"><span title={tooltip.title}>{place?`${w.target.replace(/^@/,'')} ${ordinal(place)}`:w.name}</span></span>
