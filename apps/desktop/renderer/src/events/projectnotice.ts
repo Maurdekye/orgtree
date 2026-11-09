@@ -13,10 +13,13 @@ export function projectLifecycleNotice(body: string): ProjectNotice | null {
   const match = /^Project "([^"\n]+)" was (created|retired|dissolved|permanently deleted|restored) by (the user|"([^"\n]+)")\.(?: Its whole subtree was retired \((\d+) node\(s\)\)\.)?$/.exec(text)
   if (!match || match[0] !== text) return null
   const [, project, op, actor, name, count] = match
+  // the regex gives a quoted name exactly when the actor is not "the user"
+  const by = actor === 'the user' ? 'user' : name
+  if (project === undefined || op === undefined || by === undefined) return null
   if ((op === 'dissolved') !== (count !== undefined)) return null
   const nodes = count === undefined ? null : Number(count)
   if (count !== undefined && (!/^[1-9]\d*$/.test(count) || !Number.isSafeInteger(nodes))) return null
-  return { project, op: op as ProjectOp, by: actor === 'the user' ? 'user' : name, nodes }
+  return { project, op: op as ProjectOp, by, nodes }
 }
 
 /** Envelope SYSTEM or explicit engine authorship, never matching agent prose. */
