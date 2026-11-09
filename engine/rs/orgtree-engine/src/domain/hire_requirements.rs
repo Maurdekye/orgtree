@@ -49,6 +49,13 @@ pub fn require_hire(req: &Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A rehire names the node it restores.
+#[nolog]
+pub fn missing_rehire(_req: &Value) -> Vec<&'static str> { Vec::new() }
+
+#[nolog]
+pub fn require_rehire(_req: &Value) -> anyhow::Result<()> { Ok(()) }
+
 #[nolog]
 pub fn require_staff(req: &Value) -> anyhow::Result<()> {
     let missing=missing_staff(req);
@@ -90,6 +97,31 @@ mod tests {
         assert!(staff.contains("slug"),"{staff}");
         let rehire = require_staff(&json!({"staff_mode":"rehire","title":"t","objective":"o"})).unwrap_err().to_string();
         assert!(rehire.contains("node"),"{rehire}");
+    }
+
+    /// USER-MCP / operator probe (coordinator mf25149cea3ce): hiring with only a name must say what is missing, not
+    /// "unknown tier " from the tier lookup that used to come first.
+    #[test]
+    fn a_rehire_without_a_node_names_the_node() {
+        assert_eq!(missing_rehire(&json!({})), ["node"]);
+        assert_eq!(missing_rehire(&json!({"node": "  "})), ["node"]);
+        assert!(missing_rehire(&json!({"node": "archived"})).is_empty());
+        let err = require_rehire(&json!({})).unwrap_err().to_string();
+        assert!(err.contains("node"), "{err}");
+        assert!(require_rehire(&json!({"node": "archived"})).is_ok());
+    }
+
+    #[tokio::test]
+    async fn the_agent_hire_path_names_the_missing_fields_before_it_looks_up_the_tier() {
+        use crate::domain::ops::{run, Actor};
+        let engine = crate::engine::Engine::for_tests(std::env::temp_dir().join("hire-required-first"));
+        let org = crate::orgs::provisional(1, uuid::Uuid::new_v4().to_string(), "probe-org".into(), "Probe".into());
+        let err = run(&engine, &org, Actor::Agent { id: 1, name: "boss".into() }, &json!({"op":"hire","name":"probe"}))
+            .await.unwrap_err().to_string();
+        for field in ["tier", "grant", "charter", "index", "add_dirs", "org_visibility", "tools.mcp"] {
+            assert!(err.contains(field), "agent hire refusal omits {field}: {err}");
+        }
+        assert!(!err.contains("unknown tier"), "{err}");
     }
 
     #[test]

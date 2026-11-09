@@ -604,6 +604,25 @@ mod tests {
         }
     }
 
+    /// The operator path reports the missing fields too (it used to fail with "unknown tier " from the tier lookup).
+    #[test]
+    fn a_user_hire_with_only_a_name_names_every_missing_field() {
+        let err = tree_request("hire", &json!({"name": "probe"})).unwrap_err().to_string();
+        for field in ["tier", "grant", "charter", "index", "add_dirs", "org_visibility", "tools.mcp"] {
+            assert!(err.contains(field), "user hire refusal omits {field}: {err}");
+        }
+        assert!(!err.contains("unknown tier"), "{err}");
+        // a complete request, and a superior insertion that omits the scope, pass
+        let full = json!({"name":"w","tier":"sol","grant":0,"charter":"Role","index":0,"add_dirs":[],"org_visibility":"team",
+            "tools":{"bash":false,"web":false,"edit":false,"subagents":false,"mcp":[]}});
+        assert!(tree_request("hire", &full).is_ok());
+        let superior = json!({"name":"m","tier":"sol","grant":0,"charter":"Role","index":0,"hire_type":"superior","target":"boss"});
+        assert_eq!(tree_request("hire", &superior).unwrap()["above"], "boss");
+        let err = tree_request("rehire", &json!({})).unwrap_err().to_string();
+        assert!(err.contains("node"), "{err}");
+        assert!(tree_request("rehire", &json!({"node": "archived"})).is_ok());
+    }
+
     #[test]
     fn user_cards_do_not_advertise_agent_only_options() {
         let user = cards(true);
