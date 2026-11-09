@@ -186,9 +186,9 @@ fn deferred(name: &str) -> bool {
 #[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     let requirements = match name {
-        "orgtree_hire" => "Required: name, tier, grant, charter, index; ordinary hire also add_dirs, org_visibility, tools{bash,web,edit,subagents,mcp}. Superior insertion omits scope fields.",
-        "orgtree_rehire" => "Required: node. Other fields retain saved values when omitted; index is forbidden; superior insertion omits scope fields.",
-        "orgtree_staff" => "Required: create title+objective, update slug; new seat name,tier,grant,charter,index plus ordinary add_dirs,org_visibility,tools{bash,web,edit,subagents,mcp}; restored seat node, no index. Superior insertion omits scope fields.",
+        "orgtree_hire" => "Required: name, tier, grant, charter, index. A new hire (the default) ALSO requires add_dirs, org_visibility and tools{bash,web,edit,subagents,mcp} (every tools key). A superior insertion (hire_type=superior, target = the node it goes above) inherits the target's scope: add_dirs, tools, org_visibility and permission_mode are NOT allowed with it.",
+        "orgtree_rehire" => "Required: node. Other fields retain saved values when omitted. index is NOT allowed (a rehire keeps the node's place; use reorder after). With a superior insertion (hire_type=superior) add_dirs, tools, org_visibility and permission_mode are NOT allowed (inherited from the target).",
+        "orgtree_staff" => "Creating an item: title and objective are required; updating one: slug. Hiring a new seat adds name, tier, grant, charter, index and (new hire) add_dirs, org_visibility, tools{bash,web,edit,subagents,mcp}; restoring a seat (node, or staff_mode=rehire) requires node and index is NOT allowed. With a superior insertion (hire_type=superior) add_dirs, tools, org_visibility and permission_mode are NOT allowed (inherited from the target).",
         _ => "",
     };
     let description = if requirements.is_empty() { description.to_owned() } else { format!("{description}\n{requirements}") };
@@ -199,44 +199,13 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
         // Common cards stay eager; explicit rare cards permit native tool search.
         "_meta": { "anthropic/alwaysLoad": !deferred(name) },
     });
-    match name {
-        "orgtree_hire" => out["inputSchema"]["allOf"] = json!([hire_scope_schema()]),
-        "orgtree_rehire" => out["inputSchema"]["allOf"] = json!([
-            {"not":{"required":["index"]}},
-            {"if":{"required":["hire_type"],"properties":{"hire_type":{"const":"superior"}}},"then":no_inherited_scope_schema()}
-        ]),
-        "orgtree_staff" => {
-            out["inputSchema"]["allOf"] = json!([
-                {"if":{"anyOf":[
-                    {"required":["node"]},
-                    {"required":["staff_mode"],"properties":{"staff_mode":{"const":"rehire"}}}
-                ]},"then":{"required":["node"],"not":{"required":["index"]},"allOf":[
-                    {"if":{"required":["hire_type"],"properties":{"hire_type":{"const":"superior"}}},"then":no_inherited_scope_schema()}
-                ]},"else":{"required":crate::domain::hire_requirements::BASE,"allOf":[hire_scope_schema()]}},
-                {"if":{"anyOf":[
-                    {"required":["action"],"properties":{"action":{"const":"create"}}},
-                    {"not":{"anyOf":[{"required":["action"]},{"required":["slug"]}]}}
-                ]},"then":{"required":["title","objective"]},"else":{"required":["slug"]}}
-            ]);
-            out["inputSchema"]["properties"]["node"]["minLength"] = json!(1);
-        },
-        _ => {}
+    // A plain object schema, nothing conditional at the top: newer Claude Code drops an MCP tool whose schema has a
+    // top-level allOf/if/then (USER 2026-11-09 ma7d2896dc898). The conditional rules are in the text above and the
+    // engine enforces them (`domain::hire_requirements`, `ops`), naming each missing or forbidden field.
+    if name == "orgtree_staff" {
+        out["inputSchema"]["properties"]["node"]["minLength"] = json!(1);
     }
     out
-}
-
-#[nolog]
-fn no_inherited_scope_schema() -> Value {
-    json!({"not":{"anyOf":[{"required":["add_dirs"]},{"required":["tools"]},
-        {"required":["org_visibility"]},{"required":["permission_mode"]}]}})
-}
-
-#[nolog]
-fn hire_scope_schema() -> Value {
-    json!({"if":{"required":["hire_type"],"properties":{"hire_type":{"const":"superior"}}},
-        "then":no_inherited_scope_schema(),
-        "else":{"required":crate::domain::hire_requirements::SCOPE,
-            "properties":{"tools":{"required":crate::domain::hire_requirements::TOOLS}}}})
 }
 
 const KINDS: &[&str] = &["message", "question"];

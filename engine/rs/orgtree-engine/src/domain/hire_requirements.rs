@@ -1,8 +1,7 @@
-//! Explicit agent-hire fields; shared by preflight and MCP schemas.
+//! Explicit agent-hire fields: the preflight refusals name each missing one (the MCP schema is a plain object, so the
+//! card text and these refusals carry the conditional rules).
 use serde_json::Value;
 
-pub const BASE: &[&str] = &["name", "tier", "grant", "charter", "index"];
-pub const SCOPE: &[&str] = &["add_dirs", "tools", "org_visibility"];
 pub const TOOLS: &[&str] = &["bash", "web", "edit", "subagents", "mcp"];
 
 #[nolog]
