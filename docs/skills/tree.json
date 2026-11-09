@@ -5394,6 +5394,10 @@
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "Name"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
      "label": "Top-level grant cap"
     },
     {
