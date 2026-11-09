@@ -18,7 +18,7 @@ fn engine_with_server() -> Arc<Engine> {
 async fn a_server_without_a_usage_feature_shows_no_usage_wording_on_the_board() {
     let engine = engine_with_server();
     let (text, _) = turn_board(&engine, "langserver", None, "ls-demo-m", "synthetic-org");
-    let row = text.lines().find(|l| l.contains("langserver:demo")).unwrap_or_else(|| panic!("a row for the server in: {text}"));
+    let row = text.lines().find(|l| l.contains("langserver:demo") && l.contains("| local |")).unwrap_or_else(|| panic!("a row for the server in: {text}"));
     assert!(row.contains("local") && row.contains("2 agent(s) at once"), "{row}");
     assert!(!row.to_lowercase().contains("limit"), "no limit wording: {row}");
     assert!(!text.to_lowercase().contains("no usage limit"), "{text}");
