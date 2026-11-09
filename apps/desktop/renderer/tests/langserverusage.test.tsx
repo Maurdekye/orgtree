@@ -2,7 +2,7 @@
 // server reports from its /usage route (docket
 // `opencode-go-show-usage-limits-5h-weekly-monthly-i`; USER 2026-11-09
 // m6b2875a1cd9a, m479c1c4f5fcc). A server with no usage feature keeps its
-// "local · no usage limit" line; a server that worked and then failed reads
+// "local · 2 agents at once" line (no usage wording); a server that worked and then failed reads
 // unavailable, never 0%.
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -52,7 +52,9 @@ test('a server that reports usage shows its windows; one that does not keeps the
     for (const w of ['5 h', 'weekly', 'monthly', '12%', '40%', '71%']) assert.ok(go.includes(w), `${w} in: ${go}`)
     assert.ok(!go.includes('no usage limit'), go)
     const plain = card(view.el, 'plain')!.textContent ?? ''
-    assert.match(plain, /local · no usage limit/)
+    // no usage wording at all: "no usage limit" would read as "unlimited" (USER spec, liaison 2026-11-09)
+    assert.doesNotMatch(plain, /usage/i)
+    assert.match(plain, /local · 2 agents at once/)
     assert.doesNotMatch(plain, /%/)
     const broken = card(view.el, 'broken')!.textContent ?? ''
     assert.match(broken, /HTTP 500/)

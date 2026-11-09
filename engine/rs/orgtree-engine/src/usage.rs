@@ -2449,6 +2449,8 @@ mod header_delta_tests;
 mod langserver_usage;
 #[cfg(test)]
 mod langserver_usage_tests;
+#[cfg(test)]
+mod langserver_board_tests;
 
 #[cfg(test)]
 mod wham_tests {
