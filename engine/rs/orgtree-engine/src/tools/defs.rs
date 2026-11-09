@@ -1401,6 +1401,47 @@ mod hire_contract_tests {
         assert_eq!(cards.len(),3);
         println!("HIRE_SCHEMAS {}",serde_json::to_string(&cards).unwrap());
     }
+
+    /// Newer Claude Code (2.1.319, reported by a headless org, USER 2026-11-09 ma7d2896dc898 "Fix in 4.5.10")
+    /// drops an MCP tool whose input schema has a top-level combinator, so hire, rehire and staff vanished.
+    /// Every card is a plain object: properties and required, nothing conditional at the top.
+    #[test]
+    fn no_agent_card_has_a_top_level_schema_combinator() {
+        let mut cards = list();
+        cards.extend(mail_tools(MailShape::Flat));
+        assert!(cards.len() > 30, "an empty scan is not a pass ({} cards)", cards.len());
+        for card in cards {
+            let name = card["name"].as_str().unwrap_or("<unnamed>");
+            let schema = card["inputSchema"].as_object().unwrap_or_else(|| panic!("{name}: no input schema"));
+            for key in ["allOf", "anyOf", "oneOf", "if", "then", "else", "not"] {
+                assert!(!schema.contains_key(key), "{name}: top-level `{key}` in the input schema");
+            }
+            assert_eq!(schema.get("type").and_then(Value::as_str), Some("object"), "{name}");
+        }
+    }
+
+    /// The schema no longer carries the conditional rules, so the card text must: which fields go together for
+    /// a new hire, a superior insertion and a rehire.
+    #[test]
+    fn the_conditional_hire_rules_are_in_the_card_text() {
+        let cards = list();
+        let text = |n: &str| cards.iter().find(|c| c["name"] == n).unwrap()["description"].as_str().unwrap().to_string();
+        let hire = text("orgtree_hire");
+        for needle in ["new hire", "superior insertion", "add_dirs", "org_visibility", "tools", "NOT allowed"] {
+            assert!(hire.contains(needle), "orgtree_hire text lacks `{needle}`: {hire}");
+        }
+        let rehire = text("orgtree_rehire");
+        for needle in ["node", "index", "NOT allowed", "superior insertion"] {
+            assert!(rehire.contains(needle), "orgtree_rehire text lacks `{needle}`: {rehire}");
+        }
+        let staff = text("orgtree_staff");
+        for needle in ["title", "objective", "slug", "node", "index", "NOT allowed", "superior insertion", "add_dirs"] {
+            assert!(staff.contains(needle), "orgtree_staff text lacks `{needle}`: {staff}");
+        }
+        let schema = |n: &str| cards.iter().find(|c| c["name"] == n).unwrap()["inputSchema"].clone();
+        assert_eq!(schema("orgtree_hire")["required"], json!(["name", "tier", "grant", "charter", "index"]));
+        assert_eq!(schema("orgtree_rehire")["required"], json!(["node"]));
+    }
 }
 
 #[cfg(test)]

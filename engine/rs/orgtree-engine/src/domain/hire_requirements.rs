@@ -79,6 +79,20 @@ mod tests {
         assert!(missing_hire(&superior).is_empty(),"superior inherits and must omit scope");
     }
 
+    /// The schema no longer says what is missing, so the refusal must: every field by name.
+    #[test]
+    fn the_refusals_name_each_missing_field() {
+        let hire = require_hire(&json!({"name":"x"})).unwrap_err().to_string();
+        for field in ["tier","grant","charter","index","add_dirs","org_visibility","tools.bash","tools.mcp"] {
+            assert!(hire.contains(field),"hire refusal omits {field}: {hire}");
+        }
+        assert!(!hire.contains("name,") && !hire.starts_with("name"),"a field that was given is not named as missing: {hire}");
+        let staff = require_staff(&json!({"action":"update"})).unwrap_err().to_string();
+        assert!(staff.contains("slug"),"{staff}");
+        let rehire = require_staff(&json!({"staff_mode":"rehire","title":"t","objective":"o"})).unwrap_err().to_string();
+        assert!(rehire.contains("node"),"{rehire}");
+    }
+
     #[test]
     fn hire_contract_staff_reports_docket_and_seat_omissions() {
         let missing = missing_staff(&json!({}));

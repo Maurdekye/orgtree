@@ -590,6 +590,21 @@ mod tests {
     }
 
     #[test]
+    fn no_user_card_has_a_top_level_schema_combinator() {
+        for org_scoped in [true, false] {
+            let cards = cards(org_scoped);
+            assert!(cards.len() > 5, "an empty scan is not a pass ({} cards)", cards.len());
+            for card in cards {
+                let name = card["name"].as_str().unwrap_or("<unnamed>");
+                let schema = card["inputSchema"].as_object().unwrap_or_else(|| panic!("{name}: no input schema"));
+                for key in ["allOf", "anyOf", "oneOf", "if", "then", "else", "not"] {
+                    assert!(!schema.contains_key(key), "{name}: top-level `{key}` in the user MCP input schema");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn user_cards_do_not_advertise_agent_only_options() {
         let user = cards(true);
         assert!(user.iter().all(|c| c["inputSchema"]["additionalProperties"] == false));
