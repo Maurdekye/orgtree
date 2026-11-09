@@ -678,6 +678,8 @@ fn str_arg<'a>(req: &'a Value, k: &str) -> Option<&'a str> {
 pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: &Value) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("").to_string();
     if matches!(actor,Actor::Agent {..}) && op=="hire" { super::hire_requirements::require_hire(req)?; }
+    // before anything is looked up: a rehire names the node it restores
+    if op=="rehire" { super::hire_requirements::require_rehire(req)?; }
     prepare(engine, org, req).await?;
     let mut attempt = 0;
     loop {

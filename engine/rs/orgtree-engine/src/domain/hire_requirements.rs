@@ -51,10 +51,16 @@ pub fn require_hire(req: &Value) -> anyhow::Result<()> {
 
 /// A rehire names the node it restores.
 #[nolog]
-pub fn missing_rehire(_req: &Value) -> Vec<&'static str> { Vec::new() }
+pub fn missing_rehire(req: &Value) -> Vec<&'static str> {
+    if text(req,"node").is_none() { vec!["node"] } else { Vec::new() }
+}
 
 #[nolog]
-pub fn require_rehire(_req: &Value) -> anyhow::Result<()> { Ok(()) }
+pub fn require_rehire(req: &Value) -> anyhow::Result<()> {
+    let missing=missing_rehire(req);
+    if !missing.is_empty() { crate::refuse!(BadRequest,"rehire is missing required fields: {}",missing.join(", ")); }
+    Ok(())
+}
 
 #[nolog]
 pub fn require_staff(req: &Value) -> anyhow::Result<()> {

@@ -458,6 +458,9 @@ async fn tree_op(engine: &Arc<Engine>, org: &Arc<OrgHandle>, op: &str, args: &Va
 fn tree_request(op: &str, args: &Value) -> Result<Value> {
     let mut req = if args.is_object() { args.clone() } else { json!({}) };
     req["op"] = json!(op);
+    // Before any lookup (the tier's, the node's): the operator is told what is missing, as an agent is.
+    if op == "hire" { crate::domain::hire_requirements::require_hire(&req)?; }
+    if op == "rehire" { crate::domain::hire_requirements::require_rehire(&req)?; }
     if op == "hire" {
         let named = args["target"].as_str().or_else(|| args["parent"].as_str());
         if args["hire_type"].as_str() == Some("superior") {
