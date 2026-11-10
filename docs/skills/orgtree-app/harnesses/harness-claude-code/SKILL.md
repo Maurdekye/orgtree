@@ -34,7 +34,7 @@ The compared prefix includes identity/charters, tools and MCP definitions, folde
 
 ## Compaction
 
-Orgtree passes the effective org `compact_at` fraction as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in percent when the CLI starts. A warm CLI retains its launch configuration. Native `compact_boundary` events record compaction and reported pre-compaction tokens; they are not fresh-session resets. An idle existing session can receive `/compact` through the command path.
+Orgtree passes the effective org `compact_at` fraction as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in percent when the CLI starts. A warm CLI retains its launch configuration. Native `compact_boundary` events record compaction and reported pre-compaction tokens; they are not fresh-session resets. A reported `post_tokens` (or a later call in the same turn) is stored as the measured context size, so a cold wake judges the real size; with none reported the old figure stays an estimate. An idle existing session can receive `/compact` through the command path.
 
 Cheap compact instead exports earlier conversation and starts a fresh session with a bounded handoff on the same agent. Durable files and Orgtree records survive; the complete old conversation is not inserted into the new prompt. Exact provider-summary retention is unknown here. Automatic cold resets require the configured policy and qualifying measured context/cache evidence; see `orgtree-context-and-compaction` (orgtree-working › runtime).
 

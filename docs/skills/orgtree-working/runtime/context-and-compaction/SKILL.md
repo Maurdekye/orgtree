@@ -27,6 +27,16 @@ of cache temperature and reported status. Unknown/estimated context or an
 already-cleared session cannot trigger a second reset. Engine diagnostics name
 each skipped size-compaction gate.
 
+When Claude Code compacts inside a turn and reports the size after compaction
+(`post_tokens`), Orgtree stores that size as a measured context size, replacing
+the pre-compaction figure; a model call later in the same turn replaces it with
+that call's own size (the last one wins). A cold wake then applies the usual
+threshold to the real size: it cheap-compacts only if the size is still at or
+above it. If no post-compaction size is reported (an older CLI, a missing or
+invalid field) and no later call measures it, the pre-compaction figure stays
+an estimate and a cold wake does not reset on it. Other harnesses are
+unchanged.
+
 If Claude or Codex fails because the conversation window is full, Orgtree
 creates one durable recovery wake and retries in a fresh session. Previously
 delivered messages are recalled with their original IDs; their inbox rows and
