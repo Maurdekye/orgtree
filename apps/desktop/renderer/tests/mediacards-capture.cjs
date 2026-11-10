@@ -4,7 +4,7 @@ clipboard.readText=()=>'';clipboard.writeText=()=>{};clipboard.clear=()=>{};
 app.disableHardwareAcceleration();app.commandLine.appendSwitch('mute-audio');app.setPath('userData',out+'/user-data');app.on('window-all-closed',()=>{});
 app.whenReady().then(async()=>{let win;const requests=[];
  try{
-  win=new BrowserWindow({show:false,width:1000,height:700,webPreferences:{offscreen:true,backgroundThrottling:false,contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  win=new BrowserWindow({show:false,width:1000,height:1400,webPreferences:{offscreen:true,backgroundThrottling:false,contextIsolation:true,nodeIntegration:false,sandbox:true}});
   const wc=win.webContents,s=wc.session;wc.setAudioMuted(true);
   // the grants main/windows.ts configureEngineSession gives a trusted app window: a video's fullscreen button, and nothing else (USER 2026-10-30 md731a537e304)
   s.setPermissionRequestHandler((_,permission,cb)=>cb(permission==='fullscreen'));s.setPermissionCheckHandler(()=>false);
@@ -61,7 +61,7 @@ app.whenReady().then(async()=>{let win;const requests=[];
   const left=await evaluate(`(async()=>{await document.exitFullscreen();await new Promise(r=>setTimeout(r,500));const v=document.querySelector('video');return{out:document.fullscreenElement===null,src:v.getAttribute('src'),readyState:v.readyState,hidden:v.hidden}})()`);
   check('leaving fullscreen returns to the card with the video still open',left.out&&!!left.src&&left.readyState>=2&&!left.hidden);
   const state=await evaluate(`(async()=>{const buttons=[...document.querySelectorAll('.media-play')];for(const b of buttons)b.click();await new Promise(r=>setTimeout(r,250));const media=[...document.querySelectorAll('video,audio')];await Promise.all(media.map(async m=>{await m.play();m.pause();}));return media.map(m=>({kind:m.tagName,width:m.getBoundingClientRect().width,height:m.getBoundingClientRect().height,ready:m.readyState,error:!!m.error,src:m.getAttribute('src'),controls:m.controls}));})()`);
-  check('actual video/audio decoders load generated media',state.length===3&&state.every(m=>m.ready>=2&&!m.error));
+  check('actual video/audio decoders load generated media (the chat cards and the Files list rows)',state.length>=3&&state.every(m=>m.ready>=2&&!m.error));
   check('visible native controls fit card geometry',state.every(m=>m.width>0&&m.width<=440&&m.height>0&&m.height<=320&&m.controls));
   check('player requests use authorized-route media flag',requests.filter(r=>r.name!=='image.png').every(r=>r.media==='true'));
   check('oversized video stays download-only',await evaluate(`document.querySelectorAll('video').length===1&&document.body.textContent.includes('256 MiB')`));
