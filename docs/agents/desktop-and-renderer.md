@@ -7,7 +7,8 @@ min(w, h) - 48 of the free region, so 1280x720 showed it at ~0.59 scale (6-8px
 text). `shared.ts` `deskFit(region, devicePixelRatio, dial)` is a focus-fit
 boost: 1 when `DESK_SCALE x focusFitZoom(region) x dpr` is already at least
 `DESK_READABLE` (0.95 device px per authored px; 1920x1080 at 100% and 125% and
-larger stay exactly as before), else the factor that reaches it, capped so
+larger stay exactly as before; 1920x1080 at 150%, a CSS 1280x720 screen, gets
+a small ~1.08 boost by design), else the factor that reaches it, capped so
 dial x fit <= 3. OrgCanvas publishes it as `--desk-fit` on `.space`;
 `.desk-inner` and the desk-elsewhere notice multiply it into the `--desk-dpi`
 counter-scale (the same authored-space shrink as the text-size dial; the card
@@ -15,7 +16,8 @@ interior stays 120px), and the switchboard's inner width divides by it. It is
 keyed on the measured viewport and pins, never on the live zoom, so a glide does
 not reflow the desk. `focusFitZoom` is the one fit the focus camera also uses.
 Pinned and popped-out desks are bare and never inherit it. Test:
-`tests/deskfit.test.ts`. [decided: coordinator 2026-11-10, docket
+`tests/deskfit.test.ts`. [decided: coordinator 2026-11-10 m365377cdbf25 (device-px floor; project
+and switchboard desks share the fit), docket
 ui-720p-fix-c-an-agent-desk-focused-on-the-canva; verified: `canvas/shared.ts`,
 `canvas/OrgCanvas.tsx`, `canvas/cards.tsx`, `styles.css`]
 
