@@ -479,7 +479,12 @@ mod tests {
         t.observe(&json!({"type":"assistant","message":{"id":"ordered","content":[
             {"type":"text","text":"Before"}, {"type":"tool_use","id":"read","name":"Read","input":{}},
             {"type":"text","text":"After"}]}}));
-        let after = t.snapshot();
+        let mut after = t.snapshot();
+        // The completed frame is when the call starts running, so it alone
+        // adds the observed start (as the desk's own rows do); a draft still
+        // being written has none. Everything else is identical.
+        let started = after["messages"][0]["tools"][0].as_object_mut().unwrap().remove("started_at");
+        assert!(started.is_some_and(|v| v.is_string()), "the completed call has an observed start");
         assert_eq!(before["messages"], after["messages"]);
         assert_eq!(after["messages"][0]["text"], "BeforeAfter");
     }
