@@ -50,6 +50,26 @@ means null; explicit negative or >10M values are refused.
 verified: `langserver/{refresh,refresh_unit_tests}.rs`, `settings.rs`,
 `canvas/langserver.tsx`, `canvas/lsmodels.ts`, shared `tests/fixtures/langserver-context.json`]
 
+## Canvas controls never cover a pinned panel (2026-11-10, 4.5.11)
+
+The zoom stack and the Agents toggle sit above every pin (z-index 17) so
+navigation stays reachable. `canvasanchor.tsx` moves them into the rectangle
+pins leave free, but at 1280x720 a pinned inbox or docket leaves none that fits,
+and they fell back to the corner over the pin's footer (UI audit problems 5+6:
+"Mark all read", the docket's archive note). In exactly that case (no free
+rectangle, a pinned surface in the controls' corner footprint) OrgCanvas
+publishes a per-org gutter (`canvas/controlgutter.ts`) and sets
+`.viewport.controls-guttered`: the Agents toggle joins the top of the zoom
+column, icon-only with the same icon/tooltip and `aria-label="agents"`, and
+every desk and modal pin is drawn clear of the 48px column: translated if it
+fits, else narrowed keeping its right edge. Render-time only: stored pin
+geometry is never rewritten. The footprint is as tall as the guttered column,
+so moving a pin out of the column never flips the mode back. An opened Agents
+tray still overlays pins, like any popover the user opens.
+[decided: coordinator 2026-11-10 (user m1a4a3c0b76a7); verified:
+`canvas/controlgutter.ts`, `canvas/{OrgCanvas,pins,modalpin}.tsx`,
+`tests/controlgutter.test.tsx`; 2026-11-10]
+
 ## UX symmetry (2026-10-29)
 
 USER 2026-10-29 12:50:22Z mb6da9f3ee862, verbatim: "in my eyes, the perfect ux for a piece of software is highly symmetrical, like a high-order group. it contains lots of symmetries: lots of throughlines, common ui elements, common ui patterns, common icon and link types, common panel structures, common ways of presenting information, choices, etc. the more symmetries a program contains, the closer to "perfect" it is. a completely perfect ux would be something akin to a perfect crystal: perfectly symmetrical along every conceivable axis of interaction. when i design software, i aim to optimize for this maximal crystalline symmetry in the ux. orgtree follows this design principle."
