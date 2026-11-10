@@ -66,7 +66,7 @@ import { DefaultsForm } from '../shell/defaults'
 import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } from '../quickchat'
 import { EngineDebugToggle } from './enginedebug'
 import { EpicModeSwitch } from '../epic/EpicSwitch'
-import { FABLE_PIP_TITLE, fablePipPercent } from './fablepip'
+import { fablePipPercent, fablePipTitle } from './fablepip'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -252,6 +252,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   // the Fable pip on the weekly (all models) bar (canvas/fablepip.ts): shown
   // only where both bars render, so it never outlives the readings it reads
   const fablePip = fablePipPercent(lims, knownOf)
+  const fablePipText = fablePipTitle(fablePip)
   return (
     <>
       {/* A failed or rate-limited provider read retains last-good bars (whether
@@ -292,7 +293,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
                 style={{ width: pct + '%' }} />
               {l.kind === 'weekly_all' && fablePip != null
                 && <span className="usage-pip" style={{ left: fablePip + '%' }}
-                  title={FABLE_PIP_TITLE} aria-label={FABLE_PIP_TITLE} role="img" />}
+                  title={fablePipText} aria-label={fablePipText} role="img" />}
             </div>}
           </div>
         )
