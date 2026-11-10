@@ -450,4 +450,72 @@ mod tests {
         assert!(serde_json::to_vec(&t.snapshot()).unwrap().len() <= MAX_BYTES);
         assert_eq!(t.snapshot()["truncated"], true);
     }
+    // ---- helper rows carry the desk's own summary; retention keeps ~200 rows
+    // (user 2026-11-10 m93f795ab5ef7: helper transcripts showed only 5-15 bare
+    // "Read · → —" rows ending in "activity was omitted"). Red at fe38a77.
+    fn helper_call(t: &mut Transcript, i: usize, result: &str) {
+        t.observe(&json!({"type":"assistant","message":{"id":format!("m{i}"),"content":[
+            {"type":"text","text":format!("Checking part {i} of the module.")},
+            {"type":"tool_use","id":format!("t{i}"),"name":"Read","input":{"file_path":format!("engine/rs/orgtree-engine/src/runtime/file_{i:03}.rs")}}]}}));
+        t.observe(&json!({"type":"user","message":{"content":[
+            {"type":"tool_result","tool_use_id":format!("t{i}"),"content":result}]}}));
+    }
+    #[test]
+    fn helper_tool_rows_carry_the_desk_input_and_result_summary() {
+        let mut t = Transcript::default();
+        helper_call(&mut t, 1, "one
+two
+three");
+        let chip = &t.snapshot()["messages"][0]["tools"][0];
+        assert_eq!(chip["arg"], "engine/rs/orgtree-engine/src/runtime/file_001.rs", "the desk's one-line input summary (convo::tool_arg)");
+        assert!(chip["started_at"].is_string(), "an observed start, so the row shows its run time");
+        assert!(chip["ended_at"].is_string(), "an observed end");
+        assert_eq!(chip["result_lines"], 3, "the desk's result line count");
+        assert_eq!(chip["result"], "one
+two
+three");
+        assert_eq!(t.snapshot()["truncated"], false);
+    }
+    #[test]
+    fn streamed_helper_inputs_get_the_same_summary_once_complete() {
+        let mut t = Transcript::default();
+        let stream = |event| json!({"type":"stream_event","event":event});
+        t.observe(&stream(json!({"type":"message_start","message":{"id":"s"}})));
+        t.observe(&stream(json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"g","name":"Grep","input":{}}})));
+        t.observe(&stream(json!({"type":"content_block_delta","index":0,"delta":{"partial_json":"{\"pattern\":\"fn observe\"}"}})));
+        assert_eq!(t.snapshot()["messages"][0]["tools"][0]["arg"], "fn observe");
+    }
+    #[test]
+    fn a_long_result_is_a_row_preview_not_omitted_activity() {
+        let mut t = Transcript::default();
+        let long = "a line of file content
+".repeat(1000);
+        helper_call(&mut t, 1, &long);
+        let chip = &t.snapshot()["messages"][0]["tools"][0];
+        assert!(chip["result"].as_str().unwrap().len() <= 2048, "a result is kept as a preview");
+        assert_eq!(chip["result_lines"], 1000, "the line count describes the whole result");
+        assert_eq!(chip["truncated"], true, "the row says its output was clipped");
+        assert_eq!(t.snapshot()["truncated"], false, "no activity was omitted");
+    }
+    #[test]
+    fn retention_keeps_at_least_200_rows_of_typical_tool_activity() {
+        let mut t = Transcript::default();
+        let result = "use serde_json::Value;
+".repeat(400); // ~9 KB, a typical Read
+        for i in 0..220 { helper_call(&mut t, i, &result); }
+        let snapshot = t.snapshot();
+        let rows = snapshot["messages"].as_array().unwrap();
+        assert_eq!(rows.len(), 220, "every one of 220 tool rows is retained");
+        assert_eq!(snapshot["truncated"], false, "nothing was omitted");
+        assert!(rows.iter().all(|r| r["tools"][0]["arg"].as_str().is_some_and(|a| !a.is_empty())));
+        let bytes = serde_json::to_vec(&snapshot).unwrap().len();
+        assert!(bytes <= 256 * 1024, "snapshot {bytes} B within the retained budget");
+        for i in 220..600 { helper_call(&mut t, i, &result); }
+        let snapshot = t.snapshot();
+        let rows = snapshot["messages"].as_array().unwrap();
+        assert_eq!(snapshot["truncated"], true, "older activity really was omitted");
+        assert!(rows.len() >= 200, "still at least 200 rows ({})", rows.len());
+        assert_eq!(rows.last().unwrap()["id"], "m599", "the live tail is kept");
+        assert!(serde_json::to_vec(&snapshot).unwrap().len() <= 256 * 1024);
+    }
 }
