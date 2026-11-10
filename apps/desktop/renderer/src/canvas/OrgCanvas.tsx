@@ -114,7 +114,6 @@ import { useSettingsAsk } from './settingskit'
 import type { SettingsTarget } from './settingskit'
 import { closeIfCentred, forgetModalOpen, isModalPinned, ModalOverPins, modalPinKey, PinFrame, pinModal, readModalPins, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
-import { controlGutter, setControlGutter } from './controlgutter'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
 import { ActiveAgentsFilter, AgentTray, trayRows } from './agenttray'
@@ -2350,16 +2349,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const box = { x: 0, y: 0, w: viewportSize.w, h: viewportSize.h }
     return freeInsets(clearRegion(box, anchorObstacles), { w: viewportSize.w, h: viewportSize.h })
   }, [anchorPref.enabled, viewportSize, anchorObstacles])
-  // THE CONTROLS' GUTTER (4.5.11 UI audit 5+6, controlgutter.ts): when no
-  // free rectangle fits the controls and a pinned surface reaches their
-  // corner, the Agents toggle joins the zoom column and every pin of this org
-  // is drawn clear of that column. Published per org because desk windows
-  // (PinLayer) and pinned modals (modalpin.tsx) read it outside this
-  // component's props; both use these same viewport px.
-  const gutter = useMemo(() => isMobile ? null
-    : controlGutter(viewportSize, anchorObstacles, !!freeAnchor), [viewportSize, anchorObstacles, freeAnchor])
-  useLayoutEffect(() => { setControlGutter(slug, gutter) }, [slug, gutter])
-  useEffect(() => () => setControlGutter(slug, null), [slug])
 
   const zoomHudRef = useRef<HTMLDivElement>(null)
   const [zoomHudRect, setZoomHudRect] = useState<EJRect | null>(null)
@@ -4655,8 +4644,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       providers={providerEntries} accounts={accountPayload}
       defaultEffort={resolveOrgDefault(tree.default_effort, tree.effort_default)} /><div style={freeAnchor ?? undefined} className={'viewport'
       + (tree.headless ? ' headless' : '')
-      + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')
-      + (gutter ? ' controls-guttered' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
+      + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       /* ⚠ THE PAN HANDLERS IGNORE THE HIDDEN CANVAS. `visibility: hidden`
          takes the world out of hit-testing, but `.viewport` ITSELF is never
          hidden — it cannot be, the pin layer lives inside it — so a press that
@@ -5207,9 +5195,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           }} />
           </PinFrame>
         )}
-        <button className="tray-toggle" title="every agent, by hierarchy" aria-label="agents"
+        <button className="tray-toggle" title="every agent, by hierarchy"
           onClick={() => setTrayOpen((o) => !o)}>
-          <ViewListIcon fontSize="inherit" /><span className="tray-toggle-label"> agents</span>
+          <ViewListIcon fontSize="inherit" /> agents
         </button>
       </div>
       </MaybePortal>

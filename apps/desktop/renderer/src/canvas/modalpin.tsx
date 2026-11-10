@@ -67,7 +67,6 @@ export interface ModalOpenState { kind: string; org: string | null; restore?: Wi
 
 export { MODAL_OVERLAP_KEY, useModalOverlap, setModalOverlap, ModalOverlapSettings } from './pinoverlap'
 import { useModalOverlap } from './pinoverlap'
-import { avoidControlGutter, useControlGutter } from './controlgutter'
 /** where a window goes when the panel behind it could not be measured — jsdom
  *  reports every box as 0×0, and so does a panel pinned before first paint.
  *  Clamped like any other rect, so a small window still gets a legal box. */
@@ -885,10 +884,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
     return () => { ownerWindow.removeEventListener('keydown', onKey, true); ownerWindow.removeEventListener('keyup', onKey, true) }
   }, [ownerWindow])
 
-  // drawn clear of the canvas controls' column when they are blocked
-  // (controlgutter.ts); the stored rect is never rewritten for it
-  const gutter = useControlGutter(orgScope)
-  const rect = pinned && pin ? avoidControlGutter(clampRect(live ?? pin.rect, bounds, modalMin), gutter, bounds) : null
+  const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds, modalMin) : null
   const layout = usePinSurface(orgScope, kind, rect, true)
   useEffect(() => {
     if (pinned) raisePinnedModal(kind, orgScope)

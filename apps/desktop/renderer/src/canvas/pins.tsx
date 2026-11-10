@@ -53,7 +53,6 @@ import type { ToastFn } from '../types'
 import { createPortal } from 'react-dom'
 import { pinLayerFor, usePinSurfaces, usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { useModalOverlap } from './pinoverlap'
-import { avoidControlGutter, useControlGutter } from './controlgutter'
 import { findPinSnap, validPinSnap } from './pinSnap'
 import type { PinSnap } from './pinSnap'
 
@@ -540,10 +539,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
     && pin.initialPlacement.viewport?.w === vp?.w && pin.initialPlacement.viewport?.h === vp?.h
     && (!floor || (pin.rect.w >= floor.width && pin.rect.h >= floor.height))
     ? pin.initialPlacement : null
-  // drawn clear of the canvas controls' column when they are blocked
-  // (controlgutter.ts); the stored rect is never rewritten for it
-  const gutter = useControlGutter(slug)
-  const rect = initial ? pin.rect : avoidControlGutter(clampRect(live ?? pin.rect, vp, floor), gutter, vp)
+  const rect = initial ? pin.rect : clampRect(live ?? pin.rect, vp, floor)
   const layout = usePinSurface(slug, pin.id, rect, false)
   // Re-measured on every render and whenever the window, its body or any of
   // the desk's rows changes size (a badge wraps, a tab switches, a strip
