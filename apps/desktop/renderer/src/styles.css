@@ -9303,6 +9303,18 @@ main:has(> .orgbar.native-header) > .error {
 
 /* Navigation stays reachable over every desk or org modal pin (10..16). */
 .zoomhud, .tray-wrap { z-index: 17; }
+/* THE CONTROLS' GUTTER (4.5.11 UI audit 5+6; canvas/controlgutter.ts): when
+   a pin blocks the controls' corner and no free rectangle fits them, the
+   Agents toggle joins the TOP of the zoom column, icon-only (same icon and
+   tooltip), and every pin is drawn clear of that 48px column - so no
+   control covers any part of a pinned panel. The numbers are the column's
+   own: 10px offset + four 28px buttons + four 4px gaps. Never set while the
+   controls are anchored to a free rectangle, so `--free-*` is unset here. */
+.viewport.controls-guttered .tray-wrap { left: 10px; bottom: calc(10px + 4 * 28px + 4 * 4px); }
+.viewport.controls-guttered .tray-toggle {
+  width: 30px; height: 28px; padding: 0; justify-content: center; font-size: 14px;
+}
+.viewport.controls-guttered .tray-toggle-label { display: none; }
 .overlay.overlay-pinned .modalpin-win { min-width: 0; min-height: 0; }
 
 .overlay.overlay-pinned > .pin-snap-preview { pointer-events: none; }
