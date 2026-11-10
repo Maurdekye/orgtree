@@ -105,7 +105,7 @@ import { museHireAccount } from './musehire'
 import { DraftNode, NodeSquare, UserNode } from './cards'
 import { RetiredBadge } from './retiredbadge'
 import type { DraftForm, DraftNodeProps } from './cards'
-import { addPin, clampRect, PinLayer, prunePins, removePin, renamePin, showPin, usePins } from './pins'
+import { addPin, clampRect, deskPinDefault, PinLayer, prunePins, removePin, renamePin, showPin, usePins } from './pins'
 import type { PinRect } from './pins'
 import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
@@ -3800,7 +3800,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const pinDesk = (id: string): boolean => {
     const at = cardRectOf(id)
     if (!at) return false
-    const r = addPin(slug, id, clampRect(at, vpSizeNow()))
+    // at least the default desk size (pins.tsx PIN_DESK_DEFAULT_W): the card's
+    // own size at far zoom is a sliver no desk fits in (UI audit 2026-11-09)
+    const r = addPin(slug, id, deskPinDefault(at, vpSizeNow()))
     if (!r.ok) toast([r.reason])
     return r.ok
   }

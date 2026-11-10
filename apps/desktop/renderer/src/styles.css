@@ -8397,6 +8397,23 @@ label.set-row { cursor: pointer; }
 .pinwin-body > .desk-body {
   flex: 1; min-height: 0; display: flex; flex-direction: column; height: 100%;
 }
+/* PINNED DESKS AT SMALL SIZES (UI audit 2026-11-09 problems 1+2; docket
+   ui-720p-fix-a-pinned-agent-and-project-desks-unu). Pinned placement only;
+   the window, popped-out and focused desks are untouched. A tall header used
+   to squeeze the desk's flexible body (transcript, tab panel, project
+   summary) to nothing: the conversation and composer fell below the window's
+   edge with no scroll, and a squeezed Mail/Team panel painted its folder
+   strip, Join mail queue and scrollbar over the inbox warning below it.
+   - The body keeps PIN_DESK_BODY_MIN_PX (pins.tsx; KEEP THEM IN STEP), so
+     nothing overflows onto the rows after it.
+   - When the whole desk is taller than the window, the window body scrolls,
+     so every row, the list and the composer stay reachable. pins.tsx sizes
+     the window from the measured chrome so that, at its floor, it doesn't.
+   - The reports row keeps the desk-nav scroll pattern, capped at two rows. */
+.pinwin-body { overflow-y: auto; overscroll-behavior: contain; }
+.pinwin-body .desk-body > :is(.msgs-wrap, .desk-tabpanel) { min-height: 160px; }
+.pinwin-body .project-desk :is(.project-description-md, .project-description-edit) { min-height: 160px; }
+.pinwin-body .desk-nav { max-height: calc(2 * var(--desk-nav-row) + 5px + 6px); }
 /* resize handles: 8 invisible strips/corners on the edges */
 /* The TOP handles sit inside the panel, never above it: a panel pinned flush with
    the canvas top would otherwise put them over the app header, where every

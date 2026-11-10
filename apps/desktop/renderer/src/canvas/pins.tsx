@@ -39,7 +39,7 @@
 // mounted desks for one node would share one `orgtree-draft-<slug>-<nid>`
 // composer key (desk.tsx) and silently fight over it.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
@@ -79,6 +79,65 @@ export interface Pin {
  *  honour the same floor or it tiles unusable slivers */
 export const PIN_MIN_W = 320
 export const PIN_MIN_H = 240
+/** PINNED DESKS AT SMALL SIZES (UI audit 2026-11-09 problems 1+2; docket
+ *  ui-720p-fix-a-pinned-agent-and-project-desks-unu). The generic 320x240
+ *  window floor above left an agent desk's header, tabs, status rows and
+ *  badges filling the whole window, with the conversation and composer below
+ *  its bottom edge. A pinned desk now has ITS OWN floor, derived from the
+ *  desk's measured chrome (title bar, header, strips, composer: everything
+ *  but the flexible body) plus room for the body itself:
+ *    width  >= PIN_DESK_MIN_W (the header then wraps to at most three rows)
+ *    height >= chrome + PIN_DESK_BODY_MIN_PX
+ *  The floor exists only once the desk has been laid out (jsdom and the first
+ *  frame have no layout, and keep the generic floor). It applies to new pins,
+ *  to saved pins smaller than it (they keep any larger saved size), and to
+ *  every resize gesture. Window, popped-out and focused desks are untouched. */
+export const PIN_DESK_MIN_W = 400
+/** the flexible body's (transcript, tab panel) minimum height in a pinned
+ *  desk: about four lines of mail rows or chat. styles.css's pinned-desk
+ *  block uses the same number; KEEP THEM IN STEP. */
+export const PIN_DESK_BODY_MIN_PX = 160
+/** a newly pinned desk's size before its first measurement; at 520px the
+ *  agent desk header fits in two rows. The measured floor then raises the
+ *  height if the desk needs more. Both are clamped to the viewport. */
+export const PIN_DESK_DEFAULT_W = 520
+export const PIN_DESK_DEFAULT_H = 480
+/** the pinned desk's floor for a measured chrome height in px; null (not yet
+ *  measured, or no layout) keeps the generic window floor */
+export const deskPinFloor = (chrome: number | null | undefined): { width: number; height: number } | null =>
+  chrome == null || !Number.isFinite(chrome) || chrome <= 0 ? null
+    : { width: PIN_DESK_MIN_W, height: Math.max(PIN_MIN_H, Math.ceil(chrome + PIN_DESK_BODY_MIN_PX)) }
+/** where a desk pinned from its card opens: over the card, at least the
+ *  default desk size, never larger than the viewport */
+export const deskPinDefault = (card: PinRect, vp: { w: number; h: number } | null): PinRect =>
+  clampRect({ ...card, w: Math.max(card.w, PIN_DESK_DEFAULT_W), h: Math.max(card.h, PIN_DESK_DEFAULT_H) }, vp)
+/** the control gutter (controlgutter.ts, fix B) composed with the desk floor
+ *  (coordinator 2026-11-10): where avoiding the gutter would narrow a desk
+ *  below its floor width, the desk shifts right instead, at the floor width
+ *  and inside the viewport. Only when the viewport cannot fit the gutter and
+ *  the floor width does the floor win, accepting the overlap. */
+export const deskAvoidGutter = (r: PinRect, gutter: { x: number; y: number; w: number; h: number } | null,
+  vp: { w: number; h: number } | null, floor: { width: number; height: number } | null): PinRect => {
+  const out = avoidControlGutter(r, gutter, vp)
+  if (!floor || !gutter || out.w >= floor.width) return out
+  const x = gutter.x + gutter.w
+  return vp && vp.w > 0 && x + floor.width <= vp.w ? { ...r, x, w: floor.width } : r
+}
+/** the flexible body of a desk, one per tab: the agent chat's transcript, a
+ *  tab panel, or the project summary's description */
+const DESK_FLEX = ['.msgs-wrap', '.desk-tabpanel', '.project-description-md', '.project-description-edit']
+  .map((c) => '.desk-body > ' + c).join(', ')
+/** a pinned window's chrome height: its outer height, plus whatever its body
+ *  overflows by, minus the flexible body's own height. Null without layout. */
+export const measureDeskChrome = (win: HTMLElement | null): number | null => {
+  const body = win ? [...win.children].find((c): c is HTMLElement => c.classList.contains('pinwin-body')) : undefined
+  if (!win || !body || body.clientHeight <= 0 || win.offsetHeight <= 0) return null
+  const flex = body.querySelector<HTMLElement>(DESK_FLEX)
+  if (!flex) return null
+  const overflow = Math.max(0, body.scrollHeight - body.clientHeight)
+  const chrome = win.offsetHeight + overflow - flex.offsetHeight
+  return chrome > 0 ? chrome : null
+}
 /** the title bar's height (CSS `.pinwin-title`). Kept as a geometry constant
  *  for the window layout and tests. */
 export const PIN_TITLE_H = 28
@@ -257,10 +316,11 @@ export const clampRect = (r: PinRect, vp: { w: number; h: number } | null, min?:
 /** Geometry commits once per gesture. Drag-end resolves its snap using the
  * latest targets before reaching this clamp/persist boundary. */
 export const commitRect = (slug: string, id: string, rect: PinRect,
-  vp: { w: number; h: number } | null, snap: PinSnap | null = null): void => {
+  vp: { w: number; h: number } | null, snap: PinSnap | null = null,
+  min?: { width: number; height: number } | null): void => {
   const pins = readPins(slug)
   if (!pins.some((p) => p.id === id)) return
-  const next = clampRect(rect, vp)
+  const next = clampRect(rect, vp, min)
   writePins(slug, pins.map((p) => (p.id === id ? { ...p, rect: next, initialPlacement: undefined,
     snap: validPinSnap(id, next, snap, pins, vp) } : p)))
 }
@@ -483,15 +543,46 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
   // the rect on screen: the gesture's live rect while dragging, else the
   // stored one — clamped against the CURRENT viewport so a shrink can never
   // strand a window (render-time clamp; see PinLayer's resize tick)
+  // the desk's own floor, from its measured chrome (PIN_DESK_MIN_W above).
+  // Null until laid out; a saved or initial rect below it renders raised.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [chrome, setChrome] = useState<number | null>(null)
+  const floor = deskPinFloor(chrome)
   const initial = !live && pin.initialPlacement
     && pin.initialPlacement.viewport?.w === vp?.w && pin.initialPlacement.viewport?.h === vp?.h
+    && (!floor || (pin.rect.w >= floor.width && pin.rect.h >= floor.height))
     ? pin.initialPlacement : null
   // drawn clear of the canvas controls' column when they are blocked
-  // (controlgutter.ts); the stored rect is never rewritten for it
+  // (controlgutter.ts), after the desk floor and never narrower than it
+  // (deskAvoidGutter); the stored rect is never rewritten for either
   const gutter = useControlGutter(slug)
-  const rect = initial ? pin.rect : avoidControlGutter(clampRect(live ?? pin.rect, vp), gutter, vp)
+  const rect = initial ? pin.rect : deskAvoidGutter(clampRect(live ?? pin.rect, vp, floor), gutter, vp, floor)
   const layout = usePinSurface(slug, pin.id, rect, false)
-  const panelRef = useRef<HTMLDivElement>(null)
+  // Re-measured on every render and whenever the window, its body or any of
+  // the desk's rows changes size (a badge wraps, a tab switches, a strip
+  // appears). Only a whole-pixel change is a state change, so this settles.
+  const remeasure = useCallback(() => {
+    const next = measureDeskChrome(panelRef.current)
+    setChrome((cur) => (next === cur || (next != null && cur != null && Math.abs(next - cur) < 1) ? cur : next))
+  }, [])
+  useLayoutEffect(remeasure)
+  useEffect(() => {
+    const win = panelRef.current
+    if (!win || typeof ResizeObserver === 'undefined') return
+    const sizes = new ResizeObserver(remeasure)
+    const watch = () => {
+      sizes.disconnect()
+      sizes.observe(win)
+      const body = win.querySelector('.pinwin-body')
+      if (body) sizes.observe(body)
+      win.querySelectorAll('.pinwin-body .desk-body > *').forEach((el) => sizes.observe(el))
+      remeasure()
+    }
+    watch()
+    const rows = typeof MutationObserver === 'undefined' ? null : new MutationObserver(watch)
+    win.querySelectorAll('.pinwin-body .desk-body').forEach((el) => rows?.observe(el, { childList: true }))
+    return () => { sizes.disconnect(); rows?.disconnect() }
+  }, [remeasure])
   const overlapSetting = useModalOverlap()
   const overlapsDesk = useDeskOverlap(panelRef, overlapSetting.enabled)
 
@@ -542,7 +633,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
     const dx = e.clientX - g.sx, dy = e.clientY - g.sy
     const size = vpSize(viewportRef)
     if (g.kind === 'move') {
-      return clampRect({ ...g.o, x: g.o.x + dx, y: g.o.y + dy }, size)
+      return clampRect({ ...g.o, x: g.o.x + dx, y: g.o.y + dy }, size, floor)
     }
     let { x, y, w, h } = g.o
     if (g.edge.includes('e')) w = g.o.w + dx
@@ -551,8 +642,9 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
     if (g.edge.includes('n')) { h = g.o.h - dy; y = g.o.y + dy }
     // the floor pins the OPPOSITE edge: shrinking past the minimum from the
     // west/north must not walk the window across the screen
-    if (w < PIN_MIN_W) { if (g.edge.includes('w')) x = g.o.x + g.o.w - PIN_MIN_W; w = PIN_MIN_W }
-    if (h < PIN_MIN_H) { if (g.edge.includes('n')) y = g.o.y + g.o.h - PIN_MIN_H; h = PIN_MIN_H }
+    const minW = floor?.width ?? PIN_MIN_W, minH = floor?.height ?? PIN_MIN_H
+    if (w < minW) { if (g.edge.includes('w')) x = g.o.x + g.o.w - minW; w = minW }
+    if (h < minH) { if (g.edge.includes('n')) y = g.o.y + g.o.h - minH; h = minH }
     // the DRAGGED side stops at the view's edge; the opposite side never
     // moves. Without this, the keep-in-view clamp below shifted the whole
     // window back inside, so pulling a flush side outward slid the other one.
@@ -562,14 +654,14 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
       if (g.edge.includes('e')) w = Math.min(w, size.w - x)
       if (g.edge.includes('s')) h = Math.min(h, size.h - y)
     }
-    return clampRect({ x, y, w, h }, size)
+    return clampRect({ x, y, w, h }, size, floor)
   }
   const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => {
     const size = vpSize(viewportRef)
     // Display > "snap pinned panels to edges" off: no gesture ever snaps
     return disabled || !pinSnapOn() ? null : findPinSnap(pin.id, r,
       readPinSurfaces().filter(p => p.org === slug).map(p => ({id:pinSnapId(p), rect:clampRect(p.rect,size)})), size,
-      g?.kind === 'size' ? { edge: g.edge, minWidth: PIN_MIN_W, minHeight: PIN_MIN_H } : undefined)
+      g?.kind === 'size' ? { edge: g.edge, minWidth: floor?.width ?? PIN_MIN_W, minHeight: floor?.height ?? PIN_MIN_H } : undefined)
   }
   const move = (e: ReactPointerEvent<HTMLElement>) => {
     const g = gesture.current
@@ -599,7 +691,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
     // and the last pointermove may not contain the pointerup coordinates.
     const final = gestureRect(g, e)
     const snap = candidate(final, e.shiftKey, g)
-    commitRect(slug, pin.id, snap?.rect ?? final, vpSize(viewportRef), snap?.snap ?? null)
+    commitRect(slug, pin.id, snap?.rect ?? final, vpSize(viewportRef), snap?.snap ?? null, floor)
   }
 
   const preview = live && gesture.current ? candidate(rect, freePlacement) : null
