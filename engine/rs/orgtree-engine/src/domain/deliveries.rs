@@ -92,4 +92,29 @@ mod files_tab_tests {
         assert!(wrong_org["files"].as_array().unwrap().is_empty());
         tx.rollback().await.unwrap();drop(client);connection.await.unwrap();
     }
+
+    /// USER 2026-11-10 m8e958d19e3db: the desk's Files tab hides when its agent has no delivered file. One EXISTS on
+    /// the same (org, agent) key the list reads: another agent's, another org's and an unknown agent's files never count.
+    #[tokio::test]
+    #[ignore = "requires the explicitly owned disposable native fixture"]
+    async fn any_delivery_is_scoped_to_its_org_and_agent() {
+        let fixture = crate::domain::native_fixture::Fixture::from_env().await;
+        let (mut client, connection) = fixture.cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection = tokio::spawn(async move { connection.await.unwrap() });
+        crate::migrate::run(&mut client, &|_| {}).await.unwrap();
+        let tx = client.transaction().await.unwrap();
+        let org: i64 = tx.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES($1,$2,'Synthetic any') RETURNING id",
+            &[&uuid::Uuid::new_v4(), &format!("files-{}",uuid::Uuid::new_v4())]).await.unwrap().get(0);
+        let other_org: i64 = tx.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES($1,$2,'Other any') RETURNING id",
+            &[&uuid::Uuid::new_v4(), &format!("files-{}",uuid::Uuid::new_v4())]).await.unwrap().get(0);
+        let empty: i64 = tx.query_one("INSERT INTO ot.agents(org_id,name,tier,state,born) VALUES($1,'empty','sol','live','synthetic') RETURNING id",&[&org]).await.unwrap().get(0);
+        let sender: i64 = tx.query_one("INSERT INTO ot.agents(org_id,name,tier,state,born) VALUES($1,'sender','sol','live','synthetic') RETURNING id",&[&org]).await.unwrap().get(0);
+        assert!(!any(&tx,org,Some(empty)).await.unwrap(),"no delivery yet");
+        tx.execute("INSERT INTO ot.deliveries(uid,org_id,agent_id,name,path,bytes) VALUES('first',$1,$2,'first','/snapshot/first',1)",&[&org,&sender]).await.unwrap();
+        assert!(any(&tx,org,Some(sender)).await.unwrap());
+        assert!(!any(&tx,org,Some(empty)).await.unwrap(),"a sibling's delivery does not count");
+        assert!(!any(&tx,other_org,Some(sender)).await.unwrap(),"another org's key does not count");
+        assert!(!any(&tx,org,None).await.unwrap(),"an unknown agent has none");
+        tx.rollback().await.unwrap();drop(client);connection.await.unwrap();
+    }
 }
