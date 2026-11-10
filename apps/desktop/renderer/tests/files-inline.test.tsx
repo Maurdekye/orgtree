@@ -20,12 +20,12 @@ function mediaMocks(t: import('node:test').TestContext) {
   return { play }
 }
 function observerMock(t: import('node:test').TestContext) {
-  let notify: IntersectionObserverCallback = () => {}
+  const notifies: IntersectionObserverCallback[] = []
   const before = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver')
-  class Observer { constructor(cb: IntersectionObserverCallback) { notify = cb } observe() {} disconnect() {} }
+  class Observer { constructor(cb: IntersectionObserverCallback) { notifies.push(cb) } observe() {} disconnect() {} }
   Object.defineProperty(globalThis, 'IntersectionObserver', { configurable: true, value: Observer })
   t.after(() => before ? Object.defineProperty(globalThis, 'IntersectionObserver', before) : delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver)
-  return (isIntersecting: boolean) => inAct(() => notify([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver))
+  return (isIntersecting: boolean) => inAct(() => { notifies.forEach(n => n([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver)) })
 }
 const rows = [file('f4', 'tone.wav'), file('f3', 'clip.webm'), file('f2', 'notes.zip'), file('f1', 'preview.png')]
 const mount = async (t: import('node:test').TestContext) => {

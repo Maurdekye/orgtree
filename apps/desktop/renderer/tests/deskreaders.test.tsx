@@ -23,6 +23,7 @@ async function serve(t:TestContext,first=empty()) {
     const raw=String(url),u=new URL(raw,'http://fixture');requests.push(raw)
     const json=(data:unknown)=>new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}})
     if(u.pathname.endsWith('/reader-availability'))return json(value)
+    if(u.pathname.endsWith('/files'))return json({node:'lead',files:[],next_cursor:null})
     if(u.pathname.endsWith('/documents'))return json({documents:u.searchParams.has('team')?[documentRow]:[],
       total:u.searchParams.has('team')?1:0,next_offset:null,offset:0,opening_id:u.searchParams.has('team')?documentRow.id:null})
     if(u.pathname.endsWith('/documents/proposal'))return json({...documentRow,body:'# Team proposal\n\nAvailable from a report.'})
