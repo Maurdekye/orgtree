@@ -98,7 +98,8 @@ assistant frame) and end (its tool result), the full result's
 `result_lines`, and the result as a 512-byte preview whose clipping marks the
 row (`truncated` on the chip, "… truncated" when expanded), never the
 transcript. The budget is 256 messages / 256 KiB; typical tool activity is
-about 0.9 KiB a row, so 220 Reads with ~9 KiB results are all kept
+about 1 KiB a row (measured: 1,022 B per Read with a ~9 KiB result; 220 rows =
+224,872 B, steady state at the cap 255 rows / 261,151 B), so 220 Reads are all kept
 (`retention_keeps_at_least_200_rows_of_typical_tool_activity`). The size
 check re-encodes only the rows an event touched (per-row encoded sizes), not
 the whole snapshot per token. Cost: at most 256 KiB per retained helper call

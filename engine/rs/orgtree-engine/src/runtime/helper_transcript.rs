@@ -8,7 +8,8 @@ pub const MAX_CALLS: usize = 16;
 // The old 64 KB budget kept each result up to 8 KB, so ten ordinary Reads
 // filled it, and every clipped result also flagged "activity omitted". A row
 // now keeps the desk's own summary (arg, times, line count) and a short
-// result PREVIEW, so 256 rows of typical tool activity (~0.9 KB each) fit.
+// result PREVIEW, so ~250 rows of typical tool activity fit (measured: 1,022 B
+// a row with ~9 KB Read results; 220 rows = 224,872 B).
 // Cost: <= 256 KB per retained helper call in memory and in its private
 // convo jsonb; <= MAX_CALLS x 256 KB = 4 MB per parent agent.
 const MAX_ROWS: usize = 256;
