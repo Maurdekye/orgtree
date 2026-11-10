@@ -4704,6 +4704,13 @@ main.solo { width: 100%; }
   font-size: 14.5px;   /* screen-space panel — never inherits desk world-sizing */
   line-height: 1.55;
 }
+/* a short screen (1280x720, 1080p at 125%) gives a settings window nearly its
+   whole height: 88% left ~90px unused at 720p (USER 2026-11-10 m0e04507d8287).
+   Compound rules (.settings.doc-reader and the auto-height dialogs) keep theirs;
+   pinned and popped-out panels are sized by their own frame. */
+@media (max-height: 900px) {
+  .settings { height: calc(100vh - 32px); }
+}
 .settings > * { min-width: 0; }
 /* Membership loading cannot insert/remove a flex row above a live docket. */
 .docket-membership-head { position: relative; flex-shrink: 0; }
@@ -4727,7 +4734,11 @@ main.solo { width: 100%; }
 .settings.cfg > h3 { display: flex; }
 .settings.cfg > .agent-settings-header { align-items: center; gap: 12px; }
 .settings.cfg .agent-settings-header-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-.settings.cfg > .agent-history-tab { flex: 1; min-height: 0; overflow: hidden; }
+/* History and Activity fill a tall panel from a zero basis, but never go below
+   320px: on a short screen the whole panel scrolls (its top scrolls away, as on
+   every other tab) instead of squeezing the list to ~180px under it (UI audit
+   2026-11-10, USER m0e04507d8287). Their own list scrolls inside that floor. */
+.settings.cfg > .agent-history-tab { flex: 1 1 0; min-height: 320px; overflow: hidden; }
 .settings.cfg .agent-history-tab .msgs { flex: 1; min-height: 0; padding: 0; }
 /* ONE content inset for every agent/project settings tab: the window's own --panel-pad, nothing more (the four config tabs and
    App settings add none). History's list and States used to add 3px 2px and 8px 12px, shifting the content edge between tabs. */

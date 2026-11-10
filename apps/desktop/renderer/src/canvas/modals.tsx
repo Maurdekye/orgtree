@@ -1343,27 +1343,30 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <button type="button" onClick={onScratchFolder}>Open project folder</button>
       </span>}
     </h3>
-    <SetRow label="Name" hint="Renaming moves the project's mailbox and its fair_queue watchdogs with it.">
-      <span className="agent-identity-row">
-        <input type="text" aria-label="Project name" placeholder="Project name" value={name}
-          onChange={(e) => setName(e.target.value)} />
-        <button disabled={!renameReady(name, node.id)} onClick={() => op({ op: 'rename', node: node.id, name: name.trim() })
-          .then((r) => { toast([`renamed ${node.id} → ${String(r?.node ?? name.trim())}`]); close() })
-          .catch((e: Error) => toast([`error: ${e.message}`]))}>Rename</button>
-      </span>
-    </SetRow>
-    <SetRow label="Project actions" hint="Retire or restore the project; agents under it are retired with it and keep their context.">
-      <span className="agent-identity-row">
-        {live && !members && <button className="danger" onClick={() => setAsking('retire')}>Retire project</button>}
-        {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>Dissolve</button>}
-        {node.state === 'archived' && <button className="primary" onClick={() =>
-          op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>Restore</button>}
-        <button className="danger delete" onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> Delete permanently</button>
-      </span>
-    </SetRow>
     <SettingsTabs tabs={[{ id: 'project' as const, label: 'Project' }, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]}
       tab={tab} setTab={setTab} idBase={tabId} label="Project settings" />
     <SettingsTabPanel id="project" idBase={tabId} active={tab === 'project'}>
+      {/* as in Agent settings: Name and actions open the first tab (USER 2026-11-10 m341927c12f35) */}
+      <SetGroup title="Project">
+        <SetRow label="Name" hint="Renaming moves the project's mailbox and its fair_queue watchdogs with it.">
+          <span className="agent-identity-row">
+            <input type="text" aria-label="Project name" placeholder="Project name" value={name}
+              onChange={(e) => setName(e.target.value)} />
+            <button disabled={!renameReady(name, node.id)} onClick={() => op({ op: 'rename', node: node.id, name: name.trim() })
+              .then((r) => { toast([`renamed ${node.id} → ${String(r?.node ?? name.trim())}`]); close() })
+              .catch((e: Error) => toast([`error: ${e.message}`]))}>Rename</button>
+          </span>
+        </SetRow>
+        <SetRow label="Project actions" hint="Retire or restore the project; agents under it are retired with it and keep their context.">
+          <span className="agent-identity-row">
+            {live && !members && <button className="danger" onClick={() => setAsking('retire')}>Retire project</button>}
+            {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>Dissolve</button>}
+            {node.state === 'archived' && <button className="primary" onClick={() =>
+              op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>Restore</button>}
+            <button className="danger delete" onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> Delete permanently</button>
+          </span>
+        </SetRow>
+      </SetGroup>
       <SetBlock label="Summary" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
         <textarea rows={10} className="charterbox" aria-label="Project Summary" value={description}
           onChange={(e) => setDescription(e.target.value)} /></SetBlock>
@@ -1774,65 +1777,69 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               {onTeamScratchFolder && <button type="button" onClick={onTeamScratchFolder}>Open team scratch folder</button>}
             </span>}
         </h3>
-        {/* above Name: the rows over the tabs are settings too (canvas/settingssearch.tsx) */}
+        {/* searches every tab, the Charter tab's Name and actions included (canvas/settingssearch.tsx) */}
         <SettingsSearch tabs={agentSettingsTabs(hasHistory)} idBase={tabId} setTab={setTab} target={target}
           label="Search agent settings" />
-        {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
-            working folder and session all move; history keeps the old name
-            (the warning rides the toast). Refused while mid-turn. */}
-        {!node.isBearerOf && (
-          <SetRow label="Name" hint="Renaming also moves this agent’s folder and mailbox.">
-            <span className="agent-identity-row">
-            <input type="text" aria-label="Agent name" placeholder="Agent name"
-              value={val('rename', node.id)}
-              onChange={(e) => set('rename', node.id)(e.target.value)} />
-            <button disabled={!renameReady(String(val('rename', node.id)), node.id)} onClick={() =>
-              op({ op: 'rename', node: node.id,
-                   name: String(val('rename', node.id)).trim() })
-                .then((r) => {
-                  toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
-                         ...((r?.warnings as string[] | undefined) ?? [])])
-                  close()
-                })
-                .catch((e: Error) => toast([`error: ${e.message}`]))}>
-              Rename</button>
+        <SettingsTabs tabs={agentSettingsTabs(hasHistory)} tab={tab} setTab={setTab} stripRef={stripRef}
+          idBase={tabId} label="Agent settings" />
+        {/* Keep every panel mounted: switching tabs preserves all draft fields.
+            The shared save below still applies edits from every tab together. */}
+        <SettingsTabPanel id="charter" idBase={tabId} active={tab === 'charter'}>
+        {/* Name and the agent's actions open the first tab, the way Org settings keeps
+            its Name under Basic (USER 2026-11-10 m0e04507d8287 "rows into tab"): above
+            the tabs they took ~190px from every tab on a short screen */}
+        <SetGroup title="Agent">
+          {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
+              working folder and session all move; history keeps the old name
+              (the warning rides the toast). Refused while mid-turn. */}
+          {!node.isBearerOf && (
+            <SetRow label="Name" hint="Renaming also moves this agent’s folder and mailbox.">
+              <span className="agent-identity-row">
+              <input type="text" aria-label="Agent name" placeholder="Agent name"
+                value={val('rename', node.id)}
+                onChange={(e) => set('rename', node.id)(e.target.value)} />
+              <button disabled={!renameReady(String(val('rename', node.id)), node.id)} onClick={() =>
+                op({ op: 'rename', node: node.id,
+                     name: String(val('rename', node.id)).trim() })
+                  .then((r) => {
+                    toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
+                           ...((r?.warnings as string[] | undefined) ?? [])])
+                    close()
+                  })
+                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
+                Rename</button>
+            </span></SetRow>
+          )}
+
+          <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
+            {/* no Rescind on a top-level agent (USER 2026-10-31 m91787acb55ee "it performs effectively identically to retire /
+                dissolve"): there is no superior grant to claw back from */}
+            {node.state === 'live' && !isTopLevel(node, map) &&
+              <button className="danger" onClick={() => setAsking('rescind')}>
+                Rescind · {fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}</button>}
+            {/* retire asks too (user bug 2026-08-09) — it sat as the one
+                seat-freeing action firing straight off the click, beside a
+                dissolve button that asks */}
+            {node.state === 'live' && !effectiveReports(node.children).some((c) => c.state !== 'archived') &&
+              <button className="danger" onClick={() => setAsking('retire')}>
+                Retire · {fmtCredits(node.seat! + node.grant!)}</button>}
+            {node.state === 'live' && effectiveReports(node.children).some((c) => c.state !== 'archived') &&
+              <button className="danger" onClick={() => setAsking('dissolve')}>
+                Dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
+            {node.state === 'archived' &&
+              <button className="primary" onClick={() =>
+                op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
+                Rehire (context intact)</button>}
+            <button className="danger delete"
+              onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> Delete permanently</button>
           </span></SetRow>
-        )}
-
-        <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
-          {/* no Rescind on a top-level agent (USER 2026-10-31 m91787acb55ee "it performs effectively identically to retire /
-              dissolve"): there is no superior grant to claw back from */}
-          {node.state === 'live' && !isTopLevel(node, map) &&
-            <button className="danger" onClick={() => setAsking('rescind')}>
-              Rescind · {fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}</button>}
-          {/* retire asks too (user bug 2026-08-09) — it sat as the one
-              seat-freeing action firing straight off the click, beside a
-              dissolve button that asks */}
-          {node.state === 'live' && !effectiveReports(node.children).some((c) => c.state !== 'archived') &&
-            <button className="danger" onClick={() => setAsking('retire')}>
-              Retire · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'live' && effectiveReports(node.children).some((c) => c.state !== 'archived') &&
-            <button className="danger" onClick={() => setAsking('dissolve')}>
-              Dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'archived' &&
-            <button className="primary" onClick={() =>
-              op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
-              Rehire (context intact)</button>}
-          <button className="danger delete"
-            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> Delete permanently</button>
-        </span></SetRow>
-
+        </SetGroup>
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
             common case plus a per-field line only where the blast radius
             DIFFERS — a wider scope, a different mechanism, or no cost at
             all. Eight identical subtitles would train the reader to skip
             them, and the org-wide ones are the expensive ones to miss. */}
         <p className="set-hint">Some changes restart the agent, as noted below.</p>
-        <SettingsTabs tabs={agentSettingsTabs(hasHistory)} tab={tab} setTab={setTab} stripRef={stripRef}
-          idBase={tabId} label="Agent settings" />
-        {/* Keep every panel mounted: switching tabs preserves all draft fields.
-            The shared save below still applies edits from every tab together. */}
-        <SettingsTabPanel id="charter" idBase={tabId} active={tab === 'charter'}>
         <AgentCharterFields charter={charter} setCharter={setCharter} teamCharter={teamCharter}
           setTeamCharter={setTeamCharter} peerMail={peerMail} setPeerMail={setPeerMail} />
         </SettingsTabPanel>
