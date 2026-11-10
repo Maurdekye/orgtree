@@ -23,6 +23,34 @@ pub fn size_gate(used: Option<i32>, window: Option<i32>, measured: bool, thresho
     None
 }
 
+/// What a finished Claude turn writes to the agent's size columns.
+#[derive(Debug, PartialEq)]
+pub struct SizeWrite {
+    pub occupancy: i32,
+    /// stored as a measurement (occupancy_est=false, compacted_unrun=false)
+    pub measured: bool,
+    /// stored as an estimate that a cold wake must not cut on (occupancy_est=true, compacted_unrun=true)
+    pub estimate: bool,
+}
+
+/// The size Claude Code reports after a compaction (`compact_boundary`'s `compact_metadata.post_tokens`), or None
+/// when it reports none (an older CLI, a missing or non-positive field). Never a guess. (stub in the red commit)
+#[nolog]
+pub fn post_compaction_size(_boundary: &Value) -> Option<i32> {
+    None
+}
+
+/// A model call made after a CLI compaction in the same turn is a real measurement of the new size and replaces
+/// the boundary's own figure; the last one wins. (stub in the red commit)
+#[nolog]
+pub fn note_call_after_compaction(_post: &mut Option<i32>, _cli_compacted: bool, _call_size: i32) {}
+
+/// What the turn's end stores. `last_call` is the last call's input plus cache total. (stub in the red commit)
+#[nolog]
+pub fn size_write(last_call: i32, compact: bool, cli_compacted: bool, _post: Option<i32>, native_retry: bool) -> SizeWrite {
+    SizeWrite { occupancy: last_call, measured: last_call > 0 && !compact && !cli_compacted && !native_retry, estimate: compact || cli_compacted }
+}
+
 /// Commit retry intent, end the old turn/session, return only unconsumed
 /// claims and create one wake atomically. A crash after commit cannot revive
 /// the failed turn or produce a second acknowledgement/recovery wake.
@@ -67,6 +95,70 @@ pub async fn retry(engine: &Engine, org: i64, agent: i64, turn: i64, error: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// What a cold wake decides from what the turn left (threshold 25% of a 1M window).
+    fn cold_wake(w: &SizeWrite) -> &'static str {
+        crate::domain::tree::cold_turn_action(Some(0.25), Some(i64::from(w.occupancy)), Some(1_000_000), w.measured && !w.estimate, true, true)
+    }
+    fn boundary(post: Option<i64>) -> Value {
+        let mut b = json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto", "pre_tokens": 658_699}});
+        if let Some(p) = post { b["compact_metadata"]["post_tokens"] = json!(p); }
+        b
+    }
+
+    /// (a) a reported post size above the threshold is measured, so the cold wake cheap-compacts.
+    #[test]
+    fn a_post_compaction_size_above_the_threshold_compacts_at_the_cold_wake() {
+        let post = post_compaction_size(&boundary(Some(300_000)));
+        assert_eq!(post, Some(300_000));
+        let w = size_write(658_699, false, true, post, false);
+        assert_eq!(w, SizeWrite { occupancy: 300_000, measured: true, estimate: false });
+        assert_eq!(cold_wake(&w), "will_compact");
+    }
+    /// (b) a reported post size below the threshold is measured and does not compact.
+    #[test]
+    fn a_post_compaction_size_below_the_threshold_does_not_compact() {
+        let w = size_write(658_699, false, true, post_compaction_size(&boundary(Some(100_000))), false);
+        assert_eq!(w, SizeWrite { occupancy: 100_000, measured: true, estimate: false });
+        assert_eq!(cold_wake(&w), "not_applicable");
+    }
+    /// (c) no post size (older CLI, missing, zero, wrong type) keeps today's estimate and the skip. Never a guess.
+    #[test]
+    fn a_boundary_without_a_post_size_keeps_the_estimate_and_the_skip() {
+        for b in [boundary(None), boundary(Some(0)), boundary(Some(-5)), json!({"subtype": "compact_boundary", "compact_metadata": {"post_tokens": "x"}})] {
+            let post = post_compaction_size(&b);
+            assert_eq!(post, None);
+            let w = size_write(658_699, false, true, post, false);
+            assert_eq!(w, SizeWrite { occupancy: 658_699, measured: false, estimate: true });
+            assert_eq!(cold_wake(&w), "not_applicable");
+        }
+    }
+    /// (d) a measured call after the boundary overrides post_tokens; the last one wins; nothing changes without a boundary.
+    #[test]
+    fn a_call_after_the_boundary_overrides_the_reported_post_size() {
+        let mut post = post_compaction_size(&boundary(Some(300_000)));
+        note_call_after_compaction(&mut post, true, 90_000);
+        assert_eq!(cold_wake(&size_write(90_000, false, true, post, false)), "not_applicable");
+        note_call_after_compaction(&mut post, true, 420_000);
+        let w = size_write(420_000, false, true, post, false);
+        assert_eq!(w, SizeWrite { occupancy: 420_000, measured: true, estimate: false });
+        assert_eq!(cold_wake(&w), "will_compact");
+        // a boundary with no post size, then a later call: that call is the real figure
+        let mut none = None;
+        note_call_after_compaction(&mut none, true, 350_000);
+        assert_eq!(cold_wake(&size_write(350_000, false, true, none, false)), "will_compact");
+        // calls before any compaction do not set it
+        let mut before = None;
+        note_call_after_compaction(&mut before, false, 350_000);
+        assert_eq!(before, None);
+    }
+    /// Our own compaction and a native retry are never measurements, post size or not.
+    #[test]
+    fn our_own_compaction_and_a_native_retry_stay_unmeasured() {
+        assert!(!size_write(500_000, true, false, Some(300_000), false).measured);
+        assert!(!size_write(500_000, false, true, Some(300_000), true).measured);
+        assert_eq!(size_write(500_000, false, false, None, false), SizeWrite { occupancy: 500_000, measured: true, estimate: false });
+    }
+
     #[test]
     fn context_size_gate_covers_every_stand_down_and_exact_threshold() {
         let gate=|u,w,m,t,s,l,b,busy,c|size_gate(u,w,m,t,s,l,b,busy,c);
