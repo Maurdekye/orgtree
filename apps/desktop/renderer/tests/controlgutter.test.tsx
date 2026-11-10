@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { avoidControlGutter, controlGutter, CONTROL_GUTTER_W } from '../src/canvas/controlgutter'
 import { forgetCanvasAnchor } from '../src/canvas/canvasanchor'
-import { addPin, forgetPins, pinsKey } from '../src/canvas/pins'
+import { addPin, clampRect, forgetPins, pinsKey } from '../src/canvas/pins'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import type { TreePayload } from '../src/types'
 
@@ -108,7 +108,13 @@ test('§3 a canvas-filling pin: the canvas is guttered and the pin starts at 48p
   assert.ok(vp.classList.contains('controls-guttered'),
     `the blocked controls move into their column (class: ${vp.className})`)
   assert.equal(win!.style.left, '48px', 'the pin is drawn clear of the controls’ column')
-  assert.equal(win!.style.width, `${18 + 1204 - 48}px`, 'keeping its right edge')
+  // the pin layer clamps against the viewport's CONTENT box (the stylesheet's
+  // border comes off), so the right edge to keep is that clamp's, not 1222
+  const cs = getComputedStyle(vp)
+  const inner = { w: VP.w - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.borderRightWidth) || 0),
+    h: VP.h - (parseFloat(cs.borderTopWidth) || 0) - (parseFloat(cs.borderBottomWidth) || 0) }
+  const clamped = clampRect({ x: 18, y: 17, w: 1204, h: 595 }, inner)
+  assert.equal(win!.style.width, `${clamped.x + clamped.w - 48}px`, 'keeping its right edge')
   const toggle = view.el.querySelector('.tray-toggle') as HTMLButtonElement | null
   assert.ok(toggle, 'the Agents toggle is still rendered')
   assert.equal(toggle!.getAttribute('aria-label'), 'agents', 'and keeps an accessible name when icon-only')
