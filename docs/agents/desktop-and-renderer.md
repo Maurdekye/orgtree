@@ -66,7 +66,7 @@ when the same readout has a `weekly_scoped` limit whose model names Fable,
 and both bars are known by the bars' own rule (percent present, window not
 already reset on a stale read). It is hidden when f >= 100%. Other providers'
 scoped windows never pip. Colour is `--ink-strong`, never a warning or limit
-colour; the 10px span carries the tooltip, and `::after` draws the 2px tick.
+colour; the 10px span carries the tooltip, and `::after` draws the 2px tick. Its native title (the same mechanism the meters' badges use) leads with the pip's weekly percentage, then the Fable share used, then the explanation, for example "76% weekly usage · Fable 52% used · Past this point…"; a missing value shows no number (USER 2026-11-10 m62522a70ecb4).
 Helper: `canvas/fablepip.ts`. The agents' text usage board is engine text, not
 this meter, and is unchanged.
 [decided: user 2026-11-10 ma76204ba37d2, m9c19aae87fb3; verified:
