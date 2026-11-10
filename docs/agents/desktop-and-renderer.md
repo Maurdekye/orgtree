@@ -1,5 +1,35 @@
 # Desktop and renderer
 
+## Pinned desk default and minimum size (2026-11-10, 4.5.11)
+
+A pinned agent or project desk has its own size rule; the generic 320x240 window
+floor (`PIN_MIN_W/H`, still used by modal pins) left the header filling the whole
+window at 720p (UI audit 2026-11-09 problems 1+2).
+
+- Default: a desk pinned from its card opens at least `PIN_DESK_DEFAULT_W` x
+  `PIN_DESK_DEFAULT_H` (520x480), over the card, clamped to the canvas
+  (`deskPinDefault`).
+- Minimum: once laid out, `PinWindow` measures the desk's chrome (title, header
+  rows, strips, composer: outer height plus body overflow minus the flexible body,
+  `measureDeskChrome`). The floor is `PIN_DESK_MIN_W` (400) wide and chrome +
+  `PIN_DESK_BODY_MIN_PX` (160) tall (`deskPinFloor`). Resize gestures, snaps and
+  their commit stop at it. Without layout (jsdom, first frame) there is no desk
+  floor and the generic one applies, so DOM tests keep 320x240.
+- Saved pins below the floor RENDER raised to it but are never rewritten: storage
+  changes only on the user's next gesture. A larger saved size is kept.
+- Pinned-only CSS (`styles.css`, "PINNED DESKS AT SMALL SIZES"): the transcript,
+  tab panels and project summary keep the same 160px floor (KEEP IN STEP with
+  `PIN_DESK_BODY_MIN_PX`), so a squeezed Mail/Team panel can no longer paint over
+  the inbox warning; `.pinwin-body` scrolls when the desk is taller than the canvas;
+  the reports row is capped at two rows (desk-nav scroll pattern). No tab overflow
+  menu: the header wraps to at most three rows at the floor (coordinator 2026-11-10).
+- With the canvas controls' gutter active (controlgutter.ts), the gutter applies
+  after the floor and never narrows a desk below its floor width: the desk shifts
+  right at the floor width instead (`deskAvoidGutter`); only a viewport narrower
+  than the gutter plus the floor width accepts the overlap (coordinator 2026-11-10).
+[decided: coordinator 2026-11-10; verified: `canvas/pins.tsx`, `canvas/OrgCanvas.tsx`
+pinDesk, `styles.css`, `tests/pins.test.tsx` §B1 §D1-§D4]
+
 ## Focused canvas desk stays readable on small windows (2026-11-10, 4.5.11)
 
 UI audit 2026-11-09 problem 4: the focus glide fits the 900px authored desk to
