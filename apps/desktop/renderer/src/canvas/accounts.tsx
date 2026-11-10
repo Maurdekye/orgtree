@@ -66,6 +66,7 @@ import { DefaultsForm } from '../shell/defaults'
 import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } from '../quickchat'
 import { EngineDebugToggle } from './enginedebug'
 import { EpicModeSwitch } from '../epic/EpicSwitch'
+import { FABLE_PIP_TITLE, fablePipPercent } from './fablepip'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -244,6 +245,13 @@ export function UsageBars({ u }: { u: AccountUsage }) {
     </>
   }
   const staleOrFailed = !u.available || Boolean(u.error)
+  // a retained reading whose window already reset is not current (below)
+  const resetPassedOf = (l: UsageLimit) => Boolean(l.resets_at && Date.parse(l.resets_at) <= Date.now())
+    && (staleOrFailed || (prov === 'muse' && l.percent == null))
+  const knownOf = (l: UsageLimit) => l.percent != null && !resetPassedOf(l)
+  // the Fable pip on the weekly (all models) bar (canvas/fablepip.ts): shown
+  // only where both bars render, so it never outlives the readings it reads
+  const fablePip = fablePipPercent(lims, knownOf)
   return (
     <>
       {/* A failed or rate-limited provider read retains last-good bars (whether
@@ -265,9 +273,8 @@ export function UsageBars({ u }: { u: AccountUsage }) {
         // If a retained reading's window reset time is already in the past,
         // show `reset; awaiting reading` instead of presenting the old
         // pre-reset percentage as current.
-        const resetPassed = Boolean(l.resets_at && Date.parse(l.resets_at) <= Date.now())
-          && (staleOrFailed || (prov === 'muse' && l.percent == null))
-        const known = l.percent != null && !resetPassed
+        const resetPassed = resetPassedOf(l)
+        const known = knownOf(l)
         const pct = Math.max(0, Math.min(100, l.percent ?? 0))
         const sev = sevOf(l)
         return (
@@ -283,6 +290,9 @@ export function UsageBars({ u }: { u: AccountUsage }) {
             {known && <div className="usage-track">
               <div className={'usage-fill' + (sev ? ' ' + sev : '')}
                 style={{ width: pct + '%' }} />
+              {l.kind === 'weekly_all' && fablePip != null
+                && <span className="usage-pip" style={{ left: fablePip + '%' }}
+                  title={FABLE_PIP_TITLE} aria-label={FABLE_PIP_TITLE} role="img" />}
             </div>}
           </div>
         )

@@ -5764,6 +5764,20 @@ span.ref-chip.ref-chip {
 .usage-row .u-pct.crit { color: var(--bad); }
 .usage-track {
   height: 8px; border-radius: 4px; background: var(--input); overflow: hidden;
+  position: relative;
+}
+/* THE FABLE PIP (USER 2026-11-10 ma76204ba37d2, m9c19aae87fb3; canvas/
+   fablepip.ts): a neutral tick on the Claude weekly (all models) bar at
+   (1 + f) / 2. Neutral ink, never --bad/--tier-fable: it marks a planning
+   point, not a limit or a warning. The span is a 10px hover target for its
+   tooltip; ::after draws the 2px tick. */
+.usage-pip {
+  position: absolute; top: 0; bottom: 0; width: 10px;
+  transform: translateX(-50%); cursor: help;
+}
+.usage-pip::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px;
+  background: var(--ink-strong); opacity: .7;
 }
 .usage-fill {
   height: 100%; border-radius: 4px; background: var(--accent);
