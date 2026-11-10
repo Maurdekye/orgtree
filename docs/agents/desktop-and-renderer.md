@@ -55,6 +55,23 @@ means null; explicit negative or >10M values are refused.
 verified: `langserver/{refresh,refresh_unit_tests}.rs`, `settings.rs`,
 `canvas/langserver.tsx`, `canvas/lsmodels.ts`, shared `tests/fixtures/langserver-context.json`]
 
+## Fable pip on the Claude weekly meter (2026-11-10, 4.5.11)
+
+`UsageBars` (canvas/accounts.tsx, the one bar renderer behind the Usage card
+and every account row) draws a neutral tick on the `weekly_all` bar at
+p = (1 + f) / 2, where f is the Fable weekly fraction used: the point past
+which the rest of the Fable allowance can no longer be used up before the
+all-models limit. r = 1/2 is a fixed constant (no measured ratio). It shows only
+when the same readout has a `weekly_scoped` limit whose model names Fable,
+and both bars are known by the bars' own rule (percent present, window not
+already reset on a stale read). It is hidden when f >= 100%. Other providers'
+scoped windows never pip. Colour is `--ink-strong`, never a warning or limit
+colour; the 10px span carries the tooltip, and `::after` draws the 2px tick.
+Helper: `canvas/fablepip.ts`. The agents' text usage board is engine text, not
+this meter, and is unchanged.
+[decided: user 2026-11-10 ma76204ba37d2, m9c19aae87fb3; verified:
+`canvas/{fablepip.ts,accounts.tsx}`, `tests/fablepip.test.tsx`; 2026-11-10]
+
 ## UX symmetry (2026-10-29)
 
 USER 2026-10-29 12:50:22Z mb6da9f3ee862, verbatim: "in my eyes, the perfect ux for a piece of software is highly symmetrical, like a high-order group. it contains lots of symmetries: lots of throughlines, common ui elements, common ui patterns, common icon and link types, common panel structures, common ways of presenting information, choices, etc. the more symmetries a program contains, the closer to "perfect" it is. a completely perfect ux would be something akin to a perfect crystal: perfectly symmetrical along every conceivable axis of interaction. when i design software, i aim to optimize for this maximal crystalline symmetry in the ux. orgtree follows this design principle."
