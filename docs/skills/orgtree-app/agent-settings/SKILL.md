@@ -9,7 +9,7 @@ Up: [orgtree-app](../SKILL.md)
 
 Use this section when the user asks what an agent's configuration controls do or which change might help. Open it from the desk gear or the agent menu's Settings action. These are settings for the selected agent, distinct from organization hire defaults and machine-wide App settings. Agents explain and suggest settings changes; they do not change settings themselves.
 
-The search box at the top searches this window's tabs and the Name and Agent actions rows above them, as in [App settings](../app-settings/SKILL.md#search).
+The search box at the top searches every tab of this window, the Charter tab's Name and Agent actions included, as in [App settings](../app-settings/SKILL.md#search).
 
 The pages below distinguish the shared form from separate action buttons and the credit slider. Read the relevant leaf before advising on timing, inherited values, process replacement or a broader permission grant.
 

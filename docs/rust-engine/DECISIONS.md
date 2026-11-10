@@ -1150,6 +1150,13 @@ table and provisional bounds: [helper transcripts](helper-transcripts.md).
     restyle in a separate commit. Wording list and details:
     `agent-settings-refresh.md`.
 
+    Replaced 2026-11-10 (USER 2026-11-10 m0e04507d8287 "All, rows into tab" and m341927c12f35 "do the same move for project settings"): Name and the actions row
+    no longer sit above the tabs. They open the first tab (Charter; Project in
+    Project settings) in an Agent / Project group, as Org settings keeps Name
+    under Basic. With them, History and Activity keep a 320px floor and a
+    settings window takes calc(100vh - 32px) below 900px of height, so a
+    1280x720 screen no longer squeezes each tab under a fixed block.
+
 53. **Agent CLIs run in essential-traffic mode, with PowerShell and the cached feature flags**
     (coordinator 2026-10-08 19:09Z, after the neoja report that agents lost PowerShell).
     Every Claude CLI the engine starts gets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.

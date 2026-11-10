@@ -115,7 +115,7 @@ Native questions follow the ordinary question destination: direct user access pr
 
 The **Charter** tab has personal **Instructions** and **Team instructions**. Team instructions reach the agent itself and agents below it. The separate **Subordinates may message each other** switch controls direct sibling mail under that parent and is on by default. It does not inherit down the tree; [Collaboration](collaborating.md) explains audiences and project peer mail.
 
-Switching settings tabs preserves local edits. **Save** applies the buffered configuration; **Cancel** discards remaining draft edits. Rename, grant-slider gestures, agent actions and queue-cancellation controls have their own submission paths and are not undone by Cancel.
+The **Charter** tab opens with the agent's **Name** and **Agent actions**; a project's Name and **Project actions** open its **Project** tab the same way. Switching settings tabs preserves local edits. **Save** applies the buffered configuration; **Cancel** discards remaining draft edits. Rename, grant-slider gestures, agent actions and queue-cancellation controls have their own submission paths and are not undone by Cancel.
 
 Scope/instruction changes can replace an idle process; a running turn normally finishes before reconfiguration. Startup text and capability changes can affect cached input reuse. A full settings Save is broader than an effort-only or speed-only desk action. If a multi-step save fails, check the current values before repeating it: an earlier step may have succeeded.
 

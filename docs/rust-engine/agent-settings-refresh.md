@@ -2,7 +2,7 @@
 
 User requests: 2026-10-07 16:45–16:49 UTC.
 
-The name and existing agent actions move above the tabs. The model badge
+The name and existing agent actions move above the tabs (replaced 2026-11-10: they now open the Charter tab in an Agent group, Project settings likewise; DECISIONS 52). The model badge
 replaces the gear in the window header, including pinned and detached headers. The Agent
 tab is removed. Existing rename, retire, rescind, rehire, dissolve and permanent
 delete actions keep their handlers and confirmations. The user eye opens Org

@@ -2098,6 +2098,10 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 341
   behavior changes. [recorded-decision / verified-from-source: 2026-10-07;
   `docs/rust-engine/agent-settings-refresh.md`, DECISIONS 52 addition]
 <!-- /preserved:e-eba844c285fa8054 -->
+- 2026-11-10: identity/actions no longer sit above the tabs; they open the first tab
+  (Charter / Project) in an Agent / Project group. History/Activity keep a 320px
+  floor; `.settings` is calc(100vh - 32px) below 900px of height. [decided: user
+  2026-11-10 m0e04507d8287, m341927c12f35; DECISIONS 52]
 
 <a id="e-1a647c7f2dfbfa7b"></a>
 
