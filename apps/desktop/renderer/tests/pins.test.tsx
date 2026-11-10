@@ -1380,7 +1380,7 @@ test('§D4 a pinned desk body keeps its floor and scrolls instead of overlapping
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
   const rule = (selector: string) => {
     const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter(m => m[1]!.split(',').some(s => s.trim() === selector)).map(m => m[2]!)
+      .filter(m => m[1]!.split(/,(?![^()]*\))/).some(s => s.trim() === selector)).map(m => m[2]!)
     assert.ok(bodies.length, 'no rule for ' + selector)
     return bodies.join('\n')
   }
