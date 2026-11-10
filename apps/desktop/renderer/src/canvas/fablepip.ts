@@ -28,16 +28,14 @@ import type { UsageLimit } from '../types'
 export const FABLE_PIP_TITLE =
   "Past this point, the rest of this week's Fable allowance can't be used up before the weekly limit"
 
-/** The pip's hover text (USER 2026-11-10 23:45:52Z m62522a70ecb4 "make
- *  hovering the pip show the usage percentage"): the pip's own position as a
- *  weekly-usage percentage, then the Fable share used (f = 2p - 1, exact for
- *  p = (1 + f) / 2), then the explanation. Both are whole numbers. A missing
- *  or non-finite position shows no number at all, never "0%". */
-export const fablePipTitle = (at: number | null): string => {
-  if (at == null || !Number.isFinite(at)) return FABLE_PIP_TITLE
-  const fable = Math.max(0, Math.min(100, 2 * at - 100))
-  return `${Math.round(at)}% weekly usage · Fable ${Math.round(fable)}% used · ${FABLE_PIP_TITLE}`
-}
+/** The pip's hover text (USER 2026-11-10 23:51:33Z ma05bce0c2983 "keep the
+ *  existing caption just add the percentage to the phrase"): the caption word
+ *  for word, with the pip's own weekly-usage position, as a whole percent,
+ *  after "this point". A missing or non-finite position leaves the caption
+ *  unchanged, never "0%". */
+export const fablePipTitle = (at: number | null): string =>
+  at == null || !Number.isFinite(at) ? FABLE_PIP_TITLE
+    : FABLE_PIP_TITLE.replace('Past this point,', `Past this point (${Math.round(at)}%),`)
 
 export const isFableWeekly = (l: UsageLimit): boolean =>
   l.kind === 'weekly_scoped' && /\bfable\b/i.test(l.model ?? '')
