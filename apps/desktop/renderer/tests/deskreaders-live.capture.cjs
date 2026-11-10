@@ -49,7 +49,14 @@ app.whenReady().then(async()=>{
   await painted()
   receipt.before=await state()
   assert.equal(receipt.before.desks.length,2);assert.equal(receipt.before.reads.length,2)
-  for(const desk of receipt.before.desks)assert(!desk.tabs.some(t=>t.id==='presented'||t.id==='docket'),'empty tabs initially hidden')
+  for(const desk of receipt.before.desks)assert(!desk.tabs.some(t=>t.id==='presented'||t.id==='docket'||t.id==='files'),'empty tabs initially hidden')
+  fs.writeFileSync(path.join(out,'desk-no-files.png'),(await win.webContents.capturePage()).toPNG())
+  // USER 2026-11-10 m8e958d19e3db: the agent desk's Files tab appears live with the first delivered file (a project desk has none)
+  const filesAt=await js('window.deskReaderFixture.arrive("files")')
+  await painted();receipt.files=await state();receipt.filesMs=receipt.files.now-filesAt
+  for(const desk of receipt.files.desks)assert.equal(desk.tabs.some(t=>t.id==='files'),desk.kind==='agent','Files appears on the agent desk only')
+  assert(receipt.filesMs<1500,'the Files reveal finishes well before the 15 s fallback')
+  fs.writeFileSync(path.join(out,'desk-files-arrived.png'),(await win.webContents.capturePage()).toPNG())
   const presentedAt=await js('window.deskReaderFixture.arrive("presented")')
   await painted();receipt.presented=await state()
   for(const desk of receipt.presented.desks){assert(desk.tabs.some(t=>t.id==='presented'));assert(!desk.tabs.some(t=>t.id==='docket'))}
@@ -64,7 +71,7 @@ app.whenReady().then(async()=>{
   }
   receipt.presentedMs=receipt.presented.now-presentedAt;receipt.workMs=receipt.after.now-workAt
   assert(receipt.presentedMs<1500&&receipt.workMs<1500,'event refresh finishes well before 15 s fallback')
-  assert.equal(receipt.after.reads.length,6);assert.equal(receipt.after.liveRevision,receipt.before.liveRevision,'no legacy live bump')
+  assert.equal(receipt.after.reads.length,8);assert.equal(receipt.after.liveRevision,receipt.before.liveRevision,'no legacy live bump')
   const png=await win.webContents.capturePage();assert(!png.isEmpty());receipt.image=png.getSize()
   fs.writeFileSync(path.join(out,'desk-first-arrivals.png'),png.toPNG())
   finish()

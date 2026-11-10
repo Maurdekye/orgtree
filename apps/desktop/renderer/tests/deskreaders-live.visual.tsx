@@ -4,7 +4,7 @@ import { RecordFeed } from '../src/recordfeed'
 import { OrgRecordContext } from '../src/recordsession'
 import { liveRevision } from '../src/livebus'
 
-let presented=false,work=false,rev=1
+let presented=false,work=false,files=false,rev=1
 const reads:{node:string;at:number}[]=[]
 const cursor={org_uuid:'readers-id',incarnation:'one',rev:1}
 const feed=new RecordFeed({snapshot:async()=>{throw Error('unexpected snapshot')},
@@ -16,7 +16,7 @@ globalThis.fetch=(async url=>{
   let data:unknown={ok:true}
   if(p.endsWith('/reader-availability')){
     reads.push({node:p.split('/').at(-2)!,at:performance.now()})
-    data={work:{own:work,team:work},presented:{own:false,team:presented}}
+    data={work:{own:work,team:work},presented:{own:false,team:presented},files:{own:files}}
   }else if(p.endsWith('/chat'))data={busy:false,queued:0,responding:false,last_error:null,messages:[],live:[],draft_epoch:'fixture:0',mail_pending:0,pending_mail:[]}
   else if(p.endsWith('/inbox'))data={pending:[],delivered:[],sent:[]}
   else if(p.endsWith('/transfers'))data={transfers:[],next_cursor:null}
@@ -26,8 +26,8 @@ globalThis.fetch=(async url=>{
   return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}})
 }) as typeof fetch
 Object.assign(window,{deskReaderFixture:{
-  arrive:(kind:'presented'|'work')=>{
-    if(kind==='presented')presented=true;else work=true
+  arrive:(kind:'presented'|'work'|'files')=>{
+    if(kind==='presented')presented=true;else if(kind==='files')files=true;else work=true
     const at=performance.now(),from=rev++
     feed.receive({type:'record_changes',...cursor,from,to:rev,upserts:[],tombstones:[]})
     return at
