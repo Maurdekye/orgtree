@@ -117,6 +117,8 @@ interface UserNodeProps {
    *  the canvas is behind the presented Attention view (DeskChatProps.eligible) */
   deskEligible?: boolean
   eyeW: number
+  /** the canvas's focus-fit desk boost (shared.ts deskFit, `--desk-fit`) */
+  deskFit?: number
   onFocus?: () => void
   posX: (id: string) => number
   onJump?: (id: string) => void
@@ -143,7 +145,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   antigravityHire, openrouterHire, langserverHire, museHire,
   pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn, onAgents,
   onMailLink, onWorkLink,
-  focused, deskEligible = true, eyeW, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
+  focused, deskEligible = true, eyeW, deskFit = 1, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
   pinnedIds, onShowPin, onNewProject }: UserNodeProps) {
   // the eye's hire chips collapse behind the same far-zoom ⋯ toggle as every
@@ -341,7 +343,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
              for again, so it is the same callback, not a second one that
              could drift from it. */
           onRecenter={onFocus}
-          eyeW={eyeW} posX={posX} onJump={onJump}
+          eyeW={eyeW} deskFit={deskFit} posX={posX} onJump={onJump}
           compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onNodeLineage={onNodeLineage} onNodeConfig={onNodeConfig}
@@ -389,6 +391,8 @@ interface EyeDeskProps {
   slug: string
   toast: ToastFn
   eyeW: number
+  /** the canvas's focus-fit desk boost (shared.ts deskFit, `--desk-fit`) */
+  deskFit?: number
   posX: (id: string) => number
   onJump?: (id: string) => void
   compactAt?: number
@@ -417,7 +421,7 @@ interface EyeDeskProps {
 }
 
 export function EyeDesk({ map, op, slug, toast, deskEligible = true,
-  eyeW, posX, onJump, compactAt, maxTop, pxc,
+  eyeW, deskFit = 1, posX, onJump, compactAt, maxTop, pxc,
   onMailLink, onWorkLink, onOpenDoc, onNodeLineage, onNodeConfig, onRecenter,
   pinnedIds, onShowPin, onGeneralContextMenu }: EyeDeskProps) {
   const isPinned = (id: string) => !!pinnedIds?.has(id)
@@ -511,8 +515,9 @@ export function EyeDesk({ map, op, slug, toast, deskEligible = true,
   const open = agents.filter((a) => !minned.has(a.id) && !isPinned(a.id))
   // the inner virtual panel matches the card interior through the desk scale.
   // DESK_SCALE/deskDpi are shared so this stays in step with .desk-inner's
-  // transform — the same equation used to be written out here AND in the CSS
-  const innerW = Math.round((eyeW - 4) / (DESK_SCALE * deskDpi()))
+  // transform — the same equation used to be written out here AND in the CSS.
+  // `deskFit` is the `--desk-fit` factor `.desk-inner` also multiplies in.
+  const innerW = Math.round((eyeW - 4) / (DESK_SCALE * deskDpi() * deskFit))
   return (
     <div className="desk-over eye-desk" onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}

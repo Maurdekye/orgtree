@@ -1512,6 +1512,8 @@ declare module 'react' {
     '--invz'?: string
     /** the UNCLAMPED inverse zoom — the hire chips' counter-scale */
     '--invzf'?: string
+    /** the focus-fit desk boost (deskFit), multiplied into `.desk-inner` */
+    '--desk-fit'?: string
     /** dot grid radius scaled against zoom */
     '--dot-r'?: string
   }
@@ -1644,6 +1646,42 @@ export const EYE_ANCHOR_X = 6000
 // .desk-inner's transform, which is one equation with no slack —
 // 900 × 0.13333 = 120 = NODE_H − 2×inset.
 export const DESK_SCALE = 0.13333
+
+/** The zoom a focus glide lands an agent/project card at in free region `r`:
+ *  the square card fitted to min(w, h) − 48, floored at Z_DESK (so a focus can
+ *  always open the desk) and capped at Z_MAX. ONE definition: the camera
+ *  (OrgCanvas `focusView`) and the desk fit below both ask it. */
+export const focusFitZoom = (r: { w: number; h: number }): number =>
+  Math.max(Z_DESK, Math.min(Z_MAX, (Math.min(r.w, r.h) - 48) / NODE_H))
+
+/* UI audit 2026-11-09 problem 4 (docket ui-720p-fix-c-an-agent-desk-focused-
+   on-the-canva): on-screen desk text is authored × DESK_SCALE × zoom, so the
+   focus fit gives ≈1.02 device px per authored px at 1920x1080@100%, ≈0.98 at
+   @125%, but ≈0.59 at 1280x720 — a 522px desk with 6-8px text. The FOCUS FIT
+   boost lays a canvas desk out in a smaller authored space, exactly as the
+   reader's text-size dial does (900/d × 0.13333d ≡ 120, the card interior
+   never changes), until the focus-fit zoom shows it at DESK_READABLE device
+   px per authored px. Measured in DEVICE px (× devicePixelRatio) because
+   that is what the eye reads: 1080p@125% is physically the 1080p desk and
+   must not change. Any viewport already at or above the floor gets exactly
+   1, so 1080p and larger look as they did. */
+export const DESK_READABLE = 0.95
+/** The dial's own maximum (`deskDpi` accepts 0.5..3): the fit never pushes the
+ *  combined authored-space shrink past a layout the dial already supports. */
+const DESK_DPI_MAX = 3
+/** The focus-fit boost for canvas desks in free region `r` (≥ 1, never a
+ *  shrink). `dpi` is the reader's dial; the fit is independent of it and the
+ *  dial still multiplies on top, capped so dial × fit ≤ 3. An unmeasured
+ *  region (0×0: jsdom, before first paint) is 1. */
+export const deskFit = (r: { w: number; h: number }, dpr: number, dpi = 1): number => {
+  if (!(r.w > 0 && r.h > 0)) return 1
+  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const shown = DESK_SCALE * focusFitZoom(r) * ratio
+  if (shown >= DESK_READABLE) return 1
+  const cap = Math.max(1, DESK_DPI_MAX / (Number.isFinite(dpi) && dpi > 0 ? dpi : 1))
+  return Math.min(cap, DESK_READABLE / shown)
+}
+
 export const DESK_DPI_KEY = 'orgtree-desk-dpi'
 // device preference (screen-dependent), so localStorage — never the org doc
 export const deskDpi = (): number => {

@@ -67,6 +67,7 @@ import {
   ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   canvasOwner, fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
+  deskFit, focusFitZoom, useDeskDpi,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
@@ -1465,6 +1466,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     world.setAttribute('inert', '')
   }, [worldHidden])
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
+  // the reader's text-size dial, for the focus-fit desk boost (`--desk-fit`)
+  const deskDpiDial = useDeskDpi()
   // THE ORG SLOT LIES EXACTLY OVER THE VIEWPORT (user report 2026-09-29,
   // image-17). In the stage's flex column it used to sit BELOW the viewport,
   // so presenting the Attention view squeezed the canvas to a strip instead of
@@ -2463,7 +2466,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       // the eye fits on BOTH axes against its real cell width — see
       // `eyeWorldW`. Height alone overflowed a tall/narrow region.
       ? Math.min(Z_MAX, (r.h - 48) / USER_H, (r.w - 48) / eyeWorldW(r))
-      : Math.min(Z_MAX, (Math.min(r.w, r.h) - 48) / NODE_H))
+      // the one card fit, shared with the desk's focus-fit boost (deskFit)
+      : focusFitZoom(r))
     return {
       x: r.x + r.w / 2 - (p.x + NODE_W / 2) * zz,
       y: r.y + r.h / 2 - (p.y + NODE_H / 2) * zz,
@@ -4601,6 +4605,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     draw()
   })
 
+  // UI audit 2026-11-09 problem 4: the focus-fit desk boost for THIS free
+  // region (shared.ts deskFit). 1 on 1080p and larger; on a smaller canvas
+  // every canvas desk lays out in a smaller authored space so the focus fit
+  // shows it at DESK_READABLE. Keyed on the measured viewport and the pins,
+  // like the focus camera, never on the live zoom: a glide or a hand zoom
+  // must not reflow the desk on every frame.
+  const fitRegion = viewportSize.w > 0 && viewportSize.h > 0
+    ? regionOf({ width: viewportSize.w, height: viewportSize.h }) : null
+  const canvasDeskFit = fitRegion && fitRegion.status !== 'blocked'
+    ? deskFit(fitRegion.rect, window.devicePixelRatio || 1, deskDpiDial) : 1
+
   return (
     <AgentNavProvider><ObjectNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
@@ -4705,6 +4720,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         // card exists. Other --invz users keep the clamp — a screen-constant
         // badge on a distant card is noise, a screen-constant CONTROL is not.
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
+        // the focus-fit desk boost (shared.ts deskFit): `.desk-inner` and the
+        // desk-elsewhere notice multiply it into their counter-scale
+        '--desk-fit': canvasDeskFit.toFixed(4),
       }}>
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
           {moveGhost && <MoveGhost point={moveGhost} zoom={view.z} />}
@@ -4794,7 +4812,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               claudeHire={claudeHire} onNoHarness={onAccounts}
               stats={orgStats}
               pxc={pxPerCredit} zoom={view.z}
-              focused={focusId === USER} deskEligible={!worldHidden} eyeW={Math.max(eyeW, USER_W)}
+              focused={focusId === USER} deskEligible={!worldHidden} eyeW={Math.max(eyeW, USER_W)} deskFit={canvasDeskFit}
               onFocus={() => centerOn(USER)}
               posX={(id) => posOf(id)?.x ?? 0}
               onJump={(id) => centerOn(id)}
