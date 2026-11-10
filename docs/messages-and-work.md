@@ -115,8 +115,8 @@ text. This is the reported item interval, not the whole turn's runtime.
 Video and audio file cards appear in every chat placement, including pinned and
 popped-out chats. A video opens as soon as its card is on screen, showing its
 first frame; it does not play until you press Play on its own controls, and its
-fullscreen button maximizes it (Escape leaves). Audio offers **Play audio** and
-loads only after Play. Use the player's controls to pause, seek or change volume.
+fullscreen button maximizes it (Escape leaves). Audio does the same (USER 2026-11-10: no Play audio button):
+its player is visible as soon as the card is on screen. Use the player's controls to pause, seek or change volume.
 Scrolling the card out of view, hiding the window or changing chats stops
 playback and releases the file; the video reopens, paused, when you return.
 Images keep their inline picture and click-to-view behavior.

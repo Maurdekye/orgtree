@@ -25,9 +25,9 @@ When only the team has content, entering the tab starts with **Team** checked an
 ## In-chat media
 
 Delivered files and message attachments show images inline. Supported video opens
-as its own player (first frame, paused) and supported audio offers **Play audio**, in
+as its own player (first frame, paused) and supported audio shows its player the same way, in
 the desk, floating/pinned chat and pop-out. A video's native controls play it and its
-fullscreen button maximizes it; audio loads nothing before Play. Native controls provide
+fullscreen button maximizes it; neither autoplays. Native controls provide
 pause, seek and volume; scrolling the card out of view, hiding the window or changing
 chat stops and releases playback. Returning does not restart it (a video reopens paused). Composer staging and Files rows stay compact.
 

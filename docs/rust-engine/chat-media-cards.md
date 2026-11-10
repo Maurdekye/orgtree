@@ -8,8 +8,10 @@ chat transcript placement: desk, floating/pinned chat and pop-out. Existing
 images retain their inline thumbnail, lightbox and download behavior. Composer
 staging and the separate Files list keep their compact previews/rows.
 
-Audio does not request bytes before **Play audio**. Playing enables Chromium's
-ordinary controls; audio uses one control row. A video opens when its card is
+Audio works like video (USER 2026-11-10 m3ef1104c77c6, "audio downloads should have
+the audio player already visible, there shouldnt be a button to press to reveal it";
+this replaces the 4.5.0 **Play audio** button): its player shows on render with
+`preload="metadata"`, no autoplay and no button; audio uses one control row. A video opens when its card is
 rendered and on screen (USER 2026-10-30 m478dfd75cf44, "inline videos should open
 automatically, just not play until clicked"; this replaces the 4.5.0 "after
 Play" for video only): the player and its first frame show, loaded with
