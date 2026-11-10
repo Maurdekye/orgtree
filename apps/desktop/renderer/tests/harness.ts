@@ -154,6 +154,8 @@ export class FakeServer {
   workBacklogged: unknown[] = []
   /** metadata returned by the agent-scoped document gallery endpoint */
   documents: unknown[] = []
+  /** the agent's delivered files ({node}), as reader-availability's `files` fact counts them (USER 2026-11-10 m8e958d19e3db) */
+  deliveredFiles: { node: string }[] = []
   /** the org's apps and saved panels, as the @ list's engine read offers them */
   apps: { id: string; name: string; at?: string }[] = []
   panels: { id: string; app: string; label: string; at?: string }[] = []
@@ -193,7 +195,8 @@ export class FakeServer {
     const ownWork=work.some((r:any)=>r.owner?.node===nid || (typeof r.reviewer==='string'?r.reviewer:r.reviewer?.node)===nid)
     const ownDocs=this.documents.some((r:any)=>(r.node ?? r.node_name)===nid && !r.evicted
       && !r.dismissed && (retired || !r.node_state || r.node_state==='live'))
-    return {work:{own:ownWork,team:ownWork},presented:{own:ownDocs,team:ownDocs}}
+    return {work:{own:ownWork,team:ownWork},presented:{own:ownDocs,team:ownDocs},
+      files:{own:this.deliveredFiles.some(r=>r.node===nid)}}
   }
   /** every chat request the client has made, newest last */
   requests: { last: number | null; at: number; before?: string }[] = []

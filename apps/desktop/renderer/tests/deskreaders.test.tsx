@@ -13,6 +13,7 @@ import { OrgRecordContext } from '../src/recordsession'
 
 const bit=(own=false,team=own)=>({own,team})
 const empty=():ReaderAvailability=>({work:bit(),presented:bit()})
+const withFiles=(own:boolean):ReaderAvailability=>({...empty(),files:{own}})
 async function serve(t:TestContext,first=empty()) {
   forgetDeskMemory();localStorage.clear();resetConvos()
   const saved=fetch;installFetch(new FakeServer());const inner=fetch
@@ -115,6 +116,46 @@ test('empty tabs are hidden; an active empty tab is retained only until leaving 
   assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'Team proposal')
   await s.change(empty());assert.equal(offered(v.el,'presented'),true)
   await pick(v.el,'chat');assert.equal(offered(v.el,'presented'),false)
+})
+
+// USER 2026-11-10 m8e958d19e3db "the files tab appears at all times, even when there are no sent files. it should disappear like
+// other tabs if there are none": Files hides, appears, stays while selected and leaves with you, exactly like Docket/Presented.
+test('the Files tab is hidden with no delivered files, appears when the first arrives, and an active empty one leaves when you do',async t=>{
+  const s=await serve(t,withFiles(false)),v=await s.mount(<Agent/>)
+  assert.equal(offered(v.el,'files'),false,'no delivered file: no Files tab')
+  await s.change(withFiles(true))
+  assert.equal(offered(v.el,'files'),true,'the first file reveals the tab live, no reopen')
+  await pick(v.el,'files')
+  await s.change(withFiles(false));assert.equal(offered(v.el,'files'),true,'kept while you are on it')
+  await pick(v.el,'chat');assert.equal(offered(v.el,'files'),false,'an empty tab disappears when you leave')
+})
+
+test('a Files tab reveal arrives on a record commit without a live bump, and the project desk never offers one',async t=>{
+  const s=await serve(t,withFiles(false))
+  const feed=new RecordFeed({snapshot:async()=>{throw Error('unexpected snapshot')},
+    catchup:async()=>{throw Error('unexpected catchup')},project:records=>records,
+    publish:()=>{},error:error=>{throw error}})
+  t.after(()=>feed.dispose())
+  const cursor={org_uuid:'readers-id',incarnation:'one',rev:1}
+  feed.receive({type:'record_snapshot',cursor,records:[]})
+  const v=await s.mount(<OrgRecordContext.Provider value={{slug:'readers',session:feed}}>
+    <section data-reader="agent"><Agent/></section><section data-reader="project"><Project/></section>
+  </OrgRecordContext.Provider>)
+  const [agent,project]=[...v.el.querySelectorAll('[data-reader]')]
+  assert.equal(offered(agent,'files'),false)
+  s.setAvailability(withFiles(true))
+  await inAct(async()=>{
+    feed.receive({type:'record_changes',...cursor,from:1,to:2,
+      upserts:[{entity:'org',id:'events_count',body:{events_count:1}}],tombstones:[]})
+    await flush(15)
+  })
+  assert.equal(offered(agent,'files'),true,'revealed before the 15 s poll')
+  assert.equal(offered(project,'files'),false,'only an agent desk has Files')
+})
+
+test('an older engine reply with no files fact keeps the Files tab shown, as in 4.5.10',async t=>{
+  const s=await serve(t,empty()),v=await s.mount(<Agent/>)
+  assert.equal(offered(v.el,'files'),true)
 })
 
 test('manual Team untick survives a fresh desk; own content clears it and the next team-only opening defaults on',async t=>{

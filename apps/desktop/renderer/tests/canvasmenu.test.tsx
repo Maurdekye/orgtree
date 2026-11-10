@@ -384,17 +384,24 @@ test('desk availability rejects incomplete successful replies and the shared fix
   const saved=globalThis.fetch
   t.after(()=>{globalThis.fetch=saved})
   for(const body of [{ok:true},null,{}, {work:{own:false,team:false}},
-    {work:{own:false,team:false},presented:{own:false,team:'false'}}]) {
+    {work:{own:false,team:false},presented:{own:false,team:'false'}},
+    {work:{own:false,team:false},presented:{own:false,team:false},files:{own:'false'}},
+    {work:{own:false,team:false},presented:{own:false,team:false},files:{}}]) {
     globalThis.fetch=(async()=>new Response(JSON.stringify(body))) as typeof fetch
     await assert.rejects(getReaderAvailability('availability-contract','lead'),/availability response is incomplete/)
   }
   const server=new FakeServer();installFetch(server)
   assert.deepEqual(await getReaderAvailability('availability-contract','lead'),
-    {work:{own:false,team:false},presented:{own:false,team:false}})
+    {work:{own:false,team:false},presented:{own:false,team:false},files:{own:false}})
   server.workItems=[{slug:'review',reviewer:{node:'lead'}}]
   server.documents=[{id:'own',node:'lead',node_state:'live'}]
+  server.deliveredFiles=[{node:'lead'}]
   assert.deepEqual(await getReaderAvailability('availability-contract','lead'),
-    {work:{own:true,team:true},presented:{own:true,team:true}})
+    {work:{own:true,team:true},presented:{own:true,team:true},files:{own:true}})
   assert.deepEqual(await getReaderAvailability('availability-contract','other'),
-    {work:{own:false,team:false},presented:{own:false,team:false}})
+    {work:{own:false,team:false},presented:{own:false,team:false},files:{own:false}})
+  // an older engine's reply has no `files`: complete for the two readers it knows, and the Files tab stays shown (4.5.10 behaviour)
+  globalThis.fetch=(async()=>new Response(JSON.stringify({work:{own:true,team:true},presented:{own:false,team:false}}))) as typeof fetch
+  assert.deepEqual(await getReaderAvailability('availability-contract','lead'),
+    {work:{own:true,team:true},presented:{own:false,team:false}})
 })
