@@ -8,8 +8,8 @@
 //   §3  only Fable scopes count (Gemini/Codex scoped windows never pip)
 //   §4  live: a new Fable reading moves the pip
 //   §5  the stylesheet draws it neutral (no warning/limit colour)
-//   §6  hovering shows the pip's weekly percentage, then the Fable share used
-//       (USER 2026-11-10 23:45:52Z m62522a70ecb4)
+//   §6  hovering shows the caption with the pip's percentage after "this point"
+//       (USER 2026-11-10 23:51:33Z ma05bce0c2983)
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs fablepip
 
@@ -117,25 +117,25 @@ test('§5 the stylesheet draws the pip neutral', () => {
   assert.match(css, /\.usage-track\s*\{[^}]*position:\s*relative/, 'the track positions it')
 })
 
-test('§6 hovering shows the pip’s weekly percentage first, then the Fable share used', async (t) => {
-  for (const [f, lead, share] of [[52, '76%', '52%'], [53, '77%', '53%'], [0, '50%', '0%']] as const) {
+test('§6 hovering shows the existing caption with the pip’s percentage after "this point"', async (t) => {
+  // USER 2026-11-10 23:51:33Z ma05bce0c2983 "keep the existing caption just
+  // add the percentage to the phrase"
+  const caption = (pct: string) =>
+    `Past this point (${pct}), the rest of this week's Fable allowance can't be used up before the weekly limit`
+  for (const [f, pct] of [[52, '76%'], [53, '77%'], [0, '50%']] as const) {
     const view = await bars(t, fableAt(f))
     const pip = pips(view.el)[0]
     assert.ok(pip, `POSITIVE CONTROL: f=${f}% renders a pip`)
-    const title = pip!.getAttribute('title') ?? ''
-    assert.ok(title.startsWith(`${lead} `), `f=${f}%: the tooltip leads with ${lead} (got ${JSON.stringify(title)})`)
-    assert.match(title, new RegExp(`Fable ${share} used`), `f=${f}%: then the Fable share used`)
-    assert.match(title, /rest of this week's Fable allowance can't be used up before the weekly limit/,
-      'then the existing explanation')
-    assert.equal(pip!.getAttribute('aria-label'), title, 'assistive tech hears the same text')
+    assert.equal(pip!.getAttribute('title'), caption(pct), `f=${f}%: the caption with ${pct}`)
+    assert.equal(pip!.getAttribute('aria-label'), caption(pct), 'assistive tech hears the same text')
     await view.unmount()
   }
-  // a missing value shows no number at all, never "0%"
+  // no value: the original caption, unchanged and without any number
   const titleOf = (fablepip as unknown as { fablePipTitle?: (at: number | null) => string }).fablePipTitle
   assert.equal(typeof titleOf, 'function', 'fablePipTitle is exported')
   for (const bad of [null, Number.NaN, Number.POSITIVE_INFINITY]) {
-    const text = titleOf!(bad)
-    assert.doesNotMatch(text, /\d+%/, `${String(bad)}: no number (got ${JSON.stringify(text)})`)
-    assert.match(text, /^Past this point/, 'just the explanation')
+    assert.equal(titleOf!(bad),
+      "Past this point, the rest of this week's Fable allowance can't be used up before the weekly limit",
+      `${String(bad)}: the original caption`)
   }
 })
