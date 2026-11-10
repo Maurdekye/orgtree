@@ -6,7 +6,7 @@
 // helpers-header-badge-and-helper-transcripts-show. Red at fe38a77.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { DeskChat } from '../src/canvas/desk'
 import { HelperTranscript } from '../src/canvas/helpertranscript'
 import { syncProviderRegistries } from '../src/canvas/shared'
@@ -62,4 +62,52 @@ test('a helper tool row shows its input summary and run time, and the text betwe
   await inAct(() => (line as HTMLElement).click()); await flush(2)
   assert.match(v.el.querySelector('.helper-transcript')!.textContent!, /120 lines/, 'the expanded row says how long the result was')
   assert.doesNotMatch(v.el.querySelector('.helper-transcript')!.textContent!, /activity was omitted/)
+})
+
+// @build-sol capture bounce 2026-11-10 m4c919154401f... r3 (mb7e8c34e88ac): with
+// no user input between S1 and S2, the live transcript stopped following its
+// tail (S2 gap 6939 px, the view stuck mid-stream while the API held h0..h219).
+// Follow must be released only by the READER (wheel/keys/touch/scrollbar), as
+// the desk transcript does, never by a scroll event: our own programmatic
+// scroll's event can land after the next snapshot has already grown the
+// content, which reads as "far from the bottom" and wrongly dropped follow.
+test('a live helper transcript keeps following its tail through growth; only the reader releases it', async t => {
+  useFakeClock()
+  const original = globalThis.fetch
+  let rows = 40
+  const snapshot = () => ({ live: true, truncated: false, messages: Array.from({ length: rows }, (_, i) => ({
+    id: `h${i}`, text: `Checking part ${i}.`, content_blocks: [{ kind: 'text', start: 0, end: 15 }] })) })
+  globalThis.fetch = (async () => new Response(JSON.stringify(snapshot()),
+    { headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+  const v = await mountView(<HelperTranscript slug="org" nid="worker" seq={7} tool="call" autoFollow />, el => el)
+  t.after(async () => { await v.unmount(); globalThis.fetch = original; realClock() })
+  const el = v.el.querySelector<HTMLElement>('.helper-transcript')!
+  // jsdom has no layout: model one. Each message is 60 px; the box is 410 px.
+  let top = 0
+  const height = () => el.querySelectorAll('.helper-transcript-message').length * 60
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 410 })
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: height })
+  Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top,
+    set: (value: number) => { top = Math.max(0, Math.min(value, height() - 410)) } })
+  const gap = () => height() - top - 410
+  await inAct(async () => { await flush(4) }); await advance(800)
+  assert.equal(gap(), 0, 'S1: at the tail')
+  // the late echo of our own scroll, delivered after the next snapshot grew
+  rows = 120; await advance(800)
+  const stale = top
+  rows = 160; await advance(800)
+  top = stale; await inAct(() => { el.dispatchEvent(new Event('scroll')) })
+  rows = 220; await advance(800)
+  assert.equal(el.querySelectorAll('.helper-transcript-message').length, 220)
+  assert.equal(gap(), 0, 'still following the tail with no reader input')
+  // the reader scrolls up: follow is released and growth leaves them there
+  await inAct(() => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true })) })
+  top = 1000; await inAct(() => { el.dispatchEvent(new Event('scroll')) })
+  rows = 230; await advance(800)
+  assert.equal(top, 1000, 'a reader who scrolled up is not pulled down')
+  // …and scrolling back down to the tail resumes follow
+  await inAct(() => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true })) })
+  top = height() - 410; await inAct(() => { el.dispatchEvent(new Event('scroll')) })
+  rows = 240; await advance(800)
+  assert.equal(gap(), 0, 'back at the tail, follow resumes')
 })
