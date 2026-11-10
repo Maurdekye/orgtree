@@ -15,7 +15,8 @@
 //   §6  Ctrl+F focuses the box (also on a non-Latin layout); outside the window it does nothing
 //   §7  Org settings: a row on a never-visited tab is found, and a click lands on it
 //   §8  a tab whose name matches but holds no settings opens from its own result
-//   §9  Agent settings: the rows above the tabs are found; ’ and ' are the same letter
+//   §9  Agent settings: the Name row is found under Charter and opens it; ’ and ' are the same letter
+//   §14 Agent settings: Name, Agent actions and the restart note live in the Charter tab
 //   §10 the secret EPIC mode switch never shows in results
 //   §11 nothing unmounts: a half-typed field and the panels survive a search
 //   §12 arrows move the choice; Enter opens the chosen one
@@ -332,15 +333,22 @@ async function gear() {
   return view
 }
 
-test('§9 Agent settings: rows above the tabs are found, listed first with no tab; ’ and \' match alike', async () => {
+test('§9 Agent settings: the Name row is found under Charter and opens it; ’ and \' match alike', async () => {
   const view = await gear()
   try {
     assert.ok(root(view.el), 'Agent settings has a settings search box')
+    // from another tab: the hit has to bring Charter back
+    await inAct(() => { view.el.querySelector<HTMLElement>('[role="tab"][id$="-tab-model"]')!.click() })
+    await settle()
     await type(view.el, "agent's folder")
     const hit = hitByLabel(view.el, 'Name')
     assert.ok(hit, `the Name row is found by its help text (hits: ${hitLabels(view.el).join(' | ')})`)
-    assert.equal(placeOf(hit!).tab, '', 'it sits above the tabs, so no tab heading')
-    assert.equal(hits(view.el)[0] === hit, true, 'and it is listed first')
+    assert.equal(placeOf(hit!).tab, 'Charter', 'it lives in the first tab now (USER 2026-11-10 "rows into tab")')
+    await inAct(() => { hit!.click() })
+    await settle()
+    assert.equal(selectedTab(view.el), 'Charter', 'the hit opens the Charter tab')
+    const name = view.el.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!
+    assert.equal(name.closest('.set-row')!.classList.contains(HL), true, 'and marks the Name row')
     await type(view.el, 'start fresh')
     const fresh = hitByLabel(view.el, 'Start fresh when needed')
     assert.ok(fresh, hitLabels(view.el).join(' | '))
@@ -370,5 +378,32 @@ test('§11 nothing unmounts: a half-typed name and every panel survive a search'
     const after = [...view.el.querySelectorAll('[role="tabpanel"]')]
     assert.equal(after.length, panels.length)
     assert.equal(after.every((p, i) => p === panels[i]), true, 'the same panels, never remounted')
+  } finally { await view.unmount() }
+})
+
+test('§14 Agent settings: Name, Agent actions and the restart note live in the Charter tab, under an Agent group', async () => {
+  const view = await gear()
+  try {
+    const panel = view.el.querySelector<HTMLElement>('[role="tabpanel"][id$="-panel-charter"]')!
+    assert.ok(panel, 'the Charter panel')
+    const name = view.el.querySelector<HTMLElement>('input[aria-label="Agent name"]')!
+    const actions = [...view.el.querySelectorAll<HTMLElement>('.set-row')]
+      .find((r) => r.querySelector('.set-label')?.textContent?.trim() === 'Agent actions')!
+    const note = [...view.el.querySelectorAll<HTMLElement>('.set-hint')]
+      .find((h) => h.textContent?.trim() === 'Some changes restart the agent, as noted below.')!
+    for (const [what, el] of [['Name', name], ['Agent actions', actions], ['the restart note', note]] as const) {
+      assert.ok(el, `${what} is there`)
+      assert.equal(panel.contains(el), true, `${what} is inside the Charter tab`)
+    }
+    const group = name.closest('.set-group')
+    assert.equal(group?.querySelector('.set-group-head')?.textContent?.trim(), 'Agent',
+      'under an "Agent" group, as Org settings keeps its Name under "Organization"')
+    assert.equal(group!.contains(actions), true, 'Agent actions shares that group')
+    const instructions = panel.querySelector('textarea')!
+    assert.equal(Boolean(name.compareDocumentPosition(instructions) & Node.DOCUMENT_POSITION_FOLLOWING), true,
+      'the group comes before the instructions')
+    const settings = view.el.querySelector<HTMLElement>('.settings.cfg')!
+    assert.equal([...settings.children].filter((c) => c.matches('.set-row, .set-hint, .set-group')).length, 0,
+      'nothing but the search box and the tabs sits above the tab panels')
   } finally { await view.unmount() }
 })

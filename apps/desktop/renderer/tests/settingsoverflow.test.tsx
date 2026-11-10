@@ -67,3 +67,18 @@ test('§3 the full version stays in the badge tooltip', () => {
   const badge = app.slice(app.indexOf('export function TitleBadge'))
   assert.match(badge.slice(0, 900), /title=\{`running app version \$\{appVersion\}`/)
 })
+
+// Agent settings at low resolutions (USER 2026-11-10 m0e04507d8287 "All, rows into tab")
+
+test('§4 History and Activity keep a floor, so the whole panel scrolls instead of squeezing them', () => {
+  const tab = rule('.settings.cfg > .agent-history-tab')
+  const floor = parseFloat(tab['min-height'] ?? '0')
+  assert.ok(floor >= 300, `a floor of at least 300px (now ${tab['min-height']})`)
+  assert.match(tab['flex'] ?? '', /^1 1 0(px|%)?$/, 'it still fills a tall panel, from a zero basis')
+})
+
+test('§5 on a short screen a settings window uses nearly the full height', () => {
+  assert.match(css, /\}\s*\.settings\s*\{[^}]*height:\s*88vh/, 'a tall screen keeps 88% (the top-level rule)')
+  assert.match(css, /@media \(max-height:\s*900px\)\s*\{\s*\.settings\s*\{[^}]*height:\s*calc\(100vh - 32px\)/,
+    'below 900px of height it leaves only a 16px margin above and below')
+})

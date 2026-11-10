@@ -804,6 +804,31 @@ test('§6 project settings: name, description, peer mail, actions; no turn-only 
   assert.deepEqual(ops, [{ op: 'set_description', node: 'website', description: 'New text.' }])
 })
 
+test('§6c project settings: Name and Project actions live in the Project tab, under a Project group (USER 2026-11-10 m341927c12f35)', async (t) => {
+  serve(t)
+  const nd = project()
+  const view = await mountView(<NodeConfig node={nd} map={new Map([[nd.id, nd]])} tree={tree} slug="org"
+    op={async () => ({} as OpResult)} toast={noop} close={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  const panel = document.querySelector<HTMLElement>('[role="tabpanel"][id$="-panel-project"]')!
+  assert.ok(panel, 'the Project panel')
+  const name = document.querySelector<HTMLElement>('input[aria-label="Project name"]')!
+  const actions = [...document.querySelectorAll<HTMLElement>('.set-row')]
+    .find((r) => r.querySelector('.set-label')?.textContent?.trim() === 'Project actions')!
+  assert.equal(panel.contains(name), true, 'Name is inside the Project tab')
+  assert.equal(panel.contains(actions), true, 'Project actions is inside the Project tab')
+  const group = name.closest('.set-group')
+  assert.equal(group?.querySelector('.set-group-head')?.textContent?.trim(), 'Project')
+  assert.equal(group!.contains(actions), true, 'both rows share the group')
+  const summary = panel.querySelector('textarea[aria-label="Project Summary"]')!
+  assert.equal(Boolean(name.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING), true,
+    'the group comes before the Summary')
+  const settings = document.querySelector<HTMLElement>('.settings.cfg')!
+  assert.equal([...settings.children].filter((c) => c.matches('.set-row, .set-hint, .set-group')).length, 0,
+    'nothing but the tabs sits above the tab panels')
+})
+
 test('§6b open settings follow the project: a remote description change is not reverted by save, a remote rename shows the new name (final round, derived ①)', async (t) => {
   serve(t)
   const ops: OpRequest[] = []
