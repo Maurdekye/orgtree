@@ -853,7 +853,9 @@ export const getDocuments = (slug: string, offset = 0, node = '', locate = '', l
     + (opening && previous ? `&previous=${encodeURIComponent(previous)}` : '')
     + (locate ? `&locate=${encodeURIComponent(locate)}` : '')
     + (search ? `&search=${encodeURIComponent(search)}` : ''))
-export type ReaderAvailability = { work: {own:boolean;team:boolean}; presented: {own:boolean;team:boolean} }
+/** `files` (USER 2026-11-10 m8e958d19e3db) is the agent's delivered-files fact for the Files tab. Optional on the wire: an
+ *  older engine's reply has none, and the tab then stays shown as before. */
+export type ReaderAvailability = { work: {own:boolean;team:boolean}; presented: {own:boolean;team:boolean}; files?: {own:boolean} }
 export const getReaderAvailability = async (org:string,nid:string,archived=false,backlogged=false,retired=false): Promise<ReaderAvailability> => {
   const value=await req<ReaderAvailability>(`/api/orgs/${encodeURIComponent(org)}/nodes/${encodeURIComponent(nid)}/reader-availability?archived=${archived}&backlogged=${backlogged}&retired=${retired}`)
   // A successful HTTP response is not proof of the endpoint's wire contract.
@@ -861,6 +863,7 @@ export const getReaderAvailability = async (org:string,nid:string,archived=false
   if (typeof value?.work?.own!=='boolean' || typeof value?.work?.team!=='boolean'
       || typeof value?.presented?.own!=='boolean' || typeof value?.presented?.team!=='boolean')
     throw new Error('Desk reader availability response is incomplete')
+  if (value.files!==undefined && typeof value.files?.own!=='boolean') throw new Error('Desk reader availability response is incomplete')
   return value
 }
 export const dismissDocument = (slug: string, did: string):

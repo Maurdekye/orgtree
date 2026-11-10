@@ -10,6 +10,11 @@ import { usePolled } from './shared'
 export function deskReaderVisible(tab:string,shown:string,available:boolean | undefined):boolean {
   return tab===shown || available===true
 }
+/** The agent desk's Files tab: hidden with no delivered file, by the same rule as Docket and Presented. Before the first answer
+ *  it is hidden like them; an older engine's reply has no `files` fact and keeps the tab shown (4.5.10 behaviour). */
+export function deskFilesVisible(shown:string,availability:ReaderAvailability | null | undefined):boolean {
+  return shown==='files' || (!!availability && (availability.files===undefined || availability.files.own))
+}
 export function useDeskReaderAvailability(org:string,nid:string,archived=false,backlogged=false,retired=false) {
   const cursor=useOrgRecordCursor(org)
   const key=JSON.stringify([org,nid,archived,backlogged,retired])

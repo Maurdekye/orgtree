@@ -109,7 +109,7 @@ Desk presentation pages opt into `visible=true`; their rows, totals and opening/
 positions share dismissed/hired filters, so invisible history cannot produce a blank
 first page or a wrong opening position. Other reader callers keep their existing pages.
 
-The renderer validates all four boolean availability facts before publishing a
+The renderer validates all four boolean availability facts (and `files.own` when the reply has `files`) before publishing a
 successful read. An incomplete successful response is unavailable, not an empty
 collection; the poll keeps its last confirmed facts and retries through its
 normal live/fallback schedule. This keeps malformed/older endpoint replies out
@@ -149,10 +149,15 @@ keeps the named row and never re-arms opening. No migration is required.
 
 Download-card history uses ot.deliveries, independently of documents and hub
 transfers. Keep the bounded per-agent reader and existing immutable snapshots;
-never recover this list by scanning transcripts. The Files tab uses compact rows,
+never recover this list by scanning transcripts. The Files tab uses compact rows with the chat's own inline card under each image, video or audio file (USER 2026-11-10 m3ef1104c77c6; other types stay plain rows),
 newest at the bottom, with anchored scroll-up paging and live append that follows
 only a reader already at the bottom (USER 2026-10-24). See
 [agent files](../rust-engine/agent-files.md).
+The agent desk's **Files** tab hides when the agent has no delivered file (USER 2026-11-10
+m8e958d19e3db), by the Docket/Presented rule above: `reader-availability` carries `files:{own}`
+(one EXISTS on `ot.deliveries`, `domain::deliveries::any`; own only, no team scope), polled and
+record-refreshed with the other facts, kept while selected and gone after you leave. An older engine's
+reply has no `files`, which keeps the tab shown. Project desks have no Files tab.
 [decided: user 2026-10-23, release after 4.4.2; verified: domain/deliveries.rs]
 
 ## Object actions belong to a composer (2026-10-22)

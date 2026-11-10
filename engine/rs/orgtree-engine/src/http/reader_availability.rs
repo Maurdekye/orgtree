@@ -1,4 +1,4 @@
-//! Small display facts for the two optional desk reader tabs. No list/history
+//! Small display facts for the optional desk tabs (Docket, Presented, and the agent desk's Files). No list/history
 //! payload and no user-viewed write: each result is an EXISTS under its scope.
 use std::sync::Arc;
 use axum::{extract::{Path, Query, State}, Json};
@@ -60,6 +60,8 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug,nid)): Path<(String,St
       ) SELECT EXISTS(SELECT 1 FROM visible WHERE agent_id=$3 OR (agent_id IS NULL AND node_name=$2)),
         EXISTS(SELECT 1 FROM visible WHERE agent_id IN (SELECT id FROM below)
           OR (agent_id IS NULL AND node_name=$2))",&[&o.id,&nid,&root,&q.retired]).await?;
+    // The agent desk's Files tab (USER 2026-11-10 m8e958d19e3db): any delivered file, own only; no team scope.
+    let files=crate::domain::deliveries::any(&**client,o.id,root).await?;
     Ok(Json(json!({"work":{"own":work.get::<_,bool>(0),"team":work.get::<_,bool>(1)},
-        "presented":{"own":docs.get::<_,bool>(0),"team":docs.get::<_,bool>(1)}})))
+        "presented":{"own":docs.get::<_,bool>(0),"team":docs.get::<_,bool>(1)},"files":{"own":files}})))
 }

@@ -6768,6 +6768,7 @@ svg.MuiSvgIcon-root {
 .agent-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-file-size, .agent-files-list time { font-size: 11px; white-space: nowrap; }
 .agent-file-view { grid-column: 4; font-size: 11px; padding: 2px 4px; }
+.agent-file-embed { grid-column: 1 / -1; padding: 2px 0 8px; min-width: 0; }
 .agent-file-download { grid-column: 5; display: flex; justify-content: center; }
 
 /* files flow BACK (user spec 2026-07-31): orgtree_send_file renders as a

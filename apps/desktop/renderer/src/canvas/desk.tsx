@@ -129,7 +129,7 @@ import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { subtreeAgents } from './bulkcompact'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
-import { deskReaderVisible, useDeskReaderAvailability, useDeskReaderTeam } from './deskreaders'
+import { deskFilesVisible, deskReaderVisible, useDeskReaderAvailability, useDeskReaderTeam } from './deskreaders'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { readerScope } from './readeropening'
@@ -3974,7 +3974,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           </>}
         tabs={<DeskTabs shown={view} tabs={AGENT_DESK_TABS.filter(v => (v !== 'team' || teamCount > 0)
           && (v !== 'docket' || deskReaderVisible(v,view,readerAvailability?.work.team || readerAvailability?.work.own))
-          && (v !== 'presented' || deskReaderVisible(v,view,readerAvailability?.presented.team || readerAvailability?.presented.own))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
+          && (v !== 'presented' || deskReaderVisible(v,view,readerAvailability?.presented.team || readerAvailability?.presented.own))
+          && (v !== 'files' || deskFilesVisible(view,readerAvailability))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
           {!(hidePopout && !surface?.detached) && <PopoutButton />}

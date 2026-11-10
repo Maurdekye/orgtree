@@ -29,7 +29,7 @@ as its own player (first frame, paused) and supported audio shows its player the
 the desk, floating/pinned chat and pop-out. A video's native controls play it and its
 fullscreen button maximizes it; neither autoplays. Native controls provide
 pause, seek and volume; scrolling the card out of view, hiding the window or changing
-chat stops and releases playback. Returning does not restart it (a video reopens paused). Composer staging and Files rows stay compact.
+chat stops and releases playback. Returning does not restart it (a video reopens paused). Composer staging stays compact.
 
 Video fits the chat width and stays at most 320 px tall. Playback is limited to
 256 MiB per file; larger files remain downloadable. Supported containers are
@@ -150,8 +150,10 @@ card `+N` for the data hidden in the turn envelope; see
 - [Mail](../inbox-screens/SKILL.md): the agent's mailbox, with its inbox and sent folders.
 - [Docket](../docket-screens/SKILL.md): its work items.
 - [Presented](../presentations/SKILL.md): document collection.
-- **Files**: a compact list of this agent's retained deliveries, oldest above
-  newest. The tab opens at the bottom. Each row has filename, size, delivery
+- **Files**: shown only once the agent has delivered a file (it appears when the
+  first arrives and leaves after you do if it empties). A list of this agent's
+  retained deliveries, oldest above newest; images, video and audio also show
+  the chat's inline card under their row. The tab opens at the bottom. Each row has filename, size, delivery
   time and Download; images also have View. Hover the filename for its note.
   Downloads use the original snapshot. Scroll up to load older files
   automatically, keeping the visible file in place. New files append below;

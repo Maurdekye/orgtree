@@ -6,6 +6,8 @@ import { DownloadIcon } from '../icons'
 import { fmtBytes, isImg } from './img'
 import { openLightbox } from './lightbox'
 import { FileDownload } from './filedownload'
+import { SentFileCard } from './filecard'
+import { mediaFormat } from './media'
 
 /** Bounded retained deliveries; the API is newest-first, the list reads upwards. */
 export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
@@ -106,6 +108,10 @@ export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
             aria-label={`View ${file.name}`} onClick={() => openLightbox(href, { name: file.name, download: href })}>View</button>}
           <FileDownload className="agent-file-download" href={href} name={file.name}
             title="Download" ariaLabel={`Download ${file.name}`}><DownloadIcon fontSize="inherit" /></FileDownload>
+          {/* USER 2026-11-10 m3ef1104c77c6 "the listed files should have the embedded content inline": chat's own card for the
+              types chat embeds (image, video, audio; lazy, same size limits); any other type stays this plain row. */}
+          {(isImg(file.name) || mediaFormat(file.name)) && <div className="agent-file-embed">
+            <SentFileCard slug={slug} nid={nid} file={{ name: file.name, path: file.path, bytes: file.bytes, note: file.note }} /></div>}
         </li>
       })}</ol>
     </div>
