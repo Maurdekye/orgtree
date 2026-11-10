@@ -36,6 +36,8 @@ import { NODE_H, NODE_W, Z_DESK, Z_MINI, setHideRetiredOn, setPinSnapOn } from '
 import { treeSelections } from '../src/treeselection'
 import {
   addPin, clampRect, forgetPins, PIN_MAX, PIN_MIN_H, PIN_MIN_W,
+  deskPinDefault, deskPinFloor, measureDeskChrome,
+  PIN_DESK_BODY_MIN_PX, PIN_DESK_DEFAULT_H, PIN_DESK_DEFAULT_W, PIN_DESK_MIN_W,
   PIN_Z_BASE, PIN_Z_TOP, pinsKey, planUnpin, prunePins, raisePin,
   renamePin,
   readPins, removePin, zIndexOf, commitRect,
@@ -731,13 +733,14 @@ uiTest('§B1 pin: the desk becomes a screen-space window over the card it left',
   assert.ok(!w!.closest('.space'), 'the pinned window is NOT inside the .space transform')
   assert.ok(w!.parentElement?.classList.contains('pin-layer'), 'the pinned window belongs to the shared pin layer')
   assert.ok(w!.closest('.viewport') === viewport, 'the pin layer stays inside the viewport')
-  // placed exactly over the desk it detached from (viewport px), floored to
-  // the minimum usable size
+  // placed exactly over the desk it detached from (viewport px), at least
+  // the default desk size (UI audit 2026-11-09: the generic 320x240 floor
+  // was a window no desk fits in)
   const r = winRect(w!)
   assert.ok(Math.abs(r.x - before.x) < 0.5 && Math.abs(r.y - before.y) < 0.5,
     `window at (${r.x},${r.y}) but the card was at (${before.x},${before.y})`)
-  assert.equal(r.w, Math.max(PIN_MIN_W, before.w))
-  assert.equal(r.h, Math.max(PIN_MIN_H, before.h))
+  assert.equal(r.w, Math.max(PIN_DESK_DEFAULT_W, before.w))
+  assert.equal(r.h, Math.max(PIN_DESK_DEFAULT_H, before.h))
   // the canvas desk is gone; the card shows the placeholder; ONE desk exists
   assert.equal(el.querySelector('.desk-over'), null, 'no canvas desk remains after pinning')
   assert.ok(el.querySelector('.sq .pin-holder .pin-placeholder'), 'the card shows the pinned placeholder')
@@ -1276,3 +1279,116 @@ uiTest('§B12 title-bar name: the mouse path is the gesture, the keyboard path i
       + 'to its agent, which is the rule')
     assert.deepEqual(winRect(win()), r1, 'and a click must not reposition it')
   })
+
+// ====================================================== §D pinned desk size
+// UI audit 2026-11-09 problems 1+2 (docket ui-720p-fix-a-pinned-agent-and-
+// project-desks-unu): a desk pinned at the generic 320x240 floor was all
+// header; its conversation and composer sat below the window's edge with no
+// scroll. A pinned desk now opens at a desk-sized default and never renders
+// or resizes below a floor derived from its own measured chrome. jsdom has no
+// layout, so §D3 gives the window a stub layout whose chrome is 431px.
+
+test('§D1 deskPinFloor: none without a measurement; else the chrome plus the body floor', () => {
+  assert.equal(deskPinFloor(null), null)
+  assert.equal(deskPinFloor(0), null, 'a zero chrome is jsdom/no layout, never a floor')
+  assert.equal(deskPinFloor(Number.NaN), null)
+  assert.deepEqual(deskPinFloor(431), { width: PIN_DESK_MIN_W, height: 431 + PIN_DESK_BODY_MIN_PX })
+  assert.deepEqual(deskPinFloor(300.2), { width: PIN_DESK_MIN_W, height: Math.ceil(300.2 + PIN_DESK_BODY_MIN_PX) })
+  assert.equal(deskPinFloor(10)!.height, PIN_MIN_H, 'never below the generic window floor')
+  assert.ok(PIN_DESK_MIN_W > PIN_MIN_W, 'a desk floor is wider than the generic window floor')
+})
+
+test('§D2 deskPinDefault: over the card, at least the desk default, inside the 720p canvas', () => {
+  const vp720 = { w: 1242, h: 595 }   // the 1280x720 audit's measured canvas
+  assert.deepEqual(deskPinDefault({ x: 100, y: 80, w: 60, h: 40 }, vp720),
+    { x: 100, y: 80, w: PIN_DESK_DEFAULT_W, h: PIN_DESK_DEFAULT_H })
+  const nearCorner = deskPinDefault({ x: 1200, y: 560, w: 60, h: 40 }, vp720)
+  assert.equal(nearCorner.x + nearCorner.w, vp720.w, 'pulled back inside on the right')
+  assert.equal(nearCorner.y + nearCorner.h, vp720.h, 'and at the bottom')
+  assert.deepEqual(deskPinDefault({ x: 10, y: 10, w: 900, h: 700 }, vp720),
+    { x: 10, y: 0, w: 900, h: 595 }, 'a larger card keeps its size, clamped to the canvas')
+  assert.deepEqual(deskPinDefault({ x: 0, y: 0, w: 60, h: 40 }, { w: 300, h: 200 }),
+    { x: 0, y: 0, w: 300, h: 200 }, 'never larger than the viewport')
+})
+
+test('§D3a measureDeskChrome: outer height plus body overflow minus the flexible body', () => {
+  const win = document.createElement('div'); win.className = 'pinwin'
+  win.innerHTML = '<div class="pinwin-title"></div><div class="pinwin-body"><div class="desk-body">'
+    + '<div class="cc-head"></div><div class="msgs-wrap"></div><div class="cc-composer-region"></div></div></div>'
+  const body = win.querySelector('.pinwin-body')!, flex = win.querySelector('.msgs-wrap')!
+  const set = (el: Element, k: string, v: number) => Object.defineProperty(el, k, { configurable: true, get: () => v })
+  assert.equal(measureDeskChrome(win), null, 'no layout, no measurement')
+  // a 240px window whose desk needs 400px of chrome plus a squeezed body
+  set(win, 'offsetHeight', 240); set(body, 'clientHeight', 197); set(body, 'scrollHeight', 560); set(flex, 'offsetHeight', 160)
+  assert.equal(measureDeskChrome(win), 240 + (560 - 197) - 160)
+  // the same desk once it fits: no overflow, the body has the spare room
+  set(win, 'offsetHeight', 700); set(body, 'clientHeight', 657); set(body, 'scrollHeight', 657); set(flex, 'offsetHeight', 257)
+  assert.equal(measureDeskChrome(win), 700 - 257, 'the same chrome either way')
+})
+
+/** a stub layout for one pinned window: 3px of borders, a 28px title and
+ *  `inner` px of rigid desk rows, around a flexible body that keeps
+ *  PIN_DESK_BODY_MIN_PX (the CSS floor) and takes any spare height */
+function stubDeskLayout(w: HTMLElement, inner: number) {
+  const h = () => parseFloat(w.style.height) || 0
+  const body = w.querySelector('.pinwin-body')!
+  const flex = w.querySelector('.pinwin-body .desk-body > .msgs-wrap, .pinwin-body .desk-body > .desk-tabpanel')
+  assert.ok(flex, 'the pinned desk has a flexible body to measure')
+  const client = () => Math.max(0, h() - 31)
+  const set = (el: Element, k: string, get: () => number) => Object.defineProperty(el, k, { configurable: true, get })
+  set(w, 'offsetHeight', h)
+  set(body, 'clientHeight', client)
+  set(body, 'scrollHeight', () => Math.max(client(), inner + PIN_DESK_BODY_MIN_PX))
+  set(flex!, 'offsetHeight', () => Math.max(PIN_DESK_BODY_MIN_PX, client() - inner))
+}
+
+uiTest('§D3 a measured pinned desk renders, resizes and commits at no less than its floor', async ({ mount }) => {
+  const { el } = await mountCanvas(mount, ['ceo', 'cto'])
+  await settle(2500)
+  await inAct(() => addPin('mine', 'cto', { x: 60, y: 50, w: 320, h: 240 }))
+  await flush()
+  const w = pinWin(el, 'cto')!
+  assert.ok(w)
+  assert.deepEqual(winRect(w), { x: 60, y: 50, w: 320, h: 240 }, 'unmeasured: the saved rect as before')
+  stubDeskLayout(w, 400)
+  await inAct(() => { forgetPins('mine') })   // any re-render re-measures
+  await flush()
+  const floor = { w: PIN_DESK_MIN_W, h: 31 + 400 + PIN_DESK_BODY_MIN_PX }
+  assert.deepEqual(winRect(pinWin(el, 'cto')!), { x: 60, y: 50, ...floor },
+    'a saved pin below the desk floor renders raised to it')
+  assert.deepEqual(readPins('mine')[0]!.rect, { x: 60, y: 50, w: 320, h: 240 }, 'rendering writes nothing')
+  // shrinking from the south-east corner stops at the floor and commits it
+  const frame = () => pinWin(el, 'cto')!.nextElementSibling!
+  await drag(frame().querySelector('.pinwin-rs.se')!, { x: 900, y: 900 }, { x: 100, y: 100 })
+  assert.deepEqual(winRect(pinWin(el, 'cto')!), { x: 60, y: 50, ...floor })
+  assert.deepEqual(readPins('mine')[0]!.rect, { x: 60, y: 50, ...floor }, 'the gesture commits the floor')
+  // from the north-west the floor pins the opposite edges
+  await drag(frame().querySelector('.pinwin-rs.nw')!, { x: 100, y: 100 }, { x: 900, y: 900 })
+  assert.deepEqual(winRect(pinWin(el, 'cto')!), { x: 60, y: 50, ...floor }, 'east and south edges stayed put')
+  // a larger saved size is kept
+  await inAct(() => { commitRect('mine', 'cto', { x: 60, y: 50, w: 700, h: 640 }, null) })
+  await flush()
+  assert.deepEqual(winRect(pinWin(el, 'cto')!), { x: 60, y: 50, w: 700, h: 640 })
+})
+
+// The no-overlap layout is CSS; jsdom does no layout, so it is read back
+// from the stylesheet the app ships, as agentstray.test.tsx does.
+declare const __SRC_DIR__: string
+test('§D4 a pinned desk body keeps its floor and scrolls instead of overlapping', async () => {
+  const { readFileSync } = await import('node:fs')
+  const path = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const rule = (selector: string) => {
+    const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(m => m[1]!.split(',').some(s => s.trim() === selector)).map(m => m[2]!)
+    assert.ok(bodies.length, 'no rule for ' + selector)
+    return bodies.join('\n')
+  }
+  assert.match(rule('.pinwin-body'), /overflow-y:\s*auto/, 'the window body scrolls when the desk does not fit')
+  const floor = /min-height:\s*(\d+)px/.exec(rule('.pinwin-body .desk-body > :is(.msgs-wrap, .desk-tabpanel)'))
+  assert.equal(Number(floor?.[1]), PIN_DESK_BODY_MIN_PX, 'the transcript/tab panel floor matches pins.tsx')
+  assert.match(rule('.pinwin-body .project-desk :is(.project-description-md, .project-description-edit)'),
+    new RegExp(`min-height:\\s*${PIN_DESK_BODY_MIN_PX}px`), 'the project summary too')
+  assert.match(rule('.pinwin-body .desk-nav'), /max-height:\s*calc\(2 \* var\(--desk-nav-row\)/,
+    'the reports row scrolls past two rows in a pin')
+})
