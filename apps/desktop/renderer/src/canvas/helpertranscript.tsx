@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { req } from '../api'
 import type { ChatMessage, ToolChip } from '../types'
 import { Msg } from './desk'
@@ -52,13 +52,37 @@ export function HelperTranscript({ slug, nid, seq, tool, autoFollow = false }: {
   const folds = useFoldState()
   const section = useRef<HTMLElement>(null)
   const following = useRef(true)
+  // TAIL FOLLOW IS RELEASED ONLY BY THE READER, as on the desk transcript
+  // (desk.tsx noteScrollIntent/pin). A scroll event alone never releases it:
+  // our own programmatic scroll's event can land after the next snapshot has
+  // already grown the content, and reading that as "far from the bottom"
+  // stuck a live 220-row transcript mid-stream with no input at all
+  // (@build-sol capture 2026-11-10, gap 6939 px). Upward wheel/keys/touch or a
+  // scrollbar drag release it; coming back down to the tail resumes it.
+  const intent = useRef<{ direction: -1 | 1 | 0; until: number } | null>(null)
+  const touchY = useRef<number | null>(null)
   const messages = useMemo(() => snapshot?.messages.map(retainedMessage) ?? [], [snapshot])
   useEffect(() => { folds.prune(foldKeysOf(messages)) }, [messages, folds.prune])
-  useEffect(() => {
+  const pin = () => { const el = section.current; if (el && following.current) el.scrollTop = el.scrollHeight }
+  // After the commit, before paint: the new rows are in the DOM, so this
+  // lands on the real bottom; one more frame covers late layout (Markdown).
+  useLayoutEffect(() => {
     if (!autoFollow || !following.current) return
-    const frame = requestAnimationFrame(() => { const el = section.current; if (el) el.scrollTop = el.scrollHeight })
+    pin()
+    const frame = requestAnimationFrame(pin)
     return () => cancelAnimationFrame(frame)
   }, [snapshot, autoFollow])
+  const noteIntent = (direction: -1 | 1 | 0) => {
+    intent.current = { direction, until: performance.now() + 1000 }
+    if (direction < 0) following.current = false
+  }
+  const onScroll = (el: HTMLElement) => {
+    const recent = intent.current && performance.now() <= intent.current.until ? intent.current.direction : null
+    const atTail = el.scrollHeight - el.scrollTop - el.clientHeight <= 8
+    // a scrollbar drag (0) follows the thumb: off above the tail, on at it
+    if (recent === 0) following.current = atTail
+    else if (recent === 1 && atTail) following.current = true
+  }
   useEffect(() => {
     setSnapshot(undefined); setError('')
     if (seq === undefined || !tool) return
@@ -81,7 +105,23 @@ export function HelperTranscript({ slug, nid, seq, tool, autoFollow = false }: {
     return () => { active = false; clearTimeout(timer); abort.abort() }
   }, [slug, nid, seq, tool, retry])
   return <section className="helper-transcript" aria-label="Helper transcript" ref={section}
-    onScroll={autoFollow ? e => { const el=e.currentTarget; following.current=el.scrollHeight-el.scrollTop-el.clientHeight<40 } : undefined}>
+    onScroll={autoFollow ? e => onScroll(e.currentTarget) : undefined}
+    onWheel={autoFollow ? e => { if (e.deltaY) noteIntent(e.deltaY < 0 ? -1 : 1) } : undefined}
+    onKeyDown={autoFollow ? e => {
+      if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) noteIntent(-1)
+      else if (['ArrowDown', 'PageDown', 'End'].includes(e.key)) noteIntent(1)
+    } : undefined}
+    onTouchStart={autoFollow ? e => { touchY.current = e.touches[0]?.clientY ?? null } : undefined}
+    onTouchMove={autoFollow ? e => {
+      const y = e.touches[0]?.clientY
+      if (y !== undefined && touchY.current !== null && y !== touchY.current) noteIntent(y > touchY.current ? -1 : 1)
+      if (y !== undefined) touchY.current = y
+    } : undefined}
+    onPointerDown={autoFollow ? e => {
+      // a press on the section itself (not its content) is its scrollbar:
+      // a drag up releases follow, a drag back to the tail resumes it
+      if (e.target === e.currentTarget) noteIntent(0)
+    } : undefined}>
     <div className="helper-transcript-heading">Helper transcript{snapshot?.live && <span className="dim"> · live</span>}</div>
     {seq === undefined || !tool ? <div className="dim">A helper transcript was not retained for this older call.</div>
       : error ? <div role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></div>
