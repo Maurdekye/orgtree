@@ -34,21 +34,35 @@ pub struct SizeWrite {
 }
 
 /// The size Claude Code reports after a compaction (`compact_boundary`'s `compact_metadata.post_tokens`), or None
-/// when it reports none (an older CLI, a missing or non-positive field). Never a guess. (stub in the red commit)
+/// when it reports none (an older CLI, a missing or non-positive field). Never a guess.
 #[nolog]
-pub fn post_compaction_size(_boundary: &Value) -> Option<i32> {
-    None
+pub fn post_compaction_size(boundary: &Value) -> Option<i32> {
+    boundary.pointer("/compact_metadata/post_tokens").and_then(Value::as_i64)
+        .filter(|n| *n > 0).and_then(|n| i32::try_from(n).ok())
 }
 
 /// A model call made after a CLI compaction in the same turn is a real measurement of the new size and replaces
-/// the boundary's own figure; the last one wins. (stub in the red commit)
+/// the boundary's own figure; the last one wins.
 #[nolog]
-pub fn note_call_after_compaction(_post: &mut Option<i32>, _cli_compacted: bool, _call_size: i32) {}
+pub fn note_call_after_compaction(post: &mut Option<i32>, cli_compacted: bool, call_size: i32) {
+    if cli_compacted && call_size > 0 {
+        *post = Some(call_size);
+    }
+}
 
-/// What the turn's end stores. `last_call` is the last call's input plus cache total. (stub in the red commit)
+/// What the turn's end stores. `last_call` is the last call's input plus cache total. After a CLI compaction that
+/// left a real size (`post`), that size is stored as measured, so the usual cold-wake rule decides; with none, the
+/// pre-compaction figure stays an estimate and a cold wake never cuts on it. Our own compaction and a native retry
+/// are never measurements.
 #[nolog]
-pub fn size_write(last_call: i32, compact: bool, cli_compacted: bool, _post: Option<i32>, native_retry: bool) -> SizeWrite {
-    SizeWrite { occupancy: last_call, measured: last_call > 0 && !compact && !cli_compacted && !native_retry, estimate: compact || cli_compacted }
+pub fn size_write(last_call: i32, compact: bool, cli_compacted: bool, post: Option<i32>, native_retry: bool) -> SizeWrite {
+    let post = post.filter(|n| *n > 0 && cli_compacted && !compact);
+    let occupancy = post.unwrap_or(last_call);
+    SizeWrite {
+        occupancy,
+        measured: occupancy > 0 && !compact && (!cli_compacted || post.is_some()) && !native_retry,
+        estimate: compact || (cli_compacted && post.is_none()),
+    }
 }
 
 /// Commit retry intent, end the old turn/session, return only unconsumed

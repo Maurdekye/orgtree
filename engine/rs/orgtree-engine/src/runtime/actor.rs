@@ -479,6 +479,8 @@ struct Turn {
     compact: bool,
     /// A successful native compaction this turn invalidates its earlier peak.
     cli_compacted: bool,
+    /// The real size after the last CLI compaction this turn (reported `post_tokens`, or a later call's total).
+    post_compact_size: Option<i32>,
     /// the request this turn's CLI stream is logged under
     span: tracing::Span,
     /// cards `orgtree_*` tools attached to their chips, by tool_use_id
@@ -648,6 +650,7 @@ impl Turn {
             codex_thinking: Default::default(),
             compact,
             cli_compacted: false,
+            post_compact_size: None,
             cards: HashMap::new(),
             manual_reads: HashMap::new(),
             span: tracing::Span::none(),
@@ -5771,6 +5774,10 @@ impl Actor {
                     crate::domain::runtime_notices::compacted(&self.engine,self.org_id,self.id,!self.turn.as_ref().map(|t|t.compact).unwrap_or(false)).await?;
                     let pre = v.pointer("/compact_metadata/pre_tokens").cloned().unwrap_or(Value::Null);
                     self.compact_close("done", pre).await?;
+                    if let Some(turn) = self.turn.as_mut().filter(|t| !t.compact) {
+                        // the last boundary wins; none reported leaves no size (the estimate stays)
+                        turn.post_compact_size = super::context_reset::post_compaction_size(&v);
+                    }
                 }
                 _ => {}
             },
@@ -7842,6 +7849,9 @@ impl Actor {
             turn.activity = true;
             if let Some(u) = msg.get("usage").filter(|u| u.is_object()) {
                 turn.usage = u.clone();
+                let call = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+                    .iter().map(|k| u.get(*k).and_then(Value::as_i64).unwrap_or(0)).sum::<i64>();
+                super::context_reset::note_call_after_compaction(&mut turn.post_compact_size, turn.cli_compacted, i32::try_from(call).unwrap_or(0));
             }
             if let Some(m) = msg["model"].as_str() {
                 turn.model = Some(m.to_string());
@@ -8798,7 +8808,8 @@ impl Actor {
                 .flatten()
                 .map(|(_, m)| crate::langserver::context_of(&m) as i32)
         });
-        let measured = occupancy > 0 && !turn.compact && !turn.cli_compacted && !native_retry;
+        let size = super::context_reset::size_write(occupancy, turn.compact, turn.cli_compacted, turn.post_compact_size, native_retry);
+        let (occupancy, measured) = (size.occupancy, size.measured);
         let session=session.filter(|_|!native_retry);
         client
             .execute(
@@ -8815,7 +8826,7 @@ impl Actor {
                         row_version = row_version + 1
                   WHERE id = $1",
                 &[
-                    &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &(turn.compact || turn.cli_compacted),
+                    &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &size.estimate,
                     &freeze_rec, &self.cost_seen,
                     &(turn.acp && !langserver || (agy && catalog::antigravity_claude(&turn.serving_tier) || muse) && input + cache_read + output > 0),
                     &langserver,
