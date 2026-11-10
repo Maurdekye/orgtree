@@ -38,14 +38,14 @@ app.whenReady().then(async()=>{let win;const requests=[];
   await evaluate(`Object.defineProperty(navigator,'clipboard',{value:{readText:async()=>'',writeText:async()=>{throw Error('blocked')}}});true`);
   if(!await evaluate(`new Promise(r=>{const t=Date.now();(function p(){if(window.mediaReady||Date.now()-t>6000)r(!!window.mediaReady);else setTimeout(p,40)})()})`))throw Error('fixture page did not start');
   const checks=[];const check=(name,ok)=>checks.push({name,ok:!!ok});
-  // USER 2026-10-30 m478dfd75cf44: the video opens on render, paused; audio still waits for Play (m50c447216390)
+  // USER 2026-10-30 m478dfd75cf44: the video opens on render, paused; audio opens on render too since 2026-11-10 (m3ef1104c77c6)
   const open=await evaluate(`(async()=>{const v=document.querySelector('video');await new Promise(r=>{const t=Date.now();(function p(){if(v.readyState>=2||Date.now()-t>6000)r();else setTimeout(p,50)})()});
     const c=document.createElement('canvas');c.width=v.videoWidth||1;c.height=v.videoHeight||1;let px=null;try{const g=c.getContext('2d');g.drawImage(v,0,0);px=[...g.getImageData(4,4,1,1).data]}catch(e){px=String(e)}
     const r=v.getBoundingClientRect();return{readyState:v.readyState,paused:v.paused,currentTime:v.currentTime,autoplay:v.autoplay,hidden:v.hidden,controls:v.controls,preload:v.getAttribute('preload'),src:v.getAttribute('src'),videoWidth:v.videoWidth,videoHeight:v.videoHeight,width:r.width,height:r.height,pixel:px,playButtons:document.querySelectorAll('.media-play').length,audioWithSrc:document.querySelectorAll('audio[src]').length}})()`);
   check('the video opens on render, paused at 0, with preload=metadata and no autoplay',open.readyState>=2&&open.paused&&open.currentTime===0&&!open.autoplay&&!open.hidden&&open.controls&&open.preload==='metadata'&&open.videoWidth>0);
   check('its first frame is decoded (the synthetic background colour, sampled from the video)',Array.isArray(open.pixel)&&Math.abs(open.pixel[0]-32)<=24&&Math.abs(open.pixel[1]-72)<=24&&Math.abs(open.pixel[2]-87)<=24);
   check('the video asked for its file on render, by the authorized route with the media flag',requests.some(r=>r.name==='clip.webm')&&requests.filter(r=>r.name==='clip.webm').every(r=>r.media==='true'));
-  check('the audio cards still wait for Play: no request, no source, one Play button each',!requests.some(r=>r.name==='tone.wav')&&open.audioWithSrc===0&&open.playButtons===2);
+  check('the audio cards open on render like the video (USER 2026-11-10 m3ef1104c77c6): a source and a visible player each, no Play button',requests.some(r=>r.name==='tone.wav')&&open.audioWithSrc===2&&open.playButtons===0);
   await evaluate(`(async()=>{await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()`);wc.invalidate();await new Promise(r=>setTimeout(r,300));
   fs.writeFileSync(out+'/media-open.png',(await wc.capturePage()).toPNG());
   // the video's own fullscreen button is element.requestFullscreen(); the card must not release it while it fills the screen

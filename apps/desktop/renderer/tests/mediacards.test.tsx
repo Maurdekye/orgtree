@@ -20,7 +20,7 @@ function mediaMocks(t: import('node:test').TestContext) {
 
 // USER 2026-10-30 m478dfd75cf44 "inline videos should open automatically, just not play until clicked": a video card shows
 // its player and first frame when it renders. Only the metadata is asked for, nothing plays, and the player's own
-// controls start it. (This replaces the 4.5.0 "Media loads only after Play" for video; audio keeps it.)
+// controls start it. (This replaces the 4.5.0 "Media loads only after Play" for video; audio followed on 2026-11-10, below.)
 test('a video card opens its player on render and does not play until its own control is used', async t => {
   const m = mediaMocks(t)
   const v = await mountView(<SentFileCard slug="synthetic" nid="agent" file={{name:'clip.webm',path:'clip.webm',bytes:1200}} />, el => el)
@@ -35,11 +35,21 @@ test('a video card opens its player on render and does not play until its own co
   assert.equal(v.el.querySelector('.media-play'), null, 'no separate Play button: the player is already open')
 })
 
-test('media cards render click-to-play audio instead of a download-only card', async t => {
+// USER 2026-11-10 m3ef1104c77c6 "audio downloads should have the audio player already visible, there shouldnt be a button to press
+// to reveal it. it should work like video downloads": an audio card is a video card with a different element.
+test('an audio card shows its player on render, like a video card, with no button to reveal it', async t => {
+  const m = mediaMocks(t)
   const v = await mountView(<SentFileCard slug="synthetic" nid="agent" file={{name:'sound.wav',path:'sound.wav',bytes:1200}} />, el => el)
   t.after(() => v.unmount())
-  assert.equal(v.el.querySelector('button')?.textContent, 'Play audio')
-  assert.equal(v.el.querySelector('audio')?.getAttribute('src'), null, 'no media request before Play')
+  const audio = v.el.querySelector('audio')!
+  assert.equal(audio.hidden, false, 'the player is shown on render')
+  assert.equal(audio.controls, true, 'with its native controls, which are the Play')
+  assert.equal(audio.getAttribute('preload'), 'metadata', 'the same preload as video')
+  assert.equal(audio.getAttribute('src'), href.replace('clip.webm', 'sound.wav') + '&media=true', 'the authorized route, set on render')
+  assert.equal(audio.autoplay, false)
+  assert.equal(m.play.mock.callCount(), 0, 'nothing plays by itself')
+  assert.equal(v.el.querySelector('.media-play'), null, 'no Play audio button')
+  assert.equal(v.el.querySelector('button'), null)
 })
 
 test('media cards retain existing image, caption and ordinary download behavior', async t => {
@@ -52,17 +62,13 @@ test('media cards retain existing image, caption and ordinary download behavior'
   assert.equal(v.el.querySelector('audio,video'), null)
 })
 
-test('audio cards request only the authorized streaming route on explicit Play and release on unmount', async t => {
+test('an audio card releases its source when it unmounts, and its own control owns the keyboard', async t => {
   const m = mediaMocks(t)
   const v = await mountView(<MediaCard href={href.replace('clip.webm', 'sound.wav')} name="sound.wav" bytes={10} />, el => el)
   const media = v.el.querySelector('audio')!
-  assert.equal(media.getAttribute('preload'), 'none')
+  assert.equal(media.getAttribute('src'), href.replace('clip.webm', 'sound.wav') + '&media=true')
   assert.equal(media.autoplay, false)
   assert.equal(m.play.mock.callCount(), 0)
-  await inAct(() => v.el.querySelector('button')!.click())
-  assert.equal(m.play.mock.callCount(), 1)
-  assert.equal(media.getAttribute('src'), href.replace('clip.webm', 'sound.wav') + '&media=true')
-  assert.equal(media.hidden, false)
   const key = new KeyboardEvent('keydown', {key:' '})
   Object.defineProperty(key, 'target', {value:media})
   assert.equal(navigationBlocked(key, document), true, 'native controls own keyboard navigation')
@@ -93,21 +99,24 @@ function observerMock(t: import('node:test').TestContext) {
   return (isIntersecting: boolean) => inAct(() => notify([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver))
 }
 
-test('audio cards stop and release offscreen playback and replace source identity', async t => {
-  mediaMocks(t)
+test('an audio card loads only while it is on screen, comes back paused, and a new file replaces the old player', async t => {
+  const m = mediaMocks(t)
   const sound = href.replace('clip.webm', 'sound.wav')
   const intersect = observerMock(t)
   const v = await mountView(<MediaCard href={sound} name="sound.wav" />, el => el)
   t.after(() => v.unmount())
-  await inAct(() => v.el.querySelector('button')!.click())
-  const old = v.el.querySelector('audio')!
+  const audio = v.el.querySelector('audio')!
+  assert.equal(audio.hasAttribute('src'), false, 'nothing is requested before the card is seen')
+  await intersect(true)
+  assert.equal(audio.getAttribute('src'), sound + '&media=true', 'seen: the player opens')
   await intersect(false)
-  assert.equal(old.hasAttribute('src'), false)
-  assert.equal(v.el.querySelector('button')?.textContent, 'Play audio')
-  await inAct(() => v.el.querySelector('button')!.click())
+  assert.equal(audio.hasAttribute('src'), false, 'scrolled away: the source is released')
+  assert.ok(m.pause.mock.callCount() > 0)
+  await intersect(true)
+  assert.equal(audio.getAttribute('src'), sound + '&media=true', 'back in view: the player opens again')
+  assert.equal(m.play.mock.callCount(), 0, 'and it never resumes by itself')
   await v.render(<MediaCard href={sound.replace('synthetic', 'other-org')} name="sound.wav" />)
-  assert.equal(old.hasAttribute('src'), false)
-  assert.equal(v.el.querySelector('audio')?.hasAttribute('src'), false)
+  assert.equal(audio.hasAttribute('src'), false, 'a new file replaces the old player')
 })
 
 test('a video card loads only while it is on screen, and coming back reopens it paused', async t => {
@@ -164,8 +173,8 @@ test('media cards retain Download on size, codec, decode and unsafe URL failures
   assert.ok(v.el.textContent?.includes('not supported'), 'an unsupported video says so on render')
   assert.equal(v.el.querySelector('video')!.hasAttribute('src'), false)
   await v.render(<MediaCard href={href.replace('clip.webm', 'sound.wav')} name="sound.wav" bytes={MEDIA_MAX_BYTES} />)
-  await inAct(() => v.el.querySelector('button')!.click())
-  assert.ok(v.el.textContent?.includes('not supported'), 'an unsupported audio file says so on Play')
+  assert.ok(v.el.textContent?.includes('not supported'), 'an unsupported audio file says so on render, like video')
+  assert.equal(v.el.querySelector('audio')!.hasAttribute('src'), false)
   for (const bad of ['file:///C:/secret.mp4','https://remote.invalid/video.mp4','//remote.invalid/video.mp4','/api/markdown-image?path=x']) assert.equal(mediaHref(bad), null)
 })
 
@@ -177,7 +186,7 @@ test('message attachments share video and audio cards without adding a composer 
   assert.equal(v.el.querySelectorAll('.mediacard').length, 2)
   assert.equal(v.el.querySelectorAll('video,audio').length, 2)
   assert.equal(v.el.querySelectorAll('video[src]').length, 1, 'the video opens on render')
-  assert.equal(v.el.querySelectorAll('audio[src]').length, 0, 'the audio waits for Play')
+  assert.equal(v.el.querySelectorAll('audio[src]').length, 1, 'the audio opens on render like the video')
   assert.ok(v.el.textContent?.includes('missing.mp4'))
 })
 
@@ -190,7 +199,7 @@ test('transcript segment attachments cover every approved container and preserve
   assert.equal(v.el.querySelectorAll('video').length, 2)
   assert.equal(v.el.querySelectorAll('audio').length, 6)
   assert.equal(v.el.querySelectorAll('video[src]').length, 2, 'both videos open on render')
-  assert.equal(v.el.querySelectorAll('audio[src]').length, 0, 'no audio waits on anything but Play')
+  assert.equal(v.el.querySelectorAll('audio[src]').length, 6, 'every audio opens on render too')
   assert.equal(v.el.querySelectorAll('img').length, 1)
   assert.ok(v.el.querySelector('a[download="archive.zip"]'))
   assert.ok(v.el.textContent?.includes('missing.mp4'))
