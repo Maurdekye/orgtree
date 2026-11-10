@@ -28,6 +28,7 @@ impl Page {
 }
 
 /// Does this agent have any delivered file? One EXISTS on the key `list` reads (the Files tab's availability); `None` = no such agent.
+#[logged]
 pub async fn any<C: GenericClient + Sync>(client: &C, org_id: i64, agent_id: Option<i64>) -> Result<bool> {
     Ok(client.query_one("SELECT EXISTS(SELECT 1 FROM ot.deliveries WHERE org_id=$1 AND agent_id=$2)", &[&org_id, &agent_id]).await?.get(0))
 }
