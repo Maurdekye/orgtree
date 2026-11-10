@@ -111,18 +111,6 @@ export const deskPinFloor = (chrome: number | null | undefined): { width: number
  *  default desk size, never larger than the viewport */
 export const deskPinDefault = (card: PinRect, vp: { w: number; h: number } | null): PinRect =>
   clampRect({ ...card, w: Math.max(card.w, PIN_DESK_DEFAULT_W), h: Math.max(card.h, PIN_DESK_DEFAULT_H) }, vp)
-/** the control gutter (controlgutter.ts, fix B) composed with the desk floor
- *  (coordinator 2026-11-10): where avoiding the gutter would narrow a desk
- *  below its floor width, the desk shifts right instead, at the floor width
- *  and inside the viewport. Only when the viewport cannot fit the gutter and
- *  the floor width does the floor win, accepting the overlap. */
-export const deskAvoidGutter = (r: PinRect, gutter: { x: number; y: number; w: number; h: number } | null,
-  vp: { w: number; h: number } | null, floor: { width: number; height: number } | null): PinRect => {
-  const out = avoidControlGutter(r, gutter, vp)
-  if (!floor || !gutter || out.w >= floor.width) return out
-  const x = gutter.x + gutter.w
-  return vp && vp.w > 0 && x + floor.width <= vp.w ? { ...r, x, w: floor.width } : r
-}
 /** the flexible body of a desk, one per tab: the agent chat's transcript, a
  *  tab panel, or the project summary's description */
 const DESK_FLEX = ['.msgs-wrap', '.desk-tabpanel', '.project-description-md', '.project-description-edit']
@@ -553,10 +541,9 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
     && (!floor || (pin.rect.w >= floor.width && pin.rect.h >= floor.height))
     ? pin.initialPlacement : null
   // drawn clear of the canvas controls' column when they are blocked
-  // (controlgutter.ts), after the desk floor and never narrower than it
-  // (deskAvoidGutter); the stored rect is never rewritten for either
+  // (controlgutter.ts); the stored rect is never rewritten for it
   const gutter = useControlGutter(slug)
-  const rect = initial ? pin.rect : deskAvoidGutter(clampRect(live ?? pin.rect, vp, floor), gutter, vp, floor)
+  const rect = initial ? pin.rect : avoidControlGutter(clampRect(live ?? pin.rect, vp, floor), gutter, vp)
   const layout = usePinSurface(slug, pin.id, rect, false)
   // Re-measured on every render and whenever the window, its body or any of
   // the desk's rows changes size (a badge wraps, a tab switches, a strip

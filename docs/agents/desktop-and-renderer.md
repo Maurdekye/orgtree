@@ -23,10 +23,6 @@ window at 720p (UI audit 2026-11-09 problems 1+2).
   the inbox warning; `.pinwin-body` scrolls when the desk is taller than the canvas;
   the reports row is capped at two rows (desk-nav scroll pattern). No tab overflow
   menu: the header wraps to at most three rows at the floor (coordinator 2026-11-10).
-- With the canvas controls' gutter active (controlgutter.ts), the gutter applies
-  after the floor and never narrows a desk below its floor width: the desk shifts
-  right at the floor width instead (`deskAvoidGutter`); only a viewport narrower
-  than the gutter plus the floor width accepts the overlap (coordinator 2026-11-10).
 [decided: coordinator 2026-11-10; verified: `canvas/pins.tsx`, `canvas/OrgCanvas.tsx`
 pinDesk, `styles.css`, `tests/pins.test.tsx` §B1 §D1-§D4]
 

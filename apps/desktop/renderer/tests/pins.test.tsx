@@ -36,14 +36,13 @@ import { NODE_H, NODE_W, Z_DESK, Z_MINI, setHideRetiredOn, setPinSnapOn } from '
 import { treeSelections } from '../src/treeselection'
 import {
   addPin, clampRect, forgetPins, PIN_MAX, PIN_MIN_H, PIN_MIN_W,
-  deskAvoidGutter, deskPinDefault, deskPinFloor, measureDeskChrome,
+  deskPinDefault, deskPinFloor, measureDeskChrome,
   PIN_DESK_BODY_MIN_PX, PIN_DESK_DEFAULT_H, PIN_DESK_DEFAULT_W, PIN_DESK_MIN_W,
   PIN_Z_BASE, PIN_Z_TOP, pinsKey, planUnpin, prunePins, raisePin,
   renamePin,
   readPins, removePin, zIndexOf, commitRect,
 } from '../src/canvas/pins'
 import type { PinRect } from '../src/canvas/pins'
-import { avoidControlGutter, CONTROL_GUTTER_H, CONTROL_GUTTER_W } from '../src/canvas/controlgutter'
 import type { TreePayload } from '../src/types'
 import { setModalOverlap } from '../src/canvas/pinoverlap'
 import { draftKey, storeAttachments } from '../src/draftstore'
@@ -1392,30 +1391,4 @@ test('§D4 a pinned desk body keeps its floor and scrolls instead of overlapping
     new RegExp(`min-height:\\s*${PIN_DESK_BODY_MIN_PX}px`), 'the project summary too')
   assert.match(rule('.pinwin-body .desk-nav'), /max-height:\s*calc\(2 \* var\(--desk-nav-row\)/,
     'the reports row scrolls past two rows in a pin')
-})
-
-test('§D5 the control gutter composes with the desk floor: beside the gutter, never narrower than the floor', () => {
-  // coordinator 2026-11-10 (fix A x fix B): the gutter applies after the floor
-  // and never narrows a desk below its floor width; it shifts right instead
-  const floor = deskPinFloor(431)!
-  const vp720 = { w: 1242, h: 595 }
-  const gutter = (vp: { w: number; h: number }) => ({ x: 0, y: vp.h - CONTROL_GUTTER_H, w: CONTROL_GUTTER_W, h: CONTROL_GUTTER_H })
-  // a desk at its floor in the corner at 720p: beside the gutter, full floor width
-  const atFloor = { x: 0, y: 4, w: floor.width, h: floor.height }
-  assert.deepEqual(deskAvoidGutter(atFloor, gutter(vp720), vp720, floor),
-    { x: CONTROL_GUTTER_W, y: 4, w: floor.width, h: floor.height })
-  // where the gutter alone would narrow it below the floor, it shifts right at the floor width
-  const vp = { w: 470, h: 595 }
-  const wide = { x: 0, y: 4, w: 440, h: floor.height }
-  assert.ok(avoidControlGutter(wide, gutter(vp), vp).w < floor.width, 'control: the gutter alone narrows it below the floor')
-  const out = deskAvoidGutter(wide, gutter(vp), vp, floor)
-  assert.deepEqual(out, { x: CONTROL_GUTTER_W, y: 4, w: floor.width, h: floor.height })
-  assert.ok(out.x + out.w <= vp.w, 'still inside the viewport')
-  // a viewport that cannot fit gutter + floor width: the floor wins, overlap accepted
-  const tight = { w: 430, h: 595 }
-  const full = { x: 0, y: 4, w: 430, h: floor.height }
-  assert.deepEqual(deskAvoidGutter(full, gutter(tight), tight, floor), full)
-  // no gutter, or no floor yet: exactly the gutter rule as before
-  assert.deepEqual(deskAvoidGutter(atFloor, null, vp720, floor), atFloor)
-  assert.deepEqual(deskAvoidGutter(wide, gutter(vp), vp, null), avoidControlGutter(wide, gutter(vp), vp))
 })
