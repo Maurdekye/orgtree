@@ -320,6 +320,9 @@ aside h1, .welcome-card h1 {
   font-size: 13px; font-weight: 600; margin: 2px 4px 6px; letter-spacing: .04em;
   color: var(--dim);
   display: flex; align-items: center; gap: 5px;
+  /* stays inside the card or drawer: the version badge gives way, the icons
+     never do (UI audit 2026-11-09, problem 8) */
+  min-width: 0;
 }
 aside h1 svg, .welcome-card h1 svg { color: var(--agent-accent-text, var(--accent)); }
 /* the repo link — lives in the orgbar and beside the brand */
@@ -329,14 +332,18 @@ aside h1 svg, .welcome-card h1 svg { color: var(--agent-accent-text, var(--accen
 }
 .gh-link:hover { color: var(--ink-strong); }
 .gh-link svg { color: inherit; }
-.h1-gh { margin-left: auto; font-size: 14px; }
+.h1-gh { margin-left: auto; font-size: 14px; flex: none; }
 /* the running backend's short commit — unobtrusive, next to the brand */
 .build-badge {
   font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0;
   color: var(--dim); font-family: monospace; cursor: default;
+  /* a 40-character dev version ends in an ellipsis; its tooltip (TitleBadge)
+     carries the whole version */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* the welcome-panel usage button rides in the h1 next to the GitHub link */
 .h1-usage {
+  flex: none;
   background: none; border: none; padding: 2px; cursor: pointer;
   display: inline-flex; align-items: center; color: var(--dim); font-size: 14px;
 }
@@ -7743,6 +7750,11 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    same colour — and its chips are the favorites row's cards with a name and
    a 22px icon button (icons only in small buttons: see the key row's note). */
 .orr-selected { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  /* ⚠ `flex: none`: the picker is a fixed-height column, and the explicit
+     min-height below replaces a flex item's automatic minimum, so the box
+     shrank to 40px and a second row of chips hung over the search field
+     (UI audit 2026-11-09, problem 7) */
+  flex: none;
   margin: 8px 0; padding: 6px 8px; min-height: 40px; box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--prov-openrouter) 60%, var(--line));
   border-radius: 8px;
@@ -7913,24 +7925,22 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    Machine-wide provider admission and browser-local display preferences live
    in one stable tab shell. The short scope badge is a label, not a blurb. */
 /* EVERY TAB TITLE ON ONE LINE (user 2026-09-29, image-18: "Mail hub" and
-   "Default org settings" wrapped to two). The tabs never shrink or wrap; the
-   spacing is tight enough that the App settings strip fits its panel, and a
-   strip that still overflows (a narrow window, a pinned panel resized small)
-   scrolls sideways instead. */
+   "Default org settings" wrapped to two). A tab never shrinks and its title
+   never wraps. A strip wider than its panel wraps WHOLE TABS onto another row
+   (UI audit 2026-11-09, problem 3): the sideways scroll it used to have showed
+   no scrollbar or arrow, so Keyboard shortcuts and About were simply cut off.
+   Every settings window's strip is this one component, so all of them wrap. */
 .app-settings-tabs {
   display: flex; align-items: flex-end; gap: 2px;
-  /* the rule under the strip is an INSET SHADOW, not a border: a scrolling
-     strip clips at its padding box, so the old `margin-bottom: -1px` overlap
-     of a border would cut the active tab's underline to 1px. A tab's own
-     border paints over the shadow instead. */
+  /* the rule under the strip is an INSET SHADOW, not a border: a tab's own
+     border paints over it, so the active tab's underline stays 2px. */
   box-shadow: inset 0 -1px 0 var(--line);
-  flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-  /* ⚠ `flex: none` IS LOAD-BEARING: a scrolling box has no automatic minimum
-     height, so in the panel's column a long tab (Display) squeezed the whole
-     strip to 0px (measured, attentionlayout_probe.py) */
+  flex-wrap: wrap;
+  /* ⚠ `flex: none` IS LOAD-BEARING: in the panel's fixed-height column the
+     strip would otherwise shrink below its rows (a long tab once squeezed it
+     to 0px, measured, attentionlayout_probe.py) */
   flex: none;
 }
-.app-settings-tabs::-webkit-scrollbar { height: 0; }
 .settings .app-settings-tab {
   display: inline-flex; align-items: center; gap: 7px;
   border: 0; border-bottom: 2px solid transparent; border-radius: 0;
@@ -7943,8 +7953,8 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 .settings .app-settings-tab.on {
   color: var(--ink-strong); border-bottom-color: var(--accent);
 }
-/* the tab strip scrolls rather than wrapping (D-222) — at every width now,
-   see `.app-settings-tabs` above */
+/* a strip too wide for its panel wraps whole tabs onto another row, see
+   `.app-settings-tabs` above */
 .app-settings-scope {
   color: var(--dim); border: 1px solid var(--line); border-radius: 8px;
   padding: 0 6px; font-size: 9.5px; font-weight: 400;
