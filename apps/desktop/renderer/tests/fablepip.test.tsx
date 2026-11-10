@@ -117,7 +117,7 @@ test('§5 the stylesheet draws the pip neutral', () => {
   assert.match(css, /\.usage-track\s*\{[^}]*position:\s*relative/, 'the track positions it')
 })
 
-test('§6 hovering shows the pip's weekly percentage first, then the Fable share used', async (t) => {
+test('§6 hovering shows the pip’s weekly percentage first, then the Fable share used', async (t) => {
   for (const [f, lead, share] of [[52, '76%', '52%'], [53, '77%', '53%'], [0, '50%', '0%']] as const) {
     const view = await bars(t, fableAt(f))
     const pip = pips(view.el)[0]
