@@ -19,6 +19,6 @@ createRoot(document.getElementById('root')!).render(<main style={{padding:24,wid
       <SentFileCard slug="synthetic" nid="agent" file={{name:'Large video.mp4',path:'large.mp4',bytes:268435457}} /></section>
     <section><h3>Message attachments</h3><p>Files stay in this conversation.</p><SegmentAttachments slug="synthetic" nid="agent" values={[{name:'Synthetic image.png',path:'image.png',bytes:1024},{name:'Synthetic tone.wav',path:'tone.wav',bytes:96044}]} /></section>
   </div>
-  <h3>Files tab</h3><div style={{height:430,display:'flex'}}><AgentFilesView slug="synthetic" nid="agent" /></div>
+  <h3>Files tab</h3><div style={{height:560,display:'flex'}}><AgentFilesView slug="synthetic" nid="agent" /></div>
 </main>)
 ;(window as unknown as {mediaReady:boolean}).mediaReady = true

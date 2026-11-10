@@ -69,6 +69,12 @@ app.whenReady().then(async()=>{let win;const requests=[];
   check('player requests use authorized-route media flag',requests.filter(r=>r.name!=='image.png').every(r=>r.media==='true'));
   check('oversized video stays download-only',await evaluate(`document.querySelectorAll('video').length===1&&document.body.textContent.includes('256 MiB')`));
   await evaluate(`(async()=>{await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()`);wc.invalidate();await new Promise(r=>setTimeout(r,250));
+  // the Files tab's list (USER 2026-11-10): scroll it into view, then its own scroller to the top and to the bottom, one frame each
+  for(const [name,top] of [['files-list-top',true],['files-list-bottom',false]]){
+    await evaluate(`(async()=>{const host=document.querySelector('.agent-files-scroll');document.querySelector('.agent-files').scrollIntoView({block:'start'});host.scrollTop=${top?0:'host.scrollHeight'};await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})()`);
+    wc.invalidate();await new Promise(r=>setTimeout(r,400));fs.writeFileSync(out+'/'+name+'.png',(await wc.capturePage()).toPNG());
+  }
+  check('the Files list shows its image, zip, video and audio rows with chat embeds',await evaluate(`(()=>{const rows=[...document.querySelectorAll('.agent-files-list li')];return rows.length===4&&rows.filter(r=>r.querySelector('video,audio,img')).length===3&&!rows.find(r=>/zip/.test(r.textContent)).querySelector('video,audio,img')&&document.querySelectorAll('.agent-files .media-play').length===0})()`));
   fs.writeFileSync(out+'/media-cards.png',(await wc.capturePage()).toPNG());
   const passed=checks.every(c=>c.ok);fs.writeFileSync(out+'/verdict.json',JSON.stringify({passed,checks,media:state,open,fullscreen:full,left,isolation:{pid,session:0,muted:wc.isAudioMuted(),clipboard:'empty stub/permissions denied except fullscreen (the trusted-window grant)',network:'HTTP blocked; synthetic file responses only',input:'CDP owned window'}},null,2));win.destroy();win=null;app.exit(passed?0:1);
  }catch(e){fs.writeFileSync(out+'/capture-error.txt',String(e.stack));if(win&&!win.isDestroyed())win.destroy();app.exit(2);}

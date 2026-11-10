@@ -44,19 +44,23 @@ app.whenReady().then(async()=>{
     if(answer.exceptionDetails)throw Error(JSON.stringify(answer.exceptionDetails))
     return answer.result.value
   }
+  // an offscreen window only yields a frame after a repaint: invalidate, wait, and never wait on a capture forever
+  const shot=async name=>{win.webContents.invalidate();await new Promise(r=>setTimeout(r,300))
+    const png=await Promise.race([win.webContents.capturePage(),new Promise((_,no)=>setTimeout(()=>no(Error('capturePage stalled: '+name)),8000))])
+    assert(!png.isEmpty(),name+' is empty');fs.writeFileSync(path.join(out,name),png.toPNG());return png}
   const painted=()=>js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,180))))')
   const state=()=>js(`({...window.deskReaderFixture.state(),now:performance.now(),size:{width:innerWidth,height:innerHeight},desks:[...document.querySelectorAll('[data-reader]')].map(el=>({kind:el.dataset.reader,active:el.querySelector('.cc-tabs button.on')?.dataset.tab,tabs:[...el.querySelectorAll('.cc-tabs button')].map(b=>({id:b.dataset.tab,box:b.getBoundingClientRect().toJSON()}))}))})`)
   await painted()
   receipt.before=await state()
   assert.equal(receipt.before.desks.length,2);assert.equal(receipt.before.reads.length,2)
   for(const desk of receipt.before.desks)assert(!desk.tabs.some(t=>t.id==='presented'||t.id==='docket'||t.id==='files'),'empty tabs initially hidden')
-  fs.writeFileSync(path.join(out,'desk-no-files.png'),(await win.webContents.capturePage()).toPNG())
+  await shot('desk-no-files.png')
   // USER 2026-11-10 m8e958d19e3db: the agent desk's Files tab appears live with the first delivered file (a project desk has none)
   const filesAt=await js('window.deskReaderFixture.arrive("files")')
   await painted();receipt.files=await state();receipt.filesMs=receipt.files.now-filesAt
   for(const desk of receipt.files.desks)assert.equal(desk.tabs.some(t=>t.id==='files'),desk.kind==='agent','Files appears on the agent desk only')
   assert(receipt.filesMs<1500,'the Files reveal finishes well before the 15 s fallback')
-  fs.writeFileSync(path.join(out,'desk-files-arrived.png'),(await win.webContents.capturePage()).toPNG())
+  await shot('desk-files-arrived.png')
   const presentedAt=await js('window.deskReaderFixture.arrive("presented")')
   await painted();receipt.presented=await state()
   for(const desk of receipt.presented.desks){assert(desk.tabs.some(t=>t.id==='presented'));assert(!desk.tabs.some(t=>t.id==='docket'))}
