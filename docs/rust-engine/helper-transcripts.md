@@ -74,10 +74,44 @@ supplied session or file path. Content is excluded from method/wire logging.
 Live state requires the parent call to belong to the current running turn.
 Completion flushes helper deltas before ending the parent tool/turn.
 
-Capture is bounded to 16 helper calls per parent turn, 64 messages and 64 KiB
+Capture is bounded to 16 helper calls per parent turn, 256 messages and 256 KiB
 per snapshot, 8 tools per message and bounded text/arguments/results.
 Truncation is shown explicitly. Captured output survives reopening the desk;
 unrecorded calls explain that no helper transcript was retained.
+
+### Rows read like the desk's; ~200+ rows retained (2026-11-10, 4.5.11)
+
+USER 2026-11-10 m93f795ab5ef7: helper transcripts were "pretty much always cut
+off only showing 5-15 total lines with minimal context", rows reading
+`Read · → —`. Causes (verified in `runtime/helper_transcript.rs` at fe38a77):
+a helper tool row carried no `arg`, `started_at`/`ended_at` or
+`result_lines`, so the desk's `ToolChip` drew no input summary and "execution
+time unavailable"; each result was kept up to 8 KiB inside a 64 KiB / 64-message
+budget, so about ten ordinary Reads filled it; and clipping any result set the
+snapshot's `truncated`, so "Some helper activity was omitted" showed even when
+nothing was.
+
+Now (replacing the 64/64 KiB bound above): a row carries the desk's own
+one-line input summary (`convo::tool_arg` of the redacted input; a streamed
+call gets it once its JSON completes), the observed start (the completed
+assistant frame) and end (its tool result), the full result's
+`result_lines`, and the result as a 512-byte preview whose clipping marks the
+row (`truncated` on the chip, "… truncated" when expanded), never the
+transcript. The budget is 256 messages / 256 KiB; typical tool activity is
+about 0.9 KiB a row, so 220 Reads with ~9 KiB results are all kept
+(`retention_keeps_at_least_200_rows_of_typical_tool_activity`). The size
+check re-encodes only the rows an event touched (per-row encoded sizes), not
+the whole snapshot per token. Cost: at most 256 KiB per retained helper call
+in memory and in its private convo jsonb, 16 x 256 KiB = 4 MiB per parent
+agent; the actor writes a live helper's snapshot at most once a second
+(`FLUSH_EVERY`, was four times), so a streaming helper rewrites at most
+256 KiB/s. The desk header shows the live helpers count as a header badge in
+`.cc-head-meta` (hidden at 0; a click opens the Helpers panel).
+[decided: user 2026-11-10 m93f795ab5ef7, liaison/coordinator gap decisions,
+docket helpers-header-badge-and-helper-transcripts-show; verified:
+`runtime/helper_transcript.rs`, `runtime/actor.rs`,
+`canvas/helpertranscript.tsx`, `canvas/desk.tsx`; tests: helper_transcript.rs
+unit tests, `tests/helperrows.test.tsx`]
 
 ## Normal transcript presentation (user feedback 2026-10-17)
 
