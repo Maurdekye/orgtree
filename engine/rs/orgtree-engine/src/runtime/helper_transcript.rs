@@ -4,8 +4,25 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub const MAX_CALLS: usize = 16;
-const MAX_ROWS: usize = 64;
-const MAX_BYTES: usize = 64 * 1024;
+// Retention (USER 2026-11-10 m93f795ab5ef7: "only showing 5-15 total lines").
+// The old 64 KB budget kept each result up to 8 KB, so ten ordinary Reads
+// filled it, and every clipped result also flagged "activity omitted". A row
+// now keeps the desk's own summary (arg, times, line count) and a short
+// result PREVIEW, so 256 rows of typical tool activity (~0.9 KB each) fit.
+// Cost: <= 256 KB per retained helper call in memory and in its private
+// convo jsonb; <= MAX_CALLS x 256 KB = 4 MB per parent agent.
+const MAX_ROWS: usize = 256;
+const MAX_BYTES: usize = 256 * 1024;
+/// A helper's tool result is kept as a preview: enough to see what came back.
+const RESULT_PREVIEW: usize = 512;
+/// The longest JSON envelope `snapshot()` adds around the messages array:
+/// `{"messages":` + `,"truncated":false}` (the note only rides an empty list).
+const ENVELOPE: usize = 31;
+/// How long the actor coalesces a live helper's deltas before writing its
+/// snapshot. A snapshot can now be 256 KB, so one write a second (it was four)
+/// keeps a streaming helper's private jsonb rewrites at <= 256 KB/s; the
+/// panel reads every 750 ms anyway.
+pub const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 const MAX_BLOCKS: usize = 64;
 const MAX_INPUT: usize = 8192;
 const INPUT_PENDING: &str = "Arguments withheld until complete JSON can be redacted.";
@@ -19,6 +36,10 @@ struct InputDraft {
 #[derive(Default)]
 pub struct Transcript {
     messages: Vec<Value>,
+    // The encoded length of each message, in step with `messages`, so the
+    // byte budget is checked by re-encoding only the rows an event touched
+    // instead of the whole (now up to 256 KB) transcript on every token.
+    sizes: Vec<usize>,
     current: String,
     blocks: BTreeMap<i64, (String, String, usize)>,
     // Partial JSON can split a secret key/value or a wrapper's tool name at
@@ -45,7 +66,8 @@ impl Transcript {
                         "text" => { content(&mut row, "text", block["text"].as_str().unwrap_or(""), &mut self.truncated); }
                         "thinking" => { content(&mut row, "thinking", block["thinking"].as_str().unwrap_or(""), &mut self.truncated); }
                         "tool_use" | "server_tool_use" => {
-                            content_tool(&mut row, block, &mut self.truncated);
+                            // the completed call is about to run: its observed start
+                            content_tool(&mut row, block, Some(&crate::util::now_iso()), &mut self.truncated);
                         }
                         _ => {}
                     }
@@ -60,34 +82,43 @@ impl Transcript {
                     if block["type"] != "tool_result" { continue; }
                     let id = block["tool_use_id"].as_str().unwrap_or("");
                     let output = text_content(&block["content"]);
-                    for row in &mut self.messages {
-                        for chip in row["tools"].as_array_mut().into_iter().flatten() {
+                    let ended = crate::util::now_iso();
+                    for i in 0..self.messages.len() {
+                        let mut hit = false;
+                        for chip in self.messages[i]["tools"].as_array_mut().into_iter().flatten() {
                             if chip["id"] == id {
-                                chip["result"] = json!(bounded(&output, 8192, &mut self.truncated));
+                                // A preview, as the desk row's own result: clipping
+                                // it marks the ROW, never "activity omitted".
+                                let mut clipped = false;
+                                chip["result"] = json!(bounded(&output, RESULT_PREVIEW, &mut clipped));
+                                chip["result_lines"] = json!(output.lines().count());
+                                if clipped { chip["truncated"] = json!(true); }
+                                chip["ended_at"] = json!(ended);
                                 chip["error"] = json!(block["is_error"] == true);
+                                hit = true;
                             }
                         }
+                        if hit { self.measure(i); }
                     }
                 }
             }
             _ => return,
         }
-        while self.messages.len() > MAX_ROWS || (self.messages.len() > 1 && serde_json::to_vec(&self.messages).map_or(0, |v| v.len()) > MAX_BYTES) {
-            self.messages.remove(0);
-            self.truncated = true;
+        while self.messages.len() > MAX_ROWS || (self.messages.len() > 1 && self.encoded() > MAX_BYTES) {
+            self.drop_first();
         }
-        while serde_json::to_vec(&self.messages).map_or(0, |v| v.len()) > MAX_BYTES {
+        while self.encoded() > MAX_BYTES {
             let Some(tools) = self.messages.first_mut().and_then(|r| r["tools"].as_array_mut()) else { break };
             if tools.is_empty() { break; }
             tools.remove(0); self.truncated = true;
+            self.measure(0);
         }
         // JSON escaping can multiply the encoded size of a single row, and
         // native identifiers are not subject to the text-field limits. If
         // trimming its tools was insufficient, omit the row as well. Include
         // the snapshot envelope and reserve room for the API's live flag.
-        while !self.messages.is_empty() && serde_json::to_vec(&self.snapshot()).map_or(0, |v| v.len()) > MAX_BYTES - 32 {
-            self.messages.remove(0);
-            self.truncated = true;
+        while !self.messages.is_empty() && self.encoded() + ENVELOPE > MAX_BYTES - 32 {
+            self.drop_first();
         }
         if self.messages.is_empty() {
             self.current.clear();
@@ -105,7 +136,7 @@ impl Transcript {
                 if id.is_empty() { return; }
                 self.current = id.to_string(); self.blocks.clear(); self.inputs.clear();
                 if !self.messages.iter().any(|r| r["id"] == id) {
-                    self.messages.push(new_message(id));
+                    self.push(new_message(id));
                 }
             }
             "content_block_start" => {
@@ -114,9 +145,11 @@ impl Transcript {
                 let id = block["id"].as_str().unwrap_or("").to_string();
                 if self.blocks.len() >= MAX_BLOCKS { self.truncated = true; return; }
                 if self.blocks.contains_key(&index) { return; }
-                if let Some(row) = self.messages.iter_mut().find(|r| r["id"] == self.current) {
+                if let Some(at) = self.messages.iter().position(|r| r["id"] == self.current) {
+                    let row = &mut self.messages[at];
                     let order = match kind.as_str() {
-                        "tool_use" | "server_tool_use" => content_tool(row, block, &mut self.truncated),
+                        // still being written: no execution start yet
+                        "tool_use" | "server_tool_use" => content_tool(row, block, None, &mut self.truncated),
                         "text" => content(row, "text", block["text"].as_str().unwrap_or(""), &mut self.truncated),
                         "thinking" => content(row, "thinking", block["thinking"].as_str().unwrap_or(""), &mut self.truncated),
                         _ => None,
@@ -127,11 +160,13 @@ impl Transcript {
                         }
                         self.blocks.insert(index, (kind, id, order));
                     }
+                    self.measure(at);
                 }
             }
             "content_block_delta" => {
                 let Some((kind, id, order)) = self.blocks.get(&index) else { return };
-                let Some(row) = self.messages.iter_mut().find(|r| r["id"] == self.current) else { return };
+                let Some(at) = self.messages.iter().position(|r| r["id"] == self.current) else { return };
+                let row = &mut self.messages[at];
                 let delta = &event["delta"];
                 match kind.as_str() {
                     "text" | "thinking" => {
@@ -151,6 +186,8 @@ impl Transcript {
                             if !draft.overflow {
                                 if let Ok(input) = serde_json::from_str::<Value>(&draft.text) {
                                     let (name, input) = redacted_input(&draft.name, &input);
+                                    let arg = super::convo::tool_arg(&name, &input);
+                                    if !arg.is_empty() { chip["arg"] = json!(arg); }
                                     chip["name"] = json!(name);
                                     chip["input_text"] = json!(bounded(&input.to_string(), MAX_INPUT, &mut self.truncated));
                                 }
@@ -167,8 +204,31 @@ impl Transcript {
     }
 
     fn replace(&mut self, id: &str, row: Value) {
-        if let Some(existing) = self.messages.iter_mut().find(|r| r["id"] == id) { *existing = row; }
-        else { self.messages.push(row); }
+        if let Some(at) = self.messages.iter().position(|r| r["id"] == id) {
+            self.messages[at] = row;
+            self.measure(at);
+        } else { self.push(row); }
+    }
+
+    fn push(&mut self, row: Value) {
+        self.sizes.push(encoded_len(&row));
+        self.messages.push(row);
+    }
+
+    fn drop_first(&mut self) {
+        self.messages.remove(0);
+        self.sizes.remove(0);
+        self.truncated = true;
+    }
+
+    fn measure(&mut self, at: usize) {
+        if let (Some(row), Some(size)) = (self.messages.get(at), self.sizes.get_mut(at)) { *size = encoded_len(row); }
+    }
+
+    /// The encoded length of the messages array, exactly as `snapshot()`
+    /// serializes it: each row, a comma between rows and the brackets.
+    fn encoded(&self) -> usize {
+        self.sizes.iter().sum::<usize>() + self.sizes.len().saturating_sub(1) + 2
     }
 
     pub fn snapshot(&self) -> Value {
@@ -178,6 +238,11 @@ impl Transcript {
         }
         snapshot
     }
+}
+
+#[nolog]
+fn encoded_len(value: &Value) -> usize {
+    serde_json::to_vec(value).map_or(0, |v| v.len())
 }
 
 #[nolog]
@@ -203,20 +268,27 @@ fn content(row: &mut Value, kind: &str, text: &str, truncated: &mut bool) -> Opt
 }
 
 #[nolog]
-fn content_tool(row: &mut Value, block: &Value, truncated: &mut bool) -> Option<usize> {
+fn content_tool(row: &mut Value, block: &Value, started: Option<&str>, truncated: &mut bool) -> Option<usize> {
     let order = row["content_blocks"].as_array().unwrap().len();
     if order >= MAX_BLOCKS || row["tools"].as_array().unwrap().len() >= 8 { *truncated = true; return None; }
     row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"tool","id":block["id"]}));
-    row["tools"].as_array_mut().unwrap().push(tool(block, truncated));
+    row["tools"].as_array_mut().unwrap().push(tool(block, started, truncated));
     Some(order)
 }
 
+/// One helper tool row, with the desk row's own one-line input summary
+/// (`convo::tool_arg`, computed from the REDACTED input) and, for a completed
+/// call, its observed start, so the row reads like the desk's tool rows.
 #[nolog]
-fn tool(block: &Value, truncated: &mut bool) -> Value {
+fn tool(block: &Value, started: Option<&str>, truncated: &mut bool) -> Value {
     let input = block.get("input").cloned().unwrap_or(Value::Null);
     let (name, input) = redacted_input(block["name"].as_str().unwrap_or(""), &input);
+    let arg = super::convo::tool_arg(&name, &input);
     let input = serde_json::to_string(&input).unwrap_or_default();
-    json!({"id":block["id"],"name":name,"input_text":bounded(&input,2048,truncated)})
+    let mut chip = json!({"id":block["id"],"name":name,"input_text":bounded(&input,2048,truncated)});
+    if !arg.is_empty() { chip["arg"] = json!(arg); }
+    if let Some(at) = started { chip["started_at"] = json!(at); }
+    chip
 }
 
 #[nolog]

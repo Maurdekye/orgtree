@@ -12,6 +12,9 @@ export function hasHelperTranscript(tool: ToolChip): boolean {
 interface HelperTool {
   id?: string; name: string; input?: unknown; input_text?: string; result?: string; error?: boolean | string
   started_at?: string; ended_at?: string; writing_secs?: number; task?: ToolChip['task']
+  /** the desk row's one-line input summary, the result's full line count and
+   *  whether `result` is a clipped preview (engine helper_transcript.rs) */
+  arg?: string; result_lines?: number; truncated?: boolean
 }
 interface HelperMessage {
   id: string; text?: string; thinking?: string; tools?: HelperTool[]
@@ -31,7 +34,8 @@ function retainedMessage(message: HelperMessage): ChatMessage {
       if (child.input === undefined && child.input_text !== undefined) {
         try { input = JSON.parse(child.input_text) } catch { /* A clipped JSON prefix remains readable verbatim. */ }
       }
-      return { id: child.id, name: child.name, result: child.result,
+      return { id: child.id, name: child.name, arg: child.arg, result: child.result,
+        result_lines: child.result_lines, truncated: child.truncated,
         error: child.error ? typeof child.error === 'string' ? child.error : 'tool error' : undefined,
         started_at: child.started_at, ended_at: child.ended_at, writing_secs: child.writing_secs, task: child.task,
         retained_input: { input, note: input === undefined ? 'Input was not supplied in this helper snapshot.' : undefined } }

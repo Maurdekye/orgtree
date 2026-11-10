@@ -3950,7 +3950,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             recordedState={node.last_status?.status}
             reportedSummary={bannerDuplicatesStatus ? node.last_status?.summary : undefined}
             tier={node.tier} />
-          <LiveHelpersBadge key={`helpers:${slug}:${node.id}:${node.generation}`} slug={slug} nid={node.id} count={node.helper_count} />
         </>}
         actions={<>
             {live && <DndControl key={`dnd:${node.id}:${node.generation}`} slug={slug} nid={node.id}
@@ -4067,6 +4066,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             (user 2026-10-18 10:52:50Z) */}
         {dogRoute && <AgentSlotChips agent={node.id} leases={dogRoute.slotLeases ?? []} dogs={dogRoute.dogs} />}
         {(chat?.queued ?? 0) > 0 && <span className="badge">{chat!.queued} queued</span>}
+        {/* the live helpers count is a HEADER BADGE with the others (USER
+            2026-11-10 m93f795ab5ef7 "this helpers chip should be a header
+            badge with the other header badges"), not an inline chip after the
+            status text; hidden at 0, a click opens the Helpers panel */}
+        <LiveHelpersBadge key={`helpers:${slug}:${node.id}:${node.generation}`} slug={slug} nid={node.id} count={node.helper_count} />
         {/* WHICH POOL A LUNA IS ON (item 12; user spec 2026-09-04: a token on
             the header's second row when Luna runs on reserve). Same slot and
             same contract as the "ran as" badge beside it: it describes what

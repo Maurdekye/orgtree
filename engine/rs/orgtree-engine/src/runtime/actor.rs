@@ -5725,7 +5725,7 @@ impl Actor {
                 if let Some(transcript) = key.and_then(|key| self.helpers.get_mut(&key)) {
                     transcript.observe(&v);
                     if transcript.dirty && self.helper_due.is_none() {
-                        self.helper_due = Some(Instant::now() + Duration::from_millis(250));
+                        self.helper_due = Some(Instant::now() + super::helper_transcript::FLUSH_EVERY);
                     }
                 }
             }
@@ -7943,7 +7943,7 @@ impl Actor {
                 if self.helpers.len() < super::helper_transcript::MAX_CALLS || self.helpers.contains_key(&key) {
                     let transcript = self.helpers.entry(key).or_default();
                     transcript.dirty = true;
-                    self.helper_due.get_or_insert(Instant::now() + Duration::from_millis(250));
+                    self.helper_due.get_or_insert(Instant::now() + super::helper_transcript::FLUSH_EVERY);
                 }
             }
         }
@@ -8375,8 +8375,8 @@ impl Actor {
         }
     }
 
-    /// Coalesce token deltas into at most four private writes per second per
-    /// helper. SQL changes no feed revision or parent's tool inputs.
+    /// Coalesce token deltas into at most one private write per second per
+    /// helper (`FLUSH_EVERY`). SQL changes no feed revision or parent's tool inputs.
     #[nolog]
     async fn flush_helpers(&mut self) {
         self.helper_due = None;
