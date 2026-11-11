@@ -466,6 +466,10 @@ Recorded with them:
   paths; rig-sol-b's finding on a1f6c43). A turn that waited and
   got the helper logs `the turn waited for the sign-in helper, which
   connected` with the wait.
+  A standalone (headless) engine has no sign-in helper, so neither applies
+  there: its turns, and its restart notice, start at once and no fallback
+  is logged (`Settle::standalone`; finding A26, the user 2026-11-11
+  18:01:58Z "Fix it in 4.6.0").
 - **4.** Unchanged (decision 85): the hosted CLIs end with the session and
   the turn resumes in Session 0.
 - **6.** The session watch's 60 s startup grace now absorbs a helper that
