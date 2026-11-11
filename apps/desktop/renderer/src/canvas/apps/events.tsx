@@ -39,7 +39,7 @@ export function describeEvent(e:PanelEvent):string{
   if(e.name!=='net.channel')return e.name
   const p=(e.payload??{}) as {site?:unknown;state?:unknown;reason?:unknown;reconnected?:unknown;held_back?:unknown}
   const state=({connecting:'connecting',open:p.reconnected?'connected again':'connected',down:'down',closed:'closed'} as Record<string,string>)[String(p.state)]??String(p.state)
-  return `Channel to ${String(p.site??'a site')}: ${state}${typeof p.reason==='string'?` (${p.reason})`:''}${typeof p.held_back==='number'?` Â· ${p.held_back} more changes`:''}`
+  return `Channel to ${String(p.site??'a site')}: ${state}${typeof p.reason==='string'?` (${p.reason})`:''}${typeof p.held_back==='number'?` · ${p.held_back} more changes`:''}`
 }
 /** A History row on one line (user 2026-10-26 md6edfebc1975; 2026-10-27
  * md2006b10cf40 "more list like"): when, a fire with its event or a start or stop,

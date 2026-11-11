@@ -76,7 +76,7 @@ export function AppNetPermissions({app,save,disabled,slug}:{app:CustomApp;save:(
   // Under a private row: the addresses it is pinned to, the network kind, and a moved name.
   const detail=(site:string)=>{const c=classes[site];if(!c||(c.class!=='private'&&value(site)!=='allow-private'))return null
     return <div className="custom-app-private-site">
-      <small>{c.tailscale?'Tailscale range':'Private network Â· Unencrypted (http)'}{c.pinned.length?` Â· pinned to ${c.pinned.join(', ')}`:` Â· resolves to ${c.addresses.join(', ')}`}</small>
+      <small>{c.tailscale?'Tailscale range':'Private network · Unencrypted (http)'}{c.pinned.length?` · pinned to ${c.pinned.join(', ')}`:` · resolves to ${c.addresses.join(', ')}`}</small>
       {c.allowed&&c.moved&&<p role="alert">{site} now resolves to {c.addresses.join(', ')}, not the address you allowed. <button type="button" disabled={disabled} onClick={()=>void save('net.fetch','allow-private',site)}>Use the new address</button></p>}
     </div>}
   // The saved-login line under an exact site the user has allowed (spec 4.1, 4.3).
