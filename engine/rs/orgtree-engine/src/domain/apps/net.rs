@@ -347,6 +347,37 @@ pub fn is_own_address(ip: IpAddr) -> bool {
         .unwrap_or(true)
 }
 
+/// RED STUBS (piece 2, private sites): replaced by the implementation in the next commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Class {
+    Public,
+    Private,
+    Never,
+}
+#[nolog]
+pub fn classify(_ip: IpAddr) -> Class {
+    Class::Never
+}
+#[nolog]
+pub fn vet_addresses(_site: &str, _addrs: &[IpAddr], _pins: Option<&[IpAddr]>) -> Result<bool> {
+    unimplemented!("red stub")
+}
+/// What an app request may reach beyond public https: the caller's grant check and, for a site the user
+/// allowed on the private network, the address set pinned when they allowed it.
+pub struct Access<'a> {
+    pub allow: &'a (dyn Fn(&str, u16) -> bool + Sync),
+    pub private: &'a (dyn Fn(&str, u16) -> Option<Vec<IpAddr>> + Sync),
+}
+#[cfg(test)]
+pub(crate) static TEST_PRIVATE_ROUTES: Mutex<Vec<(String, IpAddr, SocketAddr)>> = Mutex::new(Vec::new());
+#[nolog]
+pub async fn fetch_with(f: Fetch, access: &Access<'_>) -> Result<Fetched> {
+    fetch(f, access.allow).await
+}
+#[cfg(test)]
+#[path = "net_private_tests.rs"]
+mod private_tests;
+
 /// One app request. `method` is validated against `METHODS`, `headers` against
 /// `header_forbidden`; `body` is bounded by `REQUEST_MAX`.
 pub struct Fetch {

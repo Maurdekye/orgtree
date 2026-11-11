@@ -114,3 +114,53 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","events.fire","docket.write","fi
         assert_eq!(out["capabilities"],json!(["files.read"]));assert_eq!(out["permissions"],json!({"files.read":"deny"}));assert_eq!(out["definition"]["capabilities"],json!([]));assert!(out["default_permissions"].get("mail.send").is_none());
     }
 }
+/// RED STUB (piece 2): the address set pinned for an exact declared site the user allowed on the private network.
+#[nolog]pub fn private_pins(_value:&Value,_host:&str,_port:u16)->Option<Vec<std::net::IpAddr>>{None}
+#[cfg(test)]mod private_site_tests{
+    use super::*;
+    fn app(perms:Value,rows:Value)->Value{json!({"origin":"created","capabilities":["net.fetch"],"sites":["100.101.102.103:8642","nas.ts.net:8642","api.example.com","*.example.org","*"],"permissions":perms,"site_permissions":rows})}
+    fn allowed(addr:&str)->Value{json!({"value":"allow-private","addresses":[addr]})}
+    // Spec 3.3: a private address needs the user's allow-private row on the exact declared site.
+    #[test]fn allow_private_rows_open_only_their_exact_site_and_deny_still_wins(){
+        let v=app(json!({}),json!({"100.101.102.103:8642":allowed("100.101.102.103")}));
+        assert_eq!(net_decision(&v,"100.101.102.103",8642).unwrap(),"allow");
+        assert_eq!(private_pins(&v,"100.101.102.103",8642),Some(vec!["100.101.102.103".parse().unwrap()]));
+        // Another port or another host is another site.
+        assert!(private_pins(&v,"100.101.102.103",9000).is_none());
+        assert!(private_pins(&v,"100.101.102.104",8642).is_none());
+        // Capability Allow, a plain site Allow and `*` / `*.domain` rows never open a private address.
+        for rows in [json!({"100.101.102.103:8642":"allow"}),json!({"*":"allow"}),json!({"*.example.org":"allow"}),json!({})]{
+            let v=app(json!({"net.fetch":"allow"}),rows);
+            assert!(private_pins(&v,"100.101.102.103",8642).is_none(),"{v}");
+        }
+        // A wildcard-keyed row can never carry allow-private.
+        let wild=app(json!({}),json!({"*":allowed("100.101.102.103"),"*.example.org":allowed("100.101.102.103")}));
+        assert!(private_pins(&wild,"100.101.102.103",8642).is_none());
+        assert!(private_pins(&wild,"a.example.org",443).is_none());
+        // Deny wins: at the capability, and on a covering row.
+        let denied=app(json!({"net.fetch":"deny"}),json!({"100.101.102.103:8642":allowed("100.101.102.103")}));
+        assert!(net_decision(&denied,"100.101.102.103",8642).is_err());
+        let row_deny=app(json!({}),json!({"100.101.102.103:8642":allowed("100.101.102.103"),"*":"deny"}));
+        assert!(net_decision(&row_deny,"100.101.102.103",8642).is_err());
+        // A name declared exactly works like an address.
+        let named=app(json!({}),json!({"nas.ts.net:8642":allowed("100.64.0.9")}));
+        assert_eq!(net_decision(&named,"nas.ts.net",8642).unwrap(),"allow");
+        assert_eq!(private_pins(&named,"nas.ts.net",8642),Some(vec!["100.64.0.9".parse().unwrap()]));
+        // A site that is no longer declared (code change) loses its pin.
+        let mut gone=named.clone();gone["sites"]=json!(["api.example.com"]);
+        assert!(private_pins(&gone,"nas.ts.net",8642).is_none());
+    }
+    // An app code change clears every Allow, allow-private included (the stored row is an object, not "ask"/"deny").
+    #[test]fn a_code_change_clears_allow_private_rows_but_keeps_restrictive_ones(){
+        let kept=restrictive_overrides(&json!({"a:1":allowed("10.0.0.1"),"b":"deny","c":"ask","d":"allow"}));
+        assert_eq!(kept,json!({"b":"deny","c":"ask"}));
+    }
+    // Spec 3.4/3.6: only the user's desktop sets a row; the row is an exact declared, non-wildcard site.
+    #[test]fn private_rows_are_exact_declared_sites_only(){
+        let v=app(json!({}),json!({}));
+        assert!(private_row_ok(&v,"100.101.102.103:8642").is_ok());
+        for bad in ["*","*.example.org","api.example.com:9999","other.example.com","a.example.org"]{assert!(private_row_ok(&v,bad).is_err(),"{bad}");}
+    }
+}
+/// RED STUB (piece 2).
+#[nolog]pub fn private_row_ok(_value:&Value,_site:&str)->Result<()>{Ok(())}
