@@ -224,4 +224,85 @@ mod tests {
         assert_eq!(detail(br#"{"detail":"standalone token required"}"#), "standalone token required");
         assert_eq!(detail(b"<html>"), "");
     }
+
+    /// Just enough HTTP for `revoke`: every connection is treated as the next
+    /// entry of `script` says, the last entry for all that follow. `None`
+    /// reads the request and ends the connection without an answer, as an
+    /// engine does to every connection of a client it revokes; `Some((status,
+    /// detail))` answers with that status and that `detail`. Answers the base
+    /// address and the request lines heard.
+    async fn scripted(script: Vec<Option<(u16, &'static str)>>) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = heard.clone();
+        tokio::spawn(async move {
+            let mut at = 0;
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let step = script[at.min(script.len() - 1)];
+                at += 1;
+                let (mut request, mut buf) = (Vec::new(), [0u8; 1024]);
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match socket.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buf[..n]),
+                    }
+                }
+                seen.lock().unwrap().push(String::from_utf8_lossy(&request).lines().next().unwrap_or("").to_string());
+                if let Some((status, detail)) = step {
+                    let body = serde_json::json!({ "detail": detail }).to_string();
+                    let head = format!("HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+                    let _ = socket.write_all(format!("{head}{body}").as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                }
+            }
+        });
+        (base, heard)
+    }
+
+    fn plain_client() -> reqwest::Client {
+        reqwest::Client::builder().no_proxy().build().unwrap()
+    }
+
+    /// The engine that revokes a client ends every connection of that client,
+    /// the one that carried the request too, and promises no answer. A
+    /// connection kept from before can then fail once more as it is found
+    /// dead. Neither may be read as "not revoked".
+    #[tokio::test]
+    async fn a_revocation_whose_answer_never_came_is_proved_by_asking_again() {
+        let (base, heard) = scripted(vec![None, None, Some((403, "standalone token required"))]).await;
+        let revoked = revoke(&plain_client(), &base, &Token::new("own-client-token"), "client-1", Duration::from_secs(5)).await;
+        assert!(revoked, "the token is refused now: it was revoked; heard {:?}", heard.lock().unwrap());
+        assert_eq!(heard.lock().unwrap().len(), 3, "{:?}", heard.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_engine_that_answers_without_revoking_is_not_asked_again() {
+        let (base, heard) = scripted(vec![None, Some((404, "active client token not found"))]).await;
+        let revoked = revoke(&plain_client(), &base, &Token::new("own-client-token"), "client-1", Duration::from_secs(5)).await;
+        assert!(!revoked, "an answer that neither revokes nor refuses the token is the end");
+        assert_eq!(heard.lock().unwrap().len(), 2, "{:?}", heard.lock().unwrap());
+    }
+
+    /// 403 is also what an engine answers that is not standalone any more, or
+    /// that takes the token for reading only: neither says the client is gone.
+    #[tokio::test]
+    async fn a_refusal_that_is_not_about_an_unknown_token_proves_nothing() {
+        for detail in ["desktop token required", "this client token is read-only"] {
+            let (base, _) = scripted(vec![None, Some((403, detail))]).await;
+            let revoked = revoke(&plain_client(), &base, &Token::new("own-client-token"), "client-1", Duration::from_secs(5)).await;
+            assert!(!revoked, "{detail}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_engine_that_never_answers_is_given_up_within_the_wait() {
+        let (base, heard) = scripted(vec![None]).await;
+        let started = std::time::Instant::now();
+        let revoked = revoke(&plain_client(), &base, &Token::new("own-client-token"), "client-1", Duration::from_millis(700)).await;
+        assert!(!revoked, "nothing proved a revocation");
+        assert!(started.elapsed() < Duration::from_secs(3), "took {:?}", started.elapsed());
+        assert!(heard.lock().unwrap().len() >= 2, "asked more than once: {:?}", heard.lock().unwrap());
+    }
 }
