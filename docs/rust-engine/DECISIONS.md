@@ -2501,3 +2501,16 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     route is unclassified. One org per token, no agent chat, node mailboxes, history, docket
     attachments or artifacts for viewers, no expiry in this version. Contract:
     [STANDALONE-ENGINE](STANDALONE-ENGINE.md#viewer-scoped-client-tokens-2026-11-11-4512).
+
+100. **Apps may reach a private network, keep a saved login and hold a live channel**
+    (USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps"; 08:56:16Z mbad040c63ccb "Accept all, build
+    it"; spec `spec-remote-viewer-apps.md`, item `orgtree-apps-make-a-read-only-remote-orgtree-vie`).
+    Pieces 2-4 of the remote-viewer work (viewer tokens are piece 1). An exact declared private
+    `host:port` is reachable only after the user's Allow private network, pinned to the addresses
+    resolved then (every resolved address must stay in the set), with plain http/ws and same-site
+    redirects only; loopback, link-local, metadata and this machine's own addresses are never reachable.
+    A saved login (bearer or one header) is sealed per org, app and site, attached by the engine only,
+    and never shown, exported, logged or readable by agents or app code. `orgtree.net.connect` is an
+    engine-held WebSocket relayed through the panel bridge by long poll: the frame's CSP, WebRTC seal and
+    session proxy do not change. Permission history gains the private-network and login entries; Panel
+    History gains `net.channel` rows. Contract: [custom-apps](custom-apps.md#private-sites-saved-logins-and-the-live-channel-2026-11-11).

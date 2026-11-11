@@ -1221,3 +1221,100 @@ theme variables that `styles.css` defines (`--line`, `--dim`, `--panel-2`,
 `--ink`, ...): an undefined `var()` silently drops its declaration, as
 `--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](custom-apps.md).
 [decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; 2026-10-27 m4dcfc15be8e3, mcc0591ec051b; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-27]
+
+## Private sites, saved logins and the live channel (2026-11-11)
+
+USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps" (the remote-viewer apps work; spec
+`spec-remote-viewer-apps.md` by @app-net-opus, all twelve questions accepted as recommended,
+USER 08:56:16Z mbad040c63ccb "Accept all, build it"). Item
+`orgtree-apps-make-a-read-only-remote-orgtree-vie`. Viewer tokens (piece 1) live in
+standalone-engine.md; this section is the app side.
+
+### Private sites (`domain/apps/net.rs`, `policy.rs`, migration 0086)
+
+- Address classes (`net::classify`): Private is 10/8, 172.16/12, 192.168/16, 100.64/10 (Tailscale,
+  CGNAT) and IPv6 fc00::/7. Never is loopback, link-local (169.254.169.254 included), unspecified,
+  multicast, broadcast, the documentation/benchmark ranges, IPv4-mapped IPv6 and any address of this
+  machine (`is_own_address`). Public is what `is_public_ip` said before.
+- An app declares a private host in `definition.sites` as an exact `host:port` (or `host`, 443);
+  `*` and `*.domain` never cover a private address. The user allows it in App settings → Permissions →
+  Internet access: the row's select reads **Ask / Allow private network / Deny** for a site that
+  resolves to a Private address (the row asks `net_classify {app, site}` when the tab opens), with a
+  confirm dialog. The engine resolves the site then and stores
+  `site_permissions[site] = {"value":"allow-private","addresses":[…≤8]}` (`permission_set` with
+  `permission:"allow-private"`, user only; an agent may still only set ask or deny). Only that row opens
+  a private address: capability Allow, a plain `allow` row and `*` / `*.domain` rows never do, and a
+  runtime prompt never offers it: a request that no answer could allow (plain http, or an address
+  that is Private or Never) is refused before the prompt.
+- Pinning (`net::vet_addresses`): every request, redirect hop and channel reconnect resolves again; all
+  resolved addresses must be Private and in the stored set, and the connection is pinned to one. A name
+  that moved is refused ("<site> now resolves to a different address; review it in the app's settings");
+  the Settings row shows old and new addresses and **Use the new address** (the same `permission_set`,
+  logged as `repin`).
+- Plain `http://` (and `ws://`) only to such a site (`fetch_with`; `validate_url` now accepts both schemes
+  and the per-request check refuses http otherwise: "app internet requests must use https"). A redirect
+  off a private site is never followed unless it is the same scheme, host and port ("redirects off a
+  private site are not followed").
+- A code change clears `allow-private` rows like every Allow (the stored object is not ask/deny, so
+  `restrictive_overrides` drops it). The Settings badge says "Tailscale range" or "Private network ·
+  Unencrypted (http)".
+- Permission history gains `allow-private` (the pinned addresses in a new `detail` column), `repin` and
+  the login entries below. Migration 0086 widens the CHECK and adds `detail`.
+- `site_permissions` values may now be objects: read them only through `policy::row_value`.
+
+### Saved logins (`domain/apps/logins.rs`, migration 0087)
+
+- One login per app and exact site that currently has an `allow` or `allow-private` row: a bearer
+  token (`Authorization: Bearer …`) or one header (`name` passes `header_forbidden`, never Cookie);
+  value 1-8192 characters without control characters.
+- Sealed with `mqtt::seal` (AES-256-GCM, the watchdog-credentials key) under the AAD
+  `orgtree-app-credentials-v1:<org>:<app>:<site>` (`seal_with_aad`), in `ot.app_site_secrets`
+  (`org_id, app_id, site, kind, sealed, set_at`, cascades with the app). Same at-rest promise and
+  limit as watchdog credentials (a copy of the data folder taken off the machine; not a reader on this
+  machine).
+- Desktop-only routes (`customAppsRequest`, never the bridge, never an agent): `site_login_set {app,
+  site, kind, name?, value}`, `site_login_remove {app, site}`, `site_logins {app}`; answers carry
+  `{site, kind, set_at}` and never the value. They add Permission history entries `login-saved`,
+  `login-replaced` and `login-removed` (kind only) and close that site's channels (`login changed`).
+- Attaching (`bridge::site_login`, `net::fetch_full`): after the decision passes, the engine sets the
+  login on that site's requests, replacing an app-set header of the same name; it asks per hop, so a
+  login never leaves its site; never on an "Allow once" decision or a capability-level Allow. The app
+  learns only `login: true|false` (fetch results and channel state events). A code change leaves the
+  stored login but unusable until the site is allowed again.
+
+### The live channel (`domain/apps/channel.rs`, `ws/`)
+
+Frame side: `orgtree.net.connect(url, {protocols})` resolves to
+`{onMessage(fn), onState(fn), send(text), close()}` once the channel exists (not once it is open);
+`onState` gets `{state:'connecting'|'open'|'down'|'closed', reason?, login, reconnected?}`. The frame's
+CSP, WebRTC seal and session proxy are unchanged: the engine dials and relays.
+
+Bridge actions (`orgtree.call` is not needed; the SDK does it): `net.connect {url, protocols}` →
+`{channel, site, secure, private, login}`; `net.recv {channel, after}` → `{events:[{seq, type:
+"message", text} | {seq, type:"state", state, reason?, login, reconnected?}], closed}` (long poll, 25 s,
+one in flight per channel, outside the 60/min and 120/min budgets); `net.send {channel, text}` →
+`{sent}`; `net.close {channel}`. Events stay queued until the next `net.recv`'s `after` acknowledges
+them, so a lost answer can be read again. `wss://` follows `net.fetch`'s decision and prompt for a public
+site; `ws://` needs the private-network Allow. Query parameters named like secrets are refused
+(`ws::parse_target`), so a token never sits in a URL.
+
+Limits: 4 channels per app, 2 per panel copy (Conflict); text frames up to 1 MiB in, binary frames
+counted and dropped; 256 queued events or 4 MiB, then the channel closes with reason `overflow` (the
+app reconnects and re-reads its snapshot); sends 64 KiB and 60 a minute per channel; connect timeout
+10 s; ping after 30 s and dead after 75 s without a frame.
+
+Reconnect (`ws::conn` with a per-dial hook `Spec::dialer`): network errors retry after 2 s doubling to
+60 s, refusals (4xx, TLS, a decision that now says no) after 60 s then every 5 min; every attempt
+re-runs the decision and the pinning and re-reads the saved login. After a reconnect the first `open`
+state carries `reconnected: true`: what was sent meanwhile was missed.
+
+Lifetime: a channel belongs to one panel copy and run generation and closes (reason in the last state
+event) on `close`, hide (`hidden`), stop, restart, code change, delete, Stop all or a revoke
+(`revoked`), a saved-login change (`login changed`), 60 s without a `net.recv` (`abandoned`) and engine
+shutdown. `net::Registry` keeps channels beside requests in flight and `revoke` cancels both; a
+cancelled channel sends Close 1001 within a second.
+
+Audit: Panel History gains `net.channel` rows (open, down with reason, reconnected, closed; at most 60
+an hour per channel, held-back changes counted into the next row; never a message, path or query).
+The panel status bar shows one chip per open channel (dot, site, private network or internet, lock or
+open lock, key).

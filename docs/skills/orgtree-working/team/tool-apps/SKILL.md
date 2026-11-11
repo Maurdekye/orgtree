@@ -532,3 +532,15 @@ autonomous agent parity path for moving definitions and optional saved data.
 
 The provisional queue also caps pending recipient deliveries at8,192 per app;
 publication refuses before that snapshot would exceed the bound.
+
+## Private sites, saved logins and live channels
+
+For an app that watches another computer: a declared exact `host:port` on a private network (Tailscale
+100.64/10, LAN) is allowed only by the user in App settings → Permissions as **Allow private network**
+(stored `{"value":"allow-private","addresses":[…]}`; agents can only set ask or deny, never allow it).
+It is pinned to the addresses resolved then, takes plain http/ws, and follows only same-site redirects. A
+saved login (user-only `site_login_set`/`site_login_remove`/`site_logins`) is sealed per app and site and
+attached by the engine; no agent or app can read or detect it. `orgtree.net.connect(url)` in app code opens
+an engine-held WebSocket (bridge actions `net.connect`, `net.recv`, `net.send`, `net.close`); limits: 4 per
+app, 2 per panel, 256 queued events or 4 MiB, 64 KiB and 60 sends a minute. Details:
+[custom apps](../../../../rust-engine/custom-apps.md#private-sites-saved-logins-and-the-live-channel-2026-11-11).
