@@ -90,7 +90,7 @@ import type {
 import { openAppSettings, openSettingsAt } from './settingskit'
 import {
   audienceAction, fileBase, fileUrl, getChat,
-  interruptNode, processControl, retractMail,
+  interruptNode, nothingSentToRemote, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
 } from '../api'
@@ -117,8 +117,9 @@ import {
   addPending, bindPendingMail, failPending, CHAT_WINDOW, collapseWindow,
   dismissPending, dropPending,
   loadOlder as storeLoadOlder, markBusy, markGhostCommand, mintClientOp,
-  MAX_WINDOW, refreshConvo, setFollowing, useConvo,
+  MAX_WINDOW, refreshConvo, setFollowing, unmarkBusy, useConvo,
 } from '../convo'
+import { remoteRefusalNow } from '../remotes'
 import type { PendingGhost } from '../convo'
 import type {
   ActivityInfo, CanvasNode, LiveRow, MailLinkFn, OpFn, WorkLinkFn,
@@ -3536,6 +3537,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const send = () => {
     let t = text.trim()
     if ((!t && !attached.length) || !canMail) return
+    // An organization on a remote engine that is not connected (remote-org.md,
+    // "While not connected"): the engine would refuse this at once, so nothing
+    // below happens. The text, the replies and the files stay in the composer,
+    // and the engine's own sentence says why.
+    const away = remoteRefusalNow(slug)
+    if (away) { toast([away]); return }
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
@@ -3560,7 +3567,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // while this request is still in flight (see PendingGhost.op).
     const op = mintClientOp()
     const ghostId = addPending(slug, node.id, t, sentReply, attached, op, armedNotice, sentReplies)
-    if (live && !node.halt && !armedNotice) markBusy(slug, node.id)
+    const madeBusy = live && !node.halt && !armedNotice && markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
     const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId || !!r.workItemId || !!r.selection)
@@ -3615,6 +3622,22 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         return refresh(true)
       })
       .catch((e: Error) => {
+        // The same refusal from the engine itself, for a link that dropped
+        // before this window heard of it: nothing was sent, so this is not a
+        // failed message. What was typed goes back into the composer it came
+        // from, unless something newer is there already; then it stays as the
+        // failed message below, whose Restore control still holds it.
+        if (nothingSentToRemote(e) && composerIdentity.current === sentDraftKey) {
+          const current = selectionRecovery.current
+          if (!current.text.trim() && !current.replies.length && !current.attached.length) {
+            setText(sentDraftText); setReplyTargets(sentReplies); setAttached(attached)
+            if (armedNotice) setNoticeArmed(chatKey, true)
+            if (madeBusy) unmarkBusy(slug, node.id)
+            dismissPending(slug, node.id, ghostId)
+            toast([e.message])
+            return
+          }
+        }
         failPending(slug, node.id, ghostId, e.message)
         if (sentReplies.some(r=>r.selection)) {
           if(composerIdentity.current===sentDraftKey) {

@@ -174,8 +174,21 @@ const failure = async (r: Response): Promise<Error> => {
   const e = new Error(message)
   // kept for callers that want to branch on the status rather than the prose
   Object.assign(e, { status: r.status, body: body.slice(0, BODY_EXCERPT) })
+  // the relay names its connection when it answers for a remote engine
+  const remote = parsed && typeof parsed === 'object' ? (parsed as { remote?: unknown }).remote : undefined
+  if (remote && typeof remote === 'object') Object.assign(e, { remote })
   return e
 }
+
+/** This computer's engine refused the request for a remote engine that is not
+ *  connected: it answered at once, and NOTHING WAS SENT (503 with the
+ *  connection named; docs/rust-engine/remote-org.md, "While not connected").
+ *  So what the user typed is still theirs to send, not a failed message.
+ *  A 502 from the relay is the other case: that request left this computer
+ *  and may have been applied. */
+export const nothingSentToRemote = (error: unknown): boolean =>
+  !!error && typeof error === 'object'
+  && (error as { status?: unknown }).status === 503 && !!(error as { remote?: unknown }).remote
 
 // the one wire-boundary cast in the app: runtime JSON is untyped, and each
 // endpoint's declared Promise<T> return type is the contract that types it.

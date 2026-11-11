@@ -7,7 +7,7 @@
 // module never sees a remote's token, and a window never talks to a remote
 // engine itself.
 import { req } from './api'
-import { useAppValue } from './appfeed'
+import { appValueNow, useAppValue } from './appfeed'
 import type { RemoteMark } from '../../../../packages/contracts/app-feed'
 
 export type { RemoteMark }
@@ -46,6 +46,9 @@ export interface RemoteView {
   own_token: boolean
   last_error: string | null
   error_code: string | null
+  /** the sentence a change gets while this engine is not connected; null
+   *  while it is (absent from an engine that does not say) */
+  refusal?: string | null
   last_connected_at: string | null
   orgs: RemoteOrgView[]
 }
@@ -60,6 +63,17 @@ export const useRemotes = (): RemoteView[] => useAppValue<RemoteView[]>('remotes
 export function remoteOfOrg(remotes: readonly RemoteView[], slug: string | null | undefined): RemoteView | null {
   if (!slug) return null
   return remotes.find((r) => r.orgs.some((o) => o.alias === slug)) ?? null
+}
+
+/** What a change in the organization `slug` would be answered with right now,
+ *  asked outside React by the handler that is about to make it: the engine's
+ *  own sentence while the organization's remote engine is not connected, else
+ *  null (a local organization, a connected engine, or a window that keeps no
+ *  connection list). The engine refuses such a change anyway; asking first
+ *  lets a composer keep its text instead of handing it to a send that cannot
+ *  happen. */
+export function remoteRefusalNow(slug: string | null | undefined): string | null {
+  return remoteOfOrg(appValueNow<RemoteView[]>('remotes') ?? NONE, slug)?.refusal ?? null
 }
 
 const json = (method: string, body: unknown): RequestInit =>

@@ -1642,8 +1642,9 @@ function dropOne(list: PendingGhost[], hit: (g: PendingGhost) => boolean): Pendi
   return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)]
 }
 
-/** the composer's optimistic "it is working now", corrected by the next fetch */
-export function markBusy(slug: string, nid: string): void {
+/** the composer's optimistic "it is working now", corrected by the next fetch.
+ *  True when this call is what made the desk busy. */
+export function markBusy(slug: string, nid: string): boolean {
   const k = key(slug, nid)
   const c = entry(k).s.chat
   if (c && !c.busy) {
@@ -1651,7 +1652,17 @@ export function markBusy(slug: string, nid: string): void {
     // activity latch, or its start, across the interval before the server's
     // first refresh: until then no call is this turn's.
     patch(k, { chat: { ...c, busy: true, turn_activity: false, turn_started_at: null } })
+    return true
   }
+  return false
+}
+
+/** Take back a `markBusy` whose send never left: no fetch will correct it
+ *  while the organization's engine cannot be reached. */
+export function unmarkBusy(slug: string, nid: string): void {
+  const k = key(slug, nid)
+  const c = entry(k).s.chat
+  if (c?.busy) patch(k, { chat: { ...c, busy: false } })
 }
 
 // ------------------------------------------------------------------ ingest
