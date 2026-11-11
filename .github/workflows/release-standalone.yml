@@ -1,8 +1,12 @@
 # Adds the standalone (headless) engine (Linux archive, Docker image archive and
-# build-info-standalone.json) to an EXISTING release, draft or published, without
-# rebuilding the desktop assets: for a release tagged before release.yml built
-# it (v4.5.11), or to redo a failed standalone build. Manual only:
+# build-info-standalone.json, plus the agents image and
+# build-info-standalone-agents.json) to an EXISTING release, draft or published,
+# without rebuilding the desktop assets: for a release tagged before release.yml
+# built it (v4.5.11), or to redo a failed standalone build. Manual only:
 #   gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11
+# part=agents adds only the agents image, built on the release's own plain image
+# asset (a release that already has the plain one, e.g. 4.5.11-agents):
+#   gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11 -f part=agents
 # It builds the tag's commit with build-standalone.yml (this revision's packaging),
 # uploads the three files and adds their lines to SHA256SUMS.txt: the lines already
 # there are kept byte for byte, and a release that already has them is refused. For a
@@ -18,6 +22,11 @@ on:
         description: Existing release tag, e.g. v4.5.11
         type: string
         required: true
+      part:
+        description: all = the plain engine and the agents image; agents = only the agents image
+        type: choice
+        options: [all, agents]
+        default: all
 
 permissions:
   contents: read
@@ -61,42 +70,68 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          PART: ${{ inputs.part }}
         run: |
           assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets --jq '"draft=\(.isDraft)", (.assets[].name)')"
           echo "$assets"
           echo "draft=$(echo "$assets" | sed -n 's/^draft=//p')" >> "$GITHUB_OUTPUT"
           echo "$assets" | grep -qx SHA256SUMS.txt || { echo "::error::$TAG has no SHA256SUMS.txt"; exit 1; }
-          if echo "$assets" | grep -q '^orgtree-engine-standalone-'; then
-            echo "::error::$TAG already has standalone assets: delete them (and their SHA256SUMS.txt lines) first to rebuild"
+          if echo "$assets" | grep -q -e '-agents-docker-amd64\.tar\.gz$' -e '^build-info-standalone-agents\.json$'; then
+            echo "::error::$TAG already has the agents image: delete it (and its SHA256SUMS.txt lines) first to rebuild"
+            exit 1
+          fi
+          if [ "$PART" = agents ]; then
+            echo "$assets" | grep -qx "orgtree-engine-standalone-${TAG#v}-docker-amd64.tar.gz" || { echo "::error::$TAG has no plain standalone image to build the agents image on: run part=all"; exit 1; }
+          elif echo "$assets" | grep -q '^orgtree-engine-standalone-'; then
+            echo "::error::$TAG already has standalone assets: delete them (and their SHA256SUMS.txt lines) first to rebuild, or run part=agents"
             exit 1
           fi
 
   standalone:
     needs: resolve
+    if: inputs.part != 'agents'
     uses: ./.github/workflows/build-standalone.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
       prerelease: ${{ needs.resolve.outputs.prerelease }}
 
-  attach:
+  agents:
     needs: [resolve, standalone]
+    if: always() && needs.resolve.result == 'success' && (needs.standalone.result == 'success' || needs.standalone.result == 'skipped')
+    uses: ./.github/workflows/build-standalone-agents.yml
+    with:
+      base_from: ${{ inputs.part == 'agents' && 'release' || 'artifact' }}
+      tag: ${{ needs.resolve.outputs.tag }}
+      commit: ${{ needs.resolve.outputs.sha }}
+      prerelease: ${{ needs.resolve.outputs.prerelease }}
+
+  attach:
+    needs: [resolve, standalone, agents]
+    if: always() && needs.agents.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.part != 'agents'
         with:
           name: orgtree-standalone
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-standalone-agents
           path: dist
       - name: Upload the standalone assets and extend SHA256SUMS.txt
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          PART: ${{ inputs.part }}
         run: |
           cd dist
-          files="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz build-info-standalone.json"
+          files="orgtree-engine-standalone-$VERSION-agents-docker-amd64.tar.gz build-info-standalone-agents.json"
+          [ "$PART" = agents ] || files="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz build-info-standalone.json $files"
           [ "$(ls | sort | tr '\n' ' ')" = "$(printf '%s\n' $files | sort | tr '\n' ' ')" ] || { echo "::error::got [$(ls)], want [$files]"; exit 1; }
           mkdir ../sums && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D ../sums
           cp ../sums/SHA256SUMS.txt ../SHA256SUMS.before
@@ -113,7 +148,7 @@ jobs:
 
   # A published release's image goes to GHCR now; a draft's when it is published.
   image:
-    if: needs.resolve.outputs.draft == 'false'
+    if: always() && needs.attach.result == 'success' && needs.resolve.outputs.draft == 'false'
     needs: [resolve, attach]
     permissions:
       contents: read
@@ -121,3 +156,4 @@ jobs:
     uses: ./.github/workflows/publish-standalone-image.yml
     with:
       tag: ${{ needs.resolve.outputs.tag }}
+      parts: ${{ inputs.part }}

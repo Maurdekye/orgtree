@@ -4,8 +4,9 @@
 # Or use standalone/docker-compose.yml.
 #
 # The runtime image carries the engine and PostgreSQL only. Provider CLIs
-# (Claude Code, Codex, ...) are NOT included yet: install and sign in to the
-# ones you need in a derived image, or use API-key/OpenRouter accounts.
+# (Claude Code, Codex, ...) are in the "agents" variant built on this image
+# (standalone/agents/Dockerfile, tag <version>-agents); or install them in a
+# derived image, or use API-key/OpenRouter accounts.
 #
 # ENGINE_STAGE picks where the engine binary comes from: `build` (the default)
 # compiles it below; the release CI (.github/workflows/build-standalone.yml)

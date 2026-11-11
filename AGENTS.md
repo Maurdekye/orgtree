@@ -272,6 +272,17 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   adds them to an existing release (4.5.11). Do not drop or rename them in a release. See
   [Standalone engine](docs/ci-release.md#standalone-engine).
   [decided: user 2026-11-10 m7018c8145a9d, m5b62ba4911bb; verified: `.github/workflows/build-standalone.yml`]
+- 2026-11-11: Every release also ships the standalone **agents image**
+  (`standalone/agents/Dockerfile` on the release's plain image, `build-standalone-agents.yml`):
+  `orgtree-engine-standalone-<v>-agents-docker-amd64.tar.gz` and
+  `build-info-standalone-agents.json` on the release, `<v>-agents` (+ `latest-agents`
+  for stable only) on GHCR when published. Claude Code and Codex are pinned per release
+  with auto-update off. Claude Code's licence reserves all rights, so the published image
+  never contains its package: the first start installs the lockfile-pinned version onto
+  the data volume (`CLAUDE_CODE_INSTALL=first-start`); changing that needs a signed user
+  decision. `release-standalone.yml -f part=agents` adds it to a release that has the
+  plain image. [decided: user 2026-11-11 ma411eb20ab4d; terms:
+  code.claude.com/docs/en/legal-and-compliance; verified: `.github/workflows/build-standalone-agents.yml`]
 
 - Live credit edits subtract the control's accepted grant, not stale tree state;
   draft commits remain absolute. See [draft edits](docs/agents/desktop-and-renderer.md#draft-permission-edits-2026-10-24).

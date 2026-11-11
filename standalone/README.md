@@ -12,8 +12,12 @@ Official builds: every release from 4.5.11 on carries
 `RELEASE-README.md` as its README, and the licence), the image built from that
 binary as `orgtree-engine-standalone-<version>-docker-amd64.tar.gz`, and
 `build-info-standalone.json`; publishing pushes the same image to
-`ghcr.io/maurdekye/orgtree-engine`. Built by
-`.github/workflows/build-standalone.yml` (the Dockerfile's `ENGINE_STAGE=prebuilt`);
+`ghcr.io/maurdekye/orgtree-engine`. The agents image (`agents/Dockerfile`, on the
+plain image: agent CLIs and tools) ships as
+`orgtree-engine-standalone-<version>-agents-docker-amd64.tar.gz`,
+`build-info-standalone-agents.json` and the GHCR tag `<version>-agents`. Built by
+`.github/workflows/build-standalone.yml` (the Dockerfile's `ENGINE_STAGE=prebuilt`)
+and `build-standalone-agents.yml`;
 see the user guide's Download section and `docs/ci-release.md` (Standalone engine).
 
 Direct:

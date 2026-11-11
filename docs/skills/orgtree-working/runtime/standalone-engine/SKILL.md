@@ -22,6 +22,9 @@ built from the desktop release's commit: `orgtree-engine-standalone-<version>-li
 installed separately). The same build is a Docker image: the release's
 `orgtree-engine-standalone-<version>-docker-amd64.tar.gz` for `docker load`, and
 `ghcr.io/maurdekye/orgtree-engine:<version>` (`latest` = newest stable release).
+The agents image, `ghcr.io/maurdekye/orgtree-engine:<version>-agents` (`latest-agents`),
+adds Codex and Claude Code (pinned, auto-update off; Claude Code installs on the
+first start), Node.js, ssh, python3 and the Docker CLI, with HOME on the data volume.
 SHA-256s are in the release's `SHA256SUMS.txt`; `build-info-standalone.json` names
 the image's config digest. Building
 from a source checkout (`cargo build`, or `standalone/Dockerfile`) remains possible.

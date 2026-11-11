@@ -43,6 +43,8 @@ Linux files, and `SHA256SUMS.txt`:
 | `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz` | the standalone (headless) engine for Linux x86_64 servers: the engine binary, a README and the licence |
 | `orgtree-engine-standalone-<v>-docker-amd64.tar.gz` | the same engine's Docker image (`docker load`), `ghcr.io/maurdekye/orgtree-engine:<v>` |
 | `build-info-standalone.json` | the standalone build's version, commit, file hashes and the image's config digest |
+| `orgtree-engine-standalone-<v>-agents-docker-amd64.tar.gz` | the agents image (`docker load`), `ghcr.io/maurdekye/orgtree-engine:<v>-agents`: the same engine with the agent CLIs and tools |
+| `build-info-standalone-agents.json` | the agents image's versions (engine, Claude Code, Codex), commit, hashes and config digest |
 | `SHA256SUMS.txt` | the SHA-256 of every file above |
 
 Orgtree needs no signing keys: the installer isn't code-signed, and the updater
@@ -178,6 +180,14 @@ It comes three ways, all one build (USER 2026-11-10 m5b62ba4911bb, "Both"):
 - the public GHCR package `ghcr.io/maurdekye/orgtree-engine`, tagged `<v>`, and
   `latest` for stable releases only (an alpha or beta gets only its version tag).
 
+Next to it, every release ships the **agents image** (USER 2026-11-11
+ma411eb20ab4d, "Variant with agents"): `<v>-agents` (and `latest-agents` for a
+stable release) on GHCR, and its `docker save` archive plus
+`build-info-standalone-agents.json` on the release. It is the plain image plus
+Codex and Claude Code (pinned per release, auto-update off), Node.js, the OpenSSH
+client with a git-over-ssh default, python3, curl and the Docker CLI, and a
+healthcheck without Node.js; see the user guide's "The agents image".
+
 `build-standalone.yml` builds it from the release's commit, with the same
 toolchain and release settings as the Linux desktop's engine:
 
@@ -202,10 +212,34 @@ toolchain and release settings as the Linux desktop's engine:
    binary's SHA-256 and the image's **config digest** (`sha256:...`), which stays
    the same through `docker load`, a push and a pull.
 
+3. **agents** (`build-standalone-agents.yml`, ubuntu-24.04): builds
+   `standalone/agents/Dockerfile` on the plain image just built (`BASE=<image>:<v>`),
+   with Claude Code and Codex pinned to their newest npm versions at that moment
+   (recorded in the image's labels and in `build-info-standalone-agents.json`).
+   The engine must hash the same as the plain image's. `smoke.sh image` runs on it,
+   then `smoke-agents.sh`: Claude Code's package is not in the image (only its
+   integrity-pinned lockfile), a fresh volume's first start installs it and the
+   container turns healthy through its own HEALTHCHECK, both CLIs report their
+   pinned versions, auto-update is off, the tools are there, HOME is on the volume,
+   and a second container on that volume reuses the install. It saves
+   `orgtree-engine-standalone-<v>-agents-docker-amd64.tar.gz` and writes
+   `build-info-standalone-agents.json` (its config digest, the engine's SHA-256 and
+   the plain image's config digest it was built on).
+
+**Claude Code in a public image.** Claude Code's licence is "All rights reserved",
+and https://code.claude.com/docs/en/legal-and-compliance allows preinstalling it
+in a product only under Anthropic's Commercial Terms and that page's conditions.
+So the published agents image does not carry Claude Code's package: its first
+start installs the pinned version from npm, checked against the lockfile's
+SHA-512s (`CLAUDE_CODE_INSTALL=first-start`, the Dockerfile's default). Codex is
+Apache-2.0 and is in the image. Do not switch the release to
+`CLAUDE_CODE_INSTALL=image` without the user's signed decision.
+
 Nothing is pushed while the release is a draft. Publishing it starts
 `publish-standalone-image.yml`: it downloads the image archive from the release,
 checks it against SHA256SUMS.txt and `build-info-standalone.json`, `docker load`s
-it, pushes `<v>` (and `latest` for a stable release) with the run's own
+it, pushes `<v>` (and `latest` for a stable release), then the same for the agents
+image (`<v>-agents`, `latest-agents`), with the run's own
 `GITHUB_TOKEN` (`packages: write`; no other secret or account), reads the tags back
 from the registry and checks their config digest. Its summary lists each tag's
 config and manifest digests. verify-release, which runs at the same time, checks
@@ -222,8 +256,9 @@ keep working. Until then, `docker pull` needs a login.
 The packaging scripts come from the workflow's own revision, the engine from the
 release commit, so an older tag is packaged the current way. `stage` refuses a
 release without the archive, and SHA256SUMS.txt covers it like every asset. From
-4.5.12 on, verify-release requires all three files; for 4.5.11 and older it checks
-them when present.
+4.5.12 on, verify-release requires all five files (and that the agents image holds
+the plain image's engine and was built on it); for 4.5.11 and older it checks them
+when present.
 
 ### Adding it to an existing release
 
@@ -243,8 +278,21 @@ the three files and appends their lines to SHA256SUMS.txt (re-uploaded in place;
 existing lines stay byte for byte). This is the one sanctioned change to a
 published release's assets: nothing an installed app reads changes. To redo it,
 delete the standalone assets and their SHA256SUMS.txt lines first. Then re-run
-verify-release (`gh workflow run verify-release.yml -f tag=<tag>`). To push a
-published release's image again: `gh workflow run publish-standalone-image.yml -f tag=<tag>`.
+verify-release (`gh workflow run verify-release.yml -f tag=<tag>`).
+
+`-f part=agents` adds only the agents image to a release that already has the plain
+one (4.5.11, whose plain image was added before the agents image existed): it
+builds on the release's own image asset (checked against SHA256SUMS.txt and
+`build-info-standalone.json`), so the published plain image and its files stay as
+they are, attaches the two agents files and, for a published release, pushes
+`<v>-agents` and `latest-agents`:
+
+```
+gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11 -f part=agents
+```
+ To push a
+published release's images again: `gh workflow run publish-standalone-image.yml -f tag=<tag>`
+(`-f parts=agents` for the agents image only).
 
 ## Rolling back
 

@@ -1,0 +1,145 @@
+# The "agents" variant of the standalone engine image (USER 2026-11-11
+# ma411eb20ab4d "Variant with agents"): standalone/agents/Dockerfile on top of
+# the release's own plain image, so both carry the same engine binary.
+#   orgtree-engine-standalone-<v>-agents-docker-amd64.tar.gz  `docker save` of
+#                     ghcr.io/<owner>/orgtree-engine:<v>-agents
+#   build-info-standalone-agents.json  versions (engine, Claude Code, Codex),
+#                     commit, hashes and the image's config digest
+# The plain image comes from this run's build-standalone.yml artifact
+# (base_from: artifact, release.yml) or from the release's own image asset
+# (base_from: release, release-standalone.yml part=agents, e.g. 4.5.11-agents).
+# Claude Code and Codex are pinned per release: the newest npm versions when the
+# release is built (or the inputs), recorded in the image's labels and in
+# build-info-standalone-agents.json. This workflow never writes anywhere:
+# publish-standalone-image.yml pushes when the release is published.
+# A push to ci-test/orgtree-standalone-agents runs it alone on the latest
+# release's plain image.
+name: build-standalone-agents
+
+on:
+  workflow_call:
+    inputs:
+      base_from: {type: string, required: true}       # artifact | release
+      tag: {type: string, default: ''}                # base_from release: the release tag
+      commit: {type: string, required: true}          # the release's commit, for the label
+      prerelease: {type: string, default: 'false'}
+      claude_code_version: {type: string, default: ''}
+      codex_version: {type: string, default: ''}
+  push:
+    branches: ['ci-test/orgtree-standalone-agents']
+
+permissions: {contents: read}
+
+jobs:
+  agents:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PRERELEASE: ${{ inputs.prerelease || 'false' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            .github/ci
+            standalone
+          persist-credentials: false
+
+      - name: The plain image (this run's artifact)
+        if: inputs.base_from == 'artifact'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-standalone
+          path: base
+
+      - name: The plain image (the release's asset), checked against SHA256SUMS.txt
+        if: inputs.base_from != 'artifact'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          tag="$TAG"
+          [ -n "$tag" ] || tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          v="${tag#v}"
+          mkdir -p base
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" -D base \
+            -p "orgtree-engine-standalone-$v-docker-amd64.tar.gz" -p build-info-standalone.json -p SHA256SUMS.txt
+          (cd base && grep -E "  (orgtree-engine-standalone-$v-docker-amd64\.tar\.gz|build-info-standalone\.json)\$" SHA256SUMS.txt | sha256sum -c -)
+          [ "$(jq -r .image.sha256 base/build-info-standalone.json)" = "$(sha256sum "base/orgtree-engine-standalone-$v-docker-amd64.tar.gz" | cut -d' ' -f1)" ] \
+            || { echo "::error::the image asset is not the one build-info-standalone.json names"; exit 1; }
+          echo "TAG_COMMIT=$(jq -r .commit base/build-info-standalone.json)" >> "$GITHUB_ENV"
+          echo "PRERELEASE=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" >> "$GITHUB_ENV"
+
+      - name: Load the plain image; pin the CLI versions
+        env:
+          CLAUDE_IN: ${{ inputs.claude_code_version }}
+          CODEX_IN: ${{ inputs.codex_version }}
+          COMMIT_IN: ${{ inputs.commit }}
+        run: |
+          info=base/build-info-standalone.json
+          v="$(jq -r .version "$info")"
+          image="$(jq -r .image.repository "$info")"
+          docker load -i "base/$(jq -r .image.file "$info")"
+          [ "$(docker image inspect -f '{{.Id}}' "$image:$v")" = "$(jq -r .image.config_digest "$info")" ] \
+            || echo "::notice::image ID is not the config digest here (containerd store); checking the engine by hash instead"
+          claude="${CLAUDE_IN:-$(npm view @anthropic-ai/claude-code version)}"
+          codex="${CODEX_IN:-$(npm view @openai/codex version)}"
+          commit="${COMMIT_IN:-${TAG_COMMIT:-$(jq -r .commit "$info")}}"
+          for x in "$claude" "$codex"; do [[ "$x" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a plain version: $x"; exit 1; }; done
+          { echo "VERSION=$v"; echo "IMAGE=$image"; echo "CLAUDE_CODE_VERSION=$claude"; echo "CODEX_VERSION=$codex"; echo "COMMIT=$commit"; } >> "$GITHUB_ENV"
+          echo "engine $v ($commit), Claude Code $claude, Codex $codex"
+
+      - name: Build (standalone/agents/Dockerfile FROM the plain image)
+        run: |
+          docker buildx build --load --platform linux/amd64 --provenance=false \
+            -f standalone/agents/Dockerfile --build-arg BASE="$IMAGE:$VERSION" \
+            --build-arg CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" --build-arg CODEX_VERSION="$CODEX_VERSION" \
+            --label org.opencontainers.image.version="$VERSION-agents" --label org.opencontainers.image.revision="$COMMIT" \
+            -t "$IMAGE:$VERSION-agents" standalone/agents
+          for t in "$VERSION" "$VERSION-agents"; do
+            docker run --rm --entrypoint sha256sum "$IMAGE:$t" /usr/local/bin/orgtree-engine | cut -d' ' -f1 > "engine-$t.sha"
+          done
+          cmp "engine-$VERSION.sha" "engine-$VERSION-agents.sha" || { echo "::error::the agents image's engine is not the plain image's"; exit 1; }
+          echo "ENGINE_SHA=$(cat "engine-$VERSION.sha")" >> "$GITHUB_ENV"
+
+      - name: Smoke - the engine (ready, token gate, version, clean stop)
+        run: bash .github/ci/standalone/smoke.sh image "$IMAGE:$VERSION-agents" "$VERSION" smoke-logs/agents-engine
+
+      - name: Smoke - the agent tools, healthcheck and first-start install
+        run: bash .github/ci/standalone/smoke-agents.sh "$IMAGE:$VERSION-agents" "$VERSION" "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" smoke-logs/agents
+
+      - name: Save; build-info-standalone-agents.json
+        run: |
+          mkdir -p dist
+          f="orgtree-engine-standalone-$VERSION-agents-docker-amd64.tar.gz"
+          docker save "$IMAGE:$VERSION-agents" | gzip -n > "dist/$f"
+          config=$(tar -xzOf "dist/$f" manifest.json | jq -r '.[0].Config' | sed -E 's#^blobs/sha256/##; s#\.json$##')
+          [[ "$config" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::no config digest in $f ($config)"; exit 1; }
+          tags=$(if [ "$PRERELEASE" = true ]; then jq -nc --arg v "$VERSION-agents" '[$v]'; else jq -nc --arg v "$VERSION-agents" '[$v, "latest-agents"]'; fi)
+          jq -n --arg version "$VERSION" --arg commit "$COMMIT" --arg f "$f" --arg sha "$(sha256sum "dist/$f" | cut -d' ' -f1)" \
+            --arg repo "$IMAGE" --argjson tags "$tags" --arg config "sha256:$config" --arg engine "$ENGINE_SHA" \
+            --arg claude "$CLAUDE_CODE_VERSION" --arg codex "$CODEX_VERSION" \
+            --arg install "$(docker image inspect -f '{{index .Config.Labels "dev.orgtree.claude-code.install"}}' "$IMAGE:$VERSION-agents")" \
+            --arg base "$(jq -r .image.config_digest base/build-info-standalone.json)" '{
+              version: $version, commit: $commit,
+              image: {file: $f, sha256: $sha, repository: $repo, tags: $tags, config_digest: $config,
+                      platform: "linux/amd64", engine_sha256: $engine, base_config_digest: $base},
+              tools: {"claude-code": {version: $claude, install: $install}, codex: {version: $codex}}
+            }' > dist/build-info-standalone-agents.json
+          cat dist/build-info-standalone-agents.json; ls -la dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-standalone-agents
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-standalone-agents-smoke-logs
+          path: smoke-logs/
+          if-no-files-found: ignore
+          retention-days: 7

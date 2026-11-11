@@ -16,6 +16,10 @@
 #            build-info-standalone.json, each smoked (every release ships them:
 #            docs/ci-release.md). Publishing the release pushes the same image to
 #            GHCR (publish-standalone-image.yml).
+#   standalone-agents  build-standalone-agents.yml: the "agents" image on top of that
+#            image (Claude Code, Codex, Node.js, ssh, python3, docker CLI) as
+#            orgtree-engine-standalone-<v>-agents-docker-amd64.tar.gz and
+#            build-info-standalone-agents.json; pushed as <v>-agents on publish.
 #   stage    checks the whole asset set, then SHA256SUMS.txt over every asset
 #   draft    `gh release create --draft`; a person checks the draft and publishes it
 #
@@ -103,10 +107,18 @@ jobs:
       ref: ${{ needs.resolve.outputs.sha }}
       prerelease: ${{ needs.resolve.outputs.prerelease }}
 
+  standalone-agents:
+    needs: [resolve, standalone]
+    uses: ./.github/workflows/build-standalone-agents.yml
+    with:
+      base_from: artifact
+      commit: ${{ needs.resolve.outputs.sha }}
+      prerelease: ${{ needs.resolve.outputs.prerelease }}
+
   # Every platform must build: a release never goes out with a platform silently
   # missing. A flaky job can be re-run ("Re-run failed jobs") and the run carries on.
   stage:
-    needs: [resolve, windows, macos, linux, standalone]
+    needs: [resolve, windows, macos, linux, standalone, standalone-agents]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -127,6 +139,10 @@ jobs:
         with:
           name: orgtree-standalone
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-standalone-agents
+          path: dist
       - name: Check the asset set and write SHA256SUMS.txt
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
@@ -139,10 +155,11 @@ jobs:
           macos="Orgtree-$VERSION-arm64.dmg Orgtree-$VERSION-arm64.zip build-info-macos.json"
           linux="Orgtree-$VERSION.AppImage $channel-linux.yml orgtree_${VERSION}_amd64.deb build-info-linux.json"
           standalone="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz build-info-standalone.json"
+          standalone="$standalone orgtree-engine-standalone-$VERSION-agents-docker-amd64.tar.gz build-info-standalone-agents.json"
           have="$(ls | sort | tr '\n' ' ')"
           want="$(printf '%s\n' $windows $macos $linux $standalone | sort | tr '\n' ' ')"
           if [ "$have" != "$want" ]; then
-            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4, standalone 3)"
+            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4, standalone 5)"
             exit 1
           fi
           sha256sum -- * > SHA256SUMS.txt

@@ -16,6 +16,8 @@ release's GitHub page (https://github.com/Maurdekye/orgtree/releases):
 | `orgtree-engine-standalone-<version>-linux-x86_64.tar.gz` | The engine binary for Linux x86_64 (glibc 2.35+: Ubuntu 22.04+, Debian 12+), with a README and the licence. Bring your own PostgreSQL 16+. |
 | `orgtree-engine-standalone-<version>-docker-amd64.tar.gz` | The Docker image (linux/amd64, PostgreSQL 17 included), for `docker load`. |
 | `build-info-standalone.json` | Version, commit, the files' SHA-256 and the image's config digest. |
+| `orgtree-engine-standalone-<version>-agents-docker-amd64.tar.gz` | The [agents image](#the-agents-image): the same engine with Claude Code, Codex, Node.js, ssh, python3 and the Docker CLI. |
+| `build-info-standalone-agents.json` | The agents image's versions (engine, Claude Code, Codex), hashes and config digest. |
 | `SHA256SUMS.txt` | The SHA-256 of every asset of the release. |
 
 ```sh
@@ -108,8 +110,9 @@ in the container log. Keep the volume when replacing the container.
 The build includes embedded glossary pages, charters, templates and the
 Changelog's release list and notes. Its context allowlist excludes dependency
 installs, build targets and the checkout outside the engine and docs folders.
-Provider CLIs are separate: install them in a derived image and make their
-executables available in the engine's PATH. A CLI installed or signed in on the
+Provider CLIs are not in the plain image: use [the agents image](#the-agents-image),
+or install them in a derived image and make their executables available in the
+engine's PATH. A CLI installed or signed in on the
 Docker host is not automatically available in the container.
 
 BuildKit retains compiler caches. If compilation exceeds a build machine's memory
@@ -123,6 +126,71 @@ HTTP/MCP access through the host's loopback port. That verification uses fake
 CLIs and empty profiles. A separate direct Ubuntu 24.04 WSL run with PostgreSQL
 16.2 passed the same startup, authentication, persistence and shutdown checks
 outside Docker. Real provider browser login and turns remain unverified.
+
+## The agents image
+
+`ghcr.io/maurdekye/orgtree-engine:<version>-agents` (and `latest-agents`, the
+newest stable release) is the same image with what agents need to run inside it
+(USER 2026-11-11, "Variant with agents"):
+
+| In the image | Notes |
+| --- | --- |
+| The same engine binary and PostgreSQL 17 | built on the release's plain image |
+| Codex CLI (`codex`) | pinned per release; root-owned, so it cannot update itself |
+| Claude Code (`claude`) | pinned per release, installed on the first start (below); auto-update off (`DISABLE_AUTOUPDATER=1`) |
+| Node.js 22 and npm | for the CLIs' npm packages |
+| OpenSSH client, git | `git clone git@github.com:...` works: GitHub's host keys are preinstalled, other hosts are accepted on first use (`StrictHostKeyChecking accept-new`) and a changed key is refused |
+| python3, curl, the Docker CLI | for a Docker daemon, mount its socket (below) |
+
+The versions of each release are its image labels (`dev.orgtree.claude-code.version`,
+`dev.orgtree.codex.version`) and `tools` in the release's
+`build-info-standalone-agents.json`.
+
+**Claude Code is installed on the first start.** Claude Code's licence reserves
+all rights, so the published image does not carry it. It carries a lockfile
+pinning the release's version and every package's SHA-512, and the first start
+installs exactly that from npm into `/data/agent-tools/claude-code` on the data
+volume (it needs internet access once, about 30 seconds). Later starts, and new
+containers on the same volume, reuse it. If the install fails, the log says so,
+the engine starts without Claude Code (Codex and API-key accounts still work)
+and the next start tries again. A new image version installs its own pinned
+version on its first start.
+
+**HOME is `/data/home`**, on the data volume, so the default `~/.claude`,
+`~/.codex`, `~/.ssh` and `~/.gitconfig` survive a new container. Put SSH keys in
+`/data/home/.ssh` (mode 0600, owned by the `orgtree` user, uid 1000 in the image).
+
+```sh
+docker run -d --name orgtree-engine -p 127.0.0.1:7430:7430 \
+  -v orgtree-data:/data ghcr.io/maurdekye/orgtree-engine:latest-agents
+docker logs -f orgtree-engine   # Claude Code's install, then the token once
+docker exec -it orgtree-engine claude --version
+```
+
+To let agents use the host's Docker, also mount its socket
+(`-v /var/run/docker.sock:/var/run/docker.sock`) and give the `orgtree` user the
+socket's group (`--group-add $(stat -c %g /var/run/docker.sock)`). That grants
+root-equivalent control of the host: do it only for agents you trust with that.
+
+Sign in to the CLIs as in [Sign in to provider CLIs over SSH](#sign-in-to-provider-clis-over-ssh),
+with `docker exec -it orgtree-engine` in front of each command. The healthcheck
+(`orgtree-healthcheck`) asks the engine's `/api/desktop/alive` with its token and
+needs no Node.js.
+
+To build it yourself on a plain image:
+
+```sh
+docker build -f standalone/agents/Dockerfile \
+  --build-arg BASE=ghcr.io/maurdekye/orgtree-engine:<version> \
+  [--build-arg CLAUDE_CODE_VERSION=<v>] [--build-arg CODEX_VERSION=<v>] standalone/agents
+```
+
+`--build-arg CLAUDE_CODE_INSTALL=image` puts Claude Code in the image instead of
+installing it on the first start. Anthropic allows preinstalling Claude Code only
+under its Commercial Terms of Service and the conditions on
+https://code.claude.com/docs/en/legal-and-compliance ("Can customers offer Claude
+Code in their products?"): use it only for an image you are entitled to build
+that way, and do not publish it.
 
 ## Connect through MCP or HTTP
 
