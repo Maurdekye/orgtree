@@ -34,12 +34,19 @@ const facts=(e:PanelEvent)=>{
   const reason=typeof payload.reason==='string'?CAUSE[payload.reason]??payload.reason:null
   return {payload,cause:e.name==='panel.started'?reason??'Start running':e.name==='panel.stopped'?reason??'Power off':null}
 }
+/** A channel's History row (spec section 6): the site, how it went and why. Never a path, a query or a message. */
+export function describeEvent(e:PanelEvent):string{
+  if(e.name!=='net.channel')return e.name
+  const p=(e.payload??{}) as {site?:unknown;state?:unknown;reason?:unknown;reconnected?:unknown;held_back?:unknown}
+  const state=({connecting:'connecting',open:p.reconnected?'connected again':'connected',down:'down',closed:'closed'} as Record<string,string>)[String(p.state)]??String(p.state)
+  return `Channel to ${String(p.site??'a site')}: ${state}${typeof p.reason==='string'?` (${p.reason})`:''}${typeof p.held_back==='number'?` Â· ${p.held_back} more changes`:''}`
+}
 /** A History row on one line (user 2026-10-26 md6edfebc1975; 2026-10-27
  * md2006b10cf40 "more list like"): when, a fire with its event or a start or stop,
  * its listener count or cause, and who. An older engine's row shows by name. */
 function historySummary(e:PanelEvent){
   const {payload,cause}=facts(e)
-  const what=e.name===FIRED?<>Fired <strong>{String(payload.event??'event')}</strong></>:e.name==='panel.started'?'Started':e.name==='panel.stopped'?'Stopped':e.name
+  const what=e.name===FIRED?<>Fired <strong>{String(payload.event??'event')}</strong></>:e.name==='panel.started'?'Started':e.name==='panel.stopped'?'Stopped':describeEvent(e)
   // Spaces between the cells keep the row's text and accessible name readable; grid ignores them.
   return <><time dateTime={e.at}>{fmtShort(e.at)}</time>{' '}<span>{what}</span>{' '}<span className="dim">{e.name===FIRED?plural(Number(payload.subscribers??0),'listener'):cause}</span>{' '}<span className="dim">{who(e.actor)}</span></>
 }

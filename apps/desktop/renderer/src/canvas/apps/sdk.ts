@@ -2,6 +2,7 @@
 // arbitrary endpoint, caller identity or permission-decision method is exposed.
 // Dedicated Workers may run locally built blob: scripts (user 2026-10-26:
 // game-like background work); they inherit this policy, so no network either.
+// The live channel (USER 2026-11-11 m27cc41f6b6d1) never opens it either: orgtree.net.connect asks the engine, which\n// holds the socket; messages come back by long poll through the same bridge.
 // Internet access (USER 2026-10-26 m95c57abc95fb) never opens this policy:
 // orgtree.net.fetch asks the engine, which makes the request for the app.
 // Theme colors (USER 2026-10-27 m4e1fae02a0ca, m164909566caf) only flow IN:
@@ -48,7 +49,14 @@ const storage=Object.freeze({getItem:async key=>{const s=await state.get();retur
 const files=Object.freeze({choose:()=>call('files.call',{action:'choose'}),open:(root,path)=>call('files.call',{action:'open',root,path}),read:(file,options={})=>call('files.call',{action:'read',file,offset:options.offset,limit:options.limit}),media:file=>call('files.call',{action:'media',file}),roots:()=>call('files.call',{action:'roots'}),grant:(scope,mode='read')=>call('files.call',{action:'grant',scope,mode}),list:(directory,options={})=>call('files.call',{action:'list',directory,after:options.after,limit:options.limit}),collection:(root,options={})=>call('files.call',{action:'list',root,after:options.after,limit:options.limit}),child:(directory,path)=>call('files.call',{action:'child',directory,path}),write:(directory,name,base64,options={})=>call('files.call',{action:'write',directory,name,base64,replace:options.replace??false}),delete:file=>call('files.call',{action:'delete',file})});
 const b64=bytes=>{let s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+32768));return btoa(s)};
 const unb64=text=>{const raw=atob(text),out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out};
-const net=Object.freeze({fetch:async(input,init)=>{const request=new Request(input,init),method=request.method.toUpperCase(),bytes=method==='GET'||method==='HEAD'?null:new Uint8Array(await request.arrayBuffer());
+const connect=async(url,options)=>{const protocols=options&&Array.isArray(options.protocols)?options.protocols.map(String):[];
+const made=await call('engine.call',{action:'net.connect',args:{url:String(url),protocols}});const id=made.channel,messages=new Set(),states=new Set();let after=0,done=false,errors=0;
+const emit=(set,value)=>{for(const fn of set)try{fn(value)}catch{}};
+const finish=reason=>{if(done)return;done=true;emit(states,{state:'closed',reason,login:!!made.login})};
+(async()=>{while(!done){try{const r=await call('engine.call',{action:'net.recv',args:{channel:id,after}});errors=0;for(const e of r.events||[]){after=e.seq;if(e.type==='message')emit(messages,e.text);else{const {seq,type,...change}=e;emit(states,change);if(e.state==='closed')done=true}}if(r.closed)done=true}catch{if(done)break;if(++errors>=5){finish('host');break}await new Promise(r=>setTimeout(r,Math.min(500*errors,5000)))}}})();
+const listen=(set,fn,what)=>{if(typeof fn!=='function')throw Error('Expected a '+what+' listener');set.add(fn);return()=>set.delete(fn)};
+return Object.freeze({onMessage:fn=>listen(messages,fn,'message'),onState:fn=>listen(states,fn,'state'),send:text=>call('engine.call',{action:'net.send',args:{channel:id,text:String(text)}}),close:async()=>{done=true;try{await call('engine.call',{action:'net.close',args:{channel:id}})}catch{}}})};
+const net=Object.freeze({connect,fetch:async(input,init)=>{const request=new Request(input,init),method=request.method.toUpperCase(),bytes=method==='GET'||method==='HEAD'?null:new Uint8Array(await request.arrayBuffer());
 const out=await call('engine.call',{action:'net.fetch',args:{url:request.url,method,headers:[...request.headers],...(bytes&&bytes.length?{body:b64(bytes)}:{})}});
 const headers=new Headers();for(const [name,value] of out.headers||[])try{headers.append(name,value)}catch{}
 const response=new Response(method==='HEAD'||[204,205,304].includes(out.status)?null:unb64(out.body||''),{status:out.status,headers});

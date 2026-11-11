@@ -16,6 +16,8 @@ export interface PanelEvents {panel:string;events:PanelEvent[];next_cursor:numbe
 /** One app-level Permission history entry (orgtree_apps permission_history). */
 export interface PermissionHistoryPage {app:string;entries:PermissionHistoryEntry[];next_cursor:number|null}
 /** A private-network row the engine stored: the user's allow, with the addresses pinned then (spec 3.4). */
+/** One saved login as the desktop learns it: where, what kind and when. The value never comes back (spec 4.2). */
+export interface SiteLogin {site:string;kind:'bearer'|'header';set_at:string}
 export interface SiteRow {value:string;addresses?:string[]}
 /** What the engine sees resolving one declared site now (net_classify). */
 export interface SiteClass {site:string;class:'private'|'public'|'never'|'mixed'|'unresolved';addresses:string[];pinned:string[];allowed:boolean;moved:boolean;tailscale:boolean}
