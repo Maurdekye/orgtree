@@ -19,7 +19,21 @@ const FIELDS: [&str; 25] = [
 #[nolog]
 pub(super) fn wants(args: &Value) -> bool {
     let has = |k: &str| args.get(k).is_some_and(|v| !v.is_null());
-    FIXED.iter().chain(FIELDS.iter()).any(|k| has(k)) || has("all_panels")
+    // an explicit `fable_pip_offset: null` is an edit too: it is refused, not ignored (`explicit_null_offset`)
+    FIXED.iter().chain(FIELDS.iter()).any(|k| has(k)) || has("all_panels") || args.get("fable_pip_offset").is_some()
+}
+
+/// `fable_pip_offset: null` would switch a pip dog to a plain one (and means nothing on any other dog): refused
+/// on every dog (spec section 10, point 4).
+#[nolog]
+pub(super) fn explicit_null_offset(kind: &str, args: &Value) -> Result<()> {
+    if args.get("fable_pip_offset").is_some_and(Value::is_null) {
+        if kind == "usage" {
+            refuse!(BadRequest, "remove this dog and create a new one to switch pip mode");
+        }
+        refuse!(BadRequest, "fable_pip_offset is not a field of a {kind} watchdog");
+    }
+    Ok(())
 }
 
 /// May a dog of `kind` carry `field`?
@@ -121,6 +135,7 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
         }
     }
     let kind = dog.kind.as_str();
+    explicit_null_offset(kind, args)?;
     let mut p = Plan::default();
     let mut given: Vec<&str> = Vec::new();
     for k in FIELDS {
@@ -682,6 +697,16 @@ mod pip_tests {
         assert_eq!(merged["usage_events"], json!(["pip_reached"]));
         let merged = merged_usage(&pip, &json!({"usage_events":["pip_reached","pip_cleared"],"accounts":["claude-5"]})).unwrap();
         assert_eq!((merged["fable_pip_offset"].clone(), merged["accounts"].clone()), (json!(-2), json!(["claude-5"])));
+    }
+    #[test]
+    fn an_explicit_null_offset_is_an_edit_and_is_refused() {
+        let nulled = json!({"fable_pip_offset":null});
+        assert!(wants(&nulled), "configure must route it to the edit planner, not call it empty");
+        assert!(!wants(&json!({})));
+        assert_eq!(explicit_null_offset("usage", &nulled).unwrap_err().to_string(), SWITCH);
+        assert_eq!(explicit_null_offset("file", &nulled).unwrap_err().to_string(), "fable_pip_offset is not a field of a file watchdog");
+        assert!(explicit_null_offset("usage", &json!({"fable_pip_offset":1})).is_ok());
+        assert!(explicit_null_offset("usage", &json!({"notice":true})).is_ok());
     }
     #[test]
     fn configure_cannot_switch_a_dog_into_or_out_of_pip_mode() {

@@ -90,14 +90,25 @@ pub(super) async fn initial(engine:&Arc<Engine>,org_id:i64,owner:i64,config:&Val
             let account=rec["account"].as_str().map(str::to_string).or(r.get::<_,Option<String>>(2))
                 .or_else(||crate::providers::catalog::tier(&tier).map(|t|crate::org_accounts::primary(t.provider)));
             let Some(account)=account else{continue};
-            if !rows.iter().any(|v|v["account"]==account) || !usage_eval::selected(config,"accounts",&account)
-                || config["windows"].as_array().is_some_and(|a|!a.contains(&rec["window"])) {continue;}
+            if !refusal_delivered(config,rows,&json!({"account":account,"window":rec["window"]}),"frozen") {continue;}
             let payload=json!({"event":"frozen","agent_id":r.get::<_,i64>(0),"account":account,"window":rec["window"],
                 "old_percent":null,"new_percent":null,"threshold_percent":null,"resets_at":rec["until"],"observed_at":rec["at"]});
             if access.sees(&events::event("usage.frozen",events::Scope::Agent(org_id,r.get(0)),payload.clone())) {pending.push(payload);}
         }
     }
     pending.truncate(40);Ok((state,pending))
+}
+
+/// Does a `usage.refused`/`usage.frozen` line belong to this dog? The account must be one of its rows and selected,
+/// the event selected, the window (when the dog filters windows) matching. A pip dog takes Claude accounts only: the
+/// payload names no model, so its Fable window cannot be told apart (spec section 10).
+#[nolog]
+fn refusal_delivered(config:&Value,rows:&[Value],payload:&Value,kind:&str)->bool {
+    let id=payload["account"].as_str().unwrap_or("");
+    let Some(row)=rows.iter().find(|r|r["account"]==id) else{return false};
+    usage_eval::selected(config,"accounts",id) && usage_eval::selected(config,"usage_events",kind)
+        && (config.get("windows").is_none() || config["windows"].as_array().is_some_and(|a|a.contains(&payload["window"])))
+        && (config["fable_pip_offset"].is_null() || row["provider"]=="claude")
 }
 
 #[logged]
@@ -142,9 +153,7 @@ pub(super) async fn run(engine:&Arc<Engine>,dog:Dog,sub:&events::Subscription,mu
             }else if matches!(e.name.as_str(),"usage.refused"|"usage.frozen") {
                 let id=e.payload["account"].as_str().unwrap_or("");
                 let kind=e.name.strip_prefix("usage.").unwrap_or("");
-                if rows.iter().any(|r|r["account"]==id) && usage_eval::selected(&config,"accounts",id)
-                    && usage_eval::selected(&config,"usage_events",kind)
-                    && (config.get("windows").is_none() || config["windows"].as_array().is_some_and(|a|a.contains(&e.payload["window"]))) {
+                if refusal_delivered(&config,&rows,&e.payload,kind) {
                     let mut line=e.payload.clone();line["event"]=json!(kind);pending.push(line);
                 }
             }
@@ -210,6 +219,20 @@ mod tests {
         }
         // a plain dog is unchanged
         assert!(validate(&json!({"threshold_percent":98})).unwrap().get("fable_pip_offset").is_none());
+    }
+
+    #[test]
+    fn pip_dog_delivers_refusals_for_claude_accounts_only() {
+        let rows = vec![json!({"account":"claude-5","provider":"claude"}), json!({"account":"openai-1","provider":"openai"})];
+        let pip = json!({"fable_pip_offset":-2,"usage_events":["pip_reached","refused","frozen"]});
+        let line = |id: &str| json!({"account":id,"window":"weekly_all"});
+        assert!(refusal_delivered(&pip, &rows, &line("claude-5"), "refused"));
+        assert!(refusal_delivered(&pip, &rows, &line("claude-5"), "frozen"));
+        assert!(!refusal_delivered(&pip, &rows, &line("openai-1"), "refused"), "an openai refusal is dropped");
+        assert!(!refusal_delivered(&pip, &rows, &line("gone"), "refused"), "an unknown account is dropped");
+        let plain = json!({"usage_events":["refused"]});
+        assert!(refusal_delivered(&plain, &rows, &line("openai-1"), "refused"), "control: a plain dog still takes it");
+        assert!(!refusal_delivered(&json!({"fable_pip_offset":-2,"usage_events":["pip_reached"]}), &rows, &line("claude-5"), "refused"), "unselected event");
     }
 
     #[test]

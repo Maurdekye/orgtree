@@ -273,6 +273,19 @@ mod tests {
     }
 
     #[test]
+    fn a_pip_dog_keeps_its_offset_and_events_through_a_template() {
+        let mut warnings = vec![];
+        let mut dog = raw("usage", "usage");
+        dog["memo"]["usage"] = json!({"accounts":["claude-5"],"fable_pip_offset":-2,"usage_events":["pip_reached","pip_cleared"]});
+        let d = saved_dog(&dog, &names(), &Include::default(), &mut warnings).unwrap();
+        assert_eq!(d.args["fable_pip_offset"], json!(-2));
+        assert_eq!(d.args["usage_events"], json!(["pip_reached", "pip_cleared"]));
+        assert_eq!(d.args["accounts"], json!(["claude-5"]));
+        assert!(d.args.get("threshold_percent").is_none() && d.args.get("windows").is_none());
+        assert!(d.args.as_object().unwrap().keys().all(|k| FIELDS.contains(&k.as_str())), "every saved key is an importable field");
+    }
+
+    #[test]
     fn targets_and_audiences_follow_renames_and_missing_endpoints_are_listed() {
         let mut t = template(); let mut warnings = vec![];
         for kind in ["activity", "fair_queue", "slot", "project_listener", "listener_watch"] {
