@@ -44,7 +44,8 @@ fn available(engine: &Engine) -> ApiResult<()> {
 /// `GET /api/remotes`: every connection, its state and its organizations.
 #[nolog]
 pub async fn list(State(engine): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
-    Err(ApiError::not_found("remote engines are not built yet"))
+    available(&engine)?;
+    Ok(Json(json!({ "remotes": engine.remotes.views() })))
 }
 
 #[derive(Deserialize)]
@@ -66,7 +67,10 @@ impl std::fmt::Debug for AddBody {
 /// is checked before anything is saved.
 #[nolog]
 pub async fn add(State(engine): State<Arc<Engine>>, Json(body): Json<AddBody>) -> ApiResult<Json<Value>> {
-    Err(ApiError::not_found("remote engines are not built yet"))
+    available(&engine)?;
+    let input = AddInput { url: body.url, token: Token::new(body.token.trim()), name: body.name };
+    let remote = engine.remotes.add(&engine, input).await.map_err(refused)?;
+    Ok(Json(remote.view()))
 }
 
 #[derive(Deserialize)]
@@ -92,7 +96,10 @@ impl std::fmt::Debug for PatchBody {
 /// disconnect or connect, replace the token, or move the address.
 #[nolog]
 pub async fn update(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<PatchBody>) -> ApiResult<Json<Value>> {
-    Err(ApiError::not_found("remote engines are not built yet"))
+    available(&engine)?;
+    let patch = Patch { name: body.name, enabled: body.enabled, token: body.token.map(|t| Token::new(t.trim())), url: body.url };
+    let remote = engine.remotes.update(&engine, &id, patch).await.map_err(refused)?;
+    Ok(Json(remote.view()))
 }
 
 /// `DELETE /api/remotes/{id}`: remove the connection. Nothing on the remote
@@ -100,11 +107,16 @@ pub async fn update(State(engine): State<Arc<Engine>>, Path(id): Path<String>, J
 /// was taken back.
 #[nolog]
 pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    Err(ApiError::not_found("remote engines are not built yet"))
+    available(&engine)?;
+    let revoked = engine.remotes.remove(&engine, &id).await.map_err(refused)?;
+    Ok(Json(json!({ "removed": id, "revoked": revoked })))
 }
 
 /// `POST /api/remotes/{id}/retry`: try to connect now.
 #[nolog]
 pub async fn retry(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    Err(ApiError::not_found("remote engines are not built yet"))
+    available(&engine)?;
+    let remote = engine.remotes.get(&id).ok_or_else(|| ApiError::not_found("no such remote engine"))?;
+    remote.wake.notify_one();
+    Ok(Json(remote.view()))
 }

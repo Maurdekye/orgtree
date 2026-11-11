@@ -24,8 +24,31 @@ impl Address {
     /// The address as typed. A missing scheme means `http://` (the rule below
     /// then decides whether plain http may be used at all).
     pub fn parse(raw: &str) -> Result<Address, &'static str> {
-        let _ = raw;
-        Err(text::E1)
+        let raw = raw.trim();
+        if raw.is_empty() || raw.len() > 2048 || raw.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err(text::E1);
+        }
+        let with_scheme = if raw.contains("://") { raw.to_string() } else { format!("http://{raw}") };
+        let url = reqwest::Url::parse(&with_scheme).map_err(|_| text::E1)?;
+        let tls = match url.scheme() {
+            "http" => false,
+            "https" => true,
+            _ => return Err(text::E1),
+        };
+        if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
+            return Err(text::E1);
+        }
+        // `host_str` gives an IPv6 literal in its brackets
+        let host = match url.host_str() {
+            Some(h) if !h.is_empty() => h.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase(),
+            _ => return Err(text::E1),
+        };
+        let port = url.port_or_known_default().ok_or(text::E1)?;
+        let prefix = url.path().trim_end_matches('/').to_string();
+        if prefix.split('/').any(|segment| segment == "." || segment == "..") {
+            return Err(text::E1);
+        }
+        Ok(Address { tls, host, port, prefix })
     }
 
     /// `host[:port]`, an IPv6 literal in brackets, the scheme's own port left out.
@@ -125,8 +148,23 @@ fn classify_v4(ip: Ipv4Addr) -> Net {
 /// computer, private or Tailscale: one public answer refuses it (E2).
 #[logged]
 pub fn vet(tls: bool, addrs: &[IpAddr]) -> Result<Transport, &'static str> {
-    let _ = (tls, addrs);
-    Err(text::E2)
+    if tls {
+        return Ok(Transport::Https);
+    }
+    if addrs.is_empty() {
+        return Err(text::E2);
+    }
+    let nets: Vec<Net> = addrs.iter().map(|ip| classify(*ip)).collect();
+    if nets.contains(&Net::Public) {
+        return Err(text::E2);
+    }
+    Ok(if nets.iter().all(|n| *n == Net::Loopback) {
+        Transport::Loopback
+    } else if nets.iter().all(|n| *n == Net::Tailscale) {
+        Transport::Tailscale
+    } else {
+        Transport::PrivateHttp
+    })
 }
 
 /// Every address the host answers to right now (an IP literal is itself).

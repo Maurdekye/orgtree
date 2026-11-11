@@ -63,15 +63,22 @@ fn detail(body: &[u8]) -> String {
 /// What a 403 from an engine means.
 #[nolog]
 fn refusal_403(detail: &str) -> Refusal {
-    let _ = detail;
-    Refusal::new(Kind::Auth, "E4", text::E4)
+    if detail.contains("desktop token required") {
+        Refusal::new(Kind::Refused, "E5", text::E5)
+    } else if detail.contains("read-only") || detail.contains("viewer token") {
+        Refusal::new(Kind::Refused, "E6", text::E6)
+    } else {
+        Refusal::new(Kind::Auth, "E4", text::E4)
+    }
 }
 
 /// `a.b.c` from `orgtree-engine a.b.c[-pre]`.
 #[nolog]
 pub fn engine_version(host: &Value) -> Option<String> {
-    let _ = host;
-    None
+    let engine = host["engine"].as_str()?;
+    let version = engine.strip_prefix("orgtree-engine ")?.trim();
+    (!version.is_empty() && version.len() <= 64 && version.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')))
+        .then(|| version.to_string())
 }
 
 /// The numeric `major.minor.patch` of a version; a pre-release suffix is not compared.

@@ -138,8 +138,15 @@ pub const LOCAL: &[&str] = &[
 /// The class of a route as `router` writes it.
 #[nolog]
 pub fn class_of_route(route: &str) -> Option<Class> {
-    let _ = route;
-    None
+    if route == "/api/orgs/{slug}" || route.starts_with("/api/orgs/{slug}/") {
+        Some(Class::Org)
+    } else if ENGINE.contains(&route) {
+        Some(Class::Engine)
+    } else if LOCAL.contains(&route) {
+        Some(Class::Local)
+    } else {
+        None
+    }
 }
 
 /// The class of a request path. `/api/orgs/<slug>` and below is `Org`; a
@@ -147,8 +154,15 @@ pub fn class_of_route(route: &str) -> Option<Class> {
 /// known or not, is `Local`.
 #[nolog]
 pub fn class(path: &str) -> Class {
-    let _ = path;
-    Class::Local
+    if org_of(path).is_some() {
+        return Class::Org;
+    }
+    let segments: Vec<&str> = path.split('/').collect();
+    if ENGINE.iter().any(|route| crate::http::viewer::matches(route, &segments, "")) {
+        Class::Engine
+    } else {
+        Class::Local
+    }
 }
 
 /// The organization slug of an `Org` path and what follows it (empty, or

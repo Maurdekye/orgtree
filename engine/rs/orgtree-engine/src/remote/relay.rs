@@ -78,8 +78,43 @@ pub fn window(engine: &Engine, headers: &HeaderMap) -> Option<Arc<Remote>> {
 /// The caller acts on a `Relay` only for a request that passed its token check.
 #[nolog]
 pub fn decide(engine: &Engine, path: &str, headers: &HeaderMap) -> Decision {
-    let _ = (engine, path, headers);
-    Decision::Local
+    if !engine.remotes.active(engine) {
+        return Decision::Local;
+    }
+    let dir = engine.remotes.directory();
+    let header = headers.get(HEADER);
+    if header.is_none() && dir.is_empty() {
+        return Decision::Local;
+    }
+    let window = match header {
+        None => None,
+        Some(value) => match value.to_str().ok().and_then(|id| dir.get(id)) {
+            Some(remote) => Some(remote),
+            None => return Decision::Refuse(StatusCode::BAD_REQUEST, "unknown remote engine".into()),
+        },
+    };
+    if let Some((slug, tail)) = routes::org_of(path) {
+        if window.is_none() && engine.orgs.get(slug).is_some() {
+            return Decision::Local;
+        }
+        let missing = || Decision::Refuse(StatusCode::NOT_FOUND, format!("no organization named {slug}"));
+        if let Some((remote, remote_slug)) = dir.alias(slug) {
+            if window.as_ref().is_some_and(|w| w.id != remote.id) {
+                return missing();
+            }
+            return Decision::Relay(remote, format!("/api/orgs/{remote_slug}{tail}"));
+        }
+        return match window {
+            Some(remote) if remote.has_remote_slug(slug) => Decision::Relay(remote, path.to_string()),
+            Some(_) => missing(),
+            None => Decision::Local,
+        };
+    }
+    match window {
+        Some(remote) if routes::class(path) == Class::Engine => Decision::Relay(remote, path.to_string()),
+        Some(remote) => Decision::LocalFor(remote),
+        None => Decision::Local,
+    }
 }
 
 /// A refusal in the engine's error shape, naming the connection's state.
@@ -121,14 +156,40 @@ const RESPONSE_KEEP_TICKET: &[&str] = &["access-control-allow-origin", "access-c
 /// media route, which carries its own ticket and a sandboxed frame's `Origin: null`.
 #[nolog]
 fn request_headers(incoming: &HeaderMap, token: Option<&str>) -> HeaderMap {
-    let _ = token;
-    incoming.clone()
+    let mut out = HeaderMap::new();
+    for (name, value) in incoming {
+        if REQUEST_DROP.contains(&name.as_str()) {
+            continue;
+        }
+        out.append(name.clone(), value.clone());
+    }
+    match token {
+        Some(token) => {
+            if let Ok(mut value) = HeaderValue::from_str(&format!("Bearer {token}")) {
+                value.set_sensitive(true);
+                out.insert(axum::http::header::AUTHORIZATION, value);
+            }
+        }
+        None => {
+            if incoming.get_all(axum::http::header::ORIGIN).iter().count() == 1
+                && incoming.get(axum::http::header::ORIGIN).is_some_and(|v| v.as_bytes() == b"null") {
+                out.insert(axum::http::header::ORIGIN, HeaderValue::from_static("null"));
+            }
+        }
+    }
+    out
 }
 
 #[nolog]
 fn response_headers(incoming: &HeaderMap, ticket_route: bool) -> HeaderMap {
-    let _ = ticket_route;
-    incoming.clone()
+    let mut out = HeaderMap::new();
+    for (name, value) in incoming {
+        let n = name.as_str();
+        if RESPONSE_KEEP.contains(&n) || n.starts_with("x-orgtree-") || (ticket_route && RESPONSE_KEEP_TICKET.contains(&n)) {
+            out.append(name.clone(), value.clone());
+        }
+    }
+    out
 }
 
 /// A relayed body: the remote's bytes as they arrive. It holds the request's

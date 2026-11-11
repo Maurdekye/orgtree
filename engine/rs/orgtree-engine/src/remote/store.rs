@@ -201,8 +201,8 @@ fn aad(id: &str) -> Vec<u8> {
 /// `token` sealed for the connection `id`, as the file keeps it.
 #[nolog]
 pub fn seal_token(key: &seal::Key, id: &str, token: &Token) -> Result<String, String> {
-    let _ = (key, id, token);
-    Err("not built yet".into())
+    let sealed = seal::seal_with_aad(key, &aad(id), token.expose().as_bytes())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(sealed))
 }
 
 /// The token [`seal_token`] sealed for this very connection.
@@ -238,16 +238,51 @@ pub fn valid_name(name: &str) -> bool {
 /// among `taken` with `-2`, `-3`...
 #[nolog]
 pub fn tag_for(name: &str, taken: &[&str]) -> String {
-    let _ = (name, taken);
-    "remote".to_string()
+    let mut base: String = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            base.push(c.to_ascii_lowercase());
+        } else if !base.is_empty() && !base.ends_with('-') {
+            base.push('-');
+        }
+        if base.len() >= 24 {
+            break;
+        }
+    }
+    let base = base.trim_matches('-').to_string();
+    let base = if base.is_empty() { "remote".to_string() } else { base };
+    if !taken.contains(&base.as_str()) {
+        return base;
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{base}-{n}");
+        if !taken.contains(&candidate.as_str()) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 /// The alias for an organization whose slug on the remote is `remote_slug`:
 /// that slug when nothing here holds it, else `<slug>-<tag>`, then `-2`, `-3`...
 #[nolog]
 pub fn alias_for(remote_slug: &str, tag: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    let _ = (tag, taken);
-    remote_slug.to_string()
+    if !taken(remote_slug) {
+        return remote_slug.to_string();
+    }
+    let tagged = format!("{remote_slug}-{tag}");
+    if !taken(&tagged) {
+        return tagged;
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{tagged}-{n}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 #[cfg(test)]

@@ -51,8 +51,27 @@ impl Mirror {
     /// Not logged: a frame carries the remote's pushed values and notices.
     #[nolog]
     pub fn apply(&mut self, frame: &Value) -> Changed {
-        let _ = frame;
-        Changed::default()
+        let mut changed = Changed::default();
+        match frame["type"].as_str().unwrap_or_default() {
+            "app_snapshot" => {
+                changed.registry |= self.registry_frame(&frame["registry"]);
+                self.summaries.clear();
+                if let Some(summaries) = frame["summaries"].as_object() {
+                    for summary in summaries.values() {
+                        self.summary(summary);
+                    }
+                }
+                self.working.clear();
+                self.values.clear();
+                self.runtime(&frame["runtime"]);
+                changed.rows = true;
+            }
+            "registry_snapshot" => changed.registry |= self.registry_frame(frame),
+            "org_summary" => changed.rows |= self.summary(frame),
+            "app_runtime" => changed.rows |= self.runtime(frame),
+            _ => {}
+        }
+        changed
     }
 
     #[nolog]
