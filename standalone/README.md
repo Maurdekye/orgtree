@@ -9,9 +9,12 @@ For operator setup, persistence and provider login over SSH, read the
 
 Official builds: every release from 4.5.11 on carries
 `orgtree-engine-standalone-<version>-linux-x86_64.tar.gz` (the engine binary,
-`RELEASE-README.md` as its README, and the licence), built by
-`.github/workflows/build-standalone.yml`; see the user guide's Download section
-and `docs/ci-release.md` (Standalone engine).
+`RELEASE-README.md` as its README, and the licence), the image built from that
+binary as `orgtree-engine-standalone-<version>-docker-amd64.tar.gz`, and
+`build-info-standalone.json`; publishing pushes the same image to
+`ghcr.io/maurdekye/orgtree-engine`. Built by
+`.github/workflows/build-standalone.yml` (the Dockerfile's `ENGINE_STAGE=prebuilt`);
+see the user guide's Download section and `docs/ci-release.md` (Standalone engine).
 
 Direct:
 

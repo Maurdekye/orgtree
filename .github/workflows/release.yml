@@ -11,8 +11,11 @@
 #            beta-linux.yml), orgtree_<v>_amd64.deb (no updater) and build-info-linux.json,
 #            with launch smokes and a real N to N+1 AppImage update on the runner
 #   standalone  build-standalone.yml: the headless engine for Linux servers,
-#            orgtree-engine-standalone-<v>-linux-x86_64.tar.gz, with a smoke on a
-#            stock Ubuntu's PostgreSQL 16 (every release ships it: docs/ci-release.md)
+#            orgtree-engine-standalone-<v>-linux-x86_64.tar.gz, its Docker image as
+#            orgtree-engine-standalone-<v>-docker-amd64.tar.gz and
+#            build-info-standalone.json, each smoked (every release ships them:
+#            docs/ci-release.md). Publishing the release pushes the same image to
+#            GHCR (publish-standalone-image.yml).
 #   stage    checks the whole asset set, then SHA256SUMS.txt over every asset
 #   draft    `gh release create --draft`; a person checks the draft and publishes it
 #
@@ -98,6 +101,7 @@ jobs:
     uses: ./.github/workflows/build-standalone.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
+      prerelease: ${{ needs.resolve.outputs.prerelease }}
 
   # Every platform must build: a release never goes out with a platform silently
   # missing. A flaky job can be re-run ("Re-run failed jobs") and the run carries on.
@@ -134,11 +138,11 @@ jobs:
           windows="build-info.json engine-hashes.json $channel.yml Orgtree-Setup-$VERSION.exe Orgtree-Setup-$VERSION.exe.blockmap packaged-hashes.json"
           macos="Orgtree-$VERSION-arm64.dmg Orgtree-$VERSION-arm64.zip build-info-macos.json"
           linux="Orgtree-$VERSION.AppImage $channel-linux.yml orgtree_${VERSION}_amd64.deb build-info-linux.json"
-          standalone="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz"
+          standalone="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz build-info-standalone.json"
           have="$(ls | sort | tr '\n' ' ')"
           want="$(printf '%s\n' $windows $macos $linux $standalone | sort | tr '\n' ' ')"
           if [ "$have" != "$want" ]; then
-            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4, standalone 1)"
+            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4, standalone 3)"
             exit 1
           fi
           sha256sum -- * > SHA256SUMS.txt

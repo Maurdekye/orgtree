@@ -5,13 +5,17 @@
 //   its exact size and SHA-512, and the AppImage carries the blockmap that blockMapSize names;
 // - build-info.json names the tag's commit, a clean tree and the release channel,
 //   and the macOS/Linux copies (build-info-macos.json, -linux.json) the same version and commit;
-// - the standalone engine's archive is present (from 4.5.12 on; 4.5.11's is added after
-//   publishing by release-standalone.yml) and, like every asset, matches SHA256SUMS.txt;
+// - the standalone engine's Linux archive, Docker image archive and build-info-standalone.json
+//   are present (from 4.5.12 on; 4.5.11's are added after publishing by
+//   release-standalone.yml), build-info-standalone.json names the tag's version and commit
+//   and both files' hashes, and GHCR's <version> (and, for a stable release, latest) tag
+//   carries that image's config digest once publish-standalone-image.yml has pushed it;
 // - GitHub's "latest" release is this one for a stable version, and is not for a
 //   prerelease (stable installs are offered whatever "latest" is).
 //   TAG=v<x.y.z> GITHUB_REPOSITORY=owner/repo GH_TOKEN=... node verify-published.mjs
 import crypto from 'node:crypto'
 import { checkLinuxUpdateInfo, linuxChannelFile } from '../linux/update-info.mjs'
+import { ghcrImage } from '../standalone/ghcr-image.mjs'
 
 const { TAG: tag, GITHUB_REPOSITORY: repo, GH_TOKEN: token } = process.env
 const version = /^v(.+)$/.exec(tag ?? '')?.[1] ?? fail(`not a version tag: ${tag}`)
@@ -47,7 +51,8 @@ const expected = ['build-info.json', 'engine-hashes.json', channelFile, installe
 for (const name of expected) check(name in bytes, `asset ${name} is present`)
 // The standalone engine (build-standalone.yml). Every release from 4.5.12 on is built with
 // it; an older one has it only once release-standalone.yml has added it.
-const standalone = [`orgtree-engine-standalone-${version}-linux-x86_64.tar.gz`]
+const standalone = [`orgtree-engine-standalone-${version}-linux-x86_64.tar.gz`,
+  `orgtree-engine-standalone-${version}-docker-amd64.tar.gz`, 'build-info-standalone.json']
 const [major, minor, patch] = version.split(/[.-]/).map(Number)
 const standaloneRequired = major * 1e6 + minor * 1e3 + patch > 4005011
 if (standaloneRequired || standalone.some(name => name in bytes)) {
@@ -76,6 +81,24 @@ if (linuxFeed in bytes) checkLinuxUpdateInfo({ text: bytes[linuxFeed].toString('
 else console.log(`note ${linuxFeed} is not in this release (Linux updates began after 4.1.0)`)
 let commit = (await api(`git/ref/tags/${encodeURIComponent(tag)}`)).object
 while (commit.type === 'tag') commit = (await api(`git/tags/${commit.sha}`)).object
+if ('build-info-standalone.json' in bytes) {
+  const info = JSON.parse(bytes['build-info-standalone.json'].toString('utf8'))
+  check(info.version === version, `build-info-standalone.json version ${info.version}`)
+  check(info.commit === commit.sha, `build-info-standalone.json commit is the tag's (${commit.sha})`)
+  for (const part of ['binary', 'image']) {
+    const file = info[part]?.file
+    check(file in bytes && info[part].sha256 === sha256(file), `build-info-standalone.json ${part} ${file} has its sha256`)
+  }
+  // Pushed by publish-standalone-image.yml, which runs alongside this check: a tag it has
+  // not pushed yet is a note here (re-run this check after it); a different image fails.
+  const tags = prerelease ? [version] : [version, 'latest']
+  for (const t of tags) {
+    let found
+    try { found = await ghcrImage({ image: info.image.repository, tag: t, token }) } catch (e) { found = { error: e.message } }
+    if (found?.error || !found) console.log(`note ${info.image.repository}:${t} not readable yet (${found?.error ?? 'no such tag'}); re-run after publish-standalone-image`)
+    else check(found.config === info.image.config_digest, `${info.image.repository}:${t} is the release's image (${info.image.config_digest})`)
+  }
+}
 for (const name of ['build-info.json', 'build-info-macos.json', 'build-info-linux.json'].filter(n => n in bytes)) {
   const info = JSON.parse(bytes[name].toString('utf8'))
   check(info.version === version, `${name} version ${info.version}`)

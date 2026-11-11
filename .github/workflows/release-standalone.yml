@@ -1,10 +1,13 @@
-# Adds the standalone (headless) engine to an EXISTING release, draft or published,
-# without rebuilding the desktop assets: for a release tagged before release.yml built
+# Adds the standalone (headless) engine (Linux archive, Docker image archive and
+# build-info-standalone.json) to an EXISTING release, draft or published, without
+# rebuilding the desktop assets: for a release tagged before release.yml built
 # it (v4.5.11), or to redo a failed standalone build. Manual only:
 #   gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11
 # It builds the tag's commit with build-standalone.yml (this revision's packaging),
-# uploads the archive and adds its line to SHA256SUMS.txt: the lines already there
-# are kept byte for byte, and a release that already has the archive is refused.
+# uploads the three files and adds their lines to SHA256SUMS.txt: the lines already
+# there are kept byte for byte, and a release that already has them is refused. For a
+# published release it then pushes the image to GHCR (publish-standalone-image.yml);
+# a draft's image is pushed when it is published.
 # docs/ci-release.md, "Standalone engine".
 name: release-standalone
 
@@ -33,6 +36,7 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       sha: ${{ steps.check.outputs.sha }}
       prerelease: ${{ steps.check.outputs.prerelease }}
+      draft: ${{ steps.release.outputs.draft }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,12 +57,14 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: node .ci-tools/.github/ci/releasing/check-release.mjs
       - name: The release exists and has no standalone engine yet
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: |
           assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets --jq '"draft=\(.isDraft)", (.assets[].name)')"
           echo "$assets"
+          echo "draft=$(echo "$assets" | sed -n 's/^draft=//p')" >> "$GITHUB_OUTPUT"
           echo "$assets" | grep -qx SHA256SUMS.txt || { echo "::error::$TAG has no SHA256SUMS.txt"; exit 1; }
           if echo "$assets" | grep -q '^orgtree-engine-standalone-'; then
             echo "::error::$TAG already has standalone assets: delete them (and their SHA256SUMS.txt lines) first to rebuild"
@@ -70,6 +76,7 @@ jobs:
     uses: ./.github/workflows/build-standalone.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
+      prerelease: ${{ needs.resolve.outputs.prerelease }}
 
   attach:
     needs: [resolve, standalone]
@@ -89,7 +96,7 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           cd dist
-          files="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz"
+          files="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz build-info-standalone.json"
           [ "$(ls | sort | tr '\n' ' ')" = "$(printf '%s\n' $files | sort | tr '\n' ' ')" ] || { echo "::error::got [$(ls)], want [$files]"; exit 1; }
           mkdir ../sums && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D ../sums
           cp ../sums/SHA256SUMS.txt ../SHA256SUMS.before
@@ -103,3 +110,14 @@ jobs:
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" $files
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ../sums/SHA256SUMS.txt
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | "  \(.name)  \(.size)"'
+
+  # A published release's image goes to GHCR now; a draft's when it is published.
+  image:
+    if: needs.resolve.outputs.draft == 'false'
+    needs: [resolve, attach]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-standalone-image.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}

@@ -14,6 +14,8 @@ release's GitHub page (https://github.com/Maurdekye/orgtree/releases):
 | Asset | What it is |
 | --- | --- |
 | `orgtree-engine-standalone-<version>-linux-x86_64.tar.gz` | The engine binary for Linux x86_64 (glibc 2.35+: Ubuntu 22.04+, Debian 12+), with a README and the licence. Bring your own PostgreSQL 16+. |
+| `orgtree-engine-standalone-<version>-docker-amd64.tar.gz` | The Docker image (linux/amd64, PostgreSQL 17 included), for `docker load`. |
+| `build-info-standalone.json` | Version, commit, the files' SHA-256 and the image's config digest. |
 | `SHA256SUMS.txt` | The SHA-256 of every asset of the release. |
 
 ```sh
@@ -25,9 +27,29 @@ tar -xzf orgtree-engine-standalone-$v-linux-x86_64.tar.gz
 ```
 
 The engine is `orgtree-engine-standalone-<version>-linux-x86_64/orgtree-engine`.
-Each release's CI starts it on a fresh data root with Ubuntu 24.04's PostgreSQL
-16 and checks the ready line, 403 without the token, 200 with it, its version
-and a clean SIGTERM exit. Building from source (below) remains possible.
+
+The same build is also a Docker image, from GitHub's container registry (`latest`
+is the newest stable release; alphas and betas have only their version tag) or
+from the release's image file:
+
+```sh
+docker pull ghcr.io/maurdekye/orgtree-engine:4.5.11
+# or, offline: the release's image file (check it against SHA256SUMS.txt first)
+docker load -i orgtree-engine-standalone-4.5.11-docker-amd64.tar.gz
+```
+
+Both give the image `ghcr.io/maurdekye/orgtree-engine:<version>`. Its config
+digest, the same on GHCR and in the file, is `image.config_digest` in
+`build-info-standalone.json`; check GHCR's with
+`docker buildx imagetools inspect --raw ghcr.io/maurdekye/orgtree-engine:<version>`
+(`.config.digest`). Docker's image ID may instead be the manifest digest, which
+differs between the two. To run it, see
+[Run in Docker](#run-in-docker).
+
+Each release's CI starts the binary on a fresh data root with Ubuntu 24.04's
+PostgreSQL 16, and the image on a fresh volume, and checks the ready line, 403
+without the token, 200 with it, the version and a clean SIGTERM exit. Building
+from source (below) remains possible.
 
 ## Start directly
 
@@ -58,6 +80,17 @@ non-loopback listener is wanted. Remote access can use SSH forwarding or
 Tailscale; built-in TLS termination is not supplied.
 
 ## Run in Docker
+
+With the official image:
+
+```sh
+docker run -d --name orgtree-engine -p 127.0.0.1:7430:7430 \
+  -v orgtree-data:/data ghcr.io/maurdekye/orgtree-engine:latest
+docker logs orgtree-engine   # the first start prints the token once
+```
+
+Or with compose: in `standalone/docker-compose.yml`, replace the `build:` block
+with `image: ghcr.io/maurdekye/orgtree-engine:<version>`.
 
 To build the image yourself from a source checkout:
 

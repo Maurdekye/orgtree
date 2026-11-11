@@ -1,5 +1,10 @@
 # The official standalone (headless) Orgtree engine, built from exactly `inputs.ref`:
 #   orgtree-engine-standalone-<v>-linux-x86_64.tar.gz  the engine binary, README, LICENSE
+#   orgtree-engine-standalone-<v>-docker-amd64.tar.gz  `docker save` of the image
+#                     ghcr.io/<owner>/orgtree-engine:<v>, built FROM that same binary
+#   build-info-standalone.json  versions, commit, hashes and the image's config digest
+# The image is pushed to GHCR only when the release is published
+# (publish-standalone-image.yml); this workflow never writes anywhere.
 # Reusable: release.yml calls it for every release, release-standalone.yml for an
 # existing release; a push to ci-test/orgtree-standalone runs it on its own.
 # The packaging (.github/ci/standalone, standalone/) comes from this workflow's own
@@ -11,6 +16,8 @@ on:
   workflow_call:
     inputs:
       ref: {type: string, required: true}
+      # a prerelease's image gets only its version tag, a stable one also :latest
+      prerelease: {type: string, default: 'false'}
   push:
     branches: ['ci-test/orgtree-standalone']
 
@@ -94,13 +101,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # On a stock newer Ubuntu with its own PostgreSQL 16, as a downloader would run it.
+  # On a stock newer Ubuntu with its own PostgreSQL 16, as a downloader would run it;
+  # then the image, from the archive's own binary, smoked on a fresh volume and saved.
   package:
     needs: binary
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.binary.outputs.version }}
+      PRERELEASE: ${{ inputs.prerelease || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -126,6 +135,31 @@ jobs:
           mkdir -p "$RUNNER_TEMP/x"
           tar -xzf "dist/orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz" -C "$RUNNER_TEMP/x"
           bash .github/ci/standalone/smoke.sh binary "$RUNNER_TEMP/x/orgtree-engine-standalone-$VERSION-linux-x86_64" "$VERSION" smoke-logs/binary
+
+      - name: Image (standalone/Dockerfile, FROM the archive's binary)
+        env:
+          COMMIT: ${{ inputs.ref || github.sha }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/orgtree-engine"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          ctx="$RUNNER_TEMP/engine-bin"; mkdir -p "$ctx" "$RUNNER_TEMP/empty"
+          cp "$RUNNER_TEMP/x/orgtree-engine-standalone-$VERSION-linux-x86_64/orgtree-engine" "$ctx/"
+          docker buildx build --load --platform linux/amd64 --provenance=false             -f standalone/Dockerfile --build-arg ENGINE_STAGE=prebuilt --build-context "prebuilt=$ctx"             --build-arg ORGTREE_IMAGE_REVISION="$COMMIT" --build-arg ORGTREE_IMAGE_VERSION="$VERSION"             -t "$image:$VERSION" "$RUNNER_TEMP/empty"
+          want="$(sha256sum "$ctx/orgtree-engine" | cut -d' ' -f1)"
+          got="$(docker run --rm --entrypoint sha256sum "$image:$VERSION" /usr/local/bin/orgtree-engine | cut -d' ' -f1)"
+          echo "engine in the image: $got"
+          [ "$got" = "$want" ] || { echo "::error::the image's engine ($got) is not the archive's ($want)"; exit 1; }
+
+      - name: Smoke - the image on a fresh volume
+        run: bash .github/ci/standalone/smoke.sh image "$IMAGE:$VERSION" "$VERSION" smoke-logs/image
+
+      - name: Save the image and write build-info-standalone.json
+        env:
+          COMMIT: ${{ inputs.ref || github.sha }}
+        run: |
+          docker save "$IMAGE:$VERSION" | gzip -n > "dist/orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz"
+          bash .github/ci/standalone/build-info.sh dist "$VERSION" "$COMMIT" "$IMAGE" "$PRERELEASE"             "$RUNNER_TEMP/x/orgtree-engine-standalone-$VERSION-linux-x86_64/orgtree-engine"
+          ls -la dist
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

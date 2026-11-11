@@ -19,7 +19,11 @@ service. Desktop attachment and a browser UI are unsupported.
 Every Orgtree release from 4.5.11 on attaches the official standalone engine,
 built from the desktop release's commit: `orgtree-engine-standalone-<version>-linux-x86_64.tar.gz`
 (Linux x86_64, glibc 2.35+, with a README and the licence; PostgreSQL 16+ is
-installed separately). Its SHA-256 is in the release's `SHA256SUMS.txt`. Building
+installed separately). The same build is a Docker image: the release's
+`orgtree-engine-standalone-<version>-docker-amd64.tar.gz` for `docker load`, and
+`ghcr.io/maurdekye/orgtree-engine:<version>` (`latest` = newest stable release).
+SHA-256s are in the release's `SHA256SUMS.txt`; `build-info-standalone.json` names
+the image's config digest. Building
 from a source checkout (`cargo build`, or `standalone/Dockerfile`) remains possible.
 The checkout's `docs/standalone-engine.md` has the download and verify commands.
 

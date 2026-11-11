@@ -264,12 +264,14 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   [verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`; 2026-10-25]
 
 - Every Orgtree release ships the official standalone (headless) engine, from the
-  release's own commit: `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz` in the
-  same GitHub release and its SHA256SUMS.txt. `release.yml`'s `stage` refuses a
-  release without it; `release-standalone.yml` adds it to an existing release
-  (4.5.11). Do not drop or rename it in a release. See
+  release's own commit: `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz`, the
+  image built from that binary (`-docker-amd64.tar.gz`) and `build-info-standalone.json`
+  in the same GitHub release and its SHA256SUMS.txt, and that image on GHCR
+  (`ghcr.io/maurdekye/orgtree-engine:<v>`, `latest` for stable only) once published.
+  `release.yml`'s `stage` refuses a release without them; `release-standalone.yml`
+  adds them to an existing release (4.5.11). Do not drop or rename them in a release. See
   [Standalone engine](docs/ci-release.md#standalone-engine).
-  [decided: user 2026-11-10 m7018c8145a9d; verified: `.github/workflows/build-standalone.yml`]
+  [decided: user 2026-11-10 m7018c8145a9d, m5b62ba4911bb; verified: `.github/workflows/build-standalone.yml`]
 
 - Live credit edits subtract the control's accepted grant, not stale tree state;
   draft commits remain absolute. See [draft edits](docs/agents/desktop-and-renderer.md#draft-permission-edits-2026-10-24).

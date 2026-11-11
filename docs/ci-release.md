@@ -20,8 +20,8 @@ published automatically.
    on its runner; the Linux build also checks its update feed and updates an
    installed AppImage to a newer one. See [macOS and Linux](#macos-and-linux-prototypes).
 4. **standalone** (`build-standalone.yml`, ubuntu-22.04 then ubuntu-24.04): the
-   official headless engine for Linux servers, with a smoke on a stock Ubuntu's
-   PostgreSQL 16. See [Standalone engine](#standalone-engine).
+   official headless engine for Linux servers and its Docker image, each smoked.
+   See [Standalone engine](#standalone-engine).
 5. **stage**: checks the whole asset set and writes `SHA256SUMS.txt`. Every
    platform must build; a release never goes out with one silently missing.
 6. **draft**: `gh release create --draft` with the assets.
@@ -41,6 +41,8 @@ Linux files, and `SHA256SUMS.txt`:
 | `latest-linux.yml` (`beta-linux.yml`/`alpha-linux.yml` for a prerelease) | the AppImage's updater feed: version, size and SHA-512 of the AppImage, and the size of the blockmap embedded in it |
 | `build-info-macos.json`, `build-info-linux.json` | the macOS and Linux builds' `build-info.json` |
 | `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz` | the standalone (headless) engine for Linux x86_64 servers: the engine binary, a README and the licence |
+| `orgtree-engine-standalone-<v>-docker-amd64.tar.gz` | the same engine's Docker image (`docker load`), `ghcr.io/maurdekye/orgtree-engine:<v>` |
+| `build-info-standalone.json` | the standalone build's version, commit, file hashes and the image's config digest |
 | `SHA256SUMS.txt` | the SHA-256 of every file above |
 
 Orgtree needs no signing keys: the installer isn't code-signed, and the updater
@@ -169,6 +171,12 @@ on GitHub, and were synced back).
 Every release ships the standalone (headless) engine, starting with 4.5.11 (USER
 2026-11-10, "an official headless engine build with this and all future
 releases"). It is standing release scope: a release without it is incomplete.
+It comes three ways, all one build (USER 2026-11-10 m5b62ba4911bb, "Both"):
+
+- the Linux binary archive on the release;
+- the Docker image as a `docker save` archive on the release;
+- the public GHCR package `ghcr.io/maurdekye/orgtree-engine`, tagged `<v>`, and
+  `latest` for stable releases only (an alpha or beta gets only its version tag).
 
 `build-standalone.yml` builds it from the release's commit, with the same
 toolchain and release settings as the Linux desktop's engine:
@@ -185,18 +193,45 @@ toolchain and release settings as the Linux desktop's engine:
    runner's PostgreSQL 16 and no token configured. It needs the ready line, the
    generated token file (0600, printed once), 403 without a token and with a wrong
    one, 200 with it, `orgtree-engine <v>` from `--version` and `/api/host`,
-   and after SIGTERM exit status 0 with PostgreSQL gone.
+   and after SIGTERM exit status 0 with PostgreSQL gone. Then it builds
+   `standalone/Dockerfile` with `ENGINE_STAGE=prebuilt`, so the image carries the
+   archive's binary (checked by hash) instead of compiling its own, runs the same
+   smoke on the image with a fresh volume (`docker stop` must end with status 0),
+   saves it as `orgtree-engine-standalone-<v>-docker-amd64.tar.gz` and writes
+   `build-info-standalone.json`: version, commit, both files' SHA-256, the engine
+   binary's SHA-256 and the image's **config digest** (`sha256:...`), which stays
+   the same through `docker load`, a push and a pull.
+
+Nothing is pushed while the release is a draft. Publishing it starts
+`publish-standalone-image.yml`: it downloads the image archive from the release,
+checks it against SHA256SUMS.txt and `build-info-standalone.json`, `docker load`s
+it, pushes `<v>` (and `latest` for a stable release) with the run's own
+`GITHUB_TOKEN` (`packages: write`; no other secret or account), reads the tags back
+from the registry and checks their config digest. Its summary lists each tag's
+config and manifest digests. verify-release, which runs at the same time, checks
+the GHCR tags when they are already there and otherwise notes them; re-run it after
+the push for the full check.
+
+**The GHCR package's visibility.** GitHub creates a package private on its first
+push, and a workflow token cannot change that. After the first push (4.5.11), the
+owner sets it public once: the repository's Packages, `orgtree-engine`, Package
+settings, Change visibility, Public. The image's `org.opencontainers.image.source`
+label links the package to the repository, so later pushes with the run's token
+keep working. Until then, `docker pull` needs a login.
 
 The packaging scripts come from the workflow's own revision, the engine from the
 release commit, so an older tag is packaged the current way. `stage` refuses a
 release without the archive, and SHA256SUMS.txt covers it like every asset. From
-4.5.12 on, verify-release requires it; for 4.5.11 and older it checks it when present.
+4.5.12 on, verify-release requires all three files; for 4.5.11 and older it checks
+them when present.
 
 ### Adding it to an existing release
 
 `release-standalone.yml` adds the standalone engine to a release that lacks it,
 draft or published, without rebuilding anything else: 4.5.11, which was tagged
-before this, or a release whose standalone build has to be redone.
+before this, or a release whose standalone build has to be redone. For a published
+release it then pushes the image to GHCR (`publish-standalone-image.yml`); a draft's
+is pushed when it is published.
 
 ```
 gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11
@@ -204,11 +239,12 @@ gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11
 
 It checks the tag the way `resolve` does, refuses a release that already has
 standalone assets, builds the tag's commit with `build-standalone.yml`, uploads
-the archive and appends its line to SHA256SUMS.txt (re-uploaded in place; the
+the three files and appends their lines to SHA256SUMS.txt (re-uploaded in place; the
 existing lines stay byte for byte). This is the one sanctioned change to a
 published release's assets: nothing an installed app reads changes. To redo it,
 delete the standalone assets and their SHA256SUMS.txt lines first. Then re-run
-verify-release (`gh workflow run verify-release.yml -f tag=<tag>`).
+verify-release (`gh workflow run verify-release.yml -f tag=<tag>`). To push a
+published release's image again: `gh workflow run publish-standalone-image.yml -f tag=<tag>`.
 
 ## Rolling back
 

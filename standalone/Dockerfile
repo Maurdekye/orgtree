@@ -6,6 +6,13 @@
 # The runtime image carries the engine and PostgreSQL only. Provider CLIs
 # (Claude Code, Codex, ...) are NOT included yet: install and sign in to the
 # ones you need in a derived image, or use API-key/OpenRouter accounts.
+#
+# ENGINE_STAGE picks where the engine binary comes from: `build` (the default)
+# compiles it below; the release CI (.github/workflows/build-standalone.yml)
+# passes ENGINE_STAGE=prebuilt with `--build-context prebuilt=<folder holding
+# orgtree-engine>`, so the image carries exactly the binary of the release's
+# Linux archive. BuildKit builds only the stage the image needs.
+ARG ENGINE_STAGE=build
 FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY engine/rs/Cargo.toml engine/rs/Cargo.lock engine/rs/
@@ -38,6 +45,8 @@ RUN --mount=type=cache,target=/src/engine/rs/target \
     --manifest-path engine/rs/Cargo.toml -p orgtree-engine --bin orgtree-engine \
  && cp engine/rs/target/release/orgtree-engine /orgtree-engine
 
+FROM ${ENGINE_STAGE} AS engine
+
 FROM debian:trixie-slim
 # PostgreSQL refuses to run as root, and the engine starts it as its own
 # child, so the whole image runs as an unprivileged user.
@@ -46,9 +55,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --shell /usr/sbin/nologin orgtree \
  && mkdir -p /data && chown orgtree:orgtree /data
-COPY --from=build /orgtree-engine /usr/local/bin/orgtree-engine
+COPY --from=engine /orgtree-engine /usr/local/bin/orgtree-engine
 ARG ORGTREE_IMAGE_REVISION=unknown
-LABEL org.opencontainers.image.revision="$ORGTREE_IMAGE_REVISION"
+ARG ORGTREE_IMAGE_VERSION=unknown
+# The source label links the GHCR package to the repository.
+LABEL org.opencontainers.image.revision="$ORGTREE_IMAGE_REVISION"       org.opencontainers.image.version="$ORGTREE_IMAGE_VERSION"       org.opencontainers.image.source="https://github.com/Maurdekye/orgtree"       org.opencontainers.image.title="orgtree-engine"       org.opencontainers.image.description="Standalone (headless) Orgtree engine with PostgreSQL 17"       org.opencontainers.image.licenses="MIT"
 USER orgtree
 ENV ORGTREE_DATA=/data \
     ORGTREE_P03_PG_BIN=/usr/lib/postgresql/17/bin \

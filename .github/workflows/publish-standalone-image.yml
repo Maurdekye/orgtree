@@ -1,0 +1,102 @@
+# Pushes a release's standalone engine image to GHCR when the release is published:
+# ghcr.io/<owner>/orgtree-engine:<version>, plus :latest for a stable release (never for
+# an alpha/beta). The image is the release's own asset
+# orgtree-engine-standalone-<v>-docker-amd64.tar.gz, checked against SHA256SUMS.txt and
+# build-info-standalone.json and `docker load`ed: nothing is rebuilt, so GHCR, the
+# archive and the Linux binary are one build. Afterwards it reads the tags back from
+# the registry and checks their config digest against build-info-standalone.json.
+# Uses only the run's GITHUB_TOKEN (packages: write). GitHub creates the package
+# private on its first push: an owner sets it public once (docs/ci-release.md,
+# "Standalone engine").
+#   gh workflow run publish-standalone-image.yml -R Maurdekye/orgtree -f tag=v4.5.11
+name: publish-standalone-image
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      tag: {type: string, required: true}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published tag whose standalone image to push, e.g. v4.5.11
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-standalone-image-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: .github/ci
+          persist-credentials: false
+      - name: The release's image asset, checked
+        id: asset
+        run: |
+          version="${TAG#v}"
+          img="orgtree-engine-standalone-$version-docker-amd64.tar.gz"
+          json="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets)"
+          if [ "$(jq -r .isDraft <<<"$json")" = true ]; then echo "::error::$TAG is still a draft: publish it first"; exit 1; fi
+          if ! jq -e --arg f "$img" 'any(.assets[]; .name == $f)' <<<"$json" >/dev/null; then
+            # 4.5.11 was tagged before release.yml built the image: release-standalone.yml adds it, then pushes.
+            echo "::notice::$TAG has no $img (yet): nothing to push. release-standalone.yml adds it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          mkdir -p dl && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -D dl -p "$img" -p SHA256SUMS.txt -p build-info-standalone.json
+          (cd dl && grep -E "  ($img|build-info-standalone\.json)\$" SHA256SUMS.txt | sha256sum -c -)
+          [ "$(jq -r .version dl/build-info-standalone.json)" = "$version" ] || { echo "::error::build-info-standalone.json is not $version"; exit 1; }
+          [ "$(jq -r .image.sha256 dl/build-info-standalone.json)" = "$(sha256sum "dl/$img" | cut -d' ' -f1)" ] || { echo "::error::$img is not the one build-info-standalone.json names"; exit 1; }
+          prerelease="$(jq -r .isPrerelease <<<"$json")"
+          { echo "skip=false"; echo "file=dl/$img"; echo "prerelease=$prerelease"
+            echo "image=$(jq -r .image.repository dl/build-info-standalone.json)"
+            echo "config=$(jq -r .image.config_digest dl/build-info-standalone.json)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Load, tag and push
+        if: steps.asset.outputs.skip == 'false'
+        env:
+          FILE: ${{ steps.asset.outputs.file }}
+          IMAGE: ${{ steps.asset.outputs.image }}
+          PRERELEASE: ${{ steps.asset.outputs.prerelease }}
+        run: |
+          version="${TAG#v}"
+          [ "$IMAGE" = "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/orgtree-engine" ] || { echo "::error::unexpected image repository $IMAGE"; exit 1; }
+          docker load -i "$FILE"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:$version"
+          # :latest follows stable releases only (USER 2026-11-10 m5b62ba4911bb)
+          if [ "$PRERELEASE" != true ]; then docker tag "$IMAGE:$version" "$IMAGE:latest" && docker push "$IMAGE:latest"; fi
+          docker logout ghcr.io
+
+      - name: Read the tags back from GHCR
+        if: steps.asset.outputs.skip == 'false'
+        env:
+          IMAGE: ${{ steps.asset.outputs.image }}
+          CONFIG: ${{ steps.asset.outputs.config }}
+          PRERELEASE: ${{ steps.asset.outputs.prerelease }}
+        run: |
+          version="${TAG#v}"
+          tags="$version"; [ "$PRERELEASE" = true ] || tags="$version latest"
+          {
+            echo "### $IMAGE ($TAG)"; echo; echo '| tag | config digest | manifest digest |'; echo '|---|---|---|'
+          } >> "$GITHUB_STEP_SUMMARY"
+          for t in $tags; do
+            got="$(node .github/ci/standalone/ghcr-image.mjs "$IMAGE" "$t")"
+            echo "$IMAGE:$t -> $got"
+            [ "$(jq -r .config <<<"$got")" = "$CONFIG" ] || { echo "::error::$IMAGE:$t is not the release's image ($CONFIG)"; exit 1; }
+            echo "| $t | \`$(jq -r .config <<<"$got")\` | \`$(jq -r .manifest <<<"$got")\` |" >> "$GITHUB_STEP_SUMMARY"
+          done
