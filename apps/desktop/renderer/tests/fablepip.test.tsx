@@ -146,7 +146,7 @@ test('§7 past the pip, the Fable bar’s unreachable end is red with its toolti
   // USER 2026-11-11 11:04:55Z m49c4c03b6da4; reachable Fable ceiling
   // c = f + 2(1 - w); red from max(f, c) to 100% only when w > pip
   const reds = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>('.usage-unreachable')]
-  const tip = (pct: string) => `Can't be reached this week (past ${pct}): the weekly limit comes first`
+  const tip = (pct: string) => `Fable can reach at most ${pct} this week: the weekly limit comes first`
   for (const [w, f, from, pct] of [[95, 83, 93, '93%'], [80, 52, 92, '92%'], [100, 53, 53, '53%'],
     [110, 53, 53, '53%'], [99.5, 0, 1, '1%']] as const) {
     const view = await bars(t, fableAt(f, w))
@@ -192,8 +192,8 @@ test('§7 past the pip, the Fable bar’s unreachable end is red with its toolti
   const rule = /\.usage-unreachable\s*\{([^}]*)\}/.exec(css)
   assert.ok(rule, 'a .usage-unreachable rule exists')
   assert.match(rule![1]!, /background:\s*var\(--bad\)/, 'the meters’ limit colour')
-  // no value: the sentence without the parenthesis
+  // no value: no number (USER 11:05:21Z "put the max percentage there on hover")
   const titleOf = (fablepip as unknown as { fableUnreachableTitle?: (from: number | null) => string }).fableUnreachableTitle
   assert.equal(typeof titleOf, 'function', 'fableUnreachableTitle is exported')
-  assert.equal(titleOf!(null), "Can't be reached this week: the weekly limit comes first")
+  assert.equal(titleOf!(null), "Fable can't reach the rest of this bar this week: the weekly limit comes first")
 })
