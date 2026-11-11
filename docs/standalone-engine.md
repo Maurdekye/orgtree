@@ -207,14 +207,14 @@ can create, list and revoke named client tokens through the engine-wide API:
 
 | Request | Result |
 | --- | --- |
-| `POST /api/standalone/clients` with `{"name":"My client"}` | New `id`, `name`, `created_at` and a `token` shown once. Save the token now. |
-| `GET /api/standalone/clients` | Active clients' `id`, `name` and `created_at`; no secrets or hashes. |
+| `POST /api/standalone/clients` with `{"name":"My client"}` (optional `"scope"`, and `"org"` for a viewer) | New `id`, `name`, `created_at`, `scope` and a `token` shown once. Save the token now. |
+| `GET /api/standalone/clients` | Active clients' `id`, `name`, `created_at`, `scope` and, for a viewer, `org`; no secrets or hashes. |
 | `DELETE /api/standalone/clients/<id>` | Revokes that client and immediately disconnects its HTTP, WebSocket and MCP connections. |
 
 The orgless MCP endpoint offers the same operations through
 `orgtree_client_tokens`, with `action: "list"` (default), `"create"` plus `name`,
-or `"revoke"` plus `id`. Every client has user authority, including token
-administration. The bootstrap key cannot be revoked through these operations.
+or `"revoke"` plus `id`. A full client (the default) has user authority, including token
+administration; a viewer client is read-only for one org (next section). The bootstrap key cannot be revoked through these operations.
 
 Revoking the token you are using disconnects you; reconnect with another token
 or the bootstrap key. A self-revoke may end with EOF instead of a response.
@@ -228,6 +228,36 @@ hash and public metadata are saved in `standalone-clients.json` (mode 0600 on
 Unix), alongside the existing data. Preserve this file across restarts. Revoked
 clients leave the active list. Expiry, rotation and a desktop token UI are not
 part of these operations.
+
+### Give an app or script read-only access to one org (viewer tokens)
+
+A token created with `"scope":"viewer"` and `"org":"<slug>"` (the org must exist)
+can only look at that org. A leaked viewer token cannot manage tokens, send mail,
+change agents, read agent chats or files, or reach any other org.
+
+```
+curl -H "Authorization: Bearer $BOOTSTRAP" -H "Content-Type: application/json" \
+  -d '{"name":"Desk viewer","scope":"viewer","org":"galaxy"}' http://100.x.y.z:PORT/api/standalone/clients
+```
+
+`GET /api/standalone/clients` then shows each client's `scope` (`full` or `viewer`)
+and, for a viewer, its `org`. The same fields work in the `orgtree_client_tokens`
+MCP tool. Create one viewer token per org; revoking it disconnects its sockets at once.
+
+A viewer may read, for its own org only: the org row, records, selection and changes, the
+foreground tree, node detail and states, the live socket, the user's mail (inbox and one mail
+in the `user` mailbox), presentations (list, one, mockup, download) and the docket (list,
+one item, views, pages, references). It may write exactly two things: mark the user's mail
+read (`POST /api/orgs/<slug>/inbox/read`) and mark presentations viewed
+(`POST /api/orgs/<slug>/documents/viewed`). Everything else answers 403
+`{"detail":"this client token is read-only"}`.
+
+Its live socket (`/api/orgs/<slug>/ws`) is listen-only: it receives the same frames a window
+gets without watching agent transcripts, may `ping`, and may `subscribe`/`unsubscribe`,
+but agent mail and history windows are dropped from a subscribe, and `watch`, `attract` and any
+other message are ignored. After 20 ignored messages the engine closes the socket (code 1008).
+If a viewer's org is deleted, every request answers 403 until the token is revoked.
+Version 1 token files still load (every token is `full`) and are rewritten as version 2.
 
 Use `POST /api/mcp` to manage client tokens and list or create organizations. Then connect to
 `POST /api/orgs/<slug>/mcp` to manage that organization. The transport is stateless

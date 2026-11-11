@@ -490,3 +490,25 @@ peer refusal. The release targets an absent synthetic broker; no pipe,
 provider, real credential or running broker is touched. Fresh Linux compile
 passes under the same6GiB/job1 limits. Windows compilation remains a separate
 combined-build check.
+
+### Viewer-scoped client tokens, 2026-11-11 (4.5.12)
+
+USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps" and 08:56:16Z mbad040c63ccb "Accept all,
+build it" (spec: orgtree-apps-make-a-read-only-remote-orgtree-vie, piece 1). DECISIONS entry 99.
+
+- `standalone-clients.json` is version 2: each record may carry `scope` (`full`, the default for
+  version 1 files, or `viewer`) and `org` (required for a viewer, absent for full). An unknown
+  scope, a viewer without `org` or a full token with `org` fails to load. Version 1 loads as `full`
+  and is rewritten as version 2 on the next change.
+- `Registry::authenticate` returns `Option<Scope>`; the bootstrap key is `Full`. When a request
+  presents two tokens (header and Bearer) the narrower scope wins. `http::guard` computes the scope
+  once, before the language-server proxy and credential-bridge dispatch, and stores it as a request
+  extension; the org socket reads it.
+- `http/viewer.rs` holds `ALLOWED` (method plus route literal) and `DENIED_FOR_VIEWER`; the default
+  is refuse. The test `every_route_is_classified_for_viewers` parses `router` and fails for a route
+  in neither list. A refusal is 403 `{"detail":"this client token is read-only"}`, or
+  `this viewer token's org no longer exists` when the bound org is gone, and logs method and the
+  route's first segments only. Create refuses an org that does not exist (404).
+- `feed/viewer_gate.rs` filters a viewer's socket messages: `ping` passes; `subscribe` keeps only the
+  `archived_all` and `archived_under` windows; `unsubscribe` passes; everything else (`watch`,
+  `attract`, unknown, invalid JSON) is ignored and counted; the 20th closes with 1008.

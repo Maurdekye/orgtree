@@ -2491,3 +2491,13 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     Windows, real profile; no installer change). Hubchat enables a chip only for an org of
     this PC by address (`local-orgs.json`) and an Orgtree of 4.5.9 or later. Contract:
     [orgtree-links](orgtree-links.md).
+
+99. **Viewer-scoped client tokens** (USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps";
+    08:56:16Z mbad040c63ccb "Accept all, build it"; docket
+    `orgtree-apps-make-a-read-only-remote-orgtree-vie`, piece 1). A standalone client token may be
+    created with `scope: "viewer"` bound to one existing org. It may call only an explicit list of
+    read routes for that org plus two writes (mark the user's mail read, mark presentations viewed);
+    its org socket is listen-only. The list default is refuse, and a test fails when any router
+    route is unclassified. One org per token, no agent chat, node mailboxes, history, docket
+    attachments or artifacts for viewers, no expiry in this version. Contract:
+    [STANDALONE-ENGINE](STANDALONE-ENGINE.md#viewer-scoped-client-tokens-2026-11-11-4512).

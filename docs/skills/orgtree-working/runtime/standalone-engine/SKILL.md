@@ -63,19 +63,20 @@ private listener; built-in TLS termination is not supplied.
 
 ## Named client tokens
 
-The bootstrap/startup token remains a recovery key. All authenticated clients
-act as the user, including client-token administration. The standalone-only
+The bootstrap/startup token remains a recovery key. Every full client (the default)
+acts as the user, including client-token administration; a viewer client is read-only
+for one org (see "Viewer tokens" below). The standalone-only
 HTTP API is `GET/POST /api/standalone/clients` and
 `DELETE /api/standalone/clients/<id>`. POST takes `{"name":"My client"}` and
-returns `id`, `name`, `created_at` and a secret shown **once**. GET returns
-`{"clients":[{"id":"...","name":"...","created_at":"..."}]}` only.
+returns `id`, `name`, `created_at`, `scope` and a secret shown **once**. GET returns
+`{"clients":[{"id":"...","name":"...","created_at":"...","scope":"full"}]}` only (a viewer also shows `org`).
 
 The orgless user MCP endpoint provides `orgtree_client_tokens`:
 
 | Action | Fields | Result |
 | --- | --- | --- |
-| `list` (default) | none | Active id/name/created_at only. |
-| `create` | `name` | New metadata plus one-time token. |
+| `list` (default) | none | Active id/name/created_at/scope (and org for a viewer) only. |
+| `create` | `name`; optional `scope` (`full` default, or `viewer`), `org` (required with `viewer`, refused with `full`; the org must exist) | New metadata plus one-time token. |
 | `revoke` | `id` | Removes the client and immediately drops all its open HTTP/WS/MCP connections. |
 
 Each action refuses unrelated fields. Names are trimmed, 1-100 characters,
@@ -90,6 +91,19 @@ or the bootstrap key. No response is promised on self-revoke (EOF is acceptable)
 A socket remembers every token authenticated on it; revoking any one closes
 that shared socket. Unrelated sockets stay open. The bootstrap key cannot be
 revoked by these operations. No expiry, rotation or desktop switch is supplied.
+
+### Viewer tokens
+
+`scope: "viewer"` plus `org: "<slug>"` makes a token read-only for that org. The engine refuses
+(403 `this client token is read-only`) every route outside an explicit list (the org row,
+records, selection, changes, foreground tree, node detail/states, the user's inbox and one `user`
+mail, presentations read-only, the docket reads, and the org socket), except two writes: mark mail
+read (`POST /api/orgs/<slug>/inbox/read`) and mark presentations viewed
+(`POST /api/orgs/<slug>/documents/viewed`). A viewer cannot manage tokens, use MCP, read chats,
+node mailboxes, files, history or other orgs, or reach the credential bridge. Its org socket is
+listen-only: `watch`, `attract` and agent mail/history subscriptions are dropped, and 20 ignored
+messages close it with code 1008. If the bound org is deleted, every request answers 403 until the
+token is revoked. A test fails when a router route is not classified in `http/viewer.rs`.
 
 The existing HTTP API manages organizations, settings, providers, mail and
 tree operations. Authenticated `/api/desktop/alive` reports readiness and
