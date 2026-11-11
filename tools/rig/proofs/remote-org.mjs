@@ -13,7 +13,10 @@
 // the connection is added in the Add dialog, the remote organization is
 // opened and used, the network is cut and restored under the open window,
 // the remote engine restarts, its token is revoked and replaced, and a local
-// organization is used beside it. That part opens an Electron window, so it
+// organization is used beside it; then the remote organization whose name is
+// taken here is opened, for what depends on the computer (a folder, a sign-in,
+// App settings, the folder picker) and for a reference written under the name
+// it has there. That part opens an Electron window, so it
 // runs only in Windows Session 0 (team rule; the harness is muted and off the
 // real clipboard). Without a bundle the same connection is made and broken
 // through the engine's routes alone, in any session.
@@ -48,6 +51,8 @@ const SCENARIO = {
   ] } },
   default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
 }
+/** The docket item of the far organization that shares this computer's organization's name. */
+const PLAN = 'twin-plan'
 
 export function setup() { return { fixture: 'basic' } }
 
@@ -70,7 +75,10 @@ function farEngine(rig) {
   fs.writeFileSync(path.join(data, '.orgtree-rig-root'), JSON.stringify({ rig: 1, created: new Date().toISOString(), run: rig.run.id, role: 'the far standalone engine of proofs/remote-org.mjs' }))
   fakeHome(data)
   fs.mkdirSync(path.join(dir, 'fakecli', 'log'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify(SCENARIO, null, 2))
+  // `twin` lives in the far organization named like this computer's own, and names its item as that engine does
+  const scenario = { ...SCENARIO, agents: { ...SCENARIO.agents, twin: { turns: [
+    { name: 'cite', match: ['cite the plan'], steps: [{ text: `See @item:${rig.org}/${PLAN} for the plan.` }] }] } } }
+  fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify(scenario, null, 2))
   const bin = name => path.join(rig.dir, 'bin', name)
   const far = { dir, data, port: 0, token: '', child: null, exit: null, ready: null, stderr: '', starts: 0 }
   far.start = async () => {
@@ -280,6 +288,19 @@ export default async function (rig) {
       proof.check('a revoked token is its own state, with its own sentence', view.refusal === REVOKED && view.error_code === 'E10', { refusal: view.refusal, code: view.error_code })
       return { sentence: view.refusal }
     },
+    /** a question waits in the remote organization: it is among this computer's notices, and says where it is */
+    async notices() {
+      const found = await rig.waitFor(async () => {
+        const all = (await near('GET', '/api/desktop/notifications')).json?.notices ?? []
+        return all.find(n => n.org === 'far-lab' && n.kind === 'question') ?? null
+      }, { timeout: 30000, every: 250, what: "the remote organization's question among this computer's notices" }).catch(() => null)
+      proof.check("a question in a remote organization is among this computer's notices, titled with the organization and the connection",
+        !!found && String(found.title).startsWith(`Far Lab \u00b7 ${NAME}: `) && found.agent === 'lead', found ? { org: found.org, title: found.title, kind: found.kind } : null)
+      const copy = (await near('GET', '/api/app/records')).json ?? {}
+      const inFeed = Object.values(copy.notices ?? {}).flatMap(n => n?.notices ?? []).filter(n => n?.org === 'far-lab')
+      proof.check("a window's app feed carries it under the name this computer lists the organization by", !!found && inFeed.some(n => n.id === found.id), inFeed.map(n => [n.org, n.title]))
+      return { title: found?.title ?? null }
+    },
     /** the token the window asks for after a revocation (headless: given through the route) */
     async 'new-token'() {
       const r = await near('PATCH', `/api/remotes/${id}`, { body: { token: far.token } })
@@ -310,6 +331,9 @@ export default async function (rig) {
       args: { title: 'Far report', body: '# Far report\n\nPresented on the far engine.' } })
     proof.check('the far engine has two organizations, a docket item and a presentation', made.slug === 'far-lab' && twin.slug === local && item.ok && doc.ok,
       { orgs: [made.slug, twin.slug], item: item.text?.slice(0, 80), doc: doc.text?.slice(0, 80) })
+    const plan = await far.api('POST', '/api/rig/tool', { org: twin.slug, agent: 'twin', tool: 'orgtree_work',
+      args: { action: 'create', kind: 'code', title: 'Twin plan', objective: 'A docket item of the far organization that shares a name with one here.\n\nNothing depends on it.', owner: 'twin' } })
+    proof.check('the far organization of the shared name has a docket item', plan.ok && String(plan.text).includes(PLAN), { item: plan.text?.slice(0, 120) })
     await link.restore()
     const address = `http://127.0.0.1:${link.port}`
     const none = await near('GET', '/api/remotes')
@@ -358,6 +382,18 @@ export default async function (rig) {
       && !plain.includes('~') && windowed.stamp.split('~')[0] === plain, { plain, windowed: windowed.stamp })
     proof.check('a local organization answers as before', here.stamp === plain && !here.stamp.includes('~'), { stamp: here.stamp })
 
+    // ------------------------------------------------------------ the app feed of a remote window
+    const values = async remote => (await near('GET', '/api/app/records', { remote })).json?.runtime?.values ?? {}
+    const farValues = (await far.api('GET', '/api/app/records')).runtime?.values ?? {}
+    const [remoteWindow, localWindow] = [await values(id), await values(null)]
+    const engineKeys = Object.keys(farValues).filter(k => k !== 'remotes' && k !== 'remote_link')
+    const differ = engineKeys.filter(k => JSON.stringify(remoteWindow[k]?.value) !== JSON.stringify(farValues[k]?.value))
+    proof.check("a remote window's app feed carries its connection, this computer's connections and the remote engine's values",
+      remoteWindow.remote_link?.value?.id === id && remoteWindow.remote_link?.value?.state === 'connected' && remoteWindow.remotes?.value?.[0]?.id === id
+      && engineKeys.length > 0 && differ.length === 0, { link: remoteWindow.remote_link?.value?.state, keys: engineKeys, differ })
+    proof.check("a local window's app feed has no connection of its own and still lists the connections", !('remote_link' in localWindow) && localWindow.remotes?.value?.[0]?.id === id,
+      { keys: Object.keys(localWindow) })
+
     // ------------------------------------------------------------ the window, or the routes alone
     if (ui) {
       const used = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-org.cjs'), { org: 'far-lab', preset: '1000x700', timeout: 600000,
@@ -374,6 +410,10 @@ export default async function (rig) {
       proof.check('an agent is hired and retired from the canvas', v.hire?.hired === true && v.hire?.retired === true, v.hire)
       proof.check("an agent's question is answered in the window", v.ask?.asked === true && v.ask?.answered === true, v.ask)
       proof.check('the answer reached the remote agent', far.fakeLog('lead').some(l => l.kind === 'turn' && JSON.stringify(l).includes('Blue')))
+      proof.check('the window asked for the notice while the question waited', typeof v.ask?.notice?.title === 'string', v.ask?.notice)
+      const cleared = await rig.waitFor(async () => !((await near('GET', '/api/desktop/notifications')).json?.notices ?? []).some(n => n.org === 'far-lab' && n.kind === 'question'),
+        { timeout: 30000, every: 250, what: 'the answered question to leave the notices' }).catch(() => false)
+      proof.check("an answered question leaves this computer's notices", cleared === true)
       proof.check('the inbox, the docket and the presentations open', v.tabs?.docket?.includes('Far smoke item') && v.tabs?.presented?.includes('Far report') && v.tabs?.inbox === true && v.tabs?.userInbox === true, v.tabs)
       proof.check('the offline banner shows, the canvas is dimmed and the chip turns', v.offline?.banner?.includes(`${NAME} is offline since`) && v.offline?.dimmed === true && v.offline?.chip?.includes('offline'), v.offline)
       proof.check('a send while offline leaves the draft in the composer and shows the sentence', !!v.offline?.typed && v.offline?.draft === v.offline?.typed
@@ -392,10 +432,34 @@ export default async function (rig) {
       proof.note('desktop receipt (local)', { session: beside.session, guards: beside.guards, shots: beside.shots?.map(s => path.basename(s.file)) })
       proof.check('a local organization on the same desktop looks and works as before', beside.ok && l.shell === true && l.chip === false && l.banner === false && l.dimmed === false && l.title === 'Rig Org — Orgtree'
         && l.cards?.includes('boss') && l.answered === true && l.stamp && !l.stamp.includes('~'), beside.ok ? l : { error: beside.error })
-      proof.file('desktop.json', { add: desktop.add?.value, window: v, local: l, sessions: { add: desktop.add?.session, window: used.session, local: beside.session },
-        guards: { add: desktop.add?.guards, window: used.guards, local: beside.guards } })
+      // the remote organization whose name is taken here: what depends on the computer, and its references
+      const alias = `${local}-galaxy`
+      const shared = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-org.cjs'), { org: alias, preset: '1000x700', timeout: 420000,
+        out: path.join(proof.dir, 'desktop-here'), args: { stage: 'here', org: alias, agent: 'twin', name: NAME, version: VERSION } })
+      desktop.here = shared
+      const h = shared.value ?? {}
+      proof.note('desktop receipt (here)', { session: shared.session, guards: shared.guards, shots: shared.shots?.map(s => path.basename(s.file)), consoleErrors: shared.consoleErrors?.slice(0, 8) })
+      proof.check('the remote organization of the shared name opens under its alias', shared.ok && h.title?.includes(`Rig Org \u00b7 ${NAME}`) && h.chip?.includes(NAME), shared.ok ? { title: h.title, chip: h.chip } : { error: shared.error })
+      proof.check('a folder of a remote organization is not opened on this computer; the window says where it is', h.folder === `This folder is on ${NAME}, not on this computer.`
+        && Array.isArray(h.native) && !h.native.includes('openAgentScratchFolder'), { folder: h.folder, native: h.native })
+      proof.check("a reference written there under the name the organization has there is this window's own item", Array.isArray(h.ref?.chips) && h.ref.chips.length === 1
+        && /\bref-ready\b/.test(h.ref.chips[0].cls), h.ref)
+      proof.check("App settings says whose settings it shows and marks what is this computer's", h.note === `These settings belong to ${NAME}, the remote engine this organization runs on. Tabs and groups marked \u201cThis computer\u201d belong to this app on this computer.`
+        && h.tabs?.Streaming === 'this computer' && h.tabs?.['Mail hub'] === 'this computer' && h.tabs?.About === 'this computer' && h.tabs?.Providers === '' && h.tabs?.Runtime === ''
+        && h.display?.Desk === true && h.display?.Startup === true && h.display?.Typing === false && h.runtime?.Turns === false && Object.values(h.runtime ?? {}).includes(true),
+        { note: h.note, tabs: h.tabs, display: h.display, runtime: h.runtime })
+      proof.check('a provider sign-in is not started on this computer; the window says to sign in there', h.signIn?.length > 0 && h.signIn.every(s => s.startsWith(`Sign in on ${NAME} itself`))
+        && h.signInButtons?.every(b => b === 'Copy path') && !h.native?.includes('startProviderLogin'), { signIn: h.signIn, buttons: h.signInButtons, native: h.native })
+      proof.check('the folder picker says whose folders it lists', h.picker?.title === `choose a folder on ${NAME}`
+        && h.picker?.hint === `These are folders on ${NAME}, the remote engine this organization runs on.` && h.picker?.top === NAME, h.picker)
+      proof.file('desktop.json', { add: desktop.add?.value, window: v, local: l, here: h, sessions: { add: desktop.add?.session, window: used.session, local: beside.session, here: shared.session },
+        guards: { add: desktop.add?.guards, window: used.guards, local: beside.guards, here: shared.guards } })
     } else {
       const before = farTurns()
+      const asked = await near('POST', '/api/orgs/far-lab/nodes/lead/message', { body: { text: 'ask me a question' } })
+      proof.check('a message that makes the remote agent ask goes through the relay', asked.status === 200, { status: asked.status, detail: asked.json?.detail })
+      await rig.waitFor(() => farTurns() > 0, { timeout: 150000, what: 'the remote agent to take the message' })
+      await steps.notices()
       const sent = await near('POST', '/api/orgs/far-lab/nodes/lead/message', { body: { text: 'stream please' } })
       proof.check('a message for a remote agent goes through the relay', sent.status === 200, { status: sent.status, detail: sent.json?.detail })
       // In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s

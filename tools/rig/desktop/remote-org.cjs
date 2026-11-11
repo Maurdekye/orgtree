@@ -9,6 +9,11 @@
 //           then an outage, a restart of the remote engine and a revoked
 //           token, all under the SAME open window. The proof makes each of
 //           those happen when this script asks for it (args.control)
+//   here    on `/o/<alias>` of the remote organization whose name is taken on
+//           this computer: what depends on the computer says so (a folder, a
+//           provider sign-in, App settings, the folder picker), and a
+//           reference written there with the name it has there is this
+//           window's own
 //   local   on `/o/<local>`: a local organization beside it, as before
 //
 // Input is CDP only, in this window only; the harness is muted and off the
@@ -28,11 +33,22 @@
 const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, c => '\\' + c)
 
 /** listeners return an unsubscribe, reads return a value, anything else is absent */
-const bridge = (identity, version) => `
+const bridge = (identity, version, native) => `
   (() => {
     const id = ${JSON.stringify(identity)}
     const prefs = {}
+    // the calls that would open something of THIS computer: recorded, never made
+    window.__nativeCalls = []
+    const said = (name, answer) => async () => { window.__nativeCalls.push(name); return answer }
+    const here = ${native ? 'true' : 'false'} ? {
+      openAgentScratchFolder: said('openAgentScratchFolder', { ok: true }),
+      scratchFolderScopes: [],
+      startProviderLogin: said('startProviderLogin', { phase: 'starting' }),
+      getProviderLoginStatus: said('getProviderLoginStatus', { phase: 'idle' }),
+      onProviderLoginStatus: () => () => {},
+    } : {}
     window.orgtreeDesktop = {
+      ...here,
       getAppVersion: async () => ${JSON.stringify(version)},
       getPreferences: async () => prefs,
       setPreferences: async (patch) => Object.assign(prefs, patch),
@@ -47,7 +63,7 @@ module.exports = async (page, { args }) => {
   const sleep = page.sleep
   const identity = args.stage === 'add' ? { windowId: 'rig-homepage', kind: 'homepage' } : { windowId: 'rig-org', kind: 'org', org: args.org }
   await page.cdp('Page.enable')
-  await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: bridge(identity, args.version) })
+  await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: bridge(identity, args.version, args.stage === 'here') })
   await page.goto(args.stage === 'add' ? '/' : `/o/${args.org}`)
   /** after the next two frames: a capture must show what the DOM says */
   const paint = () => page.eval(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => done(true)))))
@@ -130,6 +146,70 @@ module.exports = async (page, { args }) => {
     const headState = await text('.org-remote-head .org-remote-head-state')
     await shot('03-list-with-remote-engine')
     return { homepage, before, rows, head, headState, tokenFieldType, tokenOnPage }
+  }
+
+  // ------------------------------------------------------------------ here
+  if (args.stage === 'here') {
+    const H = {}
+    await page.waitFor(card(args.agent), { timeout: 40000 })
+    await sleep(1500)
+    H.title = await page.eval(() => document.title)
+    H.chip = (await chip())?.text ?? null
+    // a folder of the organization: the entry stays, opens nothing here and says where the folder is
+    await menu(args.agent, ['Open', 'Scratch folder'])
+    H.folder = await until('the folder sentence', () => {
+      const t = [...document.querySelectorAll('.toasts .toast')].map(e => (e.innerText || '').trim()).find(s => /This folder is on/.test(s))
+      return t || null
+    }, 10000).catch(() => null)
+    await shot('50-scratch-folder-is-on-the-remote-engine')
+    // a reference the agent there writes with the organization's name THERE
+    await menu(args.agent, ['Focus'])
+    await page.waitFor(composer, { timeout: 20000 })
+    await sleep(800)
+    await say('cite the plan')
+    H.ref = await until('the reference chip', () => {
+      const chips = [...document.querySelectorAll('.ref-chip.ref-item')].map(c => ({ cls: c.className, text: (c.innerText || '').trim(), title: c.getAttribute('title') }))
+      return chips.length && (document.body.innerText || '').includes('for the plan') ? { chips } : null
+    }, 150000).catch(e => ({ error: String(e.message) }))
+    await sleep(600)
+    await shot('51-reference-under-the-name-it-has-there')
+    // App settings: whose settings these are, and what is this computer's
+    await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'providers' } })))
+    await page.waitFor('.app-settings-tab', { timeout: 20000 })
+    await sleep(1500)
+    H.note = await text('.settings-remote-note')
+    H.tabs = await page.eval(() => Object.fromEntries([...document.querySelectorAll('.app-settings-tab')].map(tab => {
+      const badge = tab.querySelector('.app-settings-scope')?.textContent ?? ''
+      const all = tab.textContent ?? ''
+      return [all.slice(0, all.length - badge.length).trim(), badge]
+    })))
+    H.signIn = await page.eval(() => [...document.querySelectorAll('.acct-claude-login')].map(e => (e.querySelector('.dim')?.innerText || '').trim()))
+    H.signInButtons = await page.eval(() => [...document.querySelectorAll('.acct-claude-login button')].map(b => (b.innerText || '').trim()))
+    await shot('52-app-settings-providers')
+    await page.eval(() => document.querySelector('.acct-claude-login')?.scrollIntoView({ block: 'center' }))
+    await shot('52b-provider-sign-in-is-on-the-remote-engine')
+    const tab = async name => { await page.click({ selector: '.app-settings-tab', text: `^${escapeRe(name)}`, regex: true }); await sleep(1200) }
+    const groups = id => page.eval(i => Object.fromEntries([...document.querySelectorAll(`#app-settings-panel-${i} .set-group-head`)]
+      .map(head => [(head.firstChild?.textContent ?? '').trim(), head.closest('.settings-here') !== null])), id)
+    await tab('Display')
+    H.display = await groups('display')
+    await shot('53-app-settings-display')
+    await tab('Runtime')
+    H.runtime = await groups('runtime')
+    await shot('54-app-settings-runtime')
+    // the folder picker lists the remote engine's folders and says so
+    const browse = 'button[aria-label="Browse for a charter template folder"]'
+    await page.eval(s => document.querySelector(s)?.scrollIntoView({ block: 'center' }), browse)
+    await sleep(400)
+    await page.click(browse)
+    await page.waitFor('.picker h3', { timeout: 15000 })
+    await sleep(1200)
+    H.picker = { title: await text('.picker h3'), hint: await page.eval(() => document.querySelector('.picker h3')?.getAttribute('title') ?? null),
+      top: await text('.picker-crumbs .dim') }
+    await shot('55-folder-picker-on-the-remote-engine')
+    await page.press('Escape')
+    H.native = await page.eval(() => window.__nativeCalls)
+    return H
   }
 
   // ------------------------------------------------------------------ local
@@ -223,6 +303,8 @@ module.exports = async (page, { args }) => {
   R.ask.question = await text(`${live} .ask-q`)
   R.ask.options = await page.eval(s => [...document.querySelectorAll(`${s} .ask-option-label`)].map(e => (e.innerText || '').trim()), live)
   await shot('16-question-on-the-desk')
+  // while it waits, it is among this computer's notices (the proof asks the engine)
+  R.ask.notice = await ask('notices').catch(e => ({ error: String(e.message) }))
   await page.click('button.ask-bell')
   R.tabs.userInbox = !!(await page.waitFor('.mailer-list', { timeout: 20000 }).catch(() => null))
   R.tabs.userInboxRows = await until('the question in the inbox', () => {
