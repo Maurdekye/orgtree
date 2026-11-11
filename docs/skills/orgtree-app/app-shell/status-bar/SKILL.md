@@ -24,7 +24,7 @@ The footer contains organization status and optionally Quick chat. Chips appear 
 
 Click the hub chip, or activate it with Enter/Space, to open Connections and inspect its diagnostics. A queued count is outstanding delivery, not proof of receipt. The active-agent count describes running activity and can differ from agents whose status is working.
 
-In a remote organization's window, a banner under the header appears while its engine is not connected: it says what is the matter and offers the one action (Retry now, Enter a new token, Connection details or Connect). The canvas is dimmed meanwhile: it shows the last known state, and changes are refused with the reason until the connection is back. Reconnecting is automatic.
+In a remote organization's window, a banner under the header appears while its engine is not connected: it says what is the matter and offers the one action (Retry now, Enter a new token, Connection details or Connect). The canvas is dimmed meanwhile: it shows the last known state, and changes are refused with the reason until the connection is back. A message you send meanwhile is not sent and stays in the composer, ready for when the connection returns. Reconnecting is automatic.
 
 ## See also
 

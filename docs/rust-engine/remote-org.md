@@ -126,7 +126,11 @@ token and keeps a sandboxed frame's `Origin: null`. Response headers are limited
 engine's API uses (plus `x-orgtree-*`); a remote cannot set cookies or site data here, and a 3xx
 (other than 304) is refused rather than passed on. At most 64 requests are in flight per connection.
 While the link is not connected a request is answered at once with 503 and
-`{"detail": <sentence>, "remote": {"id", "state"}}`: nothing is dialed.
+`{"detail": <sentence>, "remote": {"id", "state"}}`: nothing is dialed. The same sentence is the
+connection's `refusal` in `GET /api/remotes` and in the pushed `remotes` value (null while connected;
+`Remote::refusal` is its one home), so a window can say it before it asks. A 503 that names `remote`
+always means nothing was sent. A 502 that names `remote` means the request left this computer and may
+have been applied.
 
 **Org socket.** `/api/orgs/{alias}/ws` is accepted here and dialed on the remote; text frames are
 copied both ways unchanged. When the remote side ends, the queue toward the window (8192 frames)
@@ -176,12 +180,42 @@ The renderer (`src/remotes.ts`, `src/shell/remotes.tsx`) reads the same `remotes
   with the state word) opens Connection details; the title carries the engine's name; while the engine
   is away `RemoteBanner` under the header says what is the matter and offers the one action, and the
   canvas is dimmed. Changes are refused by the engine's own 503 with the sentence to show.
+- **A message typed while the engine is away stays in the composer** (2026-11-11). The agent desk's
+  composer is optimistic: it empties its box and shows the message as on its way before the engine
+  answers. Two rules keep the text. While the connection has a `refusal`, Send does nothing but show
+  that sentence (`remoteRefusalNow`, read from the feed at that moment; no request). When the engine
+  itself answers 503 naming `remote` (a link that dropped before this window heard), the send is
+  undone: text, replies and files go back into the composer if nothing newer is there, the busy mark
+  and the notice toggle are put back, no failed message stays, and the toast is the sentence alone
+  (`nothingSentToRemote` in `api.ts`). A 502 keeps the failed message with its Restore control: that
+  one may have arrived. The other composers (mail reply, project desk, Quick chat, listeners) only
+  clear after an accepted send or already put the text back.
 
-Tests: `tests/remote-org-window-header.test.mjs` (main), `apps/desktop/renderer/tests/remoteorg.test.tsx`.
+Tests: `tests/remote-org-window-header.test.mjs` (main), `apps/desktop/renderer/tests/remoteorg.test.tsx`
+and `remotedraft.test.tsx`.
+
+## Rig proof
+
+`node tools/rig/rig.mjs run tools/rig/proofs/remote-org.mjs [--ui <bundle>]`. The run's engine is this
+computer; the proof starts a second debug engine in standalone mode on a synthetic root inside the
+run folder and reaches it through a TCP forwarder, so the network between the two can be cut and
+restored without stopping either. Without a bundle it proves the engine part through the routes, in
+any session: add with the remote's startup token (this computer gets its own client token; the token
+is nowhere in the list, the saved file or the log), aliases including one that collides with a local
+organization, the relay both ways, the two-process stamp, an outage (offline, the `refusal`, the 503,
+nothing reaching the remote, rows kept), recovery by itself, a restart of the remote engine (a new
+stamp), a revoked and replaced token, the local organization untouched, and removal (the client is
+revoked on the remote). With a bundle it drives the desktop too (`desktop/remote-org.cjs`): the Add
+dialog, the list marks, the remote window, its chip and Connection details, a message with a streamed
+answer, hire and retire, a question, the desk tabs and the user's inbox, the outage under the open
+window with the refused send and its kept draft, recovery without a reload, the reload after the
+remote restarts, the sign-in banner and Replace token, and a local organization beside it. That part
+opens a window: Session 0 only. The rig's desk harness (`desktop/main.cjs`) adds `X-Orgtree-Remote`
+for a page at `/o/<alias>` of a remote organization, as Electron main does for a window bound to one.
 
 ## Not yet
 
 The composed app feed (a remote window still reads this computer's accounts and providers from the
 feed), notifications for remote organizations, creating an organization on a remote engine, watch-only
-windows with a viewer token, the machine-dependent controls of a remote window (open folder, reveal
-file, provider sign-in), and the rig proof with two engines.
+windows with a viewer token, and the machine-dependent controls of a remote window (open folder,
+reveal file, provider sign-in).
