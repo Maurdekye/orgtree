@@ -5,6 +5,81 @@ and WebSocket APIs plus an authenticated user MCP endpoint. It manages its own
 PostgreSQL cluster. No desktop window or separate management CLI is needed.
 Desktop attachment and a browser management UI are not supported by this mode.
 
+## The orgtree-engine package
+
+`ghcr.io/maurdekye/orgtree-engine` runs **Orgtree orgs headless**: the Orgtree
+engine and its own PostgreSQL 17 in one container, with no desktop window,
+served over the authenticated HTTP, WebSocket and MCP API. It is for running
+orgs on a server, a home lab or a cloud VM that stays on, and for driving them
+from scripts, MCP clients or apps.
+
+**It is optional.** The Orgtree desktop app (Windows installer, macOS and Linux
+builds) has its own engine and works without this package; nothing in Orgtree
+requires it.
+
+| Tag | What it is |
+| --- | --- |
+| `<version>`, `latest` | The plain engine. Provider CLIs are not included. |
+| `<version>-agents`, `latest-agents` | The same engine plus what agents need inside the container: Codex, Claude Code (pinned; installed on the first start), Node.js, ssh/git, python3 and the Docker CLI. See [the agents image](#the-agents-image). |
+
+`latest` and `latest-agents` follow stable releases only; alphas and betas have
+only their version tags. Each release also attaches both images as files with
+their SHA-256 ([Download](#download)). Images are linux/amd64.
+
+Orgtree has two other optional packages, each with its own purpose, and this one
+is neither: the **standalone mail hub** (a server that carries mail between orgs
+on different machines) and **Hubchat for the web** (the Hubchat app served to a
+browser). This package runs orgs; it does not include a mail hub or Hubchat.
+
+### Quick start
+
+```sh
+docker run -d --name orgtree-engine --restart unless-stopped \
+  -p 127.0.0.1:7430:7430 -v orgtree-data:/data \
+  ghcr.io/maurdekye/orgtree-engine:latest
+docker logs orgtree-engine   # the first start prints the token once
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:7430/api/desktop/alive
+```
+
+| | |
+| --- | --- |
+| Port | `7430` (HTTP, WebSocket and `POST /api/mcp`). Publish it on host loopback only, as above; reach it remotely over SSH forwarding or Tailscale. There is no built-in TLS. |
+| Volume | `/data`: the whole data root (the PostgreSQL cluster in `pg/`, scratch folders, settings, `standalone-token`; in the agents image also `home/` and `agent-tools/`). Keep it when replacing the container. |
+| `ORGTREE_STANDALONE_TOKEN` | The operator token (at least 32 visible characters, no spaces). Unset: the first start generates one, prints it once and saves it in `/data/standalone-token`. |
+| `ORGTREE_PORT`, `ORGTREE_BIND` | Set by the image to `7430` and `0.0.0.0` inside the container; change the host side with `-p` instead. |
+| `ORGTREE_DATA`, `ORGTREE_P03_PG_BIN` | Set by the image (`/data`, PostgreSQL 17); leave them. |
+
+Compose: `standalone/docker-compose.yml`, with its `build:` block replaced by
+`image: ghcr.io/maurdekye/orgtree-engine:<version>`.
+
+**Tokens.** The startup token is the operator (bootstrap) key: full user
+authority, and it cannot be revoked through the API. Give each client its own
+named token instead ([Give each client its own token](#give-each-client-its-own-token)),
+and give an app or script that only needs to look at one org a read-only
+**viewer** token ([viewer tokens](#give-an-app-or-script-read-only-access-to-one-org-viewer-tokens)).
+
+**Upgrade.** Back up first (below), then pull the new tag and recreate the
+container on the same volume: `docker pull ghcr.io/maurdekye/orgtree-engine:<version>`,
+`docker stop -t 60 orgtree-engine && docker rm orgtree-engine`, then the same
+`docker run` with the new tag. The engine migrates the database on start; keep
+the backup, since an older engine is not guaranteed to open a newer data root.
+
+**Backup.** Stop the container (`docker stop -t 60 orgtree-engine`, so
+PostgreSQL shuts down cleanly), copy the volume, start it again:
+
+```sh
+docker run --rm -v orgtree-data:/data -v "$PWD":/backup debian:bookworm-slim \
+  tar -czf /backup/orgtree-data-$(date +%F).tar.gz -C /data .
+```
+
+Restore into an empty volume the same way with `tar -xzf`, preserving owners
+(the `orgtree` user, uid 1000).
+
+**More:** [Run in Docker](#run-in-docker), [the agents image](#the-agents-image),
+[Connect through MCP or HTTP](#connect-through-mcp-or-http),
+[Sign in to provider CLIs over SSH](#sign-in-to-provider-clis-over-ssh), and the
+engine reference [`docs/rust-engine/STANDALONE-ENGINE.md`](rust-engine/STANDALONE-ENGINE.md).
+
 ## Download
 
 Every Orgtree release, from 4.5.11 on, includes the official standalone engine,
