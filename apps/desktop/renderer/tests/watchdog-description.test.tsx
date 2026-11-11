@@ -136,11 +136,14 @@ test('one-shot stream names its exit exception instead of promising every alert 
   assert.match(view.el.textContent ?? '', /exit diagnostic.*does not.*one-shot/i)
 })
 
+// Connection durations render relative to now ("down for 5m"), so fixtures must be relative too; a fixed date rots into "3w".
+const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString()
+
 // MQTT watchdogs (user 2026-10-19 17:40:50Z; docs/rust-engine/mqtt-watchdogs.md)
 test('mqtt card names its broker, topic filter and how it authenticates, never the credentials', async t => {
   const view = await panel({ kind: 'mqtt', target: 'mqtts://broker.local:8883', pattern: 'home/+/temperature',
     payload_pattern: '"state":"open"', retained: false, credentials: 'inline credentials (stored encrypted)',
-    connection: { state: 'down', since: '2026-10-18T07:00:00Z', error: 'the broker closed the connection', retry_at: '2026-10-18T07:05:00Z' },
+    connection: { state: 'down', since: minutesAgo(5), error: 'the broker closed the connection', retry_at: '2026-10-18T07:05:00Z' },
     last_output: 'home/kitchen/temperature: 21.5' })
   t.after(() => view.unmount())
   assert.equal(view.el.querySelector('.wd-type')?.textContent, 'MQTT topic listener')
@@ -158,7 +161,7 @@ test('mqtt card names its broker, topic filter and how it authenticates, never t
   }
   assert.doesNotMatch(text, /checked every|next check/)
   const healthy = await panel({ kind: 'mqtt', target: 'mqtt://localhost:1883', pattern: 'ci/#', credentials: 'none',
-    connection: { state: 'connected', since: '2026-10-18T07:00:00Z' } })
+    connection: { state: 'connected', since: minutesAgo(5) } })
   try {
     assert.match(healthy.el.querySelector('.wd-connection')?.textContent ?? '', /^connected for \d+[smh]$/)
     assert.ok(!healthy.el.querySelector('.wd-connection-bad'), 'a connected broker is not flagged')
@@ -171,7 +174,7 @@ test('websocket card names its server, hellos, heartbeat and connection, never t
   const view = await panel({ kind: 'websocket', target: 'wss://ha.local/api/websocket', pattern: '"event_type":"state_changed"',
     credentials: 'file: C:/agents/worker/ha.json', hello: [{ id: 1, type: 'subscribe_events' }], protocols: ['graphql-transport-ws'],
     heartbeat: { message: '{"op":1,"d":null}', every_s: 40 }, sent: 2, last_sent_at: '2026-10-18T07:10:00Z',
-    connection: { state: 'refused', since: '2026-10-18T07:00:00Z', error: 'the server refused the login (HTTP 401 Unauthorized)', retry_at: '2026-10-18T08:00:00Z' },
+    connection: { state: 'refused', since: minutesAgo(5), error: 'the server refused the login (HTTP 401 Unauthorized)', retry_at: '2026-10-18T08:00:00Z' },
     last_output: '{"type":"event"}' })
   t.after(() => view.unmount())
   assert.equal(view.el.querySelector('.wd-type')?.textContent, 'WebSocket listener')
@@ -192,7 +195,7 @@ test('websocket card names its server, hellos, heartbeat and connection, never t
   }
   assert.doesNotMatch(text, /checked every|next check/)
   const plain = await panel({ kind: 'websocket', target: 'ws://127.0.0.1:9222/devtools/page/1', credentials: 'none',
-    connection: { state: 'connected', since: '2026-10-18T07:00:00Z' } })
+    connection: { state: 'connected', since: minutesAgo(5) } })
   try {
     assert.match(plain.el.querySelector('.wd-description')?.textContent ?? '', /every message the server sends/)
     assert.ok(!plain.el.querySelector('.wd-connection-bad'), 'a connected server is not flagged')
