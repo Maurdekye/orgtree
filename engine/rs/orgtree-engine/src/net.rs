@@ -32,6 +32,7 @@ use crate::changes::{self, Change};
 use crate::engine::Engine;
 
 mod transfers;
+mod stream;
 mod incoming;
 pub mod control;
 mod failures;
@@ -1555,3 +1556,7 @@ pub(crate) mod cards;
 #[cfg(test)]
 #[path = "net/discovery_tests.rs"]
 mod discovery_tests;
+
+#[cfg(test)]
+#[path = "net/stream_tests.rs"]
+mod stream_tests;
