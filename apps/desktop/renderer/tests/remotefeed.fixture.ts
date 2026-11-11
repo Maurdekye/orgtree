@@ -42,14 +42,15 @@ export function remoteFeed(t: TestContext, next: (url: string, init?: RequestIni
   let seq = 1
   return {
     /** open the feed and push the connection list */
-    async remotes(list: RemoteView[]) {
+    async remotes(list: RemoteView[], here?: RemoteView) {
       await inAct(() => flush(8))
       assert.ok(sockets.length >= 1, 'the app feed opened its socket')
       const socket = sockets[sockets.length - 1]!
       if (seq === 1) await inAct(() => socket.frame(copy))
       seq += 1
+      // `here`: this window is one of that connection's (the composed feed's `remote_link`)
       await inAct(() => socket.frame({ type: 'app_runtime', epoch, seq,
-        values: { remotes: { epoch, seq, value: list } } }))
+        values: { remotes: { epoch, seq, value: list }, ...(here ? { remote_link: { epoch, seq, value: here } } : {}) } }))
       await inAct(() => flush(4))
     },
   }
