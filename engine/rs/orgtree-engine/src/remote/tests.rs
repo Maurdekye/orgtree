@@ -549,6 +549,30 @@ async fn t11_while_not_connected_a_request_is_answered_at_once_and_nothing_is_di
     assert!(started.elapsed() < Duration::from_secs(1));
 }
 
+#[tokio::test]
+async fn t11_the_connection_says_beforehand_what_a_change_would_get() {
+    let root = Root::new();
+    let near = Near::start(&root).await;
+    let mut far = Far::start().await;
+    let (id, _) = connected(&near, &far).await;
+    let change = || near.call("POST", "/api/orgs/beta/nodes/7/message", Some(&id), Some(json!({ "text": "x" })));
+    // connected: a change goes through and the connection promises nothing else
+    assert!(near.view(&id).await.get("refusal").is_some_and(Value::is_null), "a connected engine refuses nothing");
+    assert_eq!(change().await.0, 200);
+    // not connected: the connection carries the very sentence the relay answers with, so a window can
+    // refuse a send before anything leaves its composer, in the engine's own words
+    near.call("PATCH", &format!("/api/remotes/{id}"), None, Some(json!({ "enabled": false }))).await;
+    let view = near.state(&id, "paused", 5000).await;
+    assert_eq!(view["refusal"].as_str(), Some(text::e11("Galaxy").as_str()));
+    assert_eq!(change().await.2["detail"], view["refusal"]);
+    near.call("PATCH", &format!("/api/remotes/{id}"), None, Some(json!({ "enabled": true }))).await;
+    near.state(&id, "connected", 8000).await;
+    far.stop().await;
+    let view = near.state(&id, "offline", 5000).await;
+    assert_eq!(view["refusal"].as_str(), Some(text::e9("Galaxy").as_str()));
+    assert_eq!(change().await.2["detail"], view["refusal"]);
+}
+
 // ------------------------------------------------------------------ T12
 
 async fn frame_where(socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>, what: &str, mut holds: impl FnMut(&Value) -> bool) -> Value {
