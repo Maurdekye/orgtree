@@ -33,9 +33,9 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","events.fire","docket.write","fi
     if covering.is_empty(){crate::refuse!(Forbidden,"app does not declare the site {}; add it to the app's sites",site_key(host,port));}
     let capability=value["permissions"][CAPABILITY].as_str();
     if capability==Some("deny"){crate::refuse!(Forbidden,"internet access is denied for this app");}
-    let rows:Vec<&str>=value["site_permissions"].as_object().into_iter().flatten().filter(|(site,_)|site_matches(site,host,port)).filter_map(|(_,v)|v.as_str()).collect();
+    let rows:Vec<&str>=value["site_permissions"].as_object().into_iter().flatten().filter(|(site,_)|site_matches(site,host,port)).filter_map(|(_,v)|row_value(v)).collect();
     if rows.contains(&"deny"){crate::refuse!(Forbidden,"internet access to {} is denied for this app",site_key(host,port));}
-    if rows.contains(&"allow"){return Ok("allow");}
+    if rows.contains(&"allow")||private_pins(value,host,port).is_some(){return Ok("allow");}
     if rows.contains(&"ask"){return Ok("ask");}
     Ok(if capability==Some("allow")&&covering.iter().any(|s|*s!="*"){"allow"}else{"ask"})
 }
@@ -114,8 +114,27 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","events.fire","docket.write","fi
         assert_eq!(out["capabilities"],json!(["files.read"]));assert_eq!(out["permissions"],json!({"files.read":"deny"}));assert_eq!(out["definition"]["capabilities"],json!([]));assert!(out["default_permissions"].get("mail.send").is_none());
     }
 }
-/// RED STUB (piece 2): the address set pinned for an exact declared site the user allowed on the private network.
-#[nolog]pub fn private_pins(_value:&Value,_host:&str,_port:u16)->Option<Vec<std::net::IpAddr>>{None}
+/// A stored site row's choice: a plain string, or for a private-network row the object
+/// `{"value":"allow-private","addresses":[..]}` the engine writes when the user allows a site there (spec 3.4).
+#[nolog]pub fn row_value(row:&Value)->Option<&str>{row.as_str().or_else(||row["value"].as_str())}
+/// The address set pinned for an exact declared, non-wildcard site that the user allowed on the private network.
+/// Only such a row opens a private address: capability Allow, a plain `allow` row and `*` / `*.domain` rows never do.
+#[nolog]pub fn private_pins(value:&Value,host:&str,port:u16)->Option<Vec<std::net::IpAddr>>{
+    use super::net::{site_matches,CAPABILITY};
+    if !available(value,CAPABILITY)||value["permissions"][CAPABILITY].as_str()==Some("deny"){return None;}
+    let site=strings(&value["sites"]).into_iter().find(|s|*s!="*"&&!s.starts_with("*.")&&site_matches(s,host,port))?;
+    let row=&value["site_permissions"][site];
+    if row["value"].as_str()!=Some("allow-private"){return None;}
+    // Deny wins on any covering row, as for every other choice.
+    let denied=value["site_permissions"].as_object().into_iter().flatten().any(|(s,v)|site_matches(s,host,port)&&row_value(v)==Some("deny"));
+    if denied{return None;}
+    Some(row["addresses"].as_array().into_iter().flatten().filter_map(Value::as_str).filter_map(|a|a.parse().ok()).collect())
+}
+/// A site the user may allow on the private network: an exact declared site, never a wildcard.
+#[nolog]pub fn private_row_ok(value:&Value,site:&str)->Result<()>{
+    if site=="*"||site.starts_with("*.")||!strings(&value["sites"]).contains(&site){crate::refuse!(BadRequest,"private network access is allowed for an exact declared site only");}
+    Ok(())
+}
 #[cfg(test)]mod private_site_tests{
     use super::*;
     fn app(perms:Value,rows:Value)->Value{json!({"origin":"created","capabilities":["net.fetch"],"sites":["100.101.102.103:8642","nas.ts.net:8642","api.example.com","*.example.org","*"],"permissions":perms,"site_permissions":rows})}
@@ -162,5 +181,3 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","events.fire","docket.write","fi
         for bad in ["*","*.example.org","api.example.com:9999","other.example.com","a.example.org"]{assert!(private_row_ok(&v,bad).is_err(),"{bad}");}
     }
 }
-/// RED STUB (piece 2).
-#[nolog]pub fn private_row_ok(_value:&Value,_site:&str)->Result<()>{Ok(())}

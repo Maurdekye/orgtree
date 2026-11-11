@@ -138,7 +138,12 @@ async fn update_state(tx:&Transaction<'_>,org:i64,id:&str,state:&Value)->Result<
 pub const PERMISSION_HISTORY:i64=128;
 #[nolog]
 async fn log_permission(tx:&Transaction<'_>,org:i64,app:&str,capability:&str,site:Option<&str>,permission:&str,via:&str,actor:&str,panel:Option<&str>)->Result<()>{
-    tx.execute("INSERT INTO ot.custom_app_permission_log(org_id,app_id,capability,site,permission,via,actor,panel_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",&[&org,&app,&capability,&site,&permission,&via,&actor,&panel]).await?;
+    log_permission_detail(tx,org,app,capability,site,permission,via,actor,panel,None).await
+}
+/// `detail` carries the pinned addresses of a private-network allow; never a secret.
+#[nolog]
+async fn log_permission_detail(tx:&Transaction<'_>,org:i64,app:&str,capability:&str,site:Option<&str>,permission:&str,via:&str,actor:&str,panel:Option<&str>,detail:Option<&str>)->Result<()>{
+    tx.execute("INSERT INTO ot.custom_app_permission_log(org_id,app_id,capability,site,permission,via,actor,panel_id,detail) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",&[&org,&app,&capability,&site,&permission,&via,&actor,&panel,&detail]).await?;
     tx.execute("DELETE FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 AND seq < (SELECT seq FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 ORDER BY seq DESC OFFSET $3 LIMIT 1)",&[&org,&app,&(PERMISSION_HISTORY-1)]).await?;
     Ok(())
 }
@@ -158,7 +163,7 @@ async fn set_permission(tx:&Transaction<'_>,org:i64,id:&str,old:&Value,capabilit
         }
         Some(site)=>{
             if capability!=super::net::CAPABILITY{crate::refuse!(BadRequest,"only internet access (net.fetch) has per-site permissions");}
-            if !["ask","allow","deny","default"].contains(&permission){crate::refuse!(BadRequest,"a site permission must be ask, allow, deny or default");}
+            if !["ask","allow","deny","default"].contains(&permission){crate::refuse!(BadRequest,"a site permission must be ask, allow, deny or default (allow-private is set from the app's Permissions settings)");}
             let mut rows=old["site_permissions"].as_object().cloned().unwrap_or_default();
             // A stored row can always be removed, even one a code change left undeclared.
             if !(permission=="default"&&rows.contains_key(site)){super::policy::net_row(old,site)?;}
@@ -168,6 +173,21 @@ async fn set_permission(tx:&Transaction<'_>,org:i64,id:&str,old:&Value,capabilit
         }
     }
     log_permission(tx,org,id,capability,site,permission,via,actor,panel).await
+}
+/// The user allows one exact declared site on the private network, or re-pins it: the row stores the addresses the
+/// engine resolved just now (at most 8), and every later request must resolve inside that set (spec 3.4).
+#[nolog]
+async fn set_private(tx:&Transaction<'_>,org:i64,id:&str,old:&Value,site:&str,addrs:&[std::net::IpAddr],actor:&str)->Result<()>{
+    if !super::policy::available(old,super::net::CAPABILITY){crate::refuse!(BadRequest,"app does not declare that capability");}
+    super::policy::private_row_ok(old,site)?;
+    if addrs.is_empty()||addrs.len()>8{crate::refuse!(Conflict,"a private site may resolve to 1-8 addresses");}
+    let mut rows=old["site_permissions"].as_object().cloned().unwrap_or_default();
+    let again=rows.get(site).is_some_and(|v|v["value"]=="allow-private");
+    if !again&&rows.len()>=super::net::SITE_CHOICES_MAX{crate::refuse!(Conflict,"an app keeps at most {} site choices; remove some first",super::net::SITE_CHOICES_MAX);}
+    let list:Vec<String>=addrs.iter().map(|a|a.to_string()).collect();
+    rows.insert(site.to_owned(),json!({"value":"allow-private","addresses":list}));
+    tx.execute("UPDATE ot.custom_apps SET site_permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org,&id,&Value::Object(rows)]).await?;
+    log_permission_detail(tx,org,id,super::net::CAPABILITY,Some(site),if again{"repin"}else{"allow-private"},"change",actor,None,Some(&list.join(", "))).await
 }
 /// The user's answer to a native app prompt. Always allow and Deny store the
 /// choice (internet access: on the host's site row); Allow once only records
@@ -235,16 +255,30 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 let current=match &site{Some(site)=>old["site_permissions"][site.as_str()].as_str(),None=>old["permissions"][capability.as_str()].as_str()};
                 if current==Some("deny")&&permission!="deny"{crate::refuse!(Forbidden,"only the user may lift an internet access Deny");}
             }
-            set_permission(&tx,org.id,&id,&old,&capability,site.as_deref(),&permission,"change",&actor,None).await?;
+            if permission=="allow-private"{
+                // The user's choice, never an agent's; the engine resolves the site now and pins what it got.
+                if caller.is_some()||capability!=super::net::CAPABILITY{crate::refuse!(Forbidden,"only the user may allow a private network site");}
+                let Some(site)=site.as_deref() else{crate::refuse!(BadRequest,"allow-private needs a site");};
+                super::policy::private_row_ok(&old,site)?;
+                let (host,port)=super::net::host_port(site)?;let ips=super::net::resolve_ips(&host,port).await?;
+                if ips.iter().any(|ip|super::net::classify(*ip)!=super::net::Class::Private||super::net::is_own_address(*ip)){crate::refuse!(Forbidden,"{site} is not on a private network");}
+                set_private(&tx,org.id,&id,&old,site,&ips,&actor).await?;
+            }else{set_permission(&tx,org.id,&id,&old,&capability,site.as_deref(),&permission,"change",&actor,None).await?;}
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         // Paged like History (user 2026-10-27 m838e66af753b "ssme for permission
         // history"); every writer holds the app row for update, so seqs commit in order.
         Request::PermissionHistory{app:id,after,before,limit}=>{
             app(&tx,org.id,&id,false,false).await?;let n=page(limit)?;let (op,order,from)=cursor(after,before)?;
-            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'capability',capability,'site',site,'permission',permission,'via',via,'actor',actor,'panel',panel_id,'at',at) FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 AND seq{op}$3 ORDER BY seq {order} LIMIT $4"),&[&org.id,&id,&from,&(n+1)]).await?;
+            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'capability',capability,'site',site,'permission',permission,'detail',detail,'via',via,'actor',actor,'panel',panel_id,'at',at) FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 AND seq{op}$3 ORDER BY seq {order} LIMIT $4"),&[&org.id,&id,&from,&(n+1)]).await?;
             let more=rows.len()>n as usize;let entries:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();let next=if more{entries.last().map(|v|v["seq"].clone())}else{None};
             json!({"app":id,"entries":entries,"next_cursor":next})
+        }
+        // What the Permissions row shows for a declared site (user only): where it resolves now and what is pinned.
+        Request::NetClassify{app:id,site}=>{
+            if caller.is_some(){crate::refuse!(Forbidden,"only the user may read a site's network class");}
+            let old=app(&tx,org.id,&id,false,false).await?;super::policy::private_row_ok(&old,&site)?;
+            super::net::classify_site(&site,&old["site_permissions"][site.as_str()]).await?
         }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
         // Mention chips show what an Apps menu row shows: an app's name and its
@@ -297,7 +331,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             // restrictive. Permission history records each cleared Allow.
             let sites=json!(def.sites);let site_rows=super::policy::restrictive_overrides(&old["site_permissions"]);
             for (cap,choice) in old["permissions"].as_object().into_iter().flatten(){if choice=="allow"{log_permission(&tx,org.id,&id,cap,None,"default","code",&actor,None).await?;}}
-            for (site,choice) in old["site_permissions"].as_object().into_iter().flatten(){if choice=="allow"{log_permission(&tx,org.id,&id,super::net::CAPABILITY,Some(site.as_str()),"default","code",&actor,None).await?;}}
+            for (site,choice) in old["site_permissions"].as_object().into_iter().flatten(){if choice=="allow"||choice["value"]=="allow-private"{log_permission(&tx,org.id,&id,super::net::CAPABILITY,Some(site.as_str()),"default","code",&actor,None).await?;}}
             tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions=$11,declared_sites=$12,site_permissions=$13,permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&restrictive,&sites,&site_rows]).await?;
             // PROVISIONAL code-changed rule, not a user ruling: visible copies reload
             // the new code as before; a hidden running copy powers off rather than

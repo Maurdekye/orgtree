@@ -200,6 +200,20 @@ fn admit_fetch<'a>(engine:&'a Engine,bound:&Bound,value:Value,action:&Action)->R
     let fetch=action.to_fetch()?;let once=engine.custom_apps.net.once(bound.org,&bound.app,&bound.panel,bound.generation)?;
     let ticket=engine.custom_apps.net.admit(bound.org,&bound.app,&bound.panel)?;Ok(NetCall{fetch,value,once,ticket})
 }
+/// A request that no answer can allow is refused without a prompt (spec 3.3): plain http, or an address on a
+/// private network or this machine. Private access is only ever granted in the app's settings (USER ruling
+/// 2026-11-11, spec question 1). A host that does not resolve here is left to the request itself.
+#[nolog]
+async fn refuse_unpromptable(action:&Action)->Result<()> {
+    let Action::NetFetch{url,..}=action else{return Ok(());};
+    let url=reqwest::Url::parse(url).map_err(|_|crate::domain::UserError::BadRequest("invalid app internet URL".into()))?;
+    if url.scheme()!="https"{crate::refuse!(BadRequest,"app internet requests must use https; plain http only reaches a private site allowed in the app's settings");}
+    let (host,port)=super::net::url_host_port(&url)?;
+    let Ok(ips)=super::net::resolve_ips(&host,port).await else{return Ok(());};
+    if ips.iter().any(|ip|super::net::classify(*ip)!=super::net::Class::Public){
+        crate::refuse!(Forbidden,"{} is on a private network; allow it in the app's settings (Permissions)",super::net::site_key(&host,port));
+    }Ok(())
+}
 /// Runs outside the app gate, so a revoke never waits behind a slow site; the
 /// revoke aborts the request instead. URL, headers and bodies stay out of logs.
 #[nolog]
@@ -208,9 +222,12 @@ async fn net_fetch(bound:&Bound,call:NetCall<'_>)->Result<Value> {
     tracing::info!(app=%bound.app,panel=%bound.panel,capability=super::net::CAPABILITY,"app action dispatch");
     let NetCall{fetch,value,once,ticket}=call;
     let allow=|host:&str,port:u16|match super::policy::net_decision(&value,host,port){Ok("allow")=>true,Ok(_)=>once.contains(&super::policy::net_site(&value,host,port)),Err(_)=>false};
+    // Only an exact site the user allowed on the private network may use plain http or a private address (spec 3.3).
+    let private=|host:&str,port:u16|super::policy::private_pins(&value,host,port);
+    let access=super::net::Access{allow:&allow,private:&private};
     let done=crate::trace::private_app(async{tokio::select!{
         _=ticket.cancel.cancelled()=>Err(anyhow::Error::from(crate::domain::UserError::Forbidden("app internet request was stopped: its permission changed, or its panel was stopped or changed".into()))),
-        out=super::net::fetch(fetch,&allow)=>out,
+        out=super::net::fetch_with(fetch,&access)=>out,
     }}).await;
     drop(ticket);let f=done?;
     Ok(json!({"status":f.status,"headers":f.headers,"body":base64::engine::general_purpose::STANDARD.encode(&f.body),"url":f.final_url,"redirected":f.redirected}))
@@ -243,7 +260,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
             let call={
                 let _guard=bound.gate.lock.lock().await;
                 engine.custom_apps.bound(org.id,&session)?;let value=snapshot(engine,&bound).await?;let mode=mode(engine,&bound,&value,&action)?;
-                if mode=="ask"{interactive(&value)?;let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":prompt(&bound,&value,&action,&id)?}));}
+                if mode=="ask"{refuse_unpromptable(&action).await?;interactive(&value)?;let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":prompt(&bound,&value,&action,&id)?}));}
                 if !matches!(action,Action::NetFetch{..}){return execute(engine,org,&bound,&action).await;}
                 admit_fetch(engine,&bound,value,&action)?
             };
@@ -345,7 +362,7 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,ac
         let ok=json!({"action":"net.fetch","url":"https://api.example.com/v1?q=1","method":"POST","headers":[["Content-Type","application/json"]],"body":b64("{}")});
         let action:Action=serde_json::from_value(ok).unwrap();action.validate().unwrap();assert_eq!(action.capability(),"net.fetch");
         let get:Action=serde_json::from_value(json!({"action":"net.fetch","url":"https://api.example.com/x"})).unwrap();get.validate().unwrap();
-        for bad in [json!({"action":"net.fetch","url":"http://api.example.com"}),json!({"action":"net.fetch","url":"https://api.example.com","headers":[["Cookie","a=b"]]}),json!({"action":"net.fetch","url":"https://api.example.com","method":"POST","body":"not base64!"}),json!({"action":"net.fetch","url":"file:///C:/x"}),json!({"action":"net.fetch","url":"https://127.0.0.1:1"})]{
+        for bad in [json!({"action":"net.fetch","url":"https://api.example.com","headers":[["Cookie","a=b"]]}),json!({"action":"net.fetch","url":"https://api.example.com","method":"POST","body":"not base64!"}),json!({"action":"net.fetch","url":"file:///C:/x"}),json!({"action":"net.fetch","url":"https://127.0.0.1:1"})]{
             let parsed:Action=serde_json::from_value(bad.clone()).unwrap();
             if bad["url"]=="https://127.0.0.1:1"{assert!(parsed.validate().is_ok(),"addresses are refused at connect time, after the grant check");continue;}
             assert!(parsed.validate().is_err(),"{bad}");

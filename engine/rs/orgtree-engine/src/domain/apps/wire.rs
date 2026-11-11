@@ -123,6 +123,8 @@ pub enum Request {
     PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String, #[serde(default)] site:Option<String> },
     /// The app-level Permission history (latest 128 retained), paged like Events:
     /// newest first, before walking back; after reads newer entries oldest first.
+    /// What the engine sees when it resolves one declared site now: its addresses and class (user only; the row's Permissions view).
+    NetClassify { app:String, site:String },
     PermissionHistory { app:String, after:Option<i64>, before:Option<i64>, limit:Option<i64> },
     /// slug: the id asked for (migration 0075), cleaned and suffixed like a
     /// name; without one the name makes it.

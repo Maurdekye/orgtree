@@ -63,7 +63,7 @@ fn vetting_pins_private_addresses_and_refuses_everything_else() {
 }
 
 /// A plain http server reached only through the private test route, judged as the given address.
-async fn plain_server(host: &str, judged: &str) -> Arc<Mutex<Vec<String>>> {
+async fn plain_server(host: &str, judged: &str) -> (u16, Arc<Mutex<Vec<String>>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     {
@@ -74,6 +74,7 @@ async fn plain_server(host: &str, judged: &str) -> Arc<Mutex<Vec<String>>> {
     let heads = Arc::new(Mutex::new(Vec::new()));
     let seen = heads.clone();
     let host = host.to_string();
+    let port = addr.port();
     tokio::spawn(async move {
         loop {
             let Ok((mut tcp, _)) = listener.accept().await else { return };
@@ -97,10 +98,10 @@ async fn plain_server(host: &str, judged: &str) -> Arc<Mutex<Vec<String>>> {
                 };
                 let out = match path.as_str() {
                     "/ok" => reply("200 OK", "", b"hello"),
-                    "/same" => reply("302 Found", &format!("Location: http://{host}:8642/ok\r\n"), b""),
+                    "/same" => reply("302 Found", &format!("Location: http://{host}:{port}/ok\r\n"), b""),
                     "/other-port" => reply("302 Found", &format!("Location: http://{host}:9999/ok\r\n"), b""),
-                    "/other-host" => reply("302 Found", "Location: http://elsewhere.test:8642/ok\r\n", b""),
-                    "/to-https" => reply("302 Found", &format!("Location: https://{host}:8642/ok\r\n"), b""),
+                    "/other-host" => reply("302 Found", &format!("Location: http://elsewhere.test:{port}/ok\r\n"), b""),
+                    "/to-https" => reply("302 Found", &format!("Location: https://{host}:{port}/ok\r\n"), b""),
                     _ => reply("404 Not Found", "", b""),
                 };
                 let _ = tcp.write_all(&out).await;
@@ -108,7 +109,7 @@ async fn plain_server(host: &str, judged: &str) -> Arc<Mutex<Vec<String>>> {
             });
         }
     });
-    heads
+    (addr.port(), heads)
 }
 
 fn get(url: &str) -> Fetch {
@@ -117,31 +118,31 @@ fn get(url: &str) -> Fetch {
 
 #[tokio::test]
 async fn plain_http_reaches_only_a_pinned_private_site_and_follows_only_same_site_redirects() {
-    let _heads = plain_server("nas.test", "100.101.102.103").await;
+    let (port, _heads) = plain_server("nas.test", "100.101.102.103").await;
     let pinned = vec![ip("100.101.102.103")];
-    let allow = |h: &str, p: u16| h == "nas.test" && p == 8642;
-    let private = |h: &str, p: u16| (h == "nas.test" && p == 8642).then(|| pinned.clone());
+    let allow = |h: &str, p: u16| h == "nas.test" && p == port;
+    let private = |h: &str, p: u16| (h == "nas.test" && p == port).then(|| pinned.clone());
     let ok = Access { allow: &allow, private: &private };
-    let got = fetch_with(get("http://nas.test:8642/ok"), &ok).await.unwrap();
+    let got = fetch_with(get(&format!("http://nas.test:{port}/ok")), &ok).await.unwrap();
     assert_eq!((got.status, got.body.as_slice()), (200, b"hello".as_slice()));
     // Same-site redirect followed.
-    let same = fetch_with(get("http://nas.test:8642/same"), &ok).await.unwrap();
+    let same = fetch_with(get(&format!("http://nas.test:{port}/same")), &ok).await.unwrap();
     assert_eq!((same.status, same.redirected), (200, true));
     // Any other target is refused: another port, another host, another scheme.
     for path in ["other-port", "other-host", "to-https"] {
-        let e = fetch_with(get(&format!("http://nas.test:8642/{path}")), &ok).await.unwrap_err().to_string();
+        let e = fetch_with(get(&format!("http://nas.test:{port}/{path}")), &ok).await.unwrap_err().to_string();
         assert!(e.contains("redirects off a private site are not followed"), "{path}: {e}");
     }
     // Without the allow-private row the same request is refused (a plain Allow never opens it).
     let none = |_: &str, _: u16| None;
     let unpinned = Access { allow: &allow, private: &none };
-    let e = fetch_with(get("http://nas.test:8642/ok"), &unpinned).await.unwrap_err().to_string();
+    let e = fetch_with(get(&format!("http://nas.test:{port}/ok")), &unpinned).await.unwrap_err().to_string();
     assert!(e.contains("must use https"), "{e}");
     // A pin that no longer matches the resolved address is refused.
     let moved = vec![ip("100.101.102.200")];
-    let private_moved = |h: &str, p: u16| (h == "nas.test" && p == 8642).then(|| moved.clone());
+    let private_moved = |h: &str, p: u16| (h == "nas.test" && p == port).then(|| moved.clone());
     let repinned = Access { allow: &allow, private: &private_moved };
-    let e = fetch_with(get("http://nas.test:8642/ok"), &repinned).await.unwrap_err().to_string();
+    let e = fetch_with(get(&format!("http://nas.test:{port}/ok")), &repinned).await.unwrap_err().to_string();
     assert!(e.contains("now resolves to a different address"), "{e}");
 }
 
@@ -152,4 +153,19 @@ async fn plain_http_to_a_public_site_is_refused() {
     let access = Access { allow: &allow, private: &none };
     let e = fetch_with(get("http://example.com/x"), &access).await.unwrap_err().to_string();
     assert!(e.contains("must use https"), "{e}");
+}
+
+#[test]
+fn the_permissions_row_describes_where_a_site_resolves_and_what_is_pinned() {
+    let row = serde_json::json!({"value":"allow-private","addresses":["100.101.102.103"]});
+    let d = describe_site("nas:8642", Some(&[ip("100.101.102.103")]), &row);
+    assert_eq!((d["class"].as_str(), d["tailscale"].as_bool(), d["moved"].as_bool()), (Some("private"), Some(true), Some(false)));
+    let moved = describe_site("nas:8642", Some(&[ip("100.101.102.104")]), &row);
+    assert_eq!(moved["moved"], true, "the name now resolves elsewhere");
+    let lan = describe_site("nas:8642", Some(&[ip("192.168.1.5")]), &serde_json::json!("ask"));
+    assert_eq!((lan["class"].as_str(), lan["tailscale"].as_bool(), lan["allowed"].as_bool()), (Some("private"), Some(false), Some(false)));
+    assert_eq!(describe_site("x", Some(&[ip("127.0.0.1")]), &serde_json::json!(null))["class"], "never");
+    assert_eq!(describe_site("x", Some(&[ip("8.8.8.8")]), &serde_json::json!(null))["class"], "public");
+    assert_eq!(describe_site("x", None, &serde_json::json!(null))["class"], "unresolved");
+    assert_eq!(describe_site("v6", Some(&[ip("fd7a:115c:a1e0::1")]), &serde_json::json!(null))["tailscale"], true);
 }
