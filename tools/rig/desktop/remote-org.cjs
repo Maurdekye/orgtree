@@ -14,12 +14,41 @@
 // Input is CDP only, in this window only; the harness is muted and off the
 // real clipboard (guards.cjs). The token is typed into a password field and
 // is never logged or returned.
+//
+// The rig has no main process, so no desktop bridge: without one the page is
+// the plain browser layout, which has no status strip and so no connection
+// chip. A minimal bridge is planted before the page loads (as
+// quick-chat-header.cjs does, shaped like the renderer's tests/shellbridge.tsx),
+// with the identity the desktop's main gives such a window: "homepage" for the
+// list, "org" with the organization's alias for the other two. A remote
+// organization's window has no other identity than its alias; main adds
+// X-Orgtree-Remote for it, and the rig's harness does the same (main.cjs).
 'use strict'
 
 const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, c => '\\' + c)
 
+/** listeners return an unsubscribe, reads return a value, anything else is absent */
+const bridge = (identity, version) => `
+  (() => {
+    const id = ${JSON.stringify(identity)}
+    const prefs = {}
+    window.orgtreeDesktop = {
+      getAppVersion: async () => ${JSON.stringify(version)},
+      getPreferences: async () => prefs,
+      setPreferences: async (patch) => Object.assign(prefs, patch),
+      onEvent: () => () => {},
+      windowIdentity: id,
+      getWindowIdentity: async () => id,
+      requestOrg: async () => null,
+    }
+  })()`
+
 module.exports = async (page, { args }) => {
   const sleep = page.sleep
+  const identity = args.stage === 'add' ? { windowId: 'rig-homepage', kind: 'homepage' } : { windowId: 'rig-org', kind: 'org', org: args.org }
+  await page.cdp('Page.enable')
+  await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: bridge(identity, args.version) })
+  await page.goto(args.stage === 'add' ? '/' : `/o/${args.org}`)
   /** after the next two frames: a capture must show what the DOM says */
   const paint = () => page.eval(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => done(true)))))
   const shot = async name => { await paint(); await sleep(200); return page.screenshot(name) }
@@ -70,6 +99,7 @@ module.exports = async (page, { args }) => {
   if (args.stage === 'add') {
     await page.waitFor('.org-remote-add', { timeout: 40000 })
     await sleep(800)
+    const homepage = await page.eval(() => !!document.querySelector('.shell-homepage .shell-homepage-list'))
     const before = await page.eval(() => [...document.querySelectorAll('.org')].map(r => (r.querySelector('.org-name-text')?.innerText || '').trim()))
     await shot('01-homepage-before')
     await page.click('.org-remote-add')
@@ -87,7 +117,7 @@ module.exports = async (page, { args }) => {
     await page.click({ selector: '.remote-add button', text: 'Connect' })
     let error = null
     try { await page.waitFor('.org-remote-head', { timeout: 40000 }) } catch (e) { error = (await text('.remote-add-error')) ?? String(e.message) }
-    if (error) { await shot('02-add-refused'); return { error, before, tokenFieldType, tokenOnPage } }
+    if (error) { await shot('02-add-refused'); return { error, homepage, before, tokenFieldType, tokenOnPage } }
     await until('both remote organizations in the list', () => document.querySelectorAll('.org.org-remote').length >= 2, 30000)
     await until('the dialog to close', () => !document.querySelector('input[aria-label="Engine address"]'), 10000)
     await sleep(600)
@@ -99,7 +129,7 @@ module.exports = async (page, { args }) => {
     const head = await text('.org-remote-head .org-remote-head-name')
     const headState = await text('.org-remote-head .org-remote-head-state')
     await shot('03-list-with-remote-engine')
-    return { before, rows, head, headState, tokenFieldType, tokenOnPage }
+    return { homepage, before, rows, head, headState, tokenFieldType, tokenOnPage }
   }
 
   // ------------------------------------------------------------------ local
@@ -107,6 +137,7 @@ module.exports = async (page, { args }) => {
     await page.waitFor(card('boss'), { timeout: 40000 })
     await sleep(1200)
     const out = { title: await page.eval(() => document.title), cards: await cards(), chip: !!(await chip()),
+      shell: await page.eval(() => !!document.querySelector('.shell-statusbar-chips')),
       banner: await page.eval(() => !!document.querySelector('.remote-banner')), dimmed: await dimmed() }
     out.stamp = await page.eval(async () => (await fetch(location.pathname.replace(/^\/o\//, '/api/orgs/'))).headers.get('X-Orgtree-Instance'))
     await menu('boss', ['Focus'])
@@ -122,7 +153,8 @@ module.exports = async (page, { args }) => {
   const R = {}
   await page.waitFor(card('lead'), { timeout: 40000 })
   await sleep(1500)
-  R.opened = { title: await page.eval(() => document.title), cards: await cards(), header: await text('header.orgbar'), url: await page.eval(() => location.pathname) }
+  R.opened = { title: await page.eval(() => document.title), cards: await cards(), url: await page.eval(() => location.pathname),
+    shell: await page.eval(() => !!document.querySelector('.shell-statusbar-chips')), version: await text('.shell-version') }
   R.chip = await chip()
   // a mark that only a reload removes
   await page.eval(() => { window.__sameWindow = true })
@@ -178,63 +210,63 @@ module.exports = async (page, { args }) => {
   R.tabs.presented = await shows('the presentations tab to list the document', 'Far report')
   await shot('14-desk-presentations')
   R.tabs.inbox = (await tab('inbox')) === 'inbox'
-  await shot('14b-desk-inbox')
+  await shot('15-desk-mail')
   await tab('chat')
-  await page.click('button.ask-bell')
-  R.tabs.userInbox = !!(await page.waitFor('.mailer-list', { timeout: 20000 }).catch(() => null))
-  await shot('15-user-inbox')
-  await page.press('Escape')
-  await sleep(500)
 
-  // an agent's question, answered here
+  // an agent's question: it shows on the desk and in the user's inbox, and is answered on the desk
   await page.waitFor(composer, { timeout: 20000 })
   await say('ask me a question')
   R.ask = { asked: false, answered: false }
-  let where = 'window'
-  try { await page.waitFor('.askcard:not(.nulled) button.ask-row-pick', { timeout: 30000 }) } catch {
-    // not on the desk: it is in the user's inbox
-    where = 'inbox'
-    await page.click('button.ask-bell')
-    await page.waitFor('.mailer-list', { timeout: 20000 })
-    await until('the question in the inbox', () => {
-      const row = [...document.querySelectorAll('.mailer-list .mailrow')].find(r => /colour/i.test(r.innerText || ''))
-      if (row) row.click()
-      return !!document.querySelector('.askcard:not(.nulled) button.ask-row-pick')
-    }, 30000)
-  }
+  const live = '.askcard:not(.nulled)'
+  await page.waitFor(`${live} button.ask-row-pick`, { timeout: 30000 })
   R.ask.asked = true
-  R.ask.where = where
-  R.ask.question = await text('.askcard:not(.nulled)')
-  await shot('16-question')
-  await page.click({ selector: '.askcard:not(.nulled) button.ask-row-pick', text: 'Blue' })
+  R.ask.question = await text(`${live} .ask-q`)
+  R.ask.options = await page.eval(s => [...document.querySelectorAll(`${s} .ask-option-label`)].map(e => (e.innerText || '').trim()), live)
+  await shot('16-question-on-the-desk')
+  await page.click('button.ask-bell')
+  R.tabs.userInbox = !!(await page.waitFor('.mailer-list', { timeout: 20000 }).catch(() => null))
+  R.tabs.userInboxRows = await until('the question in the inbox', () => {
+    const rows = [...document.querySelectorAll('.mailer-list .mailrow')].map(r => (r.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 160))
+    return rows.length ? rows : null
+  }, 20000).catch(() => [])
+  await shot('17-user-inbox-with-the-question')
+  await page.press('Escape')
+  await until('the inbox to close', () => !document.querySelector('.mailer-list'), 10000)
+  await sleep(400)
+  // the option's label is the innermost element with that text; a click on it is a click on its pick button
+  await page.click({ selector: `${live} button.ask-row-pick .ask-option-label`, text: 'Blue' })
   await sleep(300)
-  await page.click('.askcard:not(.nulled) button.ask-submit')
-  R.ask.answered = !!(await until('the question to be answered', () => !document.querySelector('.askcard:not(.nulled) button.ask-submit'), 30000).catch(() => false))
+  R.ask.picked = await page.eval(s => [...document.querySelectorAll(`${s} .ask-row.on .ask-option-label`)].map(e => (e.innerText || '').trim()), live)
+  await page.click(`${live} button.ask-submit`)
+  R.ask.answered = !!(await until('the question to be answered', s => !document.querySelector(`${s} button.ask-submit`), 30000, live).catch(() => false))
   await sleep(800)
-  await shot('17-question-answered')
-  if (where === 'inbox') { await page.press('Escape'); await sleep(500) }
+  await shot('18-question-answered')
 
-  // hire and retire from the canvas
+  // hire and retire from the canvas (back at the whole organization first)
   R.hire = { hired: false, retired: false }
+  await page.click('button[title^="fit the whole org"]')
+  await sleep(1200)
   await menu('lead', ['Hire a subordinate', 'haiku'])
   await page.waitFor('.sq.draft', { timeout: 15000 })
   await sleep(800)
   await page.click('.sq.draft input.df-name')
   await page.type('relayed')
   await sleep(300)
-  await shot('18-hire-draft')
+  await shot('19-hire-draft')
   await page.click({ selector: '.sq.draft button.primary', text: 'hire' })
   R.hire.hired = !!(await page.waitFor(card('relayed'), { timeout: 30000 }).catch(() => null))
   if (!R.hire.hired) R.hire.toasts = await toasts()
   await sleep(1500)
-  await shot('19-hired')
+  await shot('19b-hired')
   if (R.hire.hired) {
     await menu('relayed', ['Retire…'])
     await page.waitFor({ selector: 'button', text: '^retire$', regex: true }, { timeout: 10000 })
     await page.click({ selector: 'button', text: '^retire$', regex: true })
-    R.hire.retired = !!(await page.waitFor({ text: 'relayed retired' }, { timeout: 30000 }).catch(() => null))
+    R.hire.retired = !!(await until('the retirement to be said', () => [...document.querySelectorAll('.toasts .toast')].some(t => /relayed retired/.test(t.innerText || '')), 30000)
+      .catch(() => false))
     await sleep(800)
-    await shot('19b-retired')
+    R.hire.cardsAfter = await cards()
+    await shot('19c-retired')
   }
 
   // ---------------------------------------------------------------- outage
@@ -250,7 +282,8 @@ module.exports = async (page, { args }) => {
   // a send while it is away: the text must stay where it was typed
   R.offline.typed = 'kept while the remote engine is away'
   await say(R.offline.typed)
-  await until('the refusal to be shown', () => document.querySelectorAll('.toasts .toast').length > 0, 10000)
+  await until('the refusal to be shown', s => [...document.querySelectorAll('.toasts .toast')].some(t => (t.innerText || '').includes(s)), 10000, args.offline)
+    .catch(() => null)
   await sleep(400)
   R.offline.toasts = await toasts()
   R.offline.draft = await page.eval(s => document.querySelector(s)?.value ?? null, composer)

@@ -34,6 +34,8 @@ import { Proof } from '../proof.mjs'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const NAME = 'Galaxy'
 const STREAMED = 'Streaming over the relay: alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa.'
+/** what the planted desktop bridge reports as the app version (the status strip shows it) */
+const VERSION = `${JSON.parse(fs.readFileSync(path.join(RIG_DIR, '..', '..', 'package.json'), 'utf8')).version}-rig`
 const OFFLINE = `${NAME} is offline. Nothing was sent.`
 const REVOKED = `${NAME} no longer accepts this computer's token. Nothing was sent.`
 /** What the far engine's agents do: `lead` streams a long answer slowly and asks the user a question on request. */
@@ -319,10 +321,11 @@ export default async function (rig) {
     let desktop = null
     if (ui) {
       const added = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-org.cjs'), { org: '', preset: '1000x700', timeout: 240000,
-        out: path.join(proof.dir, 'desktop-add'), args: { stage: 'add', address, token: far.token, name: NAME } })
+        out: path.join(proof.dir, 'desktop-add'), args: { stage: 'add', address, token: far.token, name: NAME, version: VERSION } })
       desktop = { add: added }
-      proof.check('the Add dialog adds the engine and the list marks its organizations', added.ok && added.value?.rows?.filter(r => r.remote).length === 2
-        && added.value.head === NAME && !added.value.error, added.ok ? { head: added.value.head, rows: added.value.rows } : { error: added.error })
+      proof.check('the Add dialog on the Homepage adds the engine and the list marks its organizations', added.ok && added.value?.homepage === true
+        && added.value?.rows?.filter(r => r.remote).length === 2 && added.value.head === NAME && !added.value.error,
+        added.ok ? { homepage: added.value.homepage, head: added.value.head, rows: added.value.rows } : { error: added.error })
       proof.check('the dialog never shows the token', added.ok && added.value.tokenFieldType === 'password' && added.value.tokenOnPage === false, added.value && { type: added.value.tokenFieldType, onPage: added.value.tokenOnPage })
       proof.note('desktop receipt (add)', { session: added.session, guards: added.guards, shots: added.shots?.map(s => path.basename(s.file)) })
     } else {
@@ -358,12 +361,13 @@ export default async function (rig) {
     // ------------------------------------------------------------ the window, or the routes alone
     if (ui) {
       const used = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-org.cjs'), { org: 'far-lab', preset: '1000x700', timeout: 600000,
-        out: path.join(proof.dir, 'desktop-window'), args: { stage: 'window', control: ctl.url, name: NAME, token: far.token, streamed: STREAMED, offline: OFFLINE } })
+        out: path.join(proof.dir, 'desktop-window'), args: { stage: 'window', org: 'far-lab', version: VERSION, control: ctl.url, name: NAME, token: far.token,
+          streamed: STREAMED, offline: OFFLINE } })
       desktop.window = used
       const v = used.value ?? {}
       proof.note('desktop receipt (window)', { session: used.session, guards: used.guards, shots: used.shots?.map(s => path.basename(s.file)), consoleErrors: used.consoleErrors?.slice(0, 8) })
-      proof.check('the remote organization opens in a normal window', used.ok && v.opened?.title?.includes(`Far Lab · ${NAME}`) && v.opened?.cards?.includes('lead') && v.opened?.cards?.includes('scout'),
-        used.ok ? v.opened : { error: used.error })
+      proof.check('the remote organization opens in a normal organization window', used.ok && v.opened?.shell === true && v.opened?.title?.includes(`Far Lab · ${NAME}`)
+        && v.opened?.cards?.includes('lead') && v.opened?.cards?.includes('scout'), used.ok ? v.opened : { error: used.error })
       proof.check('the status strip chip shows the connection and opens its details', v.chip?.text?.includes(NAME) && v.chip?.tone === 'ok' && v.details?.State?.startsWith('connected')
         && v.details?.Transport === 'This computer (forwarded port)' && /^Orgtree desktop \(/.test(v.details?.['Signed in as'] ?? '') && v.details?.Organizations?.includes('Far Lab'), { chip: v.chip, details: v.details })
       proof.check('a message sent from the desk is answered, and the answer streams in', v.stream?.final === true && v.stream?.partials >= 2, v.stream)
@@ -372,7 +376,8 @@ export default async function (rig) {
       proof.check('the answer reached the remote agent', far.fakeLog('lead').some(l => l.kind === 'turn' && JSON.stringify(l).includes('Blue')))
       proof.check('the inbox, the docket and the presentations open', v.tabs?.docket?.includes('Far smoke item') && v.tabs?.presented?.includes('Far report') && v.tabs?.inbox === true && v.tabs?.userInbox === true, v.tabs)
       proof.check('the offline banner shows, the canvas is dimmed and the chip turns', v.offline?.banner?.includes(`${NAME} is offline since`) && v.offline?.dimmed === true && v.offline?.chip?.includes('offline'), v.offline)
-      proof.check('a send while offline leaves the draft in the composer and shows the sentence', v.offline?.draft === v.offline?.typed && v.offline?.toasts?.includes(OFFLINE) && v.offline?.ghosts === 0, v.offline)
+      proof.check('a send while offline leaves the draft in the composer and shows the sentence', !!v.offline?.typed && v.offline?.draft === v.offline?.typed
+        && v.offline?.toasts?.some(t => t.includes(OFFLINE)) === true && v.offline?.ghosts === 0, v.offline)
       proof.check('a change from the window is refused with the sentence', v.offline?.hire?.status === 503 && v.offline?.hire?.detail === OFFLINE, v.offline?.hire)
       proof.check('the window recovers by itself, without a reload, and the kept draft is sent', v.recovered?.banner === 'gone' && v.recovered?.reloaded === false && v.recovered?.dimmed === false
         && v.recovered?.draftStillThere === true && v.recovered?.sent === true, v.recovered)
@@ -381,11 +386,11 @@ export default async function (rig) {
         && v.revoked?.after === 'ok', v.revoked)
       await steps['after-new-token']()
       const beside = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-org.cjs'), { org: local, preset: '1000x700', timeout: 180000,
-        out: path.join(proof.dir, 'desktop-local'), args: { stage: 'local', name: NAME } })
+        out: path.join(proof.dir, 'desktop-local'), args: { stage: 'local', org: local, name: NAME, version: VERSION } })
       desktop.local = beside
       const l = beside.value ?? {}
       proof.note('desktop receipt (local)', { session: beside.session, guards: beside.guards, shots: beside.shots?.map(s => path.basename(s.file)) })
-      proof.check('a local organization on the same desktop looks and works as before', beside.ok && l.chip === false && l.banner === false && l.dimmed === false && l.title === 'Rig Org — Orgtree'
+      proof.check('a local organization on the same desktop looks and works as before', beside.ok && l.shell === true && l.chip === false && l.banner === false && l.dimmed === false && l.title === 'Rig Org — Orgtree'
         && l.cards?.includes('boss') && l.answered === true && l.stamp && !l.stamp.includes('~'), beside.ok ? l : { error: beside.error })
       proof.file('desktop.json', { add: desktop.add?.value, window: v, local: l, sessions: { add: desktop.add?.session, window: used.session, local: beside.session },
         guards: { add: desktop.add?.guards, window: used.guards, local: beside.guards } })
