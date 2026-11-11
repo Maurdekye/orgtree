@@ -9,7 +9,7 @@ management UI is not supported by this mode.
 
 ## Open it in the desktop app
 
-From Orgtree 4.5.12 the desktop app can show the organizations of a standalone
+From Orgtree 4.6.0 the desktop app can show the organizations of a standalone
 engine beside its own. On the Homepage choose **Add a remote engine...** and
 enter the engine's address (for example `http://100.x.y.z:7430`) and a token:
 the startup token or a full client token. The desktop makes its own named client
@@ -26,6 +26,26 @@ token on the engine and keeps only that, so each computer can be revoked alone
   provider sign-ins, watchdogs and mail hubs are that machine's.
 - While the engine cannot be reached the window shows the last known state and
   refuses changes; it reconnects by itself.
+
+In the window of such an organization, what belongs to the engine's machine says
+so instead of acting on the desktop's computer:
+
+- **Folders and files.** Scratch, team, template and charter folders are not
+  opened in this computer's file manager; the window says "This folder is on
+  <name>". A file path in a transcript can be copied but not opened. The folder
+  picker lists the engine's disk and is titled "choose a folder on <name>".
+- **Provider sign-ins.** The Sign in buttons are replaced by a sentence: sign in
+  on the engine's machine (see [Sign in to provider CLIs over
+  SSH](#sign-in-to-provider-clis-over-ssh)).
+- **App settings** shows the engine's providers, accounts and runtime rules, and
+  says so at the top. Tabs and groups marked "this computer" (theme, startup,
+  updates, notifications, streaming, mail hub hosting, shortcuts) stay the
+  desktop's own.
+- **Notifications and the tray.** Questions and other notices of a remote
+  organization appear with this computer's, titled "<organization> · <name>".
+- **Names.** When this computer already has an organization of the same name,
+  the remote one is listed as `<name>-<engine>`. References written by its
+  agents keep working in its window.
 
 ## Download
 
