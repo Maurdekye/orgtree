@@ -3473,7 +3473,8 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   // Connections always exposes the inbox mode; network controls still need
   // the org's network block.
   const orgTabs = useMemo<SettingsTab<OrgSettingsTab>[]>(() => [
-    { id: 'basic', label: 'Basic' },
+    // reads General; id `basic` stays for links and saved state (USER 2026-11-10 23:45:52Z m62522a70ecb4)
+    { id: 'basic', label: 'General', aliases: ['Basic'] },
     // user 2026-09-11: the overseer eye's standalone ⚙ is gone and its panel
     // is this tab. It sits next to Basic because Basic's "Agent defaults"
     // group is the other half of the same subject.

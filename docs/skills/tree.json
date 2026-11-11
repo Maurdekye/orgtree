@@ -5337,7 +5337,7 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Org settings (header > Org settings): Basic, Hire defaults, Policies, Connections, Autonomy, Accounts, History.",
+   "purpose": "Org settings (header > Org settings): General, Hire defaults, Policies, Connections, Autonomy, Accounts, History.",
    "children": [
     "org-basic",
     "org-charter-md",
@@ -5368,7 +5368,7 @@
     "org:default_effort",
     "screen:org-logo"
    ],
-   "purpose": "Basic: org logo, credit caps and grants, compaction threshold, default effort; which tabs save together.",
+   "purpose": "General: org logo, credit caps and grants, compaction threshold, default effort; which tabs save together.",
    "must_cover": [
     "each field",
     "one save vs immediate tabs",
@@ -5453,7 +5453,7 @@
    "covers": [
     "org:org.md"
    ],
-   "purpose": "Basic > org.md: the org charter every agent receives; saving restarts agents.",
+   "purpose": "General > org.md: the org charter every agent receives; saving restarts agents.",
    "must_cover": [
     "restart effect",
     "trusted notes like Connect your phone"
@@ -5486,7 +5486,7 @@
    "covers": [
     "action:save-as-template"
    ],
-   "purpose": "Basic > Save as template: what a template includes.",
+   "purpose": "General > Save as template: what a template includes.",
    "must_cover": [
     "include options",
     "Heavy dev shop seats, coordinator user audience and generic inherited practices",
@@ -5951,7 +5951,7 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope, Tools and conditional History tabs.",
+   "purpose": "Agent settings (desk gear or agent menu > Settings): General, Model, Scope, Tools and conditional History tabs.",
    "children": [
     "agent-config",
     "agent-history-tab",
@@ -6062,7 +6062,7 @@
     "node:charter",
     "node:team_charter"
    ],
-   "purpose": "Charter tab: instructions and team instructions.",
+   "purpose": "General tab: instructions and team instructions.",
    "must_cover": [
     "delivery to the agent",
     "node-local default-on peer-mail setting"

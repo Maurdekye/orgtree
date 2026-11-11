@@ -6,11 +6,11 @@ import assert from 'node:assert/strict'
 import { agentSettingsTabs } from '../src/canvas/modals'
 
 test('the strip reads Charter, Model, Scope, Tools, Activity, History: Activity directly left of History', () => {
-  assert.deepEqual(agentSettingsTabs(true).map(t => t.label), ['Charter', 'Model', 'Scope', 'Tools', 'Activity', 'History'])
+  assert.deepEqual(agentSettingsTabs(true).map(t => t.label), ['General', 'Model', 'Scope', 'Tools', 'Activity', 'History'])
   assert.deepEqual(agentSettingsTabs(true).map(t => t.id), ['charter', 'model', 'scope', 'tools', 'states', 'history'], 'ids unchanged')
 })
 
 test('with no history records Activity still shows, last; nothing is called States', () => {
-  assert.deepEqual(agentSettingsTabs(false).map(t => t.label), ['Charter', 'Model', 'Scope', 'Tools', 'Activity'])
+  assert.deepEqual(agentSettingsTabs(false).map(t => t.label), ['General', 'Model', 'Scope', 'Tools', 'Activity'])
   assert.ok(![...agentSettingsTabs(true), ...agentSettingsTabs(false)].some(t => /states/i.test(t.label)))
 })

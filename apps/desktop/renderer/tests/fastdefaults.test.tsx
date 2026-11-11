@@ -32,7 +32,7 @@ test('fast defaults save explicit per-tier values and survive settings tab chang
     assert.ok(!v.el.querySelector('[aria-label="New Astra hires start in fast mode"]'))
     await inAct(async()=>{sol!.click();await flush(2)})
     await inAct(async()=>{luna!.click();await flush(2)})
-    const basic=[...v.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent==='Basic')!
+    const basic=[...v.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent==='General')!
     await inAct(async()=>{basic.click();await flush(2)})
     const hire=[...v.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent==='Hire defaults')!
     await inAct(async()=>{hire.click();await flush(2)})

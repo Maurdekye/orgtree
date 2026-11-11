@@ -14,15 +14,15 @@ changes settings. For machine-wide defaults, use
 
 The search box at the top searches every tab of Org settings, as in [App settings](../app-settings/SKILL.md#search). The first search loads the tabs not opened yet (their reads only); History holds no settings and stays unloaded until opened.
 
-The tabs are Basic, Hire defaults, Policies, Connections, Autonomy, Accounts and History. The former `orgtype` tab is
+The tabs are General (called Basic before 4.5.11; settings search still finds it by that name), Hire defaults, Policies, Connections, Autonomy, Accounts and History. The former `orgtype` tab is
 not rendered. Connections is documented in
 [orgtree-org-connections](../mailhub/org-connections/SKILL.md).
 
 ## Settings
 
-- [orgtree-org-basic](org-basic/SKILL.md): Basic: org logo, credit caps and grants, compaction threshold, default effort; automatic saving and the charter exception.
-- [orgtree-org-charter-md](org-charter-md/SKILL.md): Basic > org.md: the org charter every agent receives; saving restarts agents.
-- [orgtree-org-templates](org-templates/SKILL.md): Basic > Save as template: what a template includes.
+- [orgtree-org-basic](org-basic/SKILL.md): General: org logo, credit caps and grants, compaction threshold, default effort; automatic saving and the charter exception.
+- [orgtree-org-charter-md](org-charter-md/SKILL.md): General > org.md: the org charter every agent receives; saving restarts agents.
+- [orgtree-org-templates](org-templates/SKILL.md): General > Save as template: what a template includes.
 - [orgtree-org-hire-defaults-folders](org-hire-defaults-folders/SKILL.md): Hire defaults > Org folders, and retire all agents.
 - [orgtree-org-hire-defaults-scope](org-hire-defaults-scope/SKILL.md): Hire defaults > visibility, file and command access, provider and account.
 - [orgtree-org-hire-defaults-tools](org-hire-defaults-tools/SKILL.md): Hire defaults > native tools, Orgtree tool groups and MCP servers.

@@ -166,9 +166,9 @@ test('①  ONE modal: a single overlay, no advanced disclosure, and every '
     assert.doesNotMatch(view.el.textContent ?? '', /advanced…/)
     // Basic is first and selected on open
     const labels = tabs(view.el).map((t) => t.textContent?.trim())
-    assert.equal(labels[0]?.startsWith('Basic'), true)
+    assert.equal(labels[0]?.startsWith('General'), true)
     assert.deepEqual(labels,
-      ['Basic', 'Hire defaults', 'Policies', 'Connections', 'Autonomy', 'Accounts',
+      ['General', 'Hire defaults', 'Policies', 'Connections', 'Autonomy', 'Accounts',
         'History'])
     assert.equal(tabs(view.el)[0]!.getAttribute('aria-selected'), 'true')
 
@@ -193,7 +193,7 @@ test('②  only the charter has a Save surface — and none of the four "changes
   stubFetch(seen)
   const { view } = await mountOrg()
   try {
-    for (const label of ['Basic', 'Hire defaults', 'Policies', 'Autonomy',
+    for (const label of ['General', 'Hire defaults', 'Policies', 'Autonomy',
       'History']) {
       await open(view.el, label)
       const saves = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
@@ -228,7 +228,7 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     // wander, then come back — both edits survive, because the panels are
     // hidden rather than unmounted
     await open(view.el, 'Autonomy')
-    await open(view.el, 'Basic')
+    await open(view.el, 'General')
     assert.equal(view.el.querySelector<HTMLInputElement>(
       'input[aria-label="Top-level grant cap"]')!.value, '77')
     await open(view.el, 'Policies')
@@ -267,7 +267,7 @@ test('④  Connections still exposes inbox policy without a mail identity', asyn
   let m = await mountOrg({ net: null })
   try {
     assert.deepEqual(tabs(m.view.el).map((t) => t.textContent?.trim()),
-      ['Basic', 'Hire defaults', 'Policies', 'Connections', 'Autonomy', 'Accounts', 'History'])
+      ['General', 'Hire defaults', 'Policies', 'Connections', 'Autonomy', 'Accounts', 'History'])
   } finally { await m.view.unmount() }
 
 })
@@ -280,8 +280,8 @@ test('legacy excluded fields cannot reintroduce disk or fallback controls', asyn
   const { view } = await mountOrg({ sandboxed: true,
     disk: { size_mb: 4096 }, api_fallback: true, fable_api_fallback: true })
   try {
-    assert.ok(tabs(view.el).some(t => t.textContent === 'Basic'), 'real settings modal mounted')
-    for (const label of ['Basic', 'Policies', 'Connections', 'Autonomy', 'History']) {
+    assert.ok(tabs(view.el).some(t => t.textContent === 'General'), 'real settings modal mounted')
+    for (const label of ['General', 'Policies', 'Connections', 'Autonomy', 'History']) {
       await open(view.el, label)
       const active = view.el.querySelector('[role="tabpanel"]:not([hidden])')!
       assert.ok(active, label + ' panel is visible')

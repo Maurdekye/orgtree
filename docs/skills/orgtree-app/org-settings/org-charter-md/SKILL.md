@@ -7,7 +7,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 # The org.md charter
 
-**Org settings > Basic > Org charter** edits `org:org.md`, the `org.md` file in
+**Org settings > General > Org charter** edits `org:org.md`, the `org.md` file in
 the org workspace. It supplies standing org instructions in every agent's
 managed startup prompt, across providers. A missing file means an empty charter.
 Agents explain and suggest changes; the user controls this file and setting.

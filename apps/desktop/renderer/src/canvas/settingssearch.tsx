@@ -57,6 +57,8 @@ export function foldText(text: string): string {
   return text.replace(/[‘’‛′]/g, "'").replace(/[“”″]/g, '"').toLowerCase()
 }
 const clean = (text: string) => text.replace(/\s+/g, ' ').trim()
+/** a tab's label and any former names it still answers to */
+const tabNames = (t: SettingsTab<string>) => [t.label, ...(t.aliases ?? [])].join('\n')
 
 /** the first `sel` that belongs to `row` itself, not to a row nested in it */
 function own(row: HTMLElement, sel: string): HTMLElement | null {
@@ -77,7 +79,7 @@ function headText(head: Element): string {
 
 function scan(scope: HTMLElement, self: HTMLElement, tabs: readonly SettingsTab<string>[], idBase: string): Entry[] {
   const prefix = `${idBase}-panel-`
-  const tabLabel = new Map(tabs.map((t) => [t.id, t.label]))
+  const tabLabel = new Map(tabs.map((t) => [t.id, tabNames(t)]))
   const out: Entry[] = []
   for (const el of scope.querySelectorAll<HTMLElement>(ROW)) {
     if (self.contains(el) || el.closest(`[${SETTINGS_SEARCH_SKIP}="skip"]`)) continue
@@ -187,7 +189,7 @@ export function SettingsSearch<T extends string>({ tabs, idBase, setTab, label, 
   // rescan follows what the tabs ARE, not the array's identity
   const tabsRef = useRef<readonly SettingsTab<string>[]>(tabs)
   tabsRef.current = tabs
-  const tabKey = JSON.stringify(tabs.map((t) => [t.id, t.label]))
+  const tabKey = JSON.stringify(tabs.map((t) => [t.id, t.label, t.aliases ?? []]))
 
   // a new link into this window wins over a search on show
   const [seenSeq, setSeenSeq] = useState(target?.seq)
@@ -244,7 +246,7 @@ export function SettingsSearch<T extends string>({ tabs, idBase, setTab, label, 
     if (!rows.length) {
       // a tab named by the query that holds no settings (History, Activity)
       // still answers, as a result that opens it
-      if (tabInfo && searching && matchesTerms(foldText(tabInfo.label), terms)) {
+      if (tabInfo && searching && matchesTerms(foldText(tabNames(tabInfo)), terms)) {
         groups.push({ tab, label: tabInfo.label, sections: [] })
       }
       continue

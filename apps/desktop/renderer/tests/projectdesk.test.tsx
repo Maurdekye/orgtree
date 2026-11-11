@@ -813,6 +813,8 @@ test('§6c project settings: Name and Project actions live in the Project tab, u
   await inAct(async () => { await flush(6) })
   const panel = document.querySelector<HTMLElement>('[role="tabpanel"][id$="-panel-project"]')!
   assert.ok(panel, 'the Project panel')
+  assert.equal(document.querySelector('[role="tab"][id$="-tab-project"]')?.textContent?.trim(), 'General',
+    'the first tab reads "General"; its id stays project (USER 2026-11-10 23:46:58Z m6205aae2dd74)')
   const name = document.querySelector<HTMLElement>('input[aria-label="Project name"]')!
   const actions = [...document.querySelectorAll<HTMLElement>('.set-row')]
     .find((r) => r.querySelector('.set-label')?.textContent?.trim() === 'Project actions')!

@@ -53,7 +53,7 @@ for (const history of [false, true]) test(`draft settings tabs persist all prefe
   await click(view.el.querySelector('.sq.user button.t-sol')); await advance(1200)
   await edit(view.el.querySelector('.df-name'), 'proposed')
   await click(view.el.querySelector('.df-gear'))
-  assert.deepEqual([...panel().querySelectorAll('[role="tab"]')].map(el => el.textContent), ['Charter', 'Model', 'Scope', 'Tools'])
+  assert.deepEqual([...panel().querySelectorAll('[role="tab"]')].map(el => el.textContent), ['General', 'Model', 'Scope', 'Tools'])
   assert.equal(panel().querySelector('[role="tab"][id$="history"]'), null)
   await edit(row('Instructions').querySelector('textarea'), 'Standing task')
   await edit(row('Team instructions').querySelector('textarea'), 'Shared task')

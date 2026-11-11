@@ -1165,11 +1165,13 @@ export function savePopups(
 
 type NodeConfigTab = 'charter' | 'model' | 'scope' | 'tools' | 'history' | 'states'
 const NODE_CONFIG_TABS = [
-  { id: 'charter', label: 'Charter' },
+  // the label reads General; the id, links and saved tab state keep `charter`, and search still
+  // answers to the old name (USER 2026-11-10 23:45:52Z m62522a70ecb4 "rename the first tab to general")
+  { id: 'charter', label: 'General', aliases: ['Charter'] },
   { id: 'model', label: 'Model' },
   { id: 'scope', label: 'Scope' },
   { id: 'tools', label: 'Tools' },
-] satisfies { id: NodeConfigTab; label: string }[]
+] satisfies { id: NodeConfigTab; label: string; aliases?: string[] }[]
 
 /** An agent's settings tabs: the config tabs, then Activity (the state spans; internal id `states`) directly LEFT of History,
  *  which shows only when records exist (USER 2026-11-04 m5d5ae90b5b7b "change the states tab to activity", mc8352401b5c2
@@ -1343,7 +1345,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <button type="button" onClick={onScratchFolder}>Open project folder</button>
       </span>}
     </h3>
-    <SettingsTabs tabs={[{ id: 'project' as const, label: 'Project' }, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]}
+    <SettingsTabs tabs={[{ id: 'project' as const, label: 'General' /* id stays project (USER 2026-11-10 23:46:58Z m6205aae2dd74) */ }, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]}
       tab={tab} setTab={setTab} idBase={tabId} label="Project settings" />
     <SettingsTabPanel id="project" idBase={tabId} active={tab === 'project'}>
       {/* as in Agent settings: Name and actions open the first tab (USER 2026-11-10 m341927c12f35) */}
@@ -1777,7 +1779,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               {onTeamScratchFolder && <button type="button" onClick={onTeamScratchFolder}>Open team scratch folder</button>}
             </span>}
         </h3>
-        {/* searches every tab, the Charter tab's Name and actions included (canvas/settingssearch.tsx) */}
+        {/* searches every tab, the General (charter) tab's Name and actions included (canvas/settingssearch.tsx) */}
         <SettingsSearch tabs={agentSettingsTabs(hasHistory)} idBase={tabId} setTab={setTab} target={target}
           label="Search agent settings" />
         <SettingsTabs tabs={agentSettingsTabs(hasHistory)} tab={tab} setTab={setTab} stripRef={stripRef}

@@ -57,7 +57,7 @@ const goto = async (el: HTMLElement, label: string) => {
 }
 const banner = (el: HTMLElement) => el.querySelector('.cascade-warn')
 const note = (el: HTMLElement) => el.querySelector('.cascade-note')
-const TABS = ['Charter', 'Model', 'Scope', 'Tools']
+const TABS = ['General', 'Model', 'Scope', 'Tools']
 
 test('§1 nothing edited: a folder the superior lacks verbatim raises nobody and shows no warning on any tab', async (t: TestContext) => {
   // the reported case: the agent holds a folder its superior does not list
@@ -81,7 +81,7 @@ test('§2 an edited visibility: full banner on Scope, one-line note by Save else
   assert.ok(banner(v.el), 'Scope: the pending raise is not announced')
   assert.match(banner(v.el)!.textContent ?? '', /mid/)
   assert.equal(note(v.el), null, 'Scope shows the banner, not the note')
-  await goto(v.el, 'Charter')
+  await goto(v.el, 'General')
   assert.equal(banner(v.el), null, 'Charter: the full banner is noise there')
   assert.match(note(v.el)?.textContent ?? '', /mid/, 'Charter: Save must still say it raises mid')
   await goto(v.el, 'Model')

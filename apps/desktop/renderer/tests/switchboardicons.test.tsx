@@ -589,7 +589,7 @@ test('§5 immediate dirty-field saves keep the two-endpoint split '
 
   // wander to another tab and back: the panel's one buffer must hold the
   // edit, the way it does for Basic's fields
-  await open(view.el, 'Basic')
+  await open(view.el, 'General')
   await open(view.el, 'Hire defaults')
   assert.equal(view.el.querySelector<HTMLSelectElement>(
     'select[aria-label="Visible agents"]')!.value, 'subtree')
@@ -616,7 +616,7 @@ test('§5 immediate dirty-field saves keep the two-endpoint split '
   assert.equal(settings.flatMap(r => (r.body as { org_dirs?: { path: string }[] }).org_dirs ?? [])
     .some((d) => d.path === 'C:\\ws'), false)
 
-  await open(view.el, 'Basic')
+  await open(view.el, 'General')
   await setField(view.el.querySelector<HTMLInputElement>('[aria-label="Top-level grant cap"]')!, '1200')
   await advance(749)
   assert.equal(seen.filter(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings').length, 3,
@@ -639,7 +639,7 @@ test('§6 THE ZERO EDGE: an edit that never touched the hire tab writes neither 
   // pass a version of this test that never opened the tab at all
   await open(view.el, 'Hire defaults')
   await inAct(async () => { await flush(10) })
-  await open(view.el, 'Basic')
+  await open(view.el, 'General')
 
   seen.length = 0
   await advance(1000)

@@ -100,17 +100,17 @@ test('§1 org settings opened at the cheap-compact switch: Policies, marked, foc
 test('§2 an open panel follows a later request; one request counts once', async () => {
   const { view, again } = await org()
   try {
-    assert.equal(selectedTab(view.el), 'Basic')
+    assert.equal(selectedTab(view.el), 'General')
     await again(tab('policies', 1))
     assert.equal(selectedTab(view.el), 'Policies')
     assert.equal(marked(view.el).length, 1)
     await sleep(MARK_MS)
     // the user moves on; a rerender carrying the SAME request must not drag them back
-    const basic = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.includes('Basic'))!
+    const basic = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.includes('General'))!
     await inAct(async () => { basic.click(); await flush(2) })
-    assert.equal(selectedTab(view.el), 'Basic')
+    assert.equal(selectedTab(view.el), 'General')
     await again(tab('policies', 1))
-    assert.equal(selectedTab(view.el), 'Basic', 'the same seq is the same request')
+    assert.equal(selectedTab(view.el), 'General', 'the same seq is the same request')
     assert.equal(marked(view.el).length, 0)
     // a new request is a new request
     await again(tab('policies', 2))
@@ -122,7 +122,7 @@ test('§2 an open panel follows a later request; one request counts once', async
 test('§3 without a target nothing is marked and the panel opens where it always did', async () => {
   const { view } = await org()
   try {
-    assert.equal(selectedTab(view.el), 'Basic')
+    assert.equal(selectedTab(view.el), 'General')
     assert.equal(marked(view.el).length, 0)
     assert.equal(view.el.ownerDocument.querySelector('.' + HL) === null, true)
   } finally { await view.unmount() }

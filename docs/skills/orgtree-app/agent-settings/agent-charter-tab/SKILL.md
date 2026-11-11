@@ -5,7 +5,9 @@ description: Explain personal instructions and standing team instructions in age
 
 Up: [orgtree-agent-settings](../SKILL.md)
 
-# Charter tab
+# General tab
+
+The first tab of Agent settings reads **General** (it was called Charter before 4.5.11; settings search still finds it by that name).
 
 These user-edited text fields are stored with the selected agent. Agents explain and suggest edits; they do not change settings themselves.
 

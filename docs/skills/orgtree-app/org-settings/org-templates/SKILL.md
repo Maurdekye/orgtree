@@ -7,7 +7,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 # Save as template
 
-**Org settings > Basic > Templates > Save as template…** opens
+**Org settings > General > Templates > Save as template…** opens
 `action:save-as-template`. It saves this org's live agent layout into a JSON
 file in `~/.orgtree/templates`, independently of ordinary setting edits. It reads the
 current stored org, not unsaved edits in the settings panel. Agents suggest

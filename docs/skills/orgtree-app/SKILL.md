@@ -19,8 +19,8 @@ If the glossary is vague, missing details or incorrect, read [Orgtree's public s
 | [orgtree-canvas](canvas/SKILL.md) | The org canvas: the agent tree, cards, the user node, piles, the agents list, menus and pinned windows. |
 | [orgtree-desk](desk/SKILL.md) | Agent and project desks and the work panels: chat, mail, questions, dockets, presentations and watchdogs. |
 | [orgtree-app-settings](app-settings/SKILL.md) | App settings (Orgtree menu > App settings…): Runtime, Display, Default org settings, Developer, Shortcuts and About. |
-| [orgtree-org-settings](org-settings/SKILL.md) | Org settings (header > Org settings): Basic, Hire defaults, Policies, Connections, Autonomy, Accounts, History. |
-| [orgtree-agent-settings](agent-settings/SKILL.md) | Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope, Tools and conditional History tabs. |
+| [orgtree-org-settings](org-settings/SKILL.md) | Org settings (header > Org settings): General, Hire defaults, Policies, Connections, Autonomy, Accounts, History. |
+| [orgtree-agent-settings](agent-settings/SKILL.md) | Agent settings (desk gear or agent menu > Settings): General, Model, Scope, Tools and conditional History tabs. |
 | [orgtree-providers](providers/SKILL.md) | Providers and accounts (App settings > Providers): sign-in, accounts, API-key fallback, OpenRouter and local servers, MCP servers, skills delivery and the usage windows. |
 | [orgtree-harnesses](harnesses/SKILL.md) | Every harness Orgtree runs agents on, and the routes through them: how each runs, reports, caches, compacts, loads instructions and skills, and how they differ. |
 | [orgtree-mailhub](mailhub/SKILL.md) | The mail hub, org connections, Hubchat and the phone link. |

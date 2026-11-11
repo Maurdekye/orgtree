@@ -24,7 +24,7 @@ The native desktop's agent menu offers **Open > Scratch folder** for live and ar
 In its submenu, **Open > Scratch folder > Team scratch folder** (or inline under **Open** when only the team action exists) opens the team that agent leads,
 keyed by its numeric agent id, even when it has no reports. It does not select
 the parent's team for a leaf. The switchboard context menu and **Org settings
-> Basic** both offer **Open shared scratch folder** for the org-wide `_shared`
+> General** both offer **Open shared scratch folder** for the org-wide `_shared`
 folder. Missing team/shared folders are created on demand only inside that
 org's scratch root. Personal/imported scratch keeps its no-create behavior.
 These entries need scoped support in the native shell and local engine;

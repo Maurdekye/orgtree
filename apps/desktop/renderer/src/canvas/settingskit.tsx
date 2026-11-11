@@ -33,6 +33,8 @@ export interface SettingsTab<T extends string> {
   label: string
   /** a short scope badge on the tab itself, e.g. "this browser" */
   note?: string
+  /** former names settings search still answers to (not shown), e.g. "Charter" for General */
+  aliases?: readonly string[]
 }
 
 export function SettingsTabs<T extends string>({

@@ -1,6 +1,6 @@
 ---
 name: orgtree-agent-settings
-description: Explain one agent's Charter, Model, Scope, Tools and History settings.
+description: Explain one agent's General, Model, Scope, Tools and History settings.
 ---
 
 Up: [orgtree-app](../SKILL.md)
@@ -9,14 +9,14 @@ Up: [orgtree-app](../SKILL.md)
 
 Use this section when the user asks what an agent's configuration controls do or which change might help. Open it from the desk gear or the agent menu's Settings action. These are settings for the selected agent, distinct from organization hire defaults and machine-wide App settings. Agents explain and suggest settings changes; they do not change settings themselves.
 
-The search box at the top searches every tab of this window, the Charter tab's Name and Agent actions included, as in [App settings](../app-settings/SKILL.md#search).
+The search box at the top searches every tab of this window, the General tab's Name and Agent actions included, as in [App settings](../app-settings/SKILL.md#search).
 
 The pages below distinguish the shared form from separate action buttons and the credit slider. Read the relevant leaf before advising on timing, inherited values, process replacement or a broader permission grant.
 
 ## Settings
 
 - [orgtree-agent-config](agent-config/SKILL.md): The agent settings window: name, agent actions, save and confirmations.
-- [orgtree-agent-charter-tab](agent-charter-tab/SKILL.md): Charter tab: instructions and team instructions.
+- [orgtree-agent-charter-tab](agent-charter-tab/SKILL.md): General tab: instructions and team instructions.
 - [orgtree-agent-model-tab](agent-model-tab/SKILL.md): Model tab: tier, model version, thinking effort, pending model change.
 - [orgtree-agent-fast-mode](agent-fast-mode/SKILL.md): Model tab and message box: faster inference at higher usage for supported providers.
 - [orgtree-agent-account-tab](agent-account-tab/SKILL.md): Model tab > account and switch-when-limited.

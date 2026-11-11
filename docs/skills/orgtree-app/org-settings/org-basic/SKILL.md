@@ -5,16 +5,16 @@ description: Explain the org logo, credits, context threshold, effort and automa
 
 Up: [orgtree-org-settings](../SKILL.md)
 
-# Basic settings and saving
+# General settings and saving
 
-Use **Org settings > Basic** to explain this org's logo and agent defaults.
+Use **Org settings > General** (the first tab, called Basic before 4.5.11) to explain this org's logo and agent defaults.
 Agents suggest changes; the user edits them. The following keys live in org
 settings. Effective values include app defaults and the org's own overrides;
 the defaults below are the engine values when neither overrides them.
 
 The **Organization** group at the top has a **Name** field holding the org's
 display name. Edit it and it saves automatically a moment after you stop
-typing (the same autosave as the other Basic fields); an empty name, or one
+typing (the same autosave as the other General fields); an empty name, or one
 with no letters or digits, is refused with the usual inline save error and
 nothing is written. Two orgs may share a display name. Under the field the
 read-only line "ID: <id>. Used in mentions, addresses and folders; it doesn't
@@ -75,7 +75,7 @@ their inherited Organization Logo tool switch is on (the default). It applies
 immediately and records the agent/time/action in the existing undo history.
 See `orgtree-tool-org-logo` (orgtree-working › team) for the tool and limits.
 
-`screen:org-logo` is the Logo group at the top of Basic. Click the logo/pencil
+`screen:org-logo` is the Logo group at the top of General. Click the logo/pencil
 to choose a static PNG, JPEG or WebP, at most **5 MiB and 16 million pixels**.
 Animated/unsupported or invalid images are refused. The initial fallback is
 the org name's initials. The logo appears as the org account picture in Hubchat.
@@ -89,7 +89,7 @@ save displays an error. Suggest this for recognizable org identity in Hubchat.
 
 ## Automatic saving and the charter exception
 
-Basic fields, Hire defaults, Policies and Connections' external-inbox controls
+General fields, Hire defaults, Policies and Connections' external-inbox controls
 save in place. Discrete choices commit immediately; text/numeric input waits
 about 750 ms after the last edit. Only the edited field is sent, requests run
 in order, and the menu stays open. Closing flushes pending ordinary edits;

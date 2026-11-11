@@ -276,7 +276,7 @@ async function org(target?: Target) {
 test('§7 Org settings: a row on a never-visited tab is found, and a click lands on it', async () => {
   const { view } = await org()
   try {
-    assert.equal(selectedTab(view.el), 'Basic')
+    assert.equal(selectedTab(view.el), 'General')
     assert.ok(root(view.el), 'Org settings has a settings search box')
     assert.equal(view.el.querySelector('[data-settings-field="cheap-compact"]'), null, 'Policies was never opened')
     await type(view.el, 'known-cold turn')
@@ -343,10 +343,10 @@ test('§9 Agent settings: the Name row is found under Charter and opens it; ’ 
     await type(view.el, "agent's folder")
     const hit = hitByLabel(view.el, 'Name')
     assert.ok(hit, `the Name row is found by its help text (hits: ${hitLabels(view.el).join(' | ')})`)
-    assert.equal(placeOf(hit!).tab, 'Charter', 'it lives in the first tab now (USER 2026-11-10 "rows into tab")')
+    assert.equal(placeOf(hit!).tab, 'General', 'it lives in the first tab now (USER 2026-11-10 "rows into tab")')
     await inAct(() => { hit!.click() })
     await settle()
-    assert.equal(selectedTab(view.el), 'Charter', 'the hit opens the Charter tab')
+    assert.equal(selectedTab(view.el), 'General', 'the hit opens the General (charter) tab')
     const name = view.el.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!
     assert.equal(name.closest('.set-row')!.classList.contains(HL), true, 'and marks the Name row')
     await type(view.el, 'start fresh')
@@ -405,5 +405,39 @@ test('§14 Agent settings: Name, Agent actions and the restart note live in the 
     const settings = view.el.querySelector<HTMLElement>('.settings.cfg')!
     assert.equal([...settings.children].filter((c) => c.matches('.set-row, .set-hint, .set-group')).length, 0,
       'nothing but the search box and the tabs sits above the tab panels')
+  } finally { await view.unmount() }
+})
+
+// ------------------------------------------- the first tab is "General" (USER 2026-11-10 23:45:52Z m62522a70ecb4)
+
+const tabLabels = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => t.textContent?.trim() ?? '')
+
+test('§15 Org settings: the first tab reads "General" (id basic); search finds it by "general" and by its old name "basic"', async () => {
+  const { view, again } = await org()
+  try {
+    assert.equal(tabLabels(view.el)[0], 'General')
+    assert.equal(view.el.querySelector('[role="tab"][aria-selected="true"]')?.id.endsWith('-tab-basic'), true, 'the id stays basic')
+    for (const q of ['general', 'basic']) {
+      await type(view.el, q)
+      const tabs = [...new Set(hits(view.el).map((h) => placeOf(h).tab))]
+      assert.ok(tabs.includes('General'), `"${q}" finds the General tab's settings (tabs: ${tabs.join(' | ')})`)
+      await type(view.el, '')
+    }
+    await again({ tab: 'basic', field: 'name', seq: 7 })
+    assert.equal(selectedTab(view.el), 'General', 'a link to tab "basic" still lands on it')
+  } finally { await view.unmount() }
+})
+
+test('§16 Agent settings: the first tab reads "General" (id charter); search finds it by "general" and by its old name "charter"', async () => {
+  const view = await gear()
+  try {
+    assert.deepEqual(tabLabels(view.el).slice(0, 4), ['General', 'Model', 'Scope', 'Tools'])
+    assert.ok(view.el.querySelector('[role="tabpanel"][id$="-panel-charter"]'), 'the panel id stays charter')
+    for (const q of ['general', 'charter']) {
+      await type(view.el, `${q} name`)
+      const hit = hitByLabel(view.el, 'Name')
+      assert.ok(hit, `"${q} name" finds Name (hits: ${hitLabels(view.el).join(' | ')})`)
+      assert.equal(placeOf(hit!).tab, 'General')
+    }
   } finally { await view.unmount() }
 })
