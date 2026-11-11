@@ -60,7 +60,7 @@ const net=Object.freeze({connect,fetch:async(input,init)=>{const request=new Req
 const out=await call('engine.call',{action:'net.fetch',args:{url:request.url,method,headers:[...request.headers],...(bytes&&bytes.length?{body:b64(bytes)}:{})}});
 const headers=new Headers();for(const [name,value] of out.headers||[])try{headers.append(name,value)}catch{}
 const response=new Response(method==='HEAD'||[204,205,304].includes(out.status)?null:unb64(out.body||''),{status:out.status,headers});
-Object.defineProperties(response,{url:{value:out.url},redirected:{value:!!out.redirected}});return response}});
+Object.defineProperties(response,{url:{value:out.url},redirected:{value:!!out.redirected},login:{value:!!out.login}});return response}});
 Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,theme,files,net,on,events:Object.freeze({fire:(name,payload)=>call('engine.call',{action:'events.fire',args:{name,payload}})}),emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
 })();`.replace('CHANNEL',JSON.stringify(channel)).replace('THEME',()=>JSON.stringify({theme:theme.theme,css:theme.css}).replace(/</g,'\\u003c'))
   let csp=PANEL_CSP
