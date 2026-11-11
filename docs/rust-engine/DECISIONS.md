@@ -2501,3 +2501,17 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     route is unclassified. One org per token, no agent chat, node mailboxes, history, docket
     attachments or artifacts for viewers, no expiry in this version. Contract:
     [STANDALONE-ENGINE](STANDALONE-ENGINE.md#viewer-scoped-client-tokens-2026-11-11-4512).
+
+100. **Remote organizations: the local engine relays to a standalone engine** (USER 2026-11-11
+    09:28:17Z m959b850c2ab2 "connect a local orgtree install to a remote org running
+    headlessley"; 10:08:27Z mc7584bf16c13 "Accept all, build it" on the twelve design
+    recommendations; docket `remote-org-connect-the-desktop-app-to-an-org-run`). The user adds a
+    remote engine (address and token); its organizations appear in the org list, marked remote,
+    and open as ordinary windows. The local engine carries their requests and org socket to the
+    remote and attaches the token; the renderer and Electron main never hold it. The desktop makes
+    its own named client token there and keeps only that, sealed. Plain http is allowed only to
+    this computer, private networks and Tailscale. Full client tokens only (a viewer token is
+    refused), no queue of changes while offline, any version difference above the minimum connects
+    with a warning. Engine part first (2026-11-11): connections in `remote-engines.json`, the link,
+    the route classes with a coverage test, the HTTP and org-socket relay, `/api/remotes`.
+    Contract: [remote-org](remote-org.md).
