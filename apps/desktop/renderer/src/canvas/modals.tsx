@@ -299,6 +299,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
           <div>Windows: {dog.windows?.join(', ') || 'any window'}</div>
           <div>Events: {dog.usage_events?.join(', ') || 'all detectable usage edges'}</div>
           {dog.threshold_percent != null && <div>Threshold: {dog.threshold_percent}%</div>}
+          {dog.fable_pip_offset != null && <div>Fable pip offset: {dog.fable_pip_offset > 0 ? '+' : ''}{dog.fable_pip_offset} points</div>}
         </div>}
         {dog.kind === 'app_listener' ? <AppDogFields dog={dog} /> : <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}

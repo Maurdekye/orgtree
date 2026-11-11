@@ -9,6 +9,12 @@ import { appDogSummary } from './appdog'
 // Full target/pattern remain expanded below even if the lead needs a short form.
 const short = (text: string) => text.length > 160 ? text.slice(0, 159) + '…' : text
 
+/** A Fable pip dog's offset in words (engine: usage_eval.rs; the pip itself: fablepip.ts). */
+const pipPhrase = (offset: number): string => {
+  const n = Math.abs(offset), points = `${n} point${n === 1 ? '' : 's'}`
+  return offset < 0 ? `comes within ${points} of the Fable pip` : offset === 0 ? 'reaches the Fable pip' : `is ${points} past the Fable pip`
+}
+
 export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLease?:SlotClaimLeaseState) {
   const target = short(dog.target)
   const pattern = dog.pattern ? `matching /${short(dog.pattern)}/` : 'matching'
@@ -35,7 +41,9 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
   const counted = dog.target === 'agents.active' ? 'agents in turns' : 'live agents'
   let summary: string
   switch (dog.kind) {
-    case 'usage': summary = `Watches ${dog.accounts?.join(', ') || 'all visible accounts'} · ${dog.windows?.join(', ') || 'all windows'} and ${alert} on ${dog.usage_events?.join(', ') || 'usage edges'}${dog.threshold_percent != null ? ` at ${dog.threshold_percent}%` : ''}. Repeated readings do not fire; unknown readings never count as zero.`; break
+    case 'usage': summary = dog.fable_pip_offset != null
+      ? `Watches ${dog.accounts?.join(', ') || 'all visible Claude accounts'} and ${alert} when weekly usage ${pipPhrase(dog.fable_pip_offset)}. The pip moves with Fable usage; repeated readings do not fire; unknown readings never count as zero.`
+      : `Watches ${dog.accounts?.join(', ') || 'all visible accounts'} · ${dog.windows?.join(', ') || 'all windows'} and ${alert} on ${dog.usage_events?.join(', ') || 'usage edges'}${dog.threshold_percent != null ? ` at ${dog.threshold_percent}%` : ''}. Repeated readings do not fire; unknown readings never count as zero.`; break
     case 'file': summary = `Watches new ${dog.pattern ? `lines ${pattern}` : 'nonempty lines'} appended to ${target} and ${alert}.`; break
     case 'command': summary = `Runs “${target}” every ${dog.interval_s}s and ${alert} when an output line ${lineMatch}.`; break
     case 'process': summary = `Watches ${target} and ${alert} on an observed transition from up to down. A target already down must first be seen up.`; break

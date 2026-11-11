@@ -9,10 +9,10 @@ use super::*;
 const FIXED: [&str; 4] = ["kind", "owner", "project", "name"];
 
 /// Every field an edit may carry (besides `connection_messages` and `project_delivery`, which `configure` owns).
-const FIELDS: [&str; 24] = [
+const FIELDS: [&str; 25] = [
     "notice", "interval_s", "pattern", "fire_mode", "quiet_period_s", "once", "target", "shell", "hello", "heartbeat", "protocols",
     "credentials", "payload_pattern", "retained", "batch", "count", "slots", "threshold_percent", "usage_events", "windows",
-    "accounts", "fire_actions", "event_name", "panel",
+    "accounts", "fire_actions", "event_name", "panel", "fable_pip_offset",
 ];
 
 /// Does the call carry any field this module edits (or a fixed one, to refuse it)?
@@ -40,7 +40,7 @@ fn belongs(field: &str, kind: &str) -> bool {
         "batch" => kind == "fair_queue",
         "count" => kind == "listener_watch",
         "slots" => kind == "slot",
-        "threshold_percent" | "usage_events" | "windows" | "accounts" => kind == "usage",
+        "threshold_percent" | "usage_events" | "windows" | "accounts" | "fable_pip_offset" => kind == "usage",
         "fire_actions" => kind != "fair_queue",
         _ => false,
     }
@@ -81,12 +81,20 @@ fn has(args: &Value, k: &str) -> bool {
     args.get(k).is_some_and(|v| !v.is_null())
 }
 
-/// The usage config an edit leaves behind: the stored one with the given fields replaced, validated.
-/// STUB (red commit): the Fable-pip fields are not handled yet.
+/// The usage config an edit leaves behind: the stored one with the given fields replaced, validated. A dog stays
+/// in the mode it was created in: a pip dog cannot take threshold_percent/windows or lose its offset, and a plain
+/// dog cannot gain one (remove it and create a new one).
 #[nolog]
 fn merged_usage(existing: &Value, args: &Value) -> Result<Value> {
     let mut merged = if existing.is_object() { existing.clone() } else { json!({}) };
-    for key in ["threshold_percent", "usage_events", "windows", "accounts"] {
+    let was_pip = existing["fable_pip_offset"].is_number();
+    let offset = args.get("fable_pip_offset");
+    let sets = offset.is_some_and(|v| !v.is_null());
+    let clears = offset.is_some_and(Value::is_null);
+    if (!was_pip && sets) || (was_pip && (clears || has(args, "threshold_percent") || has(args, "windows"))) {
+        refuse!(BadRequest, "remove this dog and create a new one to switch pip mode");
+    }
+    for key in ["threshold_percent", "usage_events", "windows", "accounts", "fable_pip_offset"] {
         if has(args, key) {
             merged[key] = args[key].clone();
         }
@@ -396,17 +404,18 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
     if matches!(kind, "websocket" | "mqtt") && (given.iter().any(|k| matches!(*k, "hello" | "heartbeat" | "protocols" | "credentials" | "payload_pattern" | "retained" | "target")) || has(args, "pattern")) {
         net(engine, org_id, actor, dog, args, &scratch, &editor_name, new_target.as_deref(), pattern.as_deref(), &mut p, &mut target).await?;
     }
-    if kind == "usage" && given.iter().any(|k| matches!(*k, "threshold_percent" | "usage_events" | "windows" | "accounts")) {
+    if kind == "usage" && given.iter().any(|k| matches!(*k, "threshold_percent" | "usage_events" | "windows" | "accounts" | "fable_pip_offset")) {
         let validated = merged_usage(&dog.memo["usage"], args)?;
         let org = engine.orgs.by_id(org_id).map(|o| o.slug.clone()).unwrap_or_default();
         let rows = crate::tools::usage::watchdog_rows(engine, &org);
         if validated["accounts"].as_array().is_some_and(|ids| ids.iter().any(|id| !rows.iter().any(|r| r["account"] == *id))) {
             refuse!(Forbidden, "requested usage account is unavailable to this organization");
         }
+        usage::pip_accounts_ok(&validated, &rows)?;
         let (baseline, pending) = usage::initial(engine, org_id, dog.owner, &validated, &rows).await?;
         p.memo_set.push(("usage".into(), validated));
         p.memo_set.push(("run".into(), json!({ "usage": baseline, "usage_pending": pending, "usage_pending_fired": 0 })));
-        for k in ["threshold_percent", "usage_events", "windows", "accounts"] {
+        for k in ["threshold_percent", "usage_events", "windows", "accounts", "fable_pip_offset"] {
             if has(args, k) {
                 p.changed.push(k.into());
             }

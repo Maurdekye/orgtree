@@ -39,7 +39,7 @@ pub struct Plan {
 }
 
 const FIELDS: &[&str] = &["name", "kind", "target", "pattern", "shell", "interval_s", "fire_mode", "quiet_period_s", "once", "notice",
-    "threshold", "event_scope", "batch", "slots", "count", "fire_actions", "accounts", "windows", "usage_events", "threshold_percent",
+    "threshold", "event_scope", "batch", "slots", "count", "fire_actions", "accounts", "windows", "usage_events", "threshold_percent", "fable_pip_offset",
     "payload_pattern", "retained", "hello", "protocols", "heartbeat", "connection_messages"];
 
 #[nolog]
@@ -104,7 +104,7 @@ pub fn saved_dog(raw: &Value, names: &HashMap<String, bool>, inc: &Include, warn
         if let Some(v) = memo.get(key).filter(|v| !v.is_null()) { args[key] = v.clone(); }
     }
     if kind == "usage" {
-        for key in ["accounts", "windows", "usage_events", "threshold_percent"] {
+        for key in ["accounts", "windows", "usage_events", "threshold_percent", "fable_pip_offset"] {
             if let Some(v) = memo["usage"].get(key).filter(|v| !v.is_null()) { args[key] = v.clone(); }
         }
     }

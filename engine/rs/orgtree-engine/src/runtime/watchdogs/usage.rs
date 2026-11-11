@@ -3,7 +3,7 @@
 use super::*;
 use tokio::sync::mpsc::Receiver;
 
-pub const EVENTS: &[&str]=&["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen"];
+pub const EVENTS: &[&str]=&["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen","pip_reached","pip_cleared"];
 
 #[logged]
 pub(super) fn validate(args:&Value)->Result<Value> {
@@ -23,15 +23,38 @@ pub(super) fn validate(args:&Value)->Result<Value> {
         if v.as_f64().is_none_or(|n|!n.is_finite() || !(0.0..=100.0).contains(&n)){refuse!(BadRequest,"threshold_percent must be a number from 0 through 100");}
         config["threshold_percent"]=v.clone();
     }
+    let events_has=|config:&Value,names:&[&str]|config["usage_events"].as_array().is_some_and(|a|a.iter().any(|s|names.iter().any(|n|s==*n)));
+    if let Some(v)=args.get("fable_pip_offset").filter(|v|!v.is_null()) {
+        // Fable pip mode (docket usage-watchdog-fire-on-thresholds-relative-to-th): points relative to the pip
+        if v.as_f64().is_none_or(|n|!n.is_finite() || !(-50.0..=50.0).contains(&n)){refuse!(BadRequest,"fable_pip_offset must be a number from -50 through 50");}
+        if config.get("threshold_percent").is_some(){refuse!(BadRequest,"fable_pip_offset replaces threshold_percent; use one");}
+        if config.get("windows").is_some(){refuse!(BadRequest,"a pip dog reads the weekly and Fable weekly windows itself; omit windows");}
+        if events_has(&config,&["above","below"]){refuse!(BadRequest,"above/below need threshold_percent; a pip dog uses pip_reached/pip_cleared");}
+        config["fable_pip_offset"]=v.clone();
+        // the default is stored, so list shows what fires
+        if config.get("usage_events").is_none(){config["usage_events"]=json!(["pip_reached"]);}
+    } else if events_has(&config,&["pip_reached","pip_cleared"]) {
+        refuse!(BadRequest,"pip_reached/pip_cleared need fable_pip_offset");
+    }
     if config["usage_events"].as_array().is_some_and(|a|a.iter().any(|s|s=="above" || s=="below")) && config.get("threshold_percent").is_none() {
         refuse!(BadRequest,"above/below usage events require threshold_percent");
     }
     Ok(config)
 }
 
-/// A pip dog applies to Claude plan accounts only. STUB (red commit): nothing is refused yet.
+/// A pip dog applies to Claude plan accounts only: a NAMED account that is another provider's, or a Claude API key
+/// (no weekly windows, so the dog could never fire), is refused. Omitted accounts skip non-Claude rows silently.
 #[nolog]
-pub(super) fn pip_accounts_ok(_config:&Value,_rows:&[Value])->Result<()> {Ok(())}
+pub(super) fn pip_accounts_ok(config:&Value,rows:&[Value])->Result<()> {
+    if config["fable_pip_offset"].is_null() {return Ok(());}
+    for id in config["accounts"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        let Some(row)=rows.iter().find(|r|r["account"]==id) else {continue};
+        let provider=row["provider"].as_str().unwrap_or("");
+        if provider!="claude" {refuse!(BadRequest,"fable_pip_offset applies to Claude accounts only: {id} is {provider}");}
+        if row["quota"]=="unsupported" {refuse!(BadRequest,"fable_pip_offset needs a Claude plan with weekly limits: {id} has none");}
+    }
+    Ok(())
+}
 
 /// Called beside existing history storage. Raw provider documents are never
 /// invocation-logged or copied into an event; only the quota allowlist leaves.

@@ -100,6 +100,13 @@ repeating dog fires immediately once, then follows edges. Reset, recovered,
 account_added/removed and refused are edge-only. Existing dogs are not refired
 on upgrade. Unknown/stale is never zero or a crossing. Reset clocks report unknown
 new usage. Current reset/freshness/account changes are detected within 15s.
+
+Fable pip mode: add `fable_pip_offset` (-50..50 points, e.g. `-2` = within 2 points) to a
+Claude usage dog. It fires `pip_reached` when weekly (all models) usage reaches the
+account's Fable pip plus the offset (the pip moves with Fable usage), `pip_cleared`
+when it stops (opt-in). It excludes `threshold_percent` and `windows`; Claude plan accounts
+only; unknown or stale readings never fire. Switching a dog into or out of pip mode means
+removing it and creating a new one.
 OpenRouter spend caps use reported percent; uncapped balance has no percent.
 Mail names account/window, old/new percent, threshold, reset and observation
 times. Once/notice/pause/resume/remove work normally; resume seeds current

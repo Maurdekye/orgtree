@@ -21,6 +21,7 @@ import type { UsageLimit } from '../types'
  *   - no Fable weekly reading, or it is unknown or stale-unreadable (the
  *     caller's `known`: the same rule that decides whether that bar renders);
  *   - Fable is at 100% used: nothing is left to exhaust.
+ * The engine computes the same pip for usage watchdogs: engine/rs/orgtree-engine/src/usage/fable_pip.rs (keep the two in step).
  * Only Fable scopes count. Other providers' scoped windows (Gemini model
  * groups, Codex named limits) never produce a pip, because only Claude has
  * a Fable model.

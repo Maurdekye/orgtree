@@ -27,6 +27,18 @@ fresh reported percentage crosses 100%; it does not assert the account cannot
 spend extra credits. OpenRouter spend caps use their reported percentage;
 uncapped balances and metered API-key spend have no invented percentage.
 
+Fable pip mode (USER 2026-11-11 09:36:56Z m701db26da99c): `fable_pip_offset` (-50 through 50
+points) turns a usage dog into a pip dog. A Claude account's Fable pip sits at
+`50 + f/2` percent of its weekly (all models) bar, f being the Fable weekly
+percent used (the meter's pip; `usage/fable_pip.rs`). The dog fires
+`pip_reached` (the default event) when weekly >= pip + offset (-2 within 2
+points, 0 at the pip, 1 one point past) and `pip_cleared` when that stops being
+true (opt-in). It fires only on a fresh reading with both windows known and not
+expired; unknown never fires or re-arms. It excludes `threshold_percent` and
+`windows`, reads Claude plan accounts only (a named non-Claude or API-key
+account is refused), and cannot be switched into or out of pip mode by
+configure (remove it and create a new one). Same delivery as other usage dogs.
+
 Creation evaluates cached levels (above/below, limit, stale, unreadable and
 visible current usage-limit freezes). Ready one-shots return inline without
 a row/mail/wake; repeating dogs deliver their first fire immediately and then

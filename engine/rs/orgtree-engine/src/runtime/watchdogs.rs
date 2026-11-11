@@ -2908,14 +2908,15 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         if memo["usage"]["accounts"].as_array().is_some_and(|ids|ids.iter().any(|id|!rows.iter().any(|r|r["account"]==*id))) {
             refuse!(Forbidden,"requested usage account is unavailable to this organization");
         }
+        usage::pip_accounts_ok(&memo["usage"],&rows)?;
         if template.is_none() {
             let (baseline,pending)=usage::initial(engine,org_id,owner,&memo["usage"],&rows).await?;
             memo["run"]["usage"]=baseline;
             memo["run"]["usage_pending"]=json!(pending);
             memo["run"]["usage_pending_fired"]=json!(0);
         }
-    } else if ["accounts","windows","usage_events","threshold_percent"].iter().any(|k|args.get(k).is_some()) {
-        refuse!(BadRequest,"accounts/windows/usage_events/threshold_percent require kind usage");
+    } else if ["accounts","windows","usage_events","threshold_percent","fable_pip_offset"].iter().any(|k|args.get(k).is_some()) {
+        refuse!(BadRequest,"accounts/windows/usage_events/threshold_percent/fable_pip_offset require kind usage");
     }
     if kind == "event" {
         events::validate(&target,args)?;
@@ -3137,6 +3138,12 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let mut parked: Option<crate::mqtt::Parked> = None;
     let mut ws_parked: Option<crate::ws::Conn> = None;
     let mut smoked = if template.is_some() { json!({"skipped":"template import stages paused; no smoke or immediate effects"}) }
+        else if kind=="usage" && memo["usage"]["fable_pip_offset"].is_number() {
+            let offset=memo["usage"]["fable_pip_offset"].as_f64().unwrap_or(0.0);
+            let n=format!("{:.1}",offset.abs());let n=n.strip_suffix(".0").unwrap_or(&n).to_string();
+            let said=if offset==0.0 {String::new()} else {format!(" {} {n} point{}",if offset<0.0{"minus"}else{"plus"},if n=="1"{""}else{"s"})};
+            json!({"push":true,"note":format!("Cached levels evaluated now. Fires when weekly (all models) usage reaches the Fable pip{said}; the pip moves with Fable usage. No provider requests.")})
+        }
         else if kind=="usage" {json!({"push":true,"note":"Current cached levels evaluated now; future changes use edges. No provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
         else if let Some(c) = &mqtt_new { let (v, p) = mqtt::smoke(engine, owner, c).await; parked = p; v }
         else if let Some(c) = &ws_new { let (v, p) = websocket::smoke(engine, c).await; ws_parked = p; v }

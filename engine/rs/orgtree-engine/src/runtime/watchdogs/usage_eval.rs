@@ -26,6 +26,19 @@ pub(super) fn initial(state: &mut Value, rows: &[Value], config: &Value, now: Da
             } else {out.push(event("unreadable",row,w,None,None,threshold));}
         }
     }
+    // a pip dog's creation levels: met now is a `pip_reached` level, known and not met a `pip_cleared` one (the
+    // retain below drops the one that was not selected); an unknown pip says nothing
+    if let Some(offset)=pip_offset(config) {
+        for saved in state["accounts"].as_object().into_iter().flat_map(|a|a.values()) {
+            let row=&saved["row"];
+            let Some(r)=crate::usage::fable_pip::pip_percent(row,now) else {continue};
+            match saved["pip"]["met"].as_bool() {
+                Some(true)=>out.push(pip_event("pip_reached",row,&r,offset,None)),
+                Some(false)=>out.push(pip_event("pip_cleared",row,&r,offset,None)),
+                None=>{}
+            }
+        }
+    }
     out.retain(|e|selected(config,"usage_events",e["event"].as_str().unwrap_or("")));
     out.truncate(40);out
 }
@@ -47,6 +60,8 @@ pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: D
         let row=&current_row;
         let Some(id)=row["account"].as_str() else {continue};
         if !selected(config,"accounts",id){continue;}
+        // a pip dog reads Claude rows only: others neither add nor remove an account
+        if pip_offset(config).is_some() && row["provider"]!="claude" {continue;}
         let old=&state["accounts"][id];
         let status=if row["freshness"]=="stale" {"stale"} else if row["available"]!=true {"unreadable"} else {"ok"};
         let mut next=if old.is_object(){old.clone()}else{json!({"windows":{}})};
@@ -104,6 +119,7 @@ pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: D
             saved["baseline"]=if expired {Value::Null}else{json!(current)};
             next["windows"][&key]=saved;
         }}
+        if let Some(offset)=pip_offset(config) {pip_step(&mut next,row,offset,now,&mut out);}
         next["status"]=json!(status);next["observed_at"]=row["observed_at"].clone();next["row"]=row.clone();
         accounts[id]=next;
     }
@@ -124,8 +140,58 @@ pub(super) fn selected(config:&Value,key:&str,value:&str)->bool {
 
 #[nolog]
 fn window_selected(config:&Value,w:&Value)->bool {
+    // a pip dog reads the weekly (all models) and the Fable weekly windows itself
+    if pip_offset(config).is_some() && !(w["kind"]=="weekly_all" || crate::usage::fable_pip::is_fable_weekly("claude",w)) {return false;}
     config.get("windows").is_none_or(|v|v.as_array().is_some_and(|a|a.iter().any(|s|
         ["kind","group","label"].iter().any(|k|w[*k].as_str().is_some() && w[*k]==*s))))
+}
+
+/// The pip dog's offset in points, when the config is in pip mode.
+#[nolog]
+fn pip_offset(config:&Value)->Option<f64> {config["fable_pip_offset"].as_f64()}
+
+/// A number as the summaries show it: at most one decimal, a trailing `.0` dropped.
+#[nolog]
+fn num(x:f64)->String {let s=format!("{x:.1}");s.strip_suffix(".0").map(str::to_string).unwrap_or(s)}
+
+#[nolog]
+fn round2(x:f64)->f64 {(x*100.0).round()/100.0}
+
+/// One pip crossing for one account. Unknown readings change nothing (they neither fire nor re-arm); a known one
+/// fires on not-met-or-unknown to met, and on met to not met, then stores both for the next reading.
+#[nolog]
+fn pip_step(next:&mut Value,row:&Value,offset:f64,now:DateTime<Utc>,out:&mut Vec<Value>) {
+    let Some(r)=crate::usage::fable_pip::pip_percent(row,now) else {
+        if !next["pip"].is_object() {next["pip"]=json!({"met":null,"weekly":null});}
+        return;
+    };
+    let met=r.weekly>=r.pip+offset-1e-9;
+    let was_met=next["pip"]["met"]==true;
+    let old=next["pip"]["weekly"].as_f64();
+    if met && !was_met {out.push(pip_event("pip_reached",row,&r,offset,old));}
+    else if !met && was_met {out.push(pip_event("pip_cleared",row,&r,offset,old));}
+    next["pip"]=json!({"met":met,"weekly":r.weekly});
+}
+
+#[nolog]
+fn pip_event(name:&str,row:&Value,r:&crate::usage::fable_pip::PipReading,offset:f64,old:Option<f64>)->Value {
+    let account=row["account"].as_str().unwrap_or("");
+    let target=r.pip+offset;
+    let weekly=row["windows"].as_array().into_iter().flatten().find(|w|w["kind"]=="weekly_all").cloned().unwrap_or(Value::Null);
+    let d=r.weekly-r.pip;
+    let summary=if name=="pip_cleared" {
+        format!("{account} weekly {}% is back below {}% (Fable pip at {}%, Fable {}% used)",num(r.weekly),num(target),num(r.pip),num(r.fable))
+    } else {
+        let n=num(d.abs());
+        let place=if d.abs()<=1e-9 {"at the Fable pip".to_string()}
+            else {format!("{n} point{} {} the Fable pip",if n=="1"{""}else{"s"},if d<0.0{"before"}else{"past"})};
+        let at=if offset==0.0 {"pip".to_string()} else {format!("pip {}{}",if offset>0.0{"+"}else{"-"},num(offset.abs()))};
+        format!("{account} weekly {}% is {place} at {}% (Fable {}% used; fires at {at} = {}%)",num(r.weekly),num(r.pip),num(r.fable),num(target))
+    };
+    json!({"event":name,"account":row["account"],"window":"weekly_all","group":weekly["group"],"model":null,
+        "old_percent":old,"new_percent":r.weekly,"weekly_percent":r.weekly,"fable_percent":r.fable,
+        "pip_percent":round2(r.pip),"fable_pip_offset":offset,"target_percent":round2(target),"threshold_percent":null,
+        "resets_at":weekly["resets_at"],"observed_at":row["observed_at"],"summary":summary})
 }
 
 #[nolog]
