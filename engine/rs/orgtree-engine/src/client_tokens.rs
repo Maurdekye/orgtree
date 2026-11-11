@@ -261,8 +261,30 @@ pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
 #[nolog]
 pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> { std::fs::rename(from, to) }
 
+/// Windows sometimes refuses the registry's temp-file replace for a moment (an antivirus scan or the
+/// indexer holds the file: sharing or lock violation, or access denied). Retry a few times with a
+/// short growing wait on exactly those errors; any other error, and the last attempt, is returned.
+const REPLACE_ATTEMPTS: u32 = 6;
+
 #[nolog]
-fn replace_retrying(mut attempt: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> { attempt() }
+fn transient_replace_error(error: &std::io::Error) -> bool {
+    // ERROR_ACCESS_DENIED 5, ERROR_SHARING_VIOLATION 32, ERROR_LOCK_VIOLATION 33
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
+#[nolog]
+fn replace_retrying(mut attempt: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match attempt() {
+            Err(error) if tries + 1 < REPLACE_ATTEMPTS && transient_replace_error(&error) => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(15 * u64::from(tries)));
+            }
+            other => return other,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;
