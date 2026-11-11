@@ -17,7 +17,11 @@
 
 export interface OrgActivityRow { slug: string; name: string; working: number; live: number
   /** open questions + unread urgent mail + attention-flagged tickets (engine `attention`) */
-  attention: number }
+  attention: number
+  /** Set on an organization that runs on a remote engine (docs/rust-engine/remote-org.md): the
+   *  connection's name, and whether its link is connected. Counts of a link that is not connected
+   *  are the last ones it sent, so the list shows none. */
+  remote?: { name: string; connected: boolean } }
 export interface Rect { x: number; y: number; width: number; height: number }
 import { themeAccent, type VisualTheme } from '../../../packages/contracts/visual-theme'
 
@@ -46,7 +50,11 @@ export function orgActivityRows(raw: unknown): OrgActivityRow[] | null {
     // org list, so unavailable orgs must not become tray navigation links.
     if (row.state === 'unavailable') continue
     const attention = Number.isInteger(row.attention) && (row.attention as number) > 0 ? row.attention as number : 0
-    out.push({ slug: row.slug, name: row.name || row.slug, working, live: row.live as number, attention })
+    const entry: OrgActivityRow = { slug: row.slug, name: row.name || row.slug, working, live: row.live as number, attention }
+    // a malformed mark is no mark: the row still opens its organization
+    const mark = row.remote && typeof row.remote === 'object' ? row.remote as Record<string, unknown> : null
+    if (mark && typeof mark.name === 'string' && mark.name) entry.remote = { name: mark.name, connected: mark.state === 'connected' }
+    out.push(entry)
   }
   return out
 }
@@ -111,15 +119,19 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     ? '<div class="empty">The organization list is unavailable.</div>'
     : rows.length === 0
       ? '<div class="empty">No organizations yet.</div>'
-      : '<div class="list" tabindex="0" autofocus role="navigation" aria-label="Organizations">' + rows.map(r =>
-        `<a class="row${r.attention > 0 ? ' attn' : ''}" href="${TRAY_NAV_PREFIX}${escapeHtml(r.slug)}"` +
-        ` title="${escapeHtml(r.name)} — ${r.working} active / ${r.live} hired` +
-        `${r.attention > 0 ? ` — ${r.attention} need${r.attention === 1 ? 's' : ''} your attention` : ''}">` +
+      : '<div class="list" tabindex="0" autofocus role="navigation" aria-label="Organizations">' + rows.map(r => {
+        // an organization on a remote engine: its engine's name after its own, and no numbers
+        // while the link is not connected (they would be the last ones it sent)
+        const away = r.remote && !r.remote.connected
+        const where = r.remote ? ` — on ${escapeHtml(r.remote.name)} (remote engine)${away ? ', not connected' : ''}` : ''
+        return `<a class="row${r.attention > 0 ? ' attn' : ''}" href="${TRAY_NAV_PREFIX}${escapeHtml(r.slug)}"` +
+        ` title="${escapeHtml(r.name)}${away ? '' : ` — ${r.working} active / ${r.live} hired`}` +
+        `${r.attention > 0 ? ` — ${r.attention} need${r.attention === 1 ? 's' : ''} your attention` : ''}${where}">` +
         // an org with things waiting on the user: its number takes the spinner's cell
         `<span class="act">${r.attention > 0 ? `<b class="badge">${r.attention > 99 ? '99+' : r.attention}</b>`
           : r.working > 0 ? AUTORENEW_SVG : ''}</span>` +
-        `<span class="name">${escapeHtml(r.name)}</span>` +
-        `<span class="ct">${r.working}/${r.live}</span></a>`).join('') + '</div>'
+        `<span class="name">${escapeHtml(r.name)}${r.remote ? `<i class="on"> · ${escapeHtml(r.remote.name)}</i>` : ''}</span>` +
+        `<span class="ct">${away ? '–' : `${r.working}/${r.live}`}</span></a>` }).join('') + '</div>'
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">' +
     '<style>' +
@@ -135,6 +147,7 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     '.row:focus-visible{background:color-mix(in srgb,var(--accent) 15%,transparent);color:#fff;outline:none}' +
     '.name{overflow:hidden;text-overflow:ellipsis}' +
     '.ct{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a9a}' +
+    '.on{font-style:normal;color:#9a9a9a}' +
     '.act{display:inline-flex;align-items:center;justify-content:center}' +
     '.row.attn{background:color-mix(in srgb,var(--accent) 14%,transparent);color:#fff}' +
     '.row.attn .name{font-weight:600}' +
