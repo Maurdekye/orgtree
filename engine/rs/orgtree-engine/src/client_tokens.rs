@@ -52,7 +52,7 @@ fn full_scope() -> String { "full".into() }
 impl Record {
     fn scope(&self) -> Scope {
         match &self.org {
-            Some(org) if self.scope == "viewer" => Scope::Viewer { org: org.clone(), client_id: String::new() },
+            Some(org) if self.scope == "viewer" => Scope::Viewer { org: org.clone(), client_id: self.id.clone() },
             _ => Scope::Full,
         }
     }

@@ -360,8 +360,8 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
     // only the routes `viewer.rs` allows, never the language-server proxy or the credential bridge.
     if engine.cfg.standalone {
         if let Some(scope) = standalone_scope(&engine, &req) {
-            if let crate::client_tokens::Scope::Viewer { org, .. } = &scope {
-                if let Some(refusal) = viewer_refusal(&engine, &req, org) { return refusal; }
+            if let crate::client_tokens::Scope::Viewer { org, client_id } = &scope {
+                if let Some(refusal) = viewer_refusal(&engine, &req, org, client_id) { return refusal; }
             }
             req.extensions_mut().insert(scope);
         }
@@ -637,20 +637,20 @@ fn standalone_scope(engine: &Engine, req: &Request) -> Option<crate::client_toke
     found
 }
 
-/// The refusal a viewer token gets, or `None` when the request is allowed. The log names the
-/// method and the route's first segments only, never ids or query values.
+/// The refusal a viewer token gets, or `None` when the request is allowed. Both outcomes log the
+/// client id, the method and the trimmed route (`viewer::log_line`), never ids or query values.
 #[nolog]
-fn viewer_refusal(engine: &Engine, req: &Request, org: &str) -> Option<Response> {
+fn viewer_refusal(engine: &Engine, req: &Request, org: &str, client_id: &str) -> Option<Response> {
     let path = req.uri().path();
     let detail = if engine.orgs.get(org).is_none() {
         "this viewer token's org no longer exists"
     } else if viewer::viewer_allows(req.method(), path, org) {
+        tracing::info!("{}", viewer::log_line(client_id, req.method(), path, true));
         return None;
     } else {
         "this client token is read-only"
     };
-    let template: Vec<&str> = path.split('/').take(5).collect();
-    tracing::info!(method = %req.method(), route = %template.join("/"), "viewer client token refused");
+    tracing::info!("{}", viewer::log_line(client_id, req.method(), path, false));
     Some((StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": detail }))).into_response())
 }
 

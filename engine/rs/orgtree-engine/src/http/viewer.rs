@@ -261,6 +261,21 @@ fn matches(route: &str, segments: &[&str], org: &str) -> bool {
     segments.len() == pattern.len()
 }
 
-/// The audit line for one viewer request. STUB for the red commit.
+/// The audit line for one viewer request: the client id, the method and the route cut at
+/// `/api/<a>/<b>` (plus the fifth segment below `/api/orgs/{slug}`), never an id or a value.
 #[nolog]
-pub fn log_line(_client_id: &str, _method: &Method, _path: &str, _allowed: bool) -> String { String::new() }
+pub fn log_line(client_id: &str, method: &Method, path: &str, allowed: bool) -> String {
+    let mut segments = path.split('/').take(5);
+    let mut route = String::new();
+    let mut orgs = false;
+    for (at, segment) in segments.by_ref().enumerate() {
+        match at {
+            0 => {}
+            1 | 3 => { route.push('/'); route.push_str(segment); }
+            2 => { orgs = segment == "orgs"; route.push('/'); route.push_str(segment); }
+            // the fifth segment (`documents`, `nodes`, `mail`...) only below /api/orgs/{slug}
+            _ => if orgs { route.push('/'); route.push_str(segment); },
+        }
+    }
+    format!("viewer client token {client_id} {method} {route} {}", if allowed { "allowed" } else { "refused" })
+}
