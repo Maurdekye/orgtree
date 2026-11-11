@@ -53,8 +53,8 @@ pub(super) enum Polled {
 
 type Socket = tokio_tungstenite::WebSocketStream<Box<dyn Io>>;
 
-trait Io: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
-impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Io for T {}
+trait Io: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync> Io for T {}
 
 struct Conn {
     ws: Socket,
@@ -171,7 +171,9 @@ impl Carrier {
 
     #[cfg(test)]
     pub(super) fn with_time_div(div: u32) -> Self {
-        Carrier { div: div.max(1), ..Carrier::new() }
+        let mut c = Carrier::new();
+        c.div = div.max(1);
+        c
     }
 
     fn scaled(&self, d: Duration) -> Duration {
