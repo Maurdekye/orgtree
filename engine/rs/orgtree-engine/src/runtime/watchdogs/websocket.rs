@@ -198,7 +198,7 @@ enum Smoke {
 pub(super) async fn smoke(engine: &Arc<Engine>, c: &Created) -> (Value, Option<Conn>) {
     let extra_headers = c.feed_header.iter().map(|v| (crate::live_feed::AGENT_HEADER.to_string(), v.clone())).collect();
     let spec = Spec { endpoint: c.endpoint.clone(), protocols: c.protocols.clone(), hello: c.hello.clone(), heartbeat: c.heartbeat.clone(),
-                      pattern: c.pattern.clone(), source: c.source.clone(), extra_headers };
+                      pattern: c.pattern.clone(), source: c.source.clone(), extra_headers, dialer: None, whole: false };
     let mut conn = engine.dogs.ws.open(spec, &engine.shutdown);
     let url = c.endpoint.url();
     let deadline = Instant::now() + SMOKE;
@@ -399,7 +399,7 @@ impl Config {
     fn spec(&self, source: creds::Source, feed_header: Option<String>) -> Spec {
         Spec { endpoint: self.endpoint.clone(), protocols: self.protocols.clone(), hello: self.hello.clone(), heartbeat: self.heartbeat.clone(),
                pattern: self.pattern.clone(), source,
-               extra_headers: feed_header.into_iter().map(|v| (crate::live_feed::AGENT_HEADER.to_string(), v)).collect() }
+               extra_headers: feed_header.into_iter().map(|v| (crate::live_feed::AGENT_HEADER.to_string(), v)).collect(), dialer: None, whole: false }
     }
 }
 

@@ -94,6 +94,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0084_org_inbox_projects", include_str!("../migrations/0084_org_inbox_projects.sql")),
     ("0085_org_inbox_waiting", include_str!("../migrations/0085_org_inbox_waiting.sql")),
     ("0086_app_private_sites", include_str!("../migrations/0086_app_private_sites.sql")),
+    ("0087_app_site_secrets", include_str!("../migrations/0087_app_site_secrets.sql")),
 ];
 
 #[cfg(test)]

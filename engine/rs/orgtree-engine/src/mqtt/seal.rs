@@ -70,11 +70,17 @@ pub fn load_or_create(dir: &Path) -> Result<Key, String> {
 /// and tag. The row is authenticated, so a blob moved to another dog fails.
 #[nolog]
 pub fn seal(key: &Key, row: i64, plain: &[u8]) -> Result<Vec<u8>, String> {
+    seal_with_aad(key, &aad(row), plain)
+}
+
+/// `plain` sealed under a caller-chosen AAD (saved app logins bind org, app and site, apps/logins.rs).
+#[nolog]
+pub fn seal_with_aad(key: &Key, aad: &[u8], plain: &[u8]) -> Result<Vec<u8>, String> {
     let k = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &key.0).map_err(|_| "bad sealing key".to_string())?);
     let mut nonce = [0u8; NONCE_LEN];
     SystemRandom::new().fill(&mut nonce).map_err(|_| "no system randomness for a nonce".to_string())?;
     let mut buf = plain.to_vec();
-    k.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(aad(row)), &mut buf)
+    k.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(aad), &mut buf)
         .map_err(|_| "sealing failed".to_string())?;
     let mut out = Vec::with_capacity(1 + NONCE_LEN + buf.len());
     out.push(VERSION);
@@ -86,6 +92,12 @@ pub fn seal(key: &Key, row: i64, plain: &[u8]) -> Result<Vec<u8>, String> {
 /// The plaintext of [`seal`]'s output, or why it cannot be opened.
 #[nolog]
 pub fn unseal(key: &Key, row: i64, sealed: &[u8]) -> Result<Vec<u8>, String> {
+    unseal_with_aad(key, &aad(row), sealed)
+}
+
+/// The plaintext of [`seal_with_aad`]'s output under the same AAD.
+#[nolog]
+pub fn unseal_with_aad(key: &Key, aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, String> {
     if sealed.len() < 1 + NONCE_LEN + AES_256_GCM.tag_len() || sealed[0] != VERSION {
         return Err("the sealed credentials are not in a known format".into());
     }
@@ -93,7 +105,7 @@ pub fn unseal(key: &Key, row: i64, sealed: &[u8]) -> Result<Vec<u8>, String> {
     let nonce: [u8; NONCE_LEN] = sealed[1..1 + NONCE_LEN].try_into().map_err(|_| "bad nonce".to_string())?;
     let mut buf = sealed[1 + NONCE_LEN..].to_vec();
     let plain = k
-        .open_in_place(Nonce::assume_unique_for_key(nonce), Aad::from(aad(row)), &mut buf)
+        .open_in_place(Nonce::assume_unique_for_key(nonce), Aad::from(aad), &mut buf)
         .map_err(|_| "the sealed credentials do not open with this data folder's key (made on another machine, or altered)".to_string())?;
     Ok(plain.to_vec())
 }
@@ -248,13 +260,3 @@ mod tests {
     }
 }
 
-/// RED STUB (piece 3): `seal` under a caller-chosen AAD.
-#[nolog]
-pub fn seal_with_aad(_key: &Key, _aad: &[u8], _plain: &[u8]) -> Result<Vec<u8>, String> {
-    unimplemented!("red stub")
-}
-/// RED STUB (piece 3).
-#[nolog]
-pub fn unseal_with_aad(_key: &Key, _aad: &[u8], _sealed: &[u8]) -> Result<Vec<u8>, String> {
-    unimplemented!("red stub")
-}

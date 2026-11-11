@@ -518,6 +518,19 @@ pub fn validate_fetch(f: &Fetch) -> Result<()> {
 /// to such an address cannot be used to reach it). IP literals are classified
 /// directly.
 #[nolog]
+/// The vetted address an app channel dials, for one attempt (the request path does the same per hop).
+pub async fn dial_target(host: &str, port: u16, pins: Option<&[IpAddr]>) -> Result<SocketAddr> {
+    if let Some((judged, dial)) = test_private_route(host) {
+        vet_addresses(&site_key(host, port), &[judged], pins)?;
+        return Ok(dial);
+    }
+    let (addr, _) = tokio::time::timeout(CONNECT_TIMEOUT, resolve_vetted(host, port, pins))
+        .await
+        .map_err(|_| crate::domain::UserError::BadRequest("app internet request timed out after 30 seconds".into()))??;
+    Ok(addr)
+}
+
+#[nolog]
 async fn resolve_vetted(
     host: &str,
     port: u16,
@@ -651,8 +664,13 @@ pub async fn fetch_with(f: Fetch, access: &Access<'_>) -> Result<Fetched> {
 }
 /// etch_with, plus the saved login the engine attaches to the request's own site (spec 4.4). login(host, port)\n/// is asked on every hop, so a login never leaves the site it was saved for.
 #[nolog]
-pub async fn fetch_full(mut f: Fetch, access: &Access<'_>, _login: &(dyn Fn(&str, u16) -> Option<(String, String)> + Sync)) -> Result<Fetched> {
+pub async fn fetch_full(
+    mut f: Fetch,
+    access: &Access<'_>,
+    login: &(dyn Fn(&str, u16) -> Option<(String, String)> + Sync),
+) -> Result<Fetched> {
     let allow = access.allow;
+    let mut login_used = false;
     validate_fetch(&f)?;
     let deadline = tokio::time::Instant::now() + REQUEST_TIMEOUT;
     let left = || {
@@ -720,8 +738,23 @@ pub async fn fetch_full(mut f: Fetch, access: &Access<'_>, _login: &(dyn Fn(&str
             crate::domain::UserError::BadRequest("unsupported app internet method".into())
         })?;
         let mut req = client.request(method, f.url.clone());
+        // The saved login of THIS hop's exact site replaces any header of that name the app set. The app's
+        // own list is never changed, so a redirect to another site cannot carry the login along.
+        let attach = login(&host, port);
+        login_used |= attach.is_some();
+        let own = attach.as_ref().map(|(name, _)| name.as_str());
         for (name, value) in &f.headers {
+            if own.is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                continue;
+            }
             req = req.header(name.as_str(), value.as_str());
+        }
+        if let Some((name, value)) = &attach {
+            let mut value = reqwest::header::HeaderValue::from_str(value).map_err(|_| {
+                crate::domain::UserError::BadRequest("the saved login is not a valid header value".into())
+            })?;
+            value.set_sensitive(true);
+            req = req.header(name.as_str(), value);
         }
         if let Some(body) = f.body.clone() {
             req = req.body(body);
@@ -806,7 +839,7 @@ pub async fn fetch_full(mut f: Fetch, access: &Access<'_>, _login: &(dyn Fn(&str
             body,
             final_url,
             redirected: hop > 0,
-            login: false,
+            login: login_used,
         });
     }
     crate::refuse!(
@@ -851,9 +884,17 @@ async fn bounded_body(response: reqwest::Response) -> Result<Vec<u8>> {
 pub struct Registry {
     apps: Mutex<HashMap<(i64, String), AppNet>>,
 }
+/// One live channel (channel.rs) next to the requests in flight, so a revoke reaches both (spec 5.6).
+struct ChannelSlot {
+    panel: String,
+    generation: i64,
+    site: String,
+    shared: std::sync::Arc<super::channel::Shared>,
+}
 #[derive(Default)]
 struct AppNet {
     once: HashSet<(String, i64, String)>,
+    channels: Vec<ChannelSlot>,
     inflight: HashMap<u64, (String, CancellationToken)>,
     recent: VecDeque<Instant>,
     next: u64,
@@ -890,6 +931,7 @@ impl Registry {
         let now = Instant::now();
         apps.retain(|_, a| {
             !a.inflight.is_empty()
+                || !a.channels.is_empty()
                 || !a.once.is_empty()
                 || a.recent
                     .back()
@@ -992,6 +1034,68 @@ impl Registry {
                 }
             }
             state.once.retain(|(p, ..)| panel.is_some_and(|x| x != p));
+            for slot in &state.channels {
+                if panel.is_none_or(|x| x == slot.panel) {
+                    slot.shared.end("revoked");
+                }
+            }
+        }
+    }
+    /// Open a channel for this copy: 4 per app and 2 per copy (closed ones no longer count).
+    #[nolog]
+    pub fn open_channel(
+        &self,
+        org: i64,
+        app: &str,
+        panel: &str,
+        generation: i64,
+        site: &str,
+        secure: bool,
+        private: bool,
+    ) -> Result<(std::sync::Arc<super::channel::Shared>, CancellationToken)> {
+        let mut apps = self.lock()?;
+        let a = apps.entry((org, app.to_owned())).or_default();
+        let live = |c: &&ChannelSlot| !c.shared.is_closed();
+        if a.channels.iter().filter(live).count() >= super::channel::PER_APP {
+            crate::refuse!(Conflict, "an app may have at most 4 open channels");
+        }
+        if a.channels.iter().filter(live).filter(|c| c.panel == panel).count() >= super::channel::PER_PANEL {
+            crate::refuse!(Conflict, "a panel copy may have at most 2 open channels");
+        }
+        a.next += 1;
+        let id = format!("c{}", a.next);
+        let cancel = CancellationToken::new();
+        let shared = super::channel::Shared::new(id, site.to_owned(), secure, private, cancel.clone());
+        a.channels.push(ChannelSlot { panel: panel.to_owned(), generation, site: site.to_owned(), shared: shared.clone() });
+        Ok((shared, cancel))
+    }
+    /// The channel `id` of this running copy; another copy, another run, another app never finds it.
+    #[nolog]
+    pub fn channel(&self, org: i64, app: &str, panel: &str, generation: i64, id: &str) -> Result<std::sync::Arc<super::channel::Shared>> {
+        let apps = self.lock()?;
+        apps.get(&(org, app.to_owned()))
+            .and_then(|a| a.channels.iter().find(|c| c.shared.id == id && c.panel == panel && c.generation == generation))
+            .map(|c| c.shared.clone())
+            .ok_or_else(|| crate::domain::UserError::NotFound("no such channel".into()).into())
+    }
+    /// Forget a finished channel (after its tombstone).
+    #[nolog]
+    pub fn drop_channel(&self, org: i64, app: &str, id: &str) {
+        if let Ok(mut apps) = self.apps.lock() {
+            if let Some(a) = apps.get_mut(&(org, app.to_owned())) {
+                a.channels.retain(|c| c.shared.id != id);
+            }
+        }
+    }
+    /// Close this app's channels to one site (a saved-login change; spec 5.5).
+    #[nolog]
+    pub fn close_site_channels(&self, org: i64, app: &str, site: &str, reason: &str) {
+        if let Ok(apps) = self.apps.lock() {
+            for slot in apps.get(&(org, app.to_owned())).into_iter().flat_map(|a| &a.channels) {
+                if slot.site == site {
+                    slot.shared.end(reason);
+                }
+            }
         }
     }
     /// Hide ends a copy's "Allow once" answers; its requests in flight finish.
@@ -1001,6 +1105,9 @@ impl Registry {
             for ((o, _), state) in apps.iter_mut() {
                 if *o == org {
                     state.once.retain(|(p, ..)| p != panel);
+                    for slot in state.channels.iter().filter(|c| c.panel == panel) {
+                        slot.shared.end("hidden");
+                    }
                 }
             }
         }

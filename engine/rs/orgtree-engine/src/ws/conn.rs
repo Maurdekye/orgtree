@@ -158,9 +158,23 @@ impl Task {
             Ok(r) => r,
             Err(e) => return failed(true, e),
         };
+        // An app channel decides the address and headers anew for every attempt.
+        let pinned = match &self.spec.dialer {
+            Some(dialer) => {
+                let asked = tokio::select! {
+                    _ = cancel.cancelled() => return End::Cancelled,
+                    r = dialer() => r,
+                };
+                match asked {
+                    Ok(d) => Some(d),
+                    Err(why) => return failed(true, why),
+                }
+            }
+            None => None,
+        };
         let dialed = tokio::select! {
             _ = cancel.cancelled() => return End::Cancelled,
-            r = tokio::time::timeout(self.timing.connect_timeout, dial(&self.spec, &resolved)) => r,
+            r = tokio::time::timeout(self.timing.connect_timeout, dial(&self.spec, &resolved, pinned.as_ref())) => r,
         };
         let (mut ws, protocol) = match dialed {
             Err(_) => return failed(false, format!("no answer from the server within the {} s connect timeout", self.timing.connect_timeout.as_secs())),
@@ -274,7 +288,8 @@ impl Task {
             Some(re) => re.is_match(t).unwrap_or(false),
         };
         if hit {
-            self.deliver(Message { at, text: Some(cap(t, KEEP_TEXT).to_string()), size: t.len() });
+            let kept = if self.spec.whole { t.to_string() } else { cap(t, KEEP_TEXT).to_string() };
+            self.deliver(Message { at, text: Some(kept), size: t.len() });
         }
     }
 
@@ -341,9 +356,13 @@ async fn goodbye(ws: &mut Ws) {
 /// `#[nolog]`: the URL it dials carries the credential query, the request
 /// the credential headers.
 #[nolog]
-async fn dial(spec: &Spec, r: &creds::Resolved) -> Result<(Ws, Option<String>), End> {
+async fn dial(spec: &Spec, r: &creds::Resolved, pinned: Option<&super::Dial>) -> Result<(Ws, Option<String>), End> {
     let ep = &spec.endpoint;
-    let tcp = TcpStream::connect((ep.host.as_str(), ep.port)).await.map_err(|e| io_end(&e))?;
+    let tcp = match pinned {
+        Some(p) => TcpStream::connect(p.addr).await,
+        None => TcpStream::connect((ep.host.as_str(), ep.port)).await,
+    }
+    .map_err(|e| io_end(&e))?;
     let _ = tcp.set_nodelay(true);
     let io: Box<dyn Io> = match &r.tls {
         None => Box::new(tcp),
@@ -359,7 +378,7 @@ async fn dial(spec: &Spec, r: &creds::Resolved) -> Result<(Ws, Option<String>), 
     for (k, v) in &r.headers {
         req = req.with_header(k.clone(), v.expose().to_string());
     }
-    for (k, v) in &spec.extra_headers {
+    for (k, v) in spec.extra_headers.iter().chain(pinned.iter().flat_map(|p| p.headers.iter())) {
         req = req.with_header(k.clone(), v.clone());
     }
     for p in &spec.protocols {

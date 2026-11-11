@@ -17,11 +17,27 @@ pub enum Action {
     /// engine makes for the app. headers are [name,value] pairs; body is
     /// standard base64.
     #[serde(rename="net.fetch")] NetFetch { url:String, #[serde(default="default_method")] method:String, #[serde(default)] headers:Vec<(String,String)>, #[serde(default)] body:Option<String> },
+    /// The live channel (spec section 5): connect opens a WebSocket the engine holds for the app; recv is its long poll,
+    /// send and close act on it. A channel exists only while the app is permitted, so the three controls need no new decision.
+    #[serde(rename="net.connect")] NetConnect { url:String, #[serde(default)] protocols:Vec<String> },
+    #[serde(rename="net.recv")] NetRecv { channel:String, #[serde(default)] after:u64 },
+    #[serde(rename="net.send")] NetSend { channel:String, text:String },
+    #[serde(rename="net.close")] NetClose { channel:String },
 }
 #[nolog] fn default_method()->String{"GET".into()}
 impl Action {
-    #[nolog] pub fn capability(&self)->&'static str {match self{Self::OrgRead{..}=>"org.read",Self::DocketCreate{..}=>"docket.write",Self::EventsFire{..}=>"events.fire",Self::NetFetch{..}=>super::net::CAPABILITY}}
+    #[nolog] pub fn capability(&self)->&'static str {match self{Self::OrgRead{..}=>"org.read",Self::DocketCreate{..}=>"docket.write",Self::EventsFire{..}=>"events.fire",Self::NetFetch{..}|Self::NetConnect{..}|Self::NetRecv{..}|Self::NetSend{..}|Self::NetClose{..}=>super::net::CAPABILITY}}
     #[nolog] pub fn validate(&self)->Result<()> {
+        match self{
+            Self::NetConnect{url,protocols}=>{
+                crate::ws::parse_target(url).map_err(crate::domain::UserError::BadRequest)?;
+                if protocols.len()>crate::ws::PROTOCOLS_MAX||protocols.iter().any(|p|p.is_empty()||p.len()>64||!p.bytes().all(|b|b.is_ascii_alphanumeric()||b"._-+".contains(&b))){crate::refuse!(BadRequest,"a channel offers at most {} subprotocols of plain token characters",crate::ws::PROTOCOLS_MAX);}
+                return Ok(());
+            },
+            Self::NetRecv{channel,..}|Self::NetClose{channel}=>{channel_id(channel)?;return Ok(());},
+            Self::NetSend{channel,text}=>{channel_id(channel)?;if text.len()>super::channel::SEND_MAX{crate::refuse!(BadRequest,"a channel message is at most 64 KiB");}return Ok(());},
+            _=>{}
+        }
         if let Self::NetFetch{..}=self{
             if serde_json::to_vec(self)?.len()>super::net::BRIDGE_INPUT_MAX{crate::refuse!(BadRequest,"app internet request exceeds 1 MiB of body");}
             self.to_fetch()?;return Ok(());
@@ -31,7 +47,7 @@ impl Action {
             Self::OrgRead{after,limit}=>{if after.is_some_and(|v|v<0)||limit.is_some_and(|v|!(1..=200).contains(&v)){crate::refuse!(BadRequest,"invalid app chart page");}},
             Self::DocketCreate{title,objective,owner}=>{wire::text(title,200,"title",false)?;recipient(owner)?;if objective.trim().is_empty()||objective.contains('\0'){crate::refuse!(BadRequest,"app work needs a description");}},
             Self::EventsFire{name,payload}=>{wire::text(name,80,"app event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;},
-            Self::NetFetch{..}=>{},
+            Self::NetFetch{..}|Self::NetConnect{..}|Self::NetRecv{..}|Self::NetSend{..}|Self::NetClose{..}=>{},
         }Ok(())
     }
     /// The checked request an internet action makes.
@@ -44,10 +60,15 @@ impl Action {
     }
     /// The host and port an internet action asks for; None for other actions.
     #[nolog] fn net_target(&self)->Result<Option<(String,u16)>> {
+        if let Self::NetConnect{url,..}=self{
+            let ep=crate::ws::parse_target(url).map_err(crate::domain::UserError::BadRequest)?;
+            return Ok(Some((ep.host,ep.port)));
+        }
         let Self::NetFetch{url,..}=self else{return Ok(None);};
         let url=reqwest::Url::parse(url).map_err(|_|crate::domain::UserError::BadRequest("invalid app internet URL".into()))?;Ok(Some(super::net::url_host_port(&url)?))
     }
 }
+#[nolog] fn channel_id(id:&str)->Result<()> {if id.is_empty()||id.len()>32||!id.bytes().all(|b|b.is_ascii_alphanumeric()){crate::refuse!(BadRequest,"invalid channel id");}Ok(())}
 #[nolog] fn recipient(name:&str)->Result<()> {
     wire::text(name,120,"agent name",false)?;
     if name.starts_with('@')||name.contains(':')||name.contains('/')||["user","system"].contains(&name){crate::refuse!(Forbidden,"apps target live local agents only; no user, project or outside recipient");}Ok(())
@@ -186,29 +207,63 @@ fn prompt(bound:&Bound,value:&Value,action:&Action,challenge:&str)->Result<Value
         out["request"]=json!({"action":super::net::CAPABILITY,"method":method,"url":url});
         out["site"]=json!(super::policy::net_site(value,&host,port));out["host"]=json!(super::net::site_key(&host,port));
     }
+    if let (Action::NetConnect{url,..},Some((host,port)))=(action,action.net_target()?){
+        // The prompt shows the channel's address without its query.
+        let shown=crate::ws::parse_target(url).map(|e|e.base()).unwrap_or_default();
+        out["request"]=json!({"action":"net.connect","method":"WEBSOCKET","url":shown});
+        out["site"]=json!(super::policy::net_site(value,&host,port));out["host"]=json!(super::net::site_key(&host,port));
+    }
     Ok(out)
 }
 /// A bridge body is bounded by its action: an internet request carries up to
 /// 1 MiB of base64 body; everything else keeps the event bound.
 #[nolog]
-fn input_max(input:&Value)->usize {if input["request"]["action"]==super::net::CAPABILITY{super::net::BRIDGE_INPUT_MAX}else{wire::EVENT_MAX+8192}}
-struct NetCall<'a> {fetch:super::net::Fetch,value:Value,once:std::collections::HashSet<String>,ticket:super::net::Ticket<'a>}
+fn input_max(input:&Value)->usize {if input["request"]["action"]==super::net::CAPABILITY{super::net::BRIDGE_INPUT_MAX}else if input["request"]["action"]=="net.send"{256*1024}else{wire::EVENT_MAX+8192}}
+struct NetCall<'a> {fetch:super::net::Fetch,value:Value,once:std::collections::HashSet<String>,ticket:super::net::Ticket<'a>,login:Option<SiteLogin>}
+/// The saved login of the request's exact site, read for this call: its host and port, and the one header the engine attaches.
+pub(super) struct SiteLogin {pub host:String,pub port:u16,pub header:(String,String)}
+/// The login the engine attaches to this request (spec 4.4): only for a site with a stored Allow or private-network Allow
+/// on its exact declared row, never for "Allow once" or a capability-level Allow, and only if one is saved. The value is
+/// opened here and goes to `fetch_full`; it is never returned or logged.
+#[nolog]
+pub(super) async fn site_login(engine:&Engine,bound:&Bound,value:&Value,host:&str,port:u16)->Result<Option<SiteLogin>> {
+    let (host,port)=(host.to_owned(),port);
+    if super::policy::net_decision(value,&host,port).ok()!=Some("allow"){return Ok(None);}
+    let site=super::policy::net_site(value,&host,port);
+    if !super::logins::site_allows_login(value,&site)||super::net::host_port(&site)?!=(host.clone(),port){return Ok(None);}
+    let client=engine.db.get().await?;
+    let Some(row)=client.query_opt("SELECT sealed FROM ot.app_site_secrets WHERE org_id=$1 AND app_id=$2 AND site=$3",&[&bound.org,&bound.app,&site]).await? else{return Ok(None);};
+    let sealed:Vec<u8>=row.get(0);drop(client);
+    let key=engine.dogs.mqtt.key(&engine.cfg.data_root.join("secrets")).map_err(|e|crate::domain::user_err(crate::domain::UserError::Unprocessable,format!("saved logins are unavailable: {e}")))?;
+    let login=super::logins::open(&key,bound.org,&bound.app,&site,&sealed)?;
+    Ok(Some(SiteLogin{host,port,header:login.header()}))
+}
 /// Under the app gate: the request, the grant snapshot its redirects are checked
 /// against, and its admission (rate, concurrency, abort handle).
 #[nolog]
-fn admit_fetch<'a>(engine:&'a Engine,bound:&Bound,value:Value,action:&Action)->Result<NetCall<'a>> {
+async fn admit_fetch<'a>(engine:&'a Engine,bound:&Bound,value:Value,action:&Action)->Result<NetCall<'a>> {
+    let login=match action.net_target()?{Some((host,port))=>site_login(engine,bound,&value,&host,port).await?,None=>None};
     let fetch=action.to_fetch()?;let once=engine.custom_apps.net.once(bound.org,&bound.app,&bound.panel,bound.generation)?;
-    let ticket=engine.custom_apps.net.admit(bound.org,&bound.app,&bound.panel)?;Ok(NetCall{fetch,value,once,ticket})
+    let ticket=engine.custom_apps.net.admit(bound.org,&bound.app,&bound.panel)?;Ok(NetCall{fetch,value,once,ticket,login})
 }
 /// A request that no answer can allow is refused without a prompt (spec 3.3): plain http, or an address on a
 /// private network or this machine. Private access is only ever granted in the app's settings (USER ruling
 /// 2026-11-11, spec question 1). A host that does not resolve here is left to the request itself.
 #[nolog]
 async fn refuse_unpromptable(action:&Action)->Result<()> {
-    let Action::NetFetch{url,..}=action else{return Ok(());};
-    let url=reqwest::Url::parse(url).map_err(|_|crate::domain::UserError::BadRequest("invalid app internet URL".into()))?;
-    if url.scheme()!="https"{crate::refuse!(BadRequest,"app internet requests must use https; plain http only reaches a private site allowed in the app's settings");}
-    let (host,port)=super::net::url_host_port(&url)?;
+    let (host,port)=match action{
+        Action::NetFetch{url,..}=>{
+            let url=reqwest::Url::parse(url).map_err(|_|crate::domain::UserError::BadRequest("invalid app internet URL".into()))?;
+            if url.scheme()!="https"{crate::refuse!(BadRequest,"app internet requests must use https; plain http only reaches a private site allowed in the app's settings");}
+            super::net::url_host_port(&url)?
+        },
+        Action::NetConnect{url,..}=>{
+            let ep=crate::ws::parse_target(url).map_err(crate::domain::UserError::BadRequest)?;
+            if !ep.tls{crate::refuse!(BadRequest,"app channels must use wss://; plain ws:// only reaches a private site allowed in the app's settings");}
+            (ep.host,ep.port)
+        },
+        _=>return Ok(()),
+    };
     let Ok(ips)=super::net::resolve_ips(&host,port).await else{return Ok(());};
     if ips.iter().any(|ip|super::net::classify(*ip)!=super::net::Class::Public){
         crate::refuse!(Forbidden,"{} is on a private network; allow it in the app's settings (Permissions)",super::net::site_key(&host,port));
@@ -220,17 +275,18 @@ async fn refuse_unpromptable(action:&Action)->Result<()> {
 async fn net_fetch(bound:&Bound,call:NetCall<'_>)->Result<Value> {
     use base64::Engine as _;
     tracing::info!(app=%bound.app,panel=%bound.panel,capability=super::net::CAPABILITY,"app action dispatch");
-    let NetCall{fetch,value,once,ticket}=call;
+    let NetCall{fetch,value,once,ticket,login}=call;
     let allow=|host:&str,port:u16|match super::policy::net_decision(&value,host,port){Ok("allow")=>true,Ok(_)=>once.contains(&super::policy::net_site(&value,host,port)),Err(_)=>false};
     // Only an exact site the user allowed on the private network may use plain http or a private address (spec 3.3).
     let private=|host:&str,port:u16|super::policy::private_pins(&value,host,port);
     let access=super::net::Access{allow:&allow,private:&private};
+    let attach=|host:&str,port:u16|login.as_ref().filter(|l|l.host==host&&l.port==port).map(|l|l.header.clone());
     let done=crate::trace::private_app(async{tokio::select!{
         _=ticket.cancel.cancelled()=>Err(anyhow::Error::from(crate::domain::UserError::Forbidden("app internet request was stopped: its permission changed, or its panel was stopped or changed".into()))),
-        out=super::net::fetch_with(fetch,&access)=>out,
+        out=super::net::fetch_full(fetch,&access,&attach)=>out,
     }}).await;
     drop(ticket);let f=done?;
-    Ok(json!({"status":f.status,"headers":f.headers,"body":base64::engine::general_purpose::STANDARD.encode(&f.body),"url":f.final_url,"redirected":f.redirected}))
+    Ok(json!({"status":f.status,"headers":f.headers,"body":base64::engine::general_purpose::STANDARD.encode(&f.body),"url":f.final_url,"redirected":f.redirected,"login":f.login}))
 }
 
 /// A removed app action fails with directions, not a parse error (user 2026-10-26:
@@ -257,12 +313,18 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
         Request::SessionClose{session}=>{let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;engine.custom_apps.close(org.id,&session)?;Ok(json!({"closed":true}))},
         Request::Call{session,request:action}=>{
             action.validate()?;let bound=engine.custom_apps.bound(org.id,&session)?;
+            // A channel's controls: its poll must not hold the app gate, and none of it needs a new decision, since a
+            // channel closes the moment its permission goes. The session and run are still checked.
+            if matches!(action,Action::NetRecv{..}|Action::NetSend{..}|Action::NetClose{..}){
+                {let _guard=bound.gate.lock.lock().await;engine.custom_apps.bound(org.id,&session)?;snapshot(engine,&bound).await?;}
+                return super::channel::control(engine,&bound,&action).await;
+            }
             let call={
                 let _guard=bound.gate.lock.lock().await;
                 engine.custom_apps.bound(org.id,&session)?;let value=snapshot(engine,&bound).await?;let mode=mode(engine,&bound,&value,&action)?;
                 if mode=="ask"{refuse_unpromptable(&action).await?;interactive(&value)?;let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":prompt(&bound,&value,&action,&id)?}));}
                 if !matches!(action,Action::NetFetch{..}){return execute(engine,org,&bound,&action).await;}
-                admit_fetch(engine,&bound,value,&action)?
+                admit_fetch(engine,&bound,value,&action).await?
             };
             net_fetch(&bound,call).await
         },
@@ -285,7 +347,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
                 if let (Choice::Once,Some(site))=(choice,&site){engine.custom_apps.net.allow_once(org.id,&bound.app,&bound.panel,bound.generation,site)?;}
                 if !matches!(action,Action::NetFetch{..}){return execute(engine,org,&bound,&action).await;}
                 // Redirects are checked against the answer just stored.
-                let value=snapshot(engine,&bound).await?;admit_fetch(engine,&bound,value,&action)?
+                let value=snapshot(engine,&bound).await?;admit_fetch(engine,&bound,value,&action).await?
             };
             net_fetch(&bound,call).await
         },
@@ -330,7 +392,8 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,ac
             org.emit(json!({"type":"custom_apps_history","org":org.slug,"panel":bound.panel}));Ok(out)
         },
         // Internet requests run in net_fetch, outside the app gate.
-        Action::NetFetch{..}=>crate::refuse!(BadRequest,"app internet requests do not run here"),
+        Action::NetConnect{..}=>super::channel::open(engine,org,bound,action).await,
+        Action::NetFetch{..}|Action::NetRecv{..}|Action::NetSend{..}|Action::NetClose{..}=>crate::refuse!(BadRequest,"app internet requests do not run here"),
     }
 }
 

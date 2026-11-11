@@ -125,6 +125,10 @@ pub enum Request {
     /// newest first, before walking back; after reads newer entries oldest first.
     /// What the engine sees when it resolves one declared site now: its addresses and class (user only; the row's Permissions view).
     NetClassify { app:String, site:String },
+    /// Saved logins (user only; spec 4.3). The value never comes back: set answers `{site,kind,set_at}`, list answers the same per site.
+    SiteLoginSet { app:String, site:String, kind:String, #[serde(default)] name:Option<String>, value:String },
+    SiteLoginRemove { app:String, site:String },
+    SiteLogins { app:String },
     PermissionHistory { app:String, after:Option<i64>, before:Option<i64>, limit:Option<i64> },
     /// slug: the id asked for (migration 0075), cleaned and suffixed like a
     /// name; without one the name makes it.

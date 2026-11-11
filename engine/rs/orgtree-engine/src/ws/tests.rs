@@ -35,7 +35,7 @@ impl Timing {
 const CANARY: &str = "WS-CANARY-27182818";
 
 fn spec(url: &str) -> Spec {
-    Spec { endpoint: parse_target(url).unwrap(), protocols: Vec::new(), hello: Vec::new(), heartbeat: None, pattern: None, source: creds::Source::None, extra_headers: Vec::new() }
+    Spec { endpoint: parse_target(url).unwrap(), protocols: Vec::new(), hello: Vec::new(), heartbeat: None, pattern: None, source: creds::Source::None, extra_headers: Vec::new(), dialer: None, whole: false }
 }
 
 fn inline(v: Value) -> creds::Source {

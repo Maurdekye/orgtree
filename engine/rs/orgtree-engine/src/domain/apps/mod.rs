@@ -1,6 +1,7 @@
 pub mod bridge;
 pub(crate) mod policy;
 pub(crate) mod logins;
+pub(crate) mod channel;
 pub mod events;
 
 pub mod file_access;

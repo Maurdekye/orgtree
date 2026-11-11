@@ -84,7 +84,7 @@ async fn panel(tx:&Transaction<'_>,org:i64,id:&str,write:bool) -> Result<Value> 
 /// starting and stopping (user 2026-10-26 md6edfebc1975: "dont record anything
 /// else"). Messages sent with the event action or orgtree.emit keep reaching
 /// orgtree.on from their own store (mcbcd7b3cb6c0 "Keep, separate").
-pub const HISTORY:[&str;3]=[super::events::FIRED,"panel.started","panel.stopped"];
+pub const HISTORY:[&str;4]=[super::events::FIRED,"panel.started","panel.stopped","net.channel"];
 /// A History row. Callers already hold the app row, so this panel row lock
 /// keeps app→panel order.
 #[nolog]
@@ -279,6 +279,32 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if caller.is_some(){crate::refuse!(Forbidden,"only the user may read a site's network class");}
             let old=app(&tx,org.id,&id,false,false).await?;super::policy::private_row_ok(&old,&site)?;
             super::net::classify_site(&site,&old["site_permissions"][site.as_str()]).await?
+        }
+        // Saved logins (spec section 4): user only, never an agent or the app bridge. Nothing here returns the value.
+        Request::SiteLogins{app:id}=>{
+            if caller.is_some(){crate::refuse!(Forbidden,"only the user may read the saved logins list");}
+            app(&tx,org.id,&id,false,false).await?;
+            let rows=tx.query("SELECT site,kind,to_char(set_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM ot.app_site_secrets WHERE org_id=$1 AND app_id=$2 ORDER BY site",&[&org.id,&id]).await?;
+            json!({"app":id,"logins":rows.iter().map(|r|super::logins::shown(r.get::<_,&str>(0),r.get::<_,&str>(1),r.get::<_,&str>(2))).collect::<Vec<_>>()})
+        }
+        Request::SiteLoginSet{app:id,site,kind,name,value}=>{
+            if caller.is_some(){crate::refuse!(Forbidden,"only the user may save a login for an app site");}
+            let old=app(&tx,org.id,&id,false,true).await?;
+            if !super::logins::site_allows_login(&old,&site){crate::refuse!(BadRequest,"allow {site} in the app's Permissions before saving a login for it");}
+            let login=super::logins::validate(&kind,name.as_deref(),&value)?;
+            let key=engine.dogs.mqtt.key(&engine.cfg.data_root.join("secrets")).map_err(|e|crate::domain::user_err(crate::domain::UserError::Unprocessable,format!("the saved login cannot be stored: {e}")))?;
+            let sealed=super::logins::seal(&key,org.id,&id,&site,&login)?;
+            let again=tx.query_opt("SELECT 1 FROM ot.app_site_secrets WHERE org_id=$1 AND app_id=$2 AND site=$3",&[&org.id,&id,&site]).await?.is_some();
+            let at:String=tx.query_one("INSERT INTO ot.app_site_secrets(org_id,app_id,site,kind,sealed) VALUES($1,$2,$3,$4,$5) ON CONFLICT (org_id,app_id,site) DO UPDATE SET kind=$4,sealed=$5,set_at=now() RETURNING to_char(set_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",&[&org.id,&id,&site,&login.kind.as_str(),&sealed]).await?.get(0);
+            log_permission(&tx,org.id,&id,super::net::CAPABILITY,Some(&site),if again{"login-replaced"}else{"login-saved"},"change",&actor,None).await?;
+            changed=true;super::logins::shown(&site,login.kind.as_str(),&at)
+        }
+        Request::SiteLoginRemove{app:id,site}=>{
+            if caller.is_some(){crate::refuse!(Forbidden,"only the user may remove a saved login");}
+            app(&tx,org.id,&id,false,true).await?;
+            let gone=tx.execute("DELETE FROM ot.app_site_secrets WHERE org_id=$1 AND app_id=$2 AND site=$3",&[&org.id,&id,&site]).await?>0;
+            if gone{log_permission(&tx,org.id,&id,super::net::CAPABILITY,Some(&site),"login-removed","change",&actor,None).await?;changed=true;}
+            json!({"app":id,"site":site,"removed":gone})
         }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
         // Mention chips show what an Apps menu row shows: an app's name and its
@@ -536,6 +562,8 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     // Anything short of Allow ends this app's internet requests in flight and
     // its Allow once answers (Deny wins over temporary grants).
     if action=="permission_set"&&input["capability"]==super::net::CAPABILITY&&input["permission"]!="allow"{engine.custom_apps.net.revoke(org.id,Some(&app),None);}
+    // A saved-login change closes that site's channels; the app may connect again with the new login (spec 5.5).
+    if action=="site_login_set"||action=="site_login_remove"{if let Some(site)=input["site"].as_str(){engine.custom_apps.net.close_site_channels(org.id,&app,site,"login changed");}}
     if let (Some(cap),Some(before))=(file_cap,before.as_ref()){
         if removes_file_access(before,cap,input["permission"].as_str().unwrap_or("")){engine.custom_apps.file_access.forget(org.id,Some(&app),None)?;}
     }

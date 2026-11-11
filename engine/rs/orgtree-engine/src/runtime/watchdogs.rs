@@ -129,9 +129,9 @@ pub struct Registry {
     event_health: papaya::HashMap<i64, String>,
     activity: papaya::HashMap<i64, papaya::HashMap<i64, ActivityTx>>,
     /// The MQTT connections of mqtt dogs (docs/rust-engine/mqtt-watchdogs.md).
-    mqtt: crate::mqtt::Hub,
+    pub(crate) mqtt: crate::mqtt::Hub,
     /// The connections of websocket dogs, one each (docs/rust-engine/websocket-watchdogs.md).
-    ws: crate::ws::Hub,
+    pub(crate) ws: crate::ws::Hub,
 }
 
 #[derive(Debug, Clone)]
