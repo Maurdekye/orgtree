@@ -55,7 +55,8 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-status { min-height:24px;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 8px;font-size:11px;color:var(--dim);border-top:1px solid var(--line);overflow:hidden;white-space:nowrap }
 .custom-app-channel { display:inline-flex;align-items:center;gap:4px;max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11px }
 .custom-app-channel [data-icon] { display:inline-flex;font-size:12px }
-.custom-app-private-site,.custom-app-saved-login { display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--dim) }
+.custom-app-private-site,.custom-app-saved-login { display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--dim);min-width:0;margin-top:4px }
+.custom-app-private-site p { margin:0;display:flex;align-items:center;flex-wrap:wrap;gap:6px }
 .custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--dim);padding:16px }
 .custom-app-error { padding:6px 9px;color:var(--danger,#e88);font-size:12px;overflow-wrap:anywhere }
 .custom-app-resize { position:absolute;width:15px;height:15px;right:0;bottom:0;cursor:nwse-resize;touch-action:none;border-right:2px solid var(--dim);border-bottom:2px solid var(--dim);border-radius:0 0 6px 0 }

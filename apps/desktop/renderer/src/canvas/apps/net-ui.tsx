@@ -95,7 +95,7 @@ export function AppNetPermissions({app,save,disabled,slug}:{app:CustomApp;save:(
       <select aria-label="Internet access permission" disabled={disabled} value={capability} onChange={e=>void save('net.fetch',e.target.value)}><option value="ask">Ask</option><option value="allow">Allow listed sites</option><option value="deny">Deny</option></select>
     </SetRow>
     {!sites.length&&<p>This app declares no sites, so it cannot connect anywhere.</p>}
-    {sites.map(site=><SetRow key={site} label={label(site)} hint={site==='*'?<strong>Lets the app connect to any website. Allow it only for an app you trust with everything it can read.</strong>:site.startsWith('*.')?`Any subdomain of ${site.slice(2)}`:undefined}>{choice(site)}{detail(site)}{loginLine(site)}</SetRow>)}
+    {sites.map(site=><SetRow key={site} label={label(site)} hint={<>{site==='*'?<strong>Lets the app connect to any website. Allow it only for an app you trust with everything it can read.</strong>:site.startsWith('*.')?`Any subdomain of ${site.slice(2)}`:undefined}{detail(site)}{loginLine(site)}</>}>{choice(site)}</SetRow>)}
     {answered.map(site=><SetRow key={site} label={site} hint={sites.some(declared=>siteCovers(declared,site))?'Answered at a prompt.':'Answered at a prompt; the app no longer declares it.'}>
       {choice(site)}<button type="button" disabled={disabled} aria-label={`Remove ${site}`} onClick={()=>void save('net.fetch','default',site)}>Remove</button>
     </SetRow>)}
