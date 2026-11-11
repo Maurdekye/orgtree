@@ -72,3 +72,17 @@ test('Permission history words the private-network entries',()=>{
   assert.match(describePermission(e('allow-private')),/allowed on the private network/)
   assert.match(describePermission(e('repin')),/address re-pinned/)
 })
+
+// Capture bounce (rig-sol-b, 2026-11-11): the pinned-address line, the moved-name button and the saved-login
+// buttons were children of the row's narrow control column and ran off the dialog. They belong in the row's full-width hint.
+test('the private-site detail and its Use the new address button sit in the row hint, not the control column',async t=>{
+  const row={value:'allow-private',addresses:['100.64.0.9']}
+  const f=fixture({'100.101.102.103:8642':row},{'100.101.102.103:8642':{...classes['100.101.102.103:8642'],addresses:['100.64.0.10'],pinned:['100.64.0.9'],allowed:true,moved:true}})
+  t.after(f.restore)
+  const view=await mountView(<AppPermissions slug="priv-c" app={f.app} close={()=>{}} embedded/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
+  const site=select('100.101.102.103:8642 internet permission')!.closest('.set-row')!
+  assert.equal(site.querySelector('.set-control .custom-app-private-site'),null,'not in the control column')
+  assert.ok(site.querySelector('.set-hint .custom-app-private-site'),'in the full-width hint')
+  assert.ok([...site.querySelectorAll('.set-hint button')].some(b=>b.textContent==='Use the new address'))
+  assert.equal(site.querySelectorAll('.set-control button').length,0,'the control column holds only the select')
+})
