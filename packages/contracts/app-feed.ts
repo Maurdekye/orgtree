@@ -1,10 +1,15 @@
 /** Shared app-feed ordering for renderer and Electron main. See step-6 §5. */
 export type Stamp = { epoch: string; seq: number }
 export type AppCursor = { app_uuid: string; incarnation: string; rev: number }
+/** Set on an organization that runs on a remote engine (docs/rust-engine/remote-org.md): the connection's
+ *  id, name and tag, the organization's slug THERE (`slug` of the row itself is its alias here) and where
+ *  the link stands: connecting, connected, offline, auth_failed, refused or paused. */
+export type RemoteMark = { id: string; name: string; tag: string; slug: string; state: string }
 export type RegistryOrg = {
   org_id: number; slug: string; org_uuid: string; state: string
   unavailable_step: string | null; state_reason: string | null
   attempts: number; report_path: string | null
+  remote?: RemoteMark
 }
 export type RegistryFrame = { type: 'registry_snapshot'; epoch: string; cursor: AppCursor
   records: { entity: 'registry_org'; id: string; body: RegistryOrg }[] }

@@ -487,6 +487,20 @@ export function scopedHeaders(headers: Record<string, string>, url: string, orig
   return clean
 }
 
+/** The header a window bound to an organization of a REMOTE engine carries on its engine requests: that
+ *  engine's connection id (docs/rust-engine/remote-org.md). The local engine relays such a window's
+ *  organization and engine routes to the remote and stamps its answers with both processes. */
+export const REMOTE_HEADER = 'X-Orgtree-Remote'
+
+/** Run on ALL destinations after `scopedHeaders`: a page-supplied header is always stripped, and the
+ *  owner window's remote engine id is added only to a permitted request to this engine (`origin` is
+ *  empty for a request that is not permitted, as for the token). */
+export function remoteHeaders(headers: Record<string, string>, url: string, origin: string, remote: string | undefined): Record<string, string> {
+  const clean = Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== REMOTE_HEADER.toLowerCase()))
+  if (remote && engineUrl(url, origin)) clean[REMOTE_HEADER] = remote
+  return clean
+}
+
 export function trustedUiUrl(value: string, origin: string): boolean {
   if (!engineUrl(value, origin)) return false
   const u = new URL(value)

@@ -64,6 +64,7 @@ import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../.
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './traylist'
+import { readRemotes, remoteAliases } from './remotes'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import { isOrgtreeLinkArg, registerOrgtreeScheme } from './orgtree-link'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
@@ -2658,7 +2659,14 @@ else {
         }
         return startupKind()
       })
-      const register = configureEngineSession(browserSession, () => engine.origin, () => engine.token)
+      // Organizations of remote engines (remotes.ts): alias -> connection id. A window bound to one carries
+      // X-Orgtree-Remote on its engine requests; a portal asks for the window it was opened from.
+      let remoteByAlias = new Map<string, string>()
+      const register = configureEngineSession(browserSession, () => engine.origin, () => engine.token, window => {
+        const entry = windows.bySender(window.webContents.id)
+          ?? (window.getParentWindow() ? windows.bySender(window.getParentWindow()!.webContents.id) : undefined)
+        return entry?.kind === 'org' && entry.org ? remoteByAlias.get(entry.org) : undefined
+      })
       // the app's own origin gets the Document-Policy that lets the ping watchdog read the renderer's JS stack (stall tooling)
       if (stallOn) browserSession.webRequest.onHeadersReceived((details, callback) =>
         callback({ responseHeaders: withStackPolicy((details.responseHeaders ?? {}) as Record<string, string[]>, details.url, engine.origin, process.env) }))
@@ -3044,6 +3052,9 @@ else {
       }
       const taskbarLaunch = pendingTaskbar.length > 0
       if (taskbarLaunch) await drainTaskbar()
+      // Known before any restored window makes its first request, so every answer to a remote
+      // organization's window is stamped alike from the start (bounded; an empty list on any failure).
+      remoteByAlias = remoteAliases(await readRemotes(engine))
       const first = (taskbarLaunch ? lastUsed() ?? [...records.values()][0] : undefined) ?? await openStartupWindows()
       // A second process may have handed off a task while startup awaited a
       // document load. Routes exist now; release those requests too.
@@ -3051,6 +3062,8 @@ else {
       engineReady = true
       let noticeSet = ''
       const appFeed = nativeAppFeed(engine, () => {
+        const remotes = appFeed.state.value<unknown>('remotes')
+        if (remotes !== undefined) remoteByAlias = remoteAliases(remotes)
         if (quitting || installerUpgradeShutdown || appFeed.status !== 'current') return
         refreshTaskbar(taskbarOrgs(appFeed.state), taskbarAttentionItems(appFeed.state))
         taskbarAttention.updateInventory(appFeed.state)

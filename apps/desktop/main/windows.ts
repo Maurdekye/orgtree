@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell, type Session } from 'electron'
 import { createServer, type AddressInfo } from 'node:net'
 import { attachEditMenu } from './editmenu'
-import { externalHttpUrl, hubchatChatUrl, isHoldingUrl, scopedHeaders, trustedUiUrl } from './policy'
+import { externalHttpUrl, hubchatChatUrl, isHoldingUrl, remoteHeaders, scopedHeaders, trustedUiUrl } from './policy'
 
 /** Origin/token sources may be live getters: after a boot-engine recovery the
  *  desktop re-attaches with a NEW per-boot token (usually the same origin,
@@ -145,7 +145,10 @@ export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: Bro
   if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || (!trustedUiUrl(event.senderFrame.url, origin) && !isHoldingUrl(event.senderFrame.url))) throw new Error('Native operation refused for this document')
 }
 
-export function configureEngineSession(session: Session, liveOrigin: Live, liveToken: Live): (window: BrowserWindow, portal?: boolean) => void {
+/** `remoteOf` answers the remote engine a window's organization lives on, if it does (main/remotes.ts):
+ *  its permitted engine requests then carry `X-Orgtree-Remote`. Page script can never set that header. */
+export function configureEngineSession(session: Session, liveOrigin: Live, liveToken: Live,
+  remoteOf?: (window: BrowserWindow) => string | undefined): (window: BrowserWindow, portal?: boolean) => void {
   const owners = new Map<number, { window: BrowserWindow; portal: boolean }>()
   session.webRequest.onBeforeRequest((details, callback) => {
     // srcdoc is not a network navigation. Foreign frame documents are never app UI.
@@ -162,7 +165,9 @@ export function configureEngineSession(session: Session, liveOrigin: Live, liveT
     // Copied styles/images in a portal need authentication; API fetch runs in the owner App closure.
     const portalAsset = owner?.portal && topRequest && frame!.url === 'about:blank' && ['stylesheet', 'font', 'image'].includes(details.resourceType)
     const permitted = Boolean(initialApp || appRequest || portalAsset)
-    callback({ requestHeaders: scopedHeaders(details.requestHeaders, details.url, permitted ? origin : '', token) })
+    const remote = permitted && owner && remoteOf ? remoteOf(owner.window) : undefined
+    callback({ requestHeaders: remoteHeaders(scopedHeaders(details.requestHeaders, details.url, permitted ? origin : '', token),
+      details.url, permitted ? origin : '', remote) })
   })
   // Copy gestures and a video's fullscreen button ("fullscreen": element.requestFullscreen(), which Electron asks this
   // handler about first; USER 2026-10-30 md731a537e304 "i cant maximize inline videos") belong to trusted app documents
