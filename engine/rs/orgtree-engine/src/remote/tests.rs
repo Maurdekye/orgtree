@@ -691,6 +691,48 @@ async fn t13_a_remote_window_gets_the_remote_engines_values_and_this_computers_l
     assert_eq!(near.socket("/api/app/ws", Some("no-such-connection")).await.err(), Some(400));
 }
 
+// ------------------------------------------------------------------ R6
+
+#[tokio::test]
+async fn r6_what_waits_on_the_user_in_a_remote_organization_is_among_this_computers_notices() {
+    let root = Root::new();
+    let near = Near::start(&root).await;
+    // a local organization holds the name, so the remote one goes by an alias
+    local_org(&near, 5, "beta");
+    let mut far = Far::start().await;
+    let (id, _) = connected(&near, &far).await;
+    let mut app = near.socket("/api/app/ws", None).await.unwrap();
+    let snapshot: Value = serde_json::from_str(&next_text(&mut app).await.unwrap()).unwrap();
+    let beta = snapshot["registry"]["records"].as_array().unwrap().iter().find(|r| r["body"]["slug"] == "beta-galaxy").expect("the alias is listed")["body"].clone();
+    let beta_id = beta["org_id"].as_i64().unwrap();
+    assert!(near.engine.remotes.notices().is_empty());
+    // the remote engine says a question waits there
+    let question = json!({ "id": "ask:q1", "source_id": "q1", "kind": "question", "org": "beta", "agent": "lead", "generation": 1,
+        "title": "lead asks", "body": "Which colour?" });
+    far.state.push_app(json!({ "type": "org_notices", "org_id": 2, "org_uuid": "u-beta", "notices": [question, "not a notice"] }));
+    let frame = frame_where(&mut app, "the question is among the notices", |f| f["type"] == "org_notices" && f["org_id"] == beta_id).await;
+    // it is this list's organization (the alias), its title says where it is, the rest is as sent
+    assert_eq!(frame["org_uuid"], "u-beta");
+    assert_eq!(frame["notices"], json!([{ "id": "ask:q1", "source_id": "q1", "kind": "question", "org": "beta-galaxy", "agent": "lead", "generation": 1,
+        "title": "Beta \u{b7} Galaxy: lead asks", "body": "Which colour?" }]));
+    assert_eq!(near.engine.remotes.notices(), frame["notices"].as_array().unwrap().clone());
+    // a window that opens now has it in its first copy
+    let mut late = near.socket("/api/app/ws", None).await.unwrap();
+    let copy: Value = serde_json::from_str(&next_text(&mut late).await.unwrap()).unwrap();
+    assert_eq!(copy["notices"][beta_id.to_string()]["notices"][0]["org"], "beta-galaxy");
+    // a title never outgrows what the desktop accepts
+    let long = json!({ "id": "ask:q2", "kind": "question", "org": "beta", "title": "t".repeat(300), "body": "b" });
+    far.state.push_app(json!({ "type": "org_notices", "org_id": 2, "org_uuid": "u-beta", "notices": [long] }));
+    let frame = frame_where(&mut app, "the long title arrives", |f| f["type"] == "org_notices" && f["notices"][0]["id"] == "ask:q2").await;
+    assert_eq!(frame["notices"][0]["title"].as_str().unwrap().chars().count(), 200);
+    // offline: this engine cannot say what waits there, so it says nothing (not "nothing waits")
+    far.stop().await;
+    let frame = frame_where(&mut app, "the notices are withdrawn", |f| f["type"] == "org_notices" && f["org_id"] == beta_id).await;
+    assert!(frame["notices"].is_null(), "{frame}");
+    assert!(near.engine.remotes.notices().is_empty());
+    let _ = id;
+}
+
 // ------------------------------------------------------------------ T14
 
 #[tokio::test]
