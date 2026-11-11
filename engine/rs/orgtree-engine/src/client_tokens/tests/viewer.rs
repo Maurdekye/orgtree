@@ -265,13 +265,7 @@ async fn requests_without_a_token_or_with_the_bootstrap_key_are_unchanged_on_the
         let address = server.address;
         async move {
             let mut stream = TcpStream::connect(address).await.unwrap();
-            stream.write_all(format!("POST /api/desktop/credential-bridge HTTP/1.1
-Host: localhost
-X-Orgtree-Desktop-Token: {key}
-Content-Type: application/json
-Content-Length: {}
-
-{body}", body.len()).as_bytes()).await.unwrap();
+            stream.write_all(format!("POST /api/desktop/credential-bridge HTTP/1.1\r\nHost: localhost\r\nX-Orgtree-Desktop-Token: {key}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
             response(&mut stream).await.0
         }
     };
