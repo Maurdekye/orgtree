@@ -178,20 +178,37 @@ pub async fn mint(probe: &Probe, pasted: &Token, client_name: &str, timing: &Tim
     Ok((Token::new(token), id.to_string()))
 }
 
-/// Take back a client token on the remote, with that very token. The remote
-/// drops the caller's connection as it revokes, so an answer may never come:
-/// then the token is tried once more, and a refusal proves the revocation.
+/// Take back a client token on the remote, with that very token, within
+/// `wait`. The remote ends every connection of the client as it revokes it,
+/// the one that carries this request too, and promises no answer; a
+/// connection kept from before can fail once more as it is found dead. So a
+/// request that ends without an answer is made again: an engine that no
+/// longer knows the token then proves the revocation. Any other answer is
+/// final, and an engine that cannot be reached is not asked twice.
 #[nolog]
 pub async fn revoke(http: &reqwest::Client, base: &str, token: &Token, client_id: &str, wait: Duration) -> bool {
-    let sent = http.delete(format!("{base}/api/standalone/clients/{client_id}")).bearer_auth(token.expose()).timeout(wait).send().await;
-    if let Ok(response) = &sent {
-        if response.status().as_u16() == 200 {
-            return true;
+    let end = tokio::time::Instant::now() + wait;
+    let mut pause = Duration::from_millis(100);
+    loop {
+        let left = end.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return false;
         }
-    }
-    match http.get(format!("{base}/api/desktop/alive")).bearer_auth(token.expose()).timeout(wait).send().await {
-        Ok(response) => response.status().as_u16() == 403,
-        Err(_) => false,
+        match http.delete(format!("{base}/api/standalone/clients/{client_id}")).bearer_auth(token.expose()).timeout(left).send().await {
+            Ok(response) => {
+                return match response.status().as_u16() {
+                    200 => true,
+                    // the token is not known there any more: the request before this one revoked it, and its answer was cut.
+                    // An engine that is no longer standalone, or takes the token for reading only, proves nothing.
+                    403 => refusal_403(&detail(&read_capped(response, 16 * 1024).await.unwrap_or_default())).code == "E4",
+                    _ => false,
+                };
+            }
+            Err(error) if error.is_connect() || error.is_timeout() => return false,
+            Err(_) => {}
+        }
+        tokio::time::sleep(pause.min(left)).await;
+        pause *= 2;
     }
 }
 
