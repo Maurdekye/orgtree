@@ -226,3 +226,18 @@ async fn standalone_peer_extension_preserves_separately_authenticated_local_brid
 }
 
 mod viewer;
+
+// Windows may refuse the registry's temp-file replace for a moment (antivirus/indexer hold).
+#[cfg(windows)]
+#[test]
+fn registry_replace_retries_sharing_errors_only() {
+    let mut calls = 0;
+    let result = replace_retrying(|| { calls += 1; if calls < 3 { Err(std::io::Error::from_raw_os_error(32)) } else { Ok(()) } });
+    assert!(result.is_ok() && calls == 3, "two sharing violations are retried, the third attempt succeeds");
+    let mut calls = 0;
+    let result = replace_retrying(|| { calls += 1; Err(std::io::Error::from_raw_os_error(32)) });
+    assert!(result.is_err() && calls == 6, "a hold that never clears gives up after six attempts, calls={calls}");
+    let mut calls = 0;
+    let result = replace_retrying(|| { calls += 1; Err(std::io::Error::from_raw_os_error(2)) });
+    assert!(result.is_err() && calls == 1, "any other error is returned at once");
+}

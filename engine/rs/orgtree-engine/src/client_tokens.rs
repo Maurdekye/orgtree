@@ -211,7 +211,7 @@ impl Registry {
             file.write_all(&bytes)?;
             file.sync_all()?;
             drop(file);
-            replace(&tmp, &self.path)?;
+            replace_retrying(|| replace(&tmp, &self.path))?;
             #[cfg(unix)]
             if let Some(parent) = self.path.parent() {
                 if std::fs::File::open(parent).and_then(|file| file.sync_all()).is_err() {
@@ -260,6 +260,9 @@ pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(not(windows))]
 #[nolog]
 pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> { std::fs::rename(from, to) }
+
+#[nolog]
+fn replace_retrying(mut attempt: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> { attempt() }
 
 #[cfg(test)]
 mod tests;
