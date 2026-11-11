@@ -507,8 +507,10 @@ build it" (spec: orgtree-apps-make-a-read-only-remote-orgtree-vie, piece 1). DEC
 - `http/viewer.rs` holds `ALLOWED` (method plus route literal) and `DENIED_FOR_VIEWER`; the default
   is refuse. The test `every_route_is_classified_for_viewers` parses `router` and fails for a route
   in neither list. A refusal is 403 `{"detail":"this client token is read-only"}`, or
-  `this viewer token's org no longer exists` when the bound org is gone, and logs method and the
-  route's first segments only. Create refuses an org that does not exist (404).
+  `this viewer token's org no longer exists` when the bound org is gone. Both allowed and refused
+  viewer requests log one line with the client id, the method and the route cut at
+  `/api/<a>/<b>` (plus the fifth segment below `/api/orgs/{slug}`), never an id or a value
+  (`viewer::log_line`; `Scope::Viewer` carries `org` and `client_id`). Create refuses an org that does not exist (404).
 - `feed/viewer_gate.rs` filters a viewer's socket messages: `ping` passes; `subscribe` keeps only the
   `archived_all` and `archived_under` windows; `unsubscribe` passes; everything else (`watch`,
   `attract`, unknown, invalid JSON) is ignored and counted; the 20th closes with 1008.
