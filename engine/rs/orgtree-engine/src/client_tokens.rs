@@ -20,6 +20,16 @@ const FILE: &str = "standalone-clients.json";
 const MAX_CLIENTS: usize = 128;
 const MAX_FILE: u64 = 128 * 1024;
 
+const FILE_VERSION: u8 = 2;
+
+/// What a named client token may do. `Viewer` is read-only for one org
+/// (`http/viewer.rs` lists its routes). The bootstrap key is always `Full`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Scope {
+    Full,
+    Viewer { org: String },
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
@@ -27,6 +37,38 @@ struct Record {
     name: String,
     created_at: String,
     hash: String,
+    /// `"full"` (version 1 files have none) or `"viewer"`.
+    #[serde(default = "full_scope")]
+    scope: String,
+    /// The org slug of a viewer token; absent for a full one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    org: Option<String>,
+}
+
+#[nolog]
+fn full_scope() -> String { "full".into() }
+
+#[nolog]
+impl Record {
+    fn scope(&self) -> Scope {
+        match &self.org {
+            Some(org) if self.scope == "viewer" => Scope::Viewer { org: org.clone() },
+            _ => Scope::Full,
+        }
+    }
+    /// `full` carries no org; `viewer` carries a plain org slug.
+    fn scope_valid(&self) -> bool {
+        match (self.scope.as_str(), &self.org) {
+            ("full", None) => true,
+            ("viewer", Some(org)) => valid_org(org),
+            _ => false,
+        }
+    }
+}
+
+#[nolog]
+fn valid_org(org: &str) -> bool {
+    !org.is_empty() && org.chars().count() <= 100 && !org.chars().any(|c| c.is_control() || c == '/')
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,12 +96,13 @@ impl Registry {
             Ok(file) => {
                 if file.metadata()?.len() > MAX_FILE { bail!("standalone client registry is too large"); }
                 let saved: Saved = serde_json::from_reader(file).context("invalid standalone client registry")?;
-                if saved.version != 1 || saved.clients.len() > MAX_CLIENTS {
+                if !(saved.version == 1 || saved.version == FILE_VERSION) || saved.clients.len() > MAX_CLIENTS {
                     bail!("unsupported or oversized standalone client registry");
                 }
                 for (index, row) in saved.clients.iter().enumerate() {
                     if uuid::Uuid::parse_str(&row.id).is_err() || !valid_name(&row.name)
                         || chrono::DateTime::parse_from_rfc3339(&row.created_at).is_err()
+                        || !row.scope_valid() || (saved.version == 1 && row.scope != "full")
                         || row.hash.len() != 64 || !row.hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
                         || saved.clients[..index].iter().any(|old| old.id == row.id || old.hash == row.hash) {
                         bail!("invalid standalone client registry entry");
@@ -75,17 +118,17 @@ impl Registry {
 
     /// The same lock admits authentication and commits revocation. A socket
     /// cannot be registered after its credential has been removed.
-    pub fn authenticate(&self, token: &str, connection: &Arc<Connection>) -> bool {
-        if connection.closed() { return false; }
+    pub fn authenticate(&self, token: &str, connection: &Arc<Connection>) -> Option<Scope> {
+        if connection.closed() { return None; }
         let hash = hash(token);
-        let Ok(mut clients) = self.clients.lock() else { return false; };
-        let Some(client) = clients.iter_mut().find(|client| constant_eq(client.record.hash.as_bytes(), hash.as_bytes())) else { return false; };
-        if connection.closed() { return false; }
+        let Ok(mut clients) = self.clients.lock() else { return None; };
+        let client = clients.iter_mut().find(|client| constant_eq(client.record.hash.as_bytes(), hash.as_bytes()))?;
+        if connection.closed() { return None; }
         client.connections.retain(|weak| weak.strong_count() != 0);
         if !client.connections.iter().any(|weak| weak.upgrade().is_some_and(|old| Arc::ptr_eq(&old, connection))) {
             client.connections.push(Arc::downgrade(connection));
         }
-        true
+        Some(client.record.scope())
     }
 
     pub fn manage(&self, args: &Value) -> Result<Value, ApiError> {
@@ -95,7 +138,7 @@ impl Registry {
             _ => return Err(ApiError::bad_request("action must be a string")),
         };
         let allowed: &[&str] = match action {
-            "list" => &["action"], "create" => &["action", "name"], "revoke" => &["action", "id"],
+            "list" => &["action"], "create" => &["action", "name", "scope", "org"], "revoke" => &["action", "id"],
             _ => return Err(ApiError::bad_request("action must be list, create or revoke")),
         };
         let object = args.as_object().ok_or_else(|| ApiError::bad_request("arguments must be an object"))?;
@@ -109,12 +152,26 @@ impl Registry {
         if action == "create" {
             let name = args["name"].as_str().unwrap_or("").trim();
             if !valid_name(name) { return Err(ApiError::bad_request("name must contain 1-100 characters, without control characters")); }
+            let (scope, org) = match (args.get("scope"), args.get("org")) {
+                (None | Some(Value::String(_)), None | Some(Value::String(_))) => {
+                    let scope = args.get("scope").and_then(Value::as_str).unwrap_or("full");
+                    let org = args.get("org").and_then(Value::as_str);
+                    match (scope, org) {
+                        ("full", None) => ("full", None),
+                        ("full", Some(_)) => return Err(ApiError::bad_request("a full client token takes no org")),
+                        ("viewer", Some(org)) if valid_org(org) => ("viewer", Some(org.to_string())),
+                        ("viewer", _) => return Err(ApiError::bad_request("a viewer client token needs the org's slug")),
+                        _ => return Err(ApiError::bad_request("scope must be full or viewer")),
+                    }
+                }
+                _ => return Err(ApiError::bad_request("scope and org must be strings")),
+            };
             if clients.len() >= MAX_CLIENTS { return Err(ApiError::conflict("at most 128 active client tokens are allowed")); }
             let mut bytes = [0u8; 32];
             rand::rngs::OsRng.fill_bytes(&mut bytes);
             let token = hex::encode(bytes);
             let record = Record { id: uuid::Uuid::new_v4().to_string(), name: name.into(),
-                created_at: chrono::Utc::now().to_rfc3339(), hash: hash(&token) };
+                created_at: chrono::Utc::now().to_rfc3339(), hash: hash(&token), scope: scope.into(), org };
             let mut records: Vec<_> = clients.iter().map(|client| client.record.clone()).collect();
             records.push(record.clone());
             self.persist(records).map_err(|_| ApiError::internal("could not persist client registry"))?;
@@ -141,7 +198,7 @@ impl Registry {
     }
 
     fn persist(&self, records: Vec<Record>) -> std::io::Result<()> {
-        let bytes = serde_json::to_vec(&Saved { version: 1, clients: records })?;
+        let bytes = serde_json::to_vec(&Saved { version: FILE_VERSION, clients: records })?;
         let tmp = self.path.with_file_name(format!(".standalone-clients-{}.tmp", uuid::Uuid::new_v4().simple()));
         let result = (|| {
             let mut options = std::fs::OpenOptions::new();
@@ -170,7 +227,9 @@ impl Registry {
 
 #[nolog]
 fn public(record: &Record) -> Value {
-    json!({"id":record.id,"name":record.name,"created_at":record.created_at})
+    let mut row = json!({"id":record.id,"name":record.name,"created_at":record.created_at,"scope":record.scope});
+    if let Some(org) = &record.org { row["org"] = json!(org); }
+    row
 }
 
 #[nolog]

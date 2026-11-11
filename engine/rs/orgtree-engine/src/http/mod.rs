@@ -356,6 +356,16 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
         .map(|info| info.0.0.peer) {
         req.extensions_mut().insert(axum::extract::ConnectInfo(peer));
     }
+    // The token's scope is decided once, here, before any dispatch: a viewer token reaches
+    // only the routes `viewer.rs` allows, never the language-server proxy or the credential bridge.
+    if engine.cfg.standalone {
+        if let Some(scope) = standalone_scope(&engine, &req) {
+            if let crate::client_tokens::Scope::Viewer { org } = &scope {
+                if let Some(refusal) = viewer_refusal(&engine, &req, org) { return refusal; }
+            }
+            req.extensions_mut().insert(scope);
+        }
+    }
     if crate::lsproxy::route(req.uri().path()) {
         return crate::lsproxy::dispatch(State(engine), req).await;
     }
@@ -472,7 +482,7 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     let info = format!("{peer} {method} {target}");
     // Register the connection before reading any request body. A revoked
     // client's partial upload/inflight MCP call must be disconnected too.
-    let standalone_ok = !engine.cfg.standalone || standalone_token_ok(&engine, &req);
+    let standalone_ok = !engine.cfg.standalone || req.extensions().get::<crate::client_tokens::Scope>().is_some();
     let quiet = quiet_body(&path, req.headers());
     let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
         req.headers()
@@ -602,17 +612,46 @@ fn token_ok(engine: &Engine, req: &Request) -> bool {
     token_ok_headers(&engine.cfg.desktop_token, engine.cfg.standalone, req.headers())
 }
 
+/// What the request's token(s) may do, or `None` when none authenticates. When both the header and
+/// the Bearer token authenticate, the narrower scope wins (a viewer over a full one), so adding a
+/// header can never widen access.
 #[nolog]
-fn standalone_token_ok(engine: &Engine, req: &Request) -> bool {
+fn standalone_scope(engine: &Engine, req: &Request) -> Option<crate::client_tokens::Scope> {
     use axum::extract::ConnectInfo;
-    use crate::client_tokens::transport::ClientInfo;
+    use crate::client_tokens::{transport::ClientInfo, Scope};
     let connection = req.extensions().get::<ConnectInfo<ClientInfo>>().map(|info| &info.0.0);
-    if connection.is_some_and(|connection| connection.closed()) { return false; }
-    if token_ok_headers(&engine.cfg.desktop_token, true, req.headers()) { return true; }
-    let (Some(registry), Some(connection)) = (&engine.clients, connection) else { return false; };
-    [req.headers().get(TOKEN_HEADER).and_then(|value| value.to_str().ok()),
-     req.headers().get(axum::http::header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "))]
-        .into_iter().flatten().any(|token| registry.authenticate(token, connection))
+    if connection.is_some_and(|connection| connection.closed()) { return None; }
+    let bootstrap = engine.cfg.desktop_token.as_bytes();
+    let mut found: Option<Scope> = None;
+    for token in [req.headers().get(TOKEN_HEADER).and_then(|value| value.to_str().ok()),
+                  req.headers().get(axum::http::header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "))]
+        .into_iter().flatten() {
+        let scope = if !bootstrap.is_empty() && constant_eq(token.as_bytes(), bootstrap) { Some(Scope::Full) }
+            else if let (Some(registry), Some(connection)) = (&engine.clients, connection) { registry.authenticate(token, connection) }
+            else { None };
+        match (&found, scope) {
+            (_, None) | (Some(Scope::Viewer { .. }), _) => {}
+            (_, Some(scope)) => found = Some(scope),
+        }
+    }
+    found
+}
+
+/// The refusal a viewer token gets, or `None` when the request is allowed. The log names the
+/// method and the route's first segments only, never ids or query values.
+#[nolog]
+fn viewer_refusal(engine: &Engine, req: &Request, org: &str) -> Option<Response> {
+    let path = req.uri().path();
+    let detail = if engine.orgs.get(org).is_none() {
+        "this viewer token's org no longer exists"
+    } else if viewer::viewer_allows(req.method(), path, org) {
+        return None;
+    } else {
+        "this client token is read-only"
+    };
+    let template: Vec<&str> = path.split('/').take(5).collect();
+    tracing::info!(method = %req.method(), route = %template.join("/"), "viewer client token refused");
+    Some((StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": detail }))).into_response())
 }
 
 /// The token as the desktop sends it (`X-Orgtree-Desktop-Token`), in every

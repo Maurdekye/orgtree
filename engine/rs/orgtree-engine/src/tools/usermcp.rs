@@ -167,9 +167,10 @@ fn cards(org_scoped: bool) -> Vec<Value> {
     }
     if names.contains(&"orgtree_client_tokens") {
         out.push(user_card("orgtree_client_tokens",
-            "Manage named standalone client tokens as the user. list (default) returns active id/name/created_at only; create needs name (1-100 characters) and returns a random secret ONCE; revoke needs id and immediately drops every HTTP/WS/MCP socket used with that token. Self-revoke disconnects you without a response promise; reconnect with another token or bootstrap key. Shared sockets close when any token used there is revoked. Bootstrap cannot be revoked; at most 128 active clients.",
+            "Manage named standalone client tokens as the user. list (default) returns active id/name/created_at/scope (and org for a viewer) only; create needs name (1-100 characters), optional scope (full, the default, or viewer: read-only, bound to the org slug given in org, which must exist; a viewer cannot manage tokens) and returns a random secret ONCE; revoke needs id and immediately drops every HTTP/WS/MCP socket used with that token. Self-revoke disconnects you without a response promise; reconnect with another token or bootstrap key. Shared sockets close when any token used there is revoked. Bootstrap cannot be revoked; at most 128 active clients.",
             json!({"action":{"type":"string","enum":["list","create","revoke"]},
-                "name":{"type":"string","minLength":1,"maxLength":100},"id":{"type":"string"}}), &[]));
+                "name":{"type":"string","minLength":1,"maxLength":100},"id":{"type":"string"},
+                "scope":{"type":"string","enum":["full","viewer"]},"org":{"type":"string"}}), &[]));
     }
     for card in &mut out {
         card["inputSchema"]["additionalProperties"] = json!(false);
