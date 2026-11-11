@@ -1120,6 +1120,8 @@ export interface OrgListEntry {
   state?: string
   state_reason?: string | null
   unavailable_step?: string | null
+  /** set when the organization runs on a remote engine: `slug` is then its alias here (remotes.ts) */
+  remote?: import('../../../../packages/contracts/app-feed').RemoteMark
 }
 
 // --------------------------------------------------------------------- chat

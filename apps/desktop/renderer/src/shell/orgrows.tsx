@@ -8,7 +8,9 @@ import { useContextMenu } from '../canvas/contextmenu'
 import { orgMenuEntries, orgTitle } from '../canvas/orgidentity'
 import { retryOrg } from '../api'
 import { useAppValue } from '../appfeed'
-import { AutorenewIcon, DeleteIcon } from '../icons'
+import { AutorenewIcon, DeleteIcon, RemoteIcon } from '../icons'
+import { remoteTitle, useRemotes } from '../remotes'
+import { AddRemoteEngine, RemoteGroupHead } from './remotes'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
 
@@ -37,6 +39,11 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
 }) {
   const menu = useContextMenu()
   const failures = useAppValue<ImportFailure[]>('import_failures') ?? []
+  // Organizations of remote engines (remotes.ts) follow this computer's own,
+  // each engine's under its heading. A heading shows also for an engine with
+  // no organization in the list, so a connection is never invisible.
+  const remotes = useRemotes()
+  const local = nested ? orgs : orgs.filter((o) => !o.remote)
   // ⚠ THE SPINNER AND THE COUNTS ARE THE STATUS, and status is the one thing
   // an unfresh snapshot may not assert. The spinner is the loudest claim in
   // the row — an animation that says "a turn is executing now" — so it is
@@ -48,20 +55,23 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
   const staleTitle = freshness === 'loading'
     ? 'checking current status…'
     : `active / hired agents — from ${Math.round(ageMs / 1000)}s ago, not refreshing`
-  return <>
-    {menu.node}
-    {orgs.map((o) => {
+  const row = (o: OrgListEntry) => {
       if (o.state === 'unavailable') return <UnavailableOrgRow key={o.slug}
         org={o} onPick={onPick} onDelete={onDelete} />
       const already = openLabel?.(o.slug) ?? null
+      // a remote organization's numbers are status too: while its engine is
+      // away they are the last known ones and are not offered as current
+      const engine = o.remote ? remotes.find((r) => r.id === o.remote!.id) : undefined
+      const away = !!o.remote && o.remote.state !== 'connected'
       // open questions + unread urgent mail + attention-flagged tickets, the
       // Attention view's own three kinds (engine `attention`, live per org):
       // above 0 the row is lit and the number takes the spinner's place
       const attn = o.attention ?? 0
       return (
-      <div key={o.slug} role="button" tabIndex={0} title={orgTitle(o.slug)}
+      <div key={o.slug} role="button" tabIndex={0}
+        title={o.remote ? remoteTitle(engine ?? { name: o.remote.name, url: '' }, o.remote, o.slug) : orgTitle(o.slug)}
         onContextMenu={e => menu.open(e, orgMenuEntries(e.currentTarget, o.slug, () => onPick(o.slug), () => onDelete(o)))}
-        className={'org' + (o.slug === slug ? ' current' : '') + (attn > 0 ? ' attn' : '')}
+        className={'org' + (o.slug === slug ? ' current' : '') + (attn > 0 ? ' attn' : '') + (o.remote ? ' org-remote' : '') + (away ? ' org-remote-away' : '')}
         onClick={() => onPick(o.slug)}
         onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
         <span className="org-activity">
@@ -69,30 +79,40 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
             <span className="org-attn-badge"
               title={`${attn} thing${attn === 1 ? '' : 's'} need${attn === 1 ? 's' : ''} your attention`}>
               {attn > 99 ? '99+' : attn}</span>}
-          {attn === 0 && current && (o.working ?? 0) > 0 &&
+          {attn === 0 && current && !away && (o.working ?? 0) > 0 &&
             <span className="working-ct"
               title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
               <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
         </span>
         <span className="org-name">
+          {o.remote && <RemoteIcon fontSize="inherit" className="org-remote-mark" />}
           <span className="org-name-text">{o.name}</span>
           {already && <span className="org-open-badge">{already}</span>}
         </span>
         <span className={'org-counts dim'
           + (freshness === 'loading' ? ' org-counts-loading' : '')
           + (freshness === 'stale' ? ' org-counts-stale' : '')}
-          title={current ? 'active / hired agents' : staleTitle}>
-          {freshness === 'loading' ? '…'
+          title={away ? 'not connected: no current numbers' : current ? 'active / hired agents' : staleTitle}>
+          {away ? '' : freshness === 'loading' ? '…'
             : typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
         </span>
         <button className="org-del"
           onClick={(e) => { e.stopPropagation(); onDelete(o) }}><DeleteIcon fontSize="inherit" /></button>
       </div>
       )
-    })}
+  }
+  return <>
+    {menu.node}
+    {local.map(row)}
     {!nested && failures.map((f) => <ImportFailureRow key={`${f.source}:${f.org}`} failure={f} />)}
-    {!orgs.length && !(failures.length && !nested) &&
+    {!local.length && !(failures.length && !nested) &&
       <div className="dim pad">no organizations yet</div>}
+    {!nested && remotes.map((remote) => <div key={remote.id} className="org-remote-group" role="group"
+      aria-label={'organizations on ' + remote.name}>
+      <RemoteGroupHead remote={remote} />
+      {orgs.filter((o) => o.remote?.id === remote.id).map(row)}
+    </div>)}
+    {!nested && <AddRemoteEngine />}
   </>
 }
 

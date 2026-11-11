@@ -39,6 +39,8 @@ export { default as HomeIcon } from '@mui/icons-material/HomeOutlined'
 export { default as CanvasIcon } from '@mui/icons-material/AccountTreeOutlined'
 export { default as LabelIcon } from '@mui/icons-material/LabelOutlined'
 export { default as LanIcon } from '@mui/icons-material/Lan'
+// the one mark of anything that lives on a remote engine (docs/rust-engine/remote-org.md)
+export { default as RemoteIcon } from '@mui/icons-material/Dns'
 export { default as LayersIcon } from '@mui/icons-material/Layers'
 export { default as AttachIcon } from '@mui/icons-material/AttachFile'
 export { default as SendIcon } from '@mui/icons-material/Send'

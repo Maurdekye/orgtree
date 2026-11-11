@@ -77,6 +77,8 @@ import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
 import type { CanvasShortcutRef } from './shell/appshortcuts'
 import { OrgStatusBar } from './shell/statusbar'
+import { RemoteBanner, RemoteChip, useRemoteAway } from './shell/remotes'
+import { remoteOfOrg, useRemotes } from './remotes'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
 import { SaveTemplateSetting } from './canvas/templates'
@@ -977,6 +979,10 @@ export default function App() {
   const streamerSnap = useStreamerMode()
   const orgStatus = useOrgStatus({ active: orgListOpen || (streamerSnap.enabled && streamerSnap.types.orgs), onOk: fetchOk, onError: fetchErr })
   const orgs = orgStatus.orgs
+  // An organization on a remote engine (remotes.ts): its engine's name marks the title, and while the
+  // engine is away the window shows the last known state, dimmed, under a banner (shell/remotes.tsx).
+  const remoteName = remoteOfOrg(useRemotes(), slug)?.name ?? null
+  const remoteAway = useRemoteAway(slug)
   useEffect(() => { setStreamerOrgs(orgs.filter(o => o.slug !== slug).flatMap(o => [o.name, o.slug])) }, [orgs, slug])
   // false until the FIRST successful /api/orgs: first-run setup must never
   // flash at an existing installation whose list simply hasn't loaded yet
@@ -1296,9 +1302,10 @@ export default function App() {
     // 2026-08-10), a tab reading "(3)" would have pointed at nothing the user
     // could find or clear.
     const n = tree?.user_inbox_count ?? 0
+    // two organizations of one name are told apart in the taskbar by the engine they run on
     document.title = (n > 0 ? `(${n}) ` : '')
-      + (tree?.name ? `${tree.name} — Orgtree` : 'Orgtree')
-  }, [tree])
+      + (tree?.name ? `${tree.name}${remoteName ? ` · ${remoteName}` : ''} — Orgtree` : 'Orgtree')
+  }, [tree, remoteName])
 
   // a conversation belongs to ONE org — dropping the store on an org switch
   // keeps a stale chat from ever being shown under a different tree
@@ -1832,7 +1839,7 @@ export default function App() {
       {/* active org: full foreground; the list hides in a drawer (v2), or the
           compact header and bottom strip take over (v3) */}
       {(!v3 || shellView === 'org') && slug && (
-        <main className="solo">
+        <main className={'solo' + (remoteAway ? ' remote-away' : '')}>
           {/* the tree hasn't loaded at all yet — no header, no canvas, nothing
               to shift, so the plain pre-header banner is harmless here. Once
               `tree` exists the SAME `error` string moves into the orgbar
@@ -1844,12 +1851,13 @@ export default function App() {
               <UpdateNotice />
               <WindowControls />
             </header>}
+            <RemoteBanner slug={slug} />
             {error && <div className="error">{error}</div>}
           </>}
           {tree ? (
             <>
               {v3 ? (
-                <ShellHeader menu={shellMenu} title={tree.name} orgSlug={tree.slug} logoRevision={tree.net?.picture_revision}
+                <ShellHeader menu={shellMenu} title={remoteName ? `${tree.name} · ${remoteName}` : tree.name} orgSlug={tree.slug} logoRevision={tree.net?.picture_revision}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
                   quick={quickAt === 'top' ? quickChat : undefined}
                   actions={<>
@@ -2089,6 +2097,8 @@ export default function App() {
                 <WindowControls />
               </header>
               )}
+              {/* a remote organization whose engine is away says so here, across the top of the canvas */}
+              <RemoteBanner slug={slug} />
               <div className="canvas-stage">
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
@@ -2173,6 +2183,7 @@ export default function App() {
                   live in the header's `.bar-detail`, with every visibility
                   rule, tooltip and click-through intact (shell/statusbar.tsx) */}
               {v3 && <OrgStatusBar tree={tree} orgs={orgs} error={error}
+                lead={<RemoteChip slug={slug} />}
                 appVersion={appVersion}
                 quick={quickAt === 'bottom' ? quickChat : undefined}
                 onOpenConnections={() => {

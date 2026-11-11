@@ -53,9 +53,12 @@ export interface OrgStatusBarProps {
   appVersion?: string | null
   /** Quick chat: one text box that hires, kicks off and focuses a new agent */
   quick?: ReactNode
+  /** the first chip of the run: a remote organization's connection
+   *  (shell/remotes.tsx RemoteChip). Nothing for a local organization. */
+  lead?: ReactNode
 }
 
-export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion, quick }: OrgStatusBarProps) {
+export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion, quick, lead }: OrgStatusBarProps) {
   const centred = useEqualSides(!!quick)
   const hubs = (tree.net?.hubs ?? []).filter((h) => h.enabled && !h.hidden)
   const up = hubs.filter((h) => h.connected).length
@@ -66,6 +69,7 @@ export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion,
   const primed = primedRestartChip(tree.primed_restart, true)
   const chipRun = (
       <div className="shell-statusbar-chips">
+        {lead}
         {/* the ledger self-audit only speaks when something is wrong; credit
             totals live on the eye's bar */}
         {!tree.audit.no_overdraft &&

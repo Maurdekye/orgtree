@@ -10677,3 +10677,33 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .md-inline { display: inline-block; vertical-align: top; max-width: 100%; }
 .md-inline > :first-child { margin-top: 0; }
 .md-inline > :last-child { margin-bottom: 0; }
+
+/* Remote engines (shell/remotes.tsx; docs/rust-engine/remote-org.md): an engine's heading and its
+   organizations in a list, the Add button, the window's chip and the banner while the engine is away. */
+.org-remote-group { display: contents; }
+.org-remote-head {
+  display: flex; align-items: center; gap: 6px; padding: 8px 10px 3px; margin-top: 4px;
+  font-size: 11.5px; color: var(--dim); cursor: pointer; border-top: 1px solid var(--line);
+}
+.org-remote-head:hover, .org-remote-head:focus-visible { color: var(--ink); }
+.org-remote-head-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.org-remote-head-state { color: var(--bad); }
+.org-remote-mark { color: var(--dim); margin-right: 4px; flex: none; }
+.org.org-remote-away .org-name-text { color: var(--dim); }
+.org-remote-add {
+  display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 6px; padding: 6px 10px;
+  background: none; border: 1px dashed var(--line); border-radius: 4px; font-size: 12px; cursor: pointer; text-align: left;
+}
+.org-remote-add:hover, .org-remote-add:focus-visible { color: var(--ink); border-color: var(--dim); }
+.ls-add.remote-add, .ls-add.remote-details { border-color: var(--line); }
+.chip.remote-chip.warn { color: var(--warn, #e5c07b); border-color: var(--warn, #e5c07b); }
+.remote-banner {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px;
+  color: var(--ink); background: var(--panel); border-bottom: 1px solid var(--bad);
+}
+.remote-banner.quiet { border-bottom-color: var(--line); color: var(--dim); }
+.remote-banner.ok { border-bottom-color: var(--ok); }
+.remote-banner-text { flex: 1 1 auto; min-width: 0; }
+/* the last known state, not a live one: dimmed, and nothing in it spins as if a turn were running */
+.solo.remote-away .canvas-stage { opacity: .55; filter: saturate(.6); }
+.solo.remote-away .canvas-stage .cc-spin { animation: none; }

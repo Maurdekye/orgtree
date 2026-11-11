@@ -120,13 +120,18 @@ export function projectOrgs(records: RecordTable, app?: AppFeedState): OrgListEn
   const rows = [...(records.get('registry_org')?.values() ?? [])]
   if (!app) return rows as OrgListEntry[]
   return (rows as RegistryOrg[]).filter(row => row.state === 'active' || row.state === 'unavailable')
-    .sort((a, b) => a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0)
+    // this computer's organizations first, then each remote engine's, by name within each
+    .sort((a, b) => {
+      const ga = a.remote ? '1' + a.remote.tag : '0', gb = b.remote ? '1' + b.remote.tag : '0'
+      return ga < gb ? -1 : ga > gb ? 1 : a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0
+    })
     .map(row => ({ slug: row.slug, name: row.slug, nodes: 0, live: 0, created: null,
       net_slug: null, cost_usd_total: 0,
       ...app.summary(row),
       working: row.state === 'active' ? app.working.get(String(row.org_id))?.value?.working ?? 0 : 0,
       state: row.state, state_reason: row.state_reason, unavailable_step: row.unavailable_step,
-      attempts: row.attempts, report_path: row.report_path }))
+      attempts: row.attempts, report_path: row.report_path,
+      ...(row.remote ? { remote: row.remote } : {}) }))
 }
 
 export type AgentRecord = Omit<TreeNode, 'children'> & { parent_id: string | null; sibling_order?: number
