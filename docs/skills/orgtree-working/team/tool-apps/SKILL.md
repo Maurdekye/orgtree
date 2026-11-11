@@ -543,4 +543,4 @@ saved login (user-only `site_login_set`/`site_login_remove`/`site_logins`) is se
 attached by the engine; no agent or app can read or detect it. `orgtree.net.connect(url)` in app code opens
 an engine-held WebSocket (bridge actions `net.connect`, `net.recv`, `net.send`, `net.close`); limits: 4 per
 app, 2 per panel, 256 queued events or 4 MiB, 64 KiB and 60 sends a minute. Details:
-[custom apps](../../../../rust-engine/custom-apps.md#private-sites-saved-logins-and-the-live-channel-2026-11-11).
+docs/rust-engine/custom-apps.md, section "Private sites, saved logins and the live channel (2026-11-11)".
