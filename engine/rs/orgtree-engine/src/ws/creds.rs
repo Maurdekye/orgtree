@@ -321,7 +321,7 @@ fn header_value(v: &str) -> bool {
 
 /// The trust for a wss:// server with no TLS fields: the Mozilla roots.
 #[nolog]
-fn default_tls(endpoint: &Endpoint) -> Result<Option<Arc<rustls::ClientConfig>>, String> {
+pub(crate) fn default_tls(endpoint: &Endpoint) -> Result<Option<Arc<rustls::ClientConfig>>, String> {
     static DEFAULT: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
     if !endpoint.tls {
         return Ok(None);

@@ -702,6 +702,8 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
     // the first poll returns at once: the connection shows up without
     // waiting out a long poll
     let mut wait = 0;
+    // one stream per poller; dropping the poller (its members changed) closes it
+    let mut carrier = stream::Carrier::new();
     while !stop.is_cancelled() {
         let parts = engine.net.parts.load_full();
         let members: Vec<(Part, String)> = parts
@@ -717,25 +719,36 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
         }
         let auth = members.iter().map(|(p, _)| p.auth()).collect::<Vec<_>>().join(" ");
         let member_ids: Vec<_> = members.iter().map(|(p,_)|p.org_id).collect();
-        let req = request(&engine, &member_ids, HTTP
-            .post(format!("{addr}/api/poll?wait={wait}"))
-            .timeout(Duration::from_secs(POLL_WAIT_S + 15))
-            .header("X-Org-Auth", auth));
-        let res = tokio::select! {
-            r = req => r,
+        // the hub's stream when it offers one (Mail hub 2.5.0), else the HTTP long poll
+        let polled = tokio::select! {
+            p = carrier.poll(&addr, &auth, wait) => p,
             _ = stop.cancelled() => break,
         };
-        let r = match res {
-            Ok(r) => r,
-            Err(e) => {
-                failed(&engine, &addr);
-                for (p, hid) in &members {
-                    set_status(&engine, p.org_id, hid, false, Some(request_error(&e)));
-                }
-                continue;
+        let (code, data) = match polled {
+            stream::Polled::Answer(code, data) => (code, Some(data)),
+            stream::Polled::Http => {
+                let req = request(&engine, &member_ids, HTTP
+                    .post(format!("{addr}/api/poll?wait={wait}"))
+                    .timeout(Duration::from_secs(POLL_WAIT_S + 15))
+                    .header("X-Org-Auth", auth));
+                let res = tokio::select! {
+                    r = req => r,
+                    _ = stop.cancelled() => break,
+                };
+                let r = match res {
+                    Ok(r) => r,
+                    Err(e) => {
+                        failed(&engine, &addr);
+                        for (p, hid) in &members {
+                            set_status(&engine, p.org_id, hid, false, Some(request_error(&e)));
+                        }
+                        continue;
+                    }
+                };
+                let code = r.status().as_u16();
+                (code, if code == 200 { r.json::<Value>().await.ok() } else { None })
             }
         };
-        let code = r.status().as_u16();
         if code != 200 {
             failed(&engine, &addr);
             for (p, hid) in &members {
@@ -751,10 +764,7 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
         }
         succeeded(&engine, &addr);
         wait = POLL_WAIT_S;
-        let data: Value = match r.json().await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+        let Some(data) = data else { continue };
         set_roster(&engine, &addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
         // a member the hub no longer lists was forgotten (an operator's
         // remove-address, a rebuilt hub): it registers again, as a 401 makes
