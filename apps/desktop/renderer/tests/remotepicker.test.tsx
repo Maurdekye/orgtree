@@ -23,17 +23,21 @@ async function picker(t: TestContext, remote: boolean) {
   let picked: unknown
   await inAct(async () => { void pickFolder().then(r => { picked = r }); await flush() })
   t.after(() => { document.querySelector<HTMLElement>('.picker-overlay')?.click() })
-  return { title: () => document.querySelector('.picker h3')?.textContent?.trim(), picked: () => picked }
+  return { title: () => document.querySelector('.picker h3')?.textContent?.trim(), picked: () => picked,
+    /** what the path bar calls the top of the disk */
+    top: () => document.querySelector('.picker-crumbs .dim')?.textContent }
 }
 
 test('a local window\u2019s folder picker is titled as before', async t => {
   const p = await picker(t, false)
   assert.equal(p.title(), 'choose a folder')
+  assert.equal(p.top(), 'this computer')
 })
 
 test('a remote window\u2019s folder picker says whose folders it lists', async t => {
   const p = await picker(t, true)
   assert.equal(p.title(), 'choose a folder on Galaxy')
+  assert.equal(p.top(), 'Galaxy', 'the top of the list is that computer, not this one')
   assert.equal(document.querySelector('.picker h3')?.getAttribute('title'), 'These are folders on Galaxy, the remote engine this organization runs on.')
 })
 
