@@ -188,7 +188,11 @@ module.exports = async (page, { args }) => {
     await shot('52-app-settings-providers')
     await page.eval(() => document.querySelector('.acct-claude-login')?.scrollIntoView({ block: 'center' }))
     await shot('52b-provider-sign-in-is-on-the-remote-engine')
-    const tab = async name => { await page.click({ selector: '.app-settings-tab', text: `^${escapeRe(name)}`, regex: true }); await sleep(1200) }
+    const tab = async name => {
+      // the sign-in capture scrolled the panel: bring the tab strip back before a click on it
+      await page.eval(() => document.querySelector('.app-settings-tab')?.scrollIntoView({ block: 'center' }))
+      await sleep(300)
+      await page.click({ selector: '.app-settings-tab', text: `^${escapeRe(name)}`, regex: true }); await sleep(1200) }
     const groups = id => page.eval(i => Object.fromEntries([...document.querySelectorAll(`#app-settings-panel-${i} .set-group-head`)]
       .map(head => [(head.firstChild?.textContent ?? '').trim(), head.closest('.settings-here') !== null])), id)
     await tab('Display')
