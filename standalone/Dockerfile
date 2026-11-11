@@ -62,7 +62,17 @@ COPY --from=engine /orgtree-engine /usr/local/bin/orgtree-engine
 ARG ORGTREE_IMAGE_REVISION=unknown
 ARG ORGTREE_IMAGE_VERSION=unknown
 # The source label links the GHCR package to the repository.
-LABEL org.opencontainers.image.revision="$ORGTREE_IMAGE_REVISION"       org.opencontainers.image.version="$ORGTREE_IMAGE_VERSION"       org.opencontainers.image.source="https://github.com/Maurdekye/orgtree"       org.opencontainers.image.title="orgtree-engine"       org.opencontainers.image.description="Standalone (headless) Orgtree engine with PostgreSQL 17"       org.opencontainers.image.licenses="MIT"
+# GHCR shows the description of the most recently pushed tag as the package
+# page's text (no README), so the plain and agents images carry the same
+# package-level description (at most 512 characters).
+LABEL org.opencontainers.image.revision="$ORGTREE_IMAGE_REVISION" \
+      org.opencontainers.image.version="$ORGTREE_IMAGE_VERSION" \
+      org.opencontainers.image.source="https://github.com/Maurdekye/orgtree" \
+      org.opencontainers.image.url="https://github.com/Maurdekye/orgtree" \
+      org.opencontainers.image.documentation="https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
+      org.opencontainers.image.title="orgtree-engine" \
+      org.opencontainers.image.description="Runs Orgtree orgs headless, without the desktop app: the Orgtree engine with its own PostgreSQL 17 behind an authenticated HTTP, WebSocket and MCP API. Optional: the desktop app works without it. Tags <version> and latest are the plain engine; <version>-agents and latest-agents add Claude Code, Codex, Node.js, ssh, python3 and the Docker CLI for agents running inside. Docs: https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
+      org.opencontainers.image.licenses="MIT"
 USER orgtree
 ENV ORGTREE_DATA=/data \
     ORGTREE_P03_PG_BIN=/usr/lib/postgresql/17/bin \

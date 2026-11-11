@@ -59,8 +59,12 @@ RUN set -eux; \
     printf 'CLAUDE_CODE_VERSION=%s\nCODEX_VERSION=%s\nCLAUDE_CODE_INSTALL=%s\n' "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" "$CLAUDE_CODE_INSTALL" > /opt/orgtree/agents.env; \
     rm -rf /root/.npm /tmp/*; \
     mkdir -p /data/home; chown -R orgtree:orgtree /data
+# The same package-level description as the plain image: GHCR shows the
+# last pushed tag's description on the package page.
 LABEL org.opencontainers.image.title="orgtree-engine (agents)" \
-      org.opencontainers.image.description="Standalone (headless) Orgtree engine with PostgreSQL 17, Codex CLI, Claude Code (pinned), Node.js, OpenSSH, python3 and the Docker CLI" \
+      org.opencontainers.image.description="Runs Orgtree orgs headless, without the desktop app: the Orgtree engine with its own PostgreSQL 17 behind an authenticated HTTP, WebSocket and MCP API. Optional: the desktop app works without it. Tags <version> and latest are the plain engine; <version>-agents and latest-agents add Claude Code, Codex, Node.js, ssh, python3 and the Docker CLI for agents running inside. Docs: https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
+      org.opencontainers.image.url="https://github.com/Maurdekye/orgtree" \
+      org.opencontainers.image.documentation="https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
       dev.orgtree.claude-code.version="${CLAUDE_CODE_VERSION}" \
       dev.orgtree.claude-code.install="${CLAUDE_CODE_INSTALL}" \
       dev.orgtree.codex.version="${CODEX_VERSION}"
