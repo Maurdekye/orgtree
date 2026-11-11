@@ -398,7 +398,9 @@ export default async function (rig) {
       const before = farTurns()
       const sent = await near('POST', '/api/orgs/far-lab/nodes/lead/message', { body: { text: 'stream please' } })
       proof.check('a message for a remote agent goes through the relay', sent.status === 200, { status: sent.status, detail: sent.json?.detail })
-      await rig.waitFor(() => farTurns() > before, { timeout: 60000, what: 'the remote agent to take the message' })
+      // In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s
+      // after its start (runtime/actor.rs session_settle); the far engine has only just started.
+      await rig.waitFor(() => farTurns() > before, { timeout: 150000, what: 'the remote agent to take the message' })
       const chat = await rig.waitFor(async () => { const c = await near('GET', '/api/orgs/far-lab/nodes/lead/chat?last=50'); return c.text.includes('papa.') ? c : null },
         { timeout: 60000, what: 'the streamed answer in the relayed transcript' })
       proof.check('its answer is read back through the relay', chat.status === 200)
