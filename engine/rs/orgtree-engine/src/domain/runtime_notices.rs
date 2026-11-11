@@ -471,6 +471,7 @@ pub(crate) async fn wait_for_rights(engine: &Arc<Engine>) -> bool {
     loop {
         let reading = Settle {
             skip: false,
+            standalone: engine.cfg.standalone,
             hosting: !bridge.placement_hosting().is_empty(),
             signed_in: bridge.user_signed_in(),
             now_ms: chrono::Utc::now().timestamp_millis(),

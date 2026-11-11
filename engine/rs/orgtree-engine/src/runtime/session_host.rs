@@ -223,6 +223,10 @@ pub fn followed_in(own: u32, kind: &str, pref: &Pref) -> bool {
 pub struct Settle {
     /// an explicit Session 0 choice (its `use` 0, or its preference) skips the wait
     pub skip: bool,
+    /// a standalone (headless) engine: it has no desktop sign-in helper, so
+    /// nothing is waited for and Session 0 is no fallback (the user,
+    /// 2026-11-11 18:01:58Z: "Fix it in 4.6.0")
+    pub standalone: bool,
     /// a helper hosts where `wanted` looks (the session watch's placement)
     pub hosting: bool,
     /// the engine's user is signed in, by the session watch's last reading
@@ -244,11 +248,11 @@ pub const SETTLE_MS: i64 = 60_000;
 /// where its CLI runs (decision 94, invariants 3 and 5): every turn, whatever
 /// its last one did, while the user is signed in (or that is not read yet)
 /// and no helper hosts, until `SETTLE_MS` after the engine's start or after a
-/// helper last hosted. Signed out, or by the agent's own Session 0 choice, a
-/// turn starts at once.
+/// helper last hosted. Signed out, by the agent's own Session 0 choice, or in a
+/// standalone engine (no sign-in helper exists there), a turn starts at once.
 #[nolog]
 pub fn turn_waits_for_helper(s: &Settle) -> bool {
-    !s.skip && !s.hosting && s.signed_in != Some(false) && s.now_ms < s.start_ms.max(s.last_hosting_ms) + SETTLE_MS
+    !s.standalone && !s.skip && !s.hosting && s.signed_in != Some(false) && s.now_ms < s.start_ms.max(s.last_hosting_ms) + SETTLE_MS
 }
 
 /// Whether a turn whose wait for the helper is over runs in Session 0 for
@@ -258,7 +262,7 @@ pub fn turn_waits_for_helper(s: &Settle) -> bool {
 /// choice, a sign-out and a hosting helper are no fallback.
 #[nolog]
 pub fn falls_back_for_want_of_helper(s: &Settle) -> bool {
-    !s.skip && !s.hosting && s.signed_in != Some(false) && !turn_waits_for_helper(s)
+    !s.standalone && !s.skip && !s.hosting && s.signed_in != Some(false) && !turn_waits_for_helper(s)
 }
 
 /// Why a turn's CLI runs in Session 0, for the desk's Session 0 badge
@@ -897,6 +901,22 @@ mod settle_tests {
         assert!(!turn_waits_for_helper(&Settle { signed_in: Some(false), ..now }), "signed out: Session 0 at once");
         assert!(!turn_waits_for_helper(&Settle { skip: true, ..now }), "the agent chose Session 0");
         assert!(!turn_waits_for_helper(&signed_in_at(START + SETTLE_MS)), "the grace after the start is over");
+    }
+
+    #[test]
+    fn a_standalone_engine_never_waits_for_a_sign_in_helper() {
+        // finding A26 (2026-11-11): a standalone engine in Session 0 with a
+        // user signed in held first turns for 60 s, waiting for a desktop
+        // helper it does not have; the desktop path above is unchanged
+        for at in [START + 1_000, START + SETTLE_MS + 5_000] {
+            for signed_in in [Some(true), None] {
+                let s = Settle { standalone: true, signed_in, ..signed_in_at(at) };
+                assert!(!turn_waits_for_helper(&s), "no wait at {at} signed in {signed_in:?}");
+                assert!(!falls_back_for_want_of_helper(&s), "and no helper-unreachable fallback");
+            }
+        }
+        let lost = START + 600_000;
+        assert!(!turn_waits_for_helper(&Settle { standalone: true, last_hosting_ms: lost, ..signed_in_at(lost + 5_000) }));
     }
 }
 

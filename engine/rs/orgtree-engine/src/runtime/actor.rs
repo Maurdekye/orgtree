@@ -3863,8 +3863,10 @@ impl Actor {
         let skip = self.use_session == Some(0) || (self.use_session.is_none() && *pref == Pref::Session0);
         let start_ms = self.engine.boot.started_at.timestamp_millis();
         let bridge = &self.engine.credential_bridge;
+        let standalone = self.engine.cfg.standalone;
         let reading = || Settle {
             skip,
+            standalone,
             hosting: !bridge.placement_hosting().is_empty(),
             signed_in: bridge.user_signed_in(),
             now_ms: Utc::now().timestamp_millis(),
