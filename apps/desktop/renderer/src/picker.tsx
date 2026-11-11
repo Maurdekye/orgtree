@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getFs } from './api'
 import type { FsPayload } from './types'
 import { ArrowUpIcon, FolderIcon, HomeIcon, StorageIcon } from './icons'
+import { useRemoteHere } from './remotehere'
 
 export interface PickResult { path: string | null }
 type PickRequest = { document: Document; resolve: (r: PickResult) => void }
@@ -23,6 +24,8 @@ export function FolderPickerHost() {
   const [cur, setCur] = useState<FsPayload | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const homeRef = useRef<string | null>(null)
+  // the listing is the engine's (/api/fs): in a remote organization's window, the remote engine's disk
+  const remote = useRemoteHere()
   const nav = (p: string) => getFs(p)
     .then((r) => { if (r.home) homeRef.current = r.home; setCur(r); setErr(null) })
     .catch((e: Error) => setErr(e.message))
@@ -52,7 +55,8 @@ export function FolderPickerHost() {
   return createPortal(
     <div className="overlay picker-overlay" onClick={() => finish(null)}>
       <div className="settings picker" onClick={(e) => e.stopPropagation()}>
-        <h3><FolderIcon fontSize="inherit" /> choose a folder</h3>
+        <h3 title={remote ? `These are folders on ${remote.name}, the remote engine this organization runs on.` : undefined}>
+          <FolderIcon fontSize="inherit" /> choose a folder{remote ? ` on ${remote.name}` : ''}</h3>
         <div className="picker-bar">
           <button className="iconbtn" title="drives / roots"
             onClick={() => nav('')}><StorageIcon fontSize="inherit" /></button>

@@ -220,6 +220,10 @@ exist" would tell the remote engine about this computer.
   path to copy.
 - Commands that belong to this app on this computer (the engine log folder, preferences, updates,
   the tray) are unchanged in a remote window.
+- **What the remote engine does is said to be there.** The folder picker lists folders through
+  `/api/fs`, an engine route, so in a remote window it browses the remote engine's disk; its title
+  reads "choose a folder on <name>". A language model server's address is dialed by the engine,
+  so its Address row adds "Addresses are as seen from <name>."
 - **App settings says whose settings it shows.** In a remote window the engine's settings are the
   remote engine's (its routes are relayed and its values come with the composed app feed). Under
   the tab strip a note says so. The tabs that hold only this app's settings (Streaming, Mail hub,
@@ -305,4 +309,5 @@ waits allow for it.
 ## Not yet
 
 Creating an organization on a remote engine, watch-only
-windows with a viewer token, and app panel actions that need a file dialog of this computer.
+windows with a viewer token. No app panel action opens a file dialog of this computer today; one
+that does must be refused for a remote window (`REMOTE_APP_ACTION` in `remotehere.ts` is its sentence).

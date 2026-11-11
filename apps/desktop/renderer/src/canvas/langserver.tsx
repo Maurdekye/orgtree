@@ -60,6 +60,7 @@ import {
 } from '../api'
 import type { LangServerModelPick } from '../api'
 import { useAppValue } from '../appfeed'
+import { remoteAddressNote, useRemoteHere } from '../remotehere'
 import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
   LangServer, LangServerDoc, LangServerPreset, LangServerProbe, LangServerProbeModel, ProviderInfo,
@@ -280,6 +281,8 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
   const [presetId, setPresetId] = useState<LangServerPreset['id']>('ollama')
   const preset = doc.presets.find((p) => p.id === presetId) ?? doc.presets[0]
   const custom = presetId === 'custom'
+  // the remote engine dials the address, so it is as seen from that engine's computer
+  const remote = useRemoteHere()
   const [address, setAddress] = useState(preset?.address ?? '')
   const firstHarness = (p: LangServerPreset | undefined) =>
     p?.harnesses.find((h) => h.available)?.id ?? 'claude-code'
@@ -360,7 +363,8 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
         </select>
       </SetRow>
       <SetRow label="Address"
-        hint={custom ? 'The server’s base address, e.g. https://models.example.net' : undefined}>
+        hint={[custom ? 'The server’s base address, e.g. https://models.example.net' : '', remote ? remoteAddressNote(remote.name) : '']
+          .filter(Boolean).join(' ') || undefined}>
         <input data-streamer-field="ip" type="text" aria-label="Server address" spellCheck={false} value={address}
           placeholder="http://127.0.0.1:11434" disabled={busy}
           onChange={(e) => { setAddress(e.target.value); setProbe(null); setBrowsing(false) }} />

@@ -68,6 +68,9 @@ export const remoteFileText = (name: string): string => `This file is on ${name}
 export const remoteSignInText = (name: string, path?: string | null): string =>
   `Sign in on ${name} itself${path ? `: this profile’s folder is ${path}` : ''}. See “Sign in to provider CLIs over SSH” in the standalone engine guide.`
 
+/** An address the engine itself dials (a language model server): from the remote engine's computer. */
+export const remoteAddressNote = (name: string): string => `Addresses are as seen from ${name}.`
+
 /** T4: an app panel action that needs a file dialog of this computer. */
 export const REMOTE_APP_ACTION = 'Not available for an organization on a remote engine.'
 
