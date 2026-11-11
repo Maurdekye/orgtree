@@ -224,3 +224,43 @@ async fn a_viewer_socket_is_listen_only_closes_with_1008_and_dies_on_revoke() {
     assert_eq!(server.request("DELETE", &revoke, BOOTSTRAP, None).await.0, 200);
     assert!(disconnected(&mut live).await, "revoking the viewer token closes its socket at once");
 }
+
+#[test]
+fn a_viewers_scope_carries_its_client_id_and_org() {
+    let root = Root::new();
+    let registry = Registry::open(&root.0).unwrap();
+    let viewer = registry.manage(&json!({"action":"create","name":"v","scope":"viewer","org":"galaxy"})).unwrap();
+    let full = registry.manage(&json!({"action":"create","name":"f"})).unwrap();
+    let clients = registry.clients.lock().unwrap();
+    let scope_of = |id: &Value| clients.iter().find(|c| c.record.id == id.as_str().unwrap()).unwrap().record.scope();
+    assert_eq!(scope_of(&viewer["id"]), Scope::Viewer { org: "galaxy".into(), client_id: viewer["id"].as_str().unwrap().into() });
+    assert_eq!(scope_of(&full["id"]), Scope::Full);
+}
+
+#[test]
+fn org_slugs_with_slashes_or_control_characters_are_refused_with_400() {
+    let root = Root::new();
+    let registry = Registry::open(&root.0).unwrap();
+    for org in ["a/b", "a\u{7}b", ""] {
+        let error = registry.manage(&json!({"action":"create","name":"v","scope":"viewer","org":org})).unwrap_err();
+        assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST, "{org:?}");
+    }
+}
+
+#[tokio::test]
+async fn requests_without_a_token_or_with_the_bootstrap_key_are_unchanged_on_the_credential_and_language_server_paths() {
+    let root = Root::new();
+    let server = Server::start(&root).await;
+    let body = json!({"pipe":r"\\.\pipe\orgtree-credentials-synthetic-viewer","secret":"1".repeat(64),"pid":std::process::id(),"release":true});
+    for path in ["/api/desktop/credential-bridge", "/ls/anything"] {
+        for token in [BOOTSTRAP, "no-such-token"] {
+            let (status, value) = server.request("POST", path, token, Some(body.clone())).await;
+            assert_ne!(value["detail"], READ_ONLY, "{path} with {token}");
+            let _ = status;
+        }
+    }
+    let (status, _) = server.request("POST", "/api/desktop/credential-bridge", BOOTSTRAP, Some(body.clone())).await;
+    assert_eq!(status, 200, "the bootstrap key still releases an absent broker");
+    let (status, _) = server.request("POST", "/api/desktop/credential-bridge", "no-such-token", Some(body)).await;
+    assert_eq!(status, 503, "a wrong token is still refused by the bridge's own check");
+}

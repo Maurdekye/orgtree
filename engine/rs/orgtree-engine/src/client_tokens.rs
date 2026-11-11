@@ -27,7 +27,7 @@ const FILE_VERSION: u8 = 2;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scope {
     Full,
-    Viewer { org: String },
+    Viewer { org: String, client_id: String },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ fn full_scope() -> String { "full".into() }
 impl Record {
     fn scope(&self) -> Scope {
         match &self.org {
-            Some(org) if self.scope == "viewer" => Scope::Viewer { org: org.clone() },
+            Some(org) if self.scope == "viewer" => Scope::Viewer { org: org.clone(), client_id: String::new() },
             _ => Scope::Full,
         }
     }

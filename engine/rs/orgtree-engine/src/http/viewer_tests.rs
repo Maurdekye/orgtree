@@ -144,3 +144,18 @@ fn classification_has_no_overlap_and_no_stale_entries() {
     }
     assert!(!ALLOWED.is_empty());
 }
+
+#[test]
+fn log_lines_carry_client_id_method_and_a_trimmed_route() {
+    let get = Method::GET;
+    let line = log_line("cid-1", &get, "/api/orgs/galaxy/documents/42/download", true);
+    assert_eq!(line, "viewer client token cid-1 GET /api/orgs/galaxy/documents allowed");
+    let line = log_line("cid-1", &Method::DELETE, "/api/standalone/clients/some-secret-id", false);
+    assert_eq!(line, "viewer client token cid-1 DELETE /api/standalone/clients refused");
+    let line = log_line("cid-2", &Method::POST, "/api/mcp", false);
+    assert_eq!(line, "viewer client token cid-2 POST /api/mcp refused");
+    let line = log_line("cid-2", &get, "/api/orgs/galaxy", true);
+    assert_eq!(line, "viewer client token cid-2 GET /api/orgs/galaxy allowed");
+    let line = log_line("cid-2", &get, "/api/accounts/x/usage/y", false);
+    assert!(!line.contains("usage") && !line.contains("/y"), "{line}");
+}

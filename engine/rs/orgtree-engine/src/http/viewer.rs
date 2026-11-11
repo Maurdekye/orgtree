@@ -260,3 +260,7 @@ fn matches(route: &str, segments: &[&str], org: &str) -> bool {
     }
     segments.len() == pattern.len()
 }
+
+/// The audit line for one viewer request. STUB for the red commit.
+#[nolog]
+pub fn log_line(_client_id: &str, _method: &Method, _path: &str, _allowed: bool) -> String { String::new() }

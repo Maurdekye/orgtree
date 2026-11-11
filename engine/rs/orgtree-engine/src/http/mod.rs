@@ -360,7 +360,7 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
     // only the routes `viewer.rs` allows, never the language-server proxy or the credential bridge.
     if engine.cfg.standalone {
         if let Some(scope) = standalone_scope(&engine, &req) {
-            if let crate::client_tokens::Scope::Viewer { org } = &scope {
+            if let crate::client_tokens::Scope::Viewer { org, .. } = &scope {
                 if let Some(refusal) = viewer_refusal(&engine, &req, org) { return refusal; }
             }
             req.extensions_mut().insert(scope);
