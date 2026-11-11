@@ -166,7 +166,7 @@ async fn self_revoke_drops_calling_socket_and_mcp_can_manage_clients() {
     let (_, listed) = server.request("POST", "/api/mcp", token, Some(rpc(2, json!({"action":"list"})))).await;
     let listing: Value = serde_json::from_str(listed["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(listing["clients"].as_array().unwrap().len(), 1);
-    assert_eq!(listing["clients"][0].as_object().unwrap().len(), 3);
+    assert_eq!(listing["clients"][0].as_object().unwrap().len(), 4, "id, name, created_at, scope");
     assert!(!listing.to_string().contains(token));
     assert!(!std::fs::read_to_string(root.0.join(FILE)).unwrap().contains(token));
     let (_, revoked) = server.request("POST", "/api/mcp", BOOTSTRAP, Some(rpc(3, json!({"action":"revoke","id":value["id"]})))).await;
@@ -224,3 +224,5 @@ async fn standalone_peer_extension_preserves_separately_authenticated_local_brid
     let denied = crate::credential_bridge::dispatch(axum::extract::State(server.engine.clone()), remote).await;
     assert_eq!(denied.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE, "non-loopback peer must remain refused");
 }
+
+mod viewer;

@@ -12,6 +12,9 @@ pub mod compute;
 pub mod groups;
 pub mod rooms;
 pub mod socket;
+pub mod viewer_gate;
+#[cfg(test)]
+mod viewer_gate_tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;

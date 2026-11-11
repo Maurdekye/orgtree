@@ -34,6 +34,9 @@ pub mod settings;
 pub mod templates;
 pub mod tree;
 pub mod usermcp;
+pub mod viewer;
+#[cfg(test)]
+mod viewer_tests;
 
 use std::sync::Arc;
 
