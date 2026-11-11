@@ -71,7 +71,7 @@ LABEL org.opencontainers.image.revision="$ORGTREE_IMAGE_REVISION" \
       org.opencontainers.image.url="https://github.com/Maurdekye/orgtree" \
       org.opencontainers.image.documentation="https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
       org.opencontainers.image.title="orgtree-engine" \
-      org.opencontainers.image.description="Runs Orgtree orgs headless, without the desktop app: the Orgtree engine with its own PostgreSQL 17 behind an authenticated HTTP, WebSocket and MCP API. Optional: the desktop app works without it. Tags <version> and latest are the plain engine; <version>-agents and latest-agents add Claude Code, Codex, Node.js, ssh, python3 and the Docker CLI for agents running inside. Docs: https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
+      org.opencontainers.image.description="Runs Orgtree orgs headless, without the desktop app: the Orgtree engine with its own PostgreSQL 17 behind an authenticated HTTP, WebSocket and MCP API. Optional: the desktop app works without it. Tags <version> and latest are the plain engine; <version>-agents and latest-agents add Codex, Node.js, ssh, python3 and the Docker CLI, and install Claude Code on first start, for agents running inside. Docs: https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
       org.opencontainers.image.licenses="MIT"
 USER orgtree
 ENV ORGTREE_DATA=/data \
