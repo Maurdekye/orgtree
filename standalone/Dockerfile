@@ -30,6 +30,8 @@ COPY docs/releases.json docs/release-notes-*.md docs/
 # release build compiles no tests, but every include path is copied, so the
 # stage never depends on where an include sits.
 COPY docs/examples/apps/annotation-notes.orgtree-app docs/examples/apps/
+# The langserver fixture a unit test reads with include_str! (same reason).
+COPY tests/fixtures/langserver-context.json tests/fixtures/
 ARG CARGO_BUILD_JOBS=1
 ARG ORGTREE_BUILD_COMMIT=unknown
 ARG CARGO_PROFILE_RELEASE_OPT_LEVEL=3
