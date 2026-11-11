@@ -453,6 +453,8 @@ pub struct Fetched {
     pub body: Vec<u8>,
     pub final_url: String,
     pub redirected: bool,
+    /// A saved login was attached (the app is told that much, never the value).
+    pub login: bool,
 }
 /// Responses are private app content: status and size only.
 impl std::fmt::Debug for Fetched {
@@ -644,7 +646,12 @@ pub async fn fetch(f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> Resu
 /// and a private address are reachable only for such a site, pinned to the address set stored for it; a redirect
 /// off such a site is never followed.
 #[nolog]
-pub async fn fetch_with(mut f: Fetch, access: &Access<'_>) -> Result<Fetched> {
+pub async fn fetch_with(f: Fetch, access: &Access<'_>) -> Result<Fetched> {
+    fetch_full(f, access, &|_, _| None).await
+}
+/// etch_with, plus the saved login the engine attaches to the request's own site (spec 4.4). login(host, port)\n/// is asked on every hop, so a login never leaves the site it was saved for.
+#[nolog]
+pub async fn fetch_full(mut f: Fetch, access: &Access<'_>, _login: &(dyn Fn(&str, u16) -> Option<(String, String)> + Sync)) -> Result<Fetched> {
     let allow = access.allow;
     validate_fetch(&f)?;
     let deadline = tokio::time::Instant::now() + REQUEST_TIMEOUT;
@@ -799,6 +806,7 @@ pub async fn fetch_with(mut f: Fetch, access: &Access<'_>) -> Result<Fetched> {
             body,
             final_url,
             redirected: hop > 0,
+            login: false,
         });
     }
     crate::refuse!(

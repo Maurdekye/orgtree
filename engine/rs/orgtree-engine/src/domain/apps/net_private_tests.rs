@@ -169,3 +169,30 @@ fn the_permissions_row_describes_where_a_site_resolves_and_what_is_pinned() {
     assert_eq!(describe_site("x", None, &serde_json::json!(null))["class"], "unresolved");
     assert_eq!(describe_site("v6", Some(&[ip("fd7a:115c:a1e0::1")]), &serde_json::json!(null))["tailscale"], true);
 }
+
+// Spec 4.4 / test 13: the engine attaches the saved login to the exact site's requests, replacing an app header of
+// the same name, and tells the app only whether one was attached.
+#[tokio::test]
+async fn a_saved_login_is_attached_to_its_own_site_only_and_replaces_the_apps_header() {
+    let (port, heads) = plain_server("login.test", "100.64.0.20").await;
+    let pinned = vec![ip("100.64.0.20")];
+    let allow = |h: &str, p: u16| h == "login.test" && p == port;
+    let private = |h: &str, p: u16| (h == "login.test" && p == port).then(|| pinned.clone());
+    let access = Access { allow: &allow, private: &private };
+    let login = |h: &str, p: u16| (h == "login.test" && p == port).then(|| ("Authorization".to_string(), "Bearer ENGINE-HELD".to_string()));
+    let mut request = get(&format!("http://login.test:{port}/ok"));
+    request.headers = vec![("authorization".into(), "Bearer APP-CHOSE".into()), ("Accept".into(), "text/plain".into())];
+    let got = fetch_full(request, &access, &login).await.unwrap();
+    assert!(got.login, "the app learns that a login was attached, nothing more");
+    let head = heads.lock().unwrap().last().unwrap().to_ascii_lowercase();
+    assert!(head.contains("authorization: bearer engine-held"), "{head}");
+    assert!(!head.contains("app-chose"), "the app's own header is replaced: {head}");
+    assert!(head.contains("accept: text/plain"), "{head}");
+    // No login row: nothing is attached and the app's header is left alone.
+    let none = |_: &str, _: u16| None;
+    let mut request = get(&format!("http://login.test:{port}/ok"));
+    request.headers = vec![("Authorization".into(), "Bearer APP-CHOSE".into())];
+    let got = fetch_full(request, &access, &none).await.unwrap();
+    assert!(!got.login);
+    assert!(heads.lock().unwrap().last().unwrap().contains("APP-CHOSE") || heads.lock().unwrap().last().unwrap().to_ascii_lowercase().contains("app-chose"));
+}

@@ -247,3 +247,14 @@ mod tests {
         std::fs::remove_dir_all(&d).ok();
     }
 }
+
+/// RED STUB (piece 3): `seal` under a caller-chosen AAD.
+#[nolog]
+pub fn seal_with_aad(_key: &Key, _aad: &[u8], _plain: &[u8]) -> Result<Vec<u8>, String> {
+    unimplemented!("red stub")
+}
+/// RED STUB (piece 3).
+#[nolog]
+pub fn unseal_with_aad(_key: &Key, _aad: &[u8], _sealed: &[u8]) -> Result<Vec<u8>, String> {
+    unimplemented!("red stub")
+}
