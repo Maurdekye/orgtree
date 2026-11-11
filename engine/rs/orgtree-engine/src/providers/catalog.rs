@@ -477,7 +477,11 @@ mod effort_tests {
     fn argon_effort_picker_offers_medium_without_widening_other_tiers() {
         let state = crate::providers::State::default();
         assert_eq!(crate::providers::effort_names(&state, "argon"), Some(v(&["low", "medium", "high"])));
-        for tier in ["pro", "krypton", "carbon"] {
+        // Carbon (user 2026-11-11 "missing the medium effort level"): the installed agy 1.5.6 carries the explicit
+        // `gemini-4-carbon-medium` id and the "Gemini 4 Carbon (Medium)" label (static inspection, see argon-effort.md)
+        assert_eq!(crate::providers::effort_names(&state, "carbon"), Some(v(&["low", "medium", "high"])));
+        assert_eq!(antigravity_effort("carbon", "medium"), "medium");
+        for tier in ["pro", "krypton"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "high"])), "{tier}");
         }
         for tier in ["flash", "agy-sonnet", "agy-opus"] {
