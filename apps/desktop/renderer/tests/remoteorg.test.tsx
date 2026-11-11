@@ -223,3 +223,29 @@ test('the window’s chip shows the connection, and the banner offers the retry;
   await feed.remotes([remote()])
   assert.equal(view.el.querySelector('#banner')!.textContent, 'Reconnected to Galaxy.')
 })
+
+test('Connection details opens from the chip; Streamer mode masks the address and this computer’s name', async (t) => {
+  const feed = appFeed(t)
+  const view = await mountView(<span id="remote"><RemoteChip slug="beta" /></span>, (el) => el)
+  t.after(() => view.unmount())
+  await feed.remotes([remote()])
+  const doc = view.el.ownerDocument
+  await inAct(() => { (view.el.querySelector('.remote-chip') as HTMLElement).click() })
+  const rows = () => Object.fromEntries([...doc.querySelectorAll('.remote-details .set-row')].map((row) => {
+    const control = row.querySelector('.set-control')!
+    return [row.querySelector('.set-label')!.textContent!.trim(), control]
+  }))
+  assert.deepEqual(Object.keys(rows()), ['Name', 'Address', 'State', 'Transport', 'Remote engine version', 'Signed in as', 'Organizations'])
+  assert.equal(rows().Transport!.textContent, 'Tailscale')
+  assert.equal(rows().Organizations!.textContent, 'Acme, Beta')
+  const masked = (label: string) => rows()[label]!.querySelector('[data-streamer-field]')
+  assert.equal(masked('Address')!.getAttribute('data-streamer-field'), 'ip')
+  assert.equal(masked('Address')!.textContent, 'http://100.64.0.7:7430')
+  // "Orgtree desktop (<computer>)" holds this computer's name: a host field, masked like the address
+  assert.equal(masked('Signed in as')?.getAttribute('data-streamer-field'), 'ip', 'the computer name is a host field')
+  assert.equal(masked('Signed in as')!.textContent, 'Orgtree desktop (TEST-PC)')
+  // without a token of its own there is no computer name to mask
+  await feed.remotes([remote({ client_name: null, own_token: false })])
+  assert.equal(rows()['Signed in as']!.textContent, 'the pasted token')
+  assert.equal(masked('Signed in as'), null)
+})
