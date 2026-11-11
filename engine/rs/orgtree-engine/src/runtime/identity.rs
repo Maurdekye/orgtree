@@ -1356,7 +1356,7 @@ const TRIM_SKILLS_POINTER: &str = "HOW-TO LIVES IN SKILLS. orgtree-working cover
 
 const TRIM_CACHE: &str = "CACHE: provider/account/model/session switches start a new prompt-cache namespace; prompt/charter/tool/history edits change the prefix. Avoid needless changes; state necessary changes' cache cost. Never promise a cache hit (orgtree-cache-continuity).";
 
-const TRIM_ACCOUNTS: &str = "ACCOUNTS (user rules 2026-09-12): NEVER start a model on an account where a usage window that model spends is at 100% — judge each account-and-model pair, and call a model unavailable only when every compatible account is ineligible or unreadable. At placement, read [PROVIDER USAGE]: prefer the account that resets sooner, otherwise lower usage. Unavailable means unknown, never zero or spare capacity. Never balance by changing a running agent's account. Account fields, Fable windows and board lines: orgtree-account-lanes, orgtree-usage-windows. ";
+const TRIM_ACCOUNTS: &str = "ACCOUNTS (user rules 2026-09-12): NEVER start a model on an account where a usage window that model spends is at 100% — judge each account-and-model pair, and call a model unavailable only when every compatible account is ineligible or unreadable. At placement, read [PROVIDER USAGE]: prefer the account that resets sooner, otherwise lower usage. Unavailable means unknown, never zero or spare capacity. Never balance by changing a running agent's account. FABLE PIP: on a Claude account with a weekly scoped (Fable) window, weekly usage past (1 + f)/2, f = the Fable weekly fraction used, means the rest of Fable's weekly allowance can't be used before the weekly limit. Account fields, Fable windows and board lines: orgtree-account-lanes, orgtree-usage-windows. ";
 
 const TRIM_READ_REPORTS: &str = "Read orgtree_read_transcript and orgtree_read_scratch before asking reports; open claimed results to verify them (orgtree-reading-reports). ";
 
@@ -1551,6 +1551,8 @@ mod trim_tests {
     const APP_WIDE_AUTHORITY_GROWTH: usize = 88;
     // User 2026-10-20: next-turn changes via queued restart, fixed UTF-8 budget.
     const QUEUED_RESTART_GROWTH: usize = 372;
+    /// The Fable pip sentence in the trimmed ACCOUNTS rule (docket agent-instructions-one-sentence-on-the-fable-pip).
+    const FABLE_PIP_GROWTH: usize = 215;
     /// The old OpenCode-only queue/status sentence was 157 bytes. Its new
     /// version/fallback sentence plus authentic-channel rules occupy 557.
     /// Keep this lane-specific growth separate from EXTERNAL's allowance
@@ -1571,6 +1573,7 @@ mod trim_tests {
         assert_eq!(HIERARCHICAL_MEMORY_POINTER.len(), HIERARCHICAL_MEMORY_POINTER_GROWTH);
         assert_eq!(QUEUED_RESTART.len(), QUEUED_RESTART_GROWTH);
         assert_eq!(TRIM_QUEUED_RESTART.len(), 320);
+        assert!(TRIM_ACCOUNTS.contains("FABLE PIP:") && TRIM_ACCOUNTS.matches("(1 + f)/2").count() == 1);
         assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
         assert!(OPENCODE_MAIL_DELIVERY.len() + TRIM_AUTHENTIC_CHANNEL.len() <= 157 + OPENCODE_HOOK_MAIL);
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
@@ -1582,7 +1585,7 @@ mod trim_tests {
                 // EXTERNAL tags, the unconditional concurrency pointer and
                 // OpenCode's hook-mail contract each retain their bounded allowance.
                 let hook_mail = if lane == Lane::OpenCode { OPENCODE_HOOK_MAIL } else { 0 };
-                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + FABLE_PIP_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }
