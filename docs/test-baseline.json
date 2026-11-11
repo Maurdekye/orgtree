@@ -584,7 +584,7 @@
         "renderer::apps/desktop/renderer/tests/krypton.test.tsx::§2 hire sheet: no Krypton button until the payload offers it",
         "renderer::apps/desktop/renderer/tests/krypton.test.tsx::§2 lineage rehire list: no \"as krypton\" row until the payload offers it",
         "renderer::apps/desktop/renderer/tests/krypton.test.tsx::§3 an agent already on Krypton keeps its own tier in the switch and its B token",
-        "renderer::apps/desktop/renderer/tests/krypton.test.tsx::§4 Krypton uses the specified krypton green on every tier surface",
+        "renderer::apps/desktop/renderer/tests/krypton.test.tsx::§4 Krypton uses the specified krypton lavender on every tier surface",
         "renderer::apps/desktop/renderer/tests/krypton.test.tsx::Argon and Krypton offers are independent",
         "renderer::apps/desktop/renderer/tests/bearerchip.test.tsx::§1 a LIVE bearer card carries `live` AND `bearer` — the class pair the stylesheet fix is scoped on",
         "renderer::apps/desktop/renderer/tests/bearerchip.test.tsx::§2 …and an ARCHIVED bearer carries `archived` and NOT `live`, so the wash still reaches it",

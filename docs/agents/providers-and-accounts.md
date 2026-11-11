@@ -1585,7 +1585,7 @@ Original section: Providers, accounts and usage. Source lines 4812–4837.
   registry lists the exact base id or its supported effort suffix. Each is gated
   independently; existing agents retain their tier. Krypton copies Argon's placeholder
   seat, effort and usage rates. [decided: user 2026-10-05; verified:
-  `providers.py`, `canvas/shared.ts`, `tests/test_krypton_tier.py`]
+  `providers.py`, `canvas/shared.ts`, `tests/test_barium_tier.py (legacy 3.x, untouched)`]
   Speculative Carbon (`gemini-4-carbon`, letter C, chartreuse `#c6ff00`) copies Krypton the
   same way in the 4.x code: hidden until `agy models` lists it, then offered like the
   other two. [decided: user 2026-10-10; verified: `providers/catalog.rs`,
