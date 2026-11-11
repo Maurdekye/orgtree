@@ -227,7 +227,7 @@ plants a minimal desktop bridge before each page loads, with the identity main g
 (`homepage`; `org` with the organization's alias): without it the page is the plain browser layout,
 which has no status strip and so no connection chip. And the rig's desk harness (`desktop/main.cjs`)
 adds `X-Orgtree-Remote` for a page at `/o/<alias>` of a remote organization, as Electron main does
-for a window bound to one. Measured 2026-11-11 with a bundle: 40 checks, 26 captures, about 150 s.
+for a window bound to one. Measured 2026-11-11 with a bundle: 40 checks, 25 captures, about 150 s.
 In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s
 after its start (`session_settle`), so the far engine's first answer can take that long; the proof's
 waits allow for it.
