@@ -13,17 +13,7 @@ so they can explicitly visit it. Never listen on all panels for this workflow.
 See [app-creation instructions](docs/skills/orgtree-working/team/tool-apps/SKILL.md#creating-an-app-for-the-user).
 [decided: user 2026-10-27]
 
-Presentations and apps stay separate (user 2026-10-26: "its also good to spesrate
-them from a ux perspective; predentstions are intended as a one-way communication,
-whearas apps are meant as a two-way communication, where the user cimmunicates back to
-the agent thru the app."). Inline HTML presentations are interactive but one-way: no SDK
-or bridge, and the app never listens to their frame. Apps reach agents only through
-declared events (user: "i want to keep agent notification purely through the event
-system, no targeting agents directly (makes them more portable and easier to
-manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
-Apps are custom UIs for the user to manipulate data in a structured way, not
-persistent program environments (user 2026-10-27); panels run only while Orgtree
-is open, tray included, as the tool texts say; the Apps menu shows no note.
+Presentations and apps stay separate (user 2026-10-26): presentations are one-way, apps two-way and reach agents only through declared events; mail.send is removed. Apps are custom UIs for the user, not persistent program environments (user 2026-10-27). Full text: [apps vs presentations](docs/rust-engine/custom-apps.md#presentations-and-apps-stay-separate-moved-from-agentsmd).
 [decided: user 2026-10-26, 2026-10-27; verified: `canvas/{docs,gallery}.tsx`, `canvas/apps/ui.tsx`, `domain/apps/{wire,policy,bridge}.rs`]
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
@@ -49,18 +39,8 @@ the same insertion path agents use, without showing or running it. See
 [app mentions](docs/rust-engine/custom-apps.md#mentions-2026-10-27).
 [decided: user 2026-10-27; verified: `canvas/apps/links.ts`, `domain/apps/storage.rs`]
 
-The Apps list shows apps newest first and each app's panels in creation order
-(`created_at`); never reorder by running, shown, hidden or used state. Its
-header right-aligns Import app with no Refresh button; app and panel creates,
-imports, renames, deletes and run/show changes update live from
-`custom_apps_changed`. App and panel gears share one right-aligned column;
-the app + and panel power buttons share the preceding column. An empty Apps
-list says "No apps yet. Ask an agent to make an app for you, and it will appear
-here."; the live list hides it when an app appears. Renderer CSS must use
-theme variables that `styles.css` defines (`--line`, `--dim`, `--panel-2`,
-`--ink`, ...): an undefined `var()` silently drops its declaration, as
-`--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
-[decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; 2026-10-27 m4dcfc15be8e3, mcc0591ec051b; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-27]
+The Apps list shows apps newest first and panels in creation order; never reorder by running/shown/hidden state; Renderer CSS must use theme variables `styles.css` defines (an undefined `var()` silently drops its declaration). Full layout rules: [Apps list order](docs/rust-engine/custom-apps.md#apps-list-order-and-layout-moved-from-agentsmd).
+[decided: user 2026-10-26, 2026-10-27 m4dcfc15be8e3, mcc0591ec051b]
 
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
@@ -156,53 +136,7 @@ Agent-to-agent audiences: any live agent ancestor of both endpoints may grant, d
 
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
-AGY auth proof runtime counts use positively correlated PID/cwd/agent ownership;
-unknown owners still fail. See [rig attribution](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/proofs/agy-auth-wake.mjs`; 2026-10-25]
-
-Undo identity snapshots order complete id/name pairs by id before strict
-comparison; keep every identity and history guard. See [identity controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/proofs/undo-history.mjs`; 2026-10-26]
-
-Seed waits share one helper-grace-plus-execution budget; local helper non-seed
-defaults and placement settings stay intact. See [seed settling](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/seed-settle.mjs`; 2026-10-25]
-
-An ended ledger row can precede its quota freeze record; quota proofs wait for
-the outcome itself. See [quota synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `runtime/actor.rs::end_turn`, `tools/rig/proofs/agy-lane.mjs`; 2026-10-25]
-
-Cold-reset UI proofs observe untouched effective defaults and wait for persisted
-OFF/ON edits; dirty-only auto-save need not store untouched fields. See
-[reset synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/proofs/cold-reset-default.mjs`; 2026-10-25]
-
-Session-boundary removal proofs wait for published idle and cleared inflight
-as well as ledger completion; keep the lawful busy refusal. See
-[removal synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/proofs/codex-accounts.mjs`, `domain/account_removal.rs`; 2026-10-25]
-
-New-hire layout proofs reset and observe auto-saved account state between
-variants; use the current permission label without dropping its geometry guard.
-See [layout synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/desktop/new-agent-account.cjs`; 2026-10-25]
-
-Read-only org-account picker probes keep saved-disabled bindings and raw console
-warnings; a failed driver's empty console fallback is not a no-warning proof.
-See [picker controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/desktop/org-accounts-picker.cjs`; 2026-10-25]
-
-Provider-chip probes use the current Done text in both browser pagers and retain
-catalog/OpenRouter negatives and raw warnings. See [pager controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/desktop/provider-chips.cjs`; 2026-10-25]
-
-Focused-retire probes match the Fit tooltip's shortcut hint at both camera
-samples; retain visible Focus and the retire-other negative. See [Fit controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/desktop/retire-focused-fit.cjs`; 2026-10-25]
-
-Startup-switch probes use Run on boot in selectors and the label oracle, with
-the synthetic bridge retaining decline/accept and exact-write guards. See [startup controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
-[verified: `tools/rig/{desktop,proofs}/run-on-startup.*`; 2026-10-25]
+Rig-proof synchronization rules (AGY auth counts, undo snapshots, seed waits, quota freezes, cold-reset, session-boundary removal, new-hire layout, org-account picker, provider chips, focused-retire, startup switch): see [proof synchronization notes](docs/rust-engine/test-rig.md#proof-synchronization-notes-moved-from-agentsmd). Read them before editing those proofs.
 
 ## Setting text case
 

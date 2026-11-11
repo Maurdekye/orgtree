@@ -1187,3 +1187,37 @@ persistence and capability execution/refusals remain part of the proof before al
 
 The provisional queue also caps pending recipient deliveries at8,192 per app;
 publication refuses before that snapshot would exceed the bound.
+
+## Presentations and apps stay separate (moved from AGENTS.md)
+
+This was an AGENTS.md paragraph until the 2026-11-11 size trim; the wording is unchanged and the rules still apply.
+
+Presentations and apps stay separate (user 2026-10-26: "its also good to spesrate
+them from a ux perspective; predentstions are intended as a one-way communication,
+whearas apps are meant as a two-way communication, where the user cimmunicates back to
+the agent thru the app."). Inline HTML presentations are interactive but one-way: no SDK
+or bridge, and the app never listens to their frame. Apps reach agents only through
+declared events (user: "i want to keep agent notification purely through the event
+system, no targeting agents directly (makes them more portable and easier to
+manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
+Apps are custom UIs for the user to manipulate data in a structured way, not
+persistent program environments (user 2026-10-27); panels run only while Orgtree
+is open, tray included, as the tool texts say; the Apps menu shows no note.
+[decided: user 2026-10-26, 2026-10-27; verified: `canvas/{docs,gallery}.tsx`, `canvas/apps/ui.tsx`, `domain/apps/{wire,policy,bridge}.rs`]
+
+## Apps list order and layout (moved from AGENTS.md)
+
+This was an AGENTS.md paragraph until the 2026-11-11 size trim; the wording is unchanged and the rules still apply.
+
+The Apps list shows apps newest first and each app's panels in creation order
+(`created_at`); never reorder by running, shown, hidden or used state. Its
+header right-aligns Import app with no Refresh button; app and panel creates,
+imports, renames, deletes and run/show changes update live from
+`custom_apps_changed`. App and panel gears share one right-aligned column;
+the app + and panel power buttons share the preceding column. An empty Apps
+list says "No apps yet. Ask an agent to make an app for you, and it will appear
+here."; the live list hides it when an app appears. Renderer CSS must use
+theme variables that `styles.css` defines (`--line`, `--dim`, `--panel-2`,
+`--ink`, ...): an undefined `var()` silently drops its declaration, as
+`--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
+[decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; 2026-10-27 m4dcfc15be8e3, mcc0591ec051b; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-27]
