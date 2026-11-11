@@ -66,7 +66,7 @@ import { DefaultsForm } from '../shell/defaults'
 import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } from '../quickchat'
 import { EngineDebugToggle } from './enginedebug'
 import { EpicModeSwitch } from '../epic/EpicSwitch'
-import { fablePipPercent, fablePipTitle } from './fablepip'
+import { fablePipPercent, fablePipTitle, fableUnreachableFrom, fableUnreachableTitle, isFableWeekly } from './fablepip'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -253,6 +253,9 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   // only where both bars render, so it never outlives the readings it reads
   const fablePip = fablePipPercent(lims, knownOf)
   const fablePipText = fablePipTitle(fablePip)
+  // past the pip, the Fable bar's unreachable end is red (same file)
+  const fableRed = fableUnreachableFrom(lims, knownOf)
+  const fableRedText = fableUnreachableTitle(fableRed)
   return (
     <>
       {/* A failed or rate-limited provider read retains last-good bars (whether
@@ -294,6 +297,10 @@ export function UsageBars({ u }: { u: AccountUsage }) {
               {l.kind === 'weekly_all' && fablePip != null
                 && <span className="usage-pip" style={{ left: fablePip + '%' }}
                   title={fablePipText} aria-label={fablePipText} role="img" />}
+              {fableRed != null && isFableWeekly(l)
+                && <span className="usage-unreachable"
+                  style={{ left: fableRed + '%', width: (100 - fableRed) + '%' }}
+                  title={fableRedText} aria-label={fableRedText} role="img" />}
             </div>}
           </div>
         )

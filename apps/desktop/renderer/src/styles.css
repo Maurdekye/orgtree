@@ -5790,6 +5790,13 @@ span.ref-chip.ref-chip {
   content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px;
   background: var(--ink-strong); opacity: .7;
 }
+/* THE UNREACHABLE END (USER 2026-11-11 m49c4c03b6da4; canvas/fablepip.ts):
+   once weekly is past the pip, the end of the Fable bar that the weekly limit
+   cuts off, in the meters' own limit colour over the empty track. */
+.usage-unreachable {
+  position: absolute; top: 0; bottom: 0; background: var(--bad); opacity: .55;
+  cursor: help;
+}
 .usage-fill {
   height: 100%; border-radius: 4px; background: var(--accent);
   transition: width .3s;
