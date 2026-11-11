@@ -25,6 +25,13 @@ docs/release-notes-*-*.md
 !docs/examples/
 !docs/examples/apps/
 !docs/examples/apps/annotation-notes.orgtree-app
+# The langserver fixture a unit test reads with include_str!. The re-excludes
+# keep the rest of tests/ out under BuildKit 0.31's directory rule.
+!tests/
+tests/*
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/langserver-context.json
 **/target
 **/node_modules
 **/.git
