@@ -179,7 +179,8 @@ export function RemoteDetails({ remote, actions, close }: { remote: RemoteView; 
         <SetRow label="Signed in as"
           hint={remote.own_token ? 'Full control. This computer has its own token there, which can be revoked alone.'
             : 'Full control, with the token you pasted (that engine could not make one for this computer).'}>
-          <span>{remote.client_name ?? 'the pasted token'}</span>
+          {/* "Orgtree desktop (<computer>)": this computer's name is a host field, masked like the address */}
+          {remote.client_name ? <span data-streamer-field="ip">{remote.client_name}</span> : <span>the pasted token</span>}
         </SetRow>
         {remote.last_error && <SetRow label="Last error"><span className="ask-warn" role="status">{remote.last_error}</span></SetRow>}
         <SetRow label="Organizations">
