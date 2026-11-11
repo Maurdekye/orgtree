@@ -32,6 +32,10 @@ A provider has multiple allowances; “usage” is not one interchangeable numbe
 
 Default placement guidance excludes an account-and-model pair when an applicable window is full. A full unrelated account/model pool does not constrain this pair. Current explicit account-specific user rulings remain authoritative; do not turn a team exception into a general product rule.
 
+## Fable pip and the unreachable end
+
+On a Claude account with a Fable weekly limit, the weekly (all models) bar carries a pip at 50 + f/2 percent, f being the Fable weekly percent used (one full Fable allowance is taken as half the weekly limit). Past it, the rest of Fable's allowance cannot be used up before the weekly limit; its hover text names the pip's percentage. Once weekly usage is past the pip, the Fable bar's unreachable end is red, from the most Fable can still reach (f + 2 x the weekly room left, as a percentage of the Fable bar) to 100%, with a tooltip "Fable can reach at most N% this week: the weekly limit comes first". Neither shows for an unknown or stale reading, a used-up Fable, or non-Claude accounts. A usage watchdog can fire on the pip: see `fable_pip_offset` in the [watchdog tool](../../watchdogs/tool-watchdog/SKILL.md).
+
 ## Observation, freshness and capacity
 
 A successful dated reading becomes stale at 900 seconds in the structured query. An unavailable reading, invalid observation, stale bar, missing window and unsupported quota are distinct. None is zero. A countdown reaching reset is not a fresh provider observation, and a stale restriction does not establish new capacity.
