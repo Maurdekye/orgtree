@@ -7991,6 +7991,16 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   color: var(--dim); border: 1px solid var(--line); border-radius: 8px;
   padding: 0 6px; font-size: 9.5px; font-weight: 400;
 }
+/* App settings in a window of an organization on a remote engine (canvas/settingskit.tsx
+   ThisComputer): the groups stored by this app here carry the tab strip's scope badge. The
+   wrapper is not a box, so the panel's own spacing between groups is unchanged. */
+.settings-here { display: contents; }
+.settings-here .set-group-head::after {
+  content: 'this computer'; margin-left: 8px;
+  color: var(--dim); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0 6px; font-size: 9.5px; font-weight: 400;
+}
+.settings-remote-note { margin: 0; }
 .app-settings-panel:not([hidden]) {
   display: flex; flex-direction: column; gap: 15px;
 }

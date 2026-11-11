@@ -258,6 +258,17 @@ export function useSettingsAsk(scope: SettingsAsk['scope'], org: string | null, 
   }, [scope, org])
 }
 
+/** Settings of this app on this computer, inside a panel that otherwise shows an engine's.
+ *
+ *  In a window of an organization on a remote engine, App settings shows that engine's settings
+ *  (providers, accounts, runtime rules). What is stored by this app here (theme, startup,
+ *  updates) sits in the same panel, so it is marked: the wrapper is a named group, and the style
+ *  sheet puts the badge "this computer" on each group head inside it, the same badge a tab
+ *  carries. `on` false (a local window) renders the children alone, so nothing there changes. */
+export function ThisComputer({ on, children }: { on: boolean; children: ReactNode }) {
+  return on ? <div className="settings-here" role="group" aria-label="This computer">{children}</div> : <>{children}</>
+}
+
 export function SetGroup({ title, note, subtitle, children }: {
   title: string
   note?: ReactNode

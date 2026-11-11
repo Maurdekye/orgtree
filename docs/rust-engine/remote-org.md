@@ -206,6 +206,14 @@ exist" would tell the remote engine about this computer.
   path to copy.
 - Commands that belong to this app on this computer (the engine log folder, preferences, updates,
   the tray) are unchanged in a remote window.
+- **App settings says whose settings it shows.** In a remote window the engine's settings are the
+  remote engine's (its routes are relayed and its values come with the composed app feed). Under
+  the tab strip a note says so. The tabs that hold only this app's settings (Streaming, Mail hub,
+  Keyboard shortcuts, About) carry the badge "this computer"; in the mixed tabs the groups stored
+  by this app (startup and updates in Runtime; theme, canvas, desk, quick chat and startup in
+  Display) are wrapped in `ThisComputer` (`canvas/settingskit.tsx`), a named group whose group
+  heads get the same badge from the style sheet. "Wrap object mentions" and the Enter key rule
+  are engine values, so they are the remote engine's.
 
 ## Tests
 
@@ -283,5 +291,4 @@ waits allow for it.
 ## Not yet
 
 Creating an organization on a remote engine, watch-only
-windows with a viewer token, the "This computer" labels of App settings and app panel actions that
-need a file dialog of this computer.
+windows with a viewer token, and app panel actions that need a file dialog of this computer.

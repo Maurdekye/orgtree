@@ -40,7 +40,7 @@ import { fmtStamp } from '../timefmt'
 import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
   OPEN_APP_SETTINGS_EVENT, SetGroup, SetRow, SettingsTabPanel, SettingsTabs,
-  SetToggle, useSettingsTarget,
+  SetToggle, ThisComputer, useSettingsTarget,
 } from './settingskit'
 import type { SettingsTab, SettingsTarget } from './settingskit'
 import { setStreamerAuto, setStreamerCover, setStreamerMode, setStreamerType, useStreamerMode } from '../streamer'
@@ -314,6 +314,10 @@ export function UsageBars({ u }: { u: AccountUsage }) {
 
 type AppSettingsTab = 'about' | 'providers' | 'harnesses' | 'runtime' | 'mailhub'
   | 'display' | 'streamer' | 'defaults' | 'developer' | 'shortcuts'
+/** The tabs that hold only settings of this app on this computer. In a window of an
+ *  organization on a remote engine they carry the badge "this computer"; the others show that
+ *  engine's settings, with their few local groups marked one by one (`ThisComputer`). */
+const LOCAL_APP_TABS: ReadonlySet<AppSettingsTab> = new Set(['streamer', 'mailhub', 'shortcuts', 'about'])
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
 // Display, Default org settings, Mail hub, Developer, About. The panel OPENS
 // on Providers, the first tab (user 2026-09-30), unless the caller asks for a
@@ -802,6 +806,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   target?: SettingsTarget | null
 }) {
   const [tab, setTab] = useState<AppSettingsTab>((target?.tab as AppSettingsTab | undefined) ?? initialTab ?? 'providers')
+  const remote = useRemoteHere()
   const stripRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { if (target) setTab(target.tab as AppSettingsTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
   useSettingsTarget(stripRef, target, !!target && tab === target.tab)
@@ -919,13 +924,19 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     const rank = PROVIDER_THEME_PRESETS.findIndex(([provider]) => provider === id)
     return rank < 0 ? PROVIDER_THEME_PRESETS.length : rank
   }
+  // In a window of an organization on a remote engine the engine's settings here are that
+  // engine's (remotehere.ts); the panel says so and marks what is this computer's.
+  const appTabs = remote ? APP_TABS.map(item => LOCAL_APP_TABS.has(item.id) ? { ...item, note: 'this computer' } : item) : APP_TABS
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
     close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false)
       : settingsSearchEscape() ? undefined : close()}>
     <h3>App settings</h3>
     <SettingsSearch tabs={APP_TABS} idBase="app-settings" setTab={setTab} target={target}
       onSearching={setSearching} label="Search app settings" />
-    <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} stripRef={stripRef} idBase="app-settings" label="Application settings sections" />
+    <SettingsTabs tabs={appTabs} tab={tab} setTab={setTab} stripRef={stripRef} idBase="app-settings" label="Application settings sections" />
+    {remote && <p className="dim settings-remote-note" role="note">
+      These settings belong to {remote.name}, the remote engine this organization runs on.{' '}
+      Tabs and groups marked “This computer” belong to this app on this computer.</p>}
     {error && <div className="ask-warn" role="alert">{error}</div>}
     <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
       <AboutSection appVersion={appVersion} />
@@ -1018,8 +1029,10 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <HarnessesSection active={tab === 'harnesses'} />
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
-      <DesktopSettings />
-      <RunAsAdministratorSetting />
+      <ThisComputer on={!!remote}>
+        <DesktopSettings />
+        <RunAsAdministratorSetting />
+      </ThisComputer>
       <QuickStaffSetting />
       <TurnLimitsSetting />
       <CharterDocumentsSetting />
@@ -1092,15 +1105,19 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <StreamingSettings />
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
-      <ThemeSetting />
-      <CanvasBackgroundSetting />
+      <ThisComputer on={!!remote}>
+        <ThemeSetting />
+        <CanvasBackgroundSetting />
+      </ThisComputer>
       <SetGroup title="Text">
         <SetToggle label="Wrap object mentions" checked={(wrapMentions ?? runtime?.wrap_object_mentions) === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWrapObjectMentions, v)}
           hint="Let long ticket, presentation, app and panel links continue onto the next line within a sentence. Off by default." />
       </SetGroup>
+      <ThisComputer on={!!remote}>
       <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><EventHeadlineSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
+      </ThisComputer>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>
           <select aria-label="Enter key" value={enterKey ?? runtime?.enter_key_behavior ?? 'send'}
@@ -1116,7 +1133,9 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           </select>
         </SetRow>
       </SetGroup>
-      <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /><ChangelogAfterUpdateSetting /></SetGroup>
+      <ThisComputer on={!!remote}>
+        <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /><ChangelogAfterUpdateSetting /></SetGroup>
+      </ThisComputer>
     </SettingsTabPanel>
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>
       <DefaultsForm toast={toast} onDone={close} />
