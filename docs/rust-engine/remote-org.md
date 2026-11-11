@@ -80,7 +80,14 @@ nothing:
 `PATCH /api/remotes/{id} {name?, enabled?, token?, url?}` renames, disconnects or connects, replaces
 the token or moves the address (a new token or address must reach the same data root).
 `DELETE /api/remotes/{id}` ends the link and its sockets, revokes this desktop's client token on the
-remote when it can be reached, and frees the aliases; nothing on the remote engine is deleted.
+remote when it can be reached, and frees the aliases; nothing on the remote engine is deleted. Its
+answer's `revoked` says whether the token was revoked. The remote ends every connection of a client
+as it revokes it, the request's own too, and promises no answer (`client_tokens.rs`); a connection
+kept from before can then fail once more as it is found dead. So `handshake::revoke` makes a request
+that ended without an answer again, with a growing pause, for up to 5 s: 200 is a revocation; 403 is
+one only when the engine no longer knows the token (not when it is no longer standalone or takes the
+token for reading only); any other answer is final; an engine that cannot be reached (connect error,
+timeout) is not asked twice, so removing a connection to an engine that is away stays quick.
 `POST /api/remotes/{id}/retry` connects now. `GET /api/remotes` lists the connections; the same list
 is the app-feed value `remotes`. These routes answer 404 on a standalone engine (no chained relays),
 are refused to viewer tokens, and are not agent tools.
@@ -180,6 +187,10 @@ The renderer (`src/remotes.ts`, `src/shell/remotes.tsx`) reads the same `remotes
   with the state word) opens Connection details; the title carries the engine's name; while the engine
   is away `RemoteBanner` under the header says what is the matter and offers the one action, and the
   canvas is dimmed. Changes are refused by the engine's own 503 with the sentence to show.
+- **Streamer mode** masks the address (Add dialog, Connection details) and, in Connection details,
+  this computer's name in "Signed in as" (`Orgtree desktop (<computer>)`): both are host fields
+  (`data-streamer-field="ip"`). The token field is a secret field. The engine's name is not masked in
+  the title or the list; in the chip it is an external name.
 - **A message typed while the engine is away stays in the composer** (2026-11-11). The agent desk's
   composer is optimistic: it empties its box and shows the message as on its way before the engine
   answers. Two rules keep the text. While the connection has a `refusal`, Send does nothing but show
@@ -205,13 +216,18 @@ is nowhere in the list, the saved file or the log), aliases including one that c
 organization, the relay both ways, the two-process stamp, an outage (offline, the `refusal`, the 503,
 nothing reaching the remote, rows kept), recovery by itself, a restart of the remote engine (a new
 stamp), a revoked and replaced token, the local organization untouched, and removal (the client is
-revoked on the remote). With a bundle it drives the desktop too (`desktop/remote-org.cjs`): the Add
-dialog, the list marks, the remote window, its chip and Connection details, a message with a streamed
-answer, hire and retire, a question, the desk tabs and the user's inbox, the outage under the open
-window with the refused send and its kept draft, recovery without a reload, the reload after the
-remote restarts, the sign-in banner and Replace token, and a local organization beside it. That part
-opens a window: Session 0 only. The rig's desk harness (`desktop/main.cjs`) adds `X-Orgtree-Remote`
-for a page at `/o/<alias>` of a remote organization, as Electron main does for a window bound to one.
+revoked on the remote). With a bundle it drives the desktop too (`desktop/remote-org.cjs`), in three
+windows: the Homepage (the Add dialog, the list marks), the remote organization's window (its chip and
+Connection details, a message with a streamed answer, the desk's docket, presentations and mail, a
+question on the desk and in the user's inbox, hire and retire, the outage under the open window with
+the refused send and its kept draft, recovery without a reload, the reload after the remote restarts,
+the sign-in banner and Replace token), and a local organization's window beside it. That part opens
+windows: Session 0 only. The rig has no main process, so two things stand in for it. The page script
+plants a minimal desktop bridge before each page loads, with the identity main gives such a window
+(`homepage`; `org` with the organization's alias): without it the page is the plain browser layout,
+which has no status strip and so no connection chip. And the rig's desk harness (`desktop/main.cjs`)
+adds `X-Orgtree-Remote` for a page at `/o/<alias>` of a remote organization, as Electron main does
+for a window bound to one. Measured 2026-11-11 with a bundle: 40 checks, 26 captures, about 150 s.
 
 ## Not yet
 
