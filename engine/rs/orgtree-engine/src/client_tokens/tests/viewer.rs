@@ -259,8 +259,22 @@ async fn requests_without_a_token_or_with_the_bootstrap_key_are_unchanged_on_the
             let _ = status;
         }
     }
-    let (status, _) = server.request("POST", "/api/desktop/credential-bridge", BOOTSTRAP, Some(body.clone())).await;
-    assert_eq!(status, 200, "the bootstrap key still releases an absent broker");
-    let (status, _) = server.request("POST", "/api/desktop/credential-bridge", "no-such-token", Some(body)).await;
-    assert_eq!(status, 503, "a wrong token is still refused by the bridge's own check");
+    // the bridge reads the X-Orgtree-Desktop-Token header only (not Bearer)
+    let bridge = |key: &'static str| {
+        let body = body.to_string();
+        let address = server.address;
+        async move {
+            let mut stream = TcpStream::connect(address).await.unwrap();
+            stream.write_all(format!("POST /api/desktop/credential-bridge HTTP/1.1
+Host: localhost
+X-Orgtree-Desktop-Token: {key}
+Content-Type: application/json
+Content-Length: {}
+
+{body}", body.len()).as_bytes()).await.unwrap();
+            response(&mut stream).await.0
+        }
+    };
+    assert_eq!(bridge(BOOTSTRAP).await, 200, "the bootstrap key still releases an absent broker");
+    assert_eq!(bridge("no-such-token").await, 503, "a wrong token is still refused by the bridge's own check");
 }
