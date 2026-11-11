@@ -30,6 +30,31 @@ const E = process.env
 const OUT = E.RIG_DESKTOP_OUT
 const BASE = new URL(E.RIG_DESKTOP_URL)
 const TOKEN = E.RIG_DESKTOP_TOKEN
+
+// Remote engines (docs/rust-engine/remote-org.md). The desktop binds a window
+// to its organization and, when that organization runs on a remote engine,
+// adds X-Orgtree-Remote: <connection id> to the window's engine requests.
+// Here the one window's organization is the page's own path, /o/<slug>, and
+// the alias map is the engine's connection list, read once per page address
+// before that page's first engine request goes out (so a connection added a
+// moment ago is known, and a local organization costs one small read).
+let aliases = new Map()
+let aliasesFor = null
+let aliasesRead = null
+async function remoteOf(pageUrl) {
+  let alias = null
+  try { alias = /^\/o\/([^/]+)$/.exec(new URL(pageUrl).pathname)?.[1] ?? null } catch { /* about:blank */ }
+  if (!alias) return null
+  if (aliasesFor !== pageUrl) {
+    aliasesFor = pageUrl
+    aliasesRead = fetch(new URL('/api/remotes', BASE).href, { headers: { 'X-Orgtree-Desktop-Token': TOKEN }, signal: AbortSignal.timeout(5000) })
+      .then(r => r.ok ? r.json() : { remotes: [] })
+      .then(j => { aliases = new Map((j.remotes ?? []).flatMap(x => (x.orgs ?? []).map(o => [o.alias, x.id]))) })
+      .catch(() => { /* an engine without the route: no remote organizations */ })
+  }
+  await aliasesRead
+  return aliases.get(decodeURIComponent(alias)) ?? null
+}
 fs.mkdirSync(OUT, { recursive: true })
 const log = (...a) => { try { fs.appendFileSync(path.join(OUT, 'desktop.log'), `${new Date().toISOString()} ${a.join(' ')}\n`) } catch { /* best effort */ } }
 const PRESETS = { short: [1366, 768], tall: [1440, 1600], wide: [1920, 1080] }
@@ -202,12 +227,19 @@ app.whenReady().then(async () => {
   ses.setPermissionCheckHandler((_wc, permission) => guards.allowPermission(permission))
   // the desktop's own rule (main/windows.ts + policy.ts): sign requests to
   // the engine origin only, strip the header everywhere else
-  ses.webRequest.onBeforeSendHeaders((d, cb) => {
+  // and the remote-engine rule (main/index.ts + policy.ts remoteHeaders): a
+  // window showing an organization of a remote engine names that connection
+  // on its engine requests; a page can never set the header itself
+  ses.webRequest.onBeforeSendHeaders(async (d, cb) => {
     const h = { ...d.requestHeaders }
-    for (const k of Object.keys(h)) if (k.toLowerCase() === 'x-orgtree-desktop-token') delete h[k]
+    for (const k of Object.keys(h)) if (['x-orgtree-desktop-token', 'x-orgtree-remote'].includes(k.toLowerCase())) delete h[k]
     try {
       const u = new URL(d.url)
-      if ((u.protocol === 'http:' || u.protocol === 'ws:') && u.host === BASE.host) h['X-Orgtree-Desktop-Token'] = TOKEN
+      if ((u.protocol === 'http:' || u.protocol === 'ws:') && u.host === BASE.host) {
+        h['X-Orgtree-Desktop-Token'] = TOKEN
+        const remote = await remoteOf(d.webContents?.getURL())
+        if (remote) h['X-Orgtree-Remote'] = remote
+      }
     } catch { /* not a URL we sign */ }
     cb({ requestHeaders: h })
   })
