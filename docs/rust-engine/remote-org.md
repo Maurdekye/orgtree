@@ -56,6 +56,11 @@ registries (`standalone-clients.json`, `phone.json`) are files, and the sealing 
   feed (registry record, summary, working count).
 - Text and content are in the remote's namespace. The alias appears only in URL paths, the window
   identity and local keys.
+- **The tree under an alias.** The remote engine answers a window's read of its organization with
+  the name the organization has there. The window keys desks, drafts and layout by the name it asked
+  by and checks every answer against it, so the tree is given that name where it enters the window
+  (`treeHere` in `remotehere.ts`, at the two places `App.tsx` takes a tree). Without it no desk of
+  such an organization opens ("Loading organization..."); found by the proof's fourth window.
 - **References when the alias differs.** A token in text (`@item:acme/x`) names the organization as
   its own engine knows it. In a remote window the renderer reads tokens through
   `canvas/workrefs.tsx` (`parseRef`, `scanRefs`), which gives the reference under this computer's
@@ -222,7 +227,7 @@ exist" would tell the remote engine about this computer.
   the tray) are unchanged in a remote window.
 - **What the remote engine does is said to be there.** The folder picker lists folders through
   `/api/fs`, an engine route, so in a remote window it browses the remote engine's disk; its title
-  reads "choose a folder on <name>". A language model server's address is dialed by the engine,
+  reads "choose a folder on <name>" and the top of its path bar is that name, not "this computer". A language model server's address is dialed by the engine,
   so its Address row adds "Addresses are as seen from <name>."
 - **App settings says whose settings it shows.** In a remote window the engine's settings are the
   remote engine's (its routes are relayed and its values come with the composed app feed). Under
@@ -290,18 +295,26 @@ is nowhere in the list, the saved file or the log), aliases including one that c
 organization, the relay both ways, the two-process stamp, an outage (offline, the `refusal`, the 503,
 nothing reaching the remote, rows kept), recovery by itself, a restart of the remote engine (a new
 stamp), a revoked and replaced token, the local organization untouched, and removal (the client is
-revoked on the remote). With a bundle it drives the desktop too (`desktop/remote-org.cjs`), in three
+revoked on the remote), the app feed of a remote window against a local one (its connection, the
+remote engine's values), and a question of a remote organization among this computer's notices.
+With a bundle it drives the desktop too (`desktop/remote-org.cjs`), in four
 windows: the Homepage (the Add dialog, the list marks), the remote organization's window (its chip and
 Connection details, a message with a streamed answer, the desk's docket, presentations and mail, a
 question on the desk and in the user's inbox, hire and retire, the outage under the open window with
 the refused send and its kept draft, recovery without a reload, the reload after the remote restarts,
-the sign-in banner and Replace token), and a local organization's window beside it. That part opens
+the sign-in banner and Replace token), a local organization's window beside it, and the window of
+the remote organization that goes by an alias here (its desk opens; the folder entry opens nothing
+and says where the folder is; a reference written under the name it has there is that window's own
+item; App settings' note and marks; the sign-in sentence; the folder picker's title and top). The
+tray row, main's own refusal of the native calls and the file link menu are not in the proof (the rig
+has no main process); their unit tests are `tests/traylist-remote.test.mjs`,
+`tests/remote-org-native-refusal.test.mjs` and the renderer's `remotehere`. That part opens
 windows: Session 0 only. The rig has no main process, so two things stand in for it. The page script
 plants a minimal desktop bridge before each page loads, with the identity main gives such a window
 (`homepage`; `org` with the organization's alias): without it the page is the plain browser layout,
 which has no status strip and so no connection chip. And the rig's desk harness (`desktop/main.cjs`)
 adds `X-Orgtree-Remote` for a page at `/o/<alias>` of a remote organization, as Electron main does
-for a window bound to one. Measured 2026-11-11 with a bundle: 40 checks, 25 captures, about 150 s.
+for a window bound to one. Measured 2026-11-11 with a bundle: 53 checks, 32 captures, about 200 s; without one, 35 checks.
 In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s
 after its start (`session_settle`), so the far engine's first answer can take that long; the proof's
 waits allow for it.

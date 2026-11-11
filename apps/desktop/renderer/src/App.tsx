@@ -79,6 +79,7 @@ import type { CanvasShortcutRef } from './shell/appshortcuts'
 import { OrgStatusBar } from './shell/statusbar'
 import { RemoteBanner, RemoteChip, useRemoteAway } from './shell/remotes'
 import { remoteOfOrg, useRemotes } from './remotes'
+import { treeHere } from './remotehere'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
 import { SaveTemplateSetting } from './canvas/templates'
@@ -1134,7 +1135,8 @@ export default function App() {
           (t as TreePayload & { sync_rev?: number }).sync_rev)
         replaceNodeMetadata(want, t.roots,
           replay as Extract<WsEvent, { type: 'node_stream' }>[])
-        const shown = applyPrimedAsks(want, t, readStartedAt)
+        // a remote organization answers under the name it has there (remotehere.ts treeHere)
+        const shown = treeHere(applyPrimedAsks(want, t, readStartedAt), want)
         setTree(shown)
         publishEpicTree(shown)
         mailTreeChanged(want, shown.roots)
@@ -1165,7 +1167,7 @@ export default function App() {
         if (wantSlug.current !== slug) return
         // Runtime annotation frames have their own clock, outside the org revision.
         replaceNodeMetadata(slug, shown.roots)
-        const visible = applyPrimedAsks(slug, shown, readStartedAt)
+        const visible = treeHere(applyPrimedAsks(slug, shown, readStartedAt), slug)
         setTree(visible)
         publishEpicTree(visible)
         mailTreeChanged(slug, visible.roots)

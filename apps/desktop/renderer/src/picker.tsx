@@ -73,7 +73,7 @@ export function FolderPickerHost() {
                 {i < segs.length - 1 ? sep : ''}
               </span>
             ))}
-            {!segs.length && <span className="dim">this computer</span>}
+            {!segs.length && <span className="dim">{remote ? remote.name : 'this computer'}</span>}
           </span>
         </div>
         {err && <div className="picker-err">{err}</div>}

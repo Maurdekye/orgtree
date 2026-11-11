@@ -57,6 +57,22 @@ export function contentOrg(alias: string): string {
   return orgs.find(o => !o.gone && o.alias === alias)?.remote_slug ?? alias
 }
 
+const renamed = new WeakMap<object, { slug: string; value: object }>()
+
+/** The organization a window asked for, under the name the window asked by. The remote engine
+ *  answers with the name the organization has THERE; everything the window keys by its
+ *  organization (desks, drafts, layout, "is this answer still mine") uses the name it has HERE.
+ *  An answer whose name already matches is returned as it is, and the same answer gives the
+ *  same object back, so an unchanged tree stays unchanged to React. */
+export function treeHere<T extends { slug: string }>(tree: T, slug: string): T {
+  if (tree.slug === slug) return tree
+  const known = renamed.get(tree)
+  if (known?.slug === slug) return known.value as T
+  const value = { ...tree, slug }
+  renamed.set(tree, { slug, value })
+  return value
+}
+
 /** T2: a folder (scratch, shared notes, templates, charters). */
 export const remoteFolderText = (name: string, path?: string | null): string =>
   path ? `This folder is on ${name}: ${path}` : `This folder is on ${name}, not on this computer.`
