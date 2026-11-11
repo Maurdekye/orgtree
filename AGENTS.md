@@ -263,6 +263,14 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   [Changelog build inputs](docs/rust-engine/STANDALONE-ENGINE.md#changelog-build-inputs-2026-10-25-445).
   [verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`; 2026-10-25]
 
+- Every Orgtree release ships the official standalone (headless) engine, from the
+  release's own commit: `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz` in the
+  same GitHub release and its SHA256SUMS.txt. `release.yml`'s `stage` refuses a
+  release without it; `release-standalone.yml` adds it to an existing release
+  (4.5.11). Do not drop or rename it in a release. See
+  [Standalone engine](docs/ci-release.md#standalone-engine).
+  [decided: user 2026-11-10 m7018c8145a9d; verified: `.github/workflows/build-standalone.yml`]
+
 - Live credit edits subtract the control's accepted grant, not stale tree state;
   draft commits remain absolute. See [draft edits](docs/agents/desktop-and-renderer.md#draft-permission-edits-2026-10-24).
   [verified: `canvas/creditgrant.tsx`; 2026-10-25]

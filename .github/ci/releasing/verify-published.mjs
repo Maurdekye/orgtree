@@ -5,6 +5,8 @@
 //   its exact size and SHA-512, and the AppImage carries the blockmap that blockMapSize names;
 // - build-info.json names the tag's commit, a clean tree and the release channel,
 //   and the macOS/Linux copies (build-info-macos.json, -linux.json) the same version and commit;
+// - the standalone engine's archive is present (from 4.5.12 on; 4.5.11's is added after
+//   publishing by release-standalone.yml) and, like every asset, matches SHA256SUMS.txt;
 // - GitHub's "latest" release is this one for a stable version, and is not for a
 //   prerelease (stable installs are offered whatever "latest" is).
 //   TAG=v<x.y.z> GITHUB_REPOSITORY=owner/repo GH_TOKEN=... node verify-published.mjs
@@ -43,6 +45,14 @@ const expected = ['build-info.json', 'engine-hashes.json', channelFile, installe
   `Orgtree-${version}-arm64.dmg`, `Orgtree-${version}-arm64.zip`, 'build-info-macos.json',
   `Orgtree-${version}.AppImage`, `orgtree_${version}_amd64.deb`, 'build-info-linux.json']
 for (const name of expected) check(name in bytes, `asset ${name} is present`)
+// The standalone engine (build-standalone.yml). Every release from 4.5.12 on is built with
+// it; an older one has it only once release-standalone.yml has added it.
+const standalone = [`orgtree-engine-standalone-${version}-linux-x86_64.tar.gz`]
+const [major, minor, patch] = version.split(/[.-]/).map(Number)
+const standaloneRequired = major * 1e6 + minor * 1e3 + patch > 4005011
+if (standaloneRequired || standalone.some(name => name in bytes)) {
+  for (const name of standalone) check(name in bytes, `asset ${name} is present`)
+} else console.log(`note ${tag} has no standalone engine yet (add it with release-standalone.yml)`)
 if ('SHA256SUMS.txt' in bytes) {
   const listed = new Map(bytes['SHA256SUMS.txt'].toString('utf8').trim().split('\n').map(line => line.split(/\s+\*?/).reverse()))
   for (const name of Object.keys(bytes).filter(n => n !== 'SHA256SUMS.txt')) {

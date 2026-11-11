@@ -5,9 +5,34 @@ and WebSocket APIs plus an authenticated user MCP endpoint. It manages its own
 PostgreSQL cluster. No desktop window or separate management CLI is needed.
 Desktop attachment and a browser management UI are not supported by this mode.
 
+## Download
+
+Every Orgtree release, from 4.5.11 on, includes the official standalone engine,
+built by the release CI from the same commit as the desktop release. On the
+release's GitHub page (https://github.com/Maurdekye/orgtree/releases):
+
+| Asset | What it is |
+| --- | --- |
+| `orgtree-engine-standalone-<version>-linux-x86_64.tar.gz` | The engine binary for Linux x86_64 (glibc 2.35+: Ubuntu 22.04+, Debian 12+), with a README and the licence. Bring your own PostgreSQL 16+. |
+| `SHA256SUMS.txt` | The SHA-256 of every asset of the release. |
+
+```sh
+v=4.5.11   # the release you want
+curl -LO https://github.com/Maurdekye/orgtree/releases/download/v$v/orgtree-engine-standalone-$v-linux-x86_64.tar.gz
+curl -LO https://github.com/Maurdekye/orgtree/releases/download/v$v/SHA256SUMS.txt
+sha256sum -c --ignore-missing SHA256SUMS.txt
+tar -xzf orgtree-engine-standalone-$v-linux-x86_64.tar.gz
+```
+
+The engine is `orgtree-engine-standalone-<version>-linux-x86_64/orgtree-engine`.
+Each release's CI starts it on a fresh data root with Ubuntu 24.04's PostgreSQL
+16 and checks the ready line, 403 without the token, 200 with it, its version
+and a clean SIGTERM exit. Building from source (below) remains possible.
+
 ## Start directly
 
-Install the engine binary and PostgreSQL on the server. Run it as an ordinary
+Install the engine binary (from the release, or built from source) and
+PostgreSQL on the server. Run it as an ordinary
 user, with an absolute writable data directory and the PostgreSQL binary directory:
 
 ```sh
@@ -34,7 +59,7 @@ Tailscale; built-in TLS termination is not supplied.
 
 ## Run in Docker
 
-From a source checkout:
+To build the image yourself from a source checkout:
 
 ```sh
 docker build -f standalone/Dockerfile -t orgtree-engine-standalone .

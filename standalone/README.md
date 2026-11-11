@@ -7,6 +7,12 @@ variables and the implemented user MCP endpoint are in
 For operator setup, persistence and provider login over SSH, read the
 [standalone user guide](../docs/standalone-engine.md).
 
+Official builds: every release from 4.5.11 on carries
+`orgtree-engine-standalone-<version>-linux-x86_64.tar.gz` (the engine binary,
+`RELEASE-README.md` as its README, and the licence), built by
+`.github/workflows/build-standalone.yml`; see the user guide's Download section
+and `docs/ci-release.md` (Standalone engine).
+
 Direct:
 
 ```sh

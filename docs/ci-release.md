@@ -19,9 +19,12 @@ published automatically.
    ubuntu-22.04): the unsigned macOS and Linux prototypes, each with a launch smoke
    on its runner; the Linux build also checks its update feed and updates an
    installed AppImage to a newer one. See [macOS and Linux](#macos-and-linux-prototypes).
-4. **stage**: checks the whole asset set and writes `SHA256SUMS.txt`. Every
+4. **standalone** (`build-standalone.yml`, ubuntu-22.04 then ubuntu-24.04): the
+   official headless engine for Linux servers, with a smoke on a stock Ubuntu's
+   PostgreSQL 16. See [Standalone engine](#standalone-engine).
+5. **stage**: checks the whole asset set and writes `SHA256SUMS.txt`. Every
    platform must build; a release never goes out with one silently missing.
-5. **draft**: `gh release create --draft` with the assets.
+6. **draft**: `gh release create --draft` with the assets.
 
 The draft holds the same six Windows assets as every 4.0.x release, the macOS and
 Linux files, and `SHA256SUMS.txt`:
@@ -37,6 +40,7 @@ Linux files, and `SHA256SUMS.txt`:
 | `Orgtree-<v>.AppImage`, `orgtree_<v>_amd64.deb` | Linux (x86_64): a portable AppImage and an Ubuntu/Debian package |
 | `latest-linux.yml` (`beta-linux.yml`/`alpha-linux.yml` for a prerelease) | the AppImage's updater feed: version, size and SHA-512 of the AppImage, and the size of the blockmap embedded in it |
 | `build-info-macos.json`, `build-info-linux.json` | the macOS and Linux builds' `build-info.json` |
+| `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz` | the standalone (headless) engine for Linux x86_64 servers: the engine binary, a README and the licence |
 | `SHA256SUMS.txt` | the SHA-256 of every file above |
 
 Orgtree needs no signing keys: the installer isn't code-signed, and the updater
@@ -159,6 +163,52 @@ released notes file is still missing from the list. If you edit a published
 release's description on GitHub, make the same edit in its notes file: the
 Changelog shows the file (2026-10-24: 4.2.0, 4.1.0 and 2.1.0 had been edited only
 on GitHub, and were synced back).
+
+## Standalone engine
+
+Every release ships the standalone (headless) engine, starting with 4.5.11 (USER
+2026-11-10, "an official headless engine build with this and all future
+releases"). It is standing release scope: a release without it is incomplete.
+
+`build-standalone.yml` builds it from the release's commit, with the same
+toolchain and release settings as the Linux desktop's engine:
+
+1. **binary** (ubuntu-22.04, so it runs on glibc 2.35 and newer):
+   `cargo build --release -p orgtree-engine` from the full checkout, which holds
+   every embedded input (the glossary, charters, templates and the Changelog).
+   The binary's `--version` must be the release's. It is packed reproducibly as
+   `orgtree-engine-standalone-<v>-linux-x86_64.tar.gz`, one folder of the same
+   name holding `orgtree-engine`, `README.md` (from `standalone/RELEASE-README.md`),
+   `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+2. **package** (ubuntu-24.04): `.github/ci/standalone/smoke.sh` extracts the
+   archive and starts `orgtree-engine standalone` on a fresh data root with the
+   runner's PostgreSQL 16 and no token configured. It needs the ready line, the
+   generated token file (0600, printed once), 403 without a token and with a wrong
+   one, 200 with it, `orgtree-engine <v>` from `--version` and `/api/host`,
+   and after SIGTERM exit status 0 with PostgreSQL gone.
+
+The packaging scripts come from the workflow's own revision, the engine from the
+release commit, so an older tag is packaged the current way. `stage` refuses a
+release without the archive, and SHA256SUMS.txt covers it like every asset. From
+4.5.12 on, verify-release requires it; for 4.5.11 and older it checks it when present.
+
+### Adding it to an existing release
+
+`release-standalone.yml` adds the standalone engine to a release that lacks it,
+draft or published, without rebuilding anything else: 4.5.11, which was tagged
+before this, or a release whose standalone build has to be redone.
+
+```
+gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11
+```
+
+It checks the tag the way `resolve` does, refuses a release that already has
+standalone assets, builds the tag's commit with `build-standalone.yml`, uploads
+the archive and appends its line to SHA256SUMS.txt (re-uploaded in place; the
+existing lines stay byte for byte). This is the one sanctioned change to a
+published release's assets: nothing an installed app reads changes. To redo it,
+delete the standalone assets and their SHA256SUMS.txt lines first. Then re-run
+verify-release (`gh workflow run verify-release.yml -f tag=<tag>`).
 
 ## Rolling back
 
@@ -354,7 +404,8 @@ signature, so updates there stay manual.
 A push to the branch `ci-test/orgtree-release` runs the whole pipeline as a test.
 No release is created; the staged assets are the run's artifact.
 Each `build-<platform>.yml` also runs on its own from a push to
-`ci-test/orgtree-windows`, `ci-test/orgtree-macos` or `ci-test/orgtree-linux`.
+`ci-test/orgtree-windows`, `ci-test/orgtree-macos`, `ci-test/orgtree-linux` or
+`ci-test/orgtree-standalone`.
 Once the workflows are on `main`, a manual run can test any tag or commit:
 
 ```
@@ -392,7 +443,7 @@ them exactly:
 
 | Tool | Version | Where it's pinned |
 |---|---|---|
-| Rust | nightly-2025-12-12 (rustc 1.94.0-nightly f52090008) | `build-windows.yml`, `build-macos.yml`, `build-linux.yml` |
+| Rust | nightly-2025-12-12 (rustc 1.94.0-nightly f52090008) | `build-windows.yml`, `build-macos.yml`, `build-linux.yml`, `build-standalone.yml` |
 | Node / npm | 24.12.0 / 11.6.2 | the same three |
 | Python (host, for provisioning) | 3.10.11 with pip 26.0.1 | `build-windows.yml` |
 | Python runtime packages | the exact versions of the 4.0.1 runtime | `.github/ci/windows/runtime-constraints.txt` |

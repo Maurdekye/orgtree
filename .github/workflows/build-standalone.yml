@@ -1,0 +1,144 @@
+# The official standalone (headless) Orgtree engine, built from exactly `inputs.ref`:
+#   orgtree-engine-standalone-<v>-linux-x86_64.tar.gz  the engine binary, README, LICENSE
+# Reusable: release.yml calls it for every release, release-standalone.yml for an
+# existing release; a push to ci-test/orgtree-standalone runs it on its own.
+# The packaging (.github/ci/standalone, standalone/) comes from this workflow's own
+# revision, the engine from `inputs.ref`, so an older tag can be packaged the current way.
+# docs/standalone-engine.md (Download) and docs/ci-release.md (Standalone engine).
+name: build-standalone
+
+on:
+  workflow_call:
+    inputs:
+      ref: {type: string, required: true}
+  push:
+    branches: ['ci-test/orgtree-standalone']
+
+permissions: {contents: read}
+
+env:
+  # The toolchain of build-linux.yml, so this binary is built like the desktop's Linux engine.
+  RUST_TOOLCHAIN: nightly-2025-12-12
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  binary:
+    # 22.04 (glibc 2.35), like build-linux.yml, so the binary runs on Ubuntu 22.04 and newer.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci-tools
+          sparse-checkout: |
+            .github/ci
+            standalone
+          persist-credentials: false
+
+      - id: version
+        name: Version (the engine's Cargo.toml, which release resolve checked against the tag)
+        run: |
+          # .gitattributes checks text out with CRLF, on Linux too
+          v="$(tr -d '\r' < engine/rs/orgtree-engine/Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -1)"
+          [ -n "$v" ] || { echo "::error::no version in engine/rs/orgtree-engine/Cargo.toml"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "standalone engine $v from $(git rev-parse HEAD)"
+
+      - name: Rust toolchain (preinstalled rustup)
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          echo "RUSTC_VERSION=$(rustc --version | tr ' ' '_')" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/rs/target
+          key: standalone-cargo-${{ env.RUSTC_VERSION }}-${{ hashFiles('engine/rs/Cargo.lock') }}
+          restore-keys: standalone-cargo-${{ env.RUSTC_VERSION }}-
+
+      # As standalone/Dockerfile builds it: the workspace's release profile without debug
+      # info (322 MB with the profile's line tables, measured 2026-11-11), the build commit
+      # stamped. The checkout holds every embedded input (glossary, charters, templates,
+      # Changelog).
+      - name: Rust engine (release)
+        working-directory: engine/rs
+        run: |
+          ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+          export ORGTREE_RELEASE_BUILD=1 ORGTREE_BUILD_COMMIT CARGO_PROFILE_RELEASE_DEBUG=0
+          cargo build --release --locked -j "$(nproc)" -p orgtree-engine --bin orgtree-engine
+          got="$(target/release/orgtree-engine --version)"
+          echo "$got"
+          [ "$got" = "orgtree-engine ${{ steps.version.outputs.version }}" ] || { echo "::error::the binary says '$got'"; exit 1; }
+
+      - name: Archive
+        run: bash .ci-tools/.github/ci/standalone/package.sh engine/rs/target/release/orgtree-engine "${{ steps.version.outputs.version }}" . .ci-tools dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-standalone-binary
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # On a stock newer Ubuntu with its own PostgreSQL 16, as a downloader would run it.
+  package:
+    needs: binary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.binary.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            .github/ci
+            standalone
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-standalone-binary
+          path: dist
+
+      - name: PostgreSQL 16 (the runner's, else Ubuntu's package)
+        run: |
+          if ! ls /usr/lib/postgresql/16/bin/initdb >/dev/null 2>&1; then
+            sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends postgresql-16
+          fi
+          echo "ORGTREE_P03_PG_BIN=/usr/lib/postgresql/16/bin" >> "$GITHUB_ENV"
+
+      - name: Smoke - the archive's engine on a fresh data root
+        run: |
+          mkdir -p "$RUNNER_TEMP/x"
+          tar -xzf "dist/orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz" -C "$RUNNER_TEMP/x"
+          bash .github/ci/standalone/smoke.sh binary "$RUNNER_TEMP/x/orgtree-engine-standalone-$VERSION-linux-x86_64" "$VERSION" smoke-logs/binary
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-standalone
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-standalone-smoke-logs
+          path: smoke-logs/
+          if-no-files-found: ignore
+          retention-days: 7

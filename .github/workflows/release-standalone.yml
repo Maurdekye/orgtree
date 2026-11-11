@@ -1,0 +1,105 @@
+# Adds the standalone (headless) engine to an EXISTING release, draft or published,
+# without rebuilding the desktop assets: for a release tagged before release.yml built
+# it (v4.5.11), or to redo a failed standalone build. Manual only:
+#   gh workflow run release-standalone.yml -R Maurdekye/orgtree -f tag=v4.5.11
+# It builds the tag's commit with build-standalone.yml (this revision's packaging),
+# uploads the archive and adds its line to SHA256SUMS.txt: the lines already there
+# are kept byte for byte, and a release that already has the archive is refused.
+# docs/ci-release.md, "Standalone engine".
+name: release-standalone
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, e.g. v4.5.11
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-standalone-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Check the tag and its release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+      sha: ${{ steps.check.outputs.sha }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          sparse-checkout: |
+            docs
+            engine/rs/orgtree-engine/Cargo.toml
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci-tools
+          sparse-checkout: .github/ci
+          persist-credentials: false
+      - id: check
+        env:
+          MODE: release
+          TAG: ${{ inputs.tag }}
+        run: node .ci-tools/.github/ci/releasing/check-release.mjs
+      - name: The release exists and has no standalone engine yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets --jq '"draft=\(.isDraft)", (.assets[].name)')"
+          echo "$assets"
+          echo "$assets" | grep -qx SHA256SUMS.txt || { echo "::error::$TAG has no SHA256SUMS.txt"; exit 1; }
+          if echo "$assets" | grep -q '^orgtree-engine-standalone-'; then
+            echo "::error::$TAG already has standalone assets: delete them (and their SHA256SUMS.txt lines) first to rebuild"
+            exit 1
+          fi
+
+  standalone:
+    needs: resolve
+    uses: ./.github/workflows/build-standalone.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  attach:
+    needs: [resolve, standalone]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-standalone
+          path: dist
+      - name: Upload the standalone assets and extend SHA256SUMS.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          cd dist
+          files="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz"
+          [ "$(ls | sort | tr '\n' ' ')" = "$(printf '%s\n' $files | sort | tr '\n' ' ')" ] || { echo "::error::got [$(ls)], want [$files]"; exit 1; }
+          mkdir ../sums && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D ../sums
+          cp ../sums/SHA256SUMS.txt ../SHA256SUMS.before
+          for f in $files; do
+            grep -q "  $f\$" ../sums/SHA256SUMS.txt && { echo "::error::SHA256SUMS.txt already lists $f"; exit 1; }
+            sha256sum -- "$f" >> ../sums/SHA256SUMS.txt
+          done
+          # the old lines stay exactly as they were
+          cmp -n "$(stat -c %s ../SHA256SUMS.before)" ../SHA256SUMS.before ../sums/SHA256SUMS.txt
+          cat ../sums/SHA256SUMS.txt
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" $files
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ../sums/SHA256SUMS.txt
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | "  \(.name)  \(.size)"'

@@ -14,9 +14,18 @@ API-key/OpenRouter account configured through the authenticated API. This mode
 uses the providers' native login flows over SSH, rather than an Orgtree login
 service. Desktop attachment and a browser UI are unsupported.
 
+## Get it
+
+Every Orgtree release from 4.5.11 on attaches the official standalone engine,
+built from the desktop release's commit: `orgtree-engine-standalone-<version>-linux-x86_64.tar.gz`
+(Linux x86_64, glibc 2.35+, with a README and the licence; PostgreSQL 16+ is
+installed separately). Its SHA-256 is in the release's `SHA256SUMS.txt`. Building
+from a source checkout (`cargo build`, or `standalone/Dockerfile`) remains possible.
+The checkout's `docs/standalone-engine.md` has the download and verify commands.
+
 ## Start and stop
 
-Configure the process environment, then start the existing engine binary:
+Configure the process environment, then start the engine binary:
 
 ```powershell
 $env:ORGTREE_DATA = 'D:/orgtree-standalone/data'
