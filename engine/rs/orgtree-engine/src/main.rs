@@ -64,6 +64,7 @@ mod pg;
 mod phone;
 mod profile_pictures;
 mod providers;
+mod remote;
 mod rig;
 mod runtime;
 mod settings;
@@ -280,6 +281,7 @@ async fn run_with_cluster(
         custom_apps: Default::default(),
         elicitations: runtime::elicitation::Registry::default(),
         live_feed: Default::default(),
+        remotes: remote::Remotes::open(&cfg.data_root),
     });
 
     progress("engine-load-orgs");
@@ -297,6 +299,8 @@ async fn run_with_cluster(
         tracing::warn!(error = %format!("{e:#}"), "the Connect your phone note could not be moved yet; the next start tries again");
     }
     appfeed::start(&engine, app_inbox);
+    // the links to remote engines: each its own task, none waited for
+    remote::start(&engine);
     // orgs a first-start import could not copy: one line each in the org list
     import_failures::publish(&engine).await;
     if let Err(e) = org_accounts::load(&engine).await {

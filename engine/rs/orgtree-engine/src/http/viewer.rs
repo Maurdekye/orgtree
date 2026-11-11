@@ -76,6 +76,9 @@ pub const DENIED_FOR_VIEWER: &[&str] = &[
     "/api/orgs/{slug}/mcp",
     "/api/standalone/clients",
     "/api/standalone/clients/{id}",
+    "/api/remotes",
+    "/api/remotes/{id}",
+    "/api/remotes/{id}/retry",
     "/api/orgs/{slug}/apps",
     "/api/orgs/{slug}/apps/bridge",
     "/api/orgs/{slug}/apps/runtime",
@@ -244,7 +247,7 @@ pub fn viewer_allows(method: &Method, path: &str, org: &str) -> bool {
 }
 
 #[nolog]
-fn matches(route: &str, segments: &[&str], org: &str) -> bool {
+pub(crate) fn matches(route: &str, segments: &[&str], org: &str) -> bool {
     let pattern: Vec<&str> = route.split('/').collect();
     for (at, part) in pattern.iter().enumerate() {
         match *part {

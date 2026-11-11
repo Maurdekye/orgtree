@@ -36,7 +36,7 @@ pub mod tree;
 pub mod usermcp;
 pub mod viewer;
 #[cfg(test)]
-mod viewer_tests;
+pub(crate) mod viewer_tests;
 
 use std::sync::Arc;
 
@@ -90,6 +90,10 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/mcp", post(usermcp::per_org).get(usermcp::no_stream))
         .route("/api/standalone/clients", get(client_tokens::list).post(client_tokens::create))
         .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
+        // the remote engines this desktop is connected to (remote/api.rs; 404 on a standalone engine)
+        .route("/api/remotes", get(crate::remote::api::list).post(crate::remote::api::add))
+        .route("/api/remotes/{id}", axum::routing::patch(crate::remote::api::update).delete(crate::remote::api::remove))
+        .route("/api/remotes/{id}/retry", post(crate::remote::api::retry))
         .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
         .route("/api/orgs/{slug}/apps/bridge", post(apps::bridge).layer(axum::extract::DefaultBodyLimit::max(crate::domain::apps::net::BRIDGE_INPUT_MAX)))
         .route("/api/orgs/{slug}/apps/runtime", post(apps::runtime).layer(axum::extract::DefaultBodyLimit::max(1024*1024)))
@@ -383,6 +387,9 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // A newly created client secret is shown once; omit bodies even on
         // rejected/unrecognized descendants, before auth or JSON parsing.
         || path == "/api/standalone/clients" || path.starts_with("/api/standalone/clients/")
+        // A remote engine's token is typed into these bodies; omit them before
+        // auth and on rejected/unrecognized descendants too.
+        || path == "/api/remotes" || path.starts_with("/api/remotes/")
         // Template downloads contain copied private AGENTS.md text inside a
         // JSON string. Omit entire request/response bodies before auth and
         // extraction, including malformed requests and unknown child routes.
@@ -483,13 +490,17 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     // Register the connection before reading any request body. A revoked
     // client's partial upload/inflight MCP call must be disconnected too.
     let standalone_ok = !engine.cfg.standalone || req.extensions().get::<crate::client_tokens::Scope>().is_some();
-    let quiet = quiet_body(&path, req.headers());
+    // Where the request belongs (remote/relay.rs). A request for a remote engine is carried
+    // there with its body streamed and never logged: only its REQUEST/RESPONSE/RELAY lines are.
+    let remote = crate::remote::relay::decide(&engine, &path, req.headers());
+    let remote_window = crate::remote::relay::window(&engine, req.headers());
+    let quiet = quiet_body(&path, req.headers()) || remote.is_relay();
     let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
         req.headers()
             .iter()
             // The desktop/standalone token never reaches the log, verbose or not.
             .map(|(k, v)| {
-                let secret = k.as_str() == TOKEN_HEADER || *k == axum::http::header::AUTHORIZATION;
+                let secret = k.as_str() == TOKEN_HEADER || *k == axum::http::header::AUTHORIZATION || k.as_str() == crate::remote::HEADER;
                 let shown = if secret { "****" } else { v.to_str().unwrap_or("<binary>") };
                 (k.as_str().to_string(), serde_json::Value::String(shown.to_string()))
             })
@@ -521,7 +532,8 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     // Standalone: every path needs the token, and a missing token can never
     // open it (token_ok is false for an empty token). Other modes keep the
     // existing rule: /api/ only, and only when a launcher set a token.
-    let denied = if app_files::ticket_route(req.uri().path(),req.method()) {
+    let ticket = app_files::ticket_route(req.uri().path(),req.method());
+    let denied = if ticket {
         false // The dedicated handler requires its own live, grant-bound asset ticket.
     } else if engine.cfg.standalone {
         !standalone_ok
@@ -532,10 +544,28 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         let detail = if engine.cfg.standalone { "standalone token required" } else { "desktop token required" };
         (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": detail }))).into_response()
     } else {
-        if private_apps_path(&path){crate::trace::private_app(next.run(req)).await}
-        else{next.run(req).await}
+        // Only past the token check does a remote decision count: the relay attaches the remote
+        // engine's token (never for the app media route, which carries its own ticket).
+        match &remote {
+            crate::remote::relay::Decision::Relay(to, at) => {
+                let carried = crate::remote::relay::forward(&engine, to.clone(), at.clone(), req, !ticket);
+                if private_apps_path(&path){crate::trace::private_app(carried).await} else {carried.await}
+            }
+            crate::remote::relay::Decision::Refuse(status, detail) =>
+                (*status, axum::Json(serde_json::json!({ "detail": detail }))).into_response(),
+            _ => {
+                if private_apps_path(&path){crate::trace::private_app(next.run(req)).await}
+                else{next.run(req).await}
+            }
+        }
     };
-    if let Ok(v) = HeaderValue::from_str(&engine.boot.id) {
+    // A remote organization's window is stamped with both processes: it reloads when this engine
+    // or the remote one was replaced, and not while the remote is merely unreachable.
+    let instance = match remote_window.as_ref().filter(|_| !denied) {
+        Some(window) => crate::remote::relay::instance(&engine.boot.id, window),
+        None => engine.boot.id.clone(),
+    };
+    if let Ok(v) = HeaderValue::from_str(&instance) {
         res.headers_mut().insert("x-orgtree-instance", v);
     }
     if let Some(v) = rq.and_then(|r| HeaderValue::from_str(&r).ok()) {

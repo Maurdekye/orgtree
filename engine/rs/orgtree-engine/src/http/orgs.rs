@@ -39,6 +39,7 @@ pub async fn list(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
         let id: i64 = r.get(0);
         attention.insert(id, crate::domain::notices::attention_count(&client, id).await?);
     }
+    // this engine's organizations, then each remote engine's (remote/mod.rs)
     Ok(Json(Value::Array(
         rows.iter()
             .map(|r| {
@@ -52,6 +53,7 @@ pub async fn list(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
                     "state": "active", "state_reason": null, "unavailable_step": null,
                 })
             })
+            .chain(if e.remotes.active(&e) { e.remotes.list_rows() } else { Vec::new() })
             .collect(),
     )))
 }

@@ -40,6 +40,9 @@ enum Msg {
     RegistryRead(Vec<Value>),
     OrgRead(i64, Option<(Value, Value, Value)>),
     Flush,
+    /// One remote engine's organizations as they stand now (remote/link.rs);
+    /// an empty list when the connection was removed.
+    Remote(String, Vec<crate::remote::Row>),
 }
 
 #[logged]
@@ -65,6 +68,14 @@ impl AppFeed {
     }
     pub fn working(&self, org_id: i64, n: i64) {
         let _ = self.tx.send((Msg::Working(org_id, n), crate::trace::current_rq()));
+    }
+    /// The organizations of the remote engine `remote_id` for the list: all
+    /// of them, each under its alias and its (negative) local id. Not logged:
+    /// a row carries a summary; the count is.
+    #[nolog]
+    pub fn remote_rows(&self, remote_id: &str, rows: Vec<crate::remote::Row>) {
+        tracing::info!(remote = remote_id, rows = rows.len(), "remote organizations pushed");
+        let _ = self.tx.send((Msg::Remote(remote_id.to_string(), rows), crate::trace::current_rq()));
     }
     /// Not logged: the snapshot carries every pushed value (see `set_value`).
     #[nolog]
@@ -94,6 +105,7 @@ pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
         sockets: HashMap::new(),
         dirty_orgs: HashSet::new(),
         reading: HashSet::new(),
+        remote_rows: std::collections::BTreeMap::new(),
         flush_scheduled: false,
         local_orgs: None,
         tx: engine.app.tx.clone(),
@@ -126,6 +138,9 @@ struct Actor {
     sockets: HashMap<SocketId, Out>,
     dirty_orgs: HashSet<i64>,
     reading: HashSet<i64>,
+    /// remote engine id -> its organizations in the list. They are not local
+    /// orgs: no handle, no database row, never in local-orgs.json.
+    remote_rows: std::collections::BTreeMap<String, Vec<crate::remote::Row>>,
     flush_scheduled: bool,
     /// The listing last written to local-orgs.json (local_orgs.rs).
     local_orgs: Option<Value>,
@@ -171,7 +186,8 @@ impl Actor {
         json!({
             "type": "registry_snapshot", "epoch": self.epoch,
             "cursor": { "app_uuid": self.app_uuid, "incarnation": self.epoch, "rev": self.rev },
-            "records": self.registry.iter().map(|body| json!({
+            // this engine's organizations first, then each remote engine's
+            "records": self.registry.iter().chain(self.remote_rows.values().flatten().map(|row| &row.registry)).map(|body| json!({
                 "entity": "registry_org", "id": body["org_id"].to_string(), "body": body,
             })).collect::<Vec<_>>(),
         })
@@ -335,6 +351,44 @@ impl Actor {
             }
             Msg::Close(id) => {
                 self.sockets.remove(&id);
+            }
+            Msg::Remote(remote, rows) => self.remote(remote, rows),
+        }
+    }
+}
+
+impl Actor {
+    /// A remote engine's organizations changed: the registry frame when the
+    /// set or a record did, then each changed summary and working count, in
+    /// the frames a local organization's changes use.
+    fn remote(&mut self, remote: String, rows: Vec<crate::remote::Row>) {
+        let old = (if rows.is_empty() { self.remote_rows.remove(&remote) } else { self.remote_rows.insert(remote, rows.clone()) }).unwrap_or_default();
+        if !old.iter().map(|r| &r.registry).eq(rows.iter().map(|r| &r.registry)) {
+            self.rev += 1;
+            let frame = self.registry_frame();
+            self.broadcast(&frame);
+        }
+        for gone in old.iter().filter(|o| !rows.iter().any(|r| r.local_id == o.local_id)) {
+            self.summaries.remove(&gone.local_id);
+            self.notices.remove(&gone.local_id);
+            self.working.remove(&gone.local_id);
+        }
+        for row in rows {
+            let id = row.local_id;
+            let was = old.iter().find(|o| o.local_id == id);
+            if was.map(|o| (&o.summary, &o.org_uuid)) != Some((&row.summary, &row.org_uuid)) {
+                let seq = self.next();
+                let frame = json!({ "type": "org_summary", "epoch": self.epoch, "seq": seq, "org_id": id, "org_uuid": row.org_uuid,
+                                    "incarnation": self.epoch, "rev": seq, "body": row.summary });
+                self.summaries.insert(id, Entry { seq, frame: frame.clone() });
+                self.broadcast(&frame);
+            }
+            if self.working.get(&id).map(|(_, n)| *n) != Some(row.working) {
+                let seq = self.next();
+                self.working.insert(id, (seq, row.working));
+                let frame = json!({ "type": "app_runtime", "epoch": self.epoch, "seq": seq,
+                                    "orgs": { id.to_string(): { "epoch": self.epoch, "seq": seq, "working": row.working } } });
+                self.broadcast(&frame);
             }
         }
     }

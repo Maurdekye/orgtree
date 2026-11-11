@@ -64,6 +64,11 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     let slug = org_slug(&name);
     // 3.x refuses a name an org already holds (a trashed org frees it)
     let taken = || ApiError::bad_request(format!("org '{slug}' already exists"));
+    // a name an organization of a remote engine holds in this list is taken too:
+    // the slug is the window's identity (remote/mod.rs, aliases)
+    if let Some(remote) = e.remotes.alias_holder(&slug).filter(|_| e.remotes.active(&e)) {
+        return Err(ApiError::bad_request(crate::remote::text::alias_taken(&slug, &remote)));
+    }
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
     if tx.query_opt("SELECT 1 FROM ot.orgs WHERE slug = $1 AND state = 'active'", &[&slug]).await?.is_some() {

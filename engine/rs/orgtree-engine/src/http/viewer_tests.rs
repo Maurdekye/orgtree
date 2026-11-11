@@ -106,7 +106,7 @@ fn everything_else_is_refused() {
 }
 
 /// The `.route("...")` literals of the router (production part of mod.rs).
-fn route_literals() -> Vec<String> {
+pub(crate) fn route_literals() -> Vec<String> {
     let src = include_str!("mod.rs");
     let src = src.split("pub fn router(").nth(1).unwrap().split("\n/// The renderer bundle").next().unwrap();
     let mut out = Vec::new();
