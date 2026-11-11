@@ -11,6 +11,7 @@ import {
 } from '../api'
 import { CloseIcon, FolderIcon } from '../icons'
 import { pickFolder } from '../picker'
+import { localFolder } from '../remotehere'
 import type { CharterTemplateDirState, CharterTemplateDirsPayload } from '../types'
 import { SetBlock, SetGroup, SetRow } from './settingskit'
 
@@ -30,14 +31,15 @@ export function CharterDocumentsSetting() {
   const openFolder = () => {
     setOpenBusy(true)
     setOpenError('')
-    openCharterFolder()
+    // in a window of an organization on a remote engine the folder is on that engine's computer
+    localFolder(openCharterFolder)
       .then(res => {
         if (!res.ok) {
-          setOpenError(res.error || 'Could not open charter folder')
+          setOpenError('remote' in res ? res.error : `Could not open charter folder: ${res.error || 'unknown error'}`)
         }
       })
       .catch((e: Error) => {
-        setOpenError(e.message || 'Could not open charter folder')
+        setOpenError(`Could not open charter folder: ${e.message || 'unknown error'}`)
       })
       .finally(() => setOpenBusy(false))
   }
@@ -53,7 +55,7 @@ export function CharterDocumentsSetting() {
       </button>
     </SetRow>
     {error && <p role="alert">Charter documents were not populated: {error} — press again to retry.</p>}
-    {openError && <p role="alert">Could not open charter folder: {openError}</p>}
+    {openError && <p role="alert">{openError}</p>}
     {result && !error && (
       <p className="dim">
         {result.created.length

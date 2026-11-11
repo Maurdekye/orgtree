@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { openTemplatesFolder, populateTemplates, saveOrgTemplate } from '../api'
 import type { SavedTemplate, TemplateInclude } from '../api'
 import { quickChatSnapshot } from '../quickchat'
+import { localFolder, remoteFolderText, useRemoteHere } from '../remotehere'
 import type { TreeNode, TreePayload } from '../types'
 import { ModalOverPins } from './modalpin'
 import { SetGroup, SetRow } from './settingskit'
@@ -31,9 +32,10 @@ export function TemplateDocumentsSetting() {
   const openFolder = () => {
     setOpenBusy(true)
     setOpenError('')
-    openTemplatesFolder()
-      .then(res => { if (!res.ok) setOpenError(res.error || 'Could not open the templates folder') })
-      .catch((e: Error) => setOpenError(e.message || 'Could not open the templates folder'))
+    // in a window of an organization on a remote engine the folder is on that engine's computer
+    localFolder(openTemplatesFolder)
+      .then(res => { if (!res.ok) setOpenError('remote' in res ? res.error : `Could not open the templates folder: ${res.error || 'unknown error'}`) })
+      .catch((e: Error) => setOpenError(`Could not open the templates folder: ${e.message || 'unknown error'}`))
       .finally(() => setOpenBusy(false))
   }
   return <SetGroup title="Organization templates"
@@ -48,7 +50,7 @@ export function TemplateDocumentsSetting() {
       </button>
     </SetRow>
     {error && <p role="alert">Templates were not restored: {error} — press again to retry.</p>}
-    {openError && <p role="alert">Could not open the templates folder: {openError}</p>}
+    {openError && <p role="alert">{openError}</p>}
     {result && !error && (
       <p className="dim">
         {result.created.length
@@ -113,6 +115,7 @@ export function liveNames(tree: TreePayload | undefined): Set<string> {
 export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string; orgName: string;
   tree?: TreePayload; close: () => void }) {
   useEsc(close)
+  const remote = useRemoteHere()
   const [name, setName] = useState(`${orgName} layout`)
   const [description, setDescription] = useState('')
   const [include, setInclude] = useState<TemplateInclude>(DEFAULT_INCLUDE)
@@ -181,7 +184,9 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
           <div className="row">
             <button className="primary" onClick={(e) => downloadTemplate(e.currentTarget.ownerDocument, saved)}>
               Download {saved.file}</button>
-            <button onClick={() => { void openTemplatesFolder() }}>Open templates folder</button>
+            {/* saved on the remote engine's computer: the path above is where; this computer has no such folder */}
+            <button disabled={!!remote} title={remote ? remoteFolderText(remote.name, saved.path) : undefined}
+              onClick={() => { void localFolder(openTemplatesFolder) }}>Open templates folder</button>
           </div>
         </>)}
       </div>

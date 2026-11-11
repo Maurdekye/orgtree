@@ -1,4 +1,5 @@
 import { desktop } from './desktop'
+import { remoteFolderText, remoteHere } from './remotehere'
 import type { ToastFn } from './types'
 
 export type ScratchFolderAction = (() => void) & {
@@ -11,6 +12,9 @@ export function scratchFolderAction(org: string, node: string, toast: ToastFn,
   const bridge = desktop()
   if (!bridge?.openAgentScratchFolder) return undefined
   if (scope && !bridge.scratchFolderScopes?.includes(scope)) return undefined
+  // An organization on a remote engine keeps its folders on that engine's computer. The entry
+  // stays and says so; nothing of this computer is opened, and no AGENTS.md here is offered.
+  if (remoteHere()) return () => { const remote = remoteHere(); if (remote) toast([remoteFolderText(remote.name)]) }
   const description = scope === 'shared' ? 'the shared scratch folder'
     : scope === 'team' ? `${node}'s team scratch folder` : `${node}'s scratch folder`
   const action: ScratchFolderAction = () => {

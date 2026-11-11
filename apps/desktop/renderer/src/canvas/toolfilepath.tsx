@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEventHandler } from 'react'
 import { desktop } from '../desktop'
 import { localFileTitle, type LocalFileState } from './localfile'
+import { useRemoteHere } from '../remotehere'
 
 /** Every harness shares ToolChip's explicit file_paths projection. `link`
  * means a native target can be resolved, not that a file exists there. */
@@ -10,21 +11,23 @@ export function ToolFilePath({ path, link, completed, onContextMenu }: {
 }) {
   const [checked, setChecked] = useState<{ path: string; link: boolean; state: LocalFileState }>()
   const request = useRef(0)
+  // on a remote engine's computer: never looked for on this disk
+  const remote = useRemoteHere() !== null
   const refresh = useCallback(async () => {
     const id = ++request.current
-    if (!link) return
+    if (!link || remote) return
     let state: LocalFileState = 'unavailable'
     try {
       const status = await desktop()?.localFileStatus?.(path)
       if (status?.ok && typeof status.exists === 'boolean') state = status.exists ? 'present' : 'missing'
     } catch { /* An unavailable path still has a copyable identity. */ }
     if (request.current === id) setChecked({ path, link, state })
-  }, [path, link])
+  }, [path, link, remote])
   useEffect(() => {
     void refresh()
     return () => { request.current++ }
   }, [refresh, completed])
-  const state = !link ? 'unresolved'
+  const state: LocalFileState = !link ? 'unresolved' : remote ? 'remote'
     : checked?.path === path && checked.link === link ? checked.state : 'checking'
   const split = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1
   return <a className="local-file tool-file-link" href="#" data-local-path={path}

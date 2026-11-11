@@ -1,9 +1,13 @@
 import { desktop } from '../desktop'
+import { remoteFileText, remoteHere } from '../remotehere'
 import type { ToastFn } from '../types'
 import type { MenuEntry } from './contextmenu'
 
-export type LocalFileState = 'checking' | 'present' | 'missing' | 'unavailable' | 'unresolved'
+/** `remote`: the window's organization is on a remote engine, so the file is on that engine's
+ *  computer and is never looked for on this one. */
+export type LocalFileState = 'checking' | 'present' | 'missing' | 'unavailable' | 'unresolved' | 'remote'
 export const localFileTitle = (path: string, state: LocalFileState = 'present') =>
+  state === 'remote' ? `${remoteFileText(remoteHere()?.name ?? 'the remote engine')} — ${path}` :
   `${state === 'present' ? 'Show in folder' : state === 'missing' ? 'File not found'
     : state === 'unresolved' ? 'Unresolved path' : state === 'checking' ? 'Checking file' : 'File status unavailable'} — ${path}`
 
@@ -21,7 +25,8 @@ export async function localFileMenu(anchor: Element, path: string,
   // the native bridge. A relative path without a cwd has no safe native target.
   const relative = anchor.getAttribute('data-local-relative') === 'true'
   let status: { ok: boolean; exists?: boolean; error?: string } | undefined
-  if (!relative) try { status = await desktop()?.localFileStatus?.(path) } catch { /* disabled state below */ }
+  const remote = remoteHere()
+  if (!relative && !remote) try { status = await desktop()?.localFileStatus?.(path) } catch { /* disabled state below */ }
   const action = async (kind: 'open' | 'reveal') => {
     try {
       const result = kind === 'open' ? await desktop()?.openLocalFile?.(path) : await desktop()?.revealFile?.(path)
@@ -36,6 +41,10 @@ export async function localFileMenu(anchor: Element, path: string,
     { label: 'Copy path', onSelect: () => copied(path, 'path') },
     { label: 'Copy file name', onSelect: () => copied(path.split(/[\\/]/).filter(Boolean).at(-1) || path, 'file name') },
   ]
+  // a file of an organization on a remote engine is on that engine's computer: its path is
+  // never checked against this disk, and it cannot be opened or shown here
+  if (remote) return [{ label: `On ${remote.name}`, disabled: true, title: localFileTitle(path, 'remote'), onSelect: () => {} },
+    'sep', ...copies]
   if (relative || !status?.ok || status.exists !== true) return [{
     label: relative ? 'Unresolved path' : status?.ok && status.exists === false ? 'File no longer exists' : 'File actions unavailable',
     disabled: true, title: `${relative ? 'No working directory was supplied' : status?.error ?? 'This path cannot be opened'} — ${path}`,

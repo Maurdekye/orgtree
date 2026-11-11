@@ -34,6 +34,8 @@ import {
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
+import { remoteSignInText, useRemoteHere } from '../remotehere'
+import { copyToClipboard } from './contextmenu'
 import { fmtStamp } from '../timefmt'
 import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
@@ -662,6 +664,9 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   accountId?: string
 }) {
   const bridge = desktop()
+  // An organization on a remote engine: its providers' profiles are on that engine's computer,
+  // and this control would run a CLI on THIS one. It says where to sign in instead.
+  const remote = useRemoteHere()
   const label = LOGIN_LABELS[provider]
   const supportsCode = SUPPORTS_CODE[provider]
   const [status, setStatus] = useState<ProviderLoginStatus | null>(null)
@@ -670,15 +675,23 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   const phase = status?.phase ?? 'idle'
   const subscription = useRef<ReturnType<typeof subscribeProviderLogin> | null>(null)
   useEffect(() => {
-    if (!bridge) return
+    if (!bridge || remote) return
     const current = subscribeProviderLogin(bridge, provider, setStatus)
     subscription.current = current
     return () => { current.close(); subscription.current = null }
-  }, [provider, bridge])
+  }, [provider, bridge, remote])
   useEffect(() => {
     if (phase === 'done' && status?.ok) onRefresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, status?.ok])
+  if (remote) return (
+    <div className="acct-claude-login">
+      <span className="dim">{remoteSignInText(remote.name, profileDir)}</span>
+      {profileDir && <button onClick={(e) => {
+        void copyToClipboard(e.currentTarget, profileDir).then(ok => toast([ok ? 'Copied path' : 'Could not copy — clipboard unavailable']))
+      }}>Copy path</button>}
+    </div>
+  )
   if (!bridge) return null
   const begin = () => {
     setBusy(true)

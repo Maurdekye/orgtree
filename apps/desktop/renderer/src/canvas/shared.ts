@@ -20,6 +20,7 @@ import './lightbox'
 import { renderHtmlResponses } from './htmlresponse'
 // the native bridge, for revealing a local file link in the OS file manager
 import { desktop } from '../desktop'
+import { remoteHere } from '../remotehere'
 import { localFileTitle } from './localfile'
 import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
@@ -3402,6 +3403,9 @@ export function revealFileFromEvent(e: {
   const state = a.getAttribute('data-local-file-state')
   if (a.getAttribute('data-local-relative') === 'true' || (state && state !== 'present')) return true
   const path = a.getAttribute('data-local-path')
+  // a window of an organization on a remote engine: the file is on that engine's
+  // computer, so this one is not asked to show it (remotehere.ts)
+  if (remoteHere()) return true
   // no bridge (browser, or a portal that never received one) → nothing
   // happens, rather than a thrown error taking the click handler down
   if (path) void desktop()?.revealFile?.(path)?.catch?.(() => {})

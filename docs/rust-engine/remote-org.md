@@ -184,6 +184,29 @@ this computer goes to local windows only, and a change on the remote engine to i
 While the link is not connected the window keeps the last values it had, like the list rows; a value
 the remote engine no longer has is sent as `null`. A removed connection's values are dropped.
 
+## What depends on the computer
+
+An organization on a remote engine keeps its agents' folders, the files their transcripts name and
+its providers' profiles on that engine's computer. A path the remote engine reports is never
+opened, revealed or looked for on this disk: the same path here is a different file, and "does it
+exist" would tell the remote engine about this computer.
+
+- **The authority is the main process.** `handleHere` in `apps/desktop/main/index.ts` registers the
+  commands that open a folder (agent, team and shared scratch folders and their AGENTS.md, the
+  templates and charters folders), open, reveal or check a file, or start a provider sign-in. It
+  refuses a caller whose window is an organization of a remote engine with
+  `{ ok: false, error, remote: true }`. Whose window it is comes from the window's registered
+  identity and the alias map the request header is decided from, never from an argument.
+- **The window does not ask.** `renderer/src/remotehere.ts` reads `remote_link` (the composed app
+  feed gives it to a remote window only). The scratch folder entries stay in their menus and say
+  "This folder is on <name>, not on this computer."; the templates and charters "Open folder"
+  buttons say the same; a file link's menu has one disabled entry "On <name>" and keeps Copy path
+  and Copy file name; a tool row's file is in state `remote` and its path is not checked; the
+  provider sign-in control says to sign in on the remote engine itself and offers the profile's
+  path to copy.
+- Commands that belong to this app on this computer (the engine log folder, preferences, updates,
+  the tray) are unchanged in a remote window.
+
 ## Tests
 
 `cargo test --bin orgtree-engine remote::` (no database, loopback only): the address rule, the sealed
@@ -260,5 +283,5 @@ waits allow for it.
 ## Not yet
 
 Creating an organization on a remote engine, watch-only
-windows with a viewer token, and the machine-dependent controls of a remote window (open folder,
-reveal file, provider sign-in).
+windows with a viewer token, the "This computer" labels of App settings and app panel actions that
+need a file dialog of this computer.
