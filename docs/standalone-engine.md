@@ -3,7 +3,29 @@
 The standalone engine runs directly or in Docker and exposes the existing HTTP
 and WebSocket APIs plus an authenticated user MCP endpoint. It manages its own
 PostgreSQL cluster. No desktop window or separate management CLI is needed.
-Desktop attachment and a browser management UI are not supported by this mode.
+A desktop app can open this engine's organizations as a remote engine (see
+[Open it in the desktop app](#open-it-in-the-desktop-app)). A browser
+management UI is not supported by this mode.
+
+## Open it in the desktop app
+
+From Orgtree 4.5.12 the desktop app can show the organizations of a standalone
+engine beside its own. On the Homepage choose **Add a remote engine...** and
+enter the engine's address (for example `http://100.x.y.z:7430`) and a token:
+the startup token or a full client token. The desktop makes its own named client
+token on the engine and keeps only that, so each computer can be revoked alone
+(`DELETE /api/standalone/clients/<id>`).
+
+- `https` addresses work anywhere. Plain `http` is accepted only for this
+  computer (an SSH-forwarded port), a private network or Tailscale, because the
+  token would otherwise travel unencrypted.
+- The engine must be 4.5.11 or later. A different version than the app's
+  connects with a warning.
+- A watch-only (viewer) token is refused: the desktop needs a full token.
+- Everything the agents do still happens on the engine's machine: folders,
+  provider sign-ins, watchdogs and mail hubs are that machine's.
+- While the engine cannot be reached the window shows the last known state and
+  refuses changes; it reconnects by itself.
 
 ## Download
 

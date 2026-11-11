@@ -2993,6 +2993,7 @@
    "sources": [
     "apps/desktop/renderer/src/shell/homepage.tsx:38",
     "apps/desktop/renderer/src/shell/orgrows.tsx:20",
+    "apps/desktop/renderer/src/shell/remotes.tsx:27",
     "apps/desktop/main/index.ts:2254"
    ],
    "see_also": [
@@ -3002,7 +3003,46 @@
    "writer": "runtime-sol",
    "status": "fixed",
    "components": [
-    "apps/desktop/renderer/src/shell/homepage.tsx#HomepageView"
+    "apps/desktop/renderer/src/shell/homepage.tsx#HomepageView",
+    "apps/desktop/renderer/src/shell/remotes.tsx#RemoteEngineDialog"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Address"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Token"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Name"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "State"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Transport"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Remote engine version"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Signed in as"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Last error"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Organizations"
+    }
    ]
   },
   {

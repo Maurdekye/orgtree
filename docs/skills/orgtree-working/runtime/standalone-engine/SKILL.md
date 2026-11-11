@@ -12,7 +12,9 @@ It owns its PostgreSQL cluster, scratch and settings in one persistent data
 root. Provider CLIs still need installation and sign-in on that host, or an
 API-key/OpenRouter account configured through the authenticated API. This mode
 uses the providers' native login flows over SSH, rather than an Orgtree login
-service. Desktop attachment and a browser UI are unsupported.
+service. A desktop app (4.5.12 or later) can open this engine's organizations
+as a remote engine: Homepage, Add a remote engine..., with this engine's
+address and a full token (see `orgtree-homepage`). A browser UI is unsupported.
 
 ## Get it
 

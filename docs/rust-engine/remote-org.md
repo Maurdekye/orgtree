@@ -5,7 +5,7 @@
 An organization that runs on a standalone (headless) engine elsewhere can be opened in the desktop app
 like a local one. The user adds a *remote engine* (an address and a token) once; every organization on
 it then appears in the org list, marked remote. This page is the engine's contract. The engine part
-landed first (2026-11-11); the desktop screens follow in the same item.
+landed first (2026-11-11), then Electron main and the first desktop screens.
 
 Decided: USER 2026-11-11 09:28:17Z m959b850c2ab2 (the feature), 10:08:27Z mc7584bf16c13 ("Accept all,
 build it": the twelve design recommendations). Docket `remote-org-connect-the-desktop-app-to-an-org-run`.
@@ -155,8 +155,33 @@ store, route coverage, the handshake against a stand-in and against a real stand
 aliases, the routing rule, streaming and header hygiene, the instance stamp, the org socket, link
 states, the offline answer, the merged list, removal and log privacy.
 
+## Desktop
+
+Electron main (`main/remotes.ts`, `main/policy.ts` `remoteHeaders`, `main/windows.ts`
+`configureEngineSession`) adds `X-Orgtree-Remote` to the permitted engine requests of a window whose
+organization is an alias, strips a page-supplied header on every destination, and learns the alias map
+from `GET /api/remotes` once before the first window opens and from the app feed's `remotes` value
+afterwards. The window identity contract is unchanged: an alias is an ordinary organization slug.
+
+The renderer (`src/remotes.ts`, `src/shell/remotes.tsx`) reads the same `remotes` value and the
+`remote` mark of a registry row:
+
+- **Lists** (`shell/orgrows.tsx`): this computer's organizations first, then each engine's under a
+  heading (glyph, name, state word when not connected; click or menu: Connection details, Retry now,
+  Disconnect or Connect, Remove). A remote row has the glyph and a tooltip; while its engine is away it
+  shows no numbers and no spinner. "Add a remote engine..." sits under the list.
+- **Add dialog** (`RemoteEngineDialog`, the provider dialogs' frame): Address, Token, Name; one
+  "Connecting..." line; a refusal's sentence under the fields, which keep what was typed.
+- **Window**: the status strip's first chip (`RemoteChip`: green connected, amber another version, red
+  with the state word) opens Connection details; the title carries the engine's name; while the engine
+  is away `RemoteBanner` under the header says what is the matter and offers the one action, and the
+  canvas is dimmed. Changes are refused by the engine's own 503 with the sentence to show.
+
+Tests: `tests/remote-org-window-header.test.mjs` (main), `apps/desktop/renderer/tests/remoteorg.test.tsx`.
+
 ## Not yet
 
 The composed app feed (a remote window still reads this computer's accounts and providers from the
 feed), notifications for remote organizations, creating an organization on a remote engine, watch-only
-windows with a viewer token, and the desktop screens.
+windows with a viewer token, the machine-dependent controls of a remote window (open folder, reveal
+file, provider sign-in), and the rig proof with two engines.
