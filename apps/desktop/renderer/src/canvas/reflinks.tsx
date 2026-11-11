@@ -30,6 +30,7 @@ import { ObjectMentionButton } from './mentionwrap'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
+import { contentOrg } from '../remotehere'
 import { RefMark, hasRefMark } from './refmarks'
 import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
@@ -269,12 +270,14 @@ function itemTitle(answer: RefNameAnswer | undefined): string | undefined {
  *  and `absent` chips, where showing an id with no type would be a claim we
  *  have not earned. */
 export function refToken(ref: TypedRef): string {
-  if (ref.kind === 'agent' && ref.as === 'project') return `@project:${ref.org}/${ref.id}`
-  if (ref.kind !== 'mail') return `@${ref.kind}:${ref.org}/${ref.id}`
+  // text names an organization as its own engine knows it (remotehere.ts, "names")
+  const org = contentOrg(ref.org)
+  if (ref.kind === 'agent' && ref.as === 'project') return `@project:${org}/${ref.id}`
+  if (ref.kind !== 'mail') return `@${ref.kind}:${org}/${ref.id}`
   if (ref.box === 'node') {
-    return `@mail:${ref.org}/node/${ref.node}/${ref.id}`
+    return `@mail:${org}/node/${ref.node}/${ref.id}`
   }
-  return `@mail:${ref.org}/${ref.box}/${ref.id}`
+  return `@mail:${org}/${ref.box}/${ref.id}`
 }
 
 /** A mail reference as the app's EXISTING mail router understands it

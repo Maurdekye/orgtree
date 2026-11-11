@@ -56,6 +56,20 @@ registries (`standalone-clients.json`, `phone.json`) are files, and the sealing 
   feed (registry record, summary, working count).
 - Text and content are in the remote's namespace. The alias appears only in URL paths, the window
   identity and local keys.
+- **References when the alias differs.** A token in text (`@item:acme/x`) names the organization as
+  its own engine knows it. In a remote window the renderer reads tokens through
+  `canvas/workrefs.tsx` (`parseRef`, `scanRefs`), which gives the reference under this computer's
+  name for that organization (`windowOrg`: the remote slug of one of that engine's organizations
+  becomes its alias), so `@item:acme/x` in the window "acme-galaxy" is that window's own item and
+  never this computer's "acme". `refToken` (`canvas/reflinks.tsx`) writes the name back as the
+  remote engine knows it (`contentOrg`), so what is typed or copied there carries no alias. Both
+  are the identity in a local window and for a name that is the same on both sides. The map is
+  the window's `remote_link.orgs`; an organization the remote engine no longer lists maps nothing.
+- **Known gap.** Only reference tokens in text are mapped. Structured fields that carry an
+  organization's slug in a request or an answer (a reply target, a notice read straight from a
+  route) are not: in a window whose alias differs from the slug there, a reply that quotes an
+  object may be refused by the remote engine as naming an unknown organization. A window whose
+  alias equals the slug (the usual case) is not affected.
 
 ## Adding a remote engine
 

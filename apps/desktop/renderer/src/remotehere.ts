@@ -15,7 +15,9 @@
 import { appValueNow, useAppValue } from './appfeed'
 
 /** What this module needs of the connection (`RemoteView` in remotes.ts). */
-export interface RemoteHere { id: string; name: string; state: string }
+export interface RemoteHere { id: string; name: string; state: string
+  /** that engine's organizations: the name each has here (`alias`) and there (`remote_slug`) */
+  orgs?: readonly { alias: string; remote_slug: string; gone?: boolean }[] }
 
 const valid = (value: unknown): RemoteHere | null => {
   const v = value as Partial<RemoteHere> | null | undefined
@@ -28,6 +30,32 @@ export const remoteHere = (): RemoteHere | null => valid(appValueNow<unknown>('r
 
 /** The same for a component, kept current. */
 export const useRemoteHere = (): RemoteHere | null => valid(useAppValue<unknown>('remote_link'))
+
+// ---------------------------------------------------------------- names
+//
+// An organization of a remote engine keeps its slug here when the name is free, and otherwise
+// goes by an alias ("acme-galaxy"). Text written there (transcripts, mail, tickets) names
+// organizations as THAT engine knows them, and that engine knows no alias. So in a remote
+// window: references the window holds are under this computer's names (the window's own slug is
+// the alias, and everything keyed by it stays so); text is under the organization's own names.
+// `windowOrg` is applied where a token is read (canvas/workrefs.tsx), `contentOrg` where one is
+// written (`refToken` in canvas/reflinks.tsx). In a local window, and for every name that is
+// the same on both sides, both are the identity.
+
+/** The name this computer lists an organization by, given the name text of this window calls
+ *  it. A name the window's remote engine does not list is returned as it is. */
+export function windowOrg(name: string): string {
+  const orgs = remoteHere()?.orgs
+  if (!orgs) return name
+  return orgs.find(o => !o.gone && o.remote_slug === name)?.alias ?? name
+}
+
+/** The name an organization has on its own engine, given the name this computer lists it by. */
+export function contentOrg(alias: string): string {
+  const orgs = remoteHere()?.orgs
+  if (!orgs) return alias
+  return orgs.find(o => !o.gone && o.alias === alias)?.remote_slug ?? alias
+}
 
 /** T2: a folder (scratch, shared notes, templates, charters). */
 export const remoteFolderText = (name: string, path?: string | null): string =>

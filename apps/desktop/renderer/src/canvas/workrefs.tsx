@@ -27,6 +27,9 @@ import { objectNavProps } from './objectnav'
 import { RefMark } from './refmarks'
 import { ObjectMentionButton } from './mentionwrap'
 import { ticketFlare } from './docketstatus'
+import { parseRef as parseToken, scanRefs as scanTokens } from '../../../../../packages/contracts/reference-tokens'
+import type { RefHit, TypedRef } from '../../../../../packages/contracts/reference-tokens'
+import { windowOrg } from '../remotehere'
 
 /** The names that may be matched, and what each one resolves to. A Map is
  *  both halves at once — the key set is what the matcher scans for, and the
@@ -223,5 +226,30 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
 // The canonical token grammar lives in packages/contracts/reference-tokens.ts
 // so the desktop main process can validate orgtree:// links with the SAME
 // parser (main/orgtree-link.ts). Every renderer import keeps coming from here.
-export { REF_TOKEN_RE, scanRefs, findRefs, parseRef } from '../../../../../packages/contracts/reference-tokens'
+//
+// ⚠ READ THROUGH THESE, NOT THROUGH THE CONTRACT. In a window of an organization on a remote
+// engine, text names organizations as that engine knows them, and a reference the window holds
+// is under the name THIS computer lists the organization by (remotehere.ts, "names"). The two
+// readers below apply that; the grammar itself is untouched and the token text is kept as
+// written. Elsewhere they are the contract's own functions.
+export { REF_TOKEN_RE, findRefs } from '../../../../../packages/contracts/reference-tokens'
 export type { RefKind, MailBox, TypedRef, RefHit } from '../../../../../packages/contracts/reference-tokens'
+
+const held = (ref: TypedRef): TypedRef => {
+  const org = windowOrg(ref.org)
+  return org === ref.org ? ref : { ...ref, org }
+}
+
+/** A token to its parts, or null when it is not one (the contract's `parseRef`). */
+export function parseRef(token: string): TypedRef | null {
+  const ref = parseToken(token)
+  return ref && held(ref)
+}
+
+/** Every canonical reference in `text`, in order (the contract's `scanRefs`). */
+export function scanRefs(text: string): RefHit[] {
+  return scanTokens(text).map(hit => {
+    const ref = held(hit.ref)
+    return ref === hit.ref ? hit : { ...hit, ref }
+  })
+}
