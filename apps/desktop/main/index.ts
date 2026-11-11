@@ -64,7 +64,7 @@ import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../.
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './traylist'
-import { readRemotes, remoteAliases } from './remotes'
+import { readRemotes, remoteAliases, REMOTE_WINDOW_REFUSAL } from './remotes'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import { isOrgtreeLinkArg, registerOrgtreeScheme } from './orgtree-link'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
@@ -1114,6 +1114,25 @@ else {
    *  ⚠ AND THE CALLER IS NEVER AN ARGUMENT. A window id passed from the
    *  renderer is chosen by the renderer, so trusting one would let an
    *  organization's bridge command another organization's window. */
+  // Organizations of remote engines (remotes.ts): alias -> connection id, kept current from the
+  // engine's connection list. A window bound to one carries X-Orgtree-Remote on its engine requests.
+  let remoteByAlias = new Map<string, string>()
+  /** ⚠ A WINDOW OF AN ORGANIZATION ON A REMOTE ENGINE GETS NOTHING OF THIS COMPUTER'S DISK.
+   *  Its agents' folders, the files their transcripts name and its providers' profiles are on
+   *  the remote engine's computer. A path the remote engine reports must never be opened,
+   *  revealed or even looked for here: the same path on this disk is a different file, and
+   *  "does it exist" would tell the remote engine about this computer. So every handler that
+   *  opens a folder, opens or reveals a file, checks a path or starts a provider sign-in asks
+   *  this first and answers with the refusal. The renderer keeps its controls from asking
+   *  (remotehere.ts); this is the authority. */
+  const remoteRefusal = (caller: MainWindowRecord): { ok: false; error: string; remote: true } | null => {
+    const org = windows.identity(caller.id)?.org
+    return org && remoteByAlias.has(org) ? { ok: false, error: REMOTE_WINDOW_REFUSAL, remote: true } : null
+  }
+  /** `handle` for a command that uses this computer's disk or sign-in windows: refused for a
+   *  window of an organization on a remote engine. */
+  const handleHere = (channel: string, handler: (caller: MainWindowRecord, ...args: unknown[]) => unknown) =>
+    handle(channel, (caller, ...args) => remoteRefusal(caller) ?? handler(caller, ...args))
   const handle = (channel: string, handler: (caller: MainWindowRecord, ...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
       const entry = resolveNativeSender(event, windows, engine.origin)
@@ -2249,19 +2268,19 @@ else {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
     })
-    handle('desktop:open-agent-scratch-folder', (caller, org, node, scope) => {
+    handleHere('desktop:open-agent-scratch-folder', (caller, org, node, scope) => {
       if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
         return { ok: false, error: 'Open this agent from its local organization window.' }
       }
       return openAgentScratchFolder(engine, org, node, directory => shell.openPath(directory), scope)
     })
-    handle('desktop:agent-scratch-agents-file-exists', (caller, org, node, scope) => {
+    handleHere('desktop:agent-scratch-agents-file-exists', (caller, org, node, scope) => {
       if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
         return { ok: false, error: 'Open this folder from its local organization window.' }
       }
       return agentScratchAgentsFileExists(engine, org, node, scope)
     })
-    handle('desktop:open-agent-scratch-agents-file', (caller, org, node, scope) => {
+    handleHere('desktop:open-agent-scratch-agents-file', (caller, org, node, scope) => {
       if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
         return { ok: false, error: 'Open this folder from its local organization window.' }
       }
@@ -2281,7 +2300,7 @@ else {
         }
       }, scope)
     })
-    handleApp('desktop:open-charter-folder', async () => {
+    handleHere('desktop:open-charter-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'charters')
       try {
         if (fs.existsSync(dir)) {
@@ -2307,7 +2326,7 @@ else {
         return { ok: false, error: `Could not open charter directory: ${message}` }
       }
     })
-    handleApp('desktop:open-templates-folder', async () => {
+    handleHere('desktop:open-templates-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'templates')
       try {
         if (fs.existsSync(dir)) {
@@ -2337,14 +2356,14 @@ else {
     // "Open" choice in the tool-row context menu is the user action that may
     // launch a file; it uses this separate authenticated route, never the
     // click-to-reveal route below.
-    handleApp('desktop:local-file-status', value => {
+    handleHere('desktop:local-file-status', (_caller, value) => {
       if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
       const target = path.normalize(value)
       if (!path.isAbsolute(target)) return { ok: false, error: `Not an absolute path: ${value}` }
       try { return { ok: true, exists: fs.statSync(target).isFile() } }
       catch { return { ok: true, exists: false } }
     })
-    handleApp('desktop:open-local-file', async value => {
+    handleHere('desktop:open-local-file', async (_caller, value) => {
       if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
       const target = path.normalize(value)
       if (!path.isAbsolute(target)) return { ok: false, error: `Not an absolute path: ${value}` }
@@ -2355,7 +2374,7 @@ else {
       return error ? { ok: false, error } : { ok: true }
     })
     // `showItemInFolder` selects the file in the OS file manager and launches nothing.
-    handleApp('desktop:reveal-file', value => {
+    handleHere('desktop:reveal-file', (_caller, value) => {
       if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
       const target = path.normalize(value)
       // absolute only: a relative path here has no meaningful base, and
@@ -2376,7 +2395,7 @@ else {
     // see providerlogin.ts's module docstring for why. `resolveNativeSender`
     // (via `handleApp` above) already keeps this off any surface but the app's
     // own authoritative renderer, same as every other native control here.
-    handleApp('desktop:provider-login-start', (provider, opts) => {
+    handleHere('desktop:provider-login-start', (_caller, provider, opts) => {
       // multi-account: the optional {profileDir, accountId} pair rides to
       // the login spawn; only these two string fields pass, nothing else
       const o = (opts && typeof opts === 'object') ? opts as Record<string, unknown> : {}
@@ -2659,9 +2678,8 @@ else {
         }
         return startupKind()
       })
-      // Organizations of remote engines (remotes.ts): alias -> connection id. A window bound to one carries
+      // A window bound to an organization of a remote engine (`remoteByAlias`, above) carries
       // X-Orgtree-Remote on its engine requests; a portal asks for the window it was opened from.
-      let remoteByAlias = new Map<string, string>()
       const register = configureEngineSession(browserSession, () => engine.origin, () => engine.token, window => {
         const entry = windows.bySender(window.webContents.id)
           ?? (window.getParentWindow() ? windows.bySender(window.getParentWindow()!.webContents.id) : undefined)

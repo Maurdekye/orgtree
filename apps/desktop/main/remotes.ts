@@ -13,6 +13,11 @@ import { TOKEN_HEADER } from './policy'
 
 type EngineEndpoint = { readonly origin: string; readonly token: string }
 
+/** What a native command that uses this computer's disk or sign-in windows answers to a window
+ *  of an organization on a remote engine. The window's own controls say more (the engine's
+ *  name, the path there); this is the backstop's sentence. */
+export const REMOTE_WINDOW_REFUSAL = 'This organization runs on a remote engine: its files, folders and sign-ins are on that engine’s computer, not on this one.'
+
 /** alias -> remote engine id, from the engine's connection list. Anything
  *  that is not that list gives an empty map. */
 export function remoteAliases(list: unknown): Map<string, string> {
