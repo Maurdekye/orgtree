@@ -81,6 +81,19 @@ fn has(args: &Value, k: &str) -> bool {
     args.get(k).is_some_and(|v| !v.is_null())
 }
 
+/// The usage config an edit leaves behind: the stored one with the given fields replaced, validated.
+/// STUB (red commit): the Fable-pip fields are not handled yet.
+#[nolog]
+fn merged_usage(existing: &Value, args: &Value) -> Result<Value> {
+    let mut merged = if existing.is_object() { existing.clone() } else { json!({}) };
+    for key in ["threshold_percent", "usage_events", "windows", "accounts"] {
+        if has(args, key) {
+            merged[key] = args[key].clone();
+        }
+    }
+    usage::validate(&merged)
+}
+
 /// scheme://host:port of a URL, lower case: "the same host" for credentials.
 #[nolog]
 fn host_key(target: &str) -> String {
@@ -384,16 +397,7 @@ pub(super) async fn plan(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
         net(engine, org_id, actor, dog, args, &scratch, &editor_name, new_target.as_deref(), pattern.as_deref(), &mut p, &mut target).await?;
     }
     if kind == "usage" && given.iter().any(|k| matches!(*k, "threshold_percent" | "usage_events" | "windows" | "accounts")) {
-        let mut merged = dog.memo["usage"].clone();
-        if !merged.is_object() {
-            merged = json!({});
-        }
-        for (field, key) in [("threshold_percent", "threshold_percent"), ("usage_events", "usage_events"), ("windows", "windows"), ("accounts", "accounts")] {
-            if has(args, field) {
-                merged[key] = args[field].clone();
-            }
-        }
-        let validated = usage::validate(&merged)?;
+        let validated = merged_usage(&dog.memo["usage"], args)?;
         let org = engine.orgs.by_id(org_id).map(|o| o.slug.clone()).unwrap_or_default();
         let rows = crate::tools::usage::watchdog_rows(engine, &org);
         if validated["accounts"].as_array().is_some_and(|ids| ids.iter().any(|id| !rows.iter().any(|r| r["account"] == *id))) {
@@ -651,4 +655,34 @@ pub(super) async fn apply(tx: &tokio_postgres::Transaction<'_>, dog: &Dog, org_i
         None => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pip_tests {
+    use super::*;
+    const SWITCH: &str = "remove this dog and create a new one to switch pip mode";
+    fn msg(r: Result<Value>) -> String { r.expect_err("must be refused").to_string() }
+
+    // spec usage-watchdog-fable-pip.md section 8, test 15 (the pure half: the merge and the mode-switch refusals;
+    // the re-seed itself is `usage::initial`, the call that follows a successful merge)
+    #[test]
+    fn configure_may_change_the_offset_inside_pip_mode() {
+        let pip = json!({"fable_pip_offset":-2,"usage_events":["pip_reached"]});
+        let merged = merged_usage(&pip, &json!({"fable_pip_offset":-1})).unwrap();
+        assert_eq!(merged["fable_pip_offset"], json!(-1));
+        assert_eq!(merged["usage_events"], json!(["pip_reached"]));
+        let merged = merged_usage(&pip, &json!({"usage_events":["pip_reached","pip_cleared"],"accounts":["claude-5"]})).unwrap();
+        assert_eq!((merged["fable_pip_offset"].clone(), merged["accounts"].clone()), (json!(-2), json!(["claude-5"])));
+    }
+    #[test]
+    fn configure_cannot_switch_a_dog_into_or_out_of_pip_mode() {
+        let pip = json!({"fable_pip_offset":-2,"usage_events":["pip_reached"]});
+        let plain = json!({"threshold_percent":98,"usage_events":["above"]});
+        assert_eq!(msg(merged_usage(&plain, &json!({"fable_pip_offset":1}))), SWITCH);
+        assert_eq!(msg(merged_usage(&pip, &json!({"fable_pip_offset":null}))), SWITCH);
+        assert_eq!(msg(merged_usage(&pip, &json!({"threshold_percent":98}))), SWITCH);
+        assert_eq!(msg(merged_usage(&pip, &json!({"windows":["weekly"]}))), SWITCH);
+        // control: the same plain dog still edits normally
+        assert_eq!(merged_usage(&plain, &json!({"threshold_percent":90})).unwrap()["threshold_percent"], json!(90));
+    }
 }

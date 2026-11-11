@@ -869,6 +869,8 @@ export interface Watchdog {
   windows?: string[]
   usage_events?: string[]
   threshold_percent?: number
+  /** a usage dog in Fable pip mode: points relative to the pip on the weekly (all models) bar */
+  fable_pip_offset?: number | null
   /** a `slot` claim (project slots): when it joined the line, its order */
   queued_at?: string
   /** a `fair_queue` listener: when its last job ended (acked or taken back),

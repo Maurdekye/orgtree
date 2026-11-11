@@ -41,6 +41,21 @@ test('usage watchdog displays exact filters, edge semantics and existing control
   assert.doesNotMatch(view.el.textContent ?? '', /checked every|next check/i)
 })
 
+test('a Fable pip dog describes its offset in plain words', async t => {
+  for (const [offset, phrase] of [[-2, /comes within 2 points of the Fable pip/], [0, /reaches the Fable pip/], [1, /is 1 point past the Fable pip/]] as const) {
+    const view = await panel({ kind: 'usage', target: 'usage', usage_events: ['pip_reached'], fable_pip_offset: offset, notice: true })
+    t.after(() => view.unmount())
+    const text = view.el.textContent ?? ''
+    assert.match(text, phrase)
+    assert.match(text, /all visible Claude accounts/)
+    assert.match(text, /The pip moves with Fable usage/)
+    assert.match(text, /unknown readings never count as zero/)
+  }
+  const named = await panel({ kind: 'usage', target: 'usage', accounts: ['claude-5'], usage_events: ['pip_reached'], fable_pip_offset: -2, notice: true })
+  t.after(() => named.unmount())
+  assert.match(named.el.textContent ?? '', /Watches claude-5 and /)
+})
+
 test('slot claim tracks its place from the current line and names its spent grant', async t => {
   const first: Watchdog = { ...base, id: 'first/slot', kind: 'slot', target: 'builds', once: true, queued_at: '2026-10-18T07:00:00Z' }
   const second: Watchdog = { ...first, id: 'worker/slot', queued_at: '2026-10-18T07:01:00Z' }

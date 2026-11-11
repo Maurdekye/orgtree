@@ -29,6 +29,10 @@ pub(super) fn validate(args:&Value)->Result<Value> {
     Ok(config)
 }
 
+/// A pip dog applies to Claude plan accounts only. STUB (red commit): nothing is refused yet.
+#[nolog]
+pub(super) fn pip_accounts_ok(_config:&Value,_rows:&[Value])->Result<()> {Ok(())}
+
 /// Called beside existing history storage. Raw provider documents are never
 /// invocation-logged or copied into an event; only the quota allowlist leaves.
 #[nolog]
@@ -152,5 +156,51 @@ mod tests {
         assert!(validate(&json!({"usage_events":["tick"]})).is_err());
         let v=json!({"accounts":["claude-5"],"windows":["weekly"],"usage_events":["above"],"threshold_percent":98});
         assert_eq!(validate(&v).unwrap(),v);
+    }
+
+    // ---- the Fable pip dog (spec usage-watchdog-fable-pip.md section 8, tests 13-14)
+    fn msg(r: Result<Value>) -> String { r.expect_err("must be refused").to_string() }
+
+    #[test]
+    fn pip_validate_refusals_and_defaults() {
+        assert_eq!(msg(validate(&json!({"fable_pip_offset":"2"}))), "fable_pip_offset must be a number from -50 through 50");
+        assert_eq!(msg(validate(&json!({"fable_pip_offset":-50.1}))), "fable_pip_offset must be a number from -50 through 50");
+        assert_eq!(msg(validate(&json!({"fable_pip_offset":50.5}))), "fable_pip_offset must be a number from -50 through 50");
+        assert_eq!(msg(validate(&json!({"fable_pip_offset":"NaN"}))), "fable_pip_offset must be a number from -50 through 50");
+        assert_eq!(msg(validate(&json!({"fable_pip_offset":-2,"threshold_percent":98}))), "fable_pip_offset replaces threshold_percent; use one");
+        assert_eq!(msg(validate(&json!({"fable_pip_offset":-2,"windows":["weekly"]}))), "a pip dog reads the weekly and Fable weekly windows itself; omit windows");
+        for ev in ["above", "below"] {
+            assert_eq!(msg(validate(&json!({"fable_pip_offset":-2,"usage_events":[ev]}))), "above/below need threshold_percent; a pip dog uses pip_reached/pip_cleared");
+        }
+        for ev in ["pip_reached", "pip_cleared"] {
+            assert_eq!(msg(validate(&json!({"usage_events":[ev]}))), "pip_reached/pip_cleared need fable_pip_offset");
+        }
+        // the default event is stored explicitly, so list shows it
+        let v = validate(&json!({"accounts":["claude-5"],"fable_pip_offset":-2})).unwrap();
+        assert_eq!(v["usage_events"], json!(["pip_reached"]));
+        assert_eq!(v["fable_pip_offset"], json!(-2));
+        // other events are allowed on a pip dog
+        let v = validate(&json!({"fable_pip_offset":0,"usage_events":["pip_reached","pip_cleared","stale","recovered"]})).unwrap();
+        assert_eq!(v["usage_events"], json!(["pip_reached","pip_cleared","stale","recovered"]));
+        for ok in [json!(-50), json!(0), json!(50), json!(-1.5)] {
+            assert!(validate(&json!({"fable_pip_offset":ok})).is_ok(), "{ok}");
+        }
+        // a plain dog is unchanged
+        assert!(validate(&json!({"threshold_percent":98})).unwrap().get("fable_pip_offset").is_none());
+    }
+
+    #[test]
+    fn pip_accounts_ok_checks_provider_and_plan() {
+        let rows = vec![
+            json!({"account":"claude-5","provider":"claude","quota":"supported"}),
+            json!({"account":"claude-6","provider":"claude","quota":"unsupported"}),
+            json!({"account":"openai-1","provider":"openai"}),
+        ];
+        let pip = |accounts: Value| { let mut c = json!({"fable_pip_offset":-2}); if !accounts.is_null() { c["accounts"] = accounts; } c };
+        assert_eq!(msg(pip_accounts_ok(&pip(json!(["openai-1"])), &rows).map(|_| json!(null))), "fable_pip_offset applies to Claude accounts only: openai-1 is openai");
+        assert_eq!(msg(pip_accounts_ok(&pip(json!(["claude-6"])), &rows).map(|_| json!(null))), "fable_pip_offset needs a Claude plan with weekly limits: claude-6 has none");
+        assert!(pip_accounts_ok(&pip(json!(["claude-5"])), &rows).is_ok());
+        assert!(pip_accounts_ok(&pip(Value::Null), &rows).is_ok(), "omitted accounts with mixed rows pass");
+        assert!(pip_accounts_ok(&json!({"threshold_percent":98,"accounts":["openai-1"]}), &rows).is_ok(), "a plain dog is not checked");
     }
 }

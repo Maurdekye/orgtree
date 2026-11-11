@@ -267,4 +267,141 @@ mod tests {
         assert!(evaluate(&mut s,&[no],&c,now()).is_empty());
         assert_eq!(names(&evaluate(&mut s,&[row(99.)],&c,now())),vec!["recovered","above"]);
     }
+
+    // ---- the Fable pip dog (spec usage-watchdog-fable-pip.md section 8, tests 3-12). Pip 76 means Fable 52%.
+    fn prow(weekly: f64, fable: f64) -> Value {
+        let resets = crate::util::iso(now() + chrono::Duration::days(3));
+        json!({"account":"claude-5","provider":"claude","available":true,"freshness":"fresh","observed_at":crate::util::iso(now()),
+            "windows":[
+                {"kind":"weekly_all","group":"all","model":null,"label":"weekly","used_percent":weekly,"resets_at":resets},
+                {"kind":"weekly_scoped","group":"fable","model":"Claude Fable 5.2","label":"weekly","used_percent":fable,"resets_at":resets}]})
+    }
+    fn pcfg(offset: f64) -> Value { json!({"fable_pip_offset":offset,"usage_events":["pip_reached"]}) }
+    fn pcfg_both(offset: f64) -> Value { json!({"fable_pip_offset":offset,"usage_events":["pip_reached","pip_cleared"]}) }
+    fn ev(s: &mut Value, row: Value, c: &Value) -> Vec<String> { names(&evaluate(s, &[row], c, now())).into_iter().map(String::from).collect() }
+    fn none() -> Vec<String> { vec![] }
+    fn reached() -> Vec<String> { vec!["pip_reached".into()] }
+
+    #[test]
+    fn pip_offset_minus_two_fires_on_the_crossing_and_rearms_silently() {
+        let (mut s, c) = (json!({}), pcfg(-2.0));
+        assert_eq!(ev(&mut s, prow(73., 52.), &c), none());
+        assert_eq!(ev(&mut s, prow(74., 52.), &c), reached());
+        assert_eq!(ev(&mut s, prow(75., 52.), &c), none(), "staying met never repeats");
+        assert_eq!(ev(&mut s, prow(73., 52.), &c), none(), "re-arming is silent by default");
+        assert_eq!(ev(&mut s, prow(74., 52.), &c), reached());
+    }
+    #[test]
+    fn pip_offset_zero_is_exact_equality() {
+        let (mut s, c) = (json!({}), pcfg(0.0));
+        assert_eq!(ev(&mut s, prow(75.9, 52.), &c), none());
+        assert_eq!(ev(&mut s, prow(76., 52.), &c), reached());
+    }
+    #[test]
+    fn pip_offset_plus_one_is_one_past() {
+        let (mut s, c) = (json!({}), pcfg(1.0));
+        assert_eq!(ev(&mut s, prow(76.9, 52.), &c), none());
+        assert_eq!(ev(&mut s, prow(77., 52.), &c), reached());
+    }
+    #[test]
+    fn pip_moving_with_fable_rearms_and_cleared_is_opt_in() {
+        for (c, expect_cleared) in [(pcfg(-2.0), false), (pcfg_both(-2.0), true)] {
+            let mut s = json!({});
+            assert_eq!(ev(&mut s, prow(75., 52.), &c), reached());
+            // Fable 56%: pip 78, target 76; weekly 75 is no longer met
+            let got = ev(&mut s, prow(75., 56.), &c);
+            assert_eq!(got, if expect_cleared { vec!["pip_cleared".to_string()] } else { none() });
+            assert_eq!(ev(&mut s, prow(76., 56.), &c), reached());
+        }
+    }
+    #[test]
+    fn pip_week_reset_rearms() {
+        let (mut s, c) = (json!({}), pcfg(-2.0));
+        assert_eq!(ev(&mut s, prow(75., 52.), &c), reached());
+        assert_eq!(ev(&mut s, prow(2., 0.), &c), none());
+        assert_eq!(ev(&mut s, prow(47., 0.), &c), none(), "target is 48");
+        assert_eq!(ev(&mut s, prow(48., 0.), &c), reached());
+    }
+    #[test]
+    fn pip_unknown_is_never_zero_and_keeps_the_state() {
+        let c = pcfg(-2.0);
+        let breakers: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
+            ("fable window missing", Box::new(|r| { r["windows"].as_array_mut().unwrap().remove(1); })),
+            ("fable null", Box::new(|r| r["windows"][1]["used_percent"] = Value::Null)),
+            ("row unavailable", Box::new(|r| r["available"] = json!(false))),
+            ("row stale", Box::new(|r| { r["freshness"] = json!("stale"); r["available"] = json!(false); })),
+            ("weekly expired", Box::new(|r| r["windows"][0]["resets_at"] = json!(crate::util::iso(now())))),
+        ];
+        for (what, brk) in &breakers {
+            // not met, then unknown, then met: exactly one pip_reached
+            let mut s = json!({});
+            assert_eq!(ev(&mut s, prow(73., 52.), &c), none());
+            let mut r = prow(75., 52.); brk(&mut r);
+            assert_eq!(ev(&mut s, r, &c), none(), "{what}: unknown fires nothing");
+            assert_eq!(ev(&mut s, prow(74., 52.), &c), reached(), "{what}: the next known met reading fires once");
+            // met, then unknown, then still met: no refire
+            let mut r = prow(75., 52.); brk(&mut r);
+            assert_eq!(ev(&mut s, r, &c), none(), "{what}");
+            assert_eq!(ev(&mut s, prow(75., 52.), &c), none(), "{what}: still met after an outage does not refire");
+        }
+    }
+    #[test]
+    fn pip_fable_at_one_hundred_has_no_pip_and_keeps_the_state() {
+        let (mut s, c) = (json!({}), pcfg(-2.0));
+        assert_eq!(ev(&mut s, prow(73., 52.), &c), none());
+        assert_eq!(ev(&mut s, prow(100., 100.), &c), none());
+        assert_eq!(ev(&mut s, prow(74., 52.), &c), reached(), "state kept: the earlier not-met still arms the crossing");
+    }
+    #[test]
+    fn pip_initial_levels() {
+        let c = pcfg(-2.0);
+        assert_eq!(names(&initial(&mut json!({}), &[prow(75., 52.)], &c, now())), vec!["pip_reached"]);
+        assert!(initial(&mut json!({}), &[prow(70., 52.)], &c, now()).is_empty());
+        assert_eq!(names(&initial(&mut json!({}), &[prow(70., 52.)], &pcfg_both(-2.0), now())), vec!["pip_cleared"]);
+        let mut unknown = prow(75., 52.); unknown["windows"].as_array_mut().unwrap().remove(1);
+        let mut s = json!({});
+        assert!(initial(&mut s, &[unknown], &c, now()).is_empty());
+        assert_eq!(ev(&mut s, prow(75., 52.), &c), reached(), "the first known met reading fires");
+    }
+    #[test]
+    fn pip_fire_payload_and_summary() {
+        let c = pcfg(-2.0);
+        let mut s = json!({});
+        evaluate(&mut s, &[prow(73., 52.)], &c, now());
+        let out = evaluate(&mut s, &[prow(75., 52.)], &c, now());
+        assert_eq!(out.len(), 1);
+        let e = &out[0];
+        assert_eq!(e["event"], "pip_reached");
+        assert_eq!((e["account"].as_str(), e["window"].as_str(), e["model"].is_null(), e["threshold_percent"].is_null()), (Some("claude-5"), Some("weekly_all"), true, true));
+        for (k, v) in [("old_percent", 73.), ("new_percent", 75.), ("weekly_percent", 75.), ("fable_percent", 52.), ("pip_percent", 76.), ("fable_pip_offset", -2.), ("target_percent", 74.)] {
+            assert_eq!(e[k].as_f64(), Some(v), "{k}");
+        }
+        assert!(e["resets_at"].is_string() && e["observed_at"].is_string());
+        assert_eq!(e["summary"], "claude-5 weekly 75% is 1 point before the Fable pip at 76% (Fable 52% used; fires at pip -2 = 74%)");
+        let sum = |offset: f64, weekly: f64| {
+            let mut s = json!({});
+            evaluate(&mut s, &[prow(1., 52.)], &pcfg(offset), now());
+            evaluate(&mut s, &[prow(weekly, 52.)], &pcfg(offset), now())[0]["summary"].as_str().unwrap().to_string()
+        };
+        assert_eq!(sum(-2.0, 74.), "claude-5 weekly 74% is 2 points before the Fable pip at 76% (Fable 52% used; fires at pip -2 = 74%)");
+        assert_eq!(sum(0.0, 76.), "claude-5 weekly 76% is at the Fable pip at 76% (Fable 52% used; fires at pip = 76%)");
+        assert_eq!(sum(1.0, 77.5), "claude-5 weekly 77.5% is 1.5 points past the Fable pip at 76% (Fable 52% used; fires at pip +1 = 77%)");
+        assert_eq!(sum(-1.5, 74.5), "claude-5 weekly 74.5% is 1.5 points before the Fable pip at 76% (Fable 52% used; fires at pip -1.5 = 74.5%)");
+        // the pip_cleared text
+        let mut s = json!({});
+        evaluate(&mut s, &[prow(75., 52.)], &pcfg_both(-2.0), now());
+        let out = evaluate(&mut s, &[prow(70., 52.)], &pcfg_both(-2.0), now());
+        assert_eq!(out[0]["event"], "pip_cleared");
+        assert_eq!(out[0]["summary"], "claude-5 weekly 70% is back below 74% (Fable pip at 76%, Fable 52% used)");
+    }
+    #[test]
+    fn pip_mode_ignores_non_claude_rows() {
+        let c = json!({"fable_pip_offset":-2.0,"usage_events":["pip_reached","account_added","account_removed"]});
+        let mut s = json!({});
+        evaluate(&mut s, &[], &c, now());
+        let mut other = row(97.); other["account"] = json!("openai-1"); other["provider"] = json!("openai");
+        assert!(evaluate(&mut s, &[other], &c, now()).is_empty(), "no account_added for a non-Claude row");
+        assert!(evaluate(&mut s, &[], &c, now()).is_empty(), "and no account_removed");
+        assert_eq!(names(&evaluate(&mut s, &[prow(75., 52.)], &c, now())), vec!["account_added", "pip_reached"]);
+    }
 }

@@ -1907,6 +1907,9 @@ mod builder_stack_tests {
         dschema["properties"]["windows"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"});
         dschema["properties"]["usage_events"] = serde_json::json!({"type":"array","items":{"type":"string","enum":["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen"]},"minItems":1,"maxItems":32,"description":"usage only: omitted = all levels/edges (above/below need threshold_percent)"});
         dschema["properties"]["threshold_percent"] = serde_json::json!({"type":"number","minimum":0,"maximum":100,"description":"usage only: percentage for above/below crossings; above means >=, below means <. Spend caps use the same percentage."});
+        // Fable pip dogs (docket usage-watchdog-fire-on-thresholds-relative-to-th)
+        dschema["properties"]["usage_events"]["items"]["enum"] = serde_json::json!(["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen","pip_reached","pip_cleared"]);
+        dschema["properties"]["fable_pip_offset"] = serde_json::json!({"type":"number","minimum":-50,"maximum":50,"description":"usage only: Claude Fable pip mode; fires when weekly usage >= pip + this many points (-2 = within 2, 0 = at, 1 = 1 past). Excludes threshold_percent/windows; default event pip_reached"});
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
             .replace("(fair_queue) project name", "(fair_queue, slot, project_listener, listener_watch) project name"));
         // mqtt watchdogs (user 2026-10-19 17:40:50Z; docket native-mqtt-watchdog-

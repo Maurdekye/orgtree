@@ -19,6 +19,10 @@ use crate::util::{gist, iso};
 
 pub mod query;
 pub mod muse_cache;
+pub mod fable_pip;
+
+#[cfg(test)]
+mod fable_pip_tests;
 
 #[cfg(test)]
 mod claude_wait_tests;
