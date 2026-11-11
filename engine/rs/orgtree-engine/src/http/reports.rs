@@ -36,6 +36,8 @@ pub async fn notifications(State(e): State<Arc<Engine>>, Query(q): Query<PageQue
     for o in orgs {
         all.extend(crate::domain::notices::for_org(&client, o.id, &o.slug).await?);
     }
+    // then what waits in the organizations of remote engines (remote/link.rs)
+    all.extend(e.remotes.notices());
     let total = all.len();
     let active: Vec<Value> = all.iter().map(|n| json!({ "org": n["org"], "id": n["id"] })).collect();
     let page: Vec<Value> = all.into_iter().skip(q.offset).take(NOTICE_PAGE).collect();

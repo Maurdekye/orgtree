@@ -159,6 +159,19 @@ Remote organizations are rows of this engine's app feed and of `GET /api/orgs`: 
 is connected they carry the remote's summary and working count; otherwise the last summary and no
 activity. They are not local organizations: no handle, no database row, never in `local-orgs.json`.
 
+What waits on the user in a remote organization (questions, urgent mail and the rest) is among this
+computer's notices: the link mirrors the remote's `org_notices` frames, and the app feed sends them
+under the organization's local id with `org` set to the alias and the title led by
+"<organization> · <connection name>: " (cut to the 200 characters the desktop accepts). So a desktop
+notification names its remote engine and a click opens the remote organization's window.
+`GET /api/desktop/notifications` lists them after the local ones. While the link is not connected
+this engine cannot say what waits there, so it sends `notices: null` for the organization, which a
+window reads as "not known" and not as "nothing waits": notifications already shown stay, and none
+is shown twice after a reconnect. `GET /api/desktop/status` counts this computer's agents only; it
+decides when this engine may restart, which a remote engine's work never holds up. The tray list
+(`apps/desktop/main/traylist.ts`) shows a remote row's connection name after its own and no counts
+while its link is not connected.
+
 ## The app feed of a remote window
 
 The app socket and `GET /api/app/records` of a window that carries `X-Orgtree-Remote` are composed
@@ -246,6 +259,6 @@ waits allow for it.
 
 ## Not yet
 
-Notifications for remote organizations, creating an organization on a remote engine, watch-only
+Creating an organization on a remote engine, watch-only
 windows with a viewer token, and the machine-dependent controls of a remote window (open folder,
 reveal file, provider sign-in).

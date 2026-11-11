@@ -33,8 +33,13 @@ pub struct Mirror {
     /// remote org id -> (org uuid, summary body)
     summaries: HashMap<i64, (String, Value)>,
     working: HashMap<i64, i64>,
+    /// remote org id -> (org uuid, its notices)
+    notices: HashMap<i64, (String, Vec<Value>)>,
     pub values: HashMap<String, Value>,
 }
+
+/// The longest notice title the desktop accepts (apps/desktop/main/notifications.ts).
+const NOTICE_TITLE_MAX: usize = 200;
 
 /// What a frame changed.
 #[derive(Default, Debug, PartialEq)]
@@ -63,6 +68,12 @@ impl Mirror {
                         self.summary(summary);
                     }
                 }
+                self.notices.clear();
+                if let Some(notices) = frame["notices"].as_object() {
+                    for notices in notices.values() {
+                        self.notice(notices);
+                    }
+                }
                 self.working.clear();
                 self.values.clear();
                 self.runtime(&frame["runtime"]);
@@ -71,6 +82,7 @@ impl Mirror {
             }
             "registry_snapshot" => changed.registry |= self.registry_frame(frame),
             "org_summary" => changed.rows |= self.summary(frame),
+            "org_notices" => changed.rows |= self.notice(frame),
             "app_runtime" => {
                 let (rows, values) = self.runtime(frame);
                 changed.rows |= rows;
@@ -103,6 +115,40 @@ impl Mirror {
         }
         self.summaries.insert(id, next);
         true
+    }
+
+    /// One organization's notices; `null` takes them back.
+    #[nolog]
+    fn notice(&mut self, frame: &Value) -> bool {
+        let Some(id) = frame["org_id"].as_i64() else { return false };
+        let Some(list) = frame["notices"].as_array() else { return self.notices.remove(&id).is_some() };
+        let next = (frame["org_uuid"].as_str().unwrap_or_default().to_string(), list.clone());
+        if self.notices.get(&id) == Some(&next) {
+            return false;
+        }
+        self.notices.insert(id, next);
+        true
+    }
+
+    /// What waits on the user in the organization the remote calls `slug`,
+    /// as this computer's notices: under `alias`, each title saying where.
+    /// `None` when the remote has not said.
+    #[nolog]
+    fn notices_for(&self, slug: &str, uuid: &str, alias: &str, place: &str) -> Option<Vec<Value>> {
+        let id = self.registry.iter().find(|b| b["slug"].as_str() == Some(slug))?["org_id"].as_i64()?;
+        let (_, list) = self.notices.get(&id).filter(|(u, _)| u == uuid)?;
+        Some(
+            list.iter()
+                .filter(|notice| notice.is_object() && notice["id"].is_string())
+                .map(|notice| {
+                    let mut notice = notice.clone();
+                    notice["org"] = json!(alias);
+                    let title = format!("{place}: {}", notice["title"].as_str().unwrap_or_default());
+                    notice["title"] = json!(title.chars().take(NOTICE_TITLE_MAX).collect::<String>());
+                    notice
+                })
+                .collect(),
+        )
     }
 
     #[nolog]
@@ -191,7 +237,10 @@ pub fn rows(remote: &Remote, mirror: Option<&Mirror>) -> Vec<Row> {
                 "attempts": 0, "report_path": null,
                 "remote": { "id": saved.id, "name": saved.name, "tag": saved.tag, "slug": org.remote_slug, "state": phase.as_str() },
             });
-            Row { local_id: org.local_id, org_uuid: org.org_uuid.clone(), registry, summary, working: live.map(|(_, _, n)| n).unwrap_or(0) }
+            // "<organization> (middle dot) <remote engine>", so two organizations of one name are told apart
+            let place = format!("{} \u{b7} {}", summary["name"].as_str().unwrap_or(&org.name), saved.name);
+            let notices = mirror.and_then(|m| m.notices_for(&org.remote_slug, &org.org_uuid, &org.alias, &place));
+            Row { local_id: org.local_id, org_uuid: org.org_uuid.clone(), registry, summary, working: live.map(|(_, _, n)| n).unwrap_or(0), notices }
         })
         .collect();
     out.sort_by(|a, b| a.registry["slug"].as_str().cmp(&b.registry["slug"].as_str()));

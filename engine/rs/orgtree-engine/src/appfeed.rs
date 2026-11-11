@@ -485,6 +485,18 @@ impl Actor {
                 self.summaries.insert(id, Entry { seq, frame: frame.clone() });
                 self.broadcast(&frame);
             }
+            // what waits there: the frame a local organization's notices use; `null` when this
+            // engine cannot say (the link is not connected), which leaves the question open
+            if was.map(|o| (&o.notices, &o.org_uuid)) != Some((&row.notices, &row.org_uuid)) && (row.notices.is_some() || self.notices.contains_key(&id)) {
+                let seq = self.next();
+                let frame = json!({ "type": "org_notices", "epoch": self.epoch, "seq": seq, "org_id": id, "org_uuid": row.org_uuid,
+                                    "incarnation": self.epoch, "rev": seq, "notices": &row.notices });
+                match &row.notices {
+                    Some(_) => self.notices.insert(id, Entry { seq, frame: frame.clone() }),
+                    None => self.notices.remove(&id),
+                };
+                self.broadcast(&frame);
+            }
             if self.working.get(&id).map(|(_, n)| *n) != Some(row.working) {
                 let seq = self.next();
                 self.working.insert(id, (seq, row.working));

@@ -195,6 +195,10 @@ pub struct Row {
     pub registry: Value,
     pub summary: Value,
     pub working: i64,
+    /// What waits on the user there, as this computer's notices (`org` is the
+    /// alias, the title says where). `None` while the link is not connected
+    /// or the remote has not said: unknown, which is not "nothing waits".
+    pub notices: Option<Vec<Value>>,
 }
 
 /// One remote engine. It lives as long as its connection is saved; what the
@@ -827,6 +831,14 @@ impl Remotes {
             tracing::warn!(error = %refusal.text, "a remote engine's connection record could not be saved");
             remote.saved.store(before);
         }
+    }
+
+    /// What waits on the user in every remote organization this engine can
+    /// vouch for right now, for `GET /api/desktop/notifications`. Not logged:
+    /// a notice carries a preview of private text.
+    #[nolog]
+    pub fn notices(&self) -> Vec<Value> {
+        self.dir.load().remotes.iter().flat_map(|remote| remote.rows().iter().flat_map(|row| row.notices.clone().unwrap_or_default()).collect::<Vec<_>>()).collect()
     }
 
     /// The organizations of every remote engine as `GET /api/orgs` lists them.
