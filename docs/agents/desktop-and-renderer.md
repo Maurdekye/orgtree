@@ -72,6 +72,8 @@ this meter, and is unchanged.
 [decided: user 2026-11-10 ma76204ba37d2, m9c19aae87fb3; verified:
 `canvas/{fablepip.ts,accounts.tsx}`, `tests/fablepip.test.tsx`; 2026-11-10]
 
+Unreachable end (2026-11-11): once weekly is past the pip (w > p), Fable can reach at most c = f + 2(1 - w), so the Fable `weekly_scoped` bar gets a `--bad` span (`.usage-unreachable`, over the empty track; the fill is unchanged) from max(f, c) to 100%; at w >= 100% that starts at f. Same visibility rules as the pip, none at w = p. Its native title reads "Fable can reach at most 92% this week: the weekly limit comes first" (whole percent; no number when unknown). [decided: user 2026-11-11 m49c4c03b6da4 and 11:05:21Z tooltip; verified: `tests/fablepip.test.tsx` section 7]
+
 ## UX symmetry (2026-10-29)
 
 USER 2026-10-29 12:50:22Z mb6da9f3ee862, verbatim: "in my eyes, the perfect ux for a piece of software is highly symmetrical, like a high-order group. it contains lots of symmetries: lots of throughlines, common ui elements, common ui patterns, common icon and link types, common panel structures, common ways of presenting information, choices, etc. the more symmetries a program contains, the closer to "perfect" it is. a completely perfect ux would be something akin to a perfect crystal: perfectly symmetrical along every conceivable axis of interaction. when i design software, i aim to optimize for this maximal crystalline symmetry in the ux. orgtree follows this design principle."
