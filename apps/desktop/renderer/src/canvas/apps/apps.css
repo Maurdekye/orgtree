@@ -107,6 +107,7 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-global-error { position:fixed;left:15%;right:15%;bottom:16px;z-index:2600;background:var(--panel);color:var(--danger,#e88);padding:12px;border:1px solid var(--line);border-radius:6px }
 .custom-app-permission-backdrop { position:fixed;inset:0;z-index:5000;background:#0009;display:grid;place-items:center;padding:12px;box-sizing:border-box }
 .custom-app-permission>div:last-child { display:flex;flex-direction:column;gap:14px }
+.custom-app-permission>div.custom-app-dialog-actions:last-child { flex-direction:row;gap:5px }
 .custom-app-permission h2,.custom-app-permission p { margin:0 }
 .custom-app-permission h2 { font-size:17px }
 .custom-app-permission pre { margin:0;padding:10px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;flex-shrink:0;user-select:text }
