@@ -43,6 +43,8 @@ pub struct Changed {
     pub registry: bool,
     /// A summary or a working count.
     pub rows: bool,
+    /// One of the remote's engine-wide values.
+    pub values: bool,
 }
 
 #[logged]
@@ -65,10 +67,15 @@ impl Mirror {
                 self.values.clear();
                 self.runtime(&frame["runtime"]);
                 changed.rows = true;
+                changed.values = true;
             }
             "registry_snapshot" => changed.registry |= self.registry_frame(frame),
             "org_summary" => changed.rows |= self.summary(frame),
-            "app_runtime" => changed.rows |= self.runtime(frame),
+            "app_runtime" => {
+                let (rows, values) = self.runtime(frame);
+                changed.rows |= rows;
+                changed.values |= values;
+            }
             _ => {}
         }
         changed
@@ -99,11 +106,16 @@ impl Mirror {
     }
 
     #[nolog]
-    fn runtime(&mut self, frame: &Value) -> bool {
+    fn runtime(&mut self, frame: &Value) -> (bool, bool) {
         let mut changed = false;
+        let mut pushed = false;
         if let Some(values) = frame["values"].as_object() {
             for (key, entry) in values {
-                self.values.insert(key.clone(), entry["value"].clone());
+                let value = entry["value"].clone();
+                if self.values.get(key) != Some(&value) {
+                    self.values.insert(key.clone(), value);
+                    pushed = true;
+                }
             }
         }
         if let Some(orgs) = frame["orgs"].as_object() {
@@ -115,7 +127,7 @@ impl Mirror {
                 }
             }
         }
-        changed
+        (changed, pushed)
     }
 
     /// The organizations the remote lists, with what their summaries say.
@@ -351,6 +363,7 @@ async fn connect(engine: &Arc<Engine>, remote: &Arc<Remote>, timing: &Timing) ->
     .filter(|frame| frame["type"] == "app_snapshot")
     .ok_or_else(offline)?;
     mirror.apply(&first);
+    engine.app.remote_values(&remote.id, mirror.values.clone());
     engine.remotes.connected(remote, &version).await;
     engine.remotes.seen_orgs(engine, remote, &mirror.seen(), true).await;
     if remote.stop.is_cancelled() {
@@ -399,6 +412,9 @@ async fn session(engine: &Arc<Engine>, remote: &Arc<Remote>, timing: &Timing, so
                         }
                         if changed.registry || changed.rows {
                             push_rows(engine, remote, Some(mirror));
+                        }
+                        if changed.values {
+                            engine.app.remote_values(&remote.id, mirror.values.clone());
                         }
                         if changed.registry {
                             engine.remotes.publish(engine);
@@ -452,7 +468,7 @@ mod tests {
     fn the_mirror_follows_the_remote_app_feed() {
         let mut mirror = Mirror::default();
         let changed = mirror.apply(&snapshot());
-        assert!(changed.registry && changed.rows);
+        assert!(changed.registry && changed.rows && changed.values);
         let seen = mirror.seen();
         assert_eq!(seen.iter().map(|o| (o.remote_slug.as_str(), o.name.as_str())).collect::<Vec<_>>(), [("acme", "Acme"), ("beta", "beta")],
             "an organization with no summary yet goes by its slug");
@@ -461,14 +477,17 @@ mod tests {
         // the same registry again is no change; a summary and a working count are row changes
         assert_eq!(mirror.apply(&snapshot()["registry"]), Changed::default());
         let summary = json!({ "type": "org_summary", "org_id": 2, "org_uuid": "u-beta", "body": { "name": "Beta", "nodes": 1 } });
-        assert_eq!(mirror.apply(&summary), Changed { registry: false, rows: true });
+        assert_eq!(mirror.apply(&summary), Changed { rows: true, ..Changed::default() });
         assert_eq!(mirror.apply(&summary), Changed::default());
         let working = json!({ "type": "app_runtime", "orgs": { "2": { "working": 1 } } });
-        assert_eq!(mirror.apply(&working), Changed { registry: false, rows: true });
+        assert_eq!(mirror.apply(&working), Changed { rows: true, ..Changed::default() });
+        let value = json!({ "type": "app_runtime", "values": { "accounts": { "value": [] } } });
+        assert_eq!(mirror.apply(&value), Changed { values: true, ..Changed::default() });
+        assert_eq!(mirror.apply(&value), Changed::default());
         assert_eq!(mirror.apply(&working), Changed::default());
         // an organization deleted on the remote leaves the registry
         let gone = json!({ "type": "registry_snapshot", "records": [{ "entity": "registry_org", "id": "2", "body": { "org_id": 2, "slug": "beta", "org_uuid": "u-beta", "state": "active" } }] });
-        assert_eq!(mirror.apply(&gone), Changed { registry: true, rows: false });
+        assert_eq!(mirror.apply(&gone), Changed { registry: true, ..Changed::default() });
         assert_eq!(mirror.seen().len(), 1);
         // a summary stamped for another incarnation of the slug is not this organization's
         assert!(mirror.live("beta", "another-uuid").unwrap().1.is_none());

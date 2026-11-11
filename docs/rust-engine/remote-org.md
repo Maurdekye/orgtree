@@ -159,6 +159,18 @@ Remote organizations are rows of this engine's app feed and of `GET /api/orgs`: 
 is connected they carry the remote's summary and working count; otherwise the last summary and no
 activity. They are not local organizations: no handle, no database row, never in `local-orgs.json`.
 
+## The app feed of a remote window
+
+The app socket and `GET /api/app/records` of a window that carries `X-Orgtree-Remote` are composed
+(`appfeed.rs`). The registry, summaries, notices and working counts are this computer's merged list,
+as in every window. The pushed values are the remote engine's own (accounts, providers, usage,
+language model servers and the rest), mirrored by the link and stamped with this engine's epoch and
+sequence; none of this computer's values is sent, except `remotes`. One more value, `remote_link`,
+is the window's own connection: the same record as its entry in `remotes`. A change of a value on
+this computer goes to local windows only, and a change on the remote engine to its windows only.
+While the link is not connected the window keeps the last values it had, like the list rows; a value
+the remote engine no longer has is sent as `null`. A removed connection's values are dropped.
+
 ## Tests
 
 `cargo test --bin orgtree-engine remote::` (no database, loopback only): the address rule, the sealed
@@ -234,7 +246,6 @@ waits allow for it.
 
 ## Not yet
 
-The composed app feed (a remote window still reads this computer's accounts and providers from the
-feed), notifications for remote organizations, creating an organization on a remote engine, watch-only
+Notifications for remote organizations, creating an organization on a remote engine, watch-only
 windows with a viewer token, and the machine-dependent controls of a remote window (open folder,
 reveal file, provider sign-in).

@@ -34,8 +34,9 @@ enum Msg {
     Org(i64),
     Value(String, Value),
     Working(i64, i64),
-    Snapshot(oneshot::Sender<Value>),
-    Open(SocketId, Out),
+    /// For a local window, or for a window of the named remote engine.
+    Snapshot(oneshot::Sender<Value>, Option<String>),
+    Open(SocketId, Out, Option<String>),
     Close(SocketId),
     RegistryRead(Vec<Value>),
     OrgRead(i64, Option<(Value, Value, Value)>),
@@ -43,6 +44,8 @@ enum Msg {
     /// One remote engine's organizations as they stand now (remote/link.rs);
     /// an empty list when the connection was removed.
     Remote(String, Vec<crate::remote::Row>),
+    /// One remote engine's own pushed values as they stand now.
+    RemoteValues(String, HashMap<String, Value>),
 }
 
 #[logged]
@@ -77,11 +80,25 @@ impl AppFeed {
         tracing::info!(remote = remote_id, rows = rows.len(), "remote organizations pushed");
         let _ = self.tx.send((Msg::Remote(remote_id.to_string(), rows), crate::trace::current_rq()));
     }
+    /// The engine-wide values of the remote engine `remote_id` (its accounts,
+    /// providers, usage...), for the windows of its organizations. Not
+    /// logged: see `set_value`; the count is.
+    #[nolog]
+    pub fn remote_values(&self, remote_id: &str, values: HashMap<String, Value>) {
+        tracing::info!(remote = remote_id, values = values.len(), "remote values pushed");
+        let _ = self.tx.send((Msg::RemoteValues(remote_id.to_string(), values), crate::trace::current_rq()));
+    }
     /// Not logged: the snapshot carries every pushed value (see `set_value`).
     #[nolog]
     pub async fn snapshot(&self) -> Option<Value> {
+        self.snapshot_for(None).await
+    }
+    /// The snapshot a window gets: a local window's (`None`), or the composed
+    /// one of a window of the remote engine `remote` (docs/rust-engine/remote-org.md).
+    #[nolog]
+    pub async fn snapshot_for(&self, remote: Option<String>) -> Option<Value> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send((Msg::Snapshot(tx), crate::trace::current_rq())).ok()?;
+        self.tx.send((Msg::Snapshot(tx, remote), crate::trace::current_rq())).ok()?;
         let got = rx.await.ok();
         tracing::info!(answered = got.is_some(), "app snapshot read");
         got
@@ -106,6 +123,7 @@ pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
         dirty_orgs: HashSet::new(),
         reading: HashSet::new(),
         remote_rows: std::collections::BTreeMap::new(),
+        remote_values: HashMap::new(),
         flush_scheduled: false,
         local_orgs: None,
         tx: engine.app.tx.clone(),
@@ -135,12 +153,16 @@ struct Actor {
     notices: HashMap<i64, Entry>,
     values: HashMap<String, (u64, Value)>,
     working: HashMap<i64, (u64, i64)>,
-    sockets: HashMap<SocketId, Out>,
+    /// Each window's socket, and the remote engine it is a window of, if any.
+    sockets: HashMap<SocketId, (Out, Option<String>)>,
     dirty_orgs: HashSet<i64>,
     reading: HashSet<i64>,
     /// remote engine id -> its organizations in the list. They are not local
     /// orgs: no handle, no database row, never in local-orgs.json.
     remote_rows: std::collections::BTreeMap<String, Vec<crate::remote::Row>>,
+    /// remote engine id -> its own pushed values (key -> (seq, value)), kept
+    /// while it is offline: its windows show the last known state.
+    remote_values: HashMap<String, HashMap<String, (u64, Value)>>,
     flush_scheduled: bool,
     /// The listing last written to local-orgs.json (local_orgs.rs).
     local_orgs: Option<Value>,
@@ -173,13 +195,47 @@ impl Actor {
     /// its type, sequence and the window count are logged.
     #[nolog]
     fn broadcast(&mut self, frame: &Value) {
+        self.send(frame, |_| true);
+    }
+
+    /// Send a frame to the windows `to` picks by the remote engine they are
+    /// a window of (`None` = a local window). Not logged: see `broadcast`.
+    #[nolog]
+    fn send(&mut self, frame: &Value, to: impl Fn(Option<&str>) -> bool) {
         let text: Arc<str> = Arc::from(frame.to_string());
-        self.sockets.retain(|_, out| !out.is_closed());
-        tracing::info!(kind = frame["type"].as_str().unwrap_or(""), seq = frame["seq"].as_u64(), windows = self.sockets.len(),
-                       "app frame broadcast");
-        for out in self.sockets.values() {
-            let _ = out.try_send(text.clone());
+        self.sockets.retain(|_, (out, _)| !out.is_closed());
+        let mut windows = 0;
+        for (out, remote) in self.sockets.values() {
+            if to(remote.as_deref()) {
+                windows += 1;
+                let _ = out.try_send(text.clone());
+            }
         }
+        tracing::info!(kind = frame["type"].as_str().unwrap_or(""), seq = frame["seq"].as_u64(), windows, "app frame broadcast");
+    }
+
+    /// One pushed value as its frame.
+    #[nolog]
+    fn value_frame(&self, key: &str, seq: u64, value: &Value) -> Value {
+        json!({ "type": "app_runtime", "epoch": self.epoch, "seq": seq,
+                "values": { key: { "epoch": self.epoch, "seq": seq, "value": value } } })
+    }
+
+    /// The values a window of the remote engine `remote` gets: that engine's
+    /// own, this computer's list of connections, and `remote_link`, its own
+    /// connection. Nothing else of this computer's.
+    #[nolog]
+    fn composed_values(&self, remote: &str) -> Map<String, Value> {
+        let entry = |seq: &u64, value: &Value| json!({ "epoch": self.epoch, "seq": seq, "value": value });
+        let mut values: Map<String, Value> =
+            self.remote_values.get(remote).into_iter().flatten().map(|(k, (s, v))| (k.clone(), entry(s, v))).collect();
+        if let Some((seq, list)) = self.values.get(REMOTES_VALUE) {
+            values.insert(REMOTES_VALUE.into(), entry(seq, list));
+            if let Some(link) = link_of(list, remote) {
+                values.insert(LINK_VALUE.into(), entry(seq, link));
+            }
+        }
+        values
     }
 
     fn registry_frame(&self) -> Value {
@@ -195,18 +251,17 @@ impl Actor {
 
     /// Not logged: it carries every pushed value; counts are logged.
     #[nolog]
-    fn snapshot(&mut self) -> Value {
-        tracing::info!(values = self.values.len(), orgs = self.summaries.len(), "app snapshot built");
+    fn snapshot(&mut self, remote: Option<&str>) -> Value {
+        tracing::info!(values = self.values.len(), orgs = self.summaries.len(), remote = remote.is_some(), "app snapshot built");
         let seq = self.next();
         let summaries: Map<String, Value> =
             self.summaries.iter().map(|(id, e)| (id.to_string(), e.frame.clone())).collect();
         let notices: Map<String, Value> =
             self.notices.iter().map(|(id, e)| (id.to_string(), e.frame.clone())).collect();
-        let values: Map<String, Value> = self
-            .values
-            .iter()
-            .map(|(k, (s, v))| (k.clone(), json!({ "epoch": self.epoch, "seq": s, "value": v })))
-            .collect();
+        let values: Map<String, Value> = match remote {
+            Some(remote) => self.composed_values(remote),
+            None => self.values.iter().map(|(k, (s, v))| (k.clone(), json!({ "epoch": self.epoch, "seq": s, "value": v }))).collect(),
+        };
         let orgs: Map<String, Value> = self
             .working
             .iter()
@@ -325,10 +380,46 @@ impl Actor {
                     return;
                 }
                 let seq = self.next();
-                self.values.insert(key.clone(), (seq, value.clone()));
-                let frame = json!({ "type": "app_runtime", "epoch": self.epoch, "seq": seq,
-                                    "values": { key: { "epoch": self.epoch, "seq": seq, "value": value } } });
+                let before = self.values.insert(key.clone(), (seq, value.clone())).map(|(_, v)| v);
+                let frame = self.value_frame(&key, seq, &value);
+                if key != REMOTES_VALUE {
+                    // this computer's value: a remote engine's windows have that engine's
+                    self.send(&frame, |remote| remote.is_none());
+                    return;
+                }
+                // the connections: every window's, and each remote window is told of its own;
+                // a removed connection's values go with it
+                self.remote_values.retain(|remote, _| link_of(&value, remote).is_some());
                 self.broadcast(&frame);
+                let windows: HashSet<String> = self.sockets.values().filter_map(|(_, remote)| remote.clone()).collect();
+                for remote in windows {
+                    let link = link_of(&value, &remote).cloned().unwrap_or(Value::Null);
+                    if before.as_ref().and_then(|list| link_of(list, &remote)).unwrap_or(&Value::Null) != &link {
+                        let frame = self.value_frame(LINK_VALUE, seq, &link);
+                        self.send(&frame, |to| to == Some(remote.as_str()));
+                    }
+                }
+            }
+            Msg::RemoteValues(remote, mut values) => {
+                // its own connections to other engines are not its windows' here
+                values.remove(REMOTES_VALUE);
+                values.remove(LINK_VALUE);
+                let known = self.remote_values.entry(remote.clone()).or_default();
+                // a value the remote engine no longer has reads as null, like one never pushed
+                let mut changed: Vec<(String, Value)> =
+                    known.keys().filter(|k| !values.contains_key(*k)).map(|k| (k.clone(), Value::Null)).collect();
+                changed.extend(values.into_iter().filter(|(k, v)| known.get(k).map(|(_, was)| was) != Some(v)));
+                for (key, value) in changed {
+                    let seq = self.next();
+                    let known = self.remote_values.entry(remote.clone()).or_default();
+                    if value.is_null() {
+                        known.remove(&key);
+                    } else {
+                        known.insert(key.clone(), (seq, value.clone()));
+                    }
+                    let frame = self.value_frame(&key, seq, &value);
+                    self.send(&frame, |to| to == Some(remote.as_str()));
+                }
             }
             Msg::Working(org, n) => {
                 if self.working.get(&org).map(|(_, v)| *v == n).unwrap_or(false) {
@@ -340,14 +431,14 @@ impl Actor {
                                     "orgs": { org.to_string(): { "epoch": self.epoch, "seq": seq, "working": n } } });
                 self.broadcast(&frame);
             }
-            Msg::Snapshot(reply) => {
-                let s = self.snapshot();
+            Msg::Snapshot(reply, remote) => {
+                let s = self.snapshot(remote.as_deref());
                 let _ = reply.send(s);
             }
-            Msg::Open(id, out) => {
-                let s = self.snapshot();
+            Msg::Open(id, out, remote) => {
+                let s = self.snapshot(remote.as_deref());
                 let _ = out.try_send(Arc::from(s.to_string()));
-                self.sockets.insert(id, out);
+                self.sockets.insert(id, (out, remote));
             }
             Msg::Close(id) => {
                 self.sockets.remove(&id);
@@ -355,6 +446,17 @@ impl Actor {
             Msg::Remote(remote, rows) => self.remote(remote, rows),
         }
     }
+}
+
+/// The pushed value that lists this computer's connections to remote engines.
+const REMOTES_VALUE: &str = "remotes";
+/// The value a remote engine's window gets beside it: its own connection.
+const LINK_VALUE: &str = "remote_link";
+
+/// The connection `remote` in the list of connections.
+#[nolog]
+fn link_of<'a>(list: &'a Value, remote: &str) -> Option<&'a Value> {
+    list.as_array()?.iter().find(|view| view["id"].as_str() == Some(remote))
 }
 
 impl Actor {
@@ -473,8 +575,10 @@ async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value,
 }
 
 #[logged]
-pub async fn app_ws(State(engine): State<Arc<Engine>>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| run_socket(engine, socket))
+pub async fn app_ws(State(engine): State<Arc<Engine>>, headers: axum::http::HeaderMap, ws: WebSocketUpgrade) -> Response {
+    // a window of a remote engine gets the composed feed (the guard refused an unknown connection)
+    let remote = crate::remote::relay::window(&engine, &headers).map(|remote| remote.id.clone());
+    ws.on_upgrade(move |socket| run_socket(engine, socket, remote))
 }
 
 /// How many windows hold the app feed open right now. The usage loop reads it:
@@ -487,11 +591,11 @@ pub fn windows_open() -> usize {
 }
 
 #[logged]
-async fn run_socket(engine: Arc<Engine>, socket: WebSocket) {
+async fn run_socket(engine: Arc<Engine>, socket: WebSocket, remote: Option<String>) {
     WINDOWS.fetch_add(1, Ordering::Relaxed);
     let id = next_socket_id();
     let (out, mut rx) = mpsc::channel::<Arc<str>>(2048);
-    let _ = engine.app.tx.send((Msg::Open(id, out), crate::trace::current_rq()));
+    let _ = engine.app.tx.send((Msg::Open(id, out, remote), crate::trace::current_rq()));
     let (mut sink, mut stream) = socket.split();
     let shutdown = engine.shutdown.clone();
     loop {
