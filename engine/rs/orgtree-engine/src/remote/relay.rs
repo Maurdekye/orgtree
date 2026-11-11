@@ -26,7 +26,7 @@ use serde_json::json;
 use tokio::sync::OwnedSemaphorePermit;
 
 use super::routes::{self, Class};
-use super::{text, Phase, Remote, HEADER};
+use super::{text, Remote, HEADER};
 use crate::engine::Engine;
 
 /// Where a request belongs.
@@ -127,12 +127,8 @@ fn refuse(status: StatusCode, detail: String, remote: &Remote) -> Response {
 /// nothing dialed, nothing sent.
 #[nolog]
 pub fn not_connected(remote: &Remote) -> Response {
-    let name = remote.name();
-    let detail = match remote.phase() {
-        Phase::AuthFailed => text::e10(&name),
-        Phase::Paused | Phase::Refused => text::e11(&name),
-        _ => text::e9(&name),
-    };
+    // a link that dropped this instant may still read "connected" for a moment
+    let detail = remote.refusal().unwrap_or_else(|| text::e9(&remote.name()));
     refuse(StatusCode::SERVICE_UNAVAILABLE, detail, remote)
 }
 

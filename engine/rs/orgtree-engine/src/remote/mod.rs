@@ -266,6 +266,20 @@ impl Remote {
     pub fn phase(&self) -> Phase {
         self.state.borrow().phase
     }
+    /// What a change is answered with while this engine is not connected,
+    /// `None` while it is. One sentence for the relay's answer and for the
+    /// connection's view, so a window can refuse a send in the same words
+    /// before anything leaves its composer.
+    #[nolog]
+    pub fn refusal(&self) -> Option<String> {
+        let name = self.name();
+        match self.phase() {
+            Phase::Connected => None,
+            Phase::AuthFailed => Some(text::e10(&name)),
+            Phase::Paused | Phase::Refused => Some(text::e11(&name)),
+            Phase::Connecting | Phase::Offline => Some(text::e9(&name)),
+        }
+    }
     #[nolog]
     pub fn watch(&self) -> watch::Receiver<LinkState> {
         self.state.subscribe()
@@ -350,6 +364,7 @@ impl Remote {
             "transport": state.transport.map(Transport::as_str),
             "client_name": saved.client_name, "own_token": saved.client_id.is_some(),
             "last_error": state.error, "error_code": state.code,
+            "refusal": self.refusal(),
             "last_connected_at": saved.last_connected_at,
             "orgs": saved.orgs.iter().map(|o| json!({ "alias": o.alias, "remote_slug": o.remote_slug, "name": o.name,
                 "local_id": o.local_id, "gone": o.gone_at.is_some() })).collect::<Vec<_>>(),
