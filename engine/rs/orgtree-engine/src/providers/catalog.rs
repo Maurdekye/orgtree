@@ -187,7 +187,7 @@ pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     match effort {
         "low" | "high" => effort,
         "none" | "minimal" => "low",
-        "medium" if matches!(tier, "flash" | "argon") || antigravity_claude(tier) => effort,
+        "medium" if matches!(tier, "flash" | "argon" | "carbon") || antigravity_claude(tier) => effort,
         _ => "high",
     }
 }
