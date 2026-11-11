@@ -627,6 +627,70 @@ async fn t12_remote_organizations_are_in_the_list_marked_and_stay_while_offline(
     assert!(near.engine.remotes.list_rows().is_empty());
 }
 
+// ------------------------------------------------------------------ T13
+
+fn pushed<'a>(frame: &'a Value, key: &str) -> Option<&'a Value> {
+    let entry = frame["type"].as_str().filter(|t| *t == "app_runtime").and(frame["values"].get(key))?;
+    Some(&entry["value"])
+}
+
+#[tokio::test]
+async fn t13_a_remote_window_gets_the_remote_engines_values_and_this_computers_list() {
+    let root = Root::new();
+    let near = Near::start(&root).await;
+    let mut far = Far::start().await;
+    let (id, minted) = connected(&near, &far).await;
+    near.engine.app.set_value("accounts", json!([{ "id": "near-account" }]));
+    near.engine.app.set_value("providers", json!([{ "id": "near-provider" }]));
+    let mut local = near.socket("/api/app/ws", None).await.unwrap();
+    let mut window = near.socket("/api/app/ws", Some(&id)).await.unwrap();
+    let text = next_text(&mut window).await.unwrap();
+    assert!(!text.contains(&minted) && !text.contains(BOOTSTRAP), "a token is in a remote window's app feed");
+    let composed: Value = serde_json::from_str(&text).unwrap();
+    let values = &composed["runtime"]["values"];
+    // the remote engine's values, none of this computer's
+    assert_eq!(values["accounts"]["value"], json!([{ "id": "far-account" }]));
+    assert!(values.get("providers").is_none(), "this computer's providers are in a remote window's feed: {values}");
+    // this computer's list of organizations and of connections, and this window's connection
+    let has = |frame: &Value, slug: &str| frame["registry"]["records"].as_array().is_some_and(|r| r.iter().any(|r| r["body"]["slug"] == slug));
+    assert!(has(&composed, "beta"));
+    assert_eq!(values["remotes"]["value"][0]["id"], id);
+    assert_eq!((values["remote_link"]["value"]["id"].as_str(), values["remote_link"]["value"]["state"].as_str()), (Some(id.as_str()), Some("connected")));
+    assert!(values["remote_link"]["seq"].is_u64() && values["accounts"]["epoch"] == composed["epoch"], "an entry is stamped by this engine: {values}");
+    // a local window is as before
+    let plain: Value = serde_json::from_str(&next_text(&mut local).await.unwrap()).unwrap();
+    assert_eq!(plain["runtime"]["values"]["accounts"]["value"], json!([{ "id": "near-account" }]));
+    assert!(plain["runtime"]["values"].get("remote_link").is_none());
+    assert!(has(&plain, "beta"));
+    // the snapshot route answers the same way
+    let (status, _, body) = near.call("GET", "/api/app/records", Some(&id), None).await;
+    assert_eq!((status, &body["runtime"]["values"]["accounts"]["value"], body["runtime"]["values"]["remote_link"]["value"]["state"].as_str()),
+        (200, &json!([{ "id": "far-account" }]), Some("connected")));
+    let (_, _, body) = near.call("GET", "/api/app/records", None, None).await;
+    assert_eq!(body["runtime"]["values"]["accounts"]["value"], json!([{ "id": "near-account" }]));
+    // a value changes here, then there: each window hears its own engine's
+    near.engine.app.set_value("providers", json!([{ "id": "near-provider-2" }]));
+    far.state.push_app(json!({ "type": "app_runtime", "values": { "accounts": { "value": [{ "id": "far-account-2" }] } } }));
+    let heard = frame_where(&mut window, "the remote window hears a value", |f| {
+        assert!(pushed(f, "providers").is_none(), "a remote window heard this computer's providers");
+        pushed(f, "accounts").is_some()
+    }).await;
+    assert_eq!(pushed(&heard, "accounts"), Some(&json!([{ "id": "far-account-2" }])));
+    let heard = frame_where(&mut local, "the local window hears a value", |f| {
+        assert!(pushed(f, "accounts").is_none(), "a local window heard the remote engine's accounts");
+        pushed(f, "providers").is_some()
+    }).await;
+    assert_eq!(pushed(&heard, "providers"), Some(&json!([{ "id": "near-provider-2" }])));
+    // offline: the window is told, and keeps the last values it had
+    far.stop().await;
+    frame_where(&mut window, "the remote window hears that its engine is offline", |f| pushed(f, "remote_link").is_some_and(|v| v["state"] == "offline")).await;
+    let (_, _, body) = near.call("GET", "/api/app/records", Some(&id), None).await;
+    assert_eq!((&body["runtime"]["values"]["accounts"]["value"], body["runtime"]["values"]["remote_link"]["value"]["state"].as_str()),
+        (&json!([{ "id": "far-account-2" }]), Some("offline")));
+    // an unknown connection has no feed
+    assert_eq!(near.socket("/api/app/ws", Some("no-such-connection")).await.err(), Some(400));
+}
+
 // ------------------------------------------------------------------ T14
 
 #[tokio::test]
