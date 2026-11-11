@@ -2,7 +2,7 @@
 // it, in a light charcoal grey.
 //
 // User 2026-10-10: "prepare a model selection for it if it appears; same as the
-// other two" — a copy of Barium, hidden until listed. User 2026-10-28
+// other two" — a copy of Krypton, hidden until listed. User 2026-10-28
 // (m09d1c2c45be4): "i want its model color to be a light charcoal grey" — it
 // began as chartreuse #c6ff00 and is now #6d7e8c (§4b measures it).
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
@@ -61,7 +61,7 @@ const hasClass = (el: Element, c: string) => el.className.split(/\s+/).includes(
 test('§1 carbon is a conditional Antigravity tier; flash and pro are not', (t: TestContext) => {
   fresh(t)
   assert.ok(ANTIGRAVITY_TIERS.includes('carbon'))
-  assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.equal(TIER_LETTER.carbon, 'C')
   assert.equal(ANTIGRAVITY_TIER_SEAT.carbon, 2, 'placeholder seat copies pro')
   // no payload evidence: hidden
@@ -377,11 +377,11 @@ test('§4b Carbon is legible on the surfaces it is drawn on, and its card edge s
   }
 })
 
-test('Argon, Barium and Carbon offers are independent', (t: TestContext) => {
+test('Argon, Krypton and Carbon offers are independent', (t: TestContext) => {
   fresh(t)
-  for (const offered of [[], ['carbon'], ['argon', 'carbon'], ['barium', 'carbon'], ['argon', 'barium']]) {
+  for (const offered of [[], ['carbon'], ['argon', 'carbon'], ['krypton', 'carbon'], ['argon', 'krypton']]) {
     const h = { ...ON, offeredTiers: ['flash', 'pro', ...offered] }
-    for (const tier of ['argon', 'barium', 'carbon']) {
+    for (const tier of ['argon', 'krypton', 'carbon']) {
       assert.equal(antigravityTierOffer(h, tier), offered.includes(tier) ? 'offer' : 'hide')
     }
   }

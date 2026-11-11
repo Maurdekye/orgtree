@@ -75,10 +75,10 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "argon", provider: GOOGLE, seat: 2.0, model: "gemini-4-argon",
         versions: &[("4", "gemini-4-argon")], letter: "A",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    Tier { tier: "barium", provider: GOOGLE, seat: 2.0, model: "gemini-4-barium",
-        versions: &[("4", "gemini-4-barium")], letter: "B",
+    Tier { tier: "krypton", provider: GOOGLE, seat: 2.0, model: "gemini-4-krypton",
+        versions: &[("4", "gemini-4-krypton")], letter: "K",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    // speculative Gemini 4 Carbon (user 2026-10-10): a copy of Barium, offered
+    // speculative Gemini 4 Carbon (user 2026-10-10): a copy of Krypton, offered
     // only while the account's `agy models` lists it
     Tier { tier: "carbon", provider: GOOGLE, seat: 2.0, model: "gemini-4-carbon",
         versions: &[("4", "gemini-4-carbon")], letter: "C",
@@ -270,7 +270,7 @@ fn display_family(t: &Tier) -> Option<&'static str> {
         (GOOGLE, "flash") => "Gemini Flash",
         (GOOGLE, "pro") => "Gemini Pro",
         (GOOGLE, "argon") => "Gemini Argon",
-        (GOOGLE, "barium") => "Gemini Barium",
+        (GOOGLE, "krypton") => "Gemini Krypton",
         (GOOGLE, "carbon") => "Gemini Carbon",
         (MUSE, "wonder") => "Muse Wonder",
         (MUSE, "wonder-full") => "Muse Wonder Full",
@@ -477,12 +477,21 @@ mod effort_tests {
     fn argon_effort_picker_offers_medium_without_widening_other_tiers() {
         let state = crate::providers::State::default();
         assert_eq!(crate::providers::effort_names(&state, "argon"), Some(v(&["low", "medium", "high"])));
-        for tier in ["pro", "barium", "carbon"] {
+        for tier in ["pro", "krypton", "carbon"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "high"])), "{tier}");
         }
         for tier in ["flash", "agy-sonnet", "agy-opus"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "medium", "high"])), "{tier}");
         }
+    }
+
+    /// Barium was replaced by Krypton (user 2026-11-11): a stale stored "barium" is an unknown tier
+    /// (no alias), so `seat_of` refuses it with "unknown tier" and it is never offered.
+    #[test]
+    fn a_stale_barium_is_an_unknown_tier_and_krypton_takes_its_place() {
+        assert!(tier("barium").is_none());
+        let k = tier("krypton").expect("krypton");
+        assert!(k.conditional && k.provider == GOOGLE && k.seat == 2.0 && k.letter == "K" && k.model == "gemini-4-krypton");
     }
 
     #[test]
@@ -544,7 +553,7 @@ mod effort_tests {
         assert_eq!(listed().len(), TIERS.len());
         assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
-        assert_eq!(names(GOOGLE), ["agy-opus", "pro", "argon", "barium", "carbon", "agy-sonnet", "flash"]);
+        assert_eq!(names(GOOGLE), ["agy-opus", "pro", "argon", "krypton", "carbon", "agy-sonnet", "flash"]);
         assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
         // what a person sees: legacy and not-yet-listed models are hidden
         let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {

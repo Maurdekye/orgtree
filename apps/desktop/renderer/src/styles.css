@@ -1073,7 +1073,7 @@ button.badge.audience-fold.alert {
 .chip.agents b.t-flash { color: var(--tier-flash); }
 .chip.agents b.t-pro { color: var(--tier-pro); }
 .chip.agents b.t-argon { color: var(--tier-argon); }
-.chip.agents b.t-barium { color: var(--tier-barium); }
+.chip.agents b.t-krypton { color: var(--tier-krypton); }
 .chip.agents b.t-carbon { color: var(--tier-carbon); }
 /* credit requests (inbox panel): old → new (+Δ), reason, one-click verdict */
 .credreq {
@@ -1329,7 +1329,7 @@ button.badge.audience-fold.alert {
 .sq.tier-flash { --tier-accent: var(--tier-flash); border-top-color: color-mix(in srgb, var(--tier-flash) 55%, var(--line)); }
 .sq.tier-pro { --tier-accent: var(--tier-pro); border-top-color: color-mix(in srgb, var(--tier-pro) 55%, var(--line)); }
 .sq.tier-argon { --tier-accent: var(--tier-argon); border-top-color: color-mix(in srgb, var(--tier-argon) 55%, var(--line)); }
-.sq.tier-barium { --tier-accent: var(--tier-barium); border-top-color: color-mix(in srgb, var(--tier-barium) 55%, var(--line)); }
+.sq.tier-krypton { --tier-accent: var(--tier-krypton); border-top-color: color-mix(in srgb, var(--tier-krypton) 55%, var(--line)); }
 .sq.tier-carbon { --tier-accent: var(--tier-carbon); border-top-color: color-mix(in srgb, var(--tier-carbon) 55%, var(--line)); }
 .sq.mini.tier-luna { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-gpt-6-luna { --mini-tier: var(--tier-luna); }
@@ -1341,7 +1341,7 @@ button.badge.audience-fold.alert {
 .sq.mini.tier-flash { --mini-tier: var(--tier-flash); }
 .sq.mini.tier-pro { --mini-tier: var(--tier-pro); }
 .sq.mini.tier-argon { --mini-tier: var(--tier-argon); }
-.sq.mini.tier-barium { --mini-tier: var(--tier-barium); }
+.sq.mini.tier-krypton { --mini-tier: var(--tier-krypton); }
 .sq.mini.tier-carbon { --mini-tier: var(--tier-carbon); }
 /* At map zoom the old provider signal collapsed to a sub-pixel busy border,
    so provider could only be inferred from the tier token. Give the mini card
@@ -1438,7 +1438,7 @@ button.badge.audience-fold.alert {
 .sq.prov-google.desk.tier-flash { border-top-color: var(--tier-flash); }
 .sq.prov-google.desk.tier-pro { border-top-color: var(--tier-pro); }
 .sq.prov-google.desk.tier-argon { border-top-color: var(--tier-argon); }
-.sq.prov-google.desk.tier-barium { border-top-color: var(--tier-barium); }
+.sq.prov-google.desk.tier-krypton { border-top-color: var(--tier-krypton); }
 .sq.prov-google.desk.tier-carbon { border-top-color: var(--tier-carbon); }
 /* the OpenRouter family's card dressing (2026-09-02) — same inherited-chrome
    contract; the per-tier top-edge reassertion is GENERATED per favorite
@@ -2700,9 +2700,13 @@ button.cc-name:focus-visible {
      fill --input, both above pro's own. The A letter stays the redundant
      glyph (astra's A is told apart by family row and colour). */
   --tier-argon: #ff2bd6;
-  /* Barium green, user 2026-10-05; conditional like Argon. */
-  --tier-barium: #8FFF9F;
-  /* carbon (speculative Gemini 4 Carbon, conditional like Argon and Barium):
+  /* Krypton (replaced Barium, user 2026-11-11 "make it an appropriate color for krypton"): krypton's pale
+     whitish-lavender discharge glow. MEASURED (CIE76 dE, D65; scripts kept in the hand-in): nearest tier colour
+     is luna at 16.0, then opus 17.5, wonder-full 21.6, astra 22.1 (all above this file's ~15 floor); the
+     light themes' panel contrast is 1.6-1.7 and the dark ones 8-11, so the K letter stays the redundant glyph
+     on light surfaces like flash and astra. Conditional like Argon. */
+  --tier-krypton: #cdc8fb;
+  /* carbon (speculative Gemini 4 Carbon, conditional like Argon and Krypton):
      LIGHT CHARCOAL GREY, to the user's spec (2026-10-28 m09d1c2c45be4: "i want
      its model color to be a light charcoal grey"). It was electric chartreuse
      #c6ff00 (2026-10-10, colour left to the implementer) because grey is the
@@ -2789,7 +2793,7 @@ button.cc-name:focus-visible {
 .tier.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .tier.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .tier.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
-.tier.t-barium { color: var(--tier-barium); border-color: color-mix(in srgb, var(--tier-barium) 45%, var(--line)); }
+.tier.t-krypton { color: var(--tier-krypton); border-color: color-mix(in srgb, var(--tier-krypton) 45%, var(--line)); }
 .tier.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 /* lifecycle fills: archived fades (existing); knowledge bearers wash grey.
 
@@ -4428,7 +4432,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .hsof button.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .hsof button.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
-.hsof button.t-barium { color: var(--tier-barium); border-color: color-mix(in srgb, var(--tier-barium) 45%, var(--line)); }
+.hsof button.t-krypton { color: var(--tier-krypton); border-color: color-mix(in srgb, var(--tier-krypton) 45%, var(--line)); }
 .hsof button.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 .hsof button.codex-preview:disabled, .hs-tier.codex-preview:disabled { opacity: .45; border-style: dashed; }
 /* an opt-in LEGACY tier (Gemini Pro), shown only with "show legacy models" on */

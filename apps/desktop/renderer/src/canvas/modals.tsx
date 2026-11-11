@@ -1749,7 +1749,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     fam.filter((t) => tierShown(presence, t, node.tier)
       && !(CODEX_TIERS.includes(t) && codexTierOffer(codexHire, t) === 'hide'
         && t !== node.tier)
-      // Gemini Pro (legacy toggle) and Argon/Barium (only once agy lists it), same
+      // Gemini Pro (legacy toggle) and Argon/Krypton (only once agy lists it), same
       // keep rule: a node already on the tier still sees its own value
       && !(ANTIGRAVITY_TIERS.includes(t)
         && antigravityTierOffer(antigravityHire, t) === 'hide' && t !== node.tier)

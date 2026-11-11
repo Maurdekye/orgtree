@@ -910,7 +910,7 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 300
 - Models are LISTED most expensive (highest seat) first within each provider, every provider (Claude fable,
   opus, sonnet, haiku; Muse wonder-full, wonder, spark). Antigravity is grouped by model
   family in the renderer: Claude-backed Antigravity (agy-opus/agy-sonnet), then Gemini
-  (pro/argon/barium/carbon/flash); seats sort within each group and ties keep catalog
+  (pro/argon/krypton/carbon/flash); seats sort within each group and ties keep catalog
   order. The engine's `catalog::listed()` remains seat-sorted; the renderer uses
   `bySeatDesc` / `*_TIERS_LISTED` except for the shared Antigravity grouping helper in
   `shared.ts` (hire sheet, Settings, and canvas hire tokens). Hire-token strips keep their
@@ -1524,7 +1524,7 @@ Original section: Read this first. Source lines 4175–4179.
 
 <a id="e-f9bfc5ac5f086eb7"></a>
 
-## Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Barium
+## Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Krypton
 
 **4.5.0, after a sign-in to another account (2026-10-27):** every agy of the
 user shares one Windows credential, and a running agy keeps the login it started
@@ -1580,13 +1580,13 @@ an unlisted conditional tier still returns the catalog-absence reason (409).
 Original section: Providers, accounts and usage. Source lines 4812–4837.
 
 <!-- preserved:e-f9bfc5ac5f086eb7 -->
-- **Conditional Gemini tiers:** Argon (`gemini-4-argon`) and speculative Barium
-  (`gemini-4-barium`, green `#8FFF9F`) are offered only when the account's `agy models`
+- **Conditional Gemini tiers:** Argon (`gemini-4-argon`) and speculative Krypton
+  (`gemini-4-krypton`, pale lavender `#cdc8fb`) are offered only when the account's `agy models`
   registry lists the exact base id or its supported effort suffix. Each is gated
-  independently; existing agents retain their tier. Barium copies Argon's placeholder
+  independently; existing agents retain their tier. Krypton copies Argon's placeholder
   seat, effort and usage rates. [decided: user 2026-10-05; verified:
-  `providers.py`, `canvas/shared.ts`, `tests/test_barium_tier.py`]
-  Speculative Carbon (`gemini-4-carbon`, letter C, chartreuse `#c6ff00`) copies Barium the
+  `providers.py`, `canvas/shared.ts`, `tests/test_krypton_tier.py`]
+  Speculative Carbon (`gemini-4-carbon`, letter C, chartreuse `#c6ff00`) copies Krypton the
   same way in the 4.x code: hidden until `agy models` lists it, then offered like the
   other two. [decided: user 2026-10-10; verified: `providers/catalog.rs`,
   `providers/mod.rs` `agy_offers` test, `tests/carbon.test.tsx`]

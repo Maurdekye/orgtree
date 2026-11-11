@@ -73,9 +73,9 @@ test('off, absent, unknown and signed-in missing catalogs retain their existing 
 })
 
 test('signed-out preview inventory preserves Antigravity model switches and legacy hiding',()=>{
-  const hire=hireOf({...providers[2]!,preview_tiers:['flash','argon','barium','carbon']})
+  const hire=hireOf({...providers[2]!,preview_tiers:['flash','argon','krypton','carbon']})
   assert.equal(antigravityTierOffer(hire,'argon'),'disable')
-  assert.equal(antigravityTierOffer(hire,'barium'),'disable')
+  assert.equal(antigravityTierOffer(hire,'krypton'),'disable')
   assert.equal(antigravityTierOffer(hire,'carbon'),'disable')
   assert.equal(antigravityTierOffer(hire,'agy-opus'),'hide')
   assert.equal(antigravityTierOffer(hire,'pro'),'hide')

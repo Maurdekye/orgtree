@@ -628,7 +628,7 @@ async fn muse_op(engine: &Engine, org: &OrgHandle, req: &Value) -> bool {
         .await.ok().flatten().is_some_and(|r| catalog::is_muse(&r.get::<_, String>(0)))
 }
 
-/// A conditional Antigravity tier (Argon, Barium, Carbon) is placed only
+/// A conditional Antigravity tier (Argon, Krypton, Carbon) is placed only
 /// while the account's `agy models` lists it (3.x `provider_hire_gate`):
 /// a hire, a model switch, or a rehire NAMING the tier. A plain rehire on the
 /// stored tier is the recovery door and is not gated (3.x D-197), and seats

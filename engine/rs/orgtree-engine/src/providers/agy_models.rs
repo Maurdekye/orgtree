@@ -1,5 +1,5 @@
 //! The Antigravity account's model registry, as `agy models` prints it: the
-//! evidence the conditional Gemini tiers (Argon, Barium, Carbon) are offered
+//! evidence the conditional Gemini tiers (Argon, Krypton, Carbon) are offered
 //! on. 3.x read it on every connect probe (`providers._antigravity_account`);
 //! the 4.x port kept the state field but never filled it, so no conditional
 //! tier was ever offered (docket gemini-4-argon-is-selectable-in-agy-but-orgtree-d).

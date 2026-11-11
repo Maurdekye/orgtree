@@ -1,4 +1,4 @@
-// Proof: the conditional Gemini tiers (Argon, Barium, Carbon) follow the
+// Proof: the conditional Gemini tiers (Argon, Krypton, Carbon) follow the
 // account's `agy models` registry, read when it matters and never polled
 // (docket gemini-4-argon-is-selectable-in-agy-but-orgtree-d; user 2026-10-14).
 //   - the fake agy prints the registry from fakecli/agy-models.txt (absent:
@@ -7,7 +7,7 @@
 //     further read happens (no periodic reads)
 //   - opening a model choice (the renderer's POST
 //     /api/providers/agy-models/refresh) re-reads it: Argon appears with no
-//     restart, Barium and Carbon stay hidden (each judged on its own id)
+//     restart, Krypton and Carbon stay hidden (each judged on its own id)
 //   - debounce: a refresh under 30 s after a read reuses it (no new run)
 //   - exact id: `gemini-4-argonite`, `gemini-4-argon-preview` and a label are
 //     no evidence; signed out (no rows) withdraws Argon
@@ -30,7 +30,7 @@ const MEASURED = [
   'gemini-3.8-flash-high\tGemini 3.8 Flash (High)', 'gemini-3.8-flash-low\tGemini 3.8 Flash (Low)',
   'gemini-3.1-pro-high\tGemini 3.1 Pro (High)', 'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
 ]
-const CONDITIONAL = ['argon', 'barium', 'carbon']
+const CONDITIONAL = ['argon', 'krypton', 'carbon']
 const REUSE_MS = 30_000
 const NOT_LISTED = /not in the model list the Antigravity CLI returns/
 const refusal = (pr) => pr.then(() => null, (e) => ({ status: e.status ?? -1, message: String(e.message ?? e) }))
@@ -87,8 +87,8 @@ export default async function (rig) {
   }
   p.check('opening a model choice after the reuse window runs one fresh read', (await openFresh()) === 1)
   p.check('Argon is offered once agy lists it, with no restart', (await offered()).includes('argon'), await offered())
-  p.check('Barium and Carbon stay hidden: each tier is judged on its own id',
-    !(await offered()).includes('barium') && !(await offered()).includes('carbon'), await offered())
+  p.check('Krypton and Carbon stay hidden: each tier is judged on its own id',
+    !(await offered()).includes('krypton') && !(await offered()).includes('carbon'), await offered())
   p.check('staffing offers Argon too', (await staffed()).includes('argon'), await staffed())
   const row = ((await google())?.tiers ?? []).find((t) => t.tier === 'argon')
   p.check('the Argon row is the catalog row (gemini-4-argon, letter A, seat 2)', row?.model === 'gemini-4-argon' && row?.letter === 'A' && row?.seat === 2, row)

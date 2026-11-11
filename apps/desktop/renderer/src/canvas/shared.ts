@@ -60,7 +60,7 @@ export const TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
-  flash: 'F', pro: 'P', argon: 'A', barium: 'B', carbon: 'C',
+  flash: 'F', pro: 'P', argon: 'A', krypton: 'K', carbon: 'C',
   'agy-sonnet': 'S', 'agy-opus': 'O',
   wonder: 'W', 'wonder-full': 'F', spark: 'S',
   // a project node's sentinel tier (docs/rust-engine/PROJECT-NODES.md): not a
@@ -132,16 +132,16 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
  *  codex family. Seats by the standing rule: flash $1.50 standing → 1 (the
  *  $0.75 launch price is a promo), pro $2 → 2 (the >200K long-context
  *  surcharge never sets a seat). */
-export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus']
+export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus']
 export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
-  { flash: 'F', pro: 'P', argon: 'A', barium: 'B', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
-/** Argon, Barium and Carbon seats are PLACEHOLDERS copied from pro (coordinator
- *  ruling 2026-10-01; Barium mirrors Argon, user 2026-10-05; Carbon mirrors
- *  Barium, user 2026-10-10). Mirrors catalog.rs. */
+  { flash: 'F', pro: 'P', argon: 'A', krypton: 'K', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
+/** Argon, Krypton and Carbon seats are PLACEHOLDERS copied from pro (coordinator
+ *  ruling 2026-10-01; Krypton mirrors Argon, user 2026-10-05; Carbon mirrors
+ *  Krypton, user 2026-10-10). Mirrors catalog.rs. */
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
-  { flash: 1, pro: 2, argon: 2, barium: 2, carbon: 2, 'agy-sonnet': 2, 'agy-opus': 4 }
+  { flash: 1, pro: 2, argon: 2, krypton: 2, carbon: 2, 'agy-sonnet': 2, 'agy-opus': 4 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
- *  2026-10-01), Barium (`gemini-4-barium`, user 2026-10-05) and the
+ *  2026-10-01), Krypton (`gemini-4-krypton`, user 2026-10-05) and the
  *  speculative Carbon (`gemini-4-carbon`, user 2026-10-10). Known to the
  *  axis (a node wearing one keeps its letter,
  *  colour and seat) but offered by NO chooser until the backend's providers
@@ -149,7 +149,7 @@ export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
  *  the account's live `agy models` list contains that id. Mirrors
  *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
 // The Claude tiers depend on the Runtime opt-in. They have no version picker.
-export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus']
+export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus']
 /** The Muse Code family (2026-10-12) — Muse Wonder, Muse Wonder Full and
  *  Muse Spark (1.3, with 1.2 in the version menu). EVERY ONE IS CONDITIONAL:
  *  offered only while the providers payload's Muse tier rows list it, which
@@ -785,7 +785,7 @@ export const codexTierOffer = (
 }
 
 /** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
- *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon and Barium)
+ *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon and Krypton)
  *  hides until the payload's tier rows include it — no evidence, no offer.
  *  Everything else follows the family verdict. */
 export const antigravityTierOffer = (
@@ -839,7 +839,7 @@ export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 
   reason: hire?.reason ?? 'hiring is not enabled yet',
 }))).filter(choice => choice.offer !== 'hide')
 
-/* ---------------- conditional tiers the payload currently offers (Argon and Barium)
+/* ---------------- conditional tiers the payload currently offers (Argon and Krypton)
    For surfaces that have no HireState of their own (the bearer rehire list).
    OrgCanvas feeds it from the same providers poll the hire strips read, so
    both answer from one payload. Subscribable, so a list re-renders the

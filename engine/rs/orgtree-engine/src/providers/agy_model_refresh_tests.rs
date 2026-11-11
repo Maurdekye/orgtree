@@ -215,7 +215,7 @@ async fn late_old_catalog_preserves_a_new_principals_confirmed_catalog() {
     let engine = engine();
     let old = catalog(&engine, vec!["gemini-4-argon-high".into()]);
     identity(&engine, 2, Some("b@example.invalid"));
-    let ids = vec!["gemini-4-barium-high".to_string()];
+    let ids = vec!["gemini-4-krypton-high".to_string()];
     apply_agy_model_read(&engine, Ok(catalog(&engine, ids.clone())));
     apply_agy_model_read(&engine, Ok(old));
     assert_eq!(engine.providers.state.load().agy_models, ids);

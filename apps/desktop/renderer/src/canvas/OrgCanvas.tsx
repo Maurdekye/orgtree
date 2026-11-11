@@ -749,7 +749,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     (v) => v.id === 'langserver') ?? null
   useEffect(() => { setLangServerTiers(langserverProvider?.tiers) },
     [langserverProvider])
-  // the conditional Antigravity tiers (Argon and Barium) the same poll says agy lists —
+  // the conditional Antigravity tiers (Argon and Krypton) the same poll says agy lists —
   // for the surfaces that carry no HireState of their own
   useEffect(() => { setOfferedConditionalTiers(antigravityProvider?.tiers) },
     [antigravityProvider])
@@ -5586,7 +5586,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
 }) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
-  // opening the sheet re-reads agy's model list (Argon, Barium, Carbon)
+  // opening the sheet re-reads agy's model list (Argon, Krypton, Carbon)
   useAgyModelsRefresh()
   const museHireAdopted = useMuseHire()
   const museHire = museHireProp ?? museHireAdopted

@@ -184,6 +184,6 @@ async fn argon_own_weekly_bucket_limits_argon_only() {
     assert!(at_limit(&engine, None, "flash").is_none(), "Argon's bucket is not the Gemini pool");
     assert!(antigravity_limit(&engine, "flash").is_none());
     assert!(has_room(&engine, None, "flash"));
-    assert!(at_limit(&engine, None, "barium").is_none(), "nor another conditional tier's bucket");
+    assert!(at_limit(&engine, None, "krypton").is_none(), "nor another conditional tier's bucket");
     assert!(at_limit(&engine, None, "agy-opus").is_none(), "nor the third-party pool");
 }

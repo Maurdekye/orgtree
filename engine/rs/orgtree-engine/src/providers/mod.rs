@@ -1291,7 +1291,7 @@ fn muse_detail(found: Option<&MuseDiscovery>, error: Option<&str>) -> Value {
 }
 
 /// Whether an Antigravity tier is offered: always, unless it is CONDITIONAL
-/// (Argon, Barium, Carbon), which is offered only while the account's
+/// (Argon, Krypton, Carbon), which is offered only while the account's
 /// `agy models` lists its exact model id, bare or with an effort suffix.
 #[nolog]
 fn agy_offers(tier: &str, listed: &[String]) -> bool {
@@ -1609,7 +1609,7 @@ mod conditional_tests {
 
     #[test]
     fn carbon_is_offered_only_while_agy_lists_it() {
-        let without: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-barium-high"].map(String::from).to_vec();
+        let without: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-krypton-high"].map(String::from).to_vec();
         assert!(!agy_offers("carbon", &without));
         assert!(!agy_offers("carbon", &[]));
         for listed in ["gemini-4-carbon", "gemini-4-carbon-high", "gemini-4-carbon-low"] {
@@ -1617,9 +1617,9 @@ mod conditional_tests {
         }
         // the three conditional tiers are judged independently, each by its
         // exact id; flash is never conditional
-        assert!(agy_offers("argon", &without) && agy_offers("barium", &without));
+        assert!(agy_offers("argon", &without) && agy_offers("krypton", &without));
         assert!(!agy_offers("argon", &["gemini-4-argonite".to_string(), "gemini-4-argon-2".to_string()]));
-        assert!(!agy_offers("argon", &[]) && !agy_offers("barium", &[]));
+        assert!(!agy_offers("argon", &[]) && !agy_offers("krypton", &[]));
         assert!(agy_offers("flash", &[]));
         let row = super::catalog::tier("carbon").unwrap();
         assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 2.0, true));

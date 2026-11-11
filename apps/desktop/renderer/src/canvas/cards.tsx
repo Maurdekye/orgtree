@@ -803,7 +803,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // token. remove it entirely").
     const offerOf = (t: string) =>
       (key === 'codex' ? codexTierOffer(hire, t)
-        // Gemini Pro (legacy toggle) and Argon/Barium (only once agy lists it)
+        // Gemini Pro (legacy toggle) and Argon/Krypton (only once agy lists it)
         : key === 'antigravity' ? antigravityTierOffer(hire, t)
         // a Muse tier only while the account's own catalog lists it
         : key === 'muse' ? museTierOffer(hire, t)
