@@ -1199,7 +1199,7 @@ the agent thru the app."). Inline HTML presentations are interactive but one-way
 or bridge, and the app never listens to their frame. Apps reach agents only through
 declared events (user: "i want to keep agent notification purely through the event
 system, no targeting agents directly (makes them more portable and easier to
-manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
+manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](../agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
 Apps are custom UIs for the user to manipulate data in a structured way, not
 persistent program environments (user 2026-10-27); panels run only while Orgtree
 is open, tray included, as the tool texts say; the Apps menu shows no note.
@@ -1219,5 +1219,5 @@ list says "No apps yet. Ask an agent to make an app for you, and it will appear
 here."; the live list hides it when an app appears. Renderer CSS must use
 theme variables that `styles.css` defines (`--line`, `--dim`, `--panel-2`,
 `--ink`, ...): an undefined `var()` silently drops its declaration, as
-`--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
+`--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](custom-apps.md).
 [decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; 2026-10-27 m4dcfc15be8e3, mcc0591ec051b; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-27]
