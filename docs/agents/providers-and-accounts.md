@@ -43,6 +43,12 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
   implementer; Quick chat starts on Hydrogen. Carbon is conditional: where agy does not list it only the implementer
   blocks until another model is picked. [decided: user 2026-11-13 mb720ed1d4d06; verified:
   `engine/docs/templates/devteam-antigravity.json`, `domain/templates.rs` tests]
+- **Fable in the built-in teams.** devteam (claude): the implementer is Fable (was Opus); coordinator, redteam and
+  curator are unchanged, and the template names no effort, as before. Heavy dev shop: one more developer,
+  `developer-fable` (Fable, medium, the Developer charter), so twelve developers, sixteen seats and 74 credits at
+  catalog rates where there were eleven, fifteen and 64. A machine without Claude signed in blocks those seats
+  until another model is picked, as for any model that is not offered. [decided: user 2026-11-13 m99b4b994b8f0;
+  verified: `engine/docs/templates/{devteam-claude,heavy-dev-shop}.json`, `domain/templates.rs` tests]
 - **An unedited built-in template follows the app.** Built-ins are still written into the templates folder once and
   never over a file the user changed. One exception: a seeded built-in that is byte-identical (line endings aside) to
   a text Orgtree shipped before is replaced by the current text at the next start or listing. An edited, renamed or

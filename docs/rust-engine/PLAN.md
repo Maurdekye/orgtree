@@ -494,7 +494,8 @@ never fires/spends once/runs actions; data delivery unchanged. See
 [connection contract](websocket-watchdogs.md#connection-notifications).
 
 Heavy dev shop (user 2026-10-21 18:40–18:45Z, 4.4.0): a large mixed-model
-template with medium Liaison/coordinator, coordinator user audience, eleven developers, Sol rig,
+template with medium Liaison/coordinator, coordinator user audience, eleven developers (twelve since
+2026-11-13: a Fable developer, user m99b4b994b8f0), Sol rig,
 curator and three-slot project. Template project containers remain free and
 transparent to model funding. Optional shared/team/personal AGENTS.md copies
 are bounded and opt-in on save, seeded without overwrite on new-org creation.

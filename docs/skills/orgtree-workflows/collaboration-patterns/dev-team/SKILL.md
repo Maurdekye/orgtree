@@ -26,7 +26,7 @@ The four shipped template definitions use these tier IDs:
 
 | Template | Coordinator | Implementer | Redteam | Curator |
 | --- | --- | --- | --- | --- |
-| `devteam-claude` | `opus` | `opus` | `opus` | `sonnet` |
+| `devteam-claude` | `opus` | `fable` | `opus` | `sonnet` |
 | `devteam-codex` | `sol` | `astra` | `sol` | `luna` |
 | `devteam-antigravity` | `hydrogen` | `carbon` | `hydrogen` | `hydrogen` |
 | `devteam-muse` | `wonder` | `wonder-full` | `wonder` | `spark` |
@@ -44,7 +44,7 @@ In this repository, development work uses isolated owned worktrees and project c
 
 ## Heavy dev shop
 
-The separate Heavy dev shop layout is for significant software projects and mimics the org used to develop Orgtree itself. Its shape is user → Liaison → coordinator → build-slot project → eleven developers, test-rig engineer and curator. The liaison and coordinator are Opus/medium. Developers are three each on Opus, Sol and Astra plus one Sonnet and one Argon: five use medium effort, the three Sol developers and Argon use high, and one Opus and one Astra use max. These explicitly chosen efforts override the notes' general placement defaults for those seats. The rig and curator remain Sol/high. The project has three cooperative heavy-work permits and peer mail ON, with no seat cost. The coordinator also has a user audience even though the Liaison owns the conversation. At bundled rates fifteen seats cost 64 credits, with 20 spare (84 total); the preview uses actual current costs and availability.
+The separate Heavy dev shop layout is for significant software projects and mimics the org used to develop Orgtree itself. Its shape is user → Liaison → coordinator → build-slot project → twelve developers, test-rig engineer and curator. The liaison and coordinator are Opus/medium. Developers are three each on Opus, Sol and Astra plus one Fable, one Sonnet and one Argon: six use medium effort (Fable among them), the three Sol developers and Argon use high, and one Opus and one Astra use max. These explicitly chosen efforts override the notes' general placement defaults for those seats. The rig and curator remain Sol/high. The project has three cooperative heavy-work permits and peer mail ON, with no seat cost. The coordinator also has a user audience even though the Liaison owns the conversation. At bundled rates sixteen seats cost 74 credits, with 20 spare (94 total); the preview uses actual current costs and availability.
 
 All eleven developer seats use the short Developer role preset. Operational author/review policy occurs once in the development-team notes, alongside inherited shared policy; personal notes add only role-specific procedures or refer upward. Implementer and Redteam remain available for the smaller role-separated pattern.
 

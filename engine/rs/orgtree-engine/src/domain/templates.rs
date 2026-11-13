@@ -29,6 +29,7 @@ const BUNDLED: &[(&str, &str)] = &[
 /// anything else is the user's. When a built-in changes, add its previous digest here (the pin test names it).
 const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
     ("devteam-claude.json", &[
+        "0871de52bf075812f17c9b0167332a747e4fbafb8ef98deab8cd39db8870ee4e",
         "0e36b6ba51391368a4c7c926038d2e322ae15c6d14a97854ddbf9a03334f0ed6",
         "9408edbfb13f3a6aae963d4c6f32689c654af77943fd423e6e1c05f1efa08097",
     ]),
@@ -40,6 +41,7 @@ const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
         "92e68a608d7e7879b94a52ece90e6d8d37f75cf0c00b11455b831150ac04fdc8",
     ]),
     ("heavy-dev-shop.json", &[
+        "3865d44d8aeed485f60cbb27ac5700478afea39609c7e0f1bc2c7da3d4d22fa3",
         "c65e1780a70f88945fbdbcb2227e4d8254ffb05a1a6200c2be46026eda2e271d",
         "6ef93b215713a287f3c50fe97c3ff5e0dba7e8982565c305e24eda4e2963a064",
         "ce6a0e9b5814305856a8777d9eb958cfc5e935f18cd4897b357ced67d08364e4",
@@ -1471,22 +1473,26 @@ mod tests {
         let t=bundled("heavy-dev-shop");
         assert!(validate(&t).is_empty(),"{:?}",validate(&t));
         let mut av=claude_only();
-        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google")] {
+        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google"),("fable",10.0,"claude")] {
             av.tiers.insert(tier.into(),offer(cost,provider));
         }
         let (p,b)=plan(&t,&Choices::default(),&av,&[]).unwrap();
         assert!(b.is_empty());
-        assert_eq!(p.len(),16); // fifteen seats plus one project, below the 24-node limit
-        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),15);
-        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),64.0);
+        // user 2026-11-13 m99b4b994b8f0 "add at least one fable to the heavy dev shop preset": one Fable developer
+        // at medium, so sixteen seats and 74 credits where there were fifteen and 64
+        assert_eq!(p.len(),17); // sixteen seats plus one project, below the 24-node limit
+        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),16);
+        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),74.0);
         assert_eq!(p[0].name,"liaison");
-        assert_eq!(p[0].grant,80.0);
-        assert_eq!(p[1].grant,72.0);
+        assert_eq!(p[0].grant,90.0);
+        assert_eq!(p[1].grant,82.0);
         let developers:Vec<_>=p.iter().filter(|p|p.name.starts_with("developer-")).collect();
-        assert_eq!(developers.len(),11);
+        assert_eq!(developers.len(),12);
         for tier in ["opus","sol","astra"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),3); }
-        for tier in ["sonnet","argon"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
-        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),5);
+        for tier in ["sonnet","argon","fable"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
+        let fable=developers.iter().find(|p|p.name=="developer-fable").expect("the Fable developer");
+        assert_eq!((fable.tier.as_deref(),fable.slot.effort.as_deref(),fable.slot.charter.preset.as_deref(),fable.seat),(Some("fable"),Some("medium"),Some("developer"),10.0));
+        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),6);
         assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("high")).count(),4);
         let mut max_names:Vec<_>=developers.iter().filter(|p|p.slot.effort.as_deref()==Some("max")).map(|p|p.name.as_str()).collect();
         max_names.sort();
@@ -1518,7 +1524,8 @@ mod tests {
     fn bundled_templates_parse_and_carry_the_ruled_tiers() {
         let c = bundled("devteam-claude");
         let tiers: Vec<_> = c.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
-        assert_eq!(tiers, [("coordinator", "opus"), ("implementer", "opus"), ("redteam", "opus"), ("curator", "sonnet")]);
+        // user 2026-11-13 m99b4b994b8f0: "change the implementer in the claude devteam preset to a fable"
+        assert_eq!(tiers, [("coordinator", "opus"), ("implementer", "fable"), ("redteam", "opus"), ("curator", "sonnet")]);
         let x = bundled("devteam-codex");
         let tiers: Vec<_> = x.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "sol"), ("implementer", "astra"), ("redteam", "sol"), ("curator", "luna")]);
@@ -1624,11 +1631,11 @@ mod tests {
     #[test]
     fn every_built_in_has_its_current_digest_pinned_and_its_earlier_ones_listed() {
         const CURRENT: &[(&str, &str)] = &[
-            ("devteam-claude.json", "0871de52bf075812f17c9b0167332a747e4fbafb8ef98deab8cd39db8870ee4e"),
+            ("devteam-claude.json", "0652804769bb831d1fb1fd61aebc88d5be6892fd5a9ecaee18322598058f5a6c"),
             ("devteam-codex.json", "ce1ef5b21152cd6f582ec4051d1749ce0e930b102899efc6a39de2efa3ee4908"),
             ("devteam-muse.json", "993cec32790eee02e632500e89c9c3c701a80013d666570eb0a925315f99fba9"),
             ("devteam-antigravity.json", "562e7c0e19bbfd9c43ebeee998edc1a4e17a7437f34f4546cfa4b995cf01cf83"),
-            ("heavy-dev-shop.json", "3865d44d8aeed485f60cbb27ac5700478afea39609c7e0f1bc2c7da3d4d22fa3"),
+            ("heavy-dev-shop.json", "2a3bedc25438a21c5a3d3ea2c9dd40aa5d001e07e4665c6823dda5b9cc7ca99e"),
         ];
         assert_eq!(CURRENT.len(), BUNDLED.len());
         for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {
