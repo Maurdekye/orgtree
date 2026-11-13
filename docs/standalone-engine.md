@@ -47,6 +47,15 @@ so instead of acting on the desktop's computer:
   the remote one is listed as `<name>-<engine>`. References written by its
   agents keep working in its window.
 
+Several computers can use one engine at the same time. Each is the user and can
+do everything; the engine records which computer an action came through, and a
+window shows that on other people's actions: "User · Sam" on a message, a hire
+or a settings change, and "answered by Sam at 14:02" on a question. Your own
+actions look as before. **Connection details** (click the engine's heading on the
+Homepage) has the name this computer shows to the others, and the list of who
+else is connected. Undoing someone else's change asks first. Agents read every
+one of you as the user.
+
 ## Download
 
 Every Orgtree release, from 4.5.11 on, includes the official standalone engine,

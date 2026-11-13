@@ -295,9 +295,10 @@ and mail to an outside party.
 
 `via` rides beside the identity, never inside a typed event envelope (the renderer validates those
 strictly): a mail row (`feed/compute.rs` `mail_entry`, and so the pending list, the mailbox pages and
-the transcript's delivered rows), an event (`event_entry`, an agent's history, the History window), a
-settled request (`answered_via` on the ask card), a docket history row and an undo history entry. A
-record without one is sent exactly as before: the key is absent, never null.
+the transcript's delivered rows), an event (`event_entry`, an agent's history, the History window's
+events and its agent-mail and user-sent records), a settled request (`answered_via` on the ask card),
+a docket history row and an undo history entry. A record without one is sent exactly as before: the
+key is absent, never null.
 
 The organization's tree says what its engine can do, in the `capabilities` its settings group already
 had: `attribution: true` from this version on. A window of an organization on an older engine sees no
@@ -364,6 +365,32 @@ themselves when it changed), single switches of the runtime and watchdogs (the l
 record says who), templates saved with Replace, the docket and the canvas layout. Custom apps keep
 their own revision check; their refusal does not name who changed the app yet (the apps store keeps
 no author of a change).
+
+### What a window shows
+
+`apps/desktop/renderer/src/people.tsx`. Rule: **an action by someone else carries their name; one's
+own looks as it always did**, and so does a record that names no computer. A window's own origin is
+`local` for a local organization, and for a remote one the connection's `me.id` (the pushed value
+`remote_link`); until that engine has said who this desktop is, nothing is known to be one's own.
+
+- `ViaName` adds " · Sam" after the label a place already had: "User" in a transcript header
+  (`events/card.tsx`) and on a plain mail row (`events/segments.tsx`), "@user" in a mail list
+  (`canvas/mail.tsx`). The organization's record says "you" for one's own and "User · Sam" for someone
+  else's. The History tab says "by Sam", because a row there may name its recipient. The tooltip is
+  "Sam, on Orgtree desktop (PC2)".
+- A settled request's tag reads "answered by Sam at 14:02" (`canvas/asks.tsx`, from `answered_via`).
+- Undo and redo of someone else's entry ask first: "This was Sam's change. Undo it?"
+  (`historycontroller.ts` holds the question in `other`; `historyui.tsx` draws it). What the engine
+  itself asks about (a hire whose agent has worked) comes after it. One's own entries, and entries
+  that name no computer, are undone as before.
+- Connection details gains "Shown to others as" (this desktop's one name, `PUT /api/remotes/shown-as`;
+  the hint says what the others still see on that engine while it differs) and "Also connected" (the
+  others who are connected now, from `GET /api/remotes/{id}/people`, read when the dialog opens).
+- The name is an outside name to Streamer mode (`data-streamer-field="external"`), and its tooltip
+  sits on the masked element so it is hidden with it.
+- The docket pane draws no history rows, so nothing there is labelled; the rows are sent.
+
+Tests: `tests/run.mjs people` (the rule, each place, the undo question, Connection details).
 
 ### Labels and who is connected (the engine that is connected to)
 
@@ -500,7 +527,7 @@ revision goes through, and a second "anyway" whose base changed in between is re
 that names no base is not checked; the same refusal for an organization setting, an app-wide default,
 org.md and the instructions for all organizations; and a question two people answer, where the second
 is told who answered it and what. A tree read follows a save by a moment (it is built from the feed),
-so the proof waits for the tree where it reads one after a write. 33 checks.
+so the proof waits for the tree where it reads one after a write. 34 checks.
 `tools/rig/far.mjs` starts the far engine for both proofs.
 
 ## Not yet
