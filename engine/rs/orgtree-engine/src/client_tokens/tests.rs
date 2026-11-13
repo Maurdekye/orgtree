@@ -95,6 +95,51 @@ async fn disconnected(stream: &mut TcpStream) -> bool {
     }).await.unwrap_or(false)
 }
 
+/// A scanner or an indexer opens a file that was just written and shares nothing for a moment.
+/// Every registry's save replaces its file, 128 times in a row in the test below: a save must
+/// not fail because of that moment.
+#[cfg(windows)]
+#[test]
+fn a_file_that_is_held_for_a_moment_is_replaced_once_it_is_let_go() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = Root::new();
+    let (kept, next, probe) = (root.0.join("kept.json"), root.0.join("next.tmp"), root.0.join("probe.tmp"));
+    std::fs::write(&kept, b"old").unwrap();
+    std::fs::write(&next, b"new").unwrap();
+    std::fs::write(&probe, b"probe").unwrap();
+    let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&kept).unwrap();
+    // control: while it is held, Windows does refuse to replace it
+    assert!(std::fs::rename(&probe, &kept).is_err(), "the hold does not hold");
+    let let_go = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(60));
+        drop(held);
+    });
+    let replaced = replace(&next, &kept);
+    let_go.join().unwrap();
+    assert!(replaced.is_ok(), "a file held for 60 ms must still be replaced: {replaced:?}");
+    assert_eq!(std::fs::read(&kept).unwrap(), b"new");
+    assert!(!next.exists());
+}
+
+/// A file that stays held is given up, soon, and nothing is lost: the old file and the new one
+/// are both still there.
+#[cfg(windows)]
+#[test]
+fn a_file_that_stays_held_is_given_up_and_both_files_are_kept() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = Root::new();
+    let (kept, next) = (root.0.join("kept.json"), root.0.join("next.tmp"));
+    std::fs::write(&kept, b"old").unwrap();
+    std::fs::write(&next, b"new").unwrap();
+    let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&kept).unwrap();
+    let started = std::time::Instant::now();
+    assert!(replace(&next, &kept).is_err());
+    assert!(started.elapsed() >= Duration::from_millis(200) && started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    drop(held);
+    assert_eq!(std::fs::read(&kept).unwrap(), b"old");
+    assert_eq!(std::fs::read(&next).unwrap(), b"new");
+}
+
 #[tokio::test]
 async fn revoke_drops_idle_http_websocket_inflight_mcp_and_shared_socket_only() {
     let root = Root::new();
