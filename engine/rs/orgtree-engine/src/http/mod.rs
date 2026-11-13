@@ -365,7 +365,18 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
     // The token's scope is decided once, here, before any dispatch: a viewer token reaches
     // only the routes `viewer.rs` allows, never the language-server proxy or the credential bridge.
     // Who the request came through (`caller`) is decided with it, from the token and nothing else.
-    let origin = if engine.cfg.standalone {
+    //
+    // A connection that came in through a hosting desktop's remote door is judged by the door's
+    // rules alone (`remote_access::admit`): its own tokens, its own route table. Whether a
+    // connection is the door's was decided where it was accepted, never by anything in a request.
+    let door = req.extensions().get::<axum::extract::ConnectInfo<crate::client_tokens::transport::ClientInfo>>()
+        .map(|info| info.0.0.clone()).filter(|connection| connection.door);
+    let origin = if let Some(connection) = &door {
+        match crate::remote_access::admit(&engine, &mut req, connection) {
+            Ok(origin) => origin,
+            Err(refusal) => return refusal,
+        }
+    } else if engine.cfg.standalone {
         match standalone_scope(&engine, &req) {
             Some((scope, origin)) => {
                 if let crate::client_tokens::Scope::Viewer { org, client_id } = &scope {
@@ -380,10 +391,12 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
         // This engine's own desktop is the only caller it has; a request without its token ends in `guarded`.
         Some(local_origin(&engine))
     };
-    if crate::lsproxy::route(req.uri().path()) {
+    // Neither dispatch exists at the door: `admit` let only API routes of its table through,
+    // and these two are asked for nothing there even so.
+    if door.is_none() && crate::lsproxy::route(req.uri().path()) {
         return crate::lsproxy::dispatch(State(engine), req).await;
     }
-    if crate::credential_bridge::route(req.uri().path()) {
+    if door.is_none() && crate::credential_bridge::route(req.uri().path()) {
         return crate::credential_bridge::dispatch(State(engine), req).await;
     }
     let client = if req.uri().path().starts_with("/api/desktop/") { "desktop" } else { "user" };
@@ -507,10 +520,15 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     // Register the connection before reading any request body. A revoked
     // client's partial upload/inflight MCP call must be disconnected too.
     let standalone_ok = !engine.cfg.standalone || req.extensions().get::<crate::client_tokens::Scope>().is_some();
+    // A request that came in through the remote door (`remote_access/door.rs`): `guard` let it
+    // through by the door's own rules, and it is served here and nowhere else.
+    let door = req.extensions().get::<ConnectInfo<crate::client_tokens::transport::ClientInfo>>().is_some_and(|c| c.0.0.door);
     // Where the request belongs (remote/relay.rs). A request for a remote engine is carried
     // there with its body streamed and never logged: only its REQUEST/RESPONSE/RELAY lines are.
-    let remote = crate::remote::relay::decide(&engine, &path, req.headers());
-    let remote_window = crate::remote::relay::window(&engine, req.headers());
+    // Nothing that came in through the door is carried on: a hosting desktop is no way into the
+    // engines it is connected to.
+    let remote = if door { crate::remote::relay::Decision::Local } else { crate::remote::relay::decide(&engine, &path, req.headers()) };
+    let remote_window = if door { None } else { crate::remote::relay::window(&engine, req.headers()) };
     let quiet = quiet_body(&path, req.headers()) || remote.is_relay();
     let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
         req.headers()
@@ -554,11 +572,16 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         false // The dedicated handler requires its own live, grant-bound asset ticket.
     } else if engine.cfg.standalone {
         !standalone_ok
+    } else if door {
+        // the door's guard gave every request it let through its scope; one without is nobody's
+        req.extensions().get::<crate::client_tokens::Scope>().is_none()
     } else {
+        // The app's own listener: its desktop token in its own header, and nothing else. A token
+        // of the remote door is not read here at all.
         req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req)
     };
     let mut res = if denied {
-        let detail = if engine.cfg.standalone { "standalone token required" } else { "desktop token required" };
+        let detail = if engine.cfg.standalone { "standalone token required" } else if door { crate::remote_access::text::TOKEN_REQUIRED } else { "desktop token required" };
         (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": detail }))).into_response()
     } else {
         // Only past the token check does a remote decision count: the relay attaches the remote

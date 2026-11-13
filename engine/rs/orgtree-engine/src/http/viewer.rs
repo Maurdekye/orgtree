@@ -270,6 +270,13 @@ pub(crate) fn matches(route: &str, segments: &[&str], org: &str) -> bool {
 /// `/api/<a>/<b>` (plus the fifth segment below `/api/orgs/{slug}`), never an id or a value.
 #[nolog]
 pub fn log_line(client_id: &str, method: &Method, path: &str, allowed: bool) -> String {
+    format!("viewer client token {client_id} {method} {} {}", trimmed(path), if allowed { "allowed" } else { "refused" })
+}
+
+/// A request path as an audit line may hold it: cut at `/api/<a>/<b>` (plus the fifth segment
+/// below `/api/orgs/{slug}`), so no id and no value is in it.
+#[nolog]
+pub fn trimmed(path: &str) -> String {
     let mut segments = path.split('/').take(5);
     let mut route = String::new();
     let mut orgs = false;
@@ -282,5 +289,5 @@ pub fn log_line(client_id: &str, method: &Method, path: &str, allowed: bool) -> 
             _ => if orgs { route.push('/'); route.push_str(segment); },
         }
     }
-    format!("viewer client token {client_id} {method} {route} {}", if allowed { "allowed" } else { "refused" })
+    route
 }

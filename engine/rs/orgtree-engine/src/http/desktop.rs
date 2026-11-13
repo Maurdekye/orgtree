@@ -55,10 +55,19 @@ pub async fn shutdown(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
+/// What this engine is. `mode` says how it is reached: `standalone` (an engine that runs by
+/// itself), `host` (a desktop's remote door: the answer to another computer) or `desktop` (a
+/// desktop's own listener). `computer` is this computer's name.
 #[logged]
-pub async fn host(State(e): State<Arc<Engine>>) -> Json<Value> {
+pub async fn host(State(e): State<Arc<Engine>>, scope: Option<axum::Extension<crate::client_tokens::Scope>>) -> Json<Value> {
+    use crate::client_tokens::Scope;
     let st = e.providers.state.load();
+    let mode = if e.cfg.standalone { "standalone" }
+        else if matches!(scope, Some(axum::Extension(Scope::Member { .. } | Scope::Invitation { .. }))) { "host" }
+        else { "desktop" };
     Json(json!({
+        "mode": mode,
+        "computer": e.remotes.computer(),
         "build": {
             "commit": option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),
             "branch": option_env!("ORGTREE_BUILD_BRANCH"),
