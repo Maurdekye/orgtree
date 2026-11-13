@@ -12,7 +12,9 @@ Runtime > Turn time limits applies across organizations. Agents explain and sugg
 | Control | Storage | Built-in default | What expires |
 | --- | --- | --- | --- |
 | Total limit | `rt:turn_timeout_s` | 86,400 seconds, 24 hours | A turn that has run longer than the ceiling, even while producing activity. |
-| Silence limit | `rt:turn_idle_s` | 600 seconds, 10 minutes | A turn whose activity clock has produced no stream event for that period. |
+| Silence limit | `rt:turn_idle_s` | 1,800 seconds, 30 minutes | A turn whose activity clock has produced no stream event for that period. |
+
+The default applies when no value is stored. Explicitly stored values, including `0` (off), are preserved.
 
 The switch enables/disables the row. The amount accepts a positive finite value in minutes or hours, rounds the conversion to seconds, and permits 1 through 31,536,000 seconds in this UI. Disabling sends 0. Re-enabling an empty amount restores that row's default. Invalid, blank or out-of-range amounts are marked invalid and not saved. Changing the unit, leaving the amount field, or pressing Enter commits a valid changed value; typing alone is a draft. The row is disabled during its save, and an error appears if the request fails.
 

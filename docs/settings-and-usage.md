@@ -121,7 +121,7 @@ The feedback suggestion switch encourages agents to prepare redacted issue draft
 
 ### Time limits
 
-**Turn time limits** distinguishes a total ceiling (built-in 24 hours) from a silence ceiling (built-in 10 minutes without a stream event). A row can be disabled or edited in minutes/hours. Zero disables the corresponding engine limit.
+**Turn time limits** distinguishes a total ceiling (built-in 24 hours) from a silence ceiling (built-in 30 minutes without a stream event). A row can be disabled or edited in minutes/hours. Zero disables the corresponding engine limit. The default applies when no value is stored; any explicitly stored value is preserved.
 
 Use actual evidence before increasing a silence allowance for a legitimate quiet operation. Changes apply across organizations and can affect an already running turn at its next timer check. A harness may also retain a timeout supplied when its process launched. Raising a limit does not revive a turn already ended. Some Muse foreground-tool recovery differs, but the total ceiling still applies. See [Operating and troubleshooting](operating-orgtree.md).
 
