@@ -87,8 +87,8 @@ export function TurnLimitsSetting() {
       hint="Stop a turn that runs longer than this, even if the agent is active. Default 24 hours."
       stored={runtime?.turn_timeout_s} fallback={86400} busy={busy} onSave={save('turn_timeout_s')} />
     <LimitRow label="Silence limit"
-      hint="Stop a turn whose agent produces no output for this long. Default 10 minutes."
-      stored={runtime?.turn_idle_s} fallback={600} busy={busy} onSave={save('turn_idle_s')} />
+      hint="Stop a turn whose agent produces no output for this long. Default 30 minutes."
+      stored={runtime?.turn_idle_s} fallback={1800} busy={busy} onSave={save('turn_idle_s')} />
     {error && <p role="alert">{error}</p>}
   </SetGroup>
 }

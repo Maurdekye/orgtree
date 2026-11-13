@@ -11,6 +11,7 @@ use arc_swap::ArcSwap;
 use serde_json::{json, Map, Value};
 
 pub const KEY: &str = "app_settings";
+pub const DEFAULT_TURN_IDLE_S: u64 = 1800;
 
 #[nolog]
 pub fn matches_expected(doc: &Value, expected: &[(String, Value)]) -> bool {
@@ -116,9 +117,10 @@ impl AppSettings {
     pub fn turn_timeout_s(&self) -> u64 {
         self.runtime().get("turn_timeout_s").and_then(Value::as_u64).unwrap_or(86_400)
     }
+    /// Thirty minutes without activity unless a value is stored; 0 disables the limit.
     #[nolog]
     pub fn turn_idle_s(&self) -> u64 {
-        self.runtime().get("turn_idle_s").and_then(Value::as_u64).unwrap_or(600)
+        self.runtime().get("turn_idle_s").and_then(Value::as_u64).unwrap_or(DEFAULT_TURN_IDLE_S)
     }
     #[nolog]
     pub fn keep_warm(&self) -> bool {
