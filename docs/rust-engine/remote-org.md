@@ -264,7 +264,45 @@ someone else.
 As JSON an origin is `{"id", "name"}`, plus `"on"` when the client's own name says more than the label
 ("Sam", on "Orgtree desktop (PC2)"). When a request carries the startup token and a client's token,
 the client is who it came through. Work done in another task than the request's has no origin, which
-means unknown. Nothing records an origin yet.
+means unknown.
+
+### What is recorded
+
+Migration `0086_user_origin`: one nullable `via jsonb` beside each record of a user action. It holds the
+origin of the request that made the record, with the label as it was then, so history stays readable
+after a rename or a revocation. Nothing is backfilled, and nothing is decided from these columns.
+
+| Record | Column | Written by |
+| --- | --- | --- |
+| mail from the user (a message, a broadcast, a hire's kickoff, an answer, a docket notice) | `ot.mail.via` | `domain/mail.rs`, `domain/asks.rs`, `domain/ops.rs`, `domain/docket.rs` |
+| operations and settings changes | `ot.events.via` | `ops::event` and the routes that write an event themselves |
+| a settled request | `ot.asks.answered_via` | `asks::settle` |
+| docket changes by the user | `ot.work_events.via` | `docket::history`, attach, detach |
+| the user's undo history | `ot.undo_entries.via` | `undo::gesture` |
+
+The identities stay what they were (`@user`, `"user"`): agents, queries and the wire depend on them.
+`caller::via_of(who)` gives the origin only when `who` is the user, so a record of an agent, of the
+engine or of an outside party never carries one. A user action that reaches the engine outside a
+request (an answer from the phone, through the mail hub) has none either: unknown.
+
+Not recorded yet: the job a project hands on to a member (the copy does not carry who sent the job),
+mail to an outside party, and a saved org.md (it comes with the save check).
+
+### What a window is sent
+
+`via` rides beside the identity, never inside a typed event envelope (the renderer validates those
+strictly): a mail row (`feed/compute.rs` `mail_entry`, and so the pending list, the mailbox pages and
+the transcript's delivered rows), an event (`event_entry`, an agent's history, the History window), a
+settled request (`answered_via` on the ask card), a docket history row and an undo history entry. A
+record without one is sent exactly as before: the key is absent, never null.
+
+The organization's tree says what its engine can do, in the `capabilities` its settings group already
+had: `attribution: true` from this version on. A window of an organization on an older engine sees no
+such member and shows names nowhere.
+
+Agents read the user as "user" as before (question 2 of the amendment). The one agent tool that
+returns mail rows built by `mail_entry` (`orgtree_project`'s mailbox reads) drops `via`; transcripts
+read by `orgtree_read_transcript` never carried the rows.
 
 ### Labels and who is connected (the engine that is connected to)
 
@@ -308,7 +346,9 @@ store, route coverage, the handshake against a stand-in and against a real stand
 aliases, the routing rule, streaming and header hygiene, the instance stamp, the org socket, link
 states, the offline answer, the merged list, removal and log privacy. The tests named `e1_` and `e6_`
 cover the origin of a request, labels, who is connected and what a connection learns about itself,
-against a real standalone test engine; `caller::` covers the origin itself.
+against a real standalone test engine; `caller::` covers the origin itself, and `via_tests` what a
+window is sent. What is recorded is proved with two real engines by the rig proof `remote-people`
+(below).
 
 ## Desktop
 
@@ -383,6 +423,17 @@ for a window bound to one. Measured 2026-11-11 with a bundle: 53 checks, 32 capt
 In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s
 after its start (`session_settle`), so the far engine's first answer can take that long; the proof's
 waits allow for it.
+
+### The people proof
+
+`tools/rig/proofs/remote-people.mjs` (engines only, any session; about 2 minutes): one far engine in
+standalone mode, this desktop through its relay, and a second computer with its own client token,
+driven as its engine's relay would drive it. It checks who each is on the far engine, the chosen name
+as the client's label, who is connected, and that a message, a hire, a settings change, an answer, a
+docket change and an undo entry each carry the name of the computer they came through in the OTHER
+one's reads; that the startup token's actions say so; that an agent's own records carry nothing and
+the agent still reads "user"; and that a renamed person's earlier records keep the earlier name.
+`tools/rig/far.mjs` starts the far engine for both proofs.
 
 ## Not yet
 

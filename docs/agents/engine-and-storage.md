@@ -142,3 +142,8 @@ Original section: Architecture. Source lines 4313–4320.
 ## Hire preferences (2026-10-24)
 
 `domain/ops.rs` carries `model_version`, `session`, `peer_mail` and `auto_cheap_compact` into the same scope inserted for a new hire, including superior insertion. These node-local preferences do not override its four inherited permission fields. Validate before insertion/warm: session kinds through `session_host`, cold-turn fields through `settings::cheap_compact`, model pins and selected-login Muse admission, and effort/speed against the pin. Hire/staff creation contracts expose these optional fields; restoration refuses creation-only overrides and retains saved preferences.
+
+## Which computer a user action came through (2026-11-13, 4.6.0)
+
+Every connected desktop is the user; the identities in the records stay `@user` and `"user"`. Beside them, a record of a user action stores `via`: the origin `http::guard` resolved from the token that authenticated the request (`caller.rs`), read with `caller::via()` or `caller::via_of(who)`. A new writer of a user action (mail from the user, an event whose actor is the user, a docket change by the user, an undo entry) stores it; a writer for an agent, the engine or an outside party never does. A reader for windows passes it on only when it is not null, beside the identity and never inside a typed event envelope; a reader for agents does not pass it on (decision 101: agents read "user"). See [several people on one organization](../rust-engine/remote-org.md#several-people-on-one-organization).
+[decided: user 2026-11-11, decision 101; verified: `caller.rs`, `migrations/0086_user_origin.sql`, `feed/compute.rs`; 2026-11-13]
