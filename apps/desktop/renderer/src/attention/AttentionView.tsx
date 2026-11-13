@@ -717,6 +717,7 @@ export function AttentionView(props: AttentionViewProps) {
           style={dividerStyle}
           onContextMenu={(e) => menu.open(e, [
             { label: 'Swap panels', onSelect: swapPanels },
+            { label: 'Reset to center', onSelect: () => commit({ left: 0.5, hidden: null }) },
           ])}
           onKeyDown={onDividerKey}>
           <span className="attn-divider-grip" aria-hidden="true" />
