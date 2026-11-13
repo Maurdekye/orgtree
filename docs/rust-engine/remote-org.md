@@ -392,6 +392,34 @@ own looks as it always did**, and so does a record that names no computer. A win
 
 Tests: `tests/run.mjs people` (the rule, each place, the undo question, Connection details).
 
+**A refused save, in the window** (`saveconflict.tsx`; the engine's side is "The save that would
+replace a newer change" above). `api.ts` keeps a refusal's `code`, `conflict` and `settled` on the
+error it throws.
+
+- The agent settings form (`canvas/modals.tsx`) sends only what was edited: the instructions, the
+  effort and the cold-turn reset no longer ride along with every save. For each field it sends, it
+  says what the edit started from (`bases`, taken from the tree when the field's edit began), and
+  only to an engine whose tree says `capabilities.expect`. A text is named by `{"rev"}`.
+- On `save_conflict` the notice (`ConflictNotice`) stands where the Save row was: the sentence
+  ("Sam changed the instructions at 14:02. Nothing was saved."; "You ... in another window" for this
+  window's own origin; an agent by its name; "The instructions changed since you opened it" when
+  nobody is known) and See their version (texts only, with Use theirs), Save mine anyway (a new save
+  whose `expect` is what the refusal said is stored), Cancel. The form never closes on a refusal and
+  nothing typed is dropped.
+- A text being edited whose stored value changes underneath says so under itself at once ("This
+  changed while you were editing.", See the new value); other edited settings are named in one line
+  above Save.
+- A question someone else settled first (`request_settled`): the card does not come back with "not
+  sent ... submit again" (`asksubmitted.ts`); a toast says who settled it and when, and the feed shows
+  the settled card.
+
+Tests: `tests/run.mjs saveconflict` (the sentences, edited-only fields, `expect`, the three choices,
+the line under an edited text, the answer that came second).
+
+Not yet in the window: organization settings and the app-wide defaults (their cells save one value
+each and send no `expect` yet), and the org.md and instructions editors (they show the engine's
+sentence, which names the person, as an ordinary error).
+
 ### Labels and who is connected (the engine that is connected to)
 
 A client record has an optional `label`: 1 to 40 characters, no control characters. Without one a

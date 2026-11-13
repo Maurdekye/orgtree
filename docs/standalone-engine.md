@@ -56,6 +56,12 @@ Homepage) has the name this computer shows to the others, and the list of who
 else is connected. Undoing someone else's change asks first. Agents read every
 one of you as the user.
 
+Two people cannot silently replace each other's changes to an agent's settings.
+A save says what it was based on; when someone changed the same setting in the
+meantime, nothing is saved and the form says who changed it and when, with
+**See their version**, **Save mine anyway** and **Cancel**. What you typed stays
+in the form.
+
 ## Download
 
 Every Orgtree release, from 4.5.11 on, includes the official standalone engine,
