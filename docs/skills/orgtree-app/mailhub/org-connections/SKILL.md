@@ -57,6 +57,10 @@ and `net.rs`.
 
 Settings changes can establish connectivity; they do not grant a person user authority or give every agent outside-mail permission. For those rules see `orgtree-external-mail` and `orgtree-org-mailbox` (orgtree-working › mail). For an agent's address discovery use `orgtree-tool-list-orgs` (orgtree-working › mail).
 
+## Remote access
+
+On a desktop's own engine the tab ends with the group **Remote access**: the switch **Let other computers open this organization**, the address, the computers that have this organization and **Add a computer...**. It is not about mail hubs: it lets another computer that runs Orgtree open this organization itself. See [remote access](../../app-settings/app-remote-access/SKILL.md).
+
 ## See also
 
 - See `orgtree-external-mail` (orgtree-working › mail).

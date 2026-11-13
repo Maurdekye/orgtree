@@ -897,6 +897,10 @@ Not built: links from the App settings page to each organization's settings (the
 says where the switch is), and disabled controls on the hosting computer's settings in the other
 computer's window.
 
+The glossary page is `docs/skills/orgtree-app/app-settings/app-remote-access` (every row of the two
+screens has its home there; `tests/skills-tree-coverage.test.mjs` fails for a row without one). The
+Connections page and the homepage's page point to it.
+
 Tests: `apps/desktop/renderer/tests/remoteaccess.test.tsx` (F-T8): the words; the order of turning
 on, with the bridge as a recorder; the block from off to on, the address, the computers and Revoke,
 and no block for a remote organization or where nothing is offered; a No at the prompt, a door that

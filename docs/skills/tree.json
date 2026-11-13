@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 189,
+  "leaves": 190,
   "tools": 49,
   "concepts": 58,
-  "total": 211
+  "total": 212
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -31,7 +31,8 @@
   "template-dogs-sol": 1,
   "desk-parity-opus": 1,
   "canvas-sol": 2,
-  "presets-docs-sonnet": 2
+  "presets-docs-sonnet": 2,
+  "remote-org-fable": 1
  },
  "nodes": [
   {
@@ -4090,6 +4091,7 @@
     "app-display-desk-and-chart",
     "app-display-input-and-startup",
     "app-default-org-settings",
+    "app-remote-access",
     "app-developer",
     "app-keyboard-shortcuts",
     "app-about"
@@ -5245,6 +5247,120 @@
      "needles": [
       "auto_resume"
      ]
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/app-settings/app-remote-access",
+   "name": "orgtree-app-remote-access",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "api:remote-access",
+    "bridge:addRemoteAccessFirewallRule",
+    "screen:add-computer-dialog"
+   ],
+   "purpose": "Remote access: letting other computers that run Orgtree open an organization of this desktop; the switch in Org settings > Connections, Add a computer, and App settings > Remote access.",
+   "must_cover": [
+    "the switch and the order of turning it on",
+    "adding and revoking a computer",
+    "where it listens and the firewall rules"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+    "apps/desktop/renderer/src/remoteaccess.ts",
+    "docs/rust-engine/remote-org.md"
+   ],
+   "see_also": [
+    "org-connections",
+    "homepage"
+   ],
+   "writer": "remote-org-fable",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/remoteaccess.tsx#AddComputerDialog"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Let other computers open this organization"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Windows Firewall is blocking this"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Computers"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Let another computer in"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Address"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "One-time code"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Both in one line"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Or a computer you already added"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Where it listens"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Port"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Now"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Windows Firewall still has the rules for remote access"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Stop all remote access"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "api:remote-access",
+     "file": "apps/desktop/renderer/src/remoteaccess.ts",
+     "needles": [
+      "/api/remote-access"
+     ]
+    },
+    {
+     "key": "bridge:addRemoteAccessFirewallRule",
+     "file": "apps/desktop/renderer/src/remoteaccess.ts",
+     "needles": [
+      "addRemoteAccessFirewallRule"
+     ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "component": "RemoteAccess",
+     "label": "address.kind === 'lan' ? 'Address on this private network' : 'Address'"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "component": "RemoteAccessSettings",
+     "label": "org.name"
     }
    ]
   },

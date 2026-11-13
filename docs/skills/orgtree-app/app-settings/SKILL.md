@@ -39,6 +39,7 @@ app-wide user preference for ordinary new agents and projects.
 - [orgtree-app-display-desk-and-chart](app-display-desk-and-chart/SKILL.md): Display > Desk: chart layout, desk text size, piles, retired agents, card shortcuts, pinned-panel behavior.
 - [orgtree-app-display-input-and-startup](app-display-input-and-startup/SKILL.md): Display > quick chat position, Enter key, and Startup behavior.
 - [orgtree-app-default-org-settings](app-default-org-settings/SKILL.md): Default org settings: values new organizations start with (also the standalone form).
+- [orgtree-app-remote-access](app-remote-access/SKILL.md): Remote access: letting other computers that run Orgtree open an organization of this desktop; the switch in Org settings > Connections, Add a computer, and App settings > Remote access.
 - [orgtree-app-developer](app-developer/SKILL.md): Developer: the engine debug view and verbose engine logging, and the logs folder.
 - [orgtree-app-keyboard-shortcuts](app-keyboard-shortcuts/SKILL.md): Keyboard shortcuts: the read-only list of bindings.
 - [orgtree-app-about](app-about/SKILL.md): About: version, engine commit, update check.
