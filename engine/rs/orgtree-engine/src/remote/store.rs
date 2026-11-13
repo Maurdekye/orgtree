@@ -97,6 +97,10 @@ pub struct SavedRemote {
     /// set there stays until this desktop's user chooses another.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_sent: Option<String>,
+    /// `host` when the engine is a desktop that lets this one open some of its organizations
+    /// (the token is a member's then); absent for a standalone engine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     #[serde(default)]
     pub orgs: Vec<SavedOrg>,
 }
@@ -306,7 +310,7 @@ mod tests {
         SavedRemote { id: id.into(), name: "Galaxy".into(), tag: "galaxy".into(), url: "http://127.0.0.1:7430".into(),
             data_root_id: "root-1".into(), client_id: Some("c1".into()), client_name: Some("Orgtree desktop (test)".into()),
             sealed_token: sealed, enabled: true, created_at: crate::util::now_iso(), last_connected_at: None, last_version: None,
-            last_boot_id: None, label_sent: None, orgs: vec![SavedOrg { remote_slug: "acme".into(), alias: "acme".into(), local_id: -1, org_uuid: "u".into(),
+            last_boot_id: None, label_sent: None, mode: None, orgs: vec![SavedOrg { remote_slug: "acme".into(), alias: "acme".into(), local_id: -1, org_uuid: "u".into(),
                 name: "Acme".into(), last_summary: None, first_seen: crate::util::now_iso(), gone_at: None }] }
     }
 

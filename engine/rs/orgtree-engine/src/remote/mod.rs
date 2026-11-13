@@ -401,6 +401,10 @@ impl Remote {
             "version_differs": state.version.as_deref().is_some_and(|v| v != app),
             "transport": state.transport.map(Transport::as_str),
             "client_name": saved.client_name, "own_token": saved.client_id.is_some(), "me": me,
+            // what the engine is, and what this desktop's token may do there: everything on an engine
+            // that runs by itself; on a hosting desktop the organizations it was given and nothing else
+            "mode": saved.mode.as_deref().unwrap_or("standalone"),
+            "scope": if saved.mode.as_deref() == Some("host") { "member" } else { "full" },
             "last_error": state.error, "error_code": state.code,
             "refusal": self.refusal(),
             "last_connected_at": saved.last_connected_at,
@@ -623,12 +627,19 @@ impl Remotes {
         if wanted.as_deref().is_some_and(|n| !store::valid_name(n)) {
             return Err(Refusal::input("", "The name can have up to 100 characters."));
         }
+        let named = wanted.is_some();
         let name = wanted.unwrap_or_else(|| address.host.clone());
         let timing = self.timing();
         let probe = handshake::probe(&address, &input.token, &timing, &name, true).await?;
         if probe.data_root_id == engine.cfg.data_root_id {
             return Err(Refusal::input("E5b", text::E5B));
         }
+        // a hosting desktop is called by its computer's name unless the user chose one
+        let hosted = probe.hosted();
+        let name = match &probe.computer {
+            Some(computer) if hosted && !named && store::valid_name(computer) => computer.clone(),
+            _ => name,
+        };
         let _write = self.write.lock().await;
         let dir = self.dir.load_full();
         if let Some(existing) = dir.remotes.iter().find(|r| r.saved().data_root_id == probe.data_root_id) {
@@ -646,6 +657,13 @@ impl Remotes {
         let client_name = format!("Orgtree desktop ({})", self.computer);
         let (token, client_id, client_name) = match handshake::mint(&probe, &input.token, &client_name, &timing).await {
             Ok((token, client_id)) => (token, Some(client_id), Some(client_name)),
+            // A hosting desktop lets a computer in with a one-time code. What was pasted is never
+            // kept there: it is no token to work with, and one that is (another computer's) is
+            // not this desktop's to use.
+            Err(why) if hosted => {
+                tracing::warn!(remote = %tag, error = %why, "the hosting desktop made no token for what was pasted; nothing is saved");
+                return Err(Refusal::new(Kind::Refused, "E18", text::E18));
+            }
             Err(why) => {
                 tracing::warn!(remote = %tag, error = %why, "the remote engine made no client token; the pasted token is kept");
                 (input.token.clone(), None, None)
@@ -662,6 +680,7 @@ impl Remotes {
             id, name, tag, url: address.base(), data_root_id: probe.data_root_id.clone(), client_id: client_id.clone(), client_name,
             sealed_token: sealed, enabled: true, created_at: crate::util::now_iso(), last_connected_at: None,
             last_version: Some(probe.version.clone()), last_boot_id: Some(probe.boot_id.clone()).filter(|b| !b.is_empty()), label_sent: None,
+            mode: hosted.then(|| "host".to_string()),
             orgs: Vec::new(),
         };
         let remote = Remote::new(saved, token.clone(), Phase::Connecting);
@@ -709,6 +728,8 @@ impl Remotes {
                 let client_name = format!("Orgtree desktop ({})", self.computer);
                 match handshake::mint(&probe, &pasted, &client_name, &timing).await {
                     Ok((token, client_id)) => (token, Some(client_id), Some(client_name)),
+                    // a hosting desktop: a new code makes a new token, and nothing pasted is kept
+                    Err(_) if probe.hosted() => return Err(Refusal::new(Kind::Refused, "E18", text::E18)),
                     Err(_) => (pasted, None, None),
                 }
             } else {

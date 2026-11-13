@@ -26,6 +26,37 @@ pub struct Probe {
     pub version: String,
     /// The remote process (`X-Orgtree-Instance`), empty when it sent none.
     pub boot_id: String,
+    /// What the engine says it is (`GET /api/host`, `mode`): `host` for a desktop that lets
+    /// this computer open some of its organizations, `standalone` for an engine that runs by
+    /// itself, empty for an engine older than 4.6.0 (which is a standalone one).
+    pub mode: String,
+    /// The computer that engine runs on, when it says so.
+    pub computer: Option<String>,
+}
+
+#[nolog]
+impl Probe {
+    /// Is this a hosting desktop? Then what was pasted is a one-time code: it makes this
+    /// desktop's own token and is nothing after that.
+    pub fn hosted(&self) -> bool {
+        self.mode == "host"
+    }
+}
+
+/// What an engine says it is, as far as this side goes by it.
+#[nolog]
+fn host_mode(host: &Value) -> String {
+    match host["mode"].as_str() {
+        Some(mode @ ("host" | "standalone")) => mode.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// The name of the computer an engine runs on: printable, at most 60 characters.
+#[nolog]
+fn host_computer(host: &Value) -> Option<String> {
+    let name = host["computer"].as_str()?.trim();
+    (!name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control)).then(|| name.to_string())
 }
 
 /// The HTTP client of one connection: never through a proxy, never
@@ -122,8 +153,11 @@ pub async fn probe(address: &Address, token: &Token, timing: &Timing, name: &str
     };
     // 3. version
     let (status, _, body) = get("/api/host").await.map_err(|_| unreachable())?;
-    let version = match status {
-        200 => serde_json::from_slice::<Value>(&body).ok().and_then(|v| engine_version(&v)).ok_or_else(unreachable)?,
+    let (version, mode, computer) = match status {
+        200 => {
+            let host: Value = serde_json::from_slice(&body).map_err(|_| unreachable())?;
+            (engine_version(&host).ok_or_else(unreachable)?, host_mode(&host), host_computer(&host))
+        }
         403 => return Err(refusal_403(&detail(&body))),
         _ => return Err(unreachable()),
     };
@@ -131,8 +165,10 @@ pub async fn probe(address: &Address, token: &Token, timing: &Timing, name: &str
         let min = format!("{}.{}.{}", REMOTE_MIN_ENGINE.0, REMOTE_MIN_ENGINE.1, REMOTE_MIN_ENGINE.2);
         return Err(Refusal::new(Kind::Refused, "E7", text::e7(name, &version, &min)));
     }
-    // 4. scope: the standalone API, with a token that may do everything
-    if scope {
+    // 4. scope: the standalone API, with a token that may do everything. A hosting desktop is
+    //    not asked: what was pasted there is a one-time code, which may read no list at all,
+    //    and the token this desktop then holds is a member's by design.
+    if scope && mode != "host" {
         let (status, _, body) = get("/api/standalone/clients").await.map_err(|_| unreachable())?;
         match status {
             200 => {}
@@ -141,7 +177,7 @@ pub async fn probe(address: &Address, token: &Token, timing: &Timing, name: &str
             _ => return Err(unreachable()),
         }
     }
-    Ok(Probe { address: address.clone(), addrs, transport, http, data_root_id, version, boot_id })
+    Ok(Probe { address: address.clone(), addrs, transport, http, data_root_id, version, boot_id, mode, computer })
 }
 
 /// At most `cap` bytes of a response body.
