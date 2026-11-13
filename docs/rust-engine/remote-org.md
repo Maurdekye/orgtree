@@ -585,6 +585,32 @@ is told who answered it and what. A tree read follows a save by a moment (it is 
 so the proof waits for the tree where it reads one after a write. 34 checks.
 `tools/rig/far.mjs` starts the far engine for both proofs.
 
+With a renderer bundle (`--ui <bundle>`, Session 0 only; about one more minute) a window of this
+desktop opens on the far organization (`tools/rig/desktop/remote-people.cjs`) while the proof keeps
+playing the second computer: the page script asks for one thing she does at a time through a small
+control server on loopback (`tools/rig/steps.mjs`). The proof names this computer PC-SAM (`setup()`
+sets `COMPUTERNAME` before the run's engines start), so a capture carries no name of the machine it
+ran on. 16 more checks (50 in all) and 14 captures in the evidence folder's `desktop-window/`:
+
+| Capture | What it shows |
+| --- | --- |
+| 01 | her message in the transcript reads "User · PC-DANA", this desktop's own "User"; once delivered nothing stays queued |
+| 02 | the agent's mail list says "@user · PC-DANA" |
+| 03 | a question she answered: the answer in the transcript is hers |
+| 04 | the same request in the user's inbox: "answered by PC-DANA at 16:45" |
+| 05 | the organization's record: "User · PC-DANA" for hers, "you" for this desktop's own |
+| 06, 07 | Connection details: "Shown to others as" and "Also connected"; the name changed there is this desktop's label on the far engine |
+| 08 | a text edited here that she changes underneath: "This changed while you were editing." |
+| 09, 10 | Save is refused: who changed it and when, what was typed is kept; her version; "Save mine anyway" stores this computer's text |
+| 11 | undoing her change asks first; Cancel undoes nothing |
+| 12 | a setting she set first: the row goes back and a toast offers "Use mine" |
+| 13 | org.md she saved meanwhile: the notice in its editor, this computer's text still there |
+| 14 | the History tab: "by PC-DANA" |
+
+A step that misses does not end the script: the log says what the window showed instead and a
+`missed-NN.png` is kept, so one run names every miss. Nothing may stay open over what follows: the
+script waits for each dialog to close (an undo question left open once swallowed every later click).
+
 ## Not yet
 
 Creating an organization on a remote engine, watch-only
