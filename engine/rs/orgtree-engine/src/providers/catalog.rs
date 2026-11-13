@@ -36,7 +36,8 @@ pub struct Tier {
 pub static TIERS: &[Tier] = &[
     // `model` stays 5.1: what "no version saved" has always meant for a seat that exists. Fable 5.2 leads `versions`
     // and is what a NEW hire gets (`new_hire_version`).
-    Tier { tier: "fable", provider: CLAUDE, seat: 10.0, model: "claude-fable-5-1",
+    // Seat 8 (USER 2026-11-13 md539ddd936f9); seats already hired at 10 keep their stored price until rehired.
+    Tier { tier: "fable", provider: CLAUDE, seat: 8.0, model: "claude-fable-5-1",
         versions: &[("5.2", "claude-fable-5-2"), ("5.1", "claude-fable-5-1"), ("5", "claude-fable-5")], letter: "F",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
     Tier { tier: "opus", provider: CLAUDE, seat: 4.0, model: "claude-opus-5-5",
