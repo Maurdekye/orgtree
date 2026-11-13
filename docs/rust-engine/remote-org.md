@@ -495,9 +495,10 @@ port, the computers and the one-time codes), the member route table, the owner's
 on refused tokens, where the door stands and when, what a member is sent, the connecting side
 (a desktop adds a hosting desktop with a code), the Windows Firewall rules (added by the desktop,
 read back by the engine), and the windows ("A hosting desktop's windows" under Desktop below). From
-the windows on, a running app can open the door: the switch is in an organization's settings. Not
-built yet: the rig proof with two engines and the user's guide. Phase F is not to reach anybody but
-its owner before the independent security review.
+the windows on, a running app can open the door: the switch is in an organization's settings. Two
+real engines prove it together in the rig ([The hosting proof](#the-hosting-proof)), and the user's
+guide is `docs/collaborating.md`, "Open an organization from another computer". Phase F is not to
+reach anybody but its owner before the independent security review.
 
 ### The door
 
@@ -560,7 +561,14 @@ engine says about itself: `GET /api/host` answers `mode: "host"` at a door.
 - The loop (`start`, a desktop only) also looks every 5 s at who is connected while the door stands,
   writes `connected` and `disconnected` into the organizations' histories when someone came or went,
   pushes the app value `remote_access` (the answer of `GET /api/remote-access`) to this desktop's own
-  windows when anything changed, and tidies the registry (`Registry::tidy`).
+  windows when anything changed, and tidies the registry (`Registry::tidy`). A computer that is away
+  for less than one look leaves no record.
+- While nothing is shared the loop rests a minute at a time. An owner's change wakes it
+  (`Doors::wake`, called by `api.rs` `settled`; the loop's wait is `rest`), so a switch that has just
+  gone on is looked at in the next step and not when that minute is over. A wake that finds the loop
+  busy is kept for its next rest. The hosting proof found this: before it, a computer let in within
+  the first minute was missing from the owner's list and chip, and from the history, until the minute
+  ended (`an_owners_change_wakes_the_doors_loop_out_of_its_idle_minute`).
 - A rig run never listens beyond this computer: the door goes to the loopback address
   `ORGTREE_RIG_REMOTE_DOOR` names, in a debug build, or nowhere. A unit test never asks the computer
   for its addresses at all: it goes by the reading it fixed (`Doors::fix`).
@@ -986,6 +994,85 @@ ran on. 16 more checks (50 in all) and 14 captures in the evidence folder's `des
 A step that misses does not end the script: the log says what the window showed instead and a
 `missed-NN.png` is kept, so one run names every miss. Nothing may stay open over what follows: the
 script waits for each dialog to close (an undo question left open once swallowed every later click).
+
+### The hosting proof
+
+`tools/rig/proofs/remote-host.mjs` (test F-T10; engines only, any session): two real engines, each
+with its own database. The far one is a DESKTOP's own engine, started as an app starts its engine
+(`tools/rig/far.mjs` with `desktop`: `serve`, a desktop token, a port it picks, the name PC-HOST),
+with its remote door on loopback (`ORGTREE_RIG_REMOTE_DOOR`). The run's own engine is the other
+computer (PC-SAM), and a third computer (PC-DANA) is played by the proof straight at the door. What
+the far engine "reads from Windows Firewall" is a file the proof writes
+(`rig-home\rig-firewall\remote-access.txt`); nothing asks Windows for anything.
+
+It checks, in this order: nothing is shared at first; asked first, the engine says the switch could
+go on and that the door is not let in yet; the switch goes on and the door stands at the chosen
+port; the door answers no request without a token, and the desktop's own token is nothing there; a
+code says whose door it is and reads no organization; this desktop adds the hosting desktop with
+the code (called by that computer's name, a member, with a token of its own) and lists only what it
+was given; the code is spent and was not kept; the owner sees the computer in the list and in the
+pushed value; the organization opens through the relay; an app-wide change is refused with E17 as
+the hosting desktop's own answer; the accounts are read without an e-mail address; a message runs
+the agent there and the owner reads whose it was, while the agent reads "user"; the organization's
+history says what happened and who did it; a member's token at the door opens its organization and
+is refused another organization, the list of all, the owner's routes, a new code, the deletion and
+the usage, each with E17, and is no token on the desktop's own listener; a code the owner took back
+opens nothing; a second organization is given with no code and arrives on the open connection,
+and the third computer gets nothing by that; switched off, the organization answers E16 while the
+other one stays open and this desktop's list marks it; switched on again, the same computer is
+back with no new code; its user disconnects and connects again, and the owner sees it leave (with
+when it was last seen) and come back, with both in the history; after a restart of the hosting desktop the switches, the port and the
+computers are as they were, the door is open, and this desktop comes back with the token it has; a
+revoked computer is out at once while the other stays, and both histories say so; "Stop all remote
+access" turns every switch off and takes the door away while the lists stay; and every kind of
+record `remote_access::record` writes is read back from the two histories. 31 checks, 42 s
+measured (2026-11-13).
+
+With a renderer bundle (`--ui <bundle>`, Session 0 only) two windows follow, one after the other,
+with the page script `tools/rig/desktop/remote-host.cjs`: first a window of the HOSTING desktop (the
+far engine serves the same bundle; `runDesktop` is handed its address and token), then a window of
+this desktop. The planted bridge's two firewall calls are a recorder that the script answers (a No,
+then a Yes), and `window.confirm` is recorded and answered Yes. The proof plays Windows: it writes
+the rules file when the script says the administrator agreed, and empties it for "the rules went
+missing". The page script hands the proof the line the Add a computer dialog shows (a step of
+`tools/rig/steps.mjs` can be handed one JSON value), and the proof adds the hosting desktop with it
+as the other computer. 19 more checks (50 in all; the whole run took 144 s, measured 2026-11-13) and
+15 captures in the evidence folder's `desktop-window/`:
+
+| Capture | What it shows |
+| --- | --- |
+| 01 | Org settings, Connections on the hosting desktop: the group Remote access, the switch off, its sentence |
+| 02 | a No at the administrator prompt: the switch stays off, "Nothing changed: Windows Firewall stays as it was." |
+| 03 | a Yes: the switch on, the address with Copy, the computers, "Add a computer..." |
+| 04 | Add a computer: the address, the one-time code, both in one line |
+| 05 | the other computer used the line: it is in the list, connected |
+| 06 | the chip "1 computer connected" on the status strip |
+| 07 | its message in the transcript reads "User · PC-SAM" |
+| 08 | the rules went missing: "Windows Firewall is blocking this" with Allow |
+| 09 | App settings, Remote access: where it listens, the port, what the door does now, the organizations, Stop all |
+| 10 | Revoke asks first and says what goes |
+| 11 | this desktop: one pasted line fills Address and Token of "Add a remote engine" |
+| 12 | the hosting desktop in the list under its computer's name, with the organization it shares |
+| 13 | Connection details: "these organizations only" |
+| 14 | App settings in the organization's window: whose computer it is, and that a change is refused |
+| 15 | the hosting desktop stopped sharing the organization: the window says so |
+
+What to know when reading them, or when changing the page script:
+
+- The rig's click does not scroll. The group Remote access grows downward when its switch goes on,
+  so the script brings the group's end into view before every click and capture in it (`showGroup`);
+  the first run clicked "Add a computer..." below the fold and hit nothing.
+- With a desktop bridge, App settings opens on Providers, which reads whether a sign-in is running:
+  the planted bridge answers `getProviderLoginStatus` (none is). Without it the page stops with the
+  app's crash screen.
+- The switch's toast is still up in 03 to 06 and covers the right end of the last row in 03 to 05;
+  08 is the clear view of the whole group.
+- 04 shows a one-time code in clear. It was used a second later and its engine is gone; the JSON
+  evidence keeps only its length.
+- 07 shows two messages of the same computer: the engines' part sent the upper one, and the window
+  looks for the lower one by its text (it may still be queued when the capture is taken).
+- 09 says "Tailscale only" beside a loopback address: the rig's door is where
+  `ORGTREE_RIG_REMOTE_DOOR` puts it.
 
 ## Not yet
 

@@ -58,6 +58,7 @@ When behavior changes, check common paths, limits, defaults, refusal/recovery te
 | [app-concurrency-and-checkups](skills/orgtree-app/app-settings/app-concurrency-and-checkups/SKILL.md) | [settings-and-usage](settings-and-usage.md) |
 | [app-credit-bubbling](skills/orgtree-app/app-settings/app-credit-bubbling/SKILL.md) | [settings-and-usage](settings-and-usage.md) |
 | [app-default-org-settings](skills/orgtree-app/app-settings/app-default-org-settings/SKILL.md) | [settings-and-usage](settings-and-usage.md) |
+| [app-remote-access](skills/orgtree-app/app-settings/app-remote-access/SKILL.md) | [collaborating — open an organization from another computer](collaborating.md#open-an-organization-from-another-computer) |
 | [app-developer](skills/orgtree-app/app-settings/app-developer/SKILL.md) | [operating-orgtree — read history and collect diagnostics](operating-orgtree.md#read-history-and-collect-diagnostics) |
 | [app-display-appearance](skills/orgtree-app/app-settings/app-display-appearance/SKILL.md) | [settings-and-usage](settings-and-usage.md) |
 | [app-display-desk-and-chart](skills/orgtree-app/app-settings/app-display-desk-and-chart/SKILL.md) | [settings-and-usage](settings-and-usage.md) |

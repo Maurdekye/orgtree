@@ -117,6 +117,40 @@ Linking writes the exact trusted-address note into the selected org's charter an
 
 The PC/hub and network must remain reachable. Use your computer's power settings and real reachability checks when diagnosing sleep-related loss of access. Tailscale sign-out behavior, key expiry and Android battery restrictions can also affect access.
 
+## Open an organization from another computer
+
+From Orgtree 4.6.0 a desktop can let other computers that run Orgtree open one of its organizations: your laptop opens the organization that runs on your desktop PC, or a colleague works in it from their own computer. The organization keeps running where it is. Its agents, folders, provider sign-ins and usage stay on the hosting computer; the other computer shows it and sends what its user does.
+
+Add only computers you trust with that organization. A computer you add can do in it what you can, and its agents run on your computer with your accounts' rights. It sees the organizations you gave it and no other, and it cannot change your app-wide settings.
+
+### On the computer that has the organization
+
+1. The two computers need a way to reach each other. Install and sign in to Tailscale on both, in the same tailnet: what travels is encrypted. To allow the same local network too, choose **Tailscale and this private network** in App settings > **Remote access**; on a private network it is plain http, which is not encrypted. It never listens on a public address.
+2. Open the organization's settings > **Connections**. Under **Remote access** turn on **Let other computers open this organization**. Windows asks for an administrator's permission to add the firewall rules. If you answer No, nothing changes and the switch stays off.
+3. Choose **Add a computer...**. The dialog shows this computer's address and a one-time code, and both in one line with **Copy both**. Send that line to whoever sits at the other computer. The code works once, for one computer, for 15 minutes.
+
+The group then lists the computers that have this organization: the name others see for each, since when it is connected or when it was last seen, and **Revoke**. Revoke asks first; it takes the computer out of every organization of yours and disconnects it at once. While another computer is connected, the organization's status bar shows "1 computer connected".
+
+To let a computer you already added into a second organization, turn that organization's switch on, choose **Add a computer...** there and use **Give access** beside the computer. No code is needed.
+
+Turning the switch off disconnects everybody from that organization and keeps the list of computers, so turning it on again lets the same computers back in. App settings > **Remote access** shows where this computer listens, the port (7431 unless you change it), what it does now, the organizations that are shared, and **Stop all remote access**, which turns every switch off. Nothing listens while no organization is shared.
+
+If the group says **Windows Firewall is blocking this**, choose **Allow**: the firewall rules are missing. If turning the switch on is refused because no other computer could reach this one, start Tailscale or allow the private network, as the sentence says.
+
+Agents cannot turn remote access on, add a computer or make a code.
+
+### On the other computer
+
+1. On the Homepage choose **Add a remote engine...**.
+2. Paste the line you were sent into **Address**. It fills Address and Token. You can also type the address and put the code into Token.
+3. Choose **Connect**. The hosting computer appears in the list under its name, with the organizations you were given. Open one like any organization.
+
+If the code was already used or is older than 15 minutes, the dialog says "That code was already used or has run out. Ask for a new one."
+
+In such a window, what belongs to the hosting computer says so, as with any remote engine (see [Open it in the desktop app](standalone-engine.md#open-it-in-the-desktop-app)): folders are not opened on your computer, and provider sign-ins happen on the hosting computer. App settings shows the hosting computer's settings to read; a change is refused there. What you do is recorded under your computer's name, and the owner sees "User · (your computer's name)" on it. **Connection details** says "these organizations only".
+
+When the owner turns the switch off, the window says "(name) no longer shares this organization." When the hosting computer is off or asleep, the window says it is offline and reconnects by itself later. When the owner revoked your computer, ask for a new code: **Replace token** in Connection details takes it.
+
 ## Choose a hosting arrangement
 
 ### Developer teams

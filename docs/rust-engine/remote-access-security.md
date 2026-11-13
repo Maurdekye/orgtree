@@ -56,7 +56,7 @@ can end any computer's access at once.**
 | 15a | An organization comes back shared without the owner saying so (a restored backup, a copy, a template, an organization deleted and restored) | The switch is not in the organization's data at all; deleting an organization switches it off | `registry.rs`, `remote_access::org_deleted` | **built** (the file: `a_registry_file_is_taken_as_a_whole...`; the delete hook is one line in `http/orgops.rs`, not covered by a unit test: it needs a database) |
 | 16 | The traffic is read on the wire | On Tailscale the tunnel encrypts it. On a private network plain http is not encrypted; it is off unless the owner chose it, each address the door stands at says `encrypted`, and the connecting side labels the transport | `lifecycle.rs` `status`, the registry's `lan` | choice and status **built**; the words in the windows **built** (each address of the block and of the App settings page says how the bytes travel; `tests/remoteaccess.test.tsx`) |
 | 17 | A broken or tampered registry file admits someone | A file that does not validate as a whole admits nobody; it is set aside and the registry starts empty | `registry.rs` `read` | **built** (`the_registry_survives_a_restart_and_a_broken_file...`) |
-| 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`). The events (`on`, `off`, `code`, `code_withdrawn`, `computer_added`, `computer_given`, `computer_revoked`, `connected`, `disconnected`) are written by `remote_access::record` beside each change; no unit test has a database to read them back from, so they are **not proved yet**: the rig proof with two engines is to show them |
+| 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`). The events (`on`, `off`, `code`, `code_withdrawn`, `computer_added`, `computer_given`, `computer_revoked`, `connected`, `disconnected`) are written by `remote_access::record` beside each change. No unit test has a database to read them back from; the rig proof `remote-host` reads every one of them back from the histories of two organizations on a real engine, with who did it (**built**) |
 | 19 | Adding the firewall rules opens more than the door needs, or something makes the desktop add a rule for another program or run other text as administrator | The elevated script is made in main from three things: a port main checked (an integer, 1024 to 65535), a boolean, and the engine's program as main itself finds it, quoted as PowerShell quotes. The page sends the port and the boolean and nothing else. Each rule is inbound TCP for that one port and that one program, with remote addresses limited to Tailscale's, or to the local subnet on Private networks. Without the engine's program nothing is added. The engine never changes the firewall: its read is a constant script of `Get-` commands that no request's text enters, run for the owner only | `apps/desktop/main/remotefirewall.ts`, `main/index.ts` (`desktop:remote-access-firewall`), `remote_access/firewall.rs` | **built** (`tests/remote-access-firewall.test.mjs`; `firewall::tests`, `the_owner_is_told_whether_windows_firewall...`) |
 
 ## Review point: the app-wide reads a member has
@@ -140,6 +140,23 @@ connections to other engines and every client record but the member's own stay i
 - `client_tokens/transport.rs` `Connection::door`: set in `door.rs` `accept` and nowhere else.
 - `apps/desktop/main/remotefirewall.ts` `remoteFirewallScript`: the only text of this feature that
   runs as administrator, 15 lines. `remote_access/firewall.rs` `script`: the engine's read.
+
+## What was run against real engines
+
+`tools/rig/proofs/remote-host.mjs` ([what it checks](remote-org.md#the-hosting-proof)) runs two real engines with their own databases,
+the hosting one as a desktop's own engine with its door on loopback. For this page it matters that these were asked of real listeners and
+not of a test's router: a request without a token and one with the desktop's own token are refused at the door; a one-time code reads no
+organization, is spent by its first use and is nothing once the owner took it back; a member's token opens its organization and is
+refused another organization, the list of all, the owner's routes, a new code, the deletion and the usage, and is no token on the
+desktop's own listener; switching off, revoking and "Stop all remote access" end access at once, and after the last of them nothing
+listens at the port; a restart of the hosting desktop brings the door back as it was and lets in nobody new. It ran 50 of 50 with its
+two windows on 2026-11-13 (31 of them without a window). It also found what no unit test had: the door's loop rested out its idle minute
+after the first switch went on, so for up to a minute the owner's list and chip did not show a computer that was already connected, and
+its `connected` record was missing. An owner's change wakes the loop now
+(`an_owners_change_wakes_the_doors_loop_out_of_its_idle_minute`). Nobody was let in or kept in by that defect: admission and revocation
+are decided in each request, not by the loop. The proof cannot show what
+needs a second computer: the Tailscale and private-network addresses, the peer rule for a public address (unit tests F-T1 pin both), and
+the real firewall rules (`tests/remote-access-firewall.test.mjs` pins their text; nobody has run them elevated in a test).
 
 ## Known and accepted
 

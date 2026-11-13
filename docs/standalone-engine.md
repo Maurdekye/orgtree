@@ -5,7 +5,9 @@ and WebSocket APIs plus an authenticated user MCP endpoint. It manages its own
 PostgreSQL cluster. No desktop window or separate management CLI is needed.
 A desktop app can open this engine's organizations as a remote engine (see
 [Open it in the desktop app](#open-it-in-the-desktop-app)). A browser
-management UI is not supported by this mode.
+management UI is not supported by this mode. A desktop app can also share its
+own organizations with other computers, with no standalone engine at all: see
+[Open an organization from another computer](collaborating.md#open-an-organization-from-another-computer).
 
 ## Open it in the desktop app
 

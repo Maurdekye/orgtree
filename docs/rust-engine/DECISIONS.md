@@ -2544,6 +2544,10 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     desktop behind one prompt, for the engine's program, Tailscale's addresses and by choice the
     private network; the engine only reads them), and the windows (the Remote access block of an
     organization's Connections tab, the App settings page, the strip's chip, and the other
-    computer's words). The switch is in the app from that landing on. Contract:
+    computer's words). The switch is in the app from that landing on. Two real engines prove it
+    together in the rig proof `remote-host` (50 checks with its two windows; it found that an
+    owner's change did not wake the door's loop out of its idle minute, fixed with a unit test),
+    and the user's guide is in `docs/collaborating.md`.
+    Contract:
     [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
     [remote-access-security](remote-access-security.md).
