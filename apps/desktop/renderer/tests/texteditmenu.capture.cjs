@@ -1,7 +1,7 @@
 const { app, BrowserWindow, session, clipboard } = require('electron')
 const fs = require('node:fs'), path = require('node:path'), { execFileSync } = require('node:child_process')
 const out = path.resolve(process.argv[2])
-if (!out.toLowerCase().startsWith('c:\\orgtree-build\\mention-reply-sol\\')) throw new Error('Output is outside assigned root')
+if (!out.toLowerCase().startsWith('s:\\orgtree\\build\\mention-reply-sol\\')) throw new Error('Output is outside assigned root')
 const sessionId = Number(execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-Process -Id ${process.pid}).SessionId`], { encoding: 'utf8', windowsHide: true }).trim())
 if (sessionId !== 0) throw new Error(`Capture requires Session 0; actual ${sessionId}`)
 app.setPath('userData', path.join(out, 'profile')); app.setPath('sessionData', path.join(out, 'session'))

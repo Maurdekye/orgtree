@@ -11,7 +11,7 @@ assert.ok(['red', 'green'].includes(mode) && depsArg && outArg,
   'usage: node tools/rig/shared-scratch-check.mjs red|green <existing-deps-root> <fresh-assigned-C-output>')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
-assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i)
+assert.match(out.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\/.+/i)
 assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use an empty output directory')
 const require = createRequire(path.join(deps, 'package.json'))
 const esbuild = require('esbuild')

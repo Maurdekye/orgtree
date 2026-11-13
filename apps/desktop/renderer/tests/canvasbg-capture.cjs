@@ -5,7 +5,7 @@
 //   node_modules/.bin/electron tests/canvasbg-capture.cjs
 //
 // Reads the bundle from CANVASBG_VISUAL_OUT (default the author's
-// C:/orgtree-build scope) and writes PNGs + receipts.json beside it. A
+// S:/orgtree/build scope) and writes PNGs + receipts.json beside it. A
 // checkout without node_modules can point both scripts at shared deps via
 // BATCH_NODE_MODULES (use that tree's electron binary to launch this).
 //
@@ -22,10 +22,10 @@ const path = require('node:path')
 // ASCII renderer's hardware-GL gate passed is already observable via
 // asciiReady + the GL canvas in probe().
 
-const buildRoot = path.resolve('C:/orgtree-build')
-const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'C:/orgtree-build/backdrop-argon/canvasbg-visual')
+const buildRoot = path.resolve('S:/orgtree/build')
+const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'S:/orgtree/build/backdrop-argon/canvasbg-visual')
 if (!out.startsWith(buildRoot + path.sep)) {
-  console.error(`refusing to write outside C:/orgtree-build: ${out}`)
+  console.error(`refusing to write outside S:/orgtree/build: ${out}`)
   process.exit(2)
 }
 const shots = path.join(out, 'shots')

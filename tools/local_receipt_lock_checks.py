@@ -19,8 +19,8 @@ BASE, PHASE = sys.argv[1], sys.argv[3]
 out = Path('C:/Temp/receipt-lock-checks-' + sys.argv[2]) / PHASE
 out.mkdir(parents=True)
 pgroot = out / 'pg'
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 GROUP_A = ['tests/test_receipt_owner_locks_pg.py', 'tests/test_pg_receipt_store.py',
            'tests/test_pg_receipt_bound.py', 'tests/test_pg_receipt_commit.py',
            'tests/test_pg_receiptrows.py', 'tests/test_pg_receipt_adoption.py',

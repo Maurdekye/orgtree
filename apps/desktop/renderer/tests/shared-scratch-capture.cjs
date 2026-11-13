@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const [out, evidence] = process.argv.slice(2)
-if (!/^C:\\orgtree-build\\/i.test(out || '') || !/^D:\\orgtree-work\\/i.test(evidence || '')) throw Error('expected assigned C outputs and D evidence')
+if (!/^S:\\orgtree\\build\\/i.test(out || '') || !/^S:\\orgtree\\work\\/i.test(evidence || '')) throw Error('expected assigned C outputs and D evidence')
 fs.mkdirSync(evidence, { recursive: true })
 for (const key of ['userData', 'sessionData', 'logs', 'crashDumps']) {
   const dir = path.join(out, key); fs.mkdirSync(dir, { recursive: true }); app.setPath(key, dir)

@@ -5,7 +5,7 @@ import {pathToFileURL,fileURLToPath} from 'node:url'
 import {spawnSync} from 'node:child_process'
 const repo=path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const [deps,output,mode='red']=process.argv.slice(2)
-if(!output||!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(path.resolve(output)))throw Error('assigned output required')
+if(!output||!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(path.resolve(output)))throw Error('assigned output required')
 const require=createRequire(path.resolve(deps,'package.json')),esbuild=require('esbuild')
 const visual=mode==='visual'
 const names=visual?['superiorhire-scope-visual']:mode==='red'?['superiorhire-target.test']:['superiorhire-target.test','draft_account.test','pendinghire.test','kbdhire.test']

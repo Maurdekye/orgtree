@@ -4,7 +4,7 @@ const path = require('node:path')
 const assert = require('node:assert/strict')
 const root = process.env.TOKEN_GLYPH_CAPTURE_ROOT
 const mode = process.env.TOKEN_GLYPH_CAPTURE_MODE
-if (!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(root || '') || !['before', 'after', 'spacing-red'].includes(mode))
+if (!/^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i.test(root || '') || !['before', 'after', 'spacing-red'].includes(mode))
   throw Error('Expected assigned synthetic capture scope and before/after mode')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()

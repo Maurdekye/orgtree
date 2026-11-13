@@ -11,7 +11,7 @@ import {spawnSync} from 'node:child_process'
 const repo = path.resolve(import.meta.dirname, '..')
 const output = process.env.ORGTREE_FINISH_TEST_OUTPUT
 assert.ok(output && path.isAbsolute(output), 'explicit disposable test output is required')
-assert.match(output.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\//i)
+assert.match(output.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\//i)
 assert.equal(fs.existsSync(output), false, 'never overwrite prior test evidence')
 fs.mkdirSync(output, {recursive: true})
 const compiler = process.env.ORGTREE_MAKENSIS || path.join(process.env.LOCALAPPDATA || '',

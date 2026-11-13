@@ -18,8 +18,8 @@ pgroot, root = base / 'pg', base / 'seed'
 packet = REPO / '.scale-results' / ('ui-transport-' + label)
 packet.mkdir(parents=True)
 base.mkdir(parents=True)
-custodian = r'E:\Libraries\Desktop\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe'
-pgbin = r'E:\Libraries\Desktop\orgtree\artifacts\p03-postgresql\18.6-4\bin'
+custodian = r'S:\orgtree\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe'
+pgbin = r'S:\orgtree\orgtree\artifacts\p03-postgresql\18.6-4\bin'
 
 
 def pg(action):

@@ -1,7 +1,7 @@
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs'), path = require('node:path')
 const out = path.resolve(process.argv[2])
-if (!out.toLowerCase().startsWith('c:\\orgtree-build\\canvas-sol\\')) throw new Error('outside owned output')
+if (!out.toLowerCase().startsWith('s:\\orgtree\\build\\canvas-sol\\')) throw new Error('outside owned output')
 app.setPath('userData', path.join(out, 'electron-profile'))
 app.setPath('sessionData', path.join(out, 'electron-session'))
 app.disableHardwareAcceleration()

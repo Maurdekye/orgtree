@@ -16,7 +16,7 @@ const body=source.replace(/^import .*\n/gm,'').replaceAll('export async function
   .replaceAll('export function','function').replace('export default async function (rig)', 'return async function (rig)')
 const load=new Function('Proof','alive','spawnSync','path','SEED_SETTLE_TIMEOUT',body)
 const names=Array.from({length:22},(_,i)=>`w${String(i+1).padStart(2,'0')}`)
-const dir='D:\\orgtree-work\\rig\\identity-control\\runs\\own'
+const dir='S:\\orgtree\\work\\rig\\identity-control\\runs\\own'
 const rows=names.map((node,i)=>({pid:100+i,born:String(639000000000000001n+BigInt(i)),
   exe:path.win32.join(dir,'bin',i%2?'codex.exe':'claude.exe')}))
 const titles=[

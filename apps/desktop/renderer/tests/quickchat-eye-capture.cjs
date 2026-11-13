@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.QUICKCHAT_EYE_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]ordering-sol[\\/]/i.test(root || '')) throw Error('Expected assigned capture scope')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]ordering-sol[\\/]/i.test(root || '')) throw Error('Expected assigned capture scope')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

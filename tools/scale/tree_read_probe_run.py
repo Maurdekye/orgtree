@@ -29,8 +29,8 @@ packet = REPO / '.scale-results' / ('tree-read-' + label)
 packet.mkdir(parents=True, exist_ok=False)
 if not args.reuse_base:
     base.mkdir(parents=True, exist_ok=False)
-custodian = r'E:\Libraries\Desktop\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe'
-pgbin = r'E:\Libraries\Desktop\orgtree\artifacts\p03-postgresql\18.6-4\bin'
+custodian = r'S:\orgtree\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe'
+pgbin = r'S:\orgtree\orgtree\artifacts\p03-postgresql\18.6-4\bin'
 source = {}
 for name in ('tree_read_probe.py', 'tree_read_probe_run.py', 'seed.py', 'tree_probe_prepare.py', 'launch_guard.py', 'control.py'):
     file = REPO / 'tools/scale' / name

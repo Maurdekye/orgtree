@@ -2,7 +2,7 @@
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http')
 const out = process.env.FEEDBACK_OUTPUT
-if (!/^C:[\\/]orgtree-build[\\/]skilltree-opus[\\/]/i.test(out || '')) throw Error('Expected owned build output')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]skilltree-opus[\\/]/i.test(out || '')) throw Error('Expected owned build output')
 app.setPath('userData', path.join(out, 'electron-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 const root = process.cwd(), base = process.env.POPOUT_SIDEBAR_BASE_ROOT
 const out = process.env.POPOUT_SIDEBAR_OUT, deps = process.env.BATCH_NODE_MODULES
-if (!base || !out || !/^C:[\\/]orgtree-build[\\/]/i.test(out) || !deps) throw Error('Owned baseline worktree, C output and real dependencies required')
+if (!base || !out || !/^S:[\\/]orgtree[\\/]build[\\/]/i.test(out) || !deps) throw Error('Owned baseline worktree, C output and real dependencies required')
 const expected = execFileSync('git', ['rev-parse', '705a12b'], { cwd: root, encoding: 'utf8' }).trim()
 const actual = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: base, encoding: 'utf8' }).trim()
 if (expected !== actual || execFileSync('git', ['status', '--porcelain'], { cwd: base, encoding: 'utf8' }).trim()) throw Error('Baseline must be clean at 705a12b')

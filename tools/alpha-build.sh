@@ -29,18 +29,18 @@
 #
 # Settings (environment, defaults in brackets):
 #   ME        [coordinator-opus]  name in the build lock and queue
-#   WT        [/d/orgtree-work/worktrees/coordinator-build]  build worktree; created when missing
-#   TD        [/d/orgtree-work/cargo-target/$ME]  cargo target folder (an inherited CARGO_TARGET_DIR is ignored)
-#   REPO      [/e/Libraries/Desktop/orgtree]  the repository WT belongs to
-#   SEED      [/e/Libraries/Desktop/orgtree/.worktrees/rust-engine]  provisioned checkout, read only
+#   WT        [/s/orgtree/work/worktrees/coordinator-build]  build worktree; created when missing
+#   TD        [/s/orgtree/work/cargo-target/$ME]  cargo target folder (an inherited CARGO_TARGET_DIR is ignored)
+#   REPO      [/s/orgtree/orgtree]  the repository WT belongs to
+#   SEED      [/s/orgtree/orgtree/.worktrees/rust-engine]  provisioned checkout, read only
 #             while WT has no engine/runtime or no PostgreSQL payload yet
-#   DOWNLOADS [/e/Libraries/Downloads]
-#   TMPD      [/d/orgtree-work/tmp/$ME]  TEMP/TMP for npm and electron-builder
+#   DOWNLOADS [/s/orgtree/artifacts]
+#   TMPD      [/s/orgtree/work/tmp/$ME]  TEMP/TMP for npm and electron-builder
 #   LOG       [<orgtree scratch>/$ME/build-<version>.log, else $TD/build-<version>.log]
 #   DRY_RUN=1 stops after the package preflight: no electron-builder, no copy
 
-L=${BUILD_LOCK:-/d/orgtree-work/cargo-target/build.lock}
-Q=${BUILD_QUEUE:-/d/orgtree-work/cargo-target/build.queue.txt}
+L=${BUILD_LOCK:-/s/orgtree/work/cargo-target/build.lock}
+Q=${BUILD_QUEUE:-/s/orgtree/work/cargo-target/build.queue.txt}
 HOLDING=0
 
 stamp() { date -u +%FT%TZ; }
@@ -263,12 +263,12 @@ main() {
     return 2
   fi
   ME=${ME:-coordinator-opus}
-  WT=${WT:-/d/orgtree-work/worktrees/coordinator-build}
-  TD=${TD:-/d/orgtree-work/cargo-target/$ME}
-  REPO=${REPO:-/e/Libraries/Desktop/orgtree}
-  SEED=${SEED:-/e/Libraries/Desktop/orgtree/.worktrees/rust-engine}
-  DOWNLOADS=${DOWNLOADS:-/e/Libraries/Downloads}
-  TMPD=${TMPD:-/d/orgtree-work/tmp/$ME}
+  WT=${WT:-/s/orgtree/work/worktrees/coordinator-build}
+  TD=${TD:-/s/orgtree/work/cargo-target/$ME}
+  REPO=${REPO:-/s/orgtree/orgtree}
+  SEED=${SEED:-/s/orgtree/orgtree/.worktrees/rust-engine}
+  DOWNLOADS=${DOWNLOADS:-/s/orgtree/artifacts}
+  TMPD=${TMPD:-/s/orgtree/work/tmp/$ME}
   DRY_RUN=${DRY_RUN:-0}
   local d
   for d in "$WT" "$TD" "$TMPD"; do on_d "$d" || { echo "must be on D:: $d" >&2; return 1; }; done

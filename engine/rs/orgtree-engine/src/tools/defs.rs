@@ -2240,7 +2240,7 @@ mod builder_stack_tests {
         assert!(costs["message_split_delta_bytes"].as_i64().unwrap() <= 800, "keep eager selection schema compact");
         println!("SELECTION_TOOL_COST {costs}");
         if let Ok(path)=std::env::var("ORGTREE_SELECTION_TOOL_COST") {
-            assert!(path.replace('\\',"/").starts_with("C:/orgtree-build/native-tools-sol/"));
+            assert!(path.replace('\\',"/").starts_with("S:/orgtree/build/native-tools-sol/"));
             std::fs::write(path,serde_json::to_vec_pretty(&costs).unwrap()).unwrap();
         }
         assert!(super::deferred("orgtree_read_reply_source"));

@@ -2,7 +2,7 @@
 // No engine/auth/live database is opened. The parent must hold a build permit.
 const fs=require('node:fs'),path=require('node:path'),{spawnSync}=require('node:child_process'),assert=require('node:assert/strict');
 const [repo,out,bin]=process.argv.slice(2);if(!repo||!out||!bin)throw Error('repo output pg-bin required');
-const root='D:/orgtree-work/rig/uninit-model-sol/runs/presentation-opening-'+Date.now();fs.mkdirSync(root,{recursive:true});fs.mkdirSync(out,{recursive:true});
+const root='S:/orgtree/work/rig/uninit-model-sol/runs/presentation-opening-'+Date.now();fs.mkdirSync(root,{recursive:true});fs.mkdirSync(out,{recursive:true});
 const data=path.join(root,'pg'),port=58463,exe=name=>path.join(bin,name+'.exe');
 let command=0;
 function run(name,args){

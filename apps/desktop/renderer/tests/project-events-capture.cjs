@@ -2,7 +2,7 @@
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http'), assert = require('node:assert/strict')
 const out = process.env.PROJECT_EVENTS_OUTPUT
-if (!/^C:[\\/]orgtree-build[\\/]ordering-sol[\\/]project-events-labels[\\/]capture$/i.test(out || '')) throw Error('Owned capture output required')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]ordering-sol[\\/]project-events-labels[\\/]capture$/i.test(out || '')) throw Error('Owned capture output required')
 app.setPath('userData', path.join(out, 'electron-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

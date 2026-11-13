@@ -16,8 +16,8 @@ BASE = sys.argv[1]
 out = Path('C:/Temp/org-list-checks-' + sys.argv[2])
 out.mkdir()
 pgroot = out / 'pg'
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 target = repo / 'engine/backend/orgtree/org_summary.py'
 saved = target.read_bytes()
 NEW = ['tests/test_org_list_bounded_pg.py']

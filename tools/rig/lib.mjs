@@ -1,7 +1,7 @@
 // tools/rig/lib.mjs: the test rig's shared library (docs/rust-engine/test-rig.md).
 //
 // A rig run is one throwaway data root under ORGTREE_RIG_HOME (default
-// D:\orgtree-work\rig\<agent>) holding its own PostgreSQL cluster, a debug engine in rig
+// S:\orgtree\work\rig\<agent>) holding its own PostgreSQL cluster, a debug engine in rig
 // mode (SAFE_START, fake home, fake CLIs, /api/rig/tool) kept alive by a
 // small keeper process, the fake CLI's scenario and logs. Nothing here reads
 // or writes the live data folder, the live cluster or the user's profile.
@@ -19,21 +19,22 @@ export const RIG_DIR = path.dirname(fileURLToPath(import.meta.url))
 export const REPO = path.resolve(RIG_DIR, '..', '..')
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const PG_VERSION = '18.6-4'
-/** Rig work lives on the SSD; assigned build output follows current org policy
- * (team rule 2026-10-10: E: is a slow disk holding only the repositories). */
-export const WORK_ROOT = 'D:\\orgtree-work'
+/** Rig work and worktrees live here; build output goes under BUILD_ROOT (the S: layout, 2026-11-13: the
+ * repositories, work and build folders moved off E:, D: and C:, and nothing here may read or write those). */
+export const WORK_ROOT = 'S:\\orgtree\\work'
+export const BUILD_ROOT = 'S:\\orgtree\\build'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const lower = p => path.resolve(p).toLowerCase().replace(/[\\/]+$/, '')
 const inside = (child, parent) => lower(child) === lower(parent) || lower(child).startsWith(lower(parent) + '\\')
 
-/** Every agent's rig home sits in here, one folder each (D:\orgtree-work\rig\<agent>). */
+/** Every agent's rig home sits in here, one folder each (S:\orgtree\work\rig\<agent>). */
 export const RIG_HOMES = path.join(WORK_ROOT, 'rig')
 /** What the rig itself keeps in a home: any other folder holding runs or pg is another rig home. */
 const HOME_FOLDERS = new Set(['runs', 'pg', 'bin', 'evidence', 'legacy', 'tmp', 'ui'])
 
 /** The rig home: ORGTREE_RIG_HOME, else the caller's own folder in RIG_HOMES
- * (on a machine without D:\orgtree-work, E:\orgtree-rig or the temp folder).
+ * (on a machine without S:\orgtree\work, the temp folder).
  * A home never holds another agent's: cleanup kills what runs in its home
  * that none of its runs own, so the shared parent, or any folder with
  * another rig home inside it, is refused. */
@@ -41,7 +42,7 @@ export function rigHome() {
   const fromEnv = process.env.ORGTREE_RIG_HOME
   const home = fromEnv ? path.resolve(fromEnv)
     : fs.existsSync(WORK_ROOT) ? path.join(RIG_HOMES, me().replace(/[^A-Za-z0-9._-]+/g, '-'))
-    : fs.existsSync('E:\\') ? 'E:\\orgtree-rig' : path.join(os.tmpdir(), 'orgtree-rig')
+    : path.join(os.tmpdir(), 'orgtree-rig')
   assertSafeRoot(home)
   if (lower(home) === lower(RIG_HOMES)) throw new Error(`refusing ${home} as a rig home: every agent's rig home is in it; use ${RIG_HOMES}\\<agent>`)
   let children = []
@@ -179,16 +180,15 @@ export function withBuildLock(_what, fn) {
 
 // ------------------------------------------------------------ binaries
 
+/** CARGO_TARGET_DIR, resolved. Decided from the variable alone, with no filesystem probe. The drives the
+ * team left stay refused (2026-11-13: C: is the boot drive, D: is no longer ours, E: is retired). */
 export function cargoTarget() {
   const t = process.env.CARGO_TARGET_DIR
-  const onD = fs.existsSync(WORK_ROOT)
-  const example = 'C:/orgtree-build/<agent>'
+  const example = 'S:/orgtree/build/<agent>'
   if (!t) throw new Error(`set CARGO_TARGET_DIR to your own build folder (team rule), e.g. ${example}`)
   const resolved = path.resolve(t)
-  if (/^c:/i.test(resolved) && !/^c:\\orgtree-build\\/i.test(resolved)) {
-    throw new Error(`CARGO_TARGET_DIR is on drive C: (${t}); only paths under C:/orgtree-build/<agent> are allowed there, e.g. ${example}`)
-  }
-  if (onD && /^e:/i.test(resolved)) throw new Error(`CARGO_TARGET_DIR is on drive E: (${t}); team rule 2026-10-10: E: holds only the repositories, build output goes in ${example}`)
+  const drive = /^([cde]):/i.exec(resolved)
+  if (drive) throw new Error(`CARGO_TARGET_DIR is on drive ${drive[1].toUpperCase()}: (${t}); build output goes under ${example}`)
   return resolved
 }
 
@@ -252,7 +252,7 @@ function mainRepo() {
   return r.status === 0 ? path.dirname(r.stdout.trim()) : null
 }
 
-/** The rust-engine integration checkout, in its home on D: (2026-10-10) or its old one beside the main repository. */
+/** The rust-engine integration checkout, among the worktrees or beside the main repository. */
 function integrationCheckouts(main) {
   return [path.join(WORK_ROOT, 'worktrees', 'rust-engine'), main && path.join(main, '.worktrees', 'rust-engine')].filter(Boolean)
 }
@@ -901,7 +901,7 @@ export async function cleanup({ mine = false, everyone = false, dryRun = false }
   // Anything still running from the rig's own folders that no live run owns
   // (a crashed run's postgres runs from the shared binary cache). Only runs
   // and pg: another agent's rig home may sit inside this one (for example
-  // D:\orgtree-work\rig\<agent>), and its processes are not ours. Ownership
+  // S:\orgtree\work\rig\<agent>), and its processes are not ours. Ownership
   // follows the process tree: a postgres backend's command line names no data
   // folder, only its postmaster's does, so a live run's backends must be
   // recognised through their parents or they would be killed.

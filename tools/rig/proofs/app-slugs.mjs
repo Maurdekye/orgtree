@@ -6,7 +6,7 @@
 // and uses the old ids. Then the slugs through the real engine: an agent makes
 // an app with a Hebrew name and an English slug, copies, and an app_listener
 // watchdog by slug, and a fire reaches it naming the slugs. No live data is read.
-// Inputs, owned by ORGTREE_AGENT under C:/orgtree-build/<agent>:
+// Inputs, owned by ORGTREE_AGENT under S:/orgtree/build/<agent>:
 //   ORGTREE_APP_SLUGS_EXE       the engine's test binary (orgtree_engine-<hash>.exe)
 //   ORGTREE_CLAIM_TEST_OUTPUT   a private directory for the tests' output
 import assert from 'node:assert/strict'
@@ -18,7 +18,7 @@ import {rigHome} from '../lib.mjs'
 
 function ownedInput(value, owner) {
   if (!value || !path.isAbsolute(value)) throw Error('explicit absolute owned input required')
-  const file = path.resolve(value), base = path.resolve('C:/orgtree-build', owner), relative = path.relative(base, file)
+  const file = path.resolve(value), base = path.resolve('S:/orgtree/build', owner), relative = path.relative(base, file)
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw Error('input outside the owned build scope')
   for (let at = file; ; at = path.dirname(at)) {
     if (fs.lstatSync(at).isSymbolicLink()) throw Error('input symlink/junction refused')

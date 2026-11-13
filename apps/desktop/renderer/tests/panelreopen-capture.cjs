@@ -36,7 +36,7 @@
 //
 // Run from the repository root, in Session 0 under the build permit
 // (docs/agents/development-and-verification.md, test-window isolation):
-//   set PANELR_OUT=C:\orgtree-build\<agent>\<folder>   (required, owned)
+//   set PANELR_OUT=S:\orgtree\build\<agent>\<folder>   (required, owned)
 //   set PANELR_NODE_MODULES=<existing node_modules>   (default ./node_modules)
 //   <node_modules>\electron\dist\electron.exe apps\desktop\renderer\tests\panelreopen-capture.cjs
 // No clipboard use; permissions follow the real guard; audio is muted
@@ -158,7 +158,7 @@ pin:pin?{label:pin.getAttribute('aria-label'),pressed:pin.getAttribute('aria-pre
 
 let windows
 try {
-  if (!/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/]/i.test(OUT)) throw Error('PANELR_OUT must be an owned C:\\orgtree-build\\<agent>\\ folder')
+  if (!/^S:[\\/]orgtree[\\/]build[\\/][^\\/]+[\\/]/i.test(OUT)) throw Error('PANELR_OUT must be an owned S:\\orgtree\\build\\<agent>\\ folder')
   fs.mkdirSync(OUT, { recursive: true })
   const esbuild = require(path.join(NM, 'esbuild'))
   // CSS the components import (apps.css) lands in fixture.css.

@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.CHIP_VISUAL_ROOT, evidence = process.env.CHIP_VISUAL_EVIDENCE
 const fixtureUrl = process.env.CHIP_VISUAL_URL
-if (!/^C:\\orgtree-build\\/i.test(root || '') || !/^D:\\orgtree-work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
+if (!/^S:\\orgtree\\build\\/i.test(root || '') || !/^S:\\orgtree\\work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
 if(!/^http:\/\/127\.0\.0\.1:\d+$/.test(fixtureUrl||''))throw new Error('Expected synthetic loopback fixture URL')
 fs.mkdirSync(evidence, { recursive: true })
 app.setPath('userData', path.join(root, 'user-data'))

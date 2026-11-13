@@ -31,7 +31,7 @@ export function testOutput(variable, prefix, env = process.env) {
     assert.ok(override.trim() && path.isAbsolute(override), variable + ' must be an absolute owner-output directory')
     assert.match(env.ORGTREE_AGENT || '', /^[a-z0-9][a-z0-9-]*$/i, 'output overrides require ORGTREE_AGENT')
     assert.ok(!override.split(/[\\/]/).includes('..'), 'test output cannot traverse parents')
-    const owner = path.resolve('C:/orgtree-build', env.ORGTREE_AGENT)
+    const owner = path.resolve('S:/orgtree/build', env.ORGTREE_AGENT)
     parent = path.resolve(override)
     assert.ok(descendant(owner, parent), variable + ' must be below the current ORGTREE_AGENT build scope')
     plainAncestors(parent)

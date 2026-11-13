@@ -17,7 +17,7 @@ const begin = source.indexOf('  const rejected = calls().slice(rejectedMark)')
 const end = source.indexOf("  p.check('signed-out wake creates no inference turn'", begin)
 assert(begin >= 0 && end > begin)
 const check = new Function('calls', 'rejectedMark', 'p', 'rig', 'fs', 'path', 'attributeAuthRuntimes', source.slice(begin, end))
-const data = path.resolve('C:/orgtree-build/fixture/data'), org = 'rig-org'
+const data = path.resolve('S:/orgtree/build/fixture/data'), org = 'rig-org'
 const start = (agent, pid = 2280, extra = {}) => ({ agent, entry: { kind: 'start', mode: 'agy', org, pid,
   cwd: path.join(data, 'scratch', org, agent), ...extra } })
 const calls = [{ kind: 'runtime', pid: 2280 }, { kind: 'check', pid: 13808 }]

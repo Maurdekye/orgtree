@@ -4,7 +4,7 @@ import path from 'node:path'
 import {spawnSync} from 'node:child_process'
 function ownedInput(value, owner) {
  if(!value||!path.isAbsolute(value))throw Error('explicit absolute owned boundary input required')
- const file=path.resolve(value),base=path.resolve('C:/orgtree-build',owner),relative=path.relative(base,file)
+ const file=path.resolve(value),base=path.resolve('S:/orgtree/build',owner),relative=path.relative(base,file)
  if(!relative||relative.startsWith('..')||path.isAbsolute(relative))throw Error('boundary input outside owned build scope')
  for(let at=file;;at=path.dirname(at)){
   if(fs.lstatSync(at).isSymbolicLink())throw Error('boundary input symlink/junction refused')

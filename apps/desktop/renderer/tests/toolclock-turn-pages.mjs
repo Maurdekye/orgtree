@@ -3,7 +3,7 @@
 // unchanged, against a base renderer tree ("before", the red control's
 // picture). Bare imports resolve from this tree's node_modules, so the base
 // tree needs none of its own (never copy or junction them).
-//   node apps/desktop/renderer/tests/toolclock-turn-pages.mjs <root under C:\orgtree-build\> <base apps/desktop/renderer dir>
+//   node apps/desktop/renderer/tests/toolclock-turn-pages.mjs <root under S:\orgtree\build\> <base apps/desktop/renderer dir>
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,8 +11,8 @@ import * as esbuild from 'esbuild'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const [root, base] = process.argv.slice(2)
-if (!/^C:\\orgtree-build\\/i.test(root || '') || !base || !fs.existsSync(path.join(base, 'src', 'canvas', 'toolclock.tsx'))) {
-  throw new Error('usage: toolclock-turn-pages.mjs <C:\\orgtree-build\\...> <base apps/desktop/renderer dir>')
+if (!/^S:\\orgtree\\build\\/i.test(root || '') || !base || !fs.existsSync(path.join(base, 'src', 'canvas', 'toolclock.tsx'))) {
+  throw new Error('usage: toolclock-turn-pages.mjs <S:\\orgtree\\build\\...> <base apps/desktop/renderer dir>')
 }
 const fixture = fs.readFileSync(path.join(HERE, 'toolclock-turn-visual.tsx'), 'utf8')
 const modules = path.resolve(HERE, '..', '..', '..', '..', 'node_modules')

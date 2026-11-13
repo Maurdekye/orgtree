@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const [deps, output] = process.argv.slice(2)
-if (!deps || !output || !/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(path.resolve(output))) throw Error('Expected provisioned dependencies and assigned C output')
+if (!deps || !output || !/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(path.resolve(output))) throw Error('Expected provisioned dependencies and assigned C output')
 const require = createRequire(path.join(path.resolve(deps), 'package.json'))
 const esbuild = require('esbuild')
 fs.mkdirSync(output, { recursive: true })

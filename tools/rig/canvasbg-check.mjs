@@ -1,7 +1,7 @@
 // Canvas background themes (optional-canvas-background-in-the-flowing-ascii-a)
 // source & renderer verification against 5efd8ae (red control) or tip (green).
 // Existing dependencies are read in place from <deps>/node_modules; generated
-// bundles and logs stay under C:/orgtree-build/<agent>/. No junctions or copies.
+// bundles and logs stay under S:/orgtree/build/<agent>/. No junctions or copies.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -14,8 +14,8 @@ assert.ok(['red', 'green'].includes(mode) && depsArg && outArg,
   'usage: node tools/rig/canvasbg-check.mjs red|green <existing-deps-root> <fresh-assigned-C-output> [--typecheck] [--neighbors]')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
-assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i,
-  'output must be under C:/orgtree-build/<agent>/...')
+assert.match(out.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\/.+/i,
+  'output must be under S:/orgtree/build/<agent>/...')
 assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use an empty output directory')
 const modules = path.join(deps, 'node_modules')
 const require = createRequire(path.join(deps, 'package.json'))

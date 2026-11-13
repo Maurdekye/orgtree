@@ -3,12 +3,12 @@
 // turn's open call counts live with the executing icon (the user's "23h 08m");
 // after it, that call shows as unfinished (arrow and dash) while the running
 // turn's own call still counts "33s".
-//   CLOCK_VISUAL_ROOT=<the pages' root> CLOCK_VISUAL_EVIDENCE=<D:\orgtree-work\...> electron toolclock-turn-capture.cjs
+//   CLOCK_VISUAL_ROOT=<the pages' root> CLOCK_VISUAL_EVIDENCE=<S:\orgtree\work\...> electron toolclock-turn-capture.cjs
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.CLOCK_VISUAL_ROOT, evidence = process.env.CLOCK_VISUAL_EVIDENCE
-if (!/^C:\\orgtree-build\\/i.test(root || '') || !/^D:\\orgtree-work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
+if (!/^S:\\orgtree\\build\\/i.test(root || '') || !/^S:\\orgtree\\work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
 fs.mkdirSync(evidence, { recursive: true })
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()

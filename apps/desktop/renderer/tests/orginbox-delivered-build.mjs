@@ -3,7 +3,7 @@
 //
 //   node orginbox-delivered-build.mjs <checkout root> <outdir>
 //
-// <outdir> is below C:/orgtree-build and becomes tip/ of a capture's output. The checkout's
+// <outdir> is below S:/orgtree/build and becomes tip/ of a capture's output. The checkout's
 // own apps/desktop/renderer/src is bundled with this file's fixture. A checkout without node_modules reads
 // the dependencies in place: BATCH_NODE_MODULES=<abs node_modules dir> (esbuild and React
 // resolve from there; nothing is copied or junctioned).
@@ -13,9 +13,9 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 const [root, outdir] = process.argv.slice(2).map((p) => (p ? path.resolve(p) : p))
-const buildRoot = path.resolve('C:/orgtree-build')
+const buildRoot = path.resolve('S:/orgtree/build')
 if (!root || !outdir) throw new Error('usage: node orginbox-delivered-build.mjs <checkout root> <outdir>')
-if (!outdir.startsWith(buildRoot + path.sep)) throw new Error(`refusing to write outside C:/orgtree-build: ${outdir}`)
+if (!outdir.startsWith(buildRoot + path.sep)) throw new Error(`refusing to write outside S:/orgtree/build: ${outdir}`)
 const deps = process.env.BATCH_NODE_MODULES ? path.resolve(process.env.BATCH_NODE_MODULES) : null
 const esbuild = deps ? createRequire(path.join(deps, 'noop.js'))('esbuild') : await import('esbuild')
 const fixture = path.join(root, 'apps', 'desktop', 'renderer', 'tests', 'orginbox-delivered.visual.tsx')

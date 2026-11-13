@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.CLOCK_VISUAL_ROOT, evidence = process.env.CLOCK_VISUAL_EVIDENCE
-if (!/^C:\\orgtree-build\\/i.test(root || '') || !/^D:\\orgtree-work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
+if (!/^S:\\orgtree\\build\\/i.test(root || '') || !/^S:\\orgtree\\work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
 fs.mkdirSync(evidence, { recursive: true })
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()

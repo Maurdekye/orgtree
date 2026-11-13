@@ -1,7 +1,7 @@
 const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const root=process.env.REPLY_QUOTE_CAPTURE_ROOT
-assert.match(root||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
+assert.match(root||'',/^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i)
 app.setPath('userData',path.join(root,'user-data'));app.disableHardwareAcceleration()
 app.whenReady().then(async()=>{
   const win=new BrowserWindow({width:980,height:640,show:false,useContentSize:true,

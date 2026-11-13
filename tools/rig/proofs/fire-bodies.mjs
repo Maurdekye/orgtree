@@ -5,7 +5,7 @@
 // schema whose History holds a fire the outbox still has, one it lost and a
 // start, upgrades it, then fires through the engine's own publish and reads the
 // body back from History and the subscription's fires. No live data is read.
-// Inputs, owned by ORGTREE_AGENT under C:/orgtree-build/<agent>:
+// Inputs, owned by ORGTREE_AGENT under S:/orgtree/build/<agent>:
 //   ORGTREE_FIRE_BODIES_EXE     the engine's test binary (orgtree_engine-<hash>.exe)
 //   ORGTREE_CLAIM_TEST_OUTPUT   a private directory for the test's output
 import fs from 'node:fs'
@@ -16,7 +16,7 @@ import {rigHome} from '../lib.mjs'
 
 function ownedInput(value, owner) {
   if (!value || !path.isAbsolute(value)) throw Error('explicit absolute owned input required')
-  const file = path.resolve(value), base = path.resolve('C:/orgtree-build', owner), relative = path.relative(base, file)
+  const file = path.resolve(value), base = path.resolve('S:/orgtree/build', owner), relative = path.relative(base, file)
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw Error('input outside the owned build scope')
   for (let at = file; ; at = path.dirname(at)) {
     if (fs.lstatSync(at).isSymbolicLink()) throw Error('input symlink/junction refused')

@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const out = process.env.WORK_TOOL_TICKET_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]agent-tooltip-luna[\\/]work-tool-ticket$/i.test(out || '')) throw Error('Assigned output root required')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]agent-tooltip-luna[\\/]work-tool-ticket$/i.test(out || '')) throw Error('Assigned output root required')
 app.setPath('userData', path.join(out, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

@@ -155,7 +155,7 @@ async fn engine_and_desktop_depth_measurement() {
     let repo=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().to_path_buf();
     let output=fixture.engine_root("template-desktop-measurement");let args=output.join("driver.args");
     let driver=std::env::var("ORGTREE_TEMPLATE_SCALE_DRIVER").expect("explicit prebuilt own driver");
-    assert!(std::path::Path::new(&driver).canonicalize().unwrap().starts_with(std::path::Path::new("C:/orgtree-build/template-dogs-sol").canonicalize().unwrap()));
+    assert!(std::path::Path::new(&driver).canonicalize().unwrap().starts_with(std::path::Path::new("S:/orgtree/build/template-dogs-sol").canonicalize().unwrap()));
     std::fs::write(&args,format!("{driver}\r\nhttp://{address}\r\n{}\r\n",output.display())).unwrap();
     let command=tokio::task::spawn_blocking(move||std::process::Command::new("powershell.exe").args(["-NoProfile","-File"]).arg(repo.join("apps/desktop/renderer/tests/joblimit.ps1")).args(["-LimitMB","3072","-TimeoutSec","600","-WorkDir"]).arg(&repo).args(["-Exe","node.exe","-ArgFile"]).arg(args).status().unwrap()).await.unwrap();
     cancel.cancel();server.await.unwrap();drop(engine);connection.await.unwrap().unwrap();

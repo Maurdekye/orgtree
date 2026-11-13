@@ -13,7 +13,7 @@
 //
 // Run from the repository root, in Session 0 under the build permit
 // (docs/agents/development-and-verification.md, test-window isolation):
-//   set HTMLP_OUT=C:\orgtree-build\<agent>\<folder>   (required, owned)
+//   set HTMLP_OUT=S:\orgtree\build\<agent>\<folder>   (required, owned)
 //   set HTMLP_NODE_MODULES=<existing node_modules>   (default ./node_modules)
 //   <node_modules>\electron\dist\electron.exe apps\desktop\renderer\tests\htmlpresentation-capture.cjs
 /// No clipboard use; permissions follow the real guard (all denied here);
@@ -167,7 +167,7 @@ function startServer(files) {
 
 let windows
 try {
-  if (!/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/]/i.test(OUT)) throw Error('HTMLP_OUT must be an owned C:\\orgtree-build\\<agent>\\ folder')
+  if (!/^S:[\\/]orgtree[\\/]build[\\/][^\\/]+[\\/]/i.test(OUT)) throw Error('HTMLP_OUT must be an owned S:\\orgtree\\build\\<agent>\\ folder')
   fs.mkdirSync(OUT, { recursive: true })
   const esbuild = require(path.join(NM, 'esbuild'))
   esbuild.buildSync({ entryPoints: [path.join(REPO, 'apps/desktop/renderer/tests/htmlpresentation-ui.tsx')], bundle: true,

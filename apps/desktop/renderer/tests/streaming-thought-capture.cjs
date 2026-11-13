@@ -2,7 +2,7 @@ const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const {pathToFileURL}=require('node:url')
 const root=process.env.THOUGHT_BUILD,evidence=process.env.THOUGHT_EVIDENCE,version=process.env.THOUGHT_VERSION
-if(!/^C:\\orgtree-build\\/i.test(root||'')||!/^D:\\orgtree-work\\/i.test(evidence||''))throw Error('Expected C output and D evidence')
+if(!/^S:\\orgtree\\build\\/i.test(root||'')||!/^S:\\orgtree\\work\\/i.test(evidence||''))throw Error('Expected C output and D evidence')
 fs.mkdirSync(evidence,{recursive:true});app.setPath('userData',path.join(root,'electron-data'))
 app.disableHardwareAcceleration()
 const receipts=[],errors=[]

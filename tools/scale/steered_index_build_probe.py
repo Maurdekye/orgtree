@@ -15,8 +15,8 @@ import time
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / 'tools/scale'))
-TOOL = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-PGBIN = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+TOOL = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+PGBIN = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 INDEX = ("CREATE INDEX ix_log_d_steered_tail ON log_d "
          "(owner, (COALESCE(at, '') COLLATE \"C\") DESC, seq DESC) WHERE sect='steered_log'")
 

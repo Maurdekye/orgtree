@@ -1,7 +1,7 @@
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs'), path = require('node:path')
 const root = process.env.MISSING_PATH_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('assigned output required')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('assigned output required')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

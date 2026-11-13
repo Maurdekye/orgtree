@@ -9,7 +9,7 @@ const {exactPopoutBounds,popoutDisplayBounds,setExactPopoutBounds}=nativeBounds
 const tabBounds=(nativeBounds as unknown as Record<string,unknown>).tabPopoutBounds as
  ((features:string,rect:Electron.Rectangle,display:typeof screen)=>Electron.Rectangle)|undefined
 const root=process.env.TAB_ORIGIN_OUTPUT!
-if(!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root||''))throw Error('Expected own output')
+if(!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(root||''))throw Error('Expected own output')
 app.setPath('userData',path.join(root,'user-data'));app.disableHardwareAcceleration()
 const windows=new Set<BrowserWindow>(),rows:{label:string;source:unknown;actual:unknown;errors:string[]}[]=[]
 const sleep=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms))

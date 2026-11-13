@@ -176,7 +176,7 @@ fn owned_root() -> std::path::PathBuf {
     let root = std::path::PathBuf::from(std::env::var("ORGTREE_RECENT_TEST_ROOT").expect("ORGTREE_RECENT_TEST_ROOT: an owned empty folder"));
     let owner = std::env::var("ORGTREE_AGENT").expect("ORGTREE_AGENT");
     assert!(!owner.is_empty() && owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "invalid owner");
-    let base = std::path::Path::new("C:/orgtree-build").join(&owner).canonicalize().expect("the owner's build scope");
+    let base = std::path::Path::new("S:/orgtree/build").join(&owner).canonicalize().expect("the owner's build scope");
     assert!(root.is_absolute(), "the test root must be absolute");
     let root_c = root.canonicalize().expect("the test root exists");
     assert!(root_c.starts_with(&base) && root_c != base, "the test root must be below {}", base.display());

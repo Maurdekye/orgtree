@@ -7,7 +7,7 @@
 // Run it under the kernel memory cap:
 //   powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/renderer/tests/joblimit.ps1 `
 //     -LimitMB 4096 -TimeoutSec 900 -WorkDir <repo> -Exe <node.exe> -ArgFile <args.txt>
-// with args.txt holding, one per line: this script, <dependency-root>, <empty C:/orgtree-build/<agent>/... dir>.
+// with args.txt holding, one per line: this script, <dependency-root>, <empty S:/orgtree/build/<agent>/... dir>.
 // `--before <sha>` bundles the fixture with every renderer source changed since
 // <sha> loaded as it was there (the red of a fix made on top of the final
 // version: 296deb0 for the canvas caret fix); the capture script is the tip's.
@@ -23,10 +23,10 @@ import { withBuildLock } from './lib.mjs'
 // fixture (esbuild plugins need its asynchronous API; the lock holder waits)
 const bundling = process.argv[2] === '--bundle'
 const [depsArg, outArg, ...flags] = process.argv.slice(bundling ? 3 : 2)
-if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-visual.mjs <dependency-root> <empty C:/orgtree-build/<agent>/... dir> [--before <sha>] [--inside]')
+if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-visual.mjs <dependency-root> <empty S:/orgtree/build/<agent>/... dir> [--before <sha>] [--inside]')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
-assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i, 'output goes under the authorized C:/orgtree-build scope')
+assert.match(out.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\/.+/i, 'output goes under the authorized S:/orgtree/build scope')
 if (!bundling) assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use an empty output directory')
 const beforeAt = flags.indexOf('--before')
 const BEFORE = beforeAt >= 0 ? flags[beforeAt + 1] ?? '' : null

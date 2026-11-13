@@ -3,7 +3,7 @@
 // user mdcb7ce9a8103). Runs the engine's native document-slug tests against this
 // run's disposable cluster: each makes its own database there and stages a
 // pre-0073 schema with real-shaped presentations. No live data is read.
-// Inputs, owned by ORGTREE_AGENT under C:/orgtree-build/<agent>:
+// Inputs, owned by ORGTREE_AGENT under S:/orgtree/build/<agent>:
 //   ORGTREE_DOCUMENT_SLUGS_EXE  the engine's test binary (orgtree_engine-<hash>.exe)
 //   ORGTREE_CLAIM_TEST_OUTPUT   a private directory for the tests' output
 import {Proof} from '../proof.mjs'
@@ -13,7 +13,7 @@ import {spawnSync} from 'node:child_process'
 
 function ownedInput(value, owner) {
   if (!value || !path.isAbsolute(value)) throw Error('explicit absolute owned input required')
-  const file = path.resolve(value), base = path.resolve('C:/orgtree-build', owner), relative = path.relative(base, file)
+  const file = path.resolve(value), base = path.resolve('S:/orgtree/build', owner), relative = path.relative(base, file)
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw Error('input outside the owned build scope')
   for (let at = file; ; at = path.dirname(at)) {
     if (fs.lstatSync(at).isSymbolicLink()) throw Error('input symlink/junction refused')

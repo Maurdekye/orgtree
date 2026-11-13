@@ -55,8 +55,8 @@ fn require_loopback(cfg: &Config) -> Result<()> {
 impl Fixture {
     fn validate(input: &Inputs) -> Result<Self> {
         ensure!(!input.owner.is_empty() && input.owner.len() <= 64 && input.owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "invalid synthetic owner");
-        let owned_rig = Path::new("D:/orgtree-work/rig").join(&input.owner);
-        let owned_build = Path::new("C:/orgtree-build").join(&input.owner);
+        let owned_rig = Path::new("S:/orgtree/work/rig").join(&input.owner);
+        let owned_build = Path::new("S:/orgtree/build").join(&input.owner);
         // New generated fixtures belong to the owner's C build scope. Keep
         // admission of retained D rigs, with the same canonical/reparse guards.
         let home = owned_path(Path::new(&input.home), &owned_build)
@@ -140,14 +140,14 @@ async fn rejects_invalid_inputs() {
     let mut bad = good.clone(); bad.owner = "other-owner".into(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.root = "C:/Windows".into(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.root = std::env::var("APPDATA").unwrap_or_default(); assert!(Fixture::validate(&bad).is_err());
-    let mut bad = good.clone(); bad.output = "C:/orgtree-build/other-owner".into(); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.output = "S:/orgtree/build/other-owner".into(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.output.clear(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.home = std::env::var("APPDATA").unwrap_or_default(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.home = format!("{}/../escape", good.home); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.root = format!("{}/../escape", good.root); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.output = format!("{}/../escape", good.output); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.root = format!("{}/data", good.root); assert!(Fixture::validate(&bad).is_err(), "only a direct child of home/runs is admitted");
-    let mut bad = good.clone(); bad.output = format!("C:/orgtree-build/{}", good.owner); assert!(Fixture::validate(&bad).is_err(), "output needs its own phase");
+    let mut bad = good.clone(); bad.output = format!("S:/orgtree/build/{}", good.owner); assert!(Fixture::validate(&bad).is_err(), "output needs its own phase");
     let mut bad = good.clone(); bad.url.clear(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.url.push_str(" password=wrong"); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.url.push_str(" hostaddr=192.0.2.1"); assert!(Fixture::validate(&bad).is_err());

@@ -3,8 +3,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const root = process.env.TOOL_FILE_LINK_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]agent-tooltip-luna[\\/]/i.test(root || '')) {
-  throw new Error('Expected assigned C:/orgtree-build/agent-tooltip-luna output')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]agent-tooltip-luna[\\/]/i.test(root || '')) {
+  throw new Error('Expected assigned S:/orgtree/build/agent-tooltip-luna output')
 }
 
 app.setPath('userData', path.join(root, 'user-data'))

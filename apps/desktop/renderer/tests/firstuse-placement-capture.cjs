@@ -1,7 +1,7 @@
 const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
-const out=process.env.FIRST_USE_OUT,deps='E:/Libraries/Desktop/orgtree/node_modules'
-if(!/^C:[\\/]orgtree-build[\\/]epic-combo-sol[\\/]/i.test(out||''))throw Error('Owned output required')
+const out=process.env.FIRST_USE_OUT,deps='S:/orgtree/orgtree/node_modules'
+if(!/^S:[\\/]orgtree[\\/]build[\\/]epic-combo-sol[\\/]/i.test(out||''))throw Error('Owned output required')
 fs.mkdirSync(out,{recursive:true})
 for(const key of ['userData','sessionData','logs','crashDumps']){fs.mkdirSync(out+'/'+key,{recursive:true});app.setPath(key,out+'/'+key)}
 app.disableHardwareAcceleration();app.commandLine.appendSwitch('force-device-scale-factor','1')

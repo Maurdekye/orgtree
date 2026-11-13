@@ -10,7 +10,7 @@ const root=fixture.directory
 test.after(()=>fixture.cleanup())
 const owner=process.env.ORGTREE_AGENT
 // The C-only override controls apply on Windows; ordinary defaults work on any OS.
-const windows={skip:process.platform!=='win32' || !owner || !root.toLowerCase().startsWith(path.resolve('C:/orgtree-build',owner || 'unset').toLowerCase()+path.sep)}
+const windows={skip:process.platform!=='win32' || !owner || !root.toLowerCase().startsWith(path.resolve('S:/orgtree/build',owner || 'unset').toLowerCase()+path.sep)}
 
 test('ordinary invocation without output variables gets isolated fresh temp leaves',()=>{
   const a=testOutput('OUTPUT','default-',{}),b=testOutput('OUTPUT','default-',{})
@@ -45,7 +45,7 @@ test('missing or invalid owner and empty or relative overrides refuse before cre
 })
 
 test('owner root, sibling scopes, prefix collisions and traversal cannot become output parents',windows,()=>{
-  const own=path.resolve('C:/orgtree-build',owner)
+  const own=path.resolve('S:/orgtree/build',owner)
   for(const output of [own,path.resolve(own,'..','fictional-peer','new-leaf'),
     own+'-peer/new-leaf',own+'/nested/../new-leaf']) {
     assert.throws(()=>testOutput('OUTPUT','escape-',{ORGTREE_AGENT:owner,OUTPUT:output}))

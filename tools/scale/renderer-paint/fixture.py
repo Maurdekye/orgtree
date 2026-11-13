@@ -31,8 +31,8 @@ allowed = (Path('C:/Temp/scale-ui-capture') if args.hook_capture else
 base = allowed / ('fixture-' + time.strftime('%Y%m%d-%H%M%S'))
 base.mkdir(parents=True, exist_ok=False)
 pgroot, root, paint = base / 'pg', base / 'seed', base / 'paint'
-custodian = r'E:\Libraries\Desktop\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe'
-pgbin = r'E:\Libraries\Desktop\orgtree\artifacts\p03-postgresql\18.6-4\bin'
+custodian = r'S:\orgtree\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe'
+pgbin = r'S:\orgtree\orgtree\artifacts\p03-postgresql\18.6-4\bin'
 processes, logs, breaches = [], [], []
 done = threading.Event()
 started_pg = False

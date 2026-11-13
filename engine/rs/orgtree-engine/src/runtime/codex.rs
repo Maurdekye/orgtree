@@ -1040,7 +1040,7 @@ mod elicitation_stream_tests {
     /// notifications keep flowing; disconnect must cancel, not invent consent.
     #[tokio::test]
     async fn elicitation_stream_waits_for_human_without_blocking_and_cancels_on_disconnect() {
-        let engine = Engine::for_tests(PathBuf::from("C:/orgtree-build/compaction-cmds-sol/elicit-test"));
+        let engine = Engine::for_tests(PathBuf::from("S:/orgtree/build/compaction-cmds-sol/elicit-test"));
         let caller = Caller { org_id:1, org_slug:"fixture".into(), agent_id:7, name:"fixture".into() };
         let (actor, mut events) = mpsc::unbounded_channel();
         let (writer, mut responses) = mpsc::unbounded_channel();

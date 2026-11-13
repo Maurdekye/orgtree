@@ -30,7 +30,7 @@
 // Run it under the kernel memory cap:
 //   powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/renderer/tests/joblimit.ps1 `
 //     -LimitMB 4096 -TimeoutSec 1500 -WorkDir <repo> -Exe <node.exe> -ArgFile <args.txt>
-// with args.txt holding, one per line: this script, <dependency-root>, <empty C:/orgtree-build/<agent>/... dir>
+// with args.txt holding, one per line: this script, <dependency-root>, <empty S:/orgtree/build/<agent>/... dir>
 // and optionally --base-tree, <clean checkout of b77512f>.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -44,10 +44,10 @@ import { withBuildLock } from './lib.mjs'
 // plugins need its asynchronous API; the lock holder waits for it).
 const bundling = process.argv[2] === '--bundle'
 const [depsArg, outArg, ...flags] = bundling ? process.argv.slice(4) : process.argv.slice(2)
-if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-check.mjs <dependency-root> <empty C:/orgtree-build/<agent>/... dir> [--base-tree <b77512f checkout>] [--neighbors a,b,c] [--before <sha>] [--no-typecheck] [--no-strict] [--no-red] [--no-opus] [--inside]')
+if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-check.mjs <dependency-root> <empty S:/orgtree/build/<agent>/... dir> [--base-tree <b77512f checkout>] [--neighbors a,b,c] [--before <sha>] [--no-typecheck] [--no-strict] [--no-red] [--no-opus] [--inside]')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
-assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i, 'output goes under the authorized C:/orgtree-build scope')
+assert.match(out.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\/.+/i, 'output goes under the authorized S:/orgtree/build scope')
 if (!bundling) assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use an empty output directory')
 const baseTreeAt = flags.indexOf('--base-tree')
 const baseTree = baseTreeAt >= 0 ? path.resolve(flags[baseTreeAt + 1] ?? '') : null

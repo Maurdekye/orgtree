@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.WATCHDOG_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/]/i.test(root || '')) throw Error('Expected an assigned C:/orgtree-build/<agent>/ scope')
+if (!/^S:[\\/]orgtree[\\/]build[\\/][^\\/]+[\\/]/i.test(root || '')) throw Error('Expected an assigned S:/orgtree/build/<agent>/ scope')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

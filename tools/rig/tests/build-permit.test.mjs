@@ -63,7 +63,7 @@ test('rig build runs both original cargo steps under the caller permit without t
   ctx.mock.method(console, 'error', () => {})
   syncBuiltinESMExports()
   try {
-    process.env.CARGO_TARGET_DIR = process.platform === 'win32' ? 'C:/orgtree-build/synthetic-permit-check/cargo' : '/synthetic-permit-check/cargo'
+    process.env.CARGO_TARGET_DIR = process.platform === 'win32' ? 'S:/orgtree/build/synthetic-permit-check/cargo' : '/synthetic-permit-check/cargo'
     process.argv = [process.execPath, 'rig.mjs', 'build']
     await import(`../rig.mjs?permit-check=${Date.now()}`)
     assert.equal(process.exitCode, savedExit)
@@ -114,18 +114,20 @@ test('rig home defaults to the caller and still refuses a shared or nested home'
 
 test('cargo target guards retain their existing defaults and refusals', { skip: process.platform !== 'win32' }, ctx => {
   const saved = process.env.CARGO_TARGET_DIR
-  ctx.mock.method(fs, 'existsSync', p => p === WORK_ROOT)
+  // the answer comes from CARGO_TARGET_DIR alone: no drive is probed, least of all the ones the team left
+  const probe = ctx.mock.method(fs, 'existsSync', () => { throw new Error('cargoTarget must not touch the filesystem') })
   try {
     delete process.env.CARGO_TARGET_DIR
-    assert.throws(cargoTarget, /C:\/orgtree-build\/<agent>/)
-    for (const dir of ['C:/orgtree-build/synthetic-target', 'D:/orgtree-work/cargo-target/synthetic-target']) {
+    assert.throws(cargoTarget, /S:\/orgtree\/build\/<agent>/)
+    for (const dir of ['S:/orgtree/build/synthetic-target', 'S:/orgtree/work/cargo-target/synthetic-target']) {
       process.env.CARGO_TARGET_DIR = dir
       assert.equal(cargoTarget(), path.resolve(dir))
     }
-    for (const dir of ['C:/cargo-target/x', 'C:/orgtree-build-old/x', 'C:/orgtree-build/../cargo-target/x', 'E:/cargo-target/x']) {
+    for (const dir of ['C:/cargo-target/x', 'C:/orgtree-build/x', 'D:/orgtree-work/cargo-target/x', 'E:/cargo-target/x']) {
       process.env.CARGO_TARGET_DIR = dir
-      assert.throws(cargoTarget, /CARGO_TARGET_DIR/)
+      assert.throws(cargoTarget, /CARGO_TARGET_DIR is on drive [CDE]:/)
     }
+    assert.equal(probe.mock.callCount(), 0)
   } finally {
     if (saved === undefined) delete process.env.CARGO_TARGET_DIR
     else process.env.CARGO_TARGET_DIR = saved

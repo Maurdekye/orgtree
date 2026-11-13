@@ -18,8 +18,8 @@ BASE, PHASE = sys.argv[1], sys.argv[3]
 out = Path('C:/Temp/work-refs-checks-' + sys.argv[2]) / PHASE
 out.mkdir(parents=True)
 pgroot = out / 'pg'
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 GROUP_A = ['tests/test_pg_lazy_work_items.py', 'tests/test_pg_lazy_rows.py',
            'tests/test_pg_work_item_rows.py', 'tests/test_work_item_rows.py',
            'tests/test_pg_work_read.py', 'tests/test_pg_work_query.py',

@@ -17,7 +17,7 @@
 //   send their hellos again; an outage of a minute is reported, and the
 //   recovery once the connection has held for a minute
 // Run (debug engine, own rig home):
-//   ORGTREE_RIG_HOME=C:/orgtree-build/<you>/rig ORGTREE_RIG_ENGINE=<debug orgtree-engine.exe>
+//   ORGTREE_RIG_HOME=S:/orgtree/build/<you>/rig ORGTREE_RIG_ENGINE=<debug orgtree-engine.exe>
 //   node tools/rig/rig.mjs run tools/rig/proofs/websocket-watchdogs.mjs
 
 import fs from 'node:fs'

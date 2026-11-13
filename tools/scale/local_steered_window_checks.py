@@ -15,8 +15,8 @@ BASE = sys.argv[1]
 out = Path('C:/Temp/steered-window-checks-' + sys.argv[2])
 out.mkdir()
 pgroot = out / 'pg'
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 names = ['engine/backend/orgtree/supervisor.py', 'engine/backend/orgtree/store.py',
          'engine/backend/orgtree/chat_window.py',
          'engine/backend/orgtree/pg_migrations/0016_steered_log_tail.sql']

@@ -11,7 +11,7 @@ import { Proof } from '../proof.mjs'
 export default async function (rig) {
   const p = new Proof('codex-generation-signal')
   const root = path.resolve(rig.data, 'codex-generation-probe')
-  if (!/^D:\\orgtree-work\\rig\\/i.test(root + '\\')) throw new Error('Probe requires the authorized D rig root')
+  if (!/^S:\\orgtree\\work\\rig\\/i.test(root + '\\')) throw new Error('Probe requires the authorized D rig root')
   const home = path.join(root, 'home'), cwd = path.join(root, 'cwd')
   const codexHome = path.join(home, '.codex')
   fs.mkdirSync(codexHome, { recursive: true }); fs.mkdirSync(cwd, { recursive: true })

@@ -1,17 +1,17 @@
 // Capture the project desk's message box of tests/projectinboxwarning-visual.tsx,
 // dark and light, after checking where the inbox note sits (capture.json). Run
 // Electron on this file from the repository root, with
-// INBOX_WARNING_CAPTURE_ROOT set to a folder of your own under C:/orgtree-build
+// INBOX_WARNING_CAPTURE_ROOT set to a folder of your own under S:/orgtree/build
 // (ORGTREE_NODE_MODULES: the shared node_modules, which holds esbuild).
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 
 const root = process.env.INBOX_WARNING_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/][^\\/]/i.test(root || '')) {
-  throw new Error('INBOX_WARNING_CAPTURE_ROOT must be a folder under C:/orgtree-build/<you>/')
+if (!/^S:[\\/]orgtree[\\/]build[\\/][^\\/]+[\\/][^\\/]/i.test(root || '')) {
+  throw new Error('INBOX_WARNING_CAPTURE_ROOT must be a folder under S:/orgtree/build/<you>/')
 }
-const modules = process.env.ORGTREE_NODE_MODULES || 'E:/Libraries/Desktop/orgtree/node_modules'
+const modules = process.env.ORGTREE_NODE_MODULES || 'S:/orgtree/orgtree/node_modules'
 const repo = process.cwd()
 fs.mkdirSync(root, { recursive: true })
 require(path.join(modules, 'esbuild')).buildSync({

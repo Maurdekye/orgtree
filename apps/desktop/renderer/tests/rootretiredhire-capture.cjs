@@ -1,6 +1,6 @@
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
-const out=process.env.RETIRED_HEADER_OUT,deps='E:/Libraries/Desktop/orgtree/node_modules',red=process.env.RETIRED_HEADER_RED==='1'
-if(!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(out||''))throw Error('own output required')
+const out=process.env.RETIRED_HEADER_OUT,deps='S:/orgtree/orgtree/node_modules',red=process.env.RETIRED_HEADER_RED==='1'
+if(!/^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i.test(out||''))throw Error('own output required')
 fs.mkdirSync(out,{recursive:true})
 require(path.join(deps,'esbuild')).buildSync({entryPoints:['apps/desktop/renderer/tests/rootretiredhire-visual.tsx'],bundle:true,format:'esm',platform:'browser',outfile:out+'/fixture.js',nodePaths:[deps],define:{'process.env.NODE_ENV':'"production"'}})
 fs.writeFileSync(out+'/styles.css',['styles.css','shell.css'].map(p=>fs.readFileSync('apps/desktop/renderer/src/'+p,'utf8')).join('\n'))

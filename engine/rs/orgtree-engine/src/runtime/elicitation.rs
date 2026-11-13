@@ -307,7 +307,7 @@ mod elicitation_tests {
     }
     #[tokio::test]
     async fn elicitation_timeout_shutdown_and_aborted_waiter_cleanup_are_bounded() {
-        let engine=Engine::for_tests("C:/orgtree-build/compaction-cmds-sol/elicit-test".into());
+        let engine=Engine::for_tests("S:/orgtree/build/compaction-cmds-sol/elicit-test".into());
         let stop=CancellationToken::new();
         assert_eq!(wait(&engine,&caller(1),&form(),&stop,Duration::from_millis(5)).await,json!({"action":"decline"}));
         assert!(engine.elicitations.cards(1).is_empty());

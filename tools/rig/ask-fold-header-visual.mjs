@@ -5,9 +5,9 @@
  * 900 px width.
  *
  * Usage:
- *   ORGTREE_TEST_DEPS=E:/Libraries/Desktop/orgtree/package.json \
+ *   ORGTREE_TEST_DEPS=S:/orgtree/orgtree/package.json \
  *   node tools/rig/ask-fold-header-visual.mjs \
- *     --out C:/orgtree-build/symmetry-argon/ask-fold-header-capture-20261030 \
+ *     --out S:/orgtree/build/symmetry-argon/ask-fold-header-capture-20261030 \
  *     --base 1aafe14cc8b191479b144abf1ae515f01d7c4b00
  */
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -26,11 +26,11 @@ function arg(name, fallback = null) {
 }
 
 const outDir = path.resolve(
-  arg('--out', 'C:/orgtree-build/symmetry-argon/ask-fold-header-capture-20261030'),
+  arg('--out', 'S:/orgtree/build/symmetry-argon/ask-fold-header-capture-20261030'),
 )
 const baseSha = arg('--base', '1aafe14cc8b191479b144abf1ae515f01d7c4b00')
 
-const depsPkg = process.env.ORGTREE_TEST_DEPS || 'E:/Libraries/Desktop/orgtree/package.json'
+const depsPkg = process.env.ORGTREE_TEST_DEPS || 'S:/orgtree/orgtree/package.json'
 const requireFromDeps = createRequire(path.resolve(depsPkg))
 const esbuild = requireFromDeps('esbuild')
 const nodePaths = [
