@@ -142,8 +142,8 @@ export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
   { flash: 1, pro: 2, argon: 2, krypton: 2, carbon: 4, 'agy-sonnet': 2, 'agy-opus': 4 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
- *  2026-10-01), Krypton (`gemini-4-krypton`, user 2026-10-05) and the
- *  speculative Carbon (`gemini-4-carbon`, user 2026-10-10). Known to the
+ *  2026-10-01), Krypton (`gemini-4-krypton`, user 2026-11-11, in Barium's place) and
+ *  Carbon (`gemini-4-carbon`, user 2026-10-10, confirmed 2026-11-11). Known to the
  *  axis (a node wearing one keeps its letter,
  *  colour and seat) but offered by NO chooser until the backend's providers
  *  payload lists it among the Antigravity tier rows, which it does only while

@@ -18,10 +18,10 @@ Ordinary close drops stdin and waits five seconds before terminating a lingering
 
 ## Information and timing
 
-Argon offers low, medium and high effort. The saved choice reaches `agy` as
+Argon and Carbon offer low, medium and high effort. The saved choice reaches `agy` as
 `--effort` when its process starts; changing it takes effect at the next turn
 through process replacement, not mid-turn. Flash and AGY Claude also offer
-medium; Pro, Krypton and Carbon retain low/high. Model availability still depends
+medium; Pro and Krypton retain low/high. Model availability still depends
 on the account's registry. These controls do not promise a measured change in
 reasoning tokens, latency or answer quality.
 

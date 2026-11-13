@@ -11,6 +11,32 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
 [decided: user 2026-10-28 10:07:18Z mb1ca1568502c; verified: `runtime/rate_limit.rs`,
 `runtime/actor.rs`; contract: `docs/rust-engine/rate-limit-retry.md`]
 
+## Gemini Krypton replaces Barium; Carbon gets medium effort and costs 4 (2026-11-13, 4.5.13)
+
+Replaces what the preserved "Conditional Gemini tiers" and "Models are LISTED" entries below still
+say about Barium and about Carbon's seat (those texts are preserved records; this section is current).
+
+- **Krypton.** The `barium` tier is gone and `krypton` holds its catalog row: model `gemini-4-krypton`
+  (an unreleased internal model, so the id is the user's word, not a looked-up name), letter K, seat 2,
+  efforts low/high, conditional like Argon (offered only while the account's `agy models` lists the
+  id). Colour `--tier-krypton` `#cdc8fb`, krypton's pale lavender discharge glow; the numbers are in the
+  note above it in `styles.css`. There is no alias: a stored `barium` is an unknown tier, never offered and
+  refused on placement. The 3.x Python sources and `tests/test_barium_tier.py`
+  are historical and untouched. [decided: user 2026-11-11 mf4a3961eabc4, m56787a8f7bcf, m95727edfd9e9;
+  verified: `providers/catalog.rs`, `canvas/shared.ts`, `styles.css`, `tests/krypton.test.tsx`]
+- **Carbon is real.** A Carbon seat completed a turn on 2026-11-11 with `--model gemini-4-carbon`; its
+  first reply took about five minutes, mostly a silent wait on Google. It offers low, medium and high
+  effort: agy 1.5.6 carries `gemini-4-carbon-medium` (static inspection of the installed CLI, not a
+  measured turn at medium). [decided: user 2026-11-11 mefe16aae82e3; verified: `providers/catalog.rs`
+  `antigravity_effort` and its test]
+- **Carbon costs 4 credits**, the price of Opus, Wonder and agy-opus, no longer the placeholder 2 copied
+  from Pro. New hires, rehires and model switches to Carbon take 4. A seat hired at 2 keeps its stored
+  price until rehired, as after the Terra change (no reprice of catalog tiers). By the listing rule a
+  tier orders itself: Carbon now leads the Gemini group (carbon, pro, argon, krypton, flash) in the
+  dearest-first lists and stays last in the cheapest-first hire strips; `catalog::listed()` puts it
+  before agy-opus (equal seats keep catalog order). [decided: user 2026-11-12 m18bc0505e597; verified:
+  `providers/catalog.rs`, `canvas/shared.ts`, `tests/tierlisting.test.tsx`, `tests/carbon.test.tsx`]
+
 ## Gemini Carbon's colour is a light charcoal grey (2026-10-28, 4.5.1)
 
 Replaces the chartreuse `#c6ff00` that the "Conditional Gemini tiers" entry below still names for
@@ -910,7 +936,7 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 300
 - Models are LISTED most expensive (highest seat) first within each provider, every provider (Claude fable,
   opus, sonnet, haiku; Muse wonder-full, wonder, spark). Antigravity is grouped by model
   family in the renderer: Claude-backed Antigravity (agy-opus/agy-sonnet), then Gemini
-  (pro/argon/krypton/carbon/flash); seats sort within each group and ties keep catalog
+  (pro/argon/barium/carbon/flash); seats sort within each group and ties keep catalog
   order. The engine's `catalog::listed()` remains seat-sorted; the renderer uses
   `bySeatDesc` / `*_TIERS_LISTED` except for the shared Antigravity grouping helper in
   `shared.ts` (hire sheet, Settings, and canvas hire tokens). Hire-token strips keep their
@@ -1524,7 +1550,7 @@ Original section: Read this first. Source lines 4175–4179.
 
 <a id="e-f9bfc5ac5f086eb7"></a>
 
-## Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Krypton
+## Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Barium
 
 **4.5.0, after a sign-in to another account (2026-10-27):** every agy of the
 user shares one Windows credential, and a running agy keeps the login it started
@@ -1580,13 +1606,13 @@ an unlisted conditional tier still returns the catalog-absence reason (409).
 Original section: Providers, accounts and usage. Source lines 4812–4837.
 
 <!-- preserved:e-f9bfc5ac5f086eb7 -->
-- **Conditional Gemini tiers:** Argon (`gemini-4-argon`) and speculative Krypton
-  (`gemini-4-krypton`, pale lavender `#cdc8fb`) are offered only when the account's `agy models`
+- **Conditional Gemini tiers:** Argon (`gemini-4-argon`) and speculative Barium
+  (`gemini-4-barium`, green `#8FFF9F`) are offered only when the account's `agy models`
   registry lists the exact base id or its supported effort suffix. Each is gated
-  independently; existing agents retain their tier. Krypton copies Argon's placeholder
+  independently; existing agents retain their tier. Barium copies Argon's placeholder
   seat, effort and usage rates. [decided: user 2026-10-05; verified:
-  `providers.py`, `canvas/shared.ts`, `tests/test_barium_tier.py (legacy 3.x, untouched)`]
-  Speculative Carbon (`gemini-4-carbon`, letter C, chartreuse `#c6ff00`) copies Krypton the
+  `providers.py`, `canvas/shared.ts`, `tests/test_barium_tier.py`]
+  Speculative Carbon (`gemini-4-carbon`, letter C, chartreuse `#c6ff00`) copies Barium the
   same way in the 4.x code: hidden until `agy models` lists it, then offered like the
   other two. [decided: user 2026-10-10; verified: `providers/catalog.rs`,
   `providers/mod.rs` `agy_offers` test, `tests/carbon.test.tsx`]

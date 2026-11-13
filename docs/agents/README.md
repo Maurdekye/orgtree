@@ -605,7 +605,7 @@ The token figure is an explicitly labeled characters/4 heuristic; byte and line 
 | [e-9914c59ebc94e1f5](legacy-and-superseded.md#e-9914c59ebc94e1f5) | Providers, accounts and usage | Providers, accounts and usage |
 | [e-089b72951ff77ea8](legacy-and-superseded.md#e-089b72951ff77ea8) | Providers, accounts and usage | Provider, model, harness, account and route are separate concepts, and provider |
 | [e-f35911d33eb20e25](legacy-and-superseded.md#e-f35911d33eb20e25) | Providers, accounts and usage | Accounts are machine-wide and symmetric (any org may use any account), except legacy |
-| [e-f9bfc5ac5f086eb7](providers-and-accounts.md#e-f9bfc5ac5f086eb7) | Providers, accounts and usage | Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Krypton |
+| [e-f9bfc5ac5f086eb7](providers-and-accounts.md#e-f9bfc5ac5f086eb7) | Providers, accounts and usage | Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Barium |
 | [e-7e963ca25fff4917](providers-and-accounts.md#e-7e963ca25fff4917) | Providers, accounts and usage | Hire tokens treat a missing Claude/Codex/Antigravity row as absent only after |
 | [e-19adbaa90daa849b](legacy-and-superseded.md#e-19adbaa90daa849b) | Providers, accounts and usage | A provider that is not installed is absent from the UI; installed but signed out shows |
 | [e-0c4327cbc9ba6c01](providers-and-accounts.md#e-0c4327cbc9ba6c01) | Providers, accounts and usage | Hire chips additionally require an enabled account allowed for the current org. |
