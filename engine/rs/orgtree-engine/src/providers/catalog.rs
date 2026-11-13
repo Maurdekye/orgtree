@@ -498,6 +498,19 @@ mod effort_tests {
         assert!(k.conditional && k.provider == GOOGLE && k.seat == 2.0 && k.letter == "K" && k.model == "gemini-4-krypton");
     }
 
+    /// Carbon costs 4 credits (user 2026-11-12 m18bc0505e597 "change carbon's credit cost to 4"): the price of
+    /// Opus, Wonder and agy-opus, no longer the placeholder 2 it copied from Pro. Krypton and Argon keep 2.
+    #[test]
+    fn carbon_costs_four_credits_like_opus() {
+        assert_eq!(seat_price("carbon"), 4.0);
+        for same in ["opus", "wonder", "agy-opus"] {
+            assert_eq!(seat_price(same), seat_price("carbon"), "{same}");
+        }
+        for unchanged in ["argon", "krypton", "pro"] {
+            assert_eq!(seat_price(unchanged), 2.0, "{unchanged}");
+        }
+    }
+
     #[test]
     fn muse_tiers_and_pools() {
         for (name, seat) in [("wonder", 4.0), ("wonder-full", 10.0), ("spark", 2.0)] {
@@ -557,7 +570,8 @@ mod effort_tests {
         assert_eq!(listed().len(), TIERS.len());
         assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
-        assert_eq!(names(GOOGLE), ["agy-opus", "pro", "argon", "krypton", "carbon", "agy-sonnet", "flash"]);
+        // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads
+        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "agy-sonnet", "flash"]);
         assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
         // what a person sees: legacy and not-yet-listed models are hidden
         let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {

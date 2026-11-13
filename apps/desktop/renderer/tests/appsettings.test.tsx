@@ -312,7 +312,7 @@ test('§3a Antigravity settings group Claude tiers before Gemini tiers', async (
     { tier: 'argon', provider: 'google', seat: 2, model: 'antigravity-argon', letter: 'A', name: 'Argon' },
     { tier: 'agy-opus', provider: 'google', seat: 4, model: 'antigravity-opus', letter: 'O', name: 'Opus' },
     { tier: 'krypton', provider: 'google', seat: 2, model: 'antigravity-krypton', letter: 'K', name: 'Krypton' },
-    { tier: 'carbon', provider: 'google', seat: 2, model: 'antigravity-carbon', letter: 'C', name: 'Carbon' },
+    { tier: 'carbon', provider: 'google', seat: 4, model: 'antigravity-carbon', letter: 'C', name: 'Carbon' },
   ]
   stubFetch([], { providers: [
     provider('claude'), provider('openai'), { ...provider('google'), tiers },
@@ -324,7 +324,7 @@ test('§3a Antigravity settings group Claude tiers before Gemini tiers', async (
       '[aria-label="Antigravity model tiers"] .acct-provider-tier .tier')]
       .map(el => el.className.split(/\s+/).find(name => name.startsWith('t-'))!.slice(2))
     assert.deepEqual(rendered, [
-      'agy-opus', 'agy-sonnet', 'argon', 'krypton', 'carbon', 'flash',
+      'agy-opus', 'agy-sonnet', 'carbon', 'argon', 'krypton', 'flash',
     ], 'Claude-backed tiers stay together before Gemini-backed tiers')
   } finally { await view.unmount(); delete g.fetch }
 })

@@ -1622,7 +1622,7 @@ mod conditional_tests {
         assert!(!agy_offers("argon", &[]) && !agy_offers("krypton", &[]));
         assert!(agy_offers("flash", &[]));
         let row = super::catalog::tier("carbon").unwrap();
-        assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 2.0, true));
+        assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 4.0, true));
     }
 }
 

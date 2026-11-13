@@ -26,7 +26,7 @@ import type { LineageEntry, OpResult, ProviderInfo, TreePayload } from '../src/t
 declare const __SRC_DIR__: string
 const noop = () => {}
 const SEATS = { haiku: 1, sonnet: 2, opus: 4, fable: 10, 'gpt-reserve': 0.2,
-  luna: 0.1, terra: 2, sol: 2, astra: 10, flash: 1, pro: 2, carbon: 2 }
+  luna: 0.1, terra: 2, sol: 2, astra: 10, flash: 1, pro: 2, carbon: 4 }
 const ON: HireState = { enabled: true, installed: true, reason: null }
 /** the Antigravity hire state as `hireOf` builds it from the payload rows */
 const google = (carbon: boolean): HireState =>
@@ -63,7 +63,7 @@ test('§1 carbon is a conditional Antigravity tier; flash and pro are not', (t: 
   assert.ok(ANTIGRAVITY_TIERS.includes('carbon'))
   assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.equal(TIER_LETTER.carbon, 'C')
-  assert.equal(ANTIGRAVITY_TIER_SEAT.carbon, 2, 'placeholder seat copies pro')
+  assert.equal(ANTIGRAVITY_TIER_SEAT.carbon, 4, 'Carbon costs 4 credits (user 2026-11-12), like Opus')
   // no payload evidence: hidden
   assert.equal(antigravityTierOffer(null, 'carbon'), 'hide')
   assert.equal(antigravityTierOffer(ON, 'carbon'), 'hide')
