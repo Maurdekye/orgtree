@@ -184,3 +184,8 @@ export function remoteTitle(remote: Pick<RemoteView, 'name' | 'url'>, mark?: Pic
   const there = mark && alias && mark.slug !== alias ? ` · named ${mark.slug} there` : ''
   return `On ${remote.name} (remote engine) · ${remote.url}${there}`
 }
+
+/** Not built yet (the shape the test is written against). */
+export const addressWithCode = (_typed: string): { url: string; code: string } | null => null
+/** Not built yet (the shape the test is written against). */
+export const noLongerShared = (_remote: unknown, _alias: string): string | null => null

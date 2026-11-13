@@ -929,6 +929,12 @@ async fn a_switch_that_could_let_nobody_in_is_not_turned_on_and_says_why() {
     let refused = on().await;
     assert_eq!((refused.0, refused.1["detail"].as_str()), (409, Some(text::NO_WAY_IN)), "{refused:?}");
     assert!(!host.engine.access.is_open(&galaxy));
+    // the app can ask first, before it asks Windows for anything: the same sentence, and nothing changed
+    let (status, asked) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert_eq!((status, asked["refusal"].as_str(), asked["on"].as_bool()), (200, Some(text::NO_WAY_IN), Some(false)), "{asked}");
+    // a plain look reads no address, and says nothing of it
+    let (_, plain) = host.owner("GET", "/api/remote-access/orgs/galaxy", None).await;
+    assert!(plain.get("refusal").is_none(), "{plain}");
     // Tailscale did not answer: nothing is known, so nothing is promised
     host.engine.access.doors.fix(Reading { tailscale: None, ..Reading::default() });
     assert_eq!(on().await.0, 409);
@@ -938,6 +944,8 @@ async fn a_switch_that_could_let_nobody_in_is_not_turned_on_and_says_why() {
     let refused = on().await;
     assert_eq!((refused.0, refused.1["detail"].as_str()), (409, Some(text::NO_WAY_IN_LAN)), "{refused:?}");
     host.engine.access.doors.fix(Reading { tailscale: Some(None), lan: "10.254.253.252".parse().ok(), ..Reading::default() });
+    let (_, asked) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert!(asked.as_object().is_some_and(|view| view.get("refusal") == Some(&Value::Null)), "it could be turned on now: {asked}");
     let (status, view) = on().await;
     assert_eq!((status, view["on"].as_bool()), (200, Some(true)), "{view}");
     // the answer says where the door stands: here it cannot be bound (the address is not this computer's)
