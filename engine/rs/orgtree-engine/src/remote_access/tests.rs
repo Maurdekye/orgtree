@@ -225,7 +225,7 @@ async fn the_door_and_the_apps_own_listener_each_take_only_their_own_tokens() {
     }
 
     // the app's token beside a member's own widens nothing: the member is still only a member
-    let got = host.call(host.door, "GET", "/api/accounts", &[("authorization", bearer.as_str()), (crate::http::TOKEN_HEADER, DESKTOP_TOKEN)], None).await;
+    let got = host.call(host.door, "GET", "/api/remotes", &[("authorization", bearer.as_str()), (crate::http::TOKEN_HEADER, DESKTOP_TOKEN)], None).await;
     assert!(refused_as_not_yours(&got), "{got:?}");
 }
 
@@ -411,15 +411,15 @@ async fn a_member_has_the_organization_it_was_given_and_nothing_else() {
     for (method, path) in [
         ("DELETE", "/api/orgs/galaxy"), ("POST", "/api/orgs/galaxy"), ("POST", "/api/orgs/galaxy/mcp"), ("POST", "/api/orgs/galaxy/template"),
         ("GET", "/api/orgs"), ("POST", "/api/orgs"),
-        ("GET", "/api/accounts"), ("POST", "/api/accounts"), ("DELETE", "/api/accounts/claude-1"), ("GET", "/api/accounts/claude-1/identity"),
+        ("GET", "/api/accounts/readout"), ("POST", "/api/accounts"), ("DELETE", "/api/accounts/claude-1"), ("GET", "/api/accounts/claude-1/identity"),
         ("PUT", "/api/accounts/claude-1/enabled"), ("POST", "/api/accounts/keys"), ("PUT", "/api/openrouter/key"),
         ("GET", "/api/app-settings/instructions"), ("PUT", "/api/app-settings/instructions"), ("PUT", "/api/app-settings/runtime"),
-        ("GET", "/api/defaults"), ("POST", "/api/defaults"), ("POST", "/api/langservers"), ("PUT", "/api/providers/claude/enabled"),
-        ("PUT", "/api/charters/lead"), ("POST", "/api/charters/open"), ("POST", "/api/templates/open"), ("GET", "/api/fs"),
+        ("PUT", "/api/defaults"), ("POST", "/api/defaults"), ("POST", "/api/langservers"), ("PUT", "/api/providers/claude/enabled"),
+        ("PUT", "/api/charters/lead"), ("POST", "/api/charters/open"), ("POST", "/api/templates/open"), ("POST", "/api/fs"),
         ("GET", "/api/desktop/status"), ("POST", "/api/desktop/shutdown"), ("GET", "/api/desktop/phone"), ("POST", "/api/desktop/phone/code"),
         ("GET", "/api/desktop/identity"), ("GET", "/api/diagnostics/engine-stats"), ("GET", "/api/crash-reports"),
         ("GET", "/api/remotes"), ("POST", "/api/remotes"), ("DELETE", "/api/remotes/r1"), ("PUT", "/api/remotes/shown-as"),
-        ("POST", "/api/mcp"), ("GET", "/api/app/ws"), ("GET", "/api/app/records"), ("GET", "/api/app-settings/live-feed/tokens"),
+        ("POST", "/api/mcp"), ("POST", "/api/app/records"), ("GET", "/api/usage"), ("GET", "/api/app-settings/live-feed/tokens"),
         ("POST", "/api/standalone/clients"), ("POST", "/api/rig/tool"), ("GET", "/api/changelog"), ("GET", "/api/unknown"),
         // not a route as the router writes it
         ("GET", "/api/orgs/galaxy/records/"), ("GET", "/api/orgs/galaxy/no-such-route"), ("GET", "/api/orgs/galaxy/../other/records"),
@@ -751,7 +751,7 @@ async fn an_address_that_is_refused_too_often_is_answered_nothing_else_for_a_whi
 
     // what a computer that was let in is refused is not counted
     for _ in 0..6 {
-        assert!(refused_as_not_yours(&host.door("GET", "/api/accounts", &token, None).await));
+        assert!(refused_as_not_yours(&host.door("GET", "/api/remotes", &token, None).await));
     }
     assert_eq!(host.door("GET", "/api/desktop/alive", &token, None).await.0, 200);
 
@@ -978,6 +978,160 @@ async fn the_owner_is_shown_who_is_connected_now() {
     assert!(gone, "a computer whose connections ended is not shown as connected");
 }
 
+// ------------------------------------------------------------ F-T5: what a member is sent
+
+/// A socket of the engine's as another computer opens one at the door.
+async fn door_socket(host: &Host, path: &str, token: &str) -> tokio_tungstenite::WebSocketStream<TcpStream> {
+    use tokio_tungstenite::tungstenite::client::ClientRequestBuilder;
+    let tcp = TcpStream::connect(host.door).await.unwrap();
+    let uri: http::Uri = format!("ws://{}{path}", host.door).parse().unwrap();
+    let request = ClientRequestBuilder::new(uri).with_header("authorization", format!("Bearer {token}"));
+    tokio_tungstenite::client_async_with_config(request, tcp, None).await.expect("the door takes a member's socket").0
+}
+
+/// The frames of a socket up to and with the first one `wanted` picks.
+async fn frames_until(socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>, wanted: impl Fn(&Value) -> bool) -> Vec<Value> {
+    let mut seen = Vec::new();
+    loop {
+        let frame: Value = serde_json::from_str(&crate::remote::testkit::next_text(socket).await.expect("a frame")).unwrap();
+        let found = wanted(&frame);
+        seen.push(frame);
+        if found {
+            return seen;
+        }
+    }
+}
+
+fn slugs_of(registry: &Value) -> Vec<String> {
+    registry["records"].as_array().unwrap().iter().map(|record| record["body"]["slug"].as_str().unwrap().to_string()).collect()
+}
+
+fn keys_of(map: &Value) -> Vec<String> {
+    let mut keys: Vec<String> = map.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    keys
+}
+
+#[tokio::test]
+async fn a_member_is_sent_its_organizations_and_no_others_and_no_address_of_the_owners() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    let other = host.shared(8, "other");
+    host.org(9, "hidden");
+    let (id, token) = host.let_in(&galaxy, PC).await;
+    let app = &host.engine.app;
+    // what the feed would have read from the database: three organizations, each with a summary and a notice
+    let row = |id: i64, slug: &str, uuid: &str| json!({ "org_id": id, "slug": slug, "org_uuid": uuid, "state": "active" });
+    app.test_registry(vec![row(7, "galaxy", &galaxy), row(8, "other", &other), row(9, "hidden", "uuid-of-hidden")]);
+    let summary = |name: &str| json!({ "name": name });
+    for (n, uuid, name) in [(7, galaxy.as_str(), "The galaxy organization"), (8, other.as_str(), "The other organization"), (9, "uuid-of-hidden", "The hidden organization")] {
+        app.test_org(n, json!({ "uuid": uuid }), summary(name), json!([{ "text": format!("a notice in {name}") }]));
+    }
+    // this computer's values: a sign-in and an account with the owner's address and where else it is used,
+    // and two that are nobody else's business at all
+    crate::providers::set_agy_email(&host.engine, "sam@example.com");
+    app.set_value("accounts", json!({ "accounts": [{ "id": "claude-1", "label": "sam@example.com", "identity": { "email": "sam@example.com" },
+        "origin_org": "uuid-of-hidden", "bound": [{ "org": "The hidden organization", "agent": "lead" }] },
+        { "id": "claude-2", "label": "unknown.to.the.engine@example.com", "identity": { "email": "unknown.to.the.engine@example.com" } }] }));
+    app.set_value("remotes", json!([{ "id": "r1", "name": "An engine somewhere else" }]));
+    lifecycle::publish(&host.engine);
+    app.working(7, 1);
+    app.working(8, 3);
+
+    // control: this desktop's own app is sent all of it
+    let mut mine = Value::Null;
+    for _ in 0..300 {
+        mine = host.owner("GET", "/api/app/records", None).await.1;
+        let values = &mine["runtime"]["values"];
+        if slugs_of(&mine["registry"]).len() == 3 && keys_of(&mine["summaries"]).len() == 3 && mine["runtime"]["orgs"]["8"].is_object()
+            && values["accounts"].is_object() && values["remote_access"].is_object() && values["providers"].is_object() && values["remotes"].is_object() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let text = mine.to_string();
+    for present in ["sam@example.com", "unknown.to.the.engine@example.com", "The hidden organization", "The other organization", "An engine somewhere else", "origin_org", "\"remote_access\""] {
+        assert!(text.contains(present), "the owner's own snapshot holds {present}: {text}");
+    }
+
+    // the member's: its one organization, two values, and none of the rest
+    let (status, theirs) = host.door("GET", "/api/app/records", &token, None).await;
+    assert_eq!(status, 200, "{theirs}");
+    assert_eq!(slugs_of(&theirs["registry"]), vec!["galaxy"]);
+    assert_eq!((keys_of(&theirs["summaries"]), keys_of(&theirs["notices"]), keys_of(&theirs["runtime"]["orgs"])), (vec!["7".to_string()], vec!["7".to_string()], vec!["7".to_string()]), "{theirs}");
+    assert_eq!(keys_of(&theirs["runtime"]["values"]), vec!["accounts", "providers"], "{theirs}");
+    let text = theirs.to_string();
+    for absent in ["@example.com", "The hidden organization", "The other organization", "uuid-of-hidden", other.as_str(), "An engine somewhere else", "\"origin_org\"", "\"bound\"", "\"remote_access\"", "\"remotes\""] {
+        assert!(!text.contains(absent), "a member's snapshot holds {absent}: {text}");
+    }
+    let accounts = &theirs["runtime"]["values"]["accounts"]["value"]["accounts"];
+    assert_eq!(accounts[0]["identity"]["email"], Value::Null, "{accounts}");
+    assert!(accounts[0]["label"].is_string() && accounts[1]["label"].is_string(), "a label stays a text: {accounts}");
+
+    // its socket: the same snapshot first
+    let mut socket = door_socket(&host, "/api/app/ws", &token).await;
+    let first = frames_until(&mut socket, |_| true).await.remove(0);
+    assert_eq!((first["type"].as_str(), slugs_of(&first["registry"])), (Some("app_snapshot"), vec!["galaxy".to_string()]), "{first}");
+
+    // the owner gives it a second organization: its feed says so, on the connection it has
+    assert_eq!(host.owner("PUT", &format!("/api/remote-access/orgs/other/computers/{id}"), None).await.0, 200);
+    let frames = frames_until(&mut socket, |frame| frame["type"] == "org_summary" && frame["org_id"] == 8).await;
+    let registry = frames.iter().find(|frame| frame["type"] == "registry_snapshot").expect("its registry, again");
+    assert_eq!(slugs_of(registry), vec!["galaxy", "other"]);
+    assert_eq!(frames.last().unwrap()["body"]["name"], "The other organization");
+
+    // a change in an organization it may not open is not sent to it; one in its own is
+    app.test_org(9, json!({ "uuid": "uuid-of-hidden" }), summary("The hidden organization, renamed"), json!([]));
+    app.working(9, 5);
+    app.test_org(7, json!({ "uuid": galaxy }), summary("The galaxy organization, renamed"), json!([]));
+    let frames = frames_until(&mut socket, |frame| frame["type"] == "org_summary" && frame["body"]["name"] == "The galaxy organization, renamed").await;
+    assert_eq!(frames.last().unwrap()["org_id"], 7);
+    assert!(frames.iter().all(|frame| frame["org_id"] != 9 && !frame.to_string().contains("hidden") && frame["orgs"]["9"].is_null()), "{frames:?}");
+
+    // a value that is nobody else's is not pushed to it; one it gets comes without the address
+    app.set_value("remotes", json!([{ "id": "r1", "name": "An engine somewhere else, renamed" }]));
+    app.set_value("accounts", json!({ "accounts": [{ "id": "claude-1", "label": "sam@example.com", "bound": [{ "org": "The hidden organization" }] }] }));
+    let frames = frames_until(&mut socket, |frame| frame["type"] == "app_runtime" && frame["values"]["accounts"].is_object()).await;
+    let text = frames.iter().map(Value::to_string).collect::<String>();
+    assert!(!text.contains("@example.com") && !text.contains("somewhere else") && !text.contains("hidden") && !text.contains("\"remotes\""), "{text}");
+
+    // its organization is switched off: the connection ends (a member that comes back sees what is open then)
+    host.engine.access.set_open(&galaxy, false).unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(2), async { while crate::remote::testkit::next_text(&mut socket).await.is_ok() {} }).await.is_ok();
+    assert!(ended, "the socket of a computer whose organization was switched off ends");
+    let (status, theirs) = host.door("GET", "/api/app/records", &token, None).await;
+    assert_eq!((status, slugs_of(&theirs["registry"])), (200, vec!["other".to_string()]), "{theirs}");
+}
+
+#[tokio::test]
+async fn an_answer_to_a_member_holds_no_address_of_the_owners() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    // A text that is an address, in an answer that is not an organization's: here the name a computer gave
+    // itself (an engine without a database has no account to show). The owner's own app reads it as it is.
+    let (id, token) = host.let_in(&galaxy, "dana@example.com").await;
+    let (status, mine) = host.owner("GET", "/api/remote-access/orgs/galaxy", None).await;
+    assert_eq!((status, mine["computers"][0]["name"].as_str()), (200, Some("dana@example.com")), "{mine}");
+    // the same record, read through the door by a computer that was let in: every answer to it passes the filter
+    let (status, theirs) = host.door("GET", "/api/standalone/clients", &token, None).await;
+    assert_eq!(status, 200, "{theirs}");
+    assert_eq!((theirs["clients"][0]["id"].as_str(), theirs["clients"][0]["name"].as_str()), (Some(id.as_str()), Some("account")), "{theirs}");
+    assert!(!theirs.to_string().contains("@example.com"), "{theirs}");
+    assert_eq!(theirs["clients"][0].as_object().map(|o| o.len()), host.engine.access.registry.row(&id).unwrap().as_object().map(|o| o.len()), "nothing else was taken out");
+    // and the reads a window needs are reads: none of them takes a write
+    for (method, path) in [("POST", "/api/providers"), ("PUT", "/api/providers/claude/enabled"), ("POST", "/api/accounts"), ("DELETE", "/api/accounts/claude-1"),
+                           ("POST", "/api/skills/refresh"), ("PUT", "/api/charters/lead"), ("POST", "/api/templates/resolve"), ("POST", "/api/defaults"),
+                           ("POST", "/api/mcp-servers/refresh"), ("POST", "/api/app/records"), ("GET", "/api/orgs")] {
+        let got = host.door(method, path, &token, Some(json!({}))).await;
+        assert!(refused_as_not_yours(&got), "{method} {path}: {got:?}");
+    }
+    for path in ["/api/harnesses", "/api/skills", "/api/mcp-servers", "/api/defaults", "/api/fs"] {
+        assert_ne!(host.door("GET", path, &token, None).await.0, 403, "{path} is a read a window needs");
+    }
+}
+
 // ------------------------------------------------------------ the registry's file
 
 #[tokio::test]
@@ -1051,8 +1205,8 @@ fn the_lists_name_routes_of_the_router_and_nothing_else() {
     let is_route = |route: &str| routes.iter().any(|r| r == route);
     // What a member may read beyond its organization, what it may do with its own record and what a
     // code may do are short lists on purpose: making one longer is a change to this line too.
-    assert_eq!((member::READ.len(), member::OWN.len(), member::INVITATION.len()), (3, 3, 3));
-    assert!(member::ORG.len() >= 100 && member::REFUSED.len() >= 100, "{} and {}", member::ORG.len(), member::REFUSED.len());
+    assert_eq!((member::READ.len(), member::OWN.len(), member::INVITATION.len()), (15, 3, 3));
+    assert!(member::ORG.len() >= 100 && member::REFUSED.len() >= 90, "{} and {}", member::ORG.len(), member::REFUSED.len());
     for route in member::ORG.iter().chain(member::READ).chain(member::REFUSED) {
         assert!(is_route(route), "{route} is listed but is not a route");
     }
@@ -1091,8 +1245,9 @@ fn the_table_gives_a_member_its_organization_and_refuses_the_rest() {
     }
     assert!(routes.iter().filter(|route| route.starts_with("/api/orgs/{slug}")).count() == member::ORG.len() + 3, "ORG, the organization itself, mcp and template");
 
-    // reads that are reads only
-    for path in ["/api/orgs/galaxy", "/api/desktop/alive", "/api/host"] {
+    // reads that are reads only: the organization itself, and what a window needs of the app
+    for path in member::READ.iter().map(|route| fill(route, "galaxy")) {
+        let path = path.as_str();
         assert_eq!(verdict_of("GET", path), Allow, "{path}");
         assert_eq!(verdict_of("HEAD", path), Allow, "{path}");
         for method in ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"] {

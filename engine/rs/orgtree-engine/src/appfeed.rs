@@ -26,6 +26,19 @@ pub struct AppFeed {
 /// A message and the request that sent it.
 type Env = (Msg, Option<String>);
 
+/// Tests only: what the feed would have read from the database.
+#[cfg(test)]
+impl AppFeed {
+    /// The list of this engine's organizations (`read_registry`'s rows).
+    pub fn test_registry(&self, rows: Vec<Value>) {
+        let _ = self.tx.send((Msg::RegistryRead(rows), None));
+    }
+    /// One organization's row, summary and notices (`read_org`'s answer).
+    pub fn test_org(&self, id: i64, org: Value, summary: Value, notices: Value) {
+        let _ = self.tx.send((Msg::OrgRead(id, Some((org, summary, notices))), None));
+    }
+}
+
 /// The feed task's inbox, handed to `start` once.
 pub struct AppFeedInbox(mpsc::UnboundedReceiver<Env>);
 
