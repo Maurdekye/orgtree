@@ -235,7 +235,8 @@ test('Connection details opens from the chip; Streamer mode masks the address an
     const control = row.querySelector('.set-control')!
     return [row.querySelector('.set-label')!.textContent!.trim(), control]
   }))
-  assert.deepEqual(Object.keys(rows()), ['Name', 'Address', 'State', 'Transport', 'Remote engine version', 'Signed in as', 'Organizations'])
+  assert.deepEqual(Object.keys(rows()), ['Name', 'Address', 'State', 'Transport', 'Remote engine version', 'Signed in as',
+    'Shown to others as', 'Also connected', 'Organizations'])
   assert.equal(rows().Transport!.textContent, 'Tailscale')
   assert.equal(rows().Organizations!.textContent, 'Acme, Beta')
   const masked = (label: string) => rows()[label]!.querySelector('[data-streamer-field]')

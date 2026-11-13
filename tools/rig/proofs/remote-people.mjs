@@ -131,6 +131,12 @@ export default async function (rig) {
     const history = (await asDana('GET', `/api/orgs/${org}/history/events?limit=50`)).json
     const inHistory = (history?.items ?? []).find(e => e.op === 'settings')
     proof.check('the History window carries it too', inHistory?.via?.name === SAM, inHistory ? { via: inHistory.via } : { keys: Object.keys(history ?? {}) })
+    const sentMail = (await asDana('GET', `/api/orgs/${org}/history/user-sent?limit=50`)).json
+    const sentRow = (sentMail?.items ?? []).find(m => m.body === 'a message from the first computer')
+    const agentMail = (await asDana('GET', `/api/orgs/${org}/history/node-mail?node=lead&limit=50`)).json
+    const gotRow = (agentMail?.items ?? []).find(m => m.body === 'a message from the first computer')
+    proof.check('the mail records of the History window say whose a message was', sentRow?.via?.name === SAM && gotRow?.via?.id === mine,
+      { sent: sentRow ? { via: sentRow.via ?? null } : null, got: gotRow ? { via: gotRow.via ?? null } : null })
 
     // ------------------------------------------------------------ an agent's own record
     await far.api('POST', '/api/rig/tool', { org, agent: 'lead', tool: 'orgtree_status', args: { status: 'working', summary: 'A status from the agent itself.' } })
