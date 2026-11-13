@@ -6616,7 +6616,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "Show legacy models (Gemini Pro)"
+     "label": "Show legacy models (Gemini Pro, Gemini Flash)"
     }
    ],
    "key_sources": [

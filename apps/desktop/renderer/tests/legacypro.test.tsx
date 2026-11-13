@@ -301,7 +301,7 @@ test('§4 the toggle is labelled with its one legacy model, Gemini Pro',
     await inAct(async () => { await flush(10) })
     const panel = document.getElementById('app-settings-panel-runtime')
     assert.ok(panel, 'no Runtime tab panel')
-    assert.match(panel!.textContent ?? '', /Show legacy models \(Gemini Pro\)/)
+    assert.match(panel!.textContent ?? '', /Show legacy models \(Gemini Pro, Gemini Flash\)/)
     assert.doesNotMatch(panel!.textContent ?? '', /Terra/, 'the Runtime tab still names Terra as legacy')
   })
 
@@ -313,7 +313,7 @@ test('§5 App settings > Runtime carries the toggle (and no other tab does), off
     const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
     t.after(() => v.unmount())
     await inAct(async () => { await flush(10) })
-    const label = /Show legacy models \(Gemini Pro\)/
+    const label = /Show legacy models \(Gemini Pro, Gemini Flash\)/
     const holders = [...document.querySelectorAll('[role="tabpanel"]')]
       .filter((p) => label.test(p.textContent ?? ''))
     assert.deepEqual(holders.map((p) => p.id), ['app-settings-panel-runtime'],

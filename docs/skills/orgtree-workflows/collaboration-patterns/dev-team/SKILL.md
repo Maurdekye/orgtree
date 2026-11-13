@@ -28,7 +28,7 @@ The four shipped template definitions use these tier IDs:
 | --- | --- | --- | --- | --- |
 | `devteam-claude` | `opus` | `opus` | `opus` | `sonnet` |
 | `devteam-codex` | `sol` | `astra` | `sol` | `luna` |
-| `devteam-antigravity` | `argon` | `argon` | `argon` | `flash` |
+| `devteam-antigravity` | `hydrogen` | `carbon` | `hydrogen` | `hydrogen` |
 | `devteam-muse` | `wonder` | `wonder-full` | `wonder` | `spark` |
 
 These are source defaults, not a current recommendation or a promise those models are offered on every machine. Honour the user's choices, project model-placement rules, installed catalogs and eligible accounts. The creation preview lets the user repair unavailable choices. Each template sets coordinator spare credits to 10 and report spare credits to 0; a spare value is not the total team grant. Planning adds the reports' seats and grants to the parent's allocation. Quick chat defaults to that coordinator and its tier.

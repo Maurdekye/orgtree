@@ -486,7 +486,7 @@ function ShowLegacyModelsToggle() {
   const on = useShowLegacyModels()
   return (
     <SetGroup title="Legacy models">
-      <SetToggle label="Show legacy models (Gemini Pro)" checked={on}
+      <SetToggle label="Show legacy models (Gemini Pro, Gemini Flash)" checked={on}
         onChange={setShowLegacyModelsOn}
         hint={'Off: hire and model choices, and the model tier lists, leave Gemini Pro out. '
           + 'Agents already on Gemini Pro keep running and show their model either way.'} />

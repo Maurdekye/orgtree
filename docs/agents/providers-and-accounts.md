@@ -11,6 +11,46 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
 [decided: user 2026-10-28 10:07:18Z mb1ca1568502c; verified: `runtime/rate_limit.rs`,
 `runtime/actor.rs`; contract: `docs/rust-engine/rate-limit-retry.md`]
 
+## Gemini Hydrogen takes Flash's place; Flash is a legacy model (2026-11-13, 4.5.13)
+
+- **Hydrogen** (`hydrogen`, model `gemini-4-hydrogen`, letter H) is an Antigravity tier that is ALWAYS offered: unlike
+  Argon, Krypton and Carbon it does not wait for the account's `agy models` to list it (user: "make hydrogen always
+  available unconditionally regardless of the check"). The model is unreleased, so everything else is a PLACEHOLDER
+  until a real turn: the id is the user's word, seat 1 by the input-price rule ($1.5 per million), efforts low and
+  high, the Gemini usage pool, no bucket of its own. Colour `--tier-hydrogen` `#f7fff0`: near-white with the faintest
+  green cast, because astra is the near-white that leans violet and a neutral silver is the text colour itself (the
+  numbers are in the note above it in `styles.css`); on the two light themes its hire button takes the dark backing
+  Wonder Full's has. [decided: user 2026-11-12 m6b3dbb2cfa71, m7941d5c20ccc; 2026-11-13 m6258781910ea; verified:
+  `providers/catalog.rs`, `canvas/shared.ts`, `styles.css`, `tests/hydrogen.test.tsx`]
+- **A turn the account cannot run says so.** A failed Antigravity turn on a Gemini tier reads "<model> is not available
+  on this Antigravity account" when the user's own login has a confirmed model list that lacks the model, or when the
+  error itself names a model and refuses it; what happened stays in brackets. A signed-out or unread list is not
+  evidence. A turn on a model the confirmed list lacks is stopped after 120 s of silence (`UNLISTED_MODEL_IDLE_S`)
+  instead of the ordinary silence limit, also when that limit is turned off. Not measured against the real CLI: how
+  agy answers an unavailable model is unknown, so both kinds of evidence are kept. [decided: user 2026-11-13
+  m6258781910ea; verified: `runtime/agy.rs` `unavailable_model_error`, `runtime/actor.rs`, `providers::agy_lists`]
+- **Hydrogen's cost is an estimate**: $1.50 input (the user's figure), $0.15 cached, $7.50 output (guessed from
+  Flash's ratio) per million. Its turns are stored `estimated`, the spend badge's turn lines say `est.`, and a total
+  that includes one says `est.` too. Remove `catalog::cost_is_estimate` when the price is published. [decided: user
+  2026-11-13 md16909f83245 "Estimate"; verified: `runtime/agy.rs` `request_cost`, `canvas/desk.tsx` `SpendBadge`]
+- **Flash is legacy** (engine `legacy: true`, renderer `OPT_IN_LEGACY_TIERS`): out of `orgtree_list_tiers`, the staffing
+  options and the providers rows, and offered on the desktop only with Show legacy models (Gemini Pro, Gemini Flash)
+  on, marked legacy. Seats on Flash keep running, keep their letter, colour and seat, and Flash is still placed by
+  name. A saved template with a Flash seat has that seat blocked until a current model is picked, as one with a Gemini
+  Pro seat always had. [decided: user 2026-11-13 md16909f83245 "Now"; verified: `providers/catalog.rs`,
+  `domain/staffing/menu_availability_tests.rs`, `domain/templates.rs` tests]
+- **The built-in Antigravity team** is Hydrogen for the coordinator, redteam and curator and Carbon for the
+  implementer; Quick chat starts on Hydrogen. Carbon is conditional: where agy does not list it only the implementer
+  blocks until another model is picked. [decided: user 2026-11-13 mb720ed1d4d06; verified:
+  `engine/docs/templates/devteam-antigravity.json`, `domain/templates.rs` tests]
+- **An unedited built-in template follows the app.** Built-ins are still written into the templates folder once and
+  never over a file the user changed. One exception: a seeded built-in that is byte-identical (line endings aside) to
+  a text Orgtree shipped before is replaced by the current text at the next start or listing. An edited, renamed or
+  deleted file is never touched. `SHIPPED_EARLIER` in `domain/templates.rs` holds the digests; whoever changes a
+  built-in adds its previous digest there, and a pin test fails until they do. [decided: coordinator 2026-11-13
+  mf9bb6ace1fe2, replacing "never over an existing file" (2026-10-10) for unedited files; verified:
+  `domain/templates.rs` `seed_into` and its tests]
+
 ## Gemini Krypton replaces Barium; Carbon gets medium effort and costs 4 (2026-11-13, 4.5.13)
 
 Replaces what the preserved "Conditional Gemini tiers" and "Models are LISTED" entries below still
