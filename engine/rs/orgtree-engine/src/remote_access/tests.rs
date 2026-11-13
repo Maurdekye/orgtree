@@ -15,9 +15,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use super::door::{self, PeerRule};
+use super::limiter::Limits;
 use super::member::{self, Standing, Verdict};
 use super::registry::{self, Admitted, Registry};
 use super::text;
+use super::RemoteAccess;
 use crate::client_tokens::transport::Connection;
 use crate::engine::Engine;
 use crate::remote::testkit::{Root, DESKTOP_TOKEN};
@@ -43,6 +45,8 @@ impl Host {
         let (feed, inbox) = crate::appfeed::AppFeed::new();
         e.app = feed;
         crate::appfeed::start(&engine, inbox);
+        // these tests refuse on purpose, many times from one address: only the limiter's own test counts
+        engine.access.limiter.set(Limits { strikes: usize::MAX, window: Duration::from_secs(60), block: Duration::from_secs(60) });
         // the app's own listener, served as `main` serves a desktop's
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let app = listener.local_addr().unwrap();
@@ -68,7 +72,7 @@ impl Host {
     /// An organization other computers may open.
     fn shared(&self, id: i64, slug: &str) -> String {
         let uuid = self.org(id, slug);
-        self.engine.access.set_open(&uuid, true);
+        self.engine.access.set_open(&uuid, true).unwrap();
         uuid
     }
 
@@ -89,6 +93,11 @@ impl Host {
     /// One request at the door with `token` as another computer sends it.
     async fn door(&self, method: &str, path: &str, token: &str, body: Option<Value>) -> (u16, Value) {
         self.call(self.door, method, path, &[("authorization", &format!("Bearer {token}"))], body).await
+    }
+
+    /// One request as this desktop's own app makes it: its token, on its own listener.
+    async fn owner(&self, method: &str, path: &str, body: Option<Value>) -> (u16, Value) {
+        self.call(self.app, method, path, &[(crate::http::TOKEN_HEADER, DESKTOP_TOKEN)], body).await
     }
 
     /// A one-time code for `org`, as the owner's settings make one.
@@ -309,7 +318,7 @@ async fn a_code_for_an_organization_that_was_switched_off_opens_nothing() {
     let host = Host::start(&root).await;
     let galaxy = host.shared(7, "galaxy");
     let code = host.code(&galaxy);
-    host.engine.access.set_open(&galaxy, false);
+    host.engine.access.set_open(&galaxy, false).unwrap();
     for (method, path) in [("GET", "/api/desktop/alive"), ("POST", "/api/standalone/clients")] {
         let got = host.door(method, path, &code, Some(json!({ "name": PC }))).await;
         assert!(refused_for_its_token(&got), "{method} {path}: {got:?}");
@@ -418,7 +427,7 @@ async fn a_member_has_the_organization_it_was_given_and_nothing_else() {
     assert!(host.engine.orgs.get("galaxy").is_some(), "nothing was deleted");
 
     // the owner switches the organization off: it is closed, and the answer says so
-    host.engine.access.set_open(&galaxy, false);
+    host.engine.access.set_open(&galaxy, false).unwrap();
     for (method, path) in [("GET", "/api/orgs/galaxy/records"), ("GET", "/api/orgs/galaxy"), ("POST", "/api/orgs/galaxy/nodes/1/message"), ("GET", "/api/orgs/galaxy/no-such-route")] {
         let got = host.door(method, path, &token, Some(json!({}))).await;
         assert_eq!((got.0, got.1["code"].as_str()), (403, Some(text::E16)), "{method} {path}: {got:?}");
@@ -427,7 +436,7 @@ async fn a_member_has_the_organization_it_was_given_and_nothing_else() {
     assert_eq!(host.door("GET", "/api/desktop/alive", &token, None).await.0, 200);
     assert_eq!(host.engine.access.registry.rows(Some(&galaxy)).len(), 1);
     // switched on again, it opens again: nothing had to be added a second time
-    host.engine.access.set_open(&galaxy, true);
+    host.engine.access.set_open(&galaxy, true).unwrap();
     assert_ne!(host.door("GET", "/api/orgs/galaxy/records", &token, None).await.0, 403);
 
     // a second organization is given to a computer that is already known, with no code
@@ -499,7 +508,7 @@ async fn revoking_a_computer_or_switching_its_organization_off_ends_its_connecti
     assert_eq!(host.engine.access.registry.row(&dana).unwrap()["connected"], true);
 
     // the switch of one organization: the computers that have it, and no other
-    host.engine.access.set_open(&galaxy, false);
+    host.engine.access.set_open(&galaxy, false).unwrap();
     assert!(ended(&mut danas).await, "its connection ends as the switch goes off");
     assert!(!ended(&mut sams).await, "a computer of another organization stays connected");
     let row = host.engine.access.registry.row(&dana).unwrap();
@@ -513,6 +522,288 @@ async fn revoking_a_computer_or_switching_its_organization_off_ends_its_connecti
     assert!(host.engine.access.registry.row(&sam).is_none());
     assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &sam_token, None).await));
     assert_eq!(host.engine.access.registry.revoke(&sam).err().map(|e| e.status.as_u16()), Some(404));
+}
+
+// ------------------------------------------------------------ the owner's routes (the switch, codes, computers, the port)
+
+const OWNER_ROUTES: &[(&str, &str)] = &[
+    ("GET", "/api/remote-access"), ("PUT", "/api/remote-access"), ("POST", "/api/remote-access/stop"),
+    ("GET", "/api/remote-access/orgs/galaxy"), ("PUT", "/api/remote-access/orgs/galaxy"),
+    ("POST", "/api/remote-access/orgs/galaxy/invitations"), ("DELETE", "/api/remote-access/orgs/galaxy/invitations/{id}"),
+    ("PUT", "/api/remote-access/orgs/galaxy/computers/{id}"), ("DELETE", "/api/remote-access/computers/{id}"),
+];
+
+/// A body each of the owner's routes would take, so a refusal is the guard's and not the body's.
+fn owner_body(method: &str, path: &str) -> Option<Value> {
+    match (method, path) {
+        ("PUT", "/api/remote-access") => Some(json!({ "lan": true })),
+        ("PUT", "/api/remote-access/orgs/galaxy") => Some(json!({ "on": false })),
+        _ => None,
+    }
+}
+
+#[tokio::test]
+async fn the_owner_switches_an_organization_on_lets_a_computer_in_and_takes_it_out_again() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.org(7, "galaxy");
+    let other = host.org(8, "other");
+    let len = |view: &Value, list: &str| view[list].as_array().map(Vec::len);
+
+    // off by default: nothing is shared and no code can be made
+    let (status, view) = host.owner("GET", "/api/remote-access/orgs/galaxy", None).await;
+    assert_eq!((status, view["on"].as_bool(), len(&view, "computers")), (200, Some(false), Some(0)), "{view}");
+    let refused = host.owner("POST", "/api/remote-access/orgs/galaxy/invitations", None).await;
+    assert_eq!((refused.0, refused.1["detail"].as_str()), (409, Some(text::TURN_ON_FIRST)));
+
+    // the switch
+    let (status, view) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true }))).await;
+    assert_eq!((status, view["on"].as_bool()), (200, Some(true)), "{view}");
+    assert!(host.engine.access.is_open(&galaxy) && !host.engine.access.is_open(&other));
+
+    // a code: in the answer that made it, and nowhere else
+    let (status, made) = host.owner("POST", "/api/remote-access/orgs/galaxy/invitations", None).await;
+    assert_eq!(status, 200, "{made}");
+    let code = made["code"].as_str().unwrap().to_string();
+    assert_eq!((code.len(), made["minutes"].as_i64()), (registry::CODE_LENGTH, Some(registry::INVITATION_MINUTES)));
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/galaxy", None).await;
+    assert_eq!((len(&view, "invitations"), &view["invitations"][0]["id"]), (Some(1), &made["id"]), "{view}");
+    assert!(!view.to_string().contains(&code), "{view}");
+
+    // the other computer comes in with it, and the owner sees it in the list
+    let (status, computer) = host.door("POST", "/api/standalone/clients", &code, Some(json!({ "name": PC }))).await;
+    assert_eq!(status, 200, "{computer}");
+    let (id, token) = (computer["id"].as_str().unwrap().to_string(), computer["token"].as_str().unwrap().to_string());
+    assert_eq!(host.door("GET", "/api/desktop/alive", &token, None).await.0, 200);
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/galaxy", None).await;
+    assert_eq!((len(&view, "invitations"), len(&view, "computers"), len(&view, "known")), (Some(0), Some(1), Some(0)), "{view}");
+    let row = &view["computers"][0];
+    assert_eq!((row["id"].as_str(), row["name"].as_str(), row["label"].as_str()), (Some(id.as_str()), Some(PC), Some("PC-DANA")), "{row}");
+    assert_eq!(row["orgs"], json!(["galaxy"]), "{row}");
+    assert!(row["last_seen_at"].is_string() && row["created_at"].is_string(), "{row}");
+    assert!(!view.to_string().contains(&token) && !view.to_string().contains("hash"), "{view}");
+
+    // a second organization is given to a computer that is known, with no code, once its switch is on
+    let give = format!("/api/remote-access/orgs/other/computers/{id}");
+    let refused = host.owner("PUT", &give, None).await;
+    assert_eq!((refused.0, refused.1["detail"].as_str()), (409, Some(text::TURN_ON_FIRST)));
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/other", None).await;
+    assert_eq!((len(&view, "computers"), len(&view, "known"), view["known"][0]["id"].as_str()), (Some(0), Some(1), Some(id.as_str())), "{view}");
+    assert_eq!(host.owner("PUT", "/api/remote-access/orgs/other", Some(json!({ "on": true }))).await.0, 200);
+    let (status, view) = host.owner("PUT", &give, None).await;
+    assert_eq!((status, len(&view, "computers"), len(&view, "known")), (200, Some(1), Some(0)), "{view}");
+    assert_eq!(view["computers"][0]["orgs"], json!(["galaxy", "other"]), "{view}");
+    assert_ne!(host.door("GET", "/api/orgs/other/records", &token, None).await.0, 403);
+    assert_eq!(host.owner("PUT", "/api/remote-access/orgs/other/computers/no-such-computer", None).await.0, 404);
+
+    // everything at a glance
+    let (status, all) = host.owner("GET", "/api/remote-access", None).await;
+    assert_eq!((status, all["port"].as_u64(), all["lan"].as_bool()), (200, Some(7431), Some(false)), "{all}");
+    assert!(all["computer"].as_str().is_some_and(|name| !name.is_empty()), "{all}");
+    let orgs: Vec<(String, bool, u64, u64)> = all["orgs"].as_array().unwrap().iter()
+        .map(|org| (org["slug"].as_str().unwrap().to_string(), org["on"].as_bool().unwrap(), org["computers"].as_u64().unwrap(), org["connected"].as_u64().unwrap())).collect();
+    assert_eq!(orgs, vec![("galaxy".to_string(), true, 1, 0), ("other".to_string(), true, 1, 0)], "{all}");
+
+    // a code can be taken back, through its own organization's route only
+    let (_, made) = host.owner("POST", "/api/remote-access/orgs/other/invitations", None).await;
+    let (taken, back) = (made["code"].as_str().unwrap().to_string(), format!("/api/remote-access/orgs/other/invitations/{}", made["id"].as_str().unwrap()));
+    assert_eq!(host.owner("DELETE", &back.replace("/other/", "/galaxy/"), None).await.0, 404);
+    let (status, view) = host.owner("DELETE", &back, None).await;
+    assert_eq!((status, len(&view, "invitations")), (200, Some(0)), "{view}");
+    assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &taken, None).await));
+    let again = host.owner("DELETE", &back, None).await;
+    assert_eq!((again.0, again.1["detail"].as_str()), (404, Some(text::NO_CODE)));
+
+    // off: closed to the computer at once, the codes that were open for it are gone, its record stays
+    let (_, made) = host.owner("POST", "/api/remote-access/orgs/galaxy/invitations", None).await;
+    let open_code = made["code"].as_str().unwrap().to_string();
+    let (status, view) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": false }))).await;
+    assert_eq!((status, view["on"].as_bool(), len(&view, "computers"), len(&view, "invitations")), (200, Some(false), Some(1), Some(0)), "{view}");
+    let closed = host.door("GET", "/api/orgs/galaxy/records", &token, None).await;
+    assert_eq!((closed.0, closed.1["code"].as_str()), (403, Some(text::E16)), "{closed:?}");
+    assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &open_code, None).await));
+    assert_eq!(host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true }))).await.0, 200);
+    assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &open_code, None).await), "switching on again brings no code back");
+    assert_eq!(host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": false }))).await.0, 200);
+
+    // what the owner chose is in the file: a restart shares what was shared and nothing else
+    let restarted = RemoteAccess::open(&root.0);
+    assert!(!restarted.is_open(&galaxy) && restarted.is_open(&other));
+    assert_eq!(restarted.registry.rows(Some(&galaxy)).len(), 1);
+
+    // revoke: gone from every organization it had, at once
+    let revoke = format!("/api/remote-access/computers/{id}");
+    let (status, gone) = host.owner("DELETE", &revoke, None).await;
+    assert_eq!((status, gone["revoked"].as_str()), (200, Some(id.as_str())), "{gone}");
+    assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &token, None).await));
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/other", None).await;
+    assert_eq!((len(&view, "computers"), len(&view, "known")), (Some(0), Some(0)), "{view}");
+    let again = host.owner("DELETE", &revoke, None).await;
+    assert_eq!((again.0, again.1["detail"].as_str()), (404, Some(text::NO_COMPUTER)));
+}
+
+#[tokio::test]
+async fn only_this_desktop_itself_reaches_the_owners_routes() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    let (id, token) = host.let_in(&galaxy, PC).await;
+    let code = host.code(&galaxy);
+
+    for (method, route) in OWNER_ROUTES {
+        let path = route.replace("{id}", &id);
+        let body = owner_body(method, route);
+        // a computer that was let in, a one-time code, and nobody at all, at the door
+        let got = host.door(method, &path, &token, body.clone()).await;
+        assert!(refused_as_not_yours(&got), "a member, {method} {path}: {got:?}");
+        let got = host.door(method, &path, &code, body.clone()).await;
+        assert!(refused_as_not_yours(&got), "a code, {method} {path}: {got:?}");
+        let got = host.call(host.door, method, &path, &[], body.clone()).await;
+        assert!(refused_for_its_token(&got), "nobody, {method} {path}: {got:?}");
+        // the app's own listener without the app's own token, and with a door token in its place
+        for headers in [vec![], vec![("authorization", format!("Bearer {token}"))], vec![(crate::http::TOKEN_HEADER, token.clone())]] {
+            let headers: Vec<(&str, &str)> = headers.iter().map(|(name, value)| (*name, value.as_str())).collect();
+            let got = host.call(host.app, method, &path, &headers, body.clone()).await;
+            assert_eq!((got.0, got.1["detail"].as_str()), (403, Some("desktop token required")), "{method} {path} with {headers:?}");
+        }
+    }
+    // nothing was changed by any of it
+    assert!(host.engine.access.is_open(&galaxy));
+    assert_eq!(host.engine.access.registry.listening(), (registry::DEFAULT_PORT, false));
+    assert!(host.engine.access.registry.row(&id).is_some());
+    assert_eq!(host.engine.access.registry.invitations(&galaxy).len(), 1);
+
+    // an organization that is not this computer's own cannot be shared on
+    for (method, path) in [("GET", "/api/remote-access/orgs/no-such-org"), ("PUT", "/api/remote-access/orgs/no-such-org"), ("POST", "/api/remote-access/orgs/no-such-org/invitations")] {
+        assert_eq!(host.owner(method, path, Some(json!({ "on": true }))).await.0, 404, "{method} {path}");
+    }
+
+    // an engine that runs by itself has client tokens for this, and none of these routes
+    let far_root = Root::new();
+    let far = crate::remote::testkit::RealFar::start(&far_root).await;
+    for (method, route) in OWNER_ROUTES {
+        let path = route.replace("{id}", &id);
+        let got = far.call(method, &path, crate::remote::testkit::BOOTSTRAP, owner_body(method, route), &[]).await;
+        assert_eq!((got.0, got.1["detail"].as_str()), (404, Some(text::NOT_A_DESKTOP)), "{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn stopping_all_remote_access_closes_everything_and_keeps_the_computers() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    let other = host.shared(8, "other");
+    let (_, dana_token) = host.let_in(&galaxy, PC).await;
+    let (_, sam_token) = host.let_in(&other, "Orgtree desktop (PC-SAM)").await;
+    let code = host.code(&galaxy);
+    let mut danas = kept(host.door, &dana_token).await;
+    let mut sams = kept(host.door, &sam_token).await;
+
+    let (status, all) = host.owner("POST", "/api/remote-access/stop", None).await;
+    assert_eq!(status, 200, "{all}");
+    assert!(all["orgs"].as_array().unwrap().iter().all(|org| org["on"] == false && org["computers"] == 1), "{all}");
+    assert!(ended(&mut danas).await && ended(&mut sams).await, "every connection ends");
+    assert!(!host.engine.access.is_open(&galaxy) && !host.engine.access.is_open(&other) && !host.engine.access.any_open());
+    for (token, slug) in [(&dana_token, "galaxy"), (&sam_token, "other")] {
+        let got = host.door("GET", &format!("/api/orgs/{slug}/records"), token, None).await;
+        assert_eq!((got.0, got.1["code"].as_str()), (403, Some(text::E16)), "{slug}: {got:?}");
+    }
+    assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &code, None).await), "an open code is taken back");
+    assert_eq!(host.engine.access.registry.rows(None).len(), 2, "the computers are still known");
+    // stopping when nothing is shared is no error
+    assert_eq!(host.owner("POST", "/api/remote-access/stop", None).await.0, 200);
+}
+
+#[tokio::test]
+async fn the_doors_port_and_the_private_network_choice_are_the_owners_and_are_kept() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let (status, all) = host.owner("GET", "/api/remote-access", None).await;
+    assert_eq!((status, all["port"].as_u64(), all["default_port"].as_u64(), all["lan"].as_bool()), (200, Some(7431), Some(7431), Some(false)), "{all}");
+    for bad in [json!({ "port": 80 }), json!({ "port": 1023 }), json!({ "port": 65536 }), json!({ "port": "7431" }), json!({ "port": -1 }),
+                json!({ "lan": "yes" }), json!({ "address": "0.0.0.0" })] {
+        let got = host.owner("PUT", "/api/remote-access", Some(bad.clone())).await;
+        assert!(got.0 == 400 || got.0 == 422, "{bad}: {got:?}");
+    }
+    assert_eq!(host.engine.access.registry.listening(), (7431, false));
+    let (status, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "port": 7440 }))).await;
+    assert_eq!((status, all["port"].as_u64(), all["lan"].as_bool()), (200, Some(7440), Some(false)), "{all}");
+    let (status, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "lan": true }))).await;
+    assert_eq!((status, all["port"].as_u64(), all["lan"].as_bool()), (200, Some(7440), Some(true)), "{all}");
+    let saved: Value = serde_json::from_slice(&std::fs::read(root.0.join(registry::FILE)).unwrap()).unwrap();
+    assert_eq!((saved["port"].as_u64(), saved["lan"].as_bool()), (Some(7440), Some(true)), "{saved}");
+    assert_eq!(RemoteAccess::open(&root.0).registry.listening(), (7440, true));
+}
+
+#[tokio::test]
+async fn an_address_that_is_refused_too_often_is_answered_nothing_else_for_a_while() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    let (_, token) = host.let_in(&galaxy, PC).await;
+    host.engine.access.limiter.set(Limits { strikes: 3, window: Duration::from_secs(60), block: Duration::from_millis(500) });
+
+    // what a computer that was let in is refused is not counted
+    for _ in 0..6 {
+        assert!(refused_as_not_yours(&host.door("GET", "/api/accounts", &token, None).await));
+    }
+    assert_eq!(host.door("GET", "/api/desktop/alive", &token, None).await.0, 200);
+
+    // a token the door does not know is; the third closes the door to this address
+    for n in 1..=3 {
+        let got = host.door("GET", "/api/desktop/alive", "a-guess", None).await;
+        assert!(refused_for_its_token(&got), "refusal {n}: {got:?}");
+    }
+    for (path, bearer) in [("/api/desktop/alive", token.as_str()), ("/api/orgs/galaxy/records", token.as_str()), ("/api/desktop/alive", "another-guess"), ("/", token.as_str())] {
+        let got = host.door("GET", path, bearer, None).await;
+        assert_eq!((got.0, got.1["detail"].as_str()), (429, Some(text::TOO_MANY_TRIES)), "{path}: {got:?}");
+    }
+    // the app's own listener is not the door
+    assert_eq!(host.owner("GET", "/api/desktop/alive", None).await.0, 200);
+    // and after its while the address is heard again
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(host.door("GET", "/api/desktop/alive", &token, None).await.0, 200);
+}
+
+#[tokio::test]
+async fn a_registry_file_is_taken_as_a_whole_with_its_switches_and_its_port() {
+    // a file without the newer members reads with what a fresh one has: nothing shared, the usual port
+    let root = Root::new();
+    std::fs::write(root.0.join(registry::FILE), r#"{"version":1,"clients":[],"invitations":[]}"#).unwrap();
+    let registry = Registry::open(&root.0);
+    assert_eq!((registry.listening(), registry.open_orgs().len()), ((registry::DEFAULT_PORT, false), 0));
+    assert!(root.0.join(registry::FILE).exists());
+
+    let org = org_id();
+    for broken in [format!(r#"{{"version":1,"port":80,"clients":[],"invitations":[]}}"#),
+                   format!(r#"{{"version":1,"open":["galaxy"],"clients":[],"invitations":[]}}"#),
+                   format!(r#"{{"version":1,"open":["{org}","{org}"],"clients":[],"invitations":[]}}"#),
+                   format!(r#"{{"version":1,"lan":"yes","clients":[],"invitations":[]}}"#)] {
+        let root = Root::new();
+        std::fs::write(root.0.join(registry::FILE), &broken).unwrap();
+        let registry = Registry::open(&root.0);
+        assert!(registry.is_empty() && registry.open_orgs().is_empty(), "{broken}");
+        assert!(!root.0.join(registry::FILE).exists(), "set aside: {broken}");
+    }
+
+    // the switch is the registry's: on, off, and what going off takes with it
+    let root = Root::new();
+    let registry = Registry::open(&root.0);
+    assert!(registry.set_open("galaxy", true).is_err(), "an organization is named by its uuid");
+    assert_eq!(registry.set_open(&org, true).unwrap(), true);
+    assert_eq!(registry.set_open(&org, true).unwrap(), false, "already on");
+    let code = registry.invite(&org).unwrap()["code"].as_str().unwrap().to_string();
+    let made = registry.redeem(&code, PC).unwrap().unwrap();
+    registry.invite(&org).unwrap();
+    assert_eq!(registry.set_open(&org, false).unwrap(), true);
+    assert!(registry.invitations(&org).is_empty() && registry.rows(Some(&org)).len() == 1);
+    let reopened = Registry::open(&root.0);
+    assert!(!reopened.is_open(&org) && reopened.row(made["id"].as_str().unwrap()).is_some());
+    // an organization that is gone is shared with nobody
+    reopened.set_open(&org, true).unwrap();
+    reopened.forget_org(&org).unwrap();
+    assert!(reopened.is_empty() && !reopened.is_open(&org));
 }
 
 // ------------------------------------------------------------ the registry's file

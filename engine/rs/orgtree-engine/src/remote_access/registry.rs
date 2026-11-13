@@ -29,6 +29,7 @@ use crate::http::error::ApiError;
 use super::text;
 
 pub const FILE: &str = "remote-access.json";
+pub const DEFAULT_PORT: u16 = 7431;
 const FILE_VERSION: u8 = 1;
 const MAX_FILE: u64 = 1024 * 1024;
 
@@ -420,6 +421,12 @@ impl Registry {
             state.invitations = invitations;
         }
     }
+
+    // NOT BUILT: the shape the tests are written against. The switch is not kept here yet.
+    pub fn is_open(&self, _org: &str) -> bool { false }
+    pub fn open_orgs(&self) -> Vec<String> { Vec::new() }
+    pub fn set_open(&self, _org: &str, _on: bool) -> Result<bool, ApiError> { Err(ApiError::not_implemented("the switch is not kept in the registry")) }
+    pub fn listening(&self) -> (u16, bool) { (0, false) }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, State>, ApiError> {
         self.state.lock().map_err(|_| ApiError::unavailable("the remote access registry is unavailable"))

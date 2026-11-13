@@ -30,5 +30,14 @@ pub fn e17(host: &str) -> String {
 pub const TOO_MANY_CODES: &str = "Five codes are already open for this organization. Wait for one to run out.";
 pub const TOO_MANY_COMPUTERS: &str = "This organization already has 32 computers. Revoke one first.";
 pub const NO_COMPUTER: &str = "That computer is not in the list any more.";
+pub const NO_CODE: &str = "That code is not open any more.";
+/// What the door answers an address it has refused too often (`limiter.rs`).
+pub const TOO_MANY_TRIES: &str = "too many refused requests from this address; try again in a minute";
+/// The owner's routes on an engine that runs by itself.
+pub const NOT_A_DESKTOP: &str = "remote access is a desktop's; a standalone engine has client tokens";
+/// The owner's routes are the hosting desktop's own.
+pub const OWNER_ONLY: &str = "only this desktop itself changes its remote access";
+pub const TURN_ON_FIRST: &str = "Turn remote access on for this organization first.";
+pub const PORT_RANGE: &str = "The port is a number from 1024 to 65535.";
 /// A code that was used, has run out, or never was one.
 pub const CODE_USED: &str = "That code was already used or has run out. Ask for a new one.";

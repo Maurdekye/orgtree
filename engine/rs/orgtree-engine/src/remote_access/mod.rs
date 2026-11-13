@@ -22,6 +22,7 @@
 //!   door's): a hosting desktop is no way into the engines it is connected to.
 
 pub mod door;
+pub mod limiter;
 pub mod member;
 pub mod registry;
 pub mod text;
@@ -51,12 +52,14 @@ pub struct RemoteAccess {
     /// The organizations whose switch is on, by uuid: the setting itself is the organization's
     /// (`remote_access`), and this is what the door asks on every request.
     open: RwLock<HashSet<String>>,
+    /// Refused tokens, counted per address (`limiter.rs`).
+    pub limiter: limiter::Limiter,
 }
 
 #[nolog]
 impl RemoteAccess {
     pub fn open(root: &Path) -> RemoteAccess {
-        RemoteAccess { registry: Registry::open(root), open: RwLock::new(HashSet::new()) }
+        RemoteAccess { registry: Registry::open(root), open: RwLock::new(HashSet::new()), limiter: limiter::Limiter::default() }
     }
 
     /// May other computers open this organization now?
@@ -71,7 +74,7 @@ impl RemoteAccess {
 
     /// The switch of one organization. Turning it off ends every connection of the computers
     /// that have it, at once; their records stay.
-    pub fn set_open(&self, org_uuid: &str, on: bool) {
+    pub fn set_open(&self, org_uuid: &str, on: bool) -> ApiResult<()> {
         let changed = match self.open.write() {
             Ok(mut open) => if on { open.insert(org_uuid.to_string()) } else { open.remove(org_uuid) },
             Err(_) => false,
@@ -80,6 +83,7 @@ impl RemoteAccess {
             let closed = self.registry.close_org(org_uuid);
             tracing::info!(computers = closed, "remote access: an organization was closed to other computers");
         }
+        Ok(())
     }
 }
 
