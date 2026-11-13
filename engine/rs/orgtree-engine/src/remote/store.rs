@@ -189,20 +189,8 @@ pub fn save(path: &Path, remotes: &[SavedRemote], next_local_id: i64, shown_as: 
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
-        // On Windows a scanner or indexer can hold the old file for a moment
-        // and the replace is refused; that passes, so it is tried again.
-        let mut tried = 0;
-        loop {
-            match crate::client_tokens::replace(&tmp, path) {
-                Ok(()) => return Ok(()),
-                Err(error) if tried < 5 && cfg!(windows) => {
-                    tried += 1;
-                    tracing::info!(error = %error, tried, "remote-engines.json could not be replaced yet");
-                    std::thread::sleep(std::time::Duration::from_millis(15 * tried));
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        // a replace Windows refuses for a moment is asked again in there
+        crate::client_tokens::replace(&tmp, path)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);

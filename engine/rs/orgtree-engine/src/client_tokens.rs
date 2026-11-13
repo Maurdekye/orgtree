@@ -312,17 +312,39 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |n, (a, b)| n | (a ^ b)) == 0
 }
 
+/// Put `from` in the place of `to` in one step: a reader sees the old file or the new one.
+///
+/// On Windows a scanner or an indexer opens a file that was just written and holds it for a
+/// moment, and the replace is refused while it does. That passes, so the replace is asked again a
+/// few times (about a quarter of a second in all) before the change is given up. Every registry
+/// kept in a file goes through here (`client_tokens`, `live_feed/tokens`, `remote/store`,
+/// `remote_access/registry`).
 #[cfg(windows)]
 #[nolog]
 pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+    let name = to.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default();
     let from: Vec<_> = from.as_os_str().encode_wide().chain(Some(0)).collect();
     let to: Vec<_> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
-        Err(std::io::Error::last_os_error())
-    } else { Ok(()) }
+    let mut tried = 0;
+    loop {
+        if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } != 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if tried >= REPLACE_TRIES {
+            return Err(error);
+        }
+        tried += 1;
+        tracing::info!(file = %name, error = %error, tried, "a file could not be replaced yet");
+        std::thread::sleep(std::time::Duration::from_millis(15 * tried));
+    }
 }
+
+/// How often a refused replace is asked again (after 15, 30, 45, 60 and 75 ms).
+#[cfg(windows)]
+const REPLACE_TRIES: u64 = 5;
 
 #[cfg(not(windows))]
 #[nolog]
