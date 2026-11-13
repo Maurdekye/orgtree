@@ -123,6 +123,25 @@ export function agentTooltipProps(id: string | null | undefined, nameFirst = fal
 export function registerAgentNativeTooltipDocument(owner: Document,
                                                    lookup: AgentTooltipLookup): () => void {
   const active = new WeakMap<HTMLElement, { pointer: boolean; focus: boolean }>()
+  // THE TITLE THIS HOST WROTE LEAVES WITH THE ATTRIBUTE THAT ASKED FOR IT (user
+  // 2026-11-13 m34935c22a71e). `clear` below finds its anchor BY the attribute,
+  // so an element that stops being an anchor while it is hovered could never be
+  // cleared again. A canvas card does exactly that: it carries the attribute as
+  // a node and drops it on the click that makes it the desk, and the node's
+  // model tag then stayed on the card and showed over every part of the desk
+  // with no tooltip of its own. The same goes for an anchor re-pointed at
+  // another agent. Only titles written here are removed.
+  const written = new WeakSet<HTMLElement>()
+  const Observer = owner.defaultView?.MutationObserver
+  const watch = Observer ? new Observer((records) => {
+    for (const record of records) {
+      const el = record.target as HTMLElement
+      if (!written.has(el)) continue
+      written.delete(el)
+      active.delete(el)
+      el.removeAttribute('title')
+    }
+  }) : null
   const target = (event: Event): HTMLElement | null =>
     (event.target as Element | null)?.closest?.('[' + AGENT_TOOLTIP_ATTR + ']') as HTMLElement | null
   const show = (event: Event) => {
@@ -141,6 +160,8 @@ export function registerAgentNativeTooltipDocument(owner: Document,
       const firstLine = title.split('\n', 1)[0]!.trim()
       const needsName = anchor.hasAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR)
         && firstLine !== id && !firstLine.startsWith(id + ' ·')
+      if (watch && !written.has(anchor)) watch.observe(anchor, { attributes: true, attributeFilter: [AGENT_TOOLTIP_ATTR] })
+      written.add(anchor)
       anchor.title = needsName ? `${id}\n${title}` : title
     }
   }
@@ -158,6 +179,7 @@ export function registerAgentNativeTooltipDocument(owner: Document,
       if (session.pointer || session.focus) return
     }
     active.delete(anchor)
+    written.delete(anchor)
     anchor.removeAttribute('title')
   }
   owner.addEventListener('pointerover', show, true)
@@ -166,6 +188,7 @@ export function registerAgentNativeTooltipDocument(owner: Document,
   owner.addEventListener('focusout', clear, true)
   owner.addEventListener('contextmenu', clear, true)
   return () => {
+    watch?.disconnect()
     owner.removeEventListener('pointerover', show, true)
     owner.removeEventListener('focusin', show, true)
     owner.removeEventListener('pointerout', clear, true)

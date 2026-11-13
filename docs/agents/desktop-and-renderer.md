@@ -623,6 +623,21 @@ layout, motion, hit target or fit measurement changes.
 [decided: user 2026-10-26, 2026-10-27; verified: canvas/{cardname,farzoomname,cards}.tsx;
 controls: namehover.test.tsx, desknameplate.test.tsx, mininameguard.test.tsx, cardhoverfit.test.tsx]
 
+## The node's model tag leaves a card that becomes a desk (2026-11-13, 4.5.13)
+
+User 2026-11-13 m34935c22a71e: the provider/model/effort tag showed over every part of a canvas
+agent desk that has no tooltip of its own. The shared tooltip host (`registerAgentNativeTooltipDocument`,
+`canvas/agentnav.tsx`) writes the tag as a native `title` on the hovered `data-agent-tooltip` anchor
+and removes it on pointer-out, finding the anchor by that attribute. A canvas card drops the attribute
+on the click that makes it the desk (`cards.tsx`, `focused`; `projectcard.tsx`, `deskOpen`), so the
+title stayed and nothing could find the element again. The host now watches each anchor it wrote a
+title on and removes that title when the attribute is removed or re-pointed. Only titles the host
+wrote are touched. Pinned, Attention and popped-out desks are not inside a card and never had the
+attribute on their frame, so they did not share the cause; the project card did and is fixed by the
+same change. The desk's own name and node hover are unchanged.
+[verified: `canvas/agentnav.tsx`; controls: `agenttooltipstale.test.tsx`,
+`agenttooltipstale.capture.cjs` + `.visual.tsx` (stand-in card, real host, real mouse)]
+
 ## Text editing and spelling menus (2026-10-24, 4.4.5)
 
 Native `editmenu.ts` uses Chromium's edit flags, pointed misspelling and
