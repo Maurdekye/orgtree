@@ -502,7 +502,7 @@ mod effort_tests {
         // `gemini-4-carbon-medium` id and the "Gemini 4 Carbon (Medium)" label (static inspection, see argon-effort.md)
         assert_eq!(crate::providers::effort_names(&state, "carbon"), Some(v(&["low", "medium", "high"])));
         assert_eq!(antigravity_effort("carbon", "medium"), "medium");
-        for tier in ["pro", "krypton", "hydrogen"] {
+        for tier in ["pro", "krypton"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "high"])), "{tier}");
         }
         for tier in ["flash", "agy-sonnet", "agy-opus"] {
@@ -535,6 +535,30 @@ mod effort_tests {
     /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
     /// real turn): a Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces. It is offered
     /// unconditionally (user 2026-11-13 m6258781910ea), not on agy's model list like Argon, Krypton and Carbon.
+    /// user 2026-11-13 m39ddd2612ce5: "also make sure hydrogen has an xhigh effort level that's selectable".
+    /// How agy takes it, by static inspection of the installed CLI (244,091,032 bytes, SHA256 064e6519...aa2f;
+    /// nothing was run): it carries the id `gemini-4-hydrogen-xhigh` and the label "Gemini 4 Hydrogen (XHigh)",
+    /// the only `-xhigh` model id in it, and its `--effort` help reads "(low|medium|high|xhigh|max)". So xhigh is
+    /// asked for as every Gemini effort is: `--model gemini-4-hydrogen --effort xhigh`.
+    #[test]
+    fn hydrogen_offers_xhigh_and_the_launch_asks_for_it_by_name() {
+        let state = crate::providers::State::default();
+        assert_eq!(crate::providers::effort_names(&state, "hydrogen"), Some(v(&["low", "high", "xhigh"])));
+        assert_eq!(antigravity_effort("hydrogen", "xhigh"), "xhigh");
+        assert_eq!(antigravity_model("hydrogen", "gemini-4-hydrogen", "xhigh"), "gemini-4-hydrogen", "the effort is a flag, not an id suffix");
+        // a level above its highest becomes its highest, which is xhigh here and high everywhere else
+        assert_eq!(antigravity_effort("hydrogen", "max"), "xhigh");
+        for (saved, sent) in [("low", "low"), ("high", "high"), ("none", "low"), ("minimal", "low")] {
+            assert_eq!(antigravity_effort("hydrogen", saved), sent, "{saved}");
+        }
+        // no other Antigravity model gains it: the CLI names no other -xhigh id
+        for tier in ["flash", "argon", "carbon", "krypton", "pro", "agy-opus", "agy-sonnet"] {
+            assert_eq!(antigravity_effort(tier, "xhigh"), "high", "{tier}");
+            assert_eq!(antigravity_effort(tier, "max"), "high", "{tier}");
+            assert!(!crate::providers::effort_names(&state, tier).unwrap().iter().any(|e| e == "xhigh"), "{tier}");
+        }
+    }
+
     /// Flash (user 2026-11-13 md16909f83245 "Now") is legacy: known, placed by name, offered by no list.
     #[test]
     fn hydrogen_is_an_always_offered_gemini_tier_and_flash_is_legacy() {
@@ -543,7 +567,7 @@ mod effort_tests {
         assert_eq!(h.seat, crate::openrouter::seat_for(1.5), "the standing input-price seat rule");
         assert_eq!(display_name(h, None).as_deref(), Some("Gemini Hydrogen 4"));
         assert_eq!((antigravity_pool("hydrogen"), antigravity_own_bucket("hydrogen")), ("gemini", None));
-        assert_eq!(antigravity_effort("hydrogen", "medium"), "high", "medium waits for a -medium id in agy's list");
+        assert_eq!(antigravity_effort("hydrogen", "medium"), "high", "medium is not offered: the user named low, high and xhigh");
         let f = tier("flash").expect("flash stays a known tier: seats on it keep their letter, colour and price");
         assert!(f.legacy && !f.conditional);
         assert_eq!((f.seat, f.model), (1.0, "gemini-3.8-flash"));
