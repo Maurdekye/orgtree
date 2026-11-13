@@ -655,6 +655,38 @@ its PinFrame opts into the header X, and Escape and the backdrop still close it 
 `closeSettings`, which flushes pending edits first. Tests and rig drivers close it with
 Escape or the X. [decided: user 2026-10-28; verified: `App.tsx::SettingsPanel`]
 
+## Attention divider: hide a panel at the edge, Swap panels button (2026-11-13, 4.5.13)
+
+User 2026-11-13 m525fd3e66e99, eight points approved in m2672b93c2df8.
+
+- The layout store (`attention/mode.ts`) keeps `hidden: 'left' | 'right' | null` per organization, beside
+  `split` and `swapped`. It is a SIDE of the stage, not a panel: Swap panels never moves the divider, so
+  with a side hidden it changes only `swapped` and the hidden panel is the one in view. `split` holds the
+  hidden side's panel at its minimum, which is where it returns. `hiddenPanel(layout)` names the panel.
+- The divider is worked in the stage's terms through `dividerPlace` / `placeFromPointer` / `placeFromKey`
+  / `placePatch`. A pointer within `HIDE_SNAP` (half of `SPLIT_MIN`) of an edge hides; between that and
+  the minimum the panel is held at the minimum. Arrows step, hide at the minimum, and the opposite arrow
+  restores; Home / End hide the left / right side whichever panel is there (before, they went to the
+  queue's bounds).
+- A hidden slot is NOT `display: none`. `.attn-slot-hidden` takes it out of the row and lays it over the
+  stage at full size with `opacity: 0`, and the view sets `inert` on it. The panel stays mounted with a
+  real width and its scroll position. Do not switch to `visibility: hidden`: the agents drawer turns
+  visibility back on for itself.
+- A hidden embedded Agent desk is not `eligible` for the desk registry (stored side, not the live side
+  of a drag), so it cannot hold an agent away from a visible window.
+- The Swap panels button is a sibling of the separator (`.attn-swap-anchor`, same flex order), not a
+  child: a separator's children are presentational. Button and right-click entry share `swapPanels`.
+  The slide is `slideSwap`: Web Animations on the two slots, `SWAP_SLIDE_MS` (150), only for a swap
+  asked for in this view, none under reduced motion, none for drags.
+- A hidden panel returns when it is asked for: `onAttentionAgentChosen` (every `setAttentionLayout`
+  with an agent name) reveals an embedded hidden desk; a panel going from pinned / popped out to
+  embedded reveals its slot; a notification that opens its entry reveals the queue. Each only clears
+  `hidden`.
+
+[verified: `attention/mode.ts`, `attention/AttentionView.tsx`, `attention/attention.css`,
+`tests/attentiondivider.test.tsx` (17), `tests/attentionnotification.test.tsx`,
+`tests/attentiondivider.capture.cjs` + `.visual.tsx` (Session 0, real mouse and keys, real pop-out window)]
+
 ## Close X on every closable panel (2026-10-29)
 
 PinFrame draws its X (`.modalpin-x`, the pin's `.modalpin-btn`) last in the bar in every

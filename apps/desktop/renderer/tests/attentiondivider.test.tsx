@@ -31,9 +31,9 @@ import { compatibilityWorkFixture } from './workcompat.fixture'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { CanvasNode } from '../src/canvas/shared'
+import type { CanvasNode, OpFn } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
-import type { OpFn, TreePayload } from '../src/types'
+import type { TreePayload } from '../src/types'
 import { forgetModalPins, pinModal, unpinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { registerWindow } from '../src/windowlife'
@@ -58,7 +58,7 @@ const op: OpFn = () => Promise.resolve({ ok: true } as never)
 const toast = () => {}
 
 function installQuietServer() {
-  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture((url: string) => {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = /\/work-items(?:-view)?$/.test(path)
       ? { items: [], attention: [], active: [], archived: [], backlogged: [],
@@ -70,7 +70,7 @@ function installQuietServer() {
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body),
     })
-  })
+  }) as never)
 }
 
 const reset = () => {
@@ -315,6 +315,8 @@ test('a swap slides for about 150 ms; a drag does not; reduced motion gets none'
   reset()
   const { drag, swap } = await mounted(t)
   const calls: Array<{ slot: string; ms: number }> = []
+  const slots = () => calls.map((c) => c.slot).sort()
+  const times = () => calls.map((c) => c.ms)
   const proto = window.HTMLElement.prototype as unknown as { animate?: unknown }
   const oldAnimate = proto.animate
   const oldRect = window.HTMLElement.prototype.getBoundingClientRect
@@ -346,21 +348,21 @@ test('a swap slides for about 150 ms; a drag does not; reduced motion gets none'
   })
 
   await drag(380, 600)
-  assert.deepEqual(calls, [], 'a drag is direct manipulation: nothing slides')
+  assert.deepEqual(slots(), [], 'a drag is direct manipulation: nothing slides')
 
   await swap()
-  assert.deepEqual(calls.map((c) => c.slot).sort(), ['desk', 'queue'], 'both panels slide to their new places')
-  assert.ok(calls.every((c) => c.ms >= 120 && c.ms <= 200), 'for about 150 ms')
+  assert.deepEqual(slots(), ['desk', 'queue'], 'both panels slide to their new places')
+  assert.ok(times().every((ms) => ms >= 120 && ms <= 200), 'for about 150 ms')
 
   calls.length = 0
   await drag(600, 20)                          // hide one, then swap: the slide still runs
   await swap()
-  assert.deepEqual(calls.map((c) => c.slot).sort(), ['desk', 'queue'])
+  assert.deepEqual(slots(), ['desk', 'queue'])
 
   calls.length = 0
   reduced.on = true
   await swap()
-  assert.deepEqual(calls, [], 'reduced motion: the panels just change places')
+  assert.deepEqual(slots(), [], 'reduced motion: the panels just change places')
 })
 
 // --------------------------------------------- the hidden desk and the registry

@@ -36,7 +36,7 @@ app.disableHardwareAcceleration(); app.commandLine.appendSwitch('mute-audio')
 let clipboardCalls = 0
 for (const k of Object.keys(clipboard)) if (typeof clipboard[k] === 'function') clipboard[k] = () => { clipboardCalls++; return k === 'availableFormats' ? [] : k === 'has' ? false : '' }
 const within = async (p, ms, what) => { let t; try { return await Promise.race([p, new Promise((_r, j) => { t = setTimeout(() => j(Error('Deadline: ' + what)), ms) })]) } finally { clearTimeout(t) } }
-const W = 1100, H = 760
+let W = 1100; const H = 760
 
 async function bundle() {
   const esbuild = require(path.join(deps, 'esbuild'))
@@ -115,7 +115,7 @@ app.whenReady().then(async () => {
       mouse('mouseMove', d[0] + d[2] / 2, y); await pause(40)
       mouse('mouseDown', d[0] + d[2] / 2, y); await pause(60)
       const seen = []
-      for (const x of stops) { mouse('mouseMove', x, y); await pause(120); seen.push({ x, ...(await look()) }) }
+      for (const x of stops) { mouse('mouseMove', x - 1, y, { modifiers: ['leftButtonDown'] }); await pause(60); mouse('mouseMove', x, y, { modifiers: ['leftButtonDown'] }); await pause(160); seen.push({ x, ...(await look()) }) }
       mouse('mouseUp', stops[stops.length - 1], y); await settle()
       return seen
     }
@@ -133,6 +133,7 @@ app.whenReady().then(async () => {
     await until(() => js("!!document.querySelector('.attn-divider') && !!document.querySelector('.attn-panel-desk')"), 'the Attention view')
     await settle()
     const problems = [], steps = {}
+    W = await js('innerWidth')          // an off-screen window is the size Chromium gives it
     const need = (ok, what) => { if (!ok) problems.push(what) }
     const vis = s => !!s && !s.hiddenClass && !s.inert && Number(s.opacity) > 0.99
     const gone = s => !!s && s.hiddenClass && s.inert && Number(s.opacity) === 0 && s.panelInside
