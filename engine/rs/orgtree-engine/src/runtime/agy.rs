@@ -703,6 +703,36 @@ fn steering_hooks(agents: &Path, exe: &str, data_root: &Path) -> Result<Value> {
     Ok(Value::Object(events))
 }
 
+/// The silence after which a turn on a model the login's own list LACKS is stopped. Such a model is offered
+/// anyway (Hydrogen, user 2026-11-13 m6258781910ea), and a request the provider never answers must not wait out
+/// the ordinary silence limit (ten minutes by default, or none).
+pub const UNLISTED_MODEL_IDLE_S: u64 = 120;
+
+/// The silence limit of a turn on an unlisted model: the shorter of the user's and `UNLISTED_MODEL_IDLE_S`,
+/// which also applies when the user turned the silence limit off (0).
+#[nolog]
+pub fn unlisted_idle_s(limit: u64) -> u64 {
+    if limit == 0 { UNLISTED_MODEL_IDLE_S } else { limit.min(UNLISTED_MODEL_IDLE_S) }
+}
+
+/// The plain reason a failed Antigravity turn gets when the account cannot run its model, with what happened
+/// kept in brackets; None when nothing says so (the error stays as it is). Two kinds of evidence: the login's
+/// own confirmed model list does not include the model (`listed` Some(false)), or the error itself names a
+/// model and refuses it. Signed-out and unknown lists (`listed` None) are not evidence.
+#[nolog]
+pub fn unavailable_model_error(display: &str, model: &str, listed: Option<bool>, error: &str) -> Option<String> {
+    let said = error.to_ascii_lowercase();
+    let names_model = said.contains("model") || said.contains(&model.to_ascii_lowercase());
+    let refuses = ["not found", "not available", "unavailable", "unknown", "not supported", "unsupported", "no access",
+        "not have access", "permission", "not enabled", "does not exist", "invalid", "404", "403"].iter().any(|w| said.contains(w));
+    match listed {
+        Some(false) => Some(format!(
+            "{display} ({model}) is not available on this Antigravity account: the account's model list does not include it. ({error})")),
+        _ if names_model && refuses => Some(format!("{display} ({model}) is not available on this Antigravity account. ({error})")),
+        _ => None,
+    }
+}
+
 /// Dollars for one model request (Google bills prompt tokens above 200K at
 /// the long-context rate on its pro-class models).
 #[logged]
@@ -725,6 +755,54 @@ pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
         (2.00, 0.20, 12.00)
     };
     (input as f64 * pi + cached as f64 * pc + output as f64 * po) / 1e6
+}
+
+#[cfg(test)]
+mod unavailable_model_tests {
+    use super::{unavailable_model_error, unlisted_idle_s, UNLISTED_MODEL_IDLE_S};
+
+    const H: (&str, &str) = ("Gemini Hydrogen 4", "gemini-4-hydrogen");
+
+    /// USER 2026-11-13 m6258781910ea: a Hydrogen turn on an account without access fails with a clear "not
+    /// available on this account", whatever words the CLI used.
+    #[test]
+    fn an_unlisted_model_fails_with_a_plain_reason_and_keeps_what_happened() {
+        for said in ["the Antigravity turn ended error", "INTERNAL: request failed", "the turn produced nothing for too long and was stopped",
+                     "model pin refused: the session is serving gemini-3.8-flash, not gemini-4-hydrogen"] {
+            let got = unavailable_model_error(H.0, H.1, Some(false), said).expect(said);
+            assert_eq!(got, format!("Gemini Hydrogen 4 (gemini-4-hydrogen) is not available on this Antigravity account: \
+the account's model list does not include it. ({said})"));
+        }
+    }
+
+    #[test]
+    fn a_refusal_that_names_the_model_is_plain_even_without_a_confirmed_list() {
+        for said in ["Model gemini-4-hydrogen not found", "404: requested model does not exist", "You do not have access to this model",
+                     "unsupported model: gemini-4-hydrogen", "gemini-4-hydrogen is not enabled for this project"] {
+            for listed in [None, Some(true)] {
+                let got = unavailable_model_error(H.0, H.1, listed, said).expect(said);
+                assert_eq!(got, format!("Gemini Hydrogen 4 (gemini-4-hydrogen) is not available on this Antigravity account. ({said})"));
+            }
+        }
+    }
+
+    /// Controls: other failures of a listed (or not yet known) model keep their own words.
+    #[test]
+    fn other_failures_keep_their_own_words() {
+        for said in ["Antigravity sign-in required; background authentication stopped", "RESOURCE_EXHAUSTED: quota", "network unreachable",
+                     "the turn ran past its time limit and was stopped", "tool call failed: file not found", "interrupted"] {
+            assert_eq!(unavailable_model_error(H.0, H.1, None, said), None, "{said}");
+            assert_eq!(unavailable_model_error(H.0, H.1, Some(true), said), None, "{said}");
+        }
+    }
+
+    #[test]
+    fn an_unlisted_model_never_waits_out_a_long_or_absent_silence_limit() {
+        assert_eq!(UNLISTED_MODEL_IDLE_S, 120);
+        assert_eq!(unlisted_idle_s(600), 120);
+        assert_eq!(unlisted_idle_s(0), 120, "a silence limit turned off still ends an unlisted model's wait");
+        assert_eq!(unlisted_idle_s(45), 45, "a shorter limit of the user's own stands");
+    }
 }
 
 #[cfg(test)]

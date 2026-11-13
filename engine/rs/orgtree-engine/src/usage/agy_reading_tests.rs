@@ -31,14 +31,13 @@ pub(crate) fn placement_engine(native: u32, own: u32) -> Arc<Engine> {
     state.agy.connected = true;
     state.probed = true;
     engine.providers.state.store(Arc::new(state));
-    // Flash is legacy (2026-11-13) and staffing lists no legacy model: the Gemini-pool model on offer is Hydrogen
-    crate::providers::list_agy_models_for_tests(&engine, &["gemini-4-hydrogen"]);
     engine.usage.put("agy", &reading(native, 24));
     engine.usage.put("agy:google-2", &reading(own, 5));
     engine
 }
 
 #[tokio::test]
+// the Gemini-pool model staffing lists is Hydrogen: Flash is legacy since 2026-11-13
 async fn staffing_offers_profile_capacity_when_native_is_exhausted() {
     let engine = placement_engine(100, 12);
     let options = crate::domain::staffing::options(&engine, "synthetic-agy-placement");

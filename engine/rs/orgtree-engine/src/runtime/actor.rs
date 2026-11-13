@@ -1789,7 +1789,11 @@ impl Actor {
             self.release_held().await;
         }
         let (silent, over) = self.turn.as_ref().map_or((false, false), |t| {
-            let idle_limit = self.engine.settings.turn_idle_s();
+            // a model the login's own list lacks is offered anyway (Hydrogen): its silence ends soon
+            let idle_limit = match self.engine.settings.turn_idle_s() {
+                limit if self.agy_model_listed(t) == Some(false) => agyrt::unlisted_idle_s(limit),
+                limit => limit,
+            };
             let total = self.engine.settings.turn_timeout_s();
             (idle_limit > 0 && t.last_event.elapsed() >= Duration::from_secs(idle_limit),
              total > 0 && t.started.elapsed() >= Duration::from_secs(total))
@@ -1822,6 +1826,17 @@ impl Actor {
             self.on_wake().await?;
         }
         Ok(())
+    }
+
+    /// What the user's own Antigravity login lists about this turn's Gemini model: None for other providers,
+    /// Claude through Antigravity, a registered account's own login, and while no list is confirmed.
+    #[nolog]
+    fn agy_model_listed(&self, t: &Turn) -> Option<bool> {
+        if t.serving_provider != catalog::GOOGLE || catalog::antigravity_claude(&t.serving_tier)
+            || t.serving_account.as_deref().is_some_and(|a| a != "primary") {
+            return None;
+        }
+        crate::providers::agy_lists(&self.engine, catalog::tier(&t.serving_tier)?.model)
     }
 
     /// The turn went silent. When it is a Muse turn waiting on tool calls,
@@ -8495,6 +8510,16 @@ impl Actor {
                 Some((bytes, chars, budget)) => format!("Input exceeds maximum length: opening input {bytes} UTF-8 bytes / {chars} characters; Orgtree budget {budget} bytes. No automatic retry."),
                 None => "Input exceeds maximum length: input sizes unavailable for this non-mail turn. No automatic retry.".into(),
             });
+        }
+        // an Antigravity model this account cannot run says so plainly (Hydrogen is offered whether or not the
+        // account has it, user 2026-11-13 m6258781910ea); what happened stays in brackets
+        if agy && !turn.interrupted {
+            if let (Some(e), Some(t)) = (error.as_deref(), catalog::tier(&turn.serving_tier).filter(|t| !catalog::antigravity_claude(t.tier))) {
+                let display = catalog::display_name(t, None).unwrap_or_else(|| t.tier.to_string());
+                if let Some(plain) = agyrt::unavailable_model_error(&display, t.model, self.agy_model_listed(&turn), e) {
+                    error = Some(plain);
+                }
+            }
         }
         let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
         let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if turn.acp {

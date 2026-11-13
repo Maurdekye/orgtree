@@ -71,13 +71,15 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "flash", provider: GOOGLE, seat: 1.0, model: "gemini-3.8-flash",
         versions: &[("3.8", "gemini-3.8-flash"), ("3.7", "gemini-3.7-flash"), ("3.6", "gemini-3.6-flash")], letter: "F",
         context: Some(1_000_000), live_effort: false, legacy: true, conditional: false, prices: None },
-    // Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71; unreleased, nobody has access): Flash's successor, offered
-    // only while the account's `agy models` lists it. PLACEHOLDERS until a real turn: the id is the user's word,
-    // seat 1 by the input-price rule ($1.5 per million), efforts low/high, the Gemini pool. Declared right after
-    // Flash so it takes Flash's place in the default order.
+    // Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71; unreleased): Flash's successor. ALWAYS offered, whether
+    // or not the account's `agy models` lists it (user 2026-11-13 m6258781910ea "make hydrogen always available
+    // unconditionally regardless of the check"); a turn the account cannot run ends with a plain reason
+    // (`runtime::agy::unavailable_model_error`). PLACEHOLDERS until a real turn: the id is the user's word, seat 1
+    // by the input-price rule ($1.5 per million), efforts low/high, the Gemini pool. Declared right after Flash
+    // so it takes Flash's place in the default order.
     Tier { tier: "hydrogen", provider: GOOGLE, seat: 1.0, model: "gemini-4-hydrogen",
         versions: &[("4", "gemini-4-hydrogen")], letter: "H",
-        context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
+        context: Some(1_000_000), live_effort: false, legacy: false, conditional: false, prices: None },
     Tier { tier: "pro", provider: GOOGLE, seat: 2.0, model: "gemini-3.1-pro",
         versions: &[("3.1", "gemini-3.1-pro")], letter: "P",
         context: Some(1_000_000), live_effort: false, legacy: true, conditional: false, prices: None },
@@ -531,15 +533,16 @@ mod effort_tests {
     }
 
     /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
-    /// real turn): a conditional Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces.
+    /// real turn): a Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces. It is offered
+    /// unconditionally (user 2026-11-13 m6258781910ea), not on agy's model list like Argon, Krypton and Carbon.
     /// Flash (user 2026-11-13 md16909f83245 "Now") is legacy: known, placed by name, offered by no list.
     #[test]
-    fn hydrogen_is_a_conditional_gemini_tier_and_flash_is_legacy() {
+    fn hydrogen_is_an_always_offered_gemini_tier_and_flash_is_legacy() {
         let h = tier("hydrogen").expect("hydrogen");
-        assert_eq!((h.provider, h.model, h.letter, h.seat, h.conditional, h.legacy), (GOOGLE, "gemini-4-hydrogen", "H", 1.0, true, false));
+        assert_eq!((h.provider, h.model, h.letter, h.seat, h.conditional, h.legacy), (GOOGLE, "gemini-4-hydrogen", "H", 1.0, false, false));
         assert_eq!(h.seat, crate::openrouter::seat_for(1.5), "the standing input-price seat rule");
         assert_eq!(display_name(h, None).as_deref(), Some("Gemini Hydrogen 4"));
-        assert_eq!((antigravity_pool("hydrogen"), antigravity_own_bucket("hydrogen")), ("gemini", Some("hydrogen")));
+        assert_eq!((antigravity_pool("hydrogen"), antigravity_own_bucket("hydrogen")), ("gemini", None));
         assert_eq!(antigravity_effort("hydrogen", "medium"), "high", "medium waits for a -medium id in agy's list");
         let f = tier("flash").expect("flash stays a known tier: seats on it keep their letter, colour and price");
         assert!(f.legacy && !f.conditional);
@@ -617,9 +620,8 @@ mod effort_tests {
             listed().iter().filter(|t| t.provider == p && !t.legacy && (!t.conditional || conditional.contains(&t.tier)))
                 .map(|t| t.tier).collect()
         };
-        // Flash is legacy since Hydrogen (user 2026-11-13): no Gemini model is listed until agy offers one
-        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet"]);
-        assert_eq!(seen(GOOGLE, &["hydrogen"]), ["hydrogen"]);
+        // Flash is legacy since Hydrogen (user 2026-11-13): Hydrogen is the Gemini model every account is offered
+        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "hydrogen"]);
         assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "terra", "luna"]);
         // the rule itself, so a tier added later orders itself
         for p in [CLAUDE, OPENAI, GOOGLE, MUSE] {

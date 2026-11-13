@@ -1301,20 +1301,14 @@ fn agy_offers(tier: &str, listed: &[String]) -> bool {
     }
 }
 
-/// Fixtures elsewhere in the crate: this engine's Antigravity lists `ids` for a confirmed synthetic login,
-/// without a registry read or a publication.
-#[cfg(test)]
-pub(crate) fn list_agy_models_for_tests(engine: &Engine, ids: &[&str]) {
-    agy_auth::catalog_test_metadata(engine, Ok(Some(agy_auth::Stamp(1))));
-    agy_auth::record_catalog_identity(engine, agy_auth::Stamp(1), Some("fixture@example.invalid"));
-    let principal = agy_auth::catalog_identity(engine).map(|i| i.principal);
-    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
-    engine.providers.state.rcu(|cur| {
-        let mut st = State::clone(cur);
-        st.agy_models = ids.clone();
-        st.agy_model_principal = principal.clone();
-        st
-    });
+/// What the user's own Antigravity login says about `model`: listed (bare or with an effort suffix) or not;
+/// None while no list is confirmed for that login (signed out, not read yet, another login's list). Evidence
+/// for explaining a failed turn, never an offer gate: Hydrogen is offered regardless (user 2026-11-13).
+#[nolog]
+pub fn agy_lists(engine: &Engine, model: &str) -> Option<bool> {
+    let st = engine.providers.state.load();
+    (st.agy_model_principal.is_some() && agy_auth::catalog_identity(engine).map(|i| i.principal) == st.agy_model_principal)
+        .then(|| agy_models::listed(model, &st.agy_models))
 }
 
 /// `agy_offers` on the last registry read: what the hire strips, staffing
@@ -1646,20 +1640,40 @@ mod conditional_tests {
 mod hydrogen_tests {
     use super::*;
 
+    /// USER 2026-11-13 m6258781910ea: Hydrogen is offered on every Antigravity account whatever `agy models`
+    /// says; the list is only evidence for explaining a failed turn (`agy_lists`).
     #[test]
-    fn hydrogen_is_offered_only_while_agy_lists_it_and_flash_leaves_the_payload_rows() {
+    fn hydrogen_is_offered_whatever_agy_lists_and_flash_leaves_the_payload_rows() {
         let other: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon-high"].map(String::from).to_vec();
-        assert!(!agy_offers("hydrogen", &other) && !agy_offers("hydrogen", &[]));
-        for listed in ["gemini-4-hydrogen", "gemini-4-hydrogen-high", "gemini-4-hydrogen-low"] {
-            assert!(agy_offers("hydrogen", &[listed.to_string()]), "{listed}");
-        }
-        assert!(!agy_offers("hydrogen", &["gemini-4-hydrogenated".to_string()]));
+        assert!(agy_offers("hydrogen", &other) && agy_offers("hydrogen", &[]) && agy_offers("hydrogen", &["gemini-4-hydrogen".to_string()]));
+        assert!(!agy_offers("carbon", &[]), "control: the conditional tiers still follow the list");
         // the rows the desktop lists: Hydrogen is a current row, Flash only with legacy asked for
         let current = tier_rows(catalog::GOOGLE, false);
         assert!(current.iter().any(|r| r["tier"] == "hydrogen" && r["seat"] == 1.0 && r["letter"] == "H"
             && r["model"] == "gemini-4-hydrogen" && r["display_name"] == "Gemini Hydrogen 4"));
         assert!(!current.iter().any(|r| r["tier"] == "flash"), "Flash is behind Show legacy models");
         assert!(tier_rows(catalog::GOOGLE, true).iter().any(|r| r["tier"] == "flash"));
+    }
+
+    #[tokio::test]
+    async fn the_logins_list_is_evidence_only_once_it_is_confirmed() {
+        let engine = Engine::for_tests(std::path::PathBuf::new());
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), None, "no list read yet: unknown, not absent");
+        agy_auth::catalog_test_metadata(&engine, Ok(Some(agy_auth::Stamp(1))));
+        agy_auth::record_catalog_identity(&engine, agy_auth::Stamp(1), Some("a@example.invalid"));
+        let listed = |ids: &[&str]| {
+            let catalog = agy_models::Catalog { ids: ids.iter().map(|s| s.to_string()).collect(), identity: agy_auth::catalog_identity(&engine) };
+            apply_agy_model_read(&engine, Ok(catalog));
+        };
+        listed(&["gemini-3.8-flash-high", "gemini-4-carbon-high"]);
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), Some(false));
+        assert_eq!(agy_lists(&engine, "gemini-4-carbon"), Some(true));
+        listed(&["gemini-4-hydrogen-low", "gemini-4-hydrogen-high"]);
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), Some(true));
+        // another login signs in: the old list says nothing about it
+        agy_auth::catalog_test_metadata(&engine, Ok(Some(agy_auth::Stamp(2))));
+        agy_auth::record_catalog_identity(&engine, agy_auth::Stamp(2), Some("b@example.invalid"));
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), None);
     }
 }
 
