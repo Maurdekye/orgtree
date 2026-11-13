@@ -30,7 +30,7 @@ import { registerStallCounts } from '../stallwatch'
 import { reportAttract } from '../streamrooms'
 import type { AttractPanel } from '../attract/canvas'
 import type { ReleaseVia } from '../attract/attract'
-import { detachedPanel, revealDetachedDocument } from '../windowlife'
+import { detachedPanel, revealDetachedDocument, revealSurface } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { moveDeskMemory } from './desktabs'
@@ -140,6 +140,7 @@ import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { InboxReplaceConfirm } from './inboxreplace'
 import { setAttentionLayout } from '../attention/mode'
+import { mainWindowShown, watchMainWindow } from '../mainwindow'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
 import { projectLineLanes, slotLinks } from './slots'
 import { isUserName } from './username'
@@ -570,6 +571,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
+  // the native side's word on whether this window is on screen, for the one focus path (centerOn)
+  useEffect(() => watchMainWindow(), [])
   const [draft, setDraft] = useState<DraftState | null>(null)
   const draftRef = useRef(draft); draftRef.current = draft
   const draftOrgRef = useRef(slug); draftOrgRef.current = slug
@@ -2502,10 +2505,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // window moves. An agent this tree does not hold yet falls through to the
     // foreground lookup below, whose retry lands back here once it loads.
     // `onCanvas` is the explicit "Show on canvas" and is left alone.
-    if (!onCanvas && worldHiddenRef.current && mapRef.current.has(id)
+    //
+    // ⚠ AND WHILE THE ATTENTION DESK IS THE ONLY PLACE LEFT ON SCREEN (user 2026-11-12 16:57:30Z m6ac4fe1109a2:
+    // "if the attention desk is popped out, and the main window with the canvas is closed, clicking an agent link
+    // should open it in the attention desk the same way it does when attention view is open"). Closing the main
+    // window with a panel popped out only HIDES it (`keepForPanels`); this canvas is still mounted and `worldHidden`
+    // is false, so the jump below would move a camera nobody can see. When the native side says the main window is
+    // not on screen (hidden, or minimized: mainwindow.ts) and this organization's Attention desk has a window of its
+    // own, the desk takes the agent and its window comes forward (the click may have been in the popped-out queue).
+    // With the main window on screen the canvas keeps the jump, as it always did.
+    const attentionDeskOut = !worldHiddenRef.current && !mainWindowShown() ? detachedPanel('attention-desk', slug) : undefined
+    if (!onCanvas && (worldHiddenRef.current || attentionDeskOut) && mapRef.current.has(id)
         && id !== USER && id !== DRAFT && id !== INBOX && id !== EXTERN
         && !id.startsWith('dog:')) {
       setAttentionLayout(slug, { agent: id })
+      if (attentionDeskOut) revealSurface(attentionDeskOut)
       return
     }
     // ⚠ A PINNED AGENT'S DESTINATION IS ITS WINDOW, NOT ITS CARD. The card

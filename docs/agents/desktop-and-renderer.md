@@ -21,6 +21,34 @@ so it left the window the user was looking at and sat on the main window's canva
 
 [decided: user report md15fcb3a298e; verified: `tests/readerpinpopout.test.tsx` (3 tests),
 `tests/readerpinpopout.capture.cjs` (FAIL before, PASS after, Session 0)]
+## Agent links with the Attention desk popped out and the main window closed (2026-11-13, 4.5.13)
+
+"If the attention desk is popped out, and the main window with the canvas is closed, clicking an agent link should
+open it in the attention desk the same way it does when attention view is open" (user 2026-11-12 16:57:30Z
+m6ac4fe1109a2).
+
+- **Before** (measured, `tests/attentiondeskroute.test.tsx` at its red commit): the one focus path, `centerOn` in
+  `canvas/OrgCanvas.tsx`, sent the agent to the Attention desk only while the Attention view was the presented view
+  (`worldHidden`). Closing the main window with a panel popped out HIDES it (`keepForPanels`, `main/index.ts`); the
+  canvas stays mounted, so with the organization in Canvas the click moved the camera of a window nobody could see
+  and the popped-out desk kept its agent.
+- **Now:** when the native side says the main window is not on screen and this organization's Attention desk has a
+  window of its own (`detachedPanel('attention-desk', slug)`), `centerOn` selects the agent in the Attention desk
+  (`setAttentionLayout`), brings that window forward (`revealSurface`; the click may have been in the popped-out
+  queue) and leaves the camera alone. Every agent link ends in `centerOn`, so mail, docket, presentation and prose
+  links all follow. "Show on canvas" (`onCanvas`) is still the canvas.
+- **`src/mainwindow.ts`** holds the one fact: `getWindowControlsState()` at mount, then the `window-state` events the
+  main process sends at show, hide, minimize and restore. Unknown is "shown" (no bridge, a test, an older shell), so
+  nothing changes there. `document.hidden` is not used: with running panels the main process switches background
+  throttling off and a hidden window's document goes on reporting visible.
+- **Choices, not rulings:** a MINIMIZED main window counts as not on screen, like a closed one. With the main window
+  on screen in Canvas the canvas keeps the jump, as before. Without a popped-out Attention desk nothing changes.
+- NOT measured: the installed app (a real main window hidden by its close button, the real native events). The test
+  drives the real `OrgCanvas` and `AttentionView` with the events as the bridge delivers them and a registry record
+  as a pop-out registers it.
+
+[decided: user m6ac4fe1109a2; verified: `tests/attentiondeskroute.test.tsx` (7 tests), `canvas/OrgCanvas.tsx`
+`centerOn`, `src/mainwindow.ts`, `main/index.ts` `publishWindowState`]
 
 ## Pinned desk default and minimum size (2026-11-10, 4.5.11)
 
