@@ -6,6 +6,45 @@
 use super::*;
 use tokio_postgres::NoTls;
 
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn stall_alert_outside_delivery_resets_live_holder_but_not_halted() {
+    let mut w = world(true).await;
+    let target = w.agent("holder", None).await;
+    w.grant("holder").await;
+    w.e.stopping.store(true, std::sync::atomic::Ordering::SeqCst);
+    // Same retained inert handle as holdings/db_tests.rs: no actor or CLI runs.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let handle = Arc::new(crate::runtime::AgentHandle { id:target, org_id:w.org, tx,
+        view:arc_swap::ArcSwap::from_pointee(Value::Null),
+        helpers:arc_swap::ArcSwap::from_pointee(json!({"count":0,"items":[],"truncated":false})) });
+    w.e.agents.map.pin().insert(target, handle.clone());
+    assert!(Arc::ptr_eq(&crate::runtime::actor(&w.e, w.org, target), &handle));
+    let other = json!({"net_fail_run":2,"balance_probe_run":3,"parked_run":4,"last_wall":{"kind":"synthetic"},
+        "ctx_reset_run":5,"native_ctx_retry_run":6,"rate_limit_run":7});
+    // Check the halted preservation before the live red assertion can fail.
+    for halted in [true, false] {
+        let mut seeded = other.clone(); seeded["hard_fail_run"] = json!(1);
+        let halt = halted.then(|| json!({"at":"synthetic"}));
+        w.c.execute("UPDATE ot.agents SET extra=$2,halt=$3 WHERE id=$1", &[&target,&seeded,&halt]).await.unwrap();
+        let (_, published) = w.arrive(&uid("stall-net"), "@org:synthetic", "synthetic deliberate outside wake", json!([])).await;
+        assert_eq!(published.copies.len(), 1);
+        assert_eq!(published.copies[0].3, !halted);
+        let actual: Value = w.c.query_one("SELECT extra FROM ot.agents WHERE id=$1", &[&target]).await.unwrap().get(0);
+        assert_eq!(actual, if halted { seeded } else { other.clone() });
+        super::wake_copies(&w.e, w.org, published.copies);
+        let mut wakes = 0;
+        while let Ok(envelope) = rx.try_recv() {
+            assert!(matches!(envelope.msg, crate::runtime::AgentMsg::Wake));
+            wakes += 1;
+        }
+        // Existing running-handle notification remains even for a halted holder.
+        assert_eq!(wakes, if halted { 1 } else { 2 });
+        assert!(Arc::ptr_eq(&crate::runtime::actor(&w.e, w.org, target), &handle));
+    }
+}
+
 struct World {
     e: Arc<Engine>,
     c: tokio_postgres::Client,

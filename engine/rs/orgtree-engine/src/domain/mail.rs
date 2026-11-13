@@ -259,6 +259,14 @@ pub struct Sent {
     pub deferred: bool,
 }
 
+/// Whether the sender starts a new deliberate failure-reporting episode.
+#[nolog]
+fn wake_resets_fail_run(_from: &From) -> bool { false }
+
+#[cfg(test)]
+#[path = "mail_stall_alert_tests.rs"]
+mod stall_alert_tests;
+
 /// Store one message and wake its recipient.
 #[logged]
 pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Sent> {
