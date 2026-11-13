@@ -1270,7 +1270,7 @@ export interface WireMailRow {
   id?: string; from: string; kind: string; body: string; at: string;
   relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
   reply_to?: Record<string, unknown>; replies?: Record<string, unknown>[]; model_only?: boolean; retracted?: boolean;
-  delivering?: boolean; via?: string; stage?: string; ref?: string;
+  delivering?: boolean; via?: string | { id: string; name: string; on?: string } | null; stage?: string; ref?: string;
   ev?: Event; ev_raw?: unknown; ev_error?: EvError;
 }
 export interface WireNoticeRow { at: string; text: string; ev?: Event; ev_raw?: unknown; ev_error?: EvError; }

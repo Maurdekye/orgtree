@@ -5,6 +5,10 @@ import type { EventProfile } from './decode'
 type AnySegment = Segment
 const own = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key)
 const optionalString = (o: Record<string, unknown>, key: string) => !own(o, key) || typeof o[key] === 'string'
+/** `via` of a mail row: which computer a user's mail came through, a record (people.tsx reads it and
+ *  shows nothing for one it cannot read). An older engine wrote a delivery word there. Refusing the
+ *  record would turn every delivery of a user's message into its plain text. */
+const optionalVia = (o: Record<string, unknown>) => !own(o, 'via') || o.via === null || typeof o.via === 'string' || record(o.via)
 function validError(value: unknown): boolean {
   return record(value) && typeof value.code === 'string'
     && typeof value.path === 'string' && typeof value.expected === 'string'
@@ -27,7 +31,7 @@ export function isSegments(value: unknown, profile: EventProfile): value is AnyS
         if (!record(row) || typeof row.at !== 'string' || !validEventFields(row)) return false
         if (segment.kind === 'notices') return typeof row.text === 'string'
         return typeof row.from === 'string' && typeof row.kind === 'string' && typeof row.body === 'string'
-          && optionalString(row, 'id') && optionalString(row, 'via') && optionalString(row, 'stage') && optionalString(row, 'ref')
+          && optionalString(row, 'id') && optionalVia(row) && optionalString(row, 'stage') && optionalString(row, 'ref')
           && (!own(row, 'relationship') || row.relationship === null || typeof row.relationship === 'string')
           && (!own(row, 'attachments') || Array.isArray(row.attachments))
           && (!own(row, 'attachments_missing') || (Array.isArray(row.attachments_missing) && row.attachments_missing.every(x => typeof x === 'string')))
