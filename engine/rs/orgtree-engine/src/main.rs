@@ -304,6 +304,8 @@ async fn run_with_cluster(
     appfeed::start(&engine, app_inbox);
     // the links to remote engines: each its own task, none waited for
     remote::start(&engine);
+    // the door other computers come in through, while an organization is shared (remote_access/lifecycle.rs)
+    remote_access::lifecycle::start(&engine);
     // orgs a first-start import could not copy: one line each in the org list
     import_failures::publish(&engine).await;
     if let Err(e) = org_accounts::load(&engine).await {

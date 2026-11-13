@@ -530,7 +530,7 @@ fn plain_address(a: &str) -> bool {
 /// This PC's address on its local network (the route to the internet's
 /// interface; no packet is sent), for "Use my home Wi-Fi instead".
 #[logged]
-fn lan_ipv4() -> Option<String> {
+pub(crate) fn lan_ipv4() -> Option<String> {
     let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     s.connect("192.0.2.1:9").ok()?;
     match s.local_addr().ok()?.ip() {

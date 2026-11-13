@@ -18,7 +18,7 @@ use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{record, registry, text};
+use super::{lifecycle, record, registry, text};
 use crate::client_tokens::Scope;
 use crate::engine::Engine;
 use crate::http::error::{ApiError, ApiResult};
@@ -58,16 +58,30 @@ fn shown(engine: &Engine, row: &Value) -> Value {
 
 /// `GET /api/remote-access`: the port, where the door listens, and every organization of this
 /// computer with its switch and how many computers have it.
+/// It is also the app value `remote_access` this desktop's own windows are pushed
+/// (`lifecycle::publish`): `door` says where the door stands, and each organization who is
+/// connected to it now.
 #[nolog]
-fn overview_of(engine: &Engine) -> Value {
+pub(super) fn overview_of(engine: &Engine) -> Value {
     let (port, lan) = engine.access.registry.listening();
     let all = engine.access.registry.rows(None);
     let orgs: Vec<Value> = engine.orgs.all().iter().map(|org| {
         let mine: Vec<&Value> = all.iter().filter(|row| has(row, &org.uuid)).collect();
+        let connected: Vec<Value> = mine.iter().filter(|row| row["connected"] == true)
+            .map(|row| json!({ "id": row["id"], "label": row["label"], "name": row["name"], "since": row["connected_since"] })).collect();
         json!({ "slug": org.slug, "name": org.name.load_full().as_str(), "on": engine.access.is_open(&org.uuid),
-                "computers": mine.len(), "connected": mine.iter().filter(|row| row["connected"] == true).count() })
+                "computers": mine.len(), "connected": connected.len(), "connected_now": connected })
     }).collect();
-    json!({ "computer": super::host_name(engine), "port": port, "default_port": registry::DEFAULT_PORT, "lan": lan, "orgs": orgs })
+    json!({ "computer": super::host_name(engine), "port": port, "default_port": registry::DEFAULT_PORT, "lan": lan, "orgs": orgs,
+            "door": lifecycle::status(engine) })
+}
+
+/// After a change of the owner's: the door goes where it should stand now, and this desktop's
+/// windows are told.
+#[nolog]
+async fn settled(engine: &Arc<Engine>) {
+    lifecycle::refresh(engine).await;
+    lifecycle::publish(engine);
 }
 
 /// `GET /api/remote-access/orgs/{slug}`: the switch, the computers that have this organization,
@@ -78,7 +92,7 @@ fn org_view(engine: &Engine, org: &OrgHandle) -> Value {
     let all = engine.access.registry.rows(None);
     let (computers, known): (Vec<&Value>, Vec<&Value>) = all.iter().partition(|row| has(row, &org.uuid));
     json!({
-        "slug": org.slug, "on": engine.access.is_open(&org.uuid),
+        "slug": org.slug, "on": engine.access.is_open(&org.uuid), "door": lifecycle::status(engine),
         "computers": computers.into_iter().map(|row| shown(engine, row)).collect::<Vec<_>>(),
         "known": known.into_iter().map(|row| shown(engine, row)).collect::<Vec<_>>(),
         "invitations": engine.access.registry.invitations(&org.uuid),
@@ -108,7 +122,9 @@ pub async fn listening(State(engine): State<Arc<Engine>>, scope: Option<Extensio
         Some(port) => Some(u16::try_from(port).ok().filter(|port| *port >= 1024).ok_or_else(|| ApiError::bad_request(text::PORT_RANGE))?),
         None => None,
     };
-    engine.access.registry.set_listening(port, body.lan)?;
+    if engine.access.registry.set_listening(port, body.lan)? {
+        settled(&engine).await;
+    }
     Ok(Json(overview_of(&engine)))
 }
 
@@ -120,6 +136,7 @@ pub async fn stop(State(engine): State<Arc<Engine>>, scope: Option<Extension<Sco
     for org in engine.access.registry.stop_all()? {
         record(&engine, &org, "off", None, crate::caller::via());
     }
+    settled(&engine).await;
     Ok(Json(overview_of(&engine)))
 }
 
@@ -141,8 +158,14 @@ pub struct Switch {
 pub async fn switch(State(engine): State<Arc<Engine>>, Path(slug): Path<String>, scope: Option<Extension<Scope>>, Json(body): Json<Switch>) -> ApiResult<Json<Value>> {
     owner(&engine, &scope)?;
     let org = local_org(&engine, &slug)?;
+    if body.on && !engine.access.is_open(&org.uuid) {
+        // a switch that could let nobody in is not turned on: it says why instead
+        let (_, lan) = engine.access.registry.listening();
+        lifecycle::way_in(&lifecycle::read(&engine).await, lan).map_err(ApiError::conflict)?;
+    }
     if engine.access.registry.set_open(&org.uuid, body.on)? {
         record(&engine, &org.uuid, if body.on { "on" } else { "off" }, None, crate::caller::via());
+        settled(&engine).await;
     }
     Ok(Json(org_view(&engine, &org)))
 }
@@ -159,7 +182,7 @@ pub async fn invite(State(engine): State<Arc<Engine>>, Path(slug): Path<String>,
     let made = engine.access.registry.invite(&org.uuid)?;
     record(&engine, &org.uuid, "code", None, crate::caller::via());
     Ok(Json(json!({ "id": made["id"], "code": made["code"], "created_at": made["created_at"], "expires_at": made["expires_at"],
-                    "minutes": registry::INVITATION_MINUTES })))
+                    "minutes": registry::INVITATION_MINUTES, "door": lifecycle::status(&engine) })))
 }
 
 /// `DELETE /api/remote-access/orgs/{slug}/invitations/{id}`: take a code back before it was used.
@@ -189,6 +212,7 @@ pub async fn give(State(engine): State<Arc<Engine>>, Path((slug, id)): Path<(Str
     let row = engine.access.registry.give(&id, &org.uuid)?;
     if !had {
         record(&engine, &org.uuid, "computer_given", Some(&row), crate::caller::via());
+        lifecycle::publish(&engine);
     }
     Ok(Json(org_view(&engine, &org)))
 }
@@ -202,5 +226,6 @@ pub async fn revoke(State(engine): State<Arc<Engine>>, Path(id): Path<String>, s
     for org in row["orgs"].as_array().into_iter().flatten().filter_map(Value::as_str) {
         record(&engine, org, "computer_revoked", Some(&row), crate::caller::via());
     }
+    lifecycle::publish(&engine);
     Ok(Json(json!({ "revoked": id })))
 }

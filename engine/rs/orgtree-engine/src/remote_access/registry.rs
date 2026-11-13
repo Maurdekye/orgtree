@@ -271,6 +271,16 @@ impl Registry {
         Ok(were)
     }
 
+    /// End every connection every computer has open. Their records and the switches stay: for
+    /// when the door moved, so everyone comes back through where it stands now.
+    pub fn close_all(&self) {
+        if let Ok(state) = self.state.lock() {
+            for presence in state.live.values() {
+                presence.close();
+            }
+        }
+    }
+
     /// The door's port, and whether it also listens on this private network.
     pub fn listening(&self) -> (u16, bool) {
         self.state.lock().map(|state| (state.saved.port, state.saved.lan)).unwrap_or((DEFAULT_PORT, false))
