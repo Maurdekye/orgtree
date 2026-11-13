@@ -1473,25 +1473,25 @@ mod tests {
         let t=bundled("heavy-dev-shop");
         assert!(validate(&t).is_empty(),"{:?}",validate(&t));
         let mut av=claude_only();
-        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google"),("fable",10.0,"claude")] {
+        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google"),("fable",8.0,"claude")] {
             av.tiers.insert(tier.into(),offer(cost,provider));
         }
         let (p,b)=plan(&t,&Choices::default(),&av,&[]).unwrap();
         assert!(b.is_empty());
         // user 2026-11-13 m99b4b994b8f0 "add at least one fable to the heavy dev shop preset": one Fable developer
-        // at medium, so sixteen seats and 74 credits where there were fifteen and 64
+        // at medium; Fable costs 8 (user 2026-11-13 md539ddd936f9), so sixteen seats and 72 credits
         assert_eq!(p.len(),17); // sixteen seats plus one project, below the 24-node limit
         assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),16);
-        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),74.0);
+        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),72.0);
         assert_eq!(p[0].name,"liaison");
-        assert_eq!(p[0].grant,90.0);
-        assert_eq!(p[1].grant,82.0);
+        assert_eq!(p[0].grant,88.0);
+        assert_eq!(p[1].grant,80.0);
         let developers:Vec<_>=p.iter().filter(|p|p.name.starts_with("developer-")).collect();
         assert_eq!(developers.len(),12);
         for tier in ["opus","sol","astra"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),3); }
         for tier in ["sonnet","argon","fable"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
         let fable=developers.iter().find(|p|p.name=="developer-fable").expect("the Fable developer");
-        assert_eq!((fable.tier.as_deref(),fable.slot.effort.as_deref(),fable.slot.charter.preset.as_deref(),fable.seat),(Some("fable"),Some("medium"),Some("developer"),10.0));
+        assert_eq!((fable.tier.as_deref(),fable.slot.effort.as_deref(),fable.slot.charter.preset.as_deref(),fable.seat),(Some("fable"),Some("medium"),Some("developer"),8.0));
         assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),6);
         assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("high")).count(),4);
         let mut max_names:Vec<_>=developers.iter().filter(|p|p.slot.effort.as_deref()==Some("max")).map(|p|p.name.as_str()).collect();
@@ -1652,13 +1652,13 @@ mod tests {
 
     #[test]
     fn grants_add_the_reports_seats() {
-        // the implementer is Fable since 2026-11-13: its seat of 10 is in the coordinator's grant
+        // the implementer is Fable since 2026-11-13: its seat of 8 is in the coordinator's grant
         let mut av = claude_only();
-        av.tiers.insert("fable".into(), offer(10.0, "claude"));
+        av.tiers.insert("fable".into(), offer(8.0, "claude"));
         let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &av, &[]).unwrap();
         assert!(blocked.is_empty());
         assert_eq!(p[1].tier.as_deref(), Some("fable"));
-        assert_eq!(p[0].grant, 10.0 + 10.0 + 4.0 + 2.0);
+        assert_eq!(p[0].grant, 10.0 + 8.0 + 4.0 + 2.0);
         assert_eq!(p[0].account.as_deref(), Some("primary"));
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator")));
     }

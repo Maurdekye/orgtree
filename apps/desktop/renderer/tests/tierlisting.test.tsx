@@ -23,7 +23,7 @@ import assert from 'node:assert/strict'
 import {
   ALL_TIERS, ANTIGRAVITY_TIERS, ANTIGRAVITY_TIERS_LISTED, bySeatDesc, byOpenrouterPriceDesc, CODEX_TIERS,
   CODEX_TIERS_LISTED, hireTierChoices, MUSE_TIERS, MUSE_TIERS_LISTED, openrouterPriceClass,
-  setMuseProvider, setOfferedConditionalTiers, setOpenRouterTiers, setLangServerTiers, TIERS, TIERS_LISTED, USER,
+  setMuseProvider, setOfferedConditionalTiers, setOpenRouterTiers, setLangServerTiers, TIERS, TIERS_LISTED, TIER_SEAT, USER,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
 import { quickChatTier } from '../src/quickchat'
@@ -89,6 +89,7 @@ test('§1 bySeatDesc: the dearest first, equal seats keep their order, a missing
 /* ── §2 the family lists and the defaults ────────────────────────────────── */
 
 test('§2 each provider lists its models dearest first, and the provider-neutral list follows', () => {
+  assert.equal(TIER_SEAT.fable, 8, 'Fable costs 8 credits (USER 2026-11-13 md539ddd936f9)')
   assert.deepEqual(TIERS_LISTED, ['fable', 'opus', 'sonnet', 'haiku'])
   // Terra seats at 1 since GPT-6.1 Terra (2026-10-26), so it follows Sol's 2
   assert.deepEqual(CODEX_TIERS_LISTED, ['astra', 'sol', 'terra', 'gpt-reserve', 'luna'])

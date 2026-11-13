@@ -534,6 +534,15 @@ mod effort_tests {
         }
     }
 
+    /// Fable costs 8 credits (USER 2026-11-13 md539ddd936f9); Wonder Full and Astra keep their seats of 10.
+    #[test]
+    fn fable_costs_eight_credits() {
+        assert_eq!(seat_price("fable"), 8.0);
+        for unchanged in ["wonder-full", "astra"] {
+            assert_eq!(seat_price(unchanged), 10.0, "{unchanged}");
+        }
+    }
+
     /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
     /// real turn): a Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces. It is offered
     /// unconditionally (user 2026-11-13 m6258781910ea), not on agy's model list like Argon, Krypton and Carbon.
