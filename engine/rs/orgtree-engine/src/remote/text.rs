@@ -64,6 +64,10 @@ pub fn e15(reason: &str) -> String {
     format!("Couldn't save the token on this computer: {reason}.")
 }
 
+/// A hosting desktop made no token for what was pasted: it was not a code of
+/// its own, or the code was used, or its 15 minutes are over.
+pub const E18: &str = "That code was already used or has run out. Ask for a new one.";
+
 /// A local organization cannot take a name that an organization of a remote
 /// engine already holds in this list (its alias is the window's identity).
 #[nolog]

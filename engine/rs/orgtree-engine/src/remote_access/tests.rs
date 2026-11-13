@@ -1132,6 +1132,129 @@ async fn an_answer_to_a_member_holds_no_address_of_the_owners() {
     }
 }
 
+// ------------------------------------------------------------ F-T7: the connecting side
+
+fn registry_row(id: i64, slug: &str, uuid: &str) -> Value {
+    json!({ "org_id": id, "slug": slug, "org_uuid": uuid, "state": "active" })
+}
+
+/// Did a relayed request reach a handler of the hosting desktop? The door refuses with 403, an
+/// unknown organization is 404, and the relay's own answers (not connected, no answer) name the
+/// connection in `remote`. A handler of an engine without a database answers what it can (503
+/// "organization feed unavailable"): that it answered at all is the point.
+fn reached_a_handler(status: u16, body: &Value) -> bool {
+    status != 403 && status != 404 && body.get("remote").is_none()
+}
+
+#[tokio::test]
+async fn a_desktop_adds_a_hosting_desktop_with_a_code_and_works_in_what_it_was_given() {
+    use crate::remote::testkit::Near;
+    let (host_root, near_root) = (Root::new(), Root::new());
+    let host = Host::start(&host_root).await;
+    let galaxy = host.shared(7, "galaxy");
+    let other = host.shared(8, "other");
+    // what the hosting desktop's feed would have read from its database
+    host.engine.app.test_registry(vec![registry_row(7, "galaxy", &galaxy), registry_row(8, "other", &other)]);
+    for (n, uuid, name) in [(7, galaxy.as_str(), "Galaxy"), (8, other.as_str(), "Other")] {
+        host.engine.app.test_org(n, json!({ "uuid": uuid }), json!({ "name": name }), json!([]));
+    }
+    let near = Near::start(&near_root).await;
+    let url = format!("http://{}", host.door);
+    let add = |token: String| near.call("POST", "/api/remotes", None, Some(json!({ "url": url, "token": token })));
+    let connections = || async { near.call("GET", "/api/remotes", None, None).await.2["remotes"].as_array().cloned().unwrap_or_default() };
+
+    // What is not a code of that desktop makes nothing and is not kept: neither a guess, nor the token
+    // of a computer that is already in (pasting someone else's token must not make two computers one).
+    let (_, known_token) = host.let_in(&galaxy, "Orgtree desktop (PC-KNOWN)").await;
+    let (status, _, refused) = add("NOT-A-CODE-OF-THIS-DESKTOP".into()).await;
+    assert_eq!((status, refused["code"].as_str()), (403, Some("E4")), "{refused}");
+    let (status, _, refused) = add(known_token.clone()).await;
+    assert_eq!((status, refused["code"].as_str(), refused["detail"].as_str()), (422, Some("E18"), Some(crate::remote::text::E18)), "{refused}");
+    assert!(connections().await.is_empty(), "nothing was saved");
+    assert_eq!(host.engine.access.registry.rows(None).len(), 1, "and nothing was made on the hosting desktop");
+    assert_eq!(host.door("GET", "/api/desktop/alive", &known_token, None).await.0, 200, "the computer that is in is untouched");
+
+    // a code: this desktop holds its own token from then on, for what the code was for
+    let code = host.code(&galaxy);
+    let (status, _, view) = add(code.clone()).await;
+    assert_eq!(status, 200, "{view}");
+    let id = view["id"].as_str().unwrap().to_string();
+    assert_eq!((view["mode"].as_str(), view["scope"].as_str(), view["own_token"].as_bool()), (Some("host"), Some("member"), Some(true)), "{view}");
+    assert_eq!(view["name"].as_str(), Some(host.engine.remotes.computer()), "it is called by the hosting computer's name");
+    assert!(refused_for_its_token(&host.door("GET", "/api/desktop/alive", &code, None).await), "the code is used up");
+    let saved = std::fs::read_to_string(near_root.0.join("remote-engines.json")).unwrap();
+    assert!(!saved.contains(&code), "what was pasted is not what this desktop kept: {saved}");
+    assert_eq!(serde_json::from_str::<Value>(&saved).unwrap()["remotes"][0]["mode"], "host", "{saved}");
+    // the hosting desktop has the computer in its list
+    let computer = host.engine.access.registry.rows(Some(&galaxy)).into_iter().find(|row| row["name"] != "Orgtree desktop (PC-KNOWN)").expect("the new computer");
+    let computer_id = computer["id"].as_str().unwrap().to_string();
+    assert!(computer["name"].as_str().is_some_and(|name| name.starts_with("Orgtree desktop (")), "{computer}");
+    // a second use of the same code makes nothing
+    let (status, _, refused) = add(code.clone()).await;
+    assert_ne!(status, 200, "{refused}");
+
+    // the link comes up and lists what this desktop was given, and nothing else of that desktop's
+    near.state(&id, "connected", 5000).await;
+    let aliases = |view: &Value| -> Vec<String> { view["orgs"].as_array().unwrap().iter().filter(|org| org["gone"] != true).map(|org| org["alias"].as_str().unwrap().to_string()).collect() };
+    let mut view = Value::Null;
+    for _ in 0..300 {
+        view = near.view(&id).await;
+        if aliases(&view) == vec!["galaxy"] { break; }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(aliases(&view), vec!["galaxy"], "{view}");
+
+    // a request of a window of that organization reaches the hosting desktop, as this desktop
+    let (status, _, got) = near.call("GET", "/api/orgs/galaxy/records", None, None).await;
+    assert!(reached_a_handler(status, &got), "{status}: {got}");
+    // the organization it was not given is nothing this desktop knows of
+    assert_eq!(near.call("GET", "/api/orgs/other/records", None, None).await.0, 404);
+
+    // the owner gives it the second organization: it is in this desktop's list on the connection it has
+    assert_eq!(host.owner("PUT", &format!("/api/remote-access/orgs/other/computers/{computer_id}"), None).await.0, 200);
+    for _ in 0..300 {
+        view = near.view(&id).await;
+        if aliases(&view).len() == 2 { break; }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(aliases(&view), vec!["galaxy", "other"], "{view}");
+    let (status, _, got) = near.call("GET", "/api/orgs/other/records", None, None).await;
+    assert!(reached_a_handler(status, &got), "{status}: {got}");
+
+    // the owner switches galaxy off: a window of it is told so by the hosting desktop
+    assert_eq!(host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": false }))).await.0, 200);
+    let mut said = (0, Value::Null);
+    for _ in 0..300 {
+        let (status, _, body) = near.call("GET", "/api/orgs/galaxy/records", None, None).await;
+        said = (status, body);
+        if said.0 == 403 { break; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!((said.0, said.1["code"].as_str()), (403, Some(text::E16)), "{said:?}");
+    assert!(said.1["detail"].as_str().is_some_and(|detail| detail.ends_with("no longer shares this organization.")), "{said:?}");
+    // the other organization is still this desktop's to work in
+    let mut answer = (0, Value::Null);
+    for _ in 0..300 {
+        let (status, _, body) = near.call("GET", "/api/orgs/other/records", None, None).await;
+        answer = (status, body);
+        // while the link comes back the relay itself answers
+        if answer.1.get("remote").is_none() { break; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(reached_a_handler(answer.0, &answer.1), "{answer:?}");
+
+    // removing the connection takes this desktop's own record off the hosting desktop, and no other
+    assert_eq!(near.call("DELETE", &format!("/api/remotes/{id}"), None, None).await.0, 200);
+    let mut gone = false;
+    for _ in 0..300 {
+        gone = host.engine.access.registry.row(&computer_id).is_none();
+        if gone { break; }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(gone, "this desktop's own computer record is removed there");
+    assert_eq!(host.engine.access.registry.rows(None).len(), 1, "the other computer is still in");
+}
+
 // ------------------------------------------------------------ the registry's file
 
 #[tokio::test]
