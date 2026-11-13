@@ -1,6 +1,6 @@
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path'),http=require('node:http')
 const output=process.env.SHELL_STREAM_OUT
-if(!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(output||''))throw Error('Own output required')
+if(!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(output||''))throw Error('Own output required')
 app.setPath('userData',path.join(output,'user-data'));app.disableHardwareAcceleration()
 const paint=async w=>{await w.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,250))))')}
 app.whenReady().then(async()=>{

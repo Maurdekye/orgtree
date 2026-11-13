@@ -8,7 +8,7 @@ const [version,depsArg,outArg,evidenceArg,electronArg]=process.argv.slice(2)
 if(!['red','green'].includes(version)||!depsArg||!outArg||!evidenceArg||!electronArg)
   throw Error('Usage: red|green DepsRoot COutputRoot DEvidenceRoot ElectronExe')
 const source=process.cwd(),deps=path.resolve(depsArg),out=path.resolve(outArg),evidence=path.resolve(evidenceArg)
-if(!/^C:\\orgtree-build\\[^\\]+\\/i.test(out+'\\')||!/^D:\\orgtree-work\\/i.test(evidence+'\\'))throw Error('Expected authorized C build / D evidence scope')
+if(!/^S:\\orgtree\\build\\[^\\]+\\/i.test(out+'\\')||!/^S:\\orgtree\\work\\/i.test(evidence+'\\'))throw Error('Expected authorized C build / D evidence scope')
 fs.mkdirSync(out,{recursive:true})
 const require=createRequire(path.join(deps,'package.json')),esbuild=require('esbuild')
 const plugins=[{name:'private-thought-components-for-visual-test',setup(build){

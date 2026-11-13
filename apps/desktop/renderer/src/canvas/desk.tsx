@@ -2077,6 +2077,9 @@ export function SpendBadge({ node }: { node: SpendNode }) {
     || turns.some((t) => (t.denials ?? 0) > 0 || (t.approvals ?? 0) > 0)
   /* …the same test for the reported upstream, over the same five turns */
   const anyReported = turns.some((t) => reportedLabel(t.reported) !== '')
+  /* a turn priced from a guess, not a published price (Gemini Hydrogen, user 2026-11-13 "Estimate"): the total
+     that includes one says so, with the same "est." its turn line carries */
+  const anyEstimated = turns.some((t) => t.estimated === true)
   if (!(cost > 0 || costUnknown || anyRights || anyReported)) return null
   return (
     <span className="badge dim"
@@ -2093,11 +2096,12 @@ export function SpendBadge({ node }: { node: SpendNode }) {
           + (t.approvals ? ` · ${t.approvals} approved` : '')
           + (t.killed ? ' · killed' : '')).join('\n')
           || 'per-turn detail appears after the next turn',
+        ...(anyEstimated ? ['est.: priced from an estimate; this model has no published price yet'] : []),
         ...rights,
       ].join('\n')}>
       {costUnknown
         ? (cost > 0 ? `$${cost.toFixed(2)}` : '$?')
-        : `$${cost.toFixed(2)}`}</span>
+        : `$${cost.toFixed(2)}`}{anyEstimated && cost > 0 ? ' est.' : ''}</span>
   )
 }
 
@@ -4877,7 +4881,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   map, onFocusAgent, close }: LineagePanelProps) {
   // re-render on the "show legacy models" flip — the tier list reads it
   useShowLegacyModels()
-  // …and when agy starts (or stops) listing a conditional tier (Argon and Barium)
+  // …and when agy starts (or stops) listing a conditional tier (Argon and Krypton)
   useOfferedConditionalTiers()
   // its rehire model choices: re-read agy's model list on opening
   useAgyModelsRefresh()
@@ -5011,7 +5015,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                         && tierShown(presence, t, b.tier)
                         // Gemini Pro only with "show legacy models" on
                         && !optInLegacyHidden(t)
-                        // Argon and Barium only once agy lists it
+                        // Argon and Krypton only once agy lists it
                         && !conditionalTierHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)

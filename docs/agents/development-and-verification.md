@@ -118,7 +118,7 @@ checkout's package.json; never install, copy or link dependencies for a test.
 The optional `ORGTREE_NOTE_TEST_ROOT`, `ORGTREE_BADGE_TEST_ROOT`,
 `ORGTREE_TRAY_TEST_ROOT` and `TAB_ORIGIN_NATIVE_OUT` select output **parents**,
 not reusable receipt leaves. Each must be an absolute strict descendant of
-`C:/orgtree-build/<ORGTREE_AGENT>/`, with no parent traversal or linked
+`S:/orgtree/build/<ORGTREE_AGENT>/`, with no parent traversal or linked
 ancestors. The shared helper checks canonical containment before allocation,
 then verifies containment and the fresh directory's identity before cleanup.
 Repeated/concurrent runs preserve existing parent contents. Safety controls
@@ -319,7 +319,7 @@ not execute; never count it as a product result.
   Parked synthetic directories/links stay in the disposable rig for inspection.
   Its eight staging controls run without rig environment variables in a fresh
   OS-temp directory. An explicit `SHARED_SCRATCH_CONTROL_OUTPUT` instead needs
-  `ORGTREE_AGENT`, an absolute descendant of that owner's `C:/orgtree-build/`
+  `ORGTREE_AGENT`, an absolute descendant of that owner's `S:/orgtree/build/`
   scope, canonical containment and no linked ancestors; each run gets a fresh
   child. Mock-proof evidence and native-helper environment are isolated too.
   [verified: `tools/rig/proofs/shared-scratch-folder.mjs`; USER 2026-10-17
@@ -384,10 +384,11 @@ not execute; never count it as a product result.
   2026-10-22]
 
 - Native project-boundary proofs require explicit `ORGTREE_AGENT`,
-  `ORGTREE_RIG_HOME` below the owner's `C:/orgtree-build/<owner>` scope,
+  `ORGTREE_RIG_HOME` below the owner's `S:/orgtree/build/<owner>` scope,
   `ORGTREE_BOUNDARY_NATIVE_EXE` and `ORGTREE_CLAIM_TEST_OUTPUT` below the
-  owner's `C:/orgtree-build/<owner>` scope. Admission also accepts retained
-  `D:/orgtree-work/rig/<owner>` homes; current storage policy still owns where
+  owner's `S:/orgtree/build/<owner>` scope. Admission also accepts
+  `S:/orgtree/work/rig/<owner>` homes (the S: layout, 2026-11-13; before it these were
+  `C:/orgtree-build` and `D:/orgtree-work`, which nothing may use any more); current storage policy still owns where
   new generated fixtures may be written. The run root must be a direct child
   of the admitted home's `runs` directory. The runner supplies its run root,
   database URL/org and exports v4.3.3 migrations into that output. Test-only

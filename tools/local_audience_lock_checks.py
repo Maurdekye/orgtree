@@ -19,8 +19,8 @@ BASE, PHASE = sys.argv[1], sys.argv[3]
 out = Path('C:/Temp/audience-lock-checks-' + sys.argv[2]) / PHASE
 out.mkdir(parents=True)
 pgroot = out / 'pg'
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 GROUP_A = ['tests/test_message_audience_locks_pg.py', 'tests/test_message_notice_locks_pg.py',
            'tests/test_maildoor.py',
            'tests/test_pg3d_mail_tx.py', 'tests/test_pgdoor_agent_tx.py',

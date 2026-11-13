@@ -1,7 +1,7 @@
 import json,pathlib,os
 from playwright.sync_api import sync_playwright
-OUT=pathlib.Path(os.environ.get('FAR_OVERVIEW_OUT','C:/orgtree-build/frozenlabel-sol/far-overview'))
-EVIDENCE=pathlib.Path(os.environ.get('FAR_OVERVIEW_EVIDENCE','D:/orgtree-work/far-overview-evidence'))
+OUT=pathlib.Path(os.environ.get('FAR_OVERVIEW_OUT','S:/orgtree/build/frozenlabel-sol/far-overview'))
+EVIDENCE=pathlib.Path(os.environ.get('FAR_OVERVIEW_EVIDENCE','S:/orgtree/work/far-overview-evidence'))
 EVIDENCE.mkdir(exist_ok=True,parents=True)
 results=[]
 MEASURE=r'''() => {

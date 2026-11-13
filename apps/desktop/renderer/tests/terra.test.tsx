@@ -72,7 +72,7 @@ async function flip(on: boolean) {
 test('§1 terra follows the Codex family verdict like sol, with the legacy toggle off or on',
   (t: TestContext) => {
     fresh(t)
-    assert.deepEqual(OPT_IN_LEGACY_TIERS, ['pro'], 'Gemini Pro is the only opt-in legacy tier')
+    assert.deepEqual(OPT_IN_LEGACY_TIERS, ['pro', 'flash'], 'Gemini Pro and, since Hydrogen (2026-11-13), Gemini Flash are the opt-in legacy tiers')
     assert.equal(showLegacyModelsOn(), false, 'off by default')
     for (const on of [false, true]) {
       setShowLegacyModelsOn(on)

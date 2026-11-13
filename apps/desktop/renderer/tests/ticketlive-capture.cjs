@@ -1,6 +1,6 @@
 const { app, BrowserWindow } = require('electron'), fs = require('node:fs'), path = require('node:path'), http = require('node:http')
 const out = process.env.TICKET_LIVE_OUT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(out || '')) throw Error('Owned output required')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(out || '')) throw Error('Owned output required')
 app.setPath('userData', path.join(out, 'user-data')); app.disableHardwareAcceleration()
 const paint = w => w.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,250))))')
 const wait = (w, status) => w.webContents.executeJavaScript(`new Promise((resolve,reject)=>{let tries=0;const check=()=>{if(document.querySelector('.tool-ticket.status-${status}'))resolve();else if(++tries<100)setTimeout(check,20);else reject(Error('Current ticket did not become ${status}'))};check()})`)

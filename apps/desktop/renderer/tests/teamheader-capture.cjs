@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs'), path = require('node:path')
 const http = require('node:http')
 const root = process.env.TEAM_HEADER_OUTPUT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('Expected assigned output')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('Expected assigned output')
 app.setPath('userData', path.join(root, 'user-data')); app.disableHardwareAcceleration()
 const rows = [], windows = new Set()
 const measure = `(() => {

@@ -7,7 +7,7 @@
 // engine's rows are deleted or stay History while every message is kept as it
 // was. The other stages a database that already had 0071 and checks that the
 // upgrade leaves it unchanged. No live data is read.
-// Inputs, owned by ORGTREE_AGENT under C:/orgtree-build/<agent>:
+// Inputs, owned by ORGTREE_AGENT under S:/orgtree/build/<agent>:
 //   ORGTREE_PANEL_MESSAGES_EXE  the engine's test binary (orgtree_engine-<hash>.exe)
 //   ORGTREE_CLAIM_TEST_OUTPUT   a private directory for the tests' output
 import fs from 'node:fs'
@@ -18,7 +18,7 @@ import {rigHome} from '../lib.mjs'
 
 function ownedInput(value, owner) {
   if (!value || !path.isAbsolute(value)) throw Error('explicit absolute owned input required')
-  const file = path.resolve(value), base = path.resolve('C:/orgtree-build', owner), relative = path.relative(base, file)
+  const file = path.resolve(value), base = path.resolve('S:/orgtree/build', owner), relative = path.relative(base, file)
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw Error('input outside the owned build scope')
   for (let at = file; ; at = path.dirname(at)) {
     if (fs.lstatSync(at).isSymbolicLink()) throw Error('input symlink/junction refused')

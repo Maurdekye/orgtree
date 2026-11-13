@@ -16,7 +16,7 @@
 //!   user ruling 2026-10-10, docket delivery-unread-notices-only-after-10-minutes-un).
 //!
 //! Run counters live in `ot.agents.extra` (one short statement each) and are
-//! cleared by a turn that completes.
+//! cleared by a turn that completes. A deliberate wake clears only `hard_fail_run`.
 
 use std::sync::Arc;
 
@@ -197,6 +197,15 @@ pub fn context_full(error: &str) -> bool {
         || crate::lsproxy::context_overflow(error).is_some()
 }
 
+/// An AGY pre-invocation summary stall, distinct from an ordinary step timeout.
+/// USER 2026-11-13 m6af74181ac75; @item:orgtree/carbon-agy-context-summarisation-keeps-timing-ou.
+#[nolog]
+pub fn agy_summary_stalled(error: &str) -> bool {
+    let e=error.to_lowercase();
+    e.contains("context summarization")
+        && (e.contains("stream idle timeout") || e.contains("context deadline exceeded"))
+}
+
 /// `4m47s` / `35s` / `0.4s` (3.x `_dur`).
 #[logged]
 pub fn dur(secs: f64) -> String {
@@ -206,6 +215,33 @@ pub fn dur(secs: f64) -> String {
         format!("{secs:.0}s")
     } else {
         format!("{}m{:02}s", (secs / 60.0) as i64, (secs % 60.0) as i64)
+    }
+}
+
+#[cfg(test)]
+mod agy_summary_tests {
+    use super::*;
+
+    #[test]
+    fn agy_summary_idle_timeout_and_deadline_are_recognised() {
+        for error in [
+            "agent executor error: pre-invocation hook: context summarization: request failed: stream idle timeout (5m0s): context deadline exceeded",
+            "pre-invocation hook: context summarization: request failed: context deadline exceeded",
+            "CONTEXT SUMMARIZATION: STREAM IDLE TIMEOUT",
+        ] {
+            assert!(agy_summary_stalled(error), "{error}");
+        }
+    }
+
+    #[test]
+    fn agy_summary_classification_preserves_other_errors_and_context_full() {
+        for error in [
+            "API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded",
+            "Prompt is too long", "", "context summarization: another failure", "context deadline exceeded",
+        ] {
+            assert!(!agy_summary_stalled(error), "{error}");
+        }
+        assert!(!context_full("agent executor error: pre-invocation hook: context summarization: request failed: stream idle timeout (5m0s): context deadline exceeded"));
     }
 }
 
@@ -222,6 +258,14 @@ pub async fn bump(engine: &Engine, agent_id: i64, key: &str) -> Result<i64> {
         )
         .await?;
     Ok(row.get::<_, Option<i64>>(0).unwrap_or(1))
+}
+
+/// A deliberate wake permits a fresh stalled report without clearing retry/backoff state.
+#[logged]
+pub async fn forget_hard_fail(engine: &Engine, agent_id: i64) -> Result<()> {
+    let client = engine.db.get().await?;
+    client.execute("UPDATE ot.agents SET extra = extra - 'hard_fail_run' WHERE id = $1 AND extra ? 'hard_fail_run'", &[&agent_id]).await?;
+    Ok(())
 }
 
 /// A turn completed: every failure run of this agent is over, and so is its

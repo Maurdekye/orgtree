@@ -6,7 +6,7 @@ import { beforeInboxGlobe } from './faroverview-baseline.mjs'
 const [sourceRoot, outputDir, dependencies] = process.argv.slice(2)
 if (!sourceRoot || !outputDir || !dependencies) throw new Error('sourceRoot C-output dependencies required')
 const root = path.resolve(sourceRoot), output = path.resolve(outputDir), deps = path.resolve(dependencies)
-if (!/^C:[\\/]orgtree-build[\\/]/i.test(output)) throw new Error('output must use authorized C build scope')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]/i.test(output)) throw new Error('output must use authorized C build scope')
 const require = createRequire(path.join(deps, '../package.json'))
 const esbuild = require('esbuild')
 fs.mkdirSync(output, { recursive: true })

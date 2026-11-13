@@ -1,8 +1,8 @@
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict')
 const root = process.env.RETIRED_CAPTURE_ROOT
-assert.match(root || '', /^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
-const deps = process.env.ORGTREE_NODE_MODULES || 'E:/Libraries/Desktop/orgtree/node_modules'
+assert.match(root || '', /^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i)
+const deps = process.env.ORGTREE_NODE_MODULES || 'S:/orgtree/orgtree/node_modules'
 fs.mkdirSync(root, { recursive: true })
 require(path.join(deps, 'esbuild')).buildSync({ entryPoints: [path.join(process.cwd(), 'apps/desktop/renderer/tests/retiredpages-visual.tsx')],
   outfile: path.join(root, 'fixture.js'), bundle: true, platform: 'browser', format: 'esm', nodePaths: [deps], define: { 'process.env.NODE_ENV': '"production"' } })

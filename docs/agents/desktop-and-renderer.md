@@ -1,5 +1,55 @@
 # Desktop and renderer
 
+## A panel pinned in a popped-out window stays in that window (2026-11-13, 4.5.13)
+
+A presentation reader opened from a popped-out desk's header card opened in that window, and pinning it made it
+"invisible and unable to be interacted with" (user 2026-11-12 16:33:11Z md15fcb3a298e). MEASURED in a real second
+window (`tests/readerpinpopout.capture.cjs`): the pin handed the reader the MAIN window's pin layer as its anchor,
+so it left the window the user was looking at and sat on the main window's canvas.
+
+- `PinFrame` (`canvas/modalpin.tsx`) asks which window the surface lives in: the window it was asked for from
+  (`initiatingDocument()`, read once at mount, as `MovableSurface` does) or its host surface's window. Only in the
+  main window does a pin take the org's pin layer as anchor. Elsewhere it takes none, so `MovableSurface` leaves
+  the surface where it is.
+- `PinFrameInner` bounds such a pin by that window's own area (there is no canvas box in it), keeps the overlay's
+  own layer instead of the desks' stacking band, and keeps it out of the shared pin registry: the registry's
+  rects are main-canvas coordinates, so it neither registers there nor snaps to those windows.
+- The stored pin is still one per kind and organization. A kind already pinned opens pinned in whichever window
+  it is asked for from; a rect that does not fit that window is clamped at render, not rewritten.
+- NOT measured: dragging or resizing the pinned panel inside a popped-out window, and the real app's own
+  pop-out window (frameless, with the app's main process); the capture uses a plain second window.
+
+[decided: user report md15fcb3a298e; verified: `tests/readerpinpopout.test.tsx` (3 tests),
+`tests/readerpinpopout.capture.cjs` (FAIL before, PASS after, Session 0)]
+## Agent links with the Attention desk popped out and the main window closed (2026-11-13, 4.5.13)
+
+"If the attention desk is popped out, and the main window with the canvas is closed, clicking an agent link should
+open it in the attention desk the same way it does when attention view is open" (user 2026-11-12 16:57:30Z
+m6ac4fe1109a2).
+
+- **Before** (measured, `tests/attentiondeskroute.test.tsx` at its red commit): the one focus path, `centerOn` in
+  `canvas/OrgCanvas.tsx`, sent the agent to the Attention desk only while the Attention view was the presented view
+  (`worldHidden`). Closing the main window with a panel popped out HIDES it (`keepForPanels`, `main/index.ts`); the
+  canvas stays mounted, so with the organization in Canvas the click moved the camera of a window nobody could see
+  and the popped-out desk kept its agent.
+- **Now:** when the native side says the main window is not on screen and this organization's Attention desk has a
+  window of its own (`detachedPanel('attention-desk', slug)`), `centerOn` selects the agent in the Attention desk
+  (`setAttentionLayout`), brings that window forward (`revealSurface`; the click may have been in the popped-out
+  queue) and leaves the camera alone. Every agent link ends in `centerOn`, so mail, docket, presentation and prose
+  links all follow. "Show on canvas" (`onCanvas`) is still the canvas.
+- **`src/mainwindow.ts`** holds the one fact: `getWindowControlsState()` at mount, then the `window-state` events the
+  main process sends at show, hide, minimize and restore. Unknown is "shown" (no bridge, a test, an older shell), so
+  nothing changes there. `document.hidden` is not used: with running panels the main process switches background
+  throttling off and a hidden window's document goes on reporting visible.
+- **Choices, not rulings:** a MINIMIZED main window counts as not on screen, like a closed one. With the main window
+  on screen in Canvas the canvas keeps the jump, as before. Without a popped-out Attention desk nothing changes.
+- NOT measured: the installed app (a real main window hidden by its close button, the real native events). The test
+  drives the real `OrgCanvas` and `AttentionView` with the events as the bridge delivers them and a registry record
+  as a pop-out registers it.
+
+[decided: user m6ac4fe1109a2; verified: `tests/attentiondeskroute.test.tsx` (7 tests), `canvas/OrgCanvas.tsx`
+`centerOn`, `src/mainwindow.ts`, `main/index.ts` `publishWindowState`]
+
 ## Pinned desk default and minimum size (2026-11-10, 4.5.11)
 
 A pinned agent or project desk has its own size rule; the generic 320x240 window
@@ -355,6 +405,36 @@ event, so whatever its builders add must validate against
 `.event-unsupported` in the `.pendrow` (`tests/resolutionfirstframe.test.tsx`
 §9, §10: tabs that are docket items).
 
+## Temporary agent desk on the shared modal frame (2026-11-13, 4.5.13)
+
+User 2026-11-13 mf430d688fdcb; design A and five recommendations approved in m2672b93c2df8.
+
+- `TempDeskModal` (`canvas/tempdesk.tsx`) is `DeskModalShell` in its `glance` configuration, the
+  frame the project desk's modal already used. Its own backdrop, title bar (`DeskTitleBar`) and
+  `.tempdesk-over` / `.tempdesk-head` styles are gone. The panel keeps `.tempdesk-panel` and adds
+  `.tempdesk-glance`; its backdrop is the shared `.overlay` held at z-index 20, below ordinary
+  dialogs (30), because a desk opens its own dialogs and they must land above it.
+- `PinFrame` gained three options, used together by `glance`:
+  `transient` (no `MovableSurface`: the surface can never be pinned, popped out, restored or saved,
+  even inside an organization), `popElsewhere` (the bar's pop-out button and the menu's "Open in new
+  window" call it; only read when transient), and `focusTrap` (focus in, Tab kept inside, focus back
+  to the opener: the temporary desk's old handling, now available to any centred surface).
+  `pinElsewhere` is unchanged and is the transient surface's only pin.
+- Hand-over: pin calls the host's `onPin` with the panel's box (OrgCanvas adds the real pin and closes
+  the modal). Pop-out calls `useDeskActionsNow(slug)(node).requestPopout()`, so the borrowed desk's
+  own surface opens the real desk window from `temporaryPlacement.sourceBox`, and
+  `temporaryPlacement.onPopout` closes the modal once that window exists. A blocked window leaves the
+  modal as it was.
+- The kind is `agent-desk-glance:<agent>` (`DESK_GLANCE_KIND`); nothing is stored under it. One at a
+  time: OrgCanvas still holds one `tempDeskId`.
+- The borrowed desk's header pop-out is hidden by CSS inside `.tempdesk-glance`. `hidePopout` is
+  passed too, but in a real window the desk moves in without re-rendering its header and the prop
+  alone left two pop-out buttons (measured in the capture; jsdom did not show it).
+
+[verified: `canvas/tempdesk.tsx`, `canvas/deskshell.tsx`, `canvas/modalpin.tsx`, `styles.css`,
+`tests/tempdeskframe.test.tsx` (8), `tests/tempdesk.test.tsx`, `tests/closex.test.tsx`,
+`tests/tempdeskframe.capture.cjs` + `.visual.tsx` (Session 0, real mouse and keys, real desk window)]
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`
@@ -573,6 +653,21 @@ layout, motion, hit target or fit measurement changes.
 [decided: user 2026-10-26, 2026-10-27; verified: canvas/{cardname,farzoomname,cards}.tsx;
 controls: namehover.test.tsx, desknameplate.test.tsx, mininameguard.test.tsx, cardhoverfit.test.tsx]
 
+## The node's model tag leaves a card that becomes a desk (2026-11-13, 4.5.13)
+
+User 2026-11-13 m34935c22a71e: the provider/model/effort tag showed over every part of a canvas
+agent desk that has no tooltip of its own. The shared tooltip host (`registerAgentNativeTooltipDocument`,
+`canvas/agentnav.tsx`) writes the tag as a native `title` on the hovered `data-agent-tooltip` anchor
+and removes it on pointer-out, finding the anchor by that attribute. A canvas card drops the attribute
+on the click that makes it the desk (`cards.tsx`, `focused`; `projectcard.tsx`, `deskOpen`), so the
+title stayed and nothing could find the element again. The host now watches each anchor it wrote a
+title on and removes that title when the attribute is removed or re-pointed. Only titles the host
+wrote are touched. Pinned, Attention and popped-out desks are not inside a card and never had the
+attribute on their frame, so they did not share the cause; the project card did and is fixed by the
+same change. The desk's own name and node hover are unchanged.
+[verified: `canvas/agentnav.tsx`; controls: `agenttooltipstale.test.tsx`,
+`agenttooltipstale.capture.cjs` + `.visual.tsx` (stand-in card, real host, real mouse)]
+
 ## Text editing and spelling menus (2026-10-24, 4.4.5)
 
 Native `editmenu.ts` uses Chromium's edit flags, pointed misspelling and
@@ -604,6 +699,49 @@ Org settings has no footer Close either (user 2026-10-28 m3291e5890d55, mc9c984c
 its PinFrame opts into the header X, and Escape and the backdrop still close it through
 `closeSettings`, which flushes pending edits first. Tests and rig drivers close it with
 Escape or the X. [decided: user 2026-10-28; verified: `App.tsx::SettingsPanel`]
+
+## Attention divider: hide a panel at the edge, Swap panels button (2026-11-13, 4.5.13)
+
+User 2026-11-13 m525fd3e66e99, eight points approved in m2672b93c2df8.
+
+- The layout store (`attention/mode.ts`) keeps `hidden: 'left' | 'right' | null` per organization, beside
+  `split` and `swapped`. It is a SIDE of the stage, not a panel: Swap panels never moves the divider, so
+  with a side hidden it changes only `swapped` and the hidden panel is the one in view. `split` holds the
+  hidden side's panel at its minimum, which is where it returns. `hiddenPanel(layout)` names the panel.
+- The divider is worked in the stage's terms through `dividerPlace` / `placeFromPointer` / `placeFromKey`
+  / `placePatch`. A pointer within `HIDE_SNAP` (half of `SPLIT_MIN`) of an edge hides; between that and
+  the minimum the panel is held at the minimum. Arrows step, hide at the minimum, and the opposite arrow
+  restores; Home / End hide the left / right side whichever panel is there (before, they went to the
+  queue's bounds).
+- A hidden slot is NOT `display: none`. `.attn-slot-hidden` takes it out of the row and lays it over the
+  stage at full size with `opacity: 0`, and the view sets `inert` on it. The panel stays mounted with a
+  real width and its scroll position. Do not switch to `visibility: hidden`: the agents drawer turns
+  visibility back on for itself.
+- A hidden embedded Agent desk is not `eligible` for the desk registry (stored side, not the live side
+  of a drag), so it cannot hold an agent away from a visible window.
+- The Swap panels button is a sibling of the separator (`.attn-swap-anchor`, same flex order), not a
+  child: a separator's children are presentational. Button and right-click entry share `swapPanels`.
+  The slide is `slideSwap`: Web Animations on the two slots, `SWAP_SLIDE_MS` (150), only for a swap
+  asked for in this view, none under reduced motion, none for drags.
+- A hidden panel returns when it is asked for: `onAttentionAgentChosen` (every `setAttentionLayout`
+  with an agent name) reveals an embedded hidden desk; a panel going from pinned / popped out to
+  embedded reveals its slot; a notification that opens its entry reveals the queue. Each only clears
+  `hidden`.
+
+- Follow-ups (USER 2026-11-13 mb445dc041229, m80a0aa581880, mfc2dce66b9f3, me8b3377fe2b4): one press handler
+  serves the divider and its button. A press under `SWAP_DRAG_THRESHOLD_PX` (4) is a click and swaps (the divider
+  does not move, `live` is discarded); 4 px or more drags exactly as before and never swaps. The button keeps
+  `stopPropagation` and pointer capture, and the click after a drag is suppressed (ref reset at each press);
+  pointercancel never swaps. The button swaps through its own click, the divider on pointerup. Enter/Space on the
+  divider swap. The divider menu is [Swap panels, Reset to center]; reset is `commit({ left: 0.5, hidden: null })`
+  (`swapped` unchanged). `aria-valuenow` keeps meaning the queue's share. The divider and button are ONE hover
+  target: the button has one look, `opacity` 0 until the divider (or the button) is hovered, either has keyboard
+  focus, a drag runs, or `(hover: none)`; it fades at the grip's 120 ms ease, none under reduced motion, and is
+  always in the DOM, focusable and clickable.
+
+[verified: `attention/mode.ts`, `attention/AttentionView.tsx`, `attention/attention.css`,
+`tests/attentiondivider.test.tsx` (17), `tests/attentionnotification.test.tsx`,
+`tests/attentiondivider.capture.cjs` + `.visual.tsx` (Session 0, real mouse and keys, real pop-out window)]
 
 ## Close X on every closable panel (2026-10-29)
 

@@ -1,6 +1,6 @@
 # Remote access: what a security reviewer needs
 
-A desktop can let other computers open some of its organizations (decision 101, phase F; contract in
+A desktop can let other computers open some of its organizations (decision 103, phase F; contract in
 [remote-org](remote-org.md#a-desktop-as-host)). That is a new way into a personal computer, and it
 ships only after a reader who did not write it has gone through this page against the code.
 

@@ -3,7 +3,7 @@ const {app,BrowserWindow,session,clipboard,nativeImage}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const {createRequire}=require('node:module'),{execFileSync}=require('node:child_process')
 const repo=path.resolve(__dirname,'../../../..'),out=process.env.DESK_READERS_CAPTURE
-assert.match(out||'',/^C:\/orgtree-build\/native-tools-sol\/desk-readers-live\/capture-[0-9]+$/)
+assert.match(out||'',/^S:\/orgtree\/build\/native-tools-sol\/desk-readers-live\/capture-[0-9]+$/)
 const deps=createRequire(process.env.ORGTREE_TEST_DEPS||path.join(repo,'package.json'))
 const measure=pid=>{
   const session=Number(execFileSync('powershell.exe',['-NoProfile','-Command','(Get-Process -Id '+pid+').SessionId'],{encoding:'utf8',windowsHide:true}).trim())

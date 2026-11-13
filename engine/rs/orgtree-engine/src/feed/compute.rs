@@ -509,7 +509,7 @@ pub async fn asks(client: &Client, org_id: i64) -> Result<Vec<Value>> {
     Ok(rows.into_iter().map(|r| ask_card(&r.get::<_, Value>(0), &r.get::<_, String>(1))).collect())
 }
 
-/// Decision 101 (several people on one organization): a record of a user
+/// Decision 103 (several people on one organization): a record of a user
 /// action says which computer it came through; a record without one reads
 /// exactly as it did before.
 #[cfg(test)]

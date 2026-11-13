@@ -85,6 +85,8 @@ Read the observation date, freshness and error alongside each bar:
 | Local server | No provider subscription limit reported; its own concurrency and server capacity still matter. |
 | Unavailable / stale | Capacity is unknown or dated. It is not zero usage or spare capacity. |
 
+**The Fable pip and the red end of the Fable bar.** A Claude account with a Fable weekly limit shows a small pip on its weekly (all models) bar. Fable use counts against both limits, and one full Fable allowance is taken as half of the weekly limit (a fixed ratio, not a measured one). Once weekly usage is past the pip, the rest of this week's Fable allowance can no longer be used up before the weekly limit is hit; hover the pip for the exact percentage. Past the pip, the part of the Fable bar that cannot be reached is drawn red, from the most Fable can still reach to the end of the bar; hover the red part for "Fable can reach at most N% this week: the weekly limit comes first". Neither mark appears while the weekly or Fable reading is unknown or stale, when Fable is used up, or for any provider other than Claude.
+
 A Refresh can be pending, rate-limited or fail while keeping the last-good bars and their original `updated Xm ago` age visible alongside the pause or error notice until the next successful reading (only an account with no prior good reading shows `usage unavailable`). A paused usage service is different from rejected credentials. Muse obtains observations through turns, so its independent refresh stays disabled; **reset; awaiting reading** means the new allowance is unknown. A provider/network error alone is not proof that another sign-in is required.
 
 If Claude's usage service returns HTTP 429, automatic retries wait at least a minute and increase to 2 minutes when throttling repeats. A longer provider wait still applies; a successful reading resets the backoff. Repeated Refresh clicks cannot shorten the wait. Leave automatic retry running, and read old bars with their original date; a usage-service 429 alone does not require another sign-in.
@@ -119,7 +121,7 @@ The feedback suggestion switch encourages agents to prepare redacted issue draft
 
 ### Time limits
 
-**Turn time limits** distinguishes a total ceiling (built-in 24 hours) from a silence ceiling (built-in 10 minutes without a stream event). A row can be disabled or edited in minutes/hours. Zero disables the corresponding engine limit.
+**Turn time limits** distinguishes a total ceiling (built-in 24 hours) from a silence ceiling (built-in 30 minutes without a stream event). A row can be disabled or edited in minutes/hours. Zero disables the corresponding engine limit. The default applies when no value is stored; any explicitly stored value is preserved.
 
 Use actual evidence before increasing a silence allowance for a legitimate quiet operation. Changes apply across organizations and can affect an already running turn at its next timer check. A harness may also retain a timeout supplied when its process launched. Raising a limit does not revive a turn already ended. Some Muse foreground-tool recovery differs, but the total ceiling still applies. See [Operating and troubleshooting](operating-orgtree.md).
 

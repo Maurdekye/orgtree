@@ -2502,7 +2502,34 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     attachments or artifacts for viewers, no expiry in this version. Contract:
     [STANDALONE-ENGINE](STANDALONE-ENGINE.md#viewer-scoped-client-tokens-2026-11-11-4512).
 
-100. **Remote organizations: the local engine relays to a standalone engine** (USER 2026-11-11
+100. **Apps may reach a private network, keep a saved login and hold a live channel**
+    (USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps"; 08:56:16Z mbad040c63ccb "Accept all, build
+    it"; spec `spec-remote-viewer-apps.md`, item `orgtree-apps-make-a-read-only-remote-orgtree-vie`).
+    Pieces 2-4 of the remote-viewer work (viewer tokens are piece 1). An exact declared private
+    `host:port` is reachable only after the user's Allow private network, pinned to the addresses
+    resolved then (every resolved address must stay in the set), with plain http/ws and same-site
+    redirects only; loopback, link-local, metadata and this machine's own addresses are never reachable.
+    A saved login (bearer or one header) is sealed per org, app and site, attached by the engine only,
+    and never shown, exported, logged or readable by agents or app code. `orgtree.net.connect` is an
+    engine-held WebSocket relayed through the panel bridge by long poll: the frame's CSP, WebRTC seal and
+    session proxy do not change. Permission history gains the private-network and login entries; Panel
+    History gains `net.channel` rows. Contract: [custom-apps](custom-apps.md#private-sites-saved-logins-and-the-live-channel-2026-11-11).
+
+101. **Antigravity summary stalls recover once; measured context resets at 230k**
+    (USER 2026-11-13 m6af74181ac75 "Both, in alpha.2"; m015e95fd031c "All Antigravity tiers" /
+    "Cap below 256k" / "230k"). The agy 1.5.8 investigation located its own hard 256k-token
+    pre-invocation summary clamp and five-minute stream-idle timeout; resuming the same conversation
+    can repeat the failed summary. For GOOGLE-provider seats only, an error naming `context summarization`
+    plus `stream idle timeout` or `context deadline exceeded` takes the existing one-per-run native
+    fresh-session retry, with the usual carry-over note and per-turn idempotency. Plain step timeouts
+    do not qualify. Existing retry guards and `NATIVE_RETRY_MAX = 1` stay unchanged; `context_full`
+    and other providers keep their existing behavior. At admission and after a completed turn, every
+    Antigravity tier also uses the earlier of the org's size threshold and a measured 230,000 tokens,
+    with all existing size-gate stand-downs and notice text. Context windows and the cold-cache 25%
+    policy remain on the real window; the rejected 256k window-cap design is not implemented.
+    Contract and evidence limits: [context-full recovery](context-full-recovery.md).
+
+102. **Remote organizations: the local engine relays to a standalone engine** (USER 2026-11-11
     09:28:17Z m959b850c2ab2 "connect a local orgtree install to a remote org running
     headlessley"; 10:08:27Z mc7584bf16c13 "Accept all, build it" on the twelve design
     recommendations; docket `remote-org-connect-the-desktop-app-to-an-org-run`). The user adds a
@@ -2515,8 +2542,10 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     with a warning. Engine part first (2026-11-11): connections in `remote-engines.json`, the link,
     the route classes with a coverage test, the HTTP and org-socket relay, `/api/remotes`.
     Contract: [remote-org](remote-org.md).
+    Numbered 100 until 2026-11-13, when the 4.6.0 line took in 4.5.13, which has its own 100 and
+    101: commits, evidence and docket entries from before that merge say decision 100.
 
-101. **Several people on one organization, and a desktop that hosts its organizations** (USER
+103. **Several people on one organization, and a desktop that hosts its organizations** (USER
     2026-11-11 11:49:08Z me1216df27194 "Add as a later phase / work these two requirements into the
     design"; 11:50:25Z mf57b47232264 "desktop host is a per-org setting"; 18:56:17Z meba39d75fade
     "Accept all 9" on the amendment's nine recommendations; docket
@@ -2551,3 +2580,5 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     Contract:
     [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
     [remote-access-security](remote-access-security.md).
+    Numbered 101 until the same merge (2026-11-13): commits, evidence and docket entries from before
+    it say decision 101.

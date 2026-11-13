@@ -4,6 +4,8 @@
 pub const CLAUDE: &str = "claude";
 pub const OPENAI: &str = "openai";
 pub const GOOGLE: &str = "google";
+/// USER 2026-11-13 m015e95fd031c: reset below agy 1.5.8's own 256k summary clamp.
+pub const AGY_SIZE_RESET_TOKENS: i32 = 230_000;
 pub const OPENROUTER: &str = "openrouter";
 /// Models on the user's own (local or self-hosted) language model servers, driven
 /// by Claude Code or Codex (`crate::langserver`).
@@ -36,7 +38,8 @@ pub struct Tier {
 pub static TIERS: &[Tier] = &[
     // `model` stays 5.1: what "no version saved" has always meant for a seat that exists. Fable 5.2 leads `versions`
     // and is what a NEW hire gets (`new_hire_version`).
-    Tier { tier: "fable", provider: CLAUDE, seat: 10.0, model: "claude-fable-5-1",
+    // Seat 8 (USER 2026-11-13 md539ddd936f9); seats already hired at 10 keep their stored price until rehired.
+    Tier { tier: "fable", provider: CLAUDE, seat: 8.0, model: "claude-fable-5-1",
         versions: &[("5.2", "claude-fable-5-2"), ("5.1", "claude-fable-5-1"), ("5", "claude-fable-5")], letter: "F",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
     Tier { tier: "opus", provider: CLAUDE, seat: 4.0, model: "claude-opus-5-5",
@@ -66,8 +69,19 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "gpt-reserve", provider: OPENAI, seat: 0.2, model: "gpt-reserve",
         versions: &[], letter: "R",
         context: None, live_effort: false, legacy: true, conditional: false, prices: Some((0.20, 0.02, 1.20)) },
+    // Flash is LEGACY since Hydrogen (user 2026-11-13 md16909f83245 "Now"): behind "Show legacy models" on the
+    // desktop, out of list_tiers and the staffing options. Seats on it keep running and it is still placed by name.
     Tier { tier: "flash", provider: GOOGLE, seat: 1.0, model: "gemini-3.8-flash",
         versions: &[("3.8", "gemini-3.8-flash"), ("3.7", "gemini-3.7-flash"), ("3.6", "gemini-3.6-flash")], letter: "F",
+        context: Some(1_000_000), live_effort: false, legacy: true, conditional: false, prices: None },
+    // Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71; unreleased): Flash's successor. ALWAYS offered, whether
+    // or not the account's `agy models` lists it (user 2026-11-13 m6258781910ea "make hydrogen always available
+    // unconditionally regardless of the check"); a turn the account cannot run ends with a plain reason
+    // (`runtime::agy::unavailable_model_error`). PLACEHOLDERS until a real turn: the id is the user's word, seat 1
+    // by the input-price rule ($1.5 per million), efforts low/medium/high/xhigh, the Gemini pool. Declared right after Flash
+    // so it takes Flash's place in the default order.
+    Tier { tier: "hydrogen", provider: GOOGLE, seat: 1.0, model: "gemini-4-hydrogen",
+        versions: &[("4", "gemini-4-hydrogen")], letter: "H",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: false, prices: None },
     Tier { tier: "pro", provider: GOOGLE, seat: 2.0, model: "gemini-3.1-pro",
         versions: &[("3.1", "gemini-3.1-pro")], letter: "P",
@@ -75,12 +89,13 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "argon", provider: GOOGLE, seat: 2.0, model: "gemini-4-argon",
         versions: &[("4", "gemini-4-argon")], letter: "A",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    Tier { tier: "barium", provider: GOOGLE, seat: 2.0, model: "gemini-4-barium",
-        versions: &[("4", "gemini-4-barium")], letter: "B",
+    Tier { tier: "krypton", provider: GOOGLE, seat: 2.0, model: "gemini-4-krypton",
+        versions: &[("4", "gemini-4-krypton")], letter: "K",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    // speculative Gemini 4 Carbon (user 2026-10-10): a copy of Barium, offered
-    // only while the account's `agy models` lists it
-    Tier { tier: "carbon", provider: GOOGLE, seat: 2.0, model: "gemini-4-carbon",
+    // Gemini 4 Carbon (speculative 2026-10-10, confirmed on a real turn 2026-11-11): offered only while the
+    // account's `agy models` lists it. Seat 4 by the user's ruling (2026-11-12 m18bc0505e597 "change carbon's
+    // credit cost to 4"), no longer the placeholder 2 copied from Pro; seats hired at 2 keep it until rehired.
+    Tier { tier: "carbon", provider: GOOGLE, seat: 4.0, model: "gemini-4-carbon",
         versions: &[("4", "gemini-4-carbon")], letter: "C",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
     Tier { tier: "agy-sonnet", provider: GOOGLE, seat: 2.0, model: "claude-sonnet-5-5-high",
@@ -180,14 +195,16 @@ pub fn muse_effort(level: &str, variants: Option<&[String]>, default: Option<&st
 }
 
 /// Match the verified Antigravity CLI vocabulary; larger inherited levels clamp
-/// to high, and the levels below its lowest (`none`, `minimal`) to low.
-/// Staffing offers only levels that need no translation.
+/// to the model's highest (xhigh for Hydrogen, the one model the CLI names an
+/// `-xhigh` id for; high for every other), and the levels below its lowest
+/// (`none`, `minimal`) to low. Staffing offers only levels that need no translation.
 #[logged]
 pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     match effort {
         "low" | "high" => effort,
         "none" | "minimal" => "low",
-        "medium" if matches!(tier, "flash" | "argon") || antigravity_claude(tier) => effort,
+        "medium" if matches!(tier, "flash" | "argon" | "carbon" | "hydrogen") || antigravity_claude(tier) => effort,
+        "xhigh" | "max" if tier == "hydrogen" => "xhigh",
         _ => "high",
     }
 }
@@ -205,6 +222,14 @@ pub fn antigravity_model(tier: &str, model: &str, effort: &str) -> String {
     } else {
         model.to_string()
     }
+}
+
+/// A tier whose turn cost is an ESTIMATE: its provider has not published a price, so its turns are priced from
+/// a guess and marked estimated (the spend badge's "est."). Hydrogen only (user 2026-11-13 md16909f83245:
+/// $1.50 input as given, output guessed from Flash's ratio); drop it here when the real price is known.
+#[nolog]
+pub fn cost_is_estimate(tier: &str) -> bool {
+    tier == "hydrogen"
 }
 
 #[nolog]
@@ -270,8 +295,9 @@ fn display_family(t: &Tier) -> Option<&'static str> {
         (GOOGLE, "flash") => "Gemini Flash",
         (GOOGLE, "pro") => "Gemini Pro",
         (GOOGLE, "argon") => "Gemini Argon",
-        (GOOGLE, "barium") => "Gemini Barium",
+        (GOOGLE, "krypton") => "Gemini Krypton",
         (GOOGLE, "carbon") => "Gemini Carbon",
+        (GOOGLE, "hydrogen") => "Gemini Hydrogen",
         (MUSE, "wonder") => "Muse Wonder",
         (MUSE, "wonder-full") => "Muse Wonder Full",
         (MUSE, "spark") => "Muse Spark",
@@ -477,11 +503,98 @@ mod effort_tests {
     fn argon_effort_picker_offers_medium_without_widening_other_tiers() {
         let state = crate::providers::State::default();
         assert_eq!(crate::providers::effort_names(&state, "argon"), Some(v(&["low", "medium", "high"])));
-        for tier in ["pro", "barium", "carbon"] {
+        // Carbon (user 2026-11-11 "missing the medium effort level"): the installed agy 1.5.6 carries the explicit
+        // `gemini-4-carbon-medium` id and the "Gemini 4 Carbon (Medium)" label (static inspection, see argon-effort.md)
+        assert_eq!(crate::providers::effort_names(&state, "carbon"), Some(v(&["low", "medium", "high"])));
+        assert_eq!(antigravity_effort("carbon", "medium"), "medium");
+        for tier in ["pro", "krypton"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "high"])), "{tier}");
         }
         for tier in ["flash", "agy-sonnet", "agy-opus"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "medium", "high"])), "{tier}");
+        }
+    }
+
+    /// Barium was replaced by Krypton (user 2026-11-11): a stale stored "barium" is an unknown tier
+    /// (no alias), so `seat_of` refuses it with "unknown tier" and it is never offered.
+    #[test]
+    fn a_stale_barium_is_an_unknown_tier_and_krypton_takes_its_place() {
+        assert!(tier("barium").is_none());
+        let k = tier("krypton").expect("krypton");
+        assert!(k.conditional && k.provider == GOOGLE && k.seat == 2.0 && k.letter == "K" && k.model == "gemini-4-krypton");
+    }
+
+    /// Carbon costs 4 credits (user 2026-11-12 m18bc0505e597 "change carbon's credit cost to 4"): the price of
+    /// Opus, Wonder and agy-opus, no longer the placeholder 2 it copied from Pro. Krypton and Argon keep 2.
+    #[test]
+    fn carbon_costs_four_credits_like_opus() {
+        assert_eq!(seat_price("carbon"), 4.0);
+        for same in ["opus", "wonder", "agy-opus"] {
+            assert_eq!(seat_price(same), seat_price("carbon"), "{same}");
+        }
+        for unchanged in ["argon", "krypton", "pro"] {
+            assert_eq!(seat_price(unchanged), 2.0, "{unchanged}");
+        }
+    }
+
+    /// Fable costs 8 credits (USER 2026-11-13 md539ddd936f9); Wonder Full and Astra keep their seats of 10.
+    #[test]
+    fn fable_costs_eight_credits() {
+        assert_eq!(seat_price("fable"), 8.0);
+        for unchanged in ["wonder-full", "astra"] {
+            assert_eq!(seat_price(unchanged), 10.0, "{unchanged}");
+        }
+    }
+
+    /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
+    /// real turn): a Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces. It is offered
+    /// unconditionally (user 2026-11-13 m6258781910ea), not on agy's model list like Argon, Krypton and Carbon.
+    /// user 2026-11-13 m39ddd2612ce5: "also make sure hydrogen has an xhigh effort level that's selectable".
+    /// How agy takes it, by static inspection of the installed CLI (244,091,032 bytes, SHA256 064e6519...aa2f;
+    /// nothing was run): it carries the id `gemini-4-hydrogen-xhigh` and the label "Gemini 4 Hydrogen (XHigh)",
+    /// the only `-xhigh` model id in it, and its `--effort` help reads "(low|medium|high|xhigh|max)". So xhigh is
+    /// asked for as every Gemini effort is: `--model gemini-4-hydrogen --effort xhigh`.
+    /// Medium (user m293bedc7db68 "add medium, and add it for carbon"): the same CLI names
+    /// `gemini-4-hydrogen-medium` and "Gemini 4 Hydrogen (Medium)". Carbon's medium is pinned in
+    /// `argon_effort_picker_offers_medium_without_widening_other_tiers`.
+    #[test]
+    fn hydrogen_offers_xhigh_and_the_launch_asks_for_it_by_name() {
+        let state = crate::providers::State::default();
+        assert_eq!(crate::providers::effort_names(&state, "hydrogen"), Some(v(&["low", "medium", "high", "xhigh"])));
+        assert_eq!(crate::providers::effort_names(&state, "carbon"), Some(v(&["low", "medium", "high"])));
+        assert_eq!(antigravity_effort("hydrogen", "medium"), "medium");
+        assert_eq!(antigravity_model("hydrogen", "gemini-4-hydrogen", "medium"), "gemini-4-hydrogen");
+        assert_eq!(antigravity_effort("hydrogen", "xhigh"), "xhigh");
+        assert_eq!(antigravity_model("hydrogen", "gemini-4-hydrogen", "xhigh"), "gemini-4-hydrogen", "the effort is a flag, not an id suffix");
+        // a level above its highest becomes its highest, which is xhigh here and high everywhere else
+        assert_eq!(antigravity_effort("hydrogen", "max"), "xhigh");
+        for (saved, sent) in [("low", "low"), ("high", "high"), ("none", "low"), ("minimal", "low")] {
+            assert_eq!(antigravity_effort("hydrogen", saved), sent, "{saved}");
+        }
+        // medium stays off the two models the CLI names no -medium id for
+        for tier in ["pro", "krypton"] { assert_eq!(antigravity_effort(tier, "medium"), "high", "{tier}"); }
+        // no other Antigravity model gains it: the CLI names no other -xhigh id
+        for tier in ["flash", "argon", "carbon", "krypton", "pro", "agy-opus", "agy-sonnet"] {
+            assert_eq!(antigravity_effort(tier, "xhigh"), "high", "{tier}");
+            assert_eq!(antigravity_effort(tier, "max"), "high", "{tier}");
+            assert!(!crate::providers::effort_names(&state, tier).unwrap().iter().any(|e| e == "xhigh"), "{tier}");
+        }
+    }
+
+    /// Flash (user 2026-11-13 md16909f83245 "Now") is legacy: known, placed by name, offered by no list.
+    #[test]
+    fn hydrogen_is_an_always_offered_gemini_tier_and_flash_is_legacy() {
+        let h = tier("hydrogen").expect("hydrogen");
+        assert_eq!((h.provider, h.model, h.letter, h.seat, h.conditional, h.legacy), (GOOGLE, "gemini-4-hydrogen", "H", 1.0, false, false));
+        assert_eq!(h.seat, crate::openrouter::seat_for(1.5), "the standing input-price seat rule");
+        assert_eq!(display_name(h, None).as_deref(), Some("Gemini Hydrogen 4"));
+        assert_eq!((antigravity_pool("hydrogen"), antigravity_own_bucket("hydrogen")), ("gemini", None));
+        let f = tier("flash").expect("flash stays a known tier: seats on it keep their letter, colour and price");
+        assert!(f.legacy && !f.conditional);
+        assert_eq!((f.seat, f.model), (1.0, "gemini-3.8-flash"));
+        assert!(cost_is_estimate("hydrogen"));
+        for measured in ["flash", "argon", "carbon", "krypton", "pro", "opus", "sol"] {
+            assert!(!cost_is_estimate(measured), "{measured}");
         }
     }
 
@@ -544,14 +657,16 @@ mod effort_tests {
         assert_eq!(listed().len(), TIERS.len());
         assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
-        assert_eq!(names(GOOGLE), ["agy-opus", "pro", "argon", "barium", "carbon", "agy-sonnet", "flash"]);
+        // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads
+        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "agy-sonnet", "flash", "hydrogen"]);
         assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
         // what a person sees: legacy and not-yet-listed models are hidden
         let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {
             listed().iter().filter(|t| t.provider == p && !t.legacy && (!t.conditional || conditional.contains(&t.tier)))
                 .map(|t| t.tier).collect()
         };
-        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "flash"]);
+        // Flash is legacy since Hydrogen (user 2026-11-13): Hydrogen is the Gemini model every account is offered
+        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "hydrogen"]);
         assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "terra", "luna"]);
         // the rule itself, so a tier added later orders itself
         for p in [CLAUDE, OPENAI, GOOGLE, MUSE] {

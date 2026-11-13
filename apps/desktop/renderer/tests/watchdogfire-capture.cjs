@@ -1,17 +1,17 @@
 // Capture the watchdog fire cards of tests/watchdogfire-visual.tsx, dark and
 // light, after checking what each one shows (capture.json). Run Electron on
 // this file from the repository root, with WATCHDOG_FIRE_CAPTURE_ROOT set to
-// a folder of your own under C:/orgtree-build (ORGTREE_NODE_MODULES: the
+// a folder of your own under S:/orgtree/build (ORGTREE_NODE_MODULES: the
 // shared node_modules, which holds esbuild).
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 
 const root = process.env.WATCHDOG_FIRE_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/][^\\/]/i.test(root || '')) {
-  throw new Error('WATCHDOG_FIRE_CAPTURE_ROOT must be a folder under C:/orgtree-build/<you>/')
+if (!/^S:[\\/]orgtree[\\/]build[\\/][^\\/]+[\\/][^\\/]/i.test(root || '')) {
+  throw new Error('WATCHDOG_FIRE_CAPTURE_ROOT must be a folder under S:/orgtree/build/<you>/')
 }
-const modules = process.env.ORGTREE_NODE_MODULES || 'E:/Libraries/Desktop/orgtree/node_modules'
+const modules = process.env.ORGTREE_NODE_MODULES || 'S:/orgtree/orgtree/node_modules'
 const repo = process.cwd()
 fs.mkdirSync(root, { recursive: true })
 require(path.join(modules, 'esbuild')).buildSync({

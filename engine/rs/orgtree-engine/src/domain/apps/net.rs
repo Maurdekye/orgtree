@@ -255,7 +255,7 @@ pub fn site_matches(decl: &str, host: &str, port: u16) -> bool {
 /// The URL an app may ask for: HTTPS only, a host, no embedded credentials.
 #[nolog]
 pub fn validate_url(url: &reqwest::Url) -> Result<()> {
-    if url.scheme() != "https" {
+    if !matches!(url.scheme(), "http" | "https") {
         crate::refuse!(BadRequest, "app internet requests must use https");
     }
     if url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
@@ -347,6 +347,98 @@ pub fn is_own_address(ip: IpAddr) -> bool {
         .unwrap_or(true)
 }
 
+/// How the engine treats an address an app request resolves to (spec 3.2). Private is reachable only for an
+/// exact declared site the user allowed on the private network (`Access::private`); Never is never reachable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Class {
+    Public,
+    Private,
+    Never,
+}
+/// Private: 10/8, 172.16/12, 192.168/16, 100.64/10 (Tailscale, CGNAT) and IPv6 fc00::/7 (ULA). Never: loopback,
+/// link-local (cloud metadata included), unspecified, multicast, broadcast, documentation/benchmark ranges,
+/// IPv4-mapped IPv6 and the rest of what `is_public_ip` refuses. (This machine's own addresses are Never too, but
+/// that needs the OS; see `is_own_address`.)
+#[nolog]
+pub fn classify(ip: IpAddr) -> Class {
+    if is_public_ip(ip) {
+        return Class::Public;
+    }
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            if v4.is_private() || (a == 100 && (64..=127).contains(&b)) {
+                Class::Private
+            } else {
+                Class::Never
+            }
+        }
+        IpAddr::V6(v6) => {
+            if v6.to_ipv4_mapped().is_none() && (v6.segments()[0] & 0xfe00) == 0xfc00 {
+                Class::Private
+            } else {
+                Class::Never
+            }
+        }
+    }
+}
+/// Judge every address a request's host resolved to. Returns whether the request is a private-network one.
+/// `pins` is the set stored when the user allowed this exact site on the private network, if they did. Every
+/// resolved address must be Private and in the set; a name that moved is refused until the user re-pins it.
+#[nolog]
+pub fn vet_addresses(site: &str, addrs: &[IpAddr], pins: Option<&[IpAddr]>) -> Result<bool> {
+    if addrs.is_empty() {
+        crate::refuse!(BadRequest, "app internet host did not resolve");
+    }
+    let classes: Vec<Class> = addrs.iter().map(|a| classify(*a)).collect();
+    if classes.contains(&Class::Never) {
+        crate::refuse!(Forbidden, "app internet target is not a public address");
+    }
+    let all_public = classes.iter().all(|c| *c == Class::Public);
+    let all_private = classes.iter().all(|c| *c == Class::Private);
+    if !all_public && !all_private {
+        crate::refuse!(
+            Forbidden,
+            "{site} resolves to both public and private addresses"
+        );
+    }
+    match pins {
+        None if all_public => Ok(false),
+        None => crate::refuse!(
+            Forbidden,
+            "{site} is on a private network; allow it in the app's settings (Permissions)"
+        ),
+        Some(pins) if all_private && addrs.iter().all(|a| pins.contains(a)) => Ok(true),
+        Some(_) => crate::refuse!(
+            Forbidden,
+            "{site} now resolves to a different address; review it in the app's settings"
+        ),
+    }
+}
+/// What an app request may reach: the caller's current grant check and, for a site the user allowed on the
+/// private network, the address set pinned when they allowed it (None for every other site).
+pub struct Access<'a> {
+    pub allow: &'a (dyn Fn(&str, u16) -> bool + Sync),
+    pub private: &'a (dyn Fn(&str, u16) -> Option<Vec<IpAddr>> + Sync),
+}
+/// Tests reach a plain-http server under a test host name judged as a private address.
+#[cfg(test)]
+pub(crate) static TEST_PRIVATE_ROUTES: Mutex<Vec<(String, IpAddr, SocketAddr)>> = Mutex::new(Vec::new());
+#[cfg(test)]
+#[nolog]
+fn test_private_route(host: &str) -> Option<(IpAddr, SocketAddr)> {
+    let routes = TEST_PRIVATE_ROUTES.lock().ok()?;
+    routes.iter().find(|(h, ..)| h == host).map(|(_, ip, dial)| (*ip, *dial))
+}
+#[cfg(not(test))]
+#[nolog]
+fn test_private_route(_host: &str) -> Option<(IpAddr, SocketAddr)> {
+    None
+}
+#[cfg(test)]
+#[path = "net_private_tests.rs"]
+mod private_tests;
+
 /// One app request. `method` is validated against `METHODS`, `headers` against
 /// `header_forbidden`; `body` is bounded by `REQUEST_MAX`.
 pub struct Fetch {
@@ -361,6 +453,8 @@ pub struct Fetched {
     pub body: Vec<u8>,
     pub final_url: String,
     pub redirected: bool,
+    /// A saved login was attached (the app is told that much, never the value).
+    pub login: bool,
 }
 /// Responses are private app content: status and size only.
 impl std::fmt::Debug for Fetched {
@@ -424,30 +518,112 @@ pub fn validate_fetch(f: &Fetch) -> Result<()> {
 /// to such an address cannot be used to reach it). IP literals are classified
 /// directly.
 #[nolog]
-async fn resolve_public(host: &str, port: u16) -> Result<SocketAddr> {
-    let refused = |ip: IpAddr| !is_public_ip(ip) || is_own_address(ip);
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if refused(ip) {
-            crate::refuse!(Forbidden, "app internet target is not a public address");
-        }
-        return Ok(SocketAddr::new(ip, port));
+/// The vetted address an app channel dials, for one attempt (the request path does the same per hop).
+pub async fn dial_target(host: &str, port: u16, pins: Option<&[IpAddr]>) -> Result<SocketAddr> {
+    if let Some((judged, dial)) = test_private_route(host) {
+        vet_addresses(&site_key(host, port), &[judged], pins)?;
+        return Ok(dial);
     }
-    let addrs = tokio::net::lookup_host((host, port)).await.map_err(|_| {
-        crate::domain::UserError::BadRequest("app internet host did not resolve".into())
-    })?;
-    let mut chosen = None;
-    for addr in addrs {
-        if refused(addr.ip()) {
-            crate::refuse!(
-                Forbidden,
-                "app internet target resolves to a non-public address"
-            );
-        }
-        chosen.get_or_insert(addr);
+    let (addr, _) = tokio::time::timeout(CONNECT_TIMEOUT, resolve_vetted(host, port, pins))
+        .await
+        .map_err(|_| crate::domain::UserError::BadRequest("app internet request timed out after 30 seconds".into()))??;
+    Ok(addr)
+}
+
+#[nolog]
+async fn resolve_vetted(
+    host: &str,
+    port: u16,
+    pins: Option<&[IpAddr]>,
+) -> Result<(SocketAddr, bool)> {
+    let site = site_key(host, port);
+    let addrs: Vec<SocketAddr> = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else {
+        tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| {
+                crate::domain::UserError::BadRequest("app internet host did not resolve".into())
+            })?
+            .collect()
+    };
+    // This machine's own addresses are Never, whatever they classify as (spec 3.2).
+    if addrs.iter().any(|a| is_own_address(a.ip())) {
+        crate::refuse!(Forbidden, "app internet target is not a public address");
     }
-    chosen.ok_or_else(|| {
-        crate::domain::UserError::BadRequest("app internet host did not resolve".into()).into()
+    let ips: Vec<IpAddr> = addrs.iter().map(|a| a.ip()).collect();
+    let private = vet_addresses(&site, &ips, pins)?;
+    Ok((addrs[0], private))
+}
+
+/// What the Permissions row shows for a declared site (spec 3.6): where it resolves now, whether it is on the
+/// private network or Tailscale's ranges, and what is pinned. `resolved` is None when the host did not resolve.
+#[nolog]
+pub fn describe_site(site: &str, resolved: Option<&[IpAddr]>, row: &serde_json::Value) -> serde_json::Value {
+    let strings = |ips: &[IpAddr]| ips.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+    let pinned: Vec<IpAddr> = row["addresses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a.as_str()?.parse().ok())
+        .collect();
+    let allowed = row["value"] == "allow-private";
+    let tailscale = |ip: &IpAddr| match ip {
+        IpAddr::V4(v4) => v4.octets()[0] == 100 && (64..=127).contains(&v4.octets()[1]),
+        IpAddr::V6(v6) => v6.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
+    };
+    let (class, tail, moved) = match resolved {
+        None => ("unresolved", false, false),
+        Some(ips) => {
+            let classes: Vec<Class> = ips.iter().map(|a| classify(*a)).collect();
+            let class = if classes.contains(&Class::Never) {
+                "never"
+            } else if classes.iter().all(|c| *c == Class::Private) {
+                "private"
+            } else if classes.iter().all(|c| *c == Class::Public) {
+                "public"
+            } else {
+                "mixed"
+            };
+            let moved = allowed && !(ips.iter().all(|a| pinned.contains(a)));
+            (class, ips.iter().all(tailscale), moved)
+        }
+    };
+    serde_json::json!({
+        "site": site,
+        "class": class,
+        "addresses": resolved.map(strings).unwrap_or_default(),
+        "pinned": strings(&pinned),
+        "allowed": allowed,
+        "moved": moved,
+        "tailscale": tail,
     })
+}
+#[nolog]
+pub async fn classify_site(site: &str, row: &serde_json::Value) -> Result<serde_json::Value> {
+    let (host, port) = host_port(site)?;
+    let resolved = resolve_ips(&host, port).await.ok();
+    Ok(describe_site(site, resolved.as_deref(), row))
+}
+
+/// Which class a site's host resolves to, for the Settings row and for refusing a private target before a
+/// runtime prompt. The vetting itself happens per request in `fetch_with`.
+#[nolog]
+pub async fn resolve_ips(host: &str, port: u16) -> Result<Vec<IpAddr>> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(vec![ip]);
+    }
+    let addrs = tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host((host, port)))
+        .await
+        .map_err(|_| crate::domain::UserError::BadRequest("app internet host did not resolve".into()))?
+        .map_err(|_| crate::domain::UserError::BadRequest("app internet host did not resolve".into()))?;
+    let mut ips: Vec<IpAddr> = addrs.map(|a| a.ip()).collect();
+    ips.sort();
+    ips.dedup();
+    if ips.is_empty() {
+        crate::refuse!(BadRequest, "app internet host did not resolve");
+    }
+    Ok(ips)
 }
 
 /// Tests reach a local TLS server under a test host name; this route exists
@@ -476,7 +652,25 @@ fn test_route(_host: &str) -> Option<(SocketAddr, Vec<u8>)> {
 /// vetted address; redirects followed by hand and re-checked; one deadline for
 /// the whole request, every hop and the body included.
 #[nolog]
-pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> Result<Fetched> {
+pub async fn fetch(f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> Result<Fetched> {
+    fetch_with(f, &Access { allow, private: &|_, _| None }).await
+}
+/// `fetch`, with private-network access for the sites the user allowed there (`Access::private`): plain http
+/// and a private address are reachable only for such a site, pinned to the address set stored for it; a redirect
+/// off such a site is never followed.
+#[nolog]
+pub async fn fetch_with(f: Fetch, access: &Access<'_>) -> Result<Fetched> {
+    fetch_full(f, access, &|_, _| None).await
+}
+/// etch_with, plus the saved login the engine attaches to the request's own site (spec 4.4). login(host, port)\n/// is asked on every hop, so a login never leaves the site it was saved for.
+#[nolog]
+pub async fn fetch_full(
+    mut f: Fetch,
+    access: &Access<'_>,
+    login: &(dyn Fn(&str, u16) -> Option<(String, String)> + Sync),
+) -> Result<Fetched> {
+    let allow = access.allow;
+    let mut login_used = false;
     validate_fetch(&f)?;
     let deadline = tokio::time::Instant::now() + REQUEST_TIMEOUT;
     let left = || {
@@ -499,16 +693,27 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
                 site_key(&host, port)
             );
         }
+        let pins = (access.private)(&host, port);
+        let http = f.url.scheme() == "http";
+        if http && pins.is_none() {
+            crate::refuse!(BadRequest, "app internet requests must use https");
+        }
         let route = test_route(&host);
-        let addr = match &route {
-            Some((addr, _)) => *addr,
-            None => tokio::time::timeout(left()?, resolve_public(&host, port))
-                .await
-                .map_err(|_| {
-                    crate::domain::UserError::BadRequest(
-                        "app internet request timed out after 30 seconds".into(),
-                    )
-                })??,
+        let (addr, private) = match (&route, test_private_route(&host)) {
+            (Some((addr, _)), _) => (*addr, false),
+            (None, Some((judged, dial))) => {
+                let private = vet_addresses(&site_key(&host, port), &[judged], pins.as_deref())?;
+                (dial, private)
+            }
+            (None, None) => {
+                tokio::time::timeout(left()?, resolve_vetted(&host, port, pins.as_deref()))
+                    .await
+                    .map_err(|_| {
+                        crate::domain::UserError::BadRequest(
+                            "app internet request timed out after 30 seconds".into(),
+                        )
+                    })??
+            }
         };
         // reqwest is built WITHOUT the "cookies" feature, so there is no cookie
         // jar at all: no Cookie is sent and Set-Cookie is dropped. No proxy, no
@@ -519,7 +724,7 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .referer(false)
-            .https_only(true)
+            .https_only(!http)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(left()?);
         if host.parse::<IpAddr>().is_err() {
@@ -533,8 +738,23 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
             crate::domain::UserError::BadRequest("unsupported app internet method".into())
         })?;
         let mut req = client.request(method, f.url.clone());
+        // The saved login of THIS hop's exact site replaces any header of that name the app set. The app's
+        // own list is never changed, so a redirect to another site cannot carry the login along.
+        let attach = login(&host, port);
+        login_used |= attach.is_some();
+        let own = attach.as_ref().map(|(name, _)| name.as_str());
         for (name, value) in &f.headers {
+            if own.is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                continue;
+            }
             req = req.header(name.as_str(), value.as_str());
+        }
+        if let Some((name, value)) = &attach {
+            let mut value = reqwest::header::HeaderValue::from_str(value).map_err(|_| {
+                crate::domain::UserError::BadRequest("the saved login is not a valid header value".into())
+            })?;
+            value.set_sensitive(true);
+            req = req.header(name.as_str(), value);
         }
         if let Some(body) = f.body.clone() {
             req = req.body(body);
@@ -568,6 +788,13 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
                     "app internet redirect location is invalid".into(),
                 )
             })?;
+            // A private site is the user's own computer: it never sends the app anywhere else.
+            if private && (next.scheme(), url_host_port(&next)?) != (f.url.scheme(), (host.clone(), port)) {
+                crate::refuse!(
+                    Forbidden,
+                    "redirects off a private site are not followed"
+                );
+            }
             // 307/308 keep the method and body; every other redirect continues
             // as a GET without a body, as browsers do.
             if !matches!(status.as_u16(), 307 | 308) {
@@ -612,6 +839,7 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
             body,
             final_url,
             redirected: hop > 0,
+            login: login_used,
         });
     }
     crate::refuse!(
@@ -656,9 +884,17 @@ async fn bounded_body(response: reqwest::Response) -> Result<Vec<u8>> {
 pub struct Registry {
     apps: Mutex<HashMap<(i64, String), AppNet>>,
 }
+/// One live channel (channel.rs) next to the requests in flight, so a revoke reaches both (spec 5.6).
+struct ChannelSlot {
+    panel: String,
+    generation: i64,
+    site: String,
+    shared: std::sync::Arc<super::channel::Shared>,
+}
 #[derive(Default)]
 struct AppNet {
     once: HashSet<(String, i64, String)>,
+    channels: Vec<ChannelSlot>,
     inflight: HashMap<u64, (String, CancellationToken)>,
     recent: VecDeque<Instant>,
     next: u64,
@@ -695,6 +931,7 @@ impl Registry {
         let now = Instant::now();
         apps.retain(|_, a| {
             !a.inflight.is_empty()
+                || !a.channels.is_empty()
                 || !a.once.is_empty()
                 || a.recent
                     .back()
@@ -797,6 +1034,68 @@ impl Registry {
                 }
             }
             state.once.retain(|(p, ..)| panel.is_some_and(|x| x != p));
+            for slot in &state.channels {
+                if panel.is_none_or(|x| x == slot.panel) {
+                    slot.shared.end("revoked");
+                }
+            }
+        }
+    }
+    /// Open a channel for this copy: 4 per app and 2 per copy (closed ones no longer count).
+    #[nolog]
+    pub fn open_channel(
+        &self,
+        org: i64,
+        app: &str,
+        panel: &str,
+        generation: i64,
+        site: &str,
+        secure: bool,
+        private: bool,
+    ) -> Result<(std::sync::Arc<super::channel::Shared>, CancellationToken)> {
+        let mut apps = self.lock()?;
+        let a = apps.entry((org, app.to_owned())).or_default();
+        let live = |c: &&ChannelSlot| !c.shared.is_closed();
+        if a.channels.iter().filter(live).count() >= super::channel::PER_APP {
+            crate::refuse!(Conflict, "an app may have at most 4 open channels");
+        }
+        if a.channels.iter().filter(live).filter(|c| c.panel == panel).count() >= super::channel::PER_PANEL {
+            crate::refuse!(Conflict, "a panel copy may have at most 2 open channels");
+        }
+        a.next += 1;
+        let id = format!("c{}", a.next);
+        let cancel = CancellationToken::new();
+        let shared = super::channel::Shared::new(id, site.to_owned(), secure, private, cancel.clone());
+        a.channels.push(ChannelSlot { panel: panel.to_owned(), generation, site: site.to_owned(), shared: shared.clone() });
+        Ok((shared, cancel))
+    }
+    /// The channel `id` of this running copy; another copy, another run, another app never finds it.
+    #[nolog]
+    pub fn channel(&self, org: i64, app: &str, panel: &str, generation: i64, id: &str) -> Result<std::sync::Arc<super::channel::Shared>> {
+        let apps = self.lock()?;
+        apps.get(&(org, app.to_owned()))
+            .and_then(|a| a.channels.iter().find(|c| c.shared.id == id && c.panel == panel && c.generation == generation))
+            .map(|c| c.shared.clone())
+            .ok_or_else(|| crate::domain::UserError::NotFound("no such channel".into()).into())
+    }
+    /// Forget a finished channel (after its tombstone).
+    #[nolog]
+    pub fn drop_channel(&self, org: i64, app: &str, id: &str) {
+        if let Ok(mut apps) = self.apps.lock() {
+            if let Some(a) = apps.get_mut(&(org, app.to_owned())) {
+                a.channels.retain(|c| c.shared.id != id);
+            }
+        }
+    }
+    /// Close this app's channels to one site (a saved-login change; spec 5.5).
+    #[nolog]
+    pub fn close_site_channels(&self, org: i64, app: &str, site: &str, reason: &str) {
+        if let Ok(apps) = self.apps.lock() {
+            for slot in apps.get(&(org, app.to_owned())).into_iter().flat_map(|a| &a.channels) {
+                if slot.site == site {
+                    slot.shared.end(reason);
+                }
+            }
         }
     }
     /// Hide ends a copy's "Allow once" answers; its requests in flight finish.
@@ -806,6 +1105,9 @@ impl Registry {
             for ((o, _), state) in apps.iter_mut() {
                 if *o == org {
                     state.once.retain(|(p, ..)| p != panel);
+                    for slot in state.channels.iter().filter(|c| c.panel == panel) {
+                        slot.shared.end("hidden");
+                    }
                 }
             }
         }
@@ -835,7 +1137,6 @@ mod tests {
             "",
             " ",
             "has space.com",
-            "http://example.com",
             "example.com/path",
             "user@example.com",
             "example.com:0",
@@ -884,8 +1185,9 @@ mod tests {
     #[test]
     fn urls_must_be_https_with_a_host_and_no_credentials() {
         assert!(validate_url(&"https://example.com/x".parse().unwrap()).is_ok());
+        // Plain http is judged per request (fetch_with): only an allow-private site may use it.
+        assert!(validate_url(&"http://nas.local:8642/x".parse().unwrap()).is_ok());
         for bad in [
-            "http://example.com",
             "https://user:pw@example.com",
             "ftp://example.com",
             "https://user@example.com",

@@ -4,7 +4,7 @@
 // input: Session 0 only, muted, offscreen; clipboard permissions denied and every clipboard path
 // stubbed; input is CDP to this window alone.
 //   electron orginbox-delivered.capture.cjs <out>
-// <out> is below C:\orgtree-build\<ORGTREE_AGENT>\ and holds tip\ with probe.js and probe.css from
+// <out> is below S:\orgtree\build\<ORGTREE_AGENT>\ and holds tip\ with probe.js and probe.css from
 // the visual bundle (orginbox-delivered-build.mjs). A fixture that never starts leaves
 // capture-error.json with the page's own errors and the bundle's source.json receipt.
 const {app,BrowserWindow,session,clipboard}=require('electron')
@@ -13,7 +13,7 @@ const {execFileSync}=require('node:child_process')
 const out=path.resolve(process.argv[2]||'')
 const owner=process.env.ORGTREE_AGENT||''
 if(!/^[A-Za-z0-9_-]{1,64}$/.test(owner))throw Error('ORGTREE_AGENT required')
-if(!out.toLowerCase().startsWith(('c:\\orgtree-build\\'+owner+'\\').toLowerCase()))throw Error('Output outside the owner\'s build scope')
+if(!out.toLowerCase().startsWith(('s:\\orgtree\\build\\'+owner+'\\').toLowerCase()))throw Error('Output outside the owner\'s build scope')
 const sessionId=Number(execFileSync('powershell.exe',['-NoProfile','-Command',`(Get-Process -Id ${process.pid}).SessionId`],{encoding:'utf8',windowsHide:true}).trim())
 assert.equal(sessionId,0,'Session 0 required before any window')
 app.setPath('userData',path.join(out,'profile-'+process.pid));app.setPath('sessionData',path.join(out,'session-'+process.pid))

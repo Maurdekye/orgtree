@@ -37,17 +37,18 @@ pub(crate) fn placement_engine(native: u32, own: u32) -> Arc<Engine> {
 }
 
 #[tokio::test]
+// the Gemini-pool model staffing lists is Hydrogen: Flash is legacy since 2026-11-13
 async fn staffing_offers_profile_capacity_when_native_is_exhausted() {
     let engine = placement_engine(100, 12);
     let options = crate::domain::staffing::options(&engine, "synthetic-agy-placement");
-    let tier = options["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "flash")
+    let tier = options["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "hydrogen")
         .expect("profile capacity must keep the model available for placement");
     assert_eq!(tier["default_ok"], false, "native exhaustion must remain enforced");
     assert_eq!(tier["accounts"].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["google-2"]);
 
     let engine = placement_engine(4, 100);
     let options = crate::domain::staffing::options(&engine, "synthetic-agy-placement");
-    let tier = options["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "flash").unwrap();
+    let tier = options["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "hydrogen").unwrap();
     assert_eq!(tier["default_ok"], true);
     assert!(!tier["accounts"].as_array().unwrap().iter().any(|a| a["id"] == "google-2"));
 }
@@ -184,6 +185,6 @@ async fn argon_own_weekly_bucket_limits_argon_only() {
     assert!(at_limit(&engine, None, "flash").is_none(), "Argon's bucket is not the Gemini pool");
     assert!(antigravity_limit(&engine, "flash").is_none());
     assert!(has_room(&engine, None, "flash"));
-    assert!(at_limit(&engine, None, "barium").is_none(), "nor another conditional tier's bucket");
+    assert!(at_limit(&engine, None, "krypton").is_none(), "nor another conditional tier's bucket");
     assert!(at_limit(&engine, None, "agy-opus").is_none(), "nor the third-party pool");
 }

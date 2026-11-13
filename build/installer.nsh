@@ -1460,6 +1460,60 @@ orgtreeSilentElevateDone:
     Delete "$SMPROGRAMS\Orgtree\Orgtree v2.lnk"
   ${endif}
 !macroend
+# MICROSOFT VISUAL C++ RUNTIME (user 2026-11-12). The bundled PostgreSQL ships no
+# runtime of its own, and on a PC whose runtime is missing or too old Setup used
+# to succeed and the database then failed at every start. tools/vc-runtime.ps1
+# holds the minimum and how it was measured; it downloads Microsoft's own
+# redistributable only when needed, checks its signature before running it and
+# measures the runtime again afterwards.
+#
+# A SILENT RUN ONLY CHECKS. Microsoft's installer asks for administrator
+# approval by itself, and an approval prompt out of nowhere during a background
+# update is not something Setup may cause; the result is logged, and the
+# application's own database-start error names the runtime.
+#
+# NEVER STOPS THE INSTALLATION. The files are already in place when this runs;
+# a failure here is a warning with the download link, and the durable log line.
+# Two macros, as BootResult is separate from its launch, so the inert test
+# (tests/vc-runtime.test.mjs) runs the real result handling on synthetic results.
+!macro VcRuntimeRun
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\vc-runtime.ps1 "${PROJECT_DIR}\tools\vc-runtime.ps1"
+  File /oname=$PLUGINSDIR\ensure-vc-runtime.ps1 "${PROJECT_DIR}\tools\ensure-vc-runtime.ps1"
+  DetailPrint "Checking the Microsoft Visual C++ runtime..."
+  ${if} ${Silent}
+    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\ensure-vc-runtime.ps1" -WorkDir "$PLUGINSDIR" -CheckOnly'
+  ${else}
+    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\ensure-vc-runtime.ps1" -WorkDir "$PLUGINSDIR"'
+  ${endif}
+!macroend
+!macro VcRuntimeResult
+  Exch $0
+  Exch
+  Exch $1
+  Push $2
+  Push $3
+  # bounded, as BootResult's is: the helper prints one line, a failing PowerShell may print many
+  StrCpy $1 $1 400
+  !insertmacro OrgLog "vc-runtime" "exit=$0; $1"
+  StrCpy $2 $1 3
+  StrCpy $3 $1 10
+  ${if} $0 == "0"
+  ${andif} $2 == "ok|"
+    DetailPrint "The Microsoft Visual C++ runtime is recent enough."
+  ${elseif} $0 == "0"
+  ${andif} $3 == "installed|"
+    DetailPrint "The Microsoft Visual C++ runtime was updated."
+  ${else}
+    DetailPrint "The Microsoft Visual C++ runtime needs attention: $1"
+    !insertmacro OrgLog "vc-runtime-warning" "the database may not start until the runtime is installed"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Orgtree is installed, but its database needs a newer Microsoft Visual C++ runtime than this PC has, and Setup could not install it.$\r$\n$\r$\n$1$\r$\n$\r$\nOrgtree's database will not start until the runtime is installed. Download it from Microsoft, install it, then start Orgtree:$\r$\nhttps://aka.ms/vs/17/release/vc_redist.x64.exe" /SD IDOK
+  ${endif}
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+!macroend
 !macro customInstall
   !ifndef ORGTREE_DEV_CHANNEL
   !insertmacro orgtreeRemoveLegacyShortcuts
@@ -1485,6 +1539,8 @@ orgtreeSilentElevateDone:
     StrCpy $OrgBootPending "0"
   ${endif}
   !endif
+  !insertmacro VcRuntimeRun
+  !insertmacro VcRuntimeResult
   # The one line that says the files and registry work actually completed. Its
   # ABSENCE after the earlier stages is the shape of the reported incident.
   !insertmacro OrgLog "install-complete" "files and registry written for [$INSTDIR] at version ${VERSION}"

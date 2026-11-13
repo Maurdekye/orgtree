@@ -1,6 +1,6 @@
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
-const out=process.env.WS_CONNECT_CAPTURE_ROOT,modules=process.env.ORGTREE_NODE_MODULES||'E:/Libraries/Desktop/orgtree/node_modules'
-if(!/^C:[\\/]orgtree-build[\\/]ordering-sol[\\/]/i.test(out||''))throw Error('owned output required')
+const out=process.env.WS_CONNECT_CAPTURE_ROOT,modules=process.env.ORGTREE_NODE_MODULES||'S:/orgtree/orgtree/node_modules'
+if(!/^S:[\\/]orgtree[\\/]build[\\/]ordering-sol[\\/]/i.test(out||''))throw Error('owned output required')
 try{
 fs.mkdirSync(out,{recursive:true})
 require(path.join(modules,'esbuild')).buildSync({entryPoints:[path.join(process.cwd(),'apps/desktop/renderer/tests/ws-connect-visual.tsx')],bundle:true,platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:[modules],loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'}})

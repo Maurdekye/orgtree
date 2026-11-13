@@ -494,7 +494,8 @@ never fires/spends once/runs actions; data delivery unchanged. See
 [connection contract](websocket-watchdogs.md#connection-notifications).
 
 Heavy dev shop (user 2026-10-21 18:40–18:45Z, 4.4.0): a large mixed-model
-template with medium Liaison/coordinator, coordinator user audience, eleven developers, Sol rig,
+template with medium Liaison/coordinator, coordinator user audience, eleven developers (twelve since
+2026-11-13: a Fable developer, user m99b4b994b8f0), Sol rig,
 curator and three-slot project. Template project containers remain free and
 transparent to model funding. Optional shared/team/personal AGENTS.md copies
 are bounded and opt-in on save, seeded without overwrite on new-org creation.
@@ -791,7 +792,7 @@ See [`helper-transcripts.md`](helper-transcripts.md).
 | I4 | Runtime: "keep agents warm" | "Keep agent processes warm" works as in 3.x (B4, decision 42); off = close each CLI after its turn. Changed (user 2026-10-14, decision 77): with warming off (or switched off), a Claude Code process or Muse host running background work stays open until that work is over and its result has reached the agent, then closes; 3.x kept such a Claude turn open until the CLI exited instead. See `background-work.md` |
 | I5 | Runtime: wait for MCP tools | Kept (see B3) |
 | I5b | Runtime: git periodic fetch, working checkups, idle docket reminders, blocked docket reminders, include account selection when requesting staffing | Inert |
-| I6 | Charters (presets, user folder, external template folders), org.md, hire defaults, app defaults | Kept |
+| I6 | Charters (presets, user folder, external template folders), org.md, hire defaults, app defaults | Kept, with one change (4.5.13, user 2026-11-11): a hire created with a folder its superior does not hold, or holds read-only, is no longer refused (3.x №30); the superior chain is raised to it at creation, as when the folder is granted after the hire. An agent still grants only inside its own folders |
 | I7 | Enter sends in message composers | App settings › Display › Typing › Enter key: Send message (default; Shift+Enter for a new line) or Insert new line (Ctrl+Enter sends). Shared across desks, inboxes, docket replies and multiline question answers; single-line inputs unchanged (decision 48) |
 
 ### J. Mail hub, notifications, updates

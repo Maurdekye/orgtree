@@ -128,7 +128,7 @@ A watchdog is a persistent monitor, not an agent seat. Ask an authorized agent f
 | Process | An observed process/port transition from up to down, with unknown probes kept distinct from death. |
 | Stream | A long-lived command's new output. Resume after exit starts it again; missed offline output is not reconstructed. |
 | Activity / engine event | Permitted turn/tool or structured engine transitions, including count thresholds. |
-| Usage | Cached allowance edges/reset/freshness, without a new provider request for each watch. Unknown is never zero. |
+| Usage | Cached allowance edges/reset/freshness, without a new provider request for each watch. Unknown is never zero. A Claude usage watch can instead follow the Fable pip (`fable_pip_offset`): it fires when weekly usage reaches the pip plus its offset, and optionally when that stops. |
 | Project queue / slot / event / listener watch | The shared primitives above. |
 | MQTT / WebSocket | Network messages on a maintained connection, with optional filters, authentication and heartbeat/hello settings where supported. |
 | App event | A declared event fired by an app's saved panel: one panel, or every panel of the app. |

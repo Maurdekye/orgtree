@@ -11,6 +11,7 @@ The root guide contains only before-work constraints. These topic references ret
 | [Engine and storage](engine-and-storage.md) | Actors, bounded reads, transactions, migrations, logging and data contracts. |
 | [Agent runtime](agent-runtime.md) | Turns, context, compaction, warm processes, sessions, interrupts and transcript recovery. |
 | [Providers and accounts](providers-and-accounts.md) | Harnesses, model/effort offers, account binding, credentials, usage and inference routes. |
+| [Fable costs 8 credits](providers-and-accounts.md#fable-costs-8-credits-2026-11-13-4513) | Current Fable seat price, existing-seat retention and template totals (2026-11-13, 4.5.13). |
 | [Instructions and skills](instructions-and-skills.md) | Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery. |
 | [Organization tree and tools](org-tree-and-tools.md) | Scope, authority, topology, credits, hiring, lifecycle and typed tool contracts. |
 | [Projects and concurrency](projects-and-concurrency.md) | Project folders, policy, slots, listeners, watchdogs, queues and coordination. |

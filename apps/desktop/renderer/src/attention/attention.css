@@ -145,6 +145,79 @@
   height: 78px;
 }
 .attn-divider:focus-visible { outline: 1px solid var(--accent, var(--line-hover)); outline-offset: -2px; }
+
+/* A PANEL HIDDEN AT THE EDGE (user 2026-11-13 m525fd3e66e99). Its slot leaves
+ * the row, so the divider stands at that edge and the other panel takes the
+ * stage, but it is NOT `display: none`: it stays laid out over the stage at
+ * full size, so the panel inside keeps a real width, its scroll position and
+ * everything it measured, and comes back without a reflow from nothing.
+ * `opacity: 0` rather than `visibility: hidden`, because a descendant can turn
+ * visibility back on (the agents drawer does) and nothing can turn opacity
+ * back. The view sets `inert` with this class, which is what takes the panel
+ * out of hit-testing, the tab order and the reading order, whatever
+ * `pointer-events` its descendants ask for. */
+.attn-slot.attn-slot-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------- the Swap panels button
+ * A zero-width item right after the divider in the row; the button is centred
+ * back over the divider's 6px. With a side hidden the divider is at the
+ * stage's edge, and the button stays whole inside the stage. */
+.attn-swap-anchor {
+  flex: 0 0 0;
+  align-self: center;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+.attn-swap {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  /* ONE hover target with the divider (USER 2026-11-13 me8b3377fe2b4): the
+   * button has a single look, shown or not, and fades with the divider's own
+   * grip transition. It stays in the DOM, focusable and clickable. */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.attn-divider:hover + .attn-swap-anchor .attn-swap,
+.attn-divider:focus-visible + .attn-swap-anchor .attn-swap,
+.attn-swap-anchor:hover .attn-swap,
+.attn-swap:focus-visible,
+.attn-dragging .attn-swap { opacity: 1; }
+@media (hover: none) { .attn-swap { opacity: 1; } }
+/* ONE look, hovered or not: the app-wide `button:hover` (background, accent
+ * border) must not give the button its own hover. The id-in-:not() only wins
+ * the specificity contest against that rule's long :not() chain. */
+button.attn-swap:not(#attn-swap-one-look):hover {
+  background: var(--panel); border-color: var(--line); color: var(--dim);
+}
+.attn-divider:has(+ .attn-swap-anchor:hover) .attn-divider-grip {
+  background: var(--accent, var(--line-hover));
+  height: 78px;
+}
+.attn-swap:focus-visible { outline: 1px solid var(--accent, var(--line-hover)); outline-offset: 1px; }
+.attn-swap-at-left .attn-swap { left: -6px; transform: translate(0, -50%); }
+.attn-swap-at-right .attn-swap { left: 0; transform: translate(-100%, -50%); }
 /* a drag must not select the prose either side of it */
 .attn-dragging { user-select: none; }
 
@@ -270,7 +343,7 @@
 @media (prefers-reduced-motion: reduce) {
   .attn-agents, .attn-agents-wrap.list-open .attn-agents,
   .attn-agents-scrim { transition: none; }
-  .attn-divider-grip { transition: none; }
+  .attn-divider-grip, .attn-swap { transition: none; }
 }
 
 .attn-desk {

@@ -61,7 +61,8 @@ export const TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
-  flash: 'F', pro: 'P', argon: 'A', barium: 'B', carbon: 'C',
+  // hydrogen shares H with haiku, the same accepted collision
+  flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', carbon: 'C',
   'agy-sonnet': 'S', 'agy-opus': 'O',
   wonder: 'W', 'wonder-full': 'F', spark: 'S',
   // a project node's sentinel tier (docs/rust-engine/PROJECT-NODES.md): not a
@@ -70,9 +71,9 @@ export const TIER_LETTER: Record<string, string> = {
 }
 export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
- *  frontend had four copies of this before. */
+ *  frontend had four copies of this before. Fable costs 8 (user 2026-11-13 md539ddd936f9). */
 export const TIER_SEAT: Record<string, number> =
-  { haiku: 0.5, sonnet: 2, opus: 4, fable: 10 }
+  { haiku: 0.5, sonnet: 2, opus: 4, fable: 8 }
 /** Model VERSIONS inside a tier — mirrors ledger.MODEL_VERSIONS. A version is
  *  a subcategory of the tier (user ruling 2026-08-04): it never changes the
  *  seat cost and never appears as a chip, only in the gear. A tier absent
@@ -117,7 +118,9 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
  *  gemini pro", then: same "show legacy models" checkbox as Terra). Terra left
  *  on 2026-10-26: GPT-6.1 Terra made it a current tier again (user: "make
  *  sure to take terra out of the legacy models checkbox"). */
-export const OPT_IN_LEGACY_TIERS = ['pro']
+/** Gemini 3.8 Flash joined on 2026-11-13 (user md16909f83245 "Now"): Gemini 4 Hydrogen takes its place among
+ *  the current tiers, and Flash is offered only with "show legacy models" on. */
+export const OPT_IN_LEGACY_TIERS = ['pro', 'flash']
 /** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
  *  the always-offered hireable family. A future rollout tier would be listed
  *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
@@ -133,24 +136,29 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
  *  codex family. Seats by the standing rule: flash $1.50 standing → 1 (the
  *  $0.75 launch price is a promo), pro $2 → 2 (the >200K long-context
  *  surcharge never sets a seat). */
-export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus']
+/** Hydrogen (`gemini-4-hydrogen`, user 2026-11-12) stands right after Flash, so it takes Flash's place in the
+ *  default order while Flash is hidden as legacy. It is ALWAYS offered, unlike the conditional Gemini 4 tiers
+ *  (user 2026-11-13 "make hydrogen always available unconditionally regardless of the check"). Seat 1 by the
+ *  input-price rule ($1.5 per million), a placeholder like its letter until a real turn. */
+export const ANTIGRAVITY_TIERS = ['flash', 'hydrogen', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus']
 export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
-  { flash: 'F', pro: 'P', argon: 'A', barium: 'B', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
-/** Argon, Barium and Carbon seats are PLACEHOLDERS copied from pro (coordinator
- *  ruling 2026-10-01; Barium mirrors Argon, user 2026-10-05; Carbon mirrors
- *  Barium, user 2026-10-10). Mirrors catalog.rs. */
+  { flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
+/** Argon and Krypton seats are PLACEHOLDERS copied from pro (coordinator ruling
+ *  2026-10-01; Krypton took Barium's row, user 2026-11-11). Carbon costs 4 by the
+ *  user's ruling (2026-11-12 "change carbon's credit cost to 4"); it was the same
+ *  placeholder 2 before. Mirrors catalog.rs. */
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
-  { flash: 1, pro: 2, argon: 2, barium: 2, carbon: 2, 'agy-sonnet': 2, 'agy-opus': 4 }
+  { flash: 1, hydrogen: 1, pro: 2, argon: 2, krypton: 2, carbon: 4, 'agy-sonnet': 2, 'agy-opus': 4 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
- *  2026-10-01), Barium (`gemini-4-barium`, user 2026-10-05) and the
- *  speculative Carbon (`gemini-4-carbon`, user 2026-10-10). Known to the
+ *  2026-10-01), Krypton (`gemini-4-krypton`, user 2026-11-11, in Barium's place) and
+ *  Carbon (`gemini-4-carbon`, user 2026-10-10, confirmed 2026-11-11). Known to the
  *  axis (a node wearing one keeps its letter,
  *  colour and seat) but offered by NO chooser until the backend's providers
  *  payload lists it among the Antigravity tier rows, which it does only while
  *  the account's live `agy models` list contains that id. Mirrors
  *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
 // The Claude tiers depend on the Runtime opt-in. They have no version picker.
-export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus']
+export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus']
 /** The Muse Code family (2026-10-12) — Muse Wonder, Muse Wonder Full and
  *  Muse Spark (1.3, with 1.2 in the version menu). EVERY ONE IS CONDITIONAL:
  *  offered only while the providers payload's Muse tier rows list it, which
@@ -786,7 +794,7 @@ export const codexTierOffer = (
 }
 
 /** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
- *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon and Barium)
+ *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon and Krypton)
  *  hides until the payload's tier rows include it — no evidence, no offer.
  *  Everything else follows the family verdict. */
 export const antigravityTierOffer = (
@@ -840,7 +848,7 @@ export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 
   reason: hire?.reason ?? 'hiring is not enabled yet',
 }))).filter(choice => choice.offer !== 'hide')
 
-/* ---------------- conditional tiers the payload currently offers (Argon and Barium)
+/* ---------------- conditional tiers the payload currently offers (Argon and Krypton)
    For surfaces that have no HireState of their own (the bearer rehire list).
    OrgCanvas feeds it from the same providers poll the hire strips read, so
    both answer from one payload. Subscribable, so a list re-renders the

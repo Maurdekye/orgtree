@@ -262,7 +262,7 @@ mod tests {
         assert!(files.len() > 100, "the audit read the whole crate");
     }
 
-    /// Decision 101: the row says who saved the text from the editor, and
+    /// Decision 103: the row says who saved the text from the editor, and
     /// names them only while the block is still the text they saved.
     #[test]
     fn the_row_says_who_saved_the_text_only_while_it_is_that_text() {

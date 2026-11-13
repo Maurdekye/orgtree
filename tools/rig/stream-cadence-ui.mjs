@@ -5,11 +5,11 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 const repo = process.env.ORGTREE_STREAM_SOURCE || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const deps = process.env.ORGTREE_TEST_DEPS || 'E:/Libraries/Desktop/orgtree/node_modules'
+const deps = process.env.ORGTREE_TEST_DEPS || 'S:/orgtree/orgtree/node_modules'
 const require = createRequire(path.join(deps, '_resolve.cjs'))
 const esbuild = require('esbuild')
 const out = process.argv[2]
-if (!out || !/^C:\/orgtree-build\/uninit-model-sol\//i.test(out.replaceAll('\\', '/'))) throw Error('own C output required')
+if (!out || !/^S:\/orgtree\/build\/uninit-model-sol\//i.test(out.replaceAll('\\', '/'))) throw Error('own C output required')
 fs.mkdirSync(out, { recursive: true })
 const observe = `
 globalThis.__streamProbe = null;

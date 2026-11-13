@@ -13,7 +13,7 @@
 // 1 MiB of poll frame between them (project-mail-boundaries and
 // project-multi-slots runs); their arms are now built through util::boxed.
 // Run with RUST_MIN_STACK unset, against a debug engine:
-//   ORGTREE_RIG_HOME=C:/orgtree-build/<you>/rig ORGTREE_RIG_ENGINE=<debug orgtree-engine.exe>
+//   ORGTREE_RIG_HOME=S:/orgtree/build/<you>/rig ORGTREE_RIG_ENGINE=<debug orgtree-engine.exe>
 //   node tools/rig/rig.mjs run tools/rig/proofs/debug-stack-first-turn.mjs
 
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'

@@ -1,6 +1,6 @@
 const {app,BrowserWindow,nativeTheme}=require('electron'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const out=process.env.ORGTREE_TRAY_CAPTURE_ROOT
-assert.match(out||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
+assert.match(out||'',/^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i)
 const {trayListHtml,popupBounds}=require(path.join(out,'traylist.cjs'))
 for(const key of ['userData','sessionData','logs','crashDumps']){const dir=path.join(out,key);fs.mkdirSync(dir,{recursive:true});app.setPath(key,dir)}
 app.disableHardwareAcceleration();app.on('window-all-closed',()=>{})

@@ -5,7 +5,7 @@
 // input: Session 0 only, muted, offscreen; clipboard permissions denied and
 // every clipboard path stubbed; input is CDP to this window alone.
 //   electron symmetry.capture.cjs <out>
-// <out> is below C:\orgtree-build\<ORGTREE_AGENT>\ and holds base\ and tip\,
+// <out> is below S:\orgtree\build\<ORGTREE_AGENT>\ and holds base\ and tip\,
 // each with probe.js and probe.css from the visual bundle. A fixture that never
 // starts leaves capture-error.json with the page's own errors (uncaught errors,
 // failed loads, console errors and warnings) and each bundle's source.json
@@ -17,7 +17,7 @@ const {execFileSync}=require('node:child_process')
 const out=path.resolve(process.argv[2]||'')
 const owner=process.env.ORGTREE_AGENT||''
 if(!/^[A-Za-z0-9_-]{1,64}$/.test(owner))throw Error('ORGTREE_AGENT required')
-if(!out.toLowerCase().startsWith(('c:\\orgtree-build\\'+owner+'\\').toLowerCase()))throw Error('Output outside the owner\'s build scope')
+if(!out.toLowerCase().startsWith(('s:\\orgtree\\build\\'+owner+'\\').toLowerCase()))throw Error('Output outside the owner\'s build scope')
 const sessionId=Number(execFileSync('powershell.exe',['-NoProfile','-Command',`(Get-Process -Id ${process.pid}).SessionId`],{encoding:'utf8',windowsHide:true}).trim())
 assert.equal(sessionId,0,'Session 0 required before any window')
 app.setPath('userData',path.join(out,'profile-'+process.pid));app.setPath('sessionData',path.join(out,'session-'+process.pid))

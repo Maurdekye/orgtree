@@ -2,10 +2,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const root = process.env.MONITOR_WATCHDOG_LINK_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]agent-tooltip-luna[\\/]monitor-watchdog-link$/i.test(root || '')) {
+if (!/^S:[\\/]orgtree[\\/]build[\\/]agent-tooltip-luna[\\/]monitor-watchdog-link$/i.test(root || '')) {
   throw new Error('Expected assigned monitor watchdog capture output directory')
 }
-const sharedModules = 'E:/Libraries/Desktop/orgtree/node_modules'
+const sharedModules = 'S:/orgtree/orgtree/node_modules'
 const { buildSync } = require(path.join(sharedModules, 'esbuild'))
 const repo = process.cwd()
 buildSync({

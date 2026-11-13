@@ -174,7 +174,7 @@ test('§1 saving an agent with a long charter pops nothing, and the charter goes
     assert.ok(box, 'no charter textarea in the agent settings')
     assert.equal(box!.value, LONG_CHARTER, 'the panel must open on the stored charter')
 
-    // The instructions ride only when they were edited (decision 101: a field a save does not send
+    // The instructions ride only when they were edited (decision 103: a field a save does not send
     // is a field it cannot replace under someone else's newer change). So this save edits them: one
     // more character at the end of the long text.
     const edited = LONG_CHARTER + '.'

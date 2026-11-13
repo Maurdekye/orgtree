@@ -3,8 +3,9 @@
 //   the superior's folders, at the top level the organization's; its CLI
 //   is started with them.
 //   A folder the superior does not hold, or holds read-only when read/write
-//   is asked, is refused at hire (3.x №30), instead of being stored where
-//   it can never take effect.
+//   is asked, is taken, and the superior is raised to it at creation, as a
+//   folder granted after the hire is (user 2026-11-11; 3.x №30 refused it).
+//   An agent still cannot name a folder outside its own.
 //   An agent's hire has no defaults: it states folders, every tool and the
 //   visibility, and cannot pass on a tool it does not hold.
 //   A user's hire asking for a tool or more visibility than the superior
@@ -45,10 +46,15 @@ export default async function (rig) {
   p.check('user hire at the top level without folders: tod gets the organization\'s folders', top.ok && dirs('tod') === 'rig-org-folders:rw',
     { hire: top.ok || top.detail, dirs: dirs('tod') })
   const notHeld = await tryOp({ op: 'hire', name: 'ben', parent: 'boss', tier: 'haiku', title: 'Asks for gamma', add_dirs: [{ path: c, mode: 'rw' }] })
-  p.check('user hire under boss with a folder boss does not hold is refused, and no agent is made', !notHeld.ok && /does not hold/.test(notHeld.detail ?? '')
-    && !scopeOf('ben'), notHeld)
+  p.check('user hire under boss with a folder boss does not hold is made with it, and boss is raised to it', notHeld.ok && dirs('ben') === 'gamma:rw'
+    && dirs('boss') === 'alpha:rw,beta:ro,gamma:rw', { hire: notHeld.ok || notHeld.detail, ben: dirs('ben'), boss: dirs('boss') })
+  p.check('…and the hire says who was raised', (notHeld.r?.raised ?? []).some(x => x.node === 'boss') && (notHeld.r?.warnings ?? []).some(w => /cascaded permission increase to agents boss/.test(w)), notHeld.r)
   const rwOnRo = await tryOp({ op: 'hire', name: 'cyd', parent: 'boss', tier: 'haiku', title: 'Asks beta rw', add_dirs: [{ path: b, mode: 'rw' }] })
-  p.check('user hire asking read/write on a folder boss holds read-only is refused', !rwOnRo.ok && /read-only/.test(rwOnRo.detail ?? '') && !scopeOf('cyd'), rwOnRo)
+  p.check('user hire asking read/write on a folder boss holds read-only is made with it, and boss holds it read/write', rwOnRo.ok && dirs('cyd') === 'beta:rw'
+    && dirs('boss') === 'alpha:rw,beta:rw,gamma:rw', { hire: rwOnRo.ok || rwOnRo.detail, cyd: dirs('cyd'), boss: dirs('boss') })
+  // back to the scope the rest of this proof assumes (alpha read/write, beta read-only, no web)
+  await rig.api('POST', `/api/orgs/${rig.org}/nodes/boss/scope`, { add_dirs: [{ path: a, mode: 'rw' }, { path: b, mode: 'ro' }], tools: { web: false } })
+  p.check('control: boss is back on alpha read/write and beta read-only', dirs('boss') === 'alpha:rw,beta:ro', dirs('boss'))
   const inner = path.join(a, 'sub')
   fs.mkdirSync(inner, { recursive: true })
   const within = await tryOp({ op: 'hire', name: 'dee', parent: 'boss', tier: 'haiku', title: 'Asks a folder inside alpha', add_dirs: [{ path: inner, mode: 'ro' }] })
@@ -62,6 +68,10 @@ export default async function (rig) {
   const web = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'fay', tier: 'haiku', grant: 0, charter: 'You help boss.',
     add_dirs: [], tools: { ...tools, web: true }, org_visibility: 'team' })
   p.check('boss cannot pass on the web tool he does not hold', !web.ok && /web/.test(web.text ?? '') && !scopeOf('fay'), web.text?.slice(0, 200))
+  const outside = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'hob', tier: 'haiku', grant: 0, charter: 'You help boss.',
+    add_dirs: [{ path: c, mode: 'rw' }], tools: { ...tools, web: false }, org_visibility: 'team' })
+  p.check('boss cannot hire with a folder outside his own: refused as a later grant would be, nobody raised', !outside.ok
+    && /exceeds your own capability/.test(outside.text ?? '') && !scopeOf('hob') && dirs('boss') === 'alpha:rw,beta:ro', { text: outside.text?.slice(0, 200), boss: dirs('boss') })
   const ok = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'gus', tier: 'haiku', grant: 0, charter: 'You help boss.',
     add_dirs: [{ path: a, mode: 'ro' }], tools: { ...tools, web: false }, org_visibility: 'team' })
   p.check('boss hiring with everything stated and within his own scope works', ok.ok && dirs('gus') === 'alpha:ro', { text: ok.text?.slice(0, 200), dirs: dirs('gus') })

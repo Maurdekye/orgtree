@@ -31,8 +31,8 @@ worktree, run in PowerShell (replace the two executable paths as needed):
 ```powershell
 & tools/p03-run.ps1 -Agent upgrade-sol -Wait -Purpose 'Regenerate upgrade fixtures' -Run @(
   'python', '-I', 'tools/run-upgrade-path-checks.py', '--generate-only',
-  '--custodian', 'E:\Libraries\Desktop\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe',
-  '--pg-bin', 'E:\Libraries\Desktop\orgtree\artifacts\p03-postgresql\18.6-4\bin')
+  '--custodian', 'S:\orgtree\orgtree\artifacts\p03-tools\pg-custodian-e4f3c8f.exe',
+  '--pg-bin', 'S:\orgtree\orgtree\artifacts\p03-postgresql\18.6-4\bin')
 python -I tools/capture-published-migrations.py
 ```
 

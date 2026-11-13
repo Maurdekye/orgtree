@@ -7,12 +7,12 @@ import { spawnSync } from 'node:child_process'
 import { withBuildLock } from './rig/lib.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const req = createRequire('E:/Libraries/Desktop/orgtree/package.json')
+const req = createRequire('S:/orgtree/orgtree/package.json')
 const esbuild = req('esbuild'), electron = req('electron')
 const output = process.env.USAGE_EXPORT_BUILD, state = process.env.USAGE_EXPORT_STATE
-if (!output?.startsWith('C:\\orgtree-build\\hubchat-dm-sol\\') || !state?.startsWith('D:\\orgtree-work\\rig\\hubchat-dm-sol\\')) throw Error('Invalid owned scope')
+if (!output?.startsWith('S:\\orgtree\\build\\hubchat-dm-sol\\') || !state?.startsWith('S:\\orgtree\\work\\rig\\hubchat-dm-sol\\')) throw Error('Invalid owned scope')
 fs.mkdirSync(output, { recursive: true }); fs.mkdirSync(state, { recursive: true })
-const dependencies = 'E:/Libraries/Desktop/orgtree/node_modules'
+const dependencies = 'S:/orgtree/orgtree/node_modules'
 const common = { bundle: true, nodePaths: [dependencies], logLevel: 'warning' }
 
 if (process.argv.includes('--bundle')) {

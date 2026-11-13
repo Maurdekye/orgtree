@@ -11,6 +11,7 @@ use arc_swap::ArcSwap;
 use serde_json::{json, Map, Value};
 
 pub const KEY: &str = "app_settings";
+pub const DEFAULT_TURN_IDLE_S: u64 = 1800;
 
 #[nolog]
 pub fn matches_expected(doc: &Value, expected: &[(String, Value)]) -> bool {
@@ -144,9 +145,10 @@ impl AppSettings {
     pub fn turn_timeout_s(&self) -> u64 {
         self.runtime().get("turn_timeout_s").and_then(Value::as_u64).unwrap_or(86_400)
     }
+    /// Thirty minutes without activity unless a value is stored; 0 disables the limit.
     #[nolog]
     pub fn turn_idle_s(&self) -> u64 {
-        self.runtime().get("turn_idle_s").and_then(Value::as_u64).unwrap_or(600)
+        self.runtime().get("turn_idle_s").and_then(Value::as_u64).unwrap_or(DEFAULT_TURN_IDLE_S)
     }
     #[nolog]
     pub fn keep_warm(&self) -> bool {
@@ -300,6 +302,25 @@ pub fn deep_merge(target: &mut Value, patch: &Value) {
             }
         }
         (t, p) => *t = p.clone(),
+    }
+}
+
+#[cfg(test)]
+mod turn_limit_default_tests {
+    use super::*;
+
+    #[test]
+    fn turn_limit_silence_defaults_to_thirty_minutes() {
+        assert_eq!(AppSettings::new(json!({})).turn_idle_s(), 1800);
+        assert_eq!(AppSettings::new(json!({"runtime": {}})).turn_idle_s(), 1800);
+    }
+
+    #[test]
+    fn turn_limit_silence_preserves_stored_values_and_off() {
+        for seconds in [300, 600, 0] {
+            let app = AppSettings::new(json!({"runtime": {"turn_idle_s": seconds}}));
+            assert_eq!(app.turn_idle_s(), seconds);
+        }
     }
 }
 

@@ -14,7 +14,7 @@ if (![32, 128, 512, 2048].includes(depth)) throw Error('Explicit approved depth 
 if (process.argv.includes('--capture')) {
   const at = process.argv.indexOf('--capture'), rigDir = process.argv[at + 1], output = process.argv[at + 2]
   if (!rigDir?.replaceAll('\\', '/').includes('/rig/epic-combo-sol-deep-nesting/')
-    || !output?.replaceAll('\\', '/').startsWith('C:/orgtree-build/epic-combo-sol/')) throw Error('Owned synthetic capture paths required')
+    || !output?.replaceAll('\\', '/').startsWith('S:/orgtree/build/epic-combo-sol/')) throw Error('Owned synthetic capture paths required')
   if (os.freemem() < 3e9) throw Error('Renderer RAM floor')
   const result = await runDesktop(Rig.attach(rigDir), path.join(import.meta.dirname, '../desktop/deep-project-nesting.cjs'),
     { out: path.join(output, 'desktop'), profile: path.join(output, 'profile'), preset: 'wide', timeout: 45000,

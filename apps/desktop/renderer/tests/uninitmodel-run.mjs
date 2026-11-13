@@ -6,11 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../../../..')
-const deps = process.env.ORGTREE_TEST_DEPS || 'E:/Libraries/Desktop/orgtree/node_modules'
+const deps = process.env.ORGTREE_TEST_DEPS || 'S:/orgtree/orgtree/node_modules'
 const require = createRequire(path.join(deps, '_resolve.cjs'))
 const esbuild = require('esbuild')
 const out = process.argv[2]
-if (!out || !/^C:\/orgtree-build\/uninit-model-sol\//i.test(out.replaceAll('\\', '/'))) throw Error('own C build output required')
+if (!out || !/^S:\/orgtree\/build\/uninit-model-sol\//i.test(out.replaceAll('\\', '/'))) throw Error('own C build output required')
 fs.mkdirSync(out, { recursive: true })
 const entries = process.argv.slice(3)
 await esbuild.build({ entryPoints: entries.length ? entries.map(e => path.join(here, e)) : [path.join(here, 'uninitmodel.test.tsx')],

@@ -1,6 +1,6 @@
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
-const out=process.env.PROJECT_DRAFT_OUT,deps='E:/Libraries/Desktop/orgtree/node_modules'
-assert(/^C:[\\/]orgtree-build[\\/]epic-combo-sol[\\/]project-draft-[a-z0-9-]+[\\/]capture$/i.test(out||''),'own output required')
+const out=process.env.PROJECT_DRAFT_OUT,deps='S:/orgtree/orgtree/node_modules'
+assert(/^S:[\\/]orgtree[\\/]build[\\/]epic-combo-sol[\\/]project-draft-[a-z0-9-]+[\\/]capture$/i.test(out||''),'own output required')
 fs.mkdirSync(out,{recursive:true})
 try {
 const esbuild=require(path.join(deps,'esbuild'))

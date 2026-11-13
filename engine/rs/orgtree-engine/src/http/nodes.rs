@@ -717,10 +717,18 @@ pub async fn unstick(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Stri
         released.push("limit_locked");
     }
     let thawed = freeze::thaw(&e, org.id, a.id, false).await?;
+    if thawed {
+        if let Err(error) = runtime::recovery::forget_hard_fail(&e, a.id).await {
+            tracing::warn!(agent=a.id, error=%format!("{error:#}"), "manual thaw could not reset stalled report");
+        }
+    }
     if !thawed && r.get::<_, bool>(1) {
         let client = e.db.get().await?;
         client.execute("UPDATE ot.agents SET limit_locked = false, row_version = row_version + 1 WHERE id = $1", &[&a.id]).await?;
         changes::notify(&e, &org, vec![Change::Agent(a.id)]);
+        if let Err(error) = runtime::recovery::forget_hard_fail(&e, a.id).await {
+            tracing::warn!(agent=a.id, error=%format!("{error:#}"), "manual unstick wake could not reset stalled report");
+        }
         runtime::wake(&e, org.id, a.id);
     }
     Ok(Json(json!({ "released": released, "status": if released.is_empty() { "nothing to release" } else { "released" } })))

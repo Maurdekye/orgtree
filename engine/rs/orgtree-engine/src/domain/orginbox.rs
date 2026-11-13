@@ -757,6 +757,10 @@ pub(crate) async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id:
               &crate::util::pg_json(attachments).as_ref(),
               &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind,&json!(replies)],
         ).await?;
+        if state == "live" && !halted {
+            // Keep the transactional outside-mail reset identical to recovery::forget_hard_fail.
+            tx.execute("UPDATE ot.agents SET extra = extra - 'hard_fail_run' WHERE id = $1 AND extra ? 'hard_fail_run'", &[&target_id]).await?;
+        }
         delivered.push((target_id,h.clone(),mail_uid,state == "live" && !halted));
     }
     Ok(delivered)

@@ -1,6 +1,6 @@
 # Remote organizations
 
-[Rust engine notes](DECISIONS.md) · decision 100
+[Rust engine notes](DECISIONS.md) · decision 102
 
 An organization that runs on a standalone (headless) engine elsewhere can be opened in the desktop app
 like a local one. The user adds a *remote engine* (an address and a token) once; every organization on
@@ -241,7 +241,7 @@ exist" would tell the remote engine about this computer.
 ## Several people on one organization
 
 Decided: USER 2026-11-11 11:49:08Z me1216df27194 (asked for), 18:56:17Z meba39d75fade ("Accept all 9":
-the nine recommendations of the amendment). Decision 101. It lands in parts; this section says only
+the nine recommendations of the amendment). Decision 103. It lands in parts; this section says only
 what has landed.
 
 Every connected desktop is the user and has the user's authority. The engine that runs an
@@ -268,7 +268,7 @@ means unknown.
 
 ### What is recorded
 
-Migration `0086_user_origin`: one nullable `via jsonb` beside each record of a user action. It holds the
+Migration `0088_user_origin`: one nullable `via jsonb` beside each record of a user action. It holds the
 origin of the request that made the record, with the label as it was then, so history stays readable
 after a rename or a revocation. Nothing is backfilled, and nothing is decided from these columns.
 
@@ -484,7 +484,7 @@ Both routes are this computer's (`Local`) and are refused to viewer tokens.
 
 ## A desktop as host
 
-A desktop can let other computers open some of its organizations (phase F, decision 101). It is off
+A desktop can let other computers open some of its organizations (phase F, decision 103). It is off
 by default and switched on per organization. The other computer uses the same "Add a remote engine"
 dialog, list and windows as for a standalone engine; what differs is on the hosting side, and all of
 it is in `remote_access/`. The security notes an independent reader needs are in
@@ -638,7 +638,7 @@ about remote access is in this one file and none of it is in a database:
 - `open` is the switch: the organizations other computers may open. `port` is the door's (7431
   unless the owner chose another, never below 1024); `lan` says whether the door also listens on this
   private network (Tailscale always).
-- Why a file and not the organization's settings in its database (decision 101 says "a per-org
+- Why a file and not the organization's settings in its database (decision 103 says "a per-org
   setting", and to the owner it is one): the door must know what is shared before any database is
   read, and an organization that is restored from a backup, copied, or made from a template must
   never come up shared. A deleted organization's switch goes off (`remote_access::org_deleted`).

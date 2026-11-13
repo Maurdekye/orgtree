@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.HELPER_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw new Error('Expected assigned build scope')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw new Error('Expected assigned build scope')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

@@ -593,7 +593,7 @@ pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(mut b): Json<Map<S
         }
     }
     top.insert("defaults".into(), Value::Object(defaults));
-    // Who set each default and when (decision 101), beside the values and never among them: the next save
+    // Who set each default and when (decision 103), beside the values and never among them: the next save
     // that would replace one is told. A stamp is the pair [via, at]: a list, which the merge below replaces
     // whole (it merges objects member by member, so members of an older stamp would stay).
     let stamp = json!([crate::caller::via(), crate::util::now_iso()]);
@@ -681,7 +681,7 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
         };
         let stored_rev = crate::phone::orgmd_rev(now.as_bytes());
         if stored_rev != base {
-            // Beside the sentence (decision 101): the text that is there now, and who saved it when a window
+            // Beside the sentence (decision 103): the text that is there now, and who saved it when a window
             // did. Connect your phone changes org.md with no such record, and the sentence is then the one this
             // refusal always had.
             let by = {
@@ -699,7 +699,7 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
         }
     }
     let rev = crate::phone::orgmd_rev(b.content.as_bytes());
-    // Who saves it, recorded first: the next save that would replace this text is told (decision 101). An
+    // Who saves it, recorded first: the next save that would replace this text is told (decision 103). An
     // event whose text was then not written names a revision no stored text has, so it names nobody.
     {
         let client = e.db.get().await?;
@@ -735,7 +735,7 @@ pub async fn put_app_instructions(State(e): State<Arc<Engine>>, Json(b): Json<Or
     use crate::app_instructions::{check, rev, Doc, PROMPT_MAX};
     check(&b.content).map_err(ApiError::bad_request)?;
     let (content, base) = (b.content.clone(), b.base_rev.clone());
-    // who saves it and when (decision 101): the next save that would replace this text is told
+    // who saves it and when (decision 103): the next save that would replace this text is told
     let saved = json!({ "rev": rev(&b.content), "via": crate::caller::via(), "at": crate::util::now_iso() });
     let (text, changed) = e
         .app_instructions
@@ -1347,7 +1347,7 @@ mod expect_tests {
         v.as_object().unwrap().clone()
     }
 
-    /// Decision 101: what a save says it was based on is compared with the
+    /// Decision 103: what a save says it was based on is compared with the
     /// setting as the form is shown it.
     #[test]
     fn an_organization_setting_is_compared_as_the_window_is_shown_it() {

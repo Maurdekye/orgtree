@@ -124,3 +124,26 @@ test('import accepts declared sites, names them, and Any site needs its own row'
   assert.equal(siteCovers('*.example.org','news.example.org'),true);assert.equal(siteCovers('*.example.org','example.org'),false)
   assert.equal(siteCovers('api.example.com','api.example.com:8443'),false);assert.equal(siteCovers('*','anything.net:8443'),true)
 })
+
+// Spec 4.4: the engine's net.fetch result says whether a saved login was attached; the Response exposes it read-only.
+test('orgtree.net.fetch exposes a read-only login boolean on the Response (true with a saved login, false without)',async t=>{
+  const doc=panelDocument('<p>x</p>','net-channel'),sdk=doc.slice(doc.indexOf('<script>')+8,doc.indexOf('</script>'))
+  const posted:Record<string,unknown>[]=[],ports:MessagePort[]=[],win:Record<string,unknown>={}
+  const parent={postMessage:(message:Record<string,unknown>,_origin:string,transfer?:MessagePort[])=>{posted.push(message);if(transfer?.[0])ports.push(transfer[0])}}
+  const quiet=<T extends (...a:never[])=>unknown>(timer:T)=>((...a:Parameters<T>)=>{const handle=(timer as unknown as (...b:unknown[])=>{unref?:()=>void})(...a);handle?.unref?.();return handle}) as unknown as T
+  new Function('window','parent','setTimeout','setInterval',sdk)(win,parent,quiet(setTimeout),quiet(setInterval))
+  t.after(()=>{for(const port of ports)port.close()})
+  const port=ports[0]!;port.postMessage({protocol:PANEL_PROTOCOL,channel:'net-channel',kind:'ready'})
+  await new Promise(r=>setTimeout(r,20))
+  const orgtree=win.orgtree as {net:{fetch:(input:string)=>Promise<Response&{login?:boolean}>}}
+  for(const login of [true,false]){
+    const before=posted.filter(m=>m.method==='engine.call').length
+    const pending=orgtree.net.fetch('https://api.example.com/v1')
+    await new Promise(r=>setTimeout(r,20))
+    const sent=posted.filter(m=>m.method==='engine.call')[before]!
+    port.postMessage({protocol:PANEL_PROTOCOL,channel:'net-channel',id:sent.id,result:{status:200,headers:[],body:b64('ok'),url:'https://api.example.com/v1',redirected:false,login}})
+    const response=await pending
+    assert.equal(response.login,login,'login mirrors the engine result')
+    assert.equal(Object.getOwnPropertyDescriptor(response,'login')?.writable,false,'read-only')
+  }
+})

@@ -2,7 +2,7 @@ const { app, BrowserWindow, session } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.MATH_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('Expected own output')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('Expected own output')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {

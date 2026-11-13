@@ -10,6 +10,7 @@ import {AppPermissionPrompt,type PermissionPrompt} from './permissions'
 import {AppFileClient,type FileDecision,type FilePrompt} from './files'
 import type {PermissionChoice} from './actions'
 import {AppFilePermissionPrompt} from './files-ui'
+import {ChannelChips,foldChannel,type ChannelInfo} from './channels-ui'
 import type {AppState,CustomApp,CustomPanel,PanelEvents} from './types'
 
 /** USER 2026-10-26: a running panel keeps ONE browsing context while hidden,
@@ -24,6 +25,8 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
   const [definition,setDefinition]=useState<CustomApp|null>(null),[error,setError]=useState(''),[saved,setSaved]=useState(false)
   const [prompt,setPrompt]=useState<PermissionPrompt|null>(null),actions=useRef<AppActionClient|null>(null)
   const [filePrompt,setFilePrompt]=useState<FilePrompt|null>(null),files=useRef<AppFileClient|null>(null)
+  // The live channels this copy holds, for its status bar (spec section 6): learned from the engine's own answers.
+  const [channels,setChannels]=useState<ChannelInfo[]>([])
   const generation=panel.run_generation??0,running=isRunning(panel)
   const channel=useMemo(()=>crypto.randomUUID(),[slug,app.id,app.rev,panel.id,owner,generation])
   const current=useRef<CustomPanel|null>(null),eventSeq=useRef<number|null>(null),epoch=useRef(0),ready=useRef(false)
@@ -32,6 +35,17 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
   // new parent window; no HTML engine credential or caller identity travels.
   const post=(value:unknown)=>replyPort.current?.postMessage({protocol:PANEL_PROTOCOL,channel,...value as object})
   useEffect(()=>()=>{replyPort.current?.close();replyPort.current=null},[channel])
+  useEffect(()=>{setChannels([])},[channel])
+  const track=(args:unknown,result:unknown)=>{
+    const action=(args as {action?:unknown}|null)?.action,out=result as Record<string,unknown>|null
+    if(!out||typeof out!=='object')return
+    if(action==='net.connect'&&typeof out.channel==='string')setChannels(list=>[...list.filter(c=>c.channel!==out.channel),{channel:out.channel as string,site:String(out.site??''),state:'connecting',secure:out.secure===true,private:out.private===true,login:out.login===true,since:null,messages:0}])
+    else if(action==='net.recv'&&Array.isArray(out.events)){
+      const id=(args as {args?:{channel?:unknown}}).args?.channel
+      setChannels(list=>list.map(c=>c.channel===id?foldChannel(c,out.events as never[]):c))
+      if(out.closed===true)window.setTimeout(()=>setChannels(list=>list.filter(c=>c.channel!==id)),5000)
+    }else if(action==='net.close')setChannels(list=>list.filter(c=>c.channel!==(args as {args?:{channel?:unknown}}).args?.channel))
+  }
   const postRef=useRef(post);postRef.current=post
   // Orgtree's colors (USER 2026-10-27 m4e1fae02a0ca): the document starts with
   // them, each connection (host.ready) repeats them once, and a theme switch
@@ -96,7 +110,9 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
       if(++count>30){postRef.current({id:request.id,error:'Too many panel requests; slow down.'});return}
       if(request.method==='host.ready'){const port=event.ports?.[0];if(!port)return;replyPort.current?.close();replyPort.current=port;ready.current=true;postRef.current({kind:'ready'});postTheme();return}
       const at=epoch.current
-      chain=chain.then(async()=>{
+      // A channel's long poll must not hold up the panel's other requests (state, storage, files): it runs beside the chain.
+      const poll=request.method==='engine.call'&&(request.args as {action?:unknown}|null)?.action==='net.recv'
+      const run=async()=>{
         if(!active||at!==epoch.current)return
         try{
           let p=current.current
@@ -132,14 +148,15 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
             result=await changeApps(slug,{action:'event',panel:panel.id,name:args.name,payload:args.payload??null})
           }else if(request.method==='engine.call'){
             const client=actions.current;if(!client)throw Error('App host closed or hidden.')
-            result=await client.call(request.args)
+            result=await client.call(request.args);track(request.args,result)
           }else if(request.method==='files.call'){
             const client=files.current;if(!client)throw Error('App host closed or hidden.')
             result=await client.call(request.args)
           }else throw Error('Unknown panel API method.')
           if(active&&at===epoch.current){setError('');postRef.current({id:request.id,result})}
-        }catch(e){if(active&&at===epoch.current){setError(String(e));postRef.current({id:request.id,error:e instanceof Error?e.message:String(e)})}}
-      })
+        }catch(e){if(active&&at===epoch.current){if(!poll)setError(String(e));postRef.current({id:request.id,error:e instanceof Error?e.message:String(e)})}}
+      }
+      if(poll)void run();else chain=chain.then(run)
     }
     win.addEventListener('message',listener)
     return()=>{active=false;win.removeEventListener('message',listener)}
@@ -149,7 +166,7 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
     {error&&<div className="custom-app-error" role="alert">{error}</div>}
     {source?<iframe key={channel} ref={frame} title={`${app.name}: ${panel.label}`} srcDoc={source} sandbox="allow-scripts" referrerPolicy="no-referrer"
       data-orgtree-runtime={panel.id+':'+generation} onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">Loading app…</div>}
-    <div className="custom-app-status"><span>{saved?'Saved':'State saved by Orgtree'}</span></div>
+    <div className="custom-app-status"><ChannelChips channels={channels}/><span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
     {filePrompt&&visible&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner}/>}
   </div>

@@ -18,7 +18,7 @@ const TIERS = ['flash', 'pro', 'carbon', 'luna', 'astra']
 const ON: HireState = { enabled: true, installed: true, reason: null }
 const google: HireState = { ...ON, offeredTiers: ['flash', 'pro', 'carbon'] }
 const noop = () => {}
-const seats = { ...ALL_TIER_SEAT, carbon: 2 }
+const seats = { ...ALL_TIER_SEAT, carbon: 4 }
 
 const agent = (tier: string): CanvasNode => ({
   id: 'agent-' + tier, title: 'agent-' + tier, state: 'live', tier, model_id: tier,

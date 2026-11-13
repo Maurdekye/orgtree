@@ -2,7 +2,7 @@
 //
 //   node tests/canvasbg-build.mjs            (from apps/desktop/renderer)
 //
-// Output goes to C:/orgtree-build (CANVASBG_VISUAL_OUT overrides, default
+// Output goes to S:/orgtree/build (CANVASBG_VISUAL_OUT overrides, default
 // the author's scope). A checkout without node_modules can read the
 // dependencies in place via BATCH_NODE_MODULES=<abs node_modules dir> —
 // esbuild and React resolve from there, nothing is copied or junctioned.
@@ -12,10 +12,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const buildRoot = path.resolve('C:/orgtree-build')
-const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'C:/orgtree-build/backdrop-argon/canvasbg-visual')
+const buildRoot = path.resolve('S:/orgtree/build')
+const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'S:/orgtree/build/backdrop-argon/canvasbg-visual')
 if (!out.startsWith(buildRoot + path.sep)) {
-  throw new Error(`refusing to write outside C:/orgtree-build: ${out}`)
+  throw new Error(`refusing to write outside S:/orgtree/build: ${out}`)
 }
 const deps = process.env.BATCH_NODE_MODULES ? path.resolve(process.env.BATCH_NODE_MODULES) : null
 const esbuild = deps

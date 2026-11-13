@@ -1620,7 +1620,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     ...('vis' in edit ? { org_visibility: vis } : {}),
     ...('pm' in edit ? { permission_mode: pm } : {}),
     ...('sess' in edit ? { session: sess.includes(',') ? sess.split(',') : sess } : {}),
-    // the instructions, the effort and the cold-turn reset ride only when EDITED too (decision 101): a
+    // the instructions, the effort and the cold-turn reset ride only when EDITED too (decision 103): a
     // field this save does not send is a field it cannot replace under someone else's newer change
     ...('charter' in edit ? { charter } : {}),
     ...('teamCharter' in edit ? { team_charter: teamCharter } : {}),
@@ -1811,7 +1811,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     fam.filter((t) => tierShown(presence, t, node.tier)
       && !(CODEX_TIERS.includes(t) && codexTierOffer(codexHire, t) === 'hide'
         && t !== node.tier)
-      // Gemini Pro (legacy toggle) and Argon/Barium (only once agy lists it), same
+      // Gemini Pro (legacy toggle) and Argon/Krypton (only once agy lists it), same
       // keep rule: a node already on the tier still sees its own value
       && !(ANTIGRAVITY_TIERS.includes(t)
         && antigravityTierOffer(antigravityHire, t) === 'hide' && t !== node.tier)

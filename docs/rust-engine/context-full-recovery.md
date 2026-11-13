@@ -7,6 +7,16 @@ A second overflow is terminal. A successful ordinary turn clears the native
 retry counter. Language model server recovery retains its separate three-reset
 policy.
 
+**Antigravity (2026-11-13, 4.5.13).** AGY's own pre-invocation summary can stall at its hard 256k
+token clamp and fail with a five-minute stream-idle timeout. A GOOGLE-provider error naming
+`context summarization` together with `stream idle timeout` or `context deadline exceeded` now takes
+the same one-per-run fresh-session retry and carry-over note; a plain step timeout does not.
+All Antigravity tiers also reset at a measured 230k tokens between turns, or earlier if the org's
+size threshold is lower, through the existing admission/after-turn gate and its unchanged notices
+and stand-downs. Context windows and the cold-cache 25% policy stay on the real window; other
+providers are unchanged. [decided: user 2026-11-13 m6af74181ac75, m015e95fd031c; verified:
+`runtime/{actor,recovery,context_reset}.rs`, `providers/catalog.rs`]
+
 The retry transaction locks only the affected agent. It ends the failed turn
 and session, clears measured context and the cache receipt, returns unconsumed
 mail claims, increments the durable native counter, and inserts one recovery
@@ -51,3 +61,9 @@ after-turn and admission resets, duplicate-reset prevention, native-compaction
 and working-status gates, diagnostics, and restart preservation. Policy unit
 tests enumerate the stand-down reasons. These are synthetic checks; they do
 not establish live provider behavior or a clean full-workspace baseline.
+
+The AGY regression checks exercise the production actor error predicate and actual retry transaction
+in a guarded synthetic PostgreSQL fixture: session clearing, one recovery wake with recalled mail,
+same-turn idempotency, exhaustion on the next failed turn, and plain-timeout preservation. Pure
+threshold/size-gate tests cover the 230k boundary and stand-downs. They do not run the full actor
+`end_turn` loop, a native AGY CLI, or the database-backed `size_reset` path.

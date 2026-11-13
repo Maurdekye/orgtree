@@ -3,7 +3,7 @@ process.on('uncaughtException', error => { console.error(error); app.exit(1) })
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict')
 const { execFileSync } = require('node:child_process')
 const out = path.resolve(process.argv[2])
-assert(/^C:[\\/]orgtree-build[\\/]native-tools-sol[\\/]draft-settings-ui[\\/]capture-[a-z0-9-]+$/i.test(out), 'own capture output required')
+assert(/^S:[\\/]orgtree[\\/]build[\\/]native-tools-sol[\\/]draft-settings-ui[\\/]capture-[a-z0-9-]+$/i.test(out), 'own capture output required')
 const sessionId = pid => Number(execFileSync('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${pid}).SessionId`], { encoding: 'utf8', windowsHide: true }).trim())
 assert.equal(sessionId(process.pid), 0, 'Capture must run in Session 0')
 fs.mkdirSync(out, { recursive: true })
@@ -25,14 +25,14 @@ Menu.setApplicationMenu(null)
 app.disableHardwareAcceleration()
 const settle = 'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))))'
 app.whenReady().then(async () => {
-  const esbuild = require('E:/Libraries/Desktop/orgtree/node_modules/esbuild')
+  const esbuild = require('S:/orgtree/orgtree/node_modules/esbuild')
   try {
     esbuild.buildSync({ entryPoints: ['apps/desktop/renderer/tests/draftsettings.visual.tsx'], bundle: true,
       jsx: 'automatic', platform: 'browser', format: 'esm', outfile: path.join(out, 'fixture.js'),
-      nodePaths: ['E:/Libraries/Desktop/orgtree/node_modules'], define: { 'process.env.NODE_ENV': '"production"' } })
+      nodePaths: ['S:/orgtree/orgtree/node_modules'], define: { 'process.env.NODE_ENV': '"production"' } })
     esbuild.buildSync({ stdin: { contents: '@import "./styles.css"; @import "./shell.css";',
       resolveDir: path.resolve('apps/desktop/renderer/src'), loader: 'css' }, bundle: true,
-      outfile: path.join(out, 'fixture.css'), nodePaths: ['E:/Libraries/Desktop/orgtree/node_modules'],
+      outfile: path.join(out, 'fixture.css'), nodePaths: ['S:/orgtree/orgtree/node_modules'],
       loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' } })
   } finally { esbuild.stop() }
   fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>')

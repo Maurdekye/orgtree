@@ -1,7 +1,7 @@
 const {app,BrowserWindow,nativeImage}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const out=process.env.ORGTREE_BADGE_CAPTURE_ROOT,root=process.env.ORGTREE_BADGE_SOURCE_ROOT
-assert.match(out||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
+assert.match(out||'',/^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i)
 const {TaskbarDot,taskbarDotBitmap,taskbarDotImage}=require(path.join(out,'badge.cjs'))
 const {actionPng}=require(path.join(out,'icons.cjs'))
 const {taskbarTasks,taskbarAttentionItems}=require(path.join(out,'jumplist.cjs'))

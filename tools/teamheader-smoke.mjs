@@ -5,7 +5,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 const repo=path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const [deps,output,mode='geometry']=process.argv.slice(2)
-if(!deps||!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(output||''))throw Error('Expected assigned output')
+if(!deps||!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(output||''))throw Error('Expected assigned output')
 const require=createRequire(path.join(path.resolve(deps),'package.json')),esbuild=require('esbuild')
 fs.mkdirSync(output,{recursive:true})
 const geometry=mode==='geometry'

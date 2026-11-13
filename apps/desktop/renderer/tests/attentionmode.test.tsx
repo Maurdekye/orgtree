@@ -70,12 +70,12 @@ test('§2 the layout is remembered per organization and survives a reload', () =
   reset()
   assert.deepEqual(attentionLayout('a'), DEFAULT_LAYOUT)
   setAttentionLayout('a', { split: 0.55, agent: 'scout', listOpen: true })
-  assert.deepEqual(attentionLayout('a'), { split: 0.55, agent: 'scout', listOpen: true, swapped: false })
+  assert.deepEqual(attentionLayout('a'), { split: 0.55, agent: 'scout', listOpen: true, swapped: false, hidden: null })
   assert.deepEqual(attentionLayout('b'), DEFAULT_LAYOUT)
 
   // the cached copy is not the stored one: drop it and read from storage
   forgetAttentionMode()
-  assert.deepEqual(attentionLayout('a'), { split: 0.55, agent: 'scout', listOpen: true, swapped: false },
+  assert.deepEqual(attentionLayout('a'), { split: 0.55, agent: 'scout', listOpen: true, swapped: false, hidden: null },
     'the split, the selected agent and the list state all come back')
 })
 
@@ -83,7 +83,7 @@ test('§2.1 a patch changes one field and leaves the rest standing', () => {
   reset()
   setAttentionLayout('a', { split: 0.55, agent: 'scout', listOpen: true })
   setAttentionLayout('a', { agent: 'other' })
-  assert.deepEqual(attentionLayout('a'), { split: 0.55, agent: 'other', listOpen: true, swapped: false })
+  assert.deepEqual(attentionLayout('a'), { split: 0.55, agent: 'other', listOpen: true, swapped: false, hidden: null })
 })
 
 test('§3 the split is bounded, so neither panel can be dragged out of existence', () => {
@@ -111,7 +111,7 @@ test('§3.2 a garbage layout row reads as the default', () => {
   forgetAttentionMode()
   assert.deepEqual(attentionLayout('a'), DEFAULT_LAYOUT)
   assert.deepEqual(attentionLayout('b'),
-    { split: SPLIT_DEFAULT, agent: null, listOpen: false, swapped: false },
+    { split: SPLIT_DEFAULT, agent: null, listOpen: false, swapped: false, hidden: null },
     'a non-string agent is no agent, and only a real `true` holds the list open')
 })
 
@@ -122,7 +122,7 @@ test('§4 the two stores are independent: a view change keeps the layout', () =>
   setOrgView('a', 'canvas')
   setOrgView('a', 'attention')
   assert.deepEqual(attentionLayout('a'),
-    { split: 0.6, agent: 'scout', listOpen: false, swapped: false },
+    { split: 0.6, agent: 'scout', listOpen: false, swapped: false, hidden: null },
     'returning to the Attention view restores the split and the selected agent')
 })
 

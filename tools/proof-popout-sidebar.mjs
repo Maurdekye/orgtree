@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 const repo = process.cwd(), out = process.env.POPOUT_SIDEBAR_OUT
 const deps = process.env.BATCH_NODE_MODULES
-if (!out || !/^C:[\\/]orgtree-build[\\/]/i.test(out) || !process.env.ORGTREE_AGENT || !deps)
+if (!out || !/^S:[\\/]orgtree[\\/]build[\\/]/i.test(out) || !process.env.ORGTREE_AGENT || !deps)
   throw Error('Run within assigned FIFO/kernel Job with C output and dependencies read in place')
 const require = createRequire(path.join(deps, '../package.json'))
 if (process.argv[2] !== '--electron') {

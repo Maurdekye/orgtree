@@ -2,7 +2,7 @@
 const {app,BrowserWindow,session,clipboard}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict'),{execFileSync}=require('node:child_process')
 const root=process.env.HELPER_BADGE_CAPTURE
-assert.match(root||'',/^C:\/orgtree-build\/helper-transcript-sol\/helper-badge\/visual$/)
+assert.match(root||'',/^S:\/orgtree\/build\/helper-transcript-sol\/helper-badge\/visual$/)
 const measured=pid=>{const s=Number(execFileSync('powershell.exe',['-NoProfile','-Command','(Get-Process -Id '+pid+').SessionId'],{encoding:'utf8',windowsHide:true}).trim());assert.equal(s,0);return{pid,session:s}}
 const receipt={source:process.env.HELPER_BADGE_SOURCE,parent:measured(process.pid),checks:[],clipboard:'Private empty reads; writes/edit operations blocked; permissions denied',input:'CDP to owned Session0 window only',limits:'Actual desk header/badge/panel/transcript components and stylesheet with synthetic API; no live harness/engine or native file reads'}
 for(const key of ['userData','sessionData','logs','crashDumps']){const p=path.join(root,'profile',key);fs.mkdirSync(p,{recursive:true});app.setPath(key,p)}

@@ -628,7 +628,7 @@ async fn muse_op(engine: &Engine, org: &OrgHandle, req: &Value) -> bool {
         .await.ok().flatten().is_some_and(|r| catalog::is_muse(&r.get::<_, String>(0)))
 }
 
-/// A conditional Antigravity tier (Argon, Barium, Carbon) is placed only
+/// A conditional Antigravity tier (Argon, Krypton, Carbon) is placed only
 /// while the account's `agy models` lists it (3.x `provider_hire_gate`):
 /// a hire, a model switch, or a rehire NAMING the tier. A plain rehire on the
 /// stored tier is the recovery door and is not gated (3.x D-197), and seats
@@ -1345,6 +1345,88 @@ fn self_parent_fallback(requested: Option<bool>, effective: Option<bool>, defaul
 }
 
 #[cfg(test)]
+mod hire_folder_raise_tests {
+    use super::*;
+
+    fn node(id: i64, name: &str, kind: &str, dirs: Value) -> Node {
+        Node { id, name: name.into(), parent: (id > 1).then_some(id - 1), state: "live".into(), tier: "opus".into(), seat: 4.0, grant: 10.0,
+               scope: json!({ "add_dirs": dirs }), account: None, session: None, kind: kind.into() }
+    }
+    /// boss(1) > lead(2) > [build project](3) > dev(4): the chain a hire under `dev` walks, root first
+    fn team() -> Vec<Node> {
+        vec![node(1, "boss", "agent", json!([{ "path": "S:/work", "mode": "rw" }, { "path": "S:/data", "mode": "ro" }])),
+             node(2, "lead", "agent", json!([{ "path": "S:/work", "mode": "rw" }])),
+             node(3, "build", "project", json!([])),
+             node(4, "dev", "agent", json!([{ "path": "S:/work/dev", "mode": "rw" }]))]
+    }
+    fn dirs(n: &Value) -> Vec<(String, String)> {
+        n["add_dirs"].as_array().into_iter().flatten()
+            .map(|d| (d["path"].as_str().unwrap_or("").to_string(), d["mode"].as_str().unwrap_or("").to_string())).collect()
+    }
+
+    /// USER 2026-11-11 m4da870539dfe: "i cant grant a folder to an agent while drafting that its superior doesnt
+    /// hold. it should be raised automatically on creation, instead its refused."
+    #[test]
+    fn a_user_hire_with_a_folder_the_superiors_lack_is_allowed_and_raises_each_of_them() {
+        let req = json!({ "name": "new", "add_dirs": [{ "path": "S:/extra", "mode": "rw" }] });
+        let granted = hire_dirs_grant(&req).unwrap().expect("the hire names folders");
+        assert!(hire_dirs_within_actor(&Actor::User, None, &granted).is_ok(), "the user grants anything: nothing is refused at creation");
+        let team = team();
+        let plan = raise_plan(&Actor::User, &team, &granted);
+        let raised: Vec<&str> = plan.iter().map(|(i, _)| team[*i].name.as_str()).collect();
+        assert_eq!(raised, ["boss", "lead", "dev"], "every agent above the hire, never the project");
+        for (_, scope) in &plan {
+            assert!(dirs(scope).contains(&("S:/extra".to_string(), "rw".to_string())), "{scope}");
+        }
+        // what each already held stays
+        assert!(dirs(&plan[0].1).contains(&("S:/work".to_string(), "rw".to_string())));
+        assert!(dirs(&plan[2].1).contains(&("S:/work/dev".to_string(), "rw".to_string())));
+    }
+
+    #[test]
+    fn read_only_above_is_raised_to_read_write_and_folders_already_held_raise_nobody() {
+        let team = team();
+        // boss holds S:/data read-only, the others not at all: read/write for the hire raises all three
+        let rw = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/data/sets", "mode": "rw" }] })).unwrap().unwrap();
+        let plan = raise_plan(&Actor::User, &team, &rw);
+        assert_eq!(plan.iter().map(|(i, _)| team[*i].name.as_str()).collect::<Vec<_>>(), ["boss", "lead", "dev"]);
+        assert!(dirs(&plan[0].1).contains(&("S:/data/sets".to_string(), "rw".to_string())));
+        // a folder inside what everyone holds raises no one (boss and lead hold S:/work, dev holds S:/work/dev)
+        let held = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/work/dev/x", "mode": "rw" }] })).unwrap().unwrap();
+        assert!(raise_plan(&Actor::User, &team, &held).is_empty());
+        // no folders named: nothing to grant, nothing raised
+        assert_eq!(hire_dirs_grant(&json!({ "name": "new" })).unwrap(), None);
+        assert_eq!(hire_dirs_grant(&json!({ "add_dirs": null })).unwrap(), None);
+        assert!(hire_dirs_grant(&json!({ "add_dirs": "S:/x" })).is_err());
+    }
+
+    /// The post-hire path's authority, unchanged: an agent grants only inside what it holds itself, and raises
+    /// only the agents between itself and the hire.
+    #[test]
+    fn an_agent_hires_inside_its_own_folders_only_and_raises_only_those_below_it() {
+        let team = team();
+        let lead = Actor::Agent { id: 2, name: "lead".into() };
+        let lead_holds = json!({ "add_dirs": [{ "path": "S:/work", "mode": "rw" }], "tools": {}, "org_visibility": "team", "permission_mode": "default" });
+        // inside lead's own S:/work, outside dev's S:/work/dev: allowed, and dev alone is raised
+        let inside = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/work/other", "mode": "rw" }] })).unwrap().unwrap();
+        assert!(hire_dirs_within_actor(&lead, Some(&lead_holds), &inside).is_ok());
+        let plan = raise_plan(&lead, &team, &inside);
+        assert_eq!(plan.iter().map(|(i, _)| team[*i].name.as_str()).collect::<Vec<_>>(), ["dev"], "not boss above it, not itself, not the project");
+        // outside what lead holds: refused with the post-hire path's own message, and nobody is raised by a refusal
+        let outside = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/extra", "mode": "rw" }] })).unwrap().unwrap();
+        let err = hire_dirs_within_actor(&lead, Some(&lead_holds), &outside).unwrap_err();
+        assert_eq!(err.to_string(), "add_dirs exceeds your own capability; nobody grants above themselves");
+        // read/write where lead holds read-only is above it too
+        let ro = json!({ "add_dirs": [{ "path": "S:/work", "mode": "ro" }], "tools": {}, "org_visibility": "team", "permission_mode": "default" });
+        assert!(hire_dirs_within_actor(&lead, Some(&ro), &inside).is_err());
+        // an agent hiring directly under itself raises no one
+        let dev = Actor::Agent { id: 4, name: "dev".into() };
+        let own = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/work/dev/sub", "mode": "rw" }] })).unwrap().unwrap();
+        assert!(raise_plan(&dev, &team, &own).is_empty());
+    }
+}
+
+#[cfg(test)]
 mod parent_hire_tests {
     use super::self_parent_fallback;
 
@@ -1368,14 +1450,18 @@ mod parent_hire_tests {
 /// agent's hire has no defaults: it states its folders, every tool and its
 /// visibility. A user's hire that names no folders gets its superior's (at
 /// the top level, the organization's). A folder the superior does not hold,
-/// or holds read-only when read/write is asked, is refused (3.x №30) rather
-/// than stored where it can never take effect, and an agent cannot pass on
+/// or holds read-only when read/write is asked, is taken and the superior
+/// chain is raised to it at creation, as a folder granted after the hire is
+/// (user 2026-11-11 m4da870539dfe; 3.x №30 refused it). An agent still names
+/// only folders inside its own, and cannot pass on
 /// a tool or MCP server the hire's superior does not hold. A user's hire (or
 /// a default) is clamped to the superior's tools and visibility instead,
 /// with a warning; an agent asking for more visibility than the superior
 /// holds is refused (D-021). Returns the warnings.
 #[logged]
 async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&Node>, caps: &OrgCaps, req: &Value, sc: &mut Value) -> Result<Vec<String>> {
+    // the folders this hire names, checked against whoever grants them (never against the superior: see below)
+    let named_dirs = hire_dirs_grant(req)?;
     // 3.x: a visibility or permission mode that is not one of the levels is
     // refused (an arbitrary string used to reach --permission-mode, D-030)
     if let Some(v) = str_arg(req, "org_visibility").filter(|v| !scope::VIS_LEVELS.contains(v)) {
@@ -1392,22 +1478,17 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
     match (req["add_dirs"].as_array(), &holder) {
         (None, Some(h)) => sc["add_dirs"] = h["add_dirs"].clone(),
         (None, None) => sc["add_dirs"] = caps.settings["dirs"].clone(),
-        (Some(list), Some(h)) => {
-            for d in list {
-                let path = d["path"].as_str().unwrap_or("");
-                let mut held: Option<&str> = None;
-                for x in h["add_dirs"].as_array().into_iter().flatten() {
-                    if scope::path_within(path, x["path"].as_str().unwrap_or("")) {
-                        held = Some(if held == Some("rw") || x["mode"] == "rw" { "rw" } else { "ro" });
-                    }
-                }
-                match held {
-                    None => refuse!(Forbidden, "cannot grant dirs the parent does not hold (№30): [{path}]"),
-                    Some("ro") if d["mode"].as_str().unwrap_or("rw") == "rw" => {
-                        refuse!(Forbidden, "the parent holds {path} read-only; cannot grant read/write (№30)")
-                    }
-                    _ => {}
-                }
+        // A folder the superior does not hold (or holds read-only) is no longer refused here: creation raises
+        // the superior chain to it, exactly as granting the folder after the hire does (`raise_ancestors` in
+        // `hire`; user 2026-11-11 m4da870539dfe, replacing the №30 refusals). The authority is the post-hire
+        // path's too: an agent grants only inside what it holds itself.
+        (Some(_), Some(_)) => {
+            let own = match actor {
+                Actor::Agent { id, .. } => Some(capability(tx, *id, &caps.settings).await?),
+                Actor::User => None,
+            };
+            if let Some(granted) = &named_dirs {
+                hire_dirs_within_actor(actor, own.as_ref(), granted)?;
             }
         }
         (Some(_), None) => {}
@@ -1466,6 +1547,85 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
     }
     *sc = scope::normalize(sc);
     Ok(warnings)
+}
+
+/// The folders a hire names, as the explicit grant they are (`{"add_dirs": [...]}`, normalised); None when it
+/// names none and takes its superior's.
+#[nolog]
+fn hire_dirs_grant(req: &Value) -> Result<Option<Value>> {
+    match req.get("add_dirs") {
+        None | Some(Value::Null) => Ok(None),
+        Some(d) if d.is_array() => Ok(Some(json!({ "add_dirs": scope::normalize(&json!({ "add_dirs": d }))["add_dirs"] }))),
+        Some(_) => refuse!(BadRequest, "add_dirs is a list of {{path, mode}}"),
+    }
+}
+
+/// Whoever creates a hire grants its folders: the user grants anything, an agent only inside what it holds
+/// itself (`own`, its capability), with the refusal a later grant gets (`scope::require_grant`).
+#[nolog]
+fn hire_dirs_within_actor(actor: &Actor, own: Option<&Value>, granted: &Value) -> Result<()> {
+    match (actor, own) {
+        (Actor::User, _) => Ok(()),
+        (Actor::Agent { .. }, Some(own)) => scope::require_grant(granted, own),
+        (Actor::Agent { .. }, None) => refuse!(Forbidden, "add_dirs exceeds your own capability; nobody grants above themselves"),
+    }
+}
+
+/// Which of `ancestors` (root first) an explicit grant raises, each with its raised scope: every agent for the
+/// user, only those below the granting agent for an agent, never a project, and only where the scope changes.
+#[nolog]
+fn raise_plan(actor: &Actor, ancestors: &[Node], granted: &Value) -> Vec<(usize, Value)> {
+    let mut below_actor = matches!(actor, Actor::User);
+    let mut out = Vec::new();
+    for (i, a) in ancestors.iter().enumerate() {
+        if matches!(actor, Actor::Agent { id, .. } if *id == a.id) { below_actor = true; continue; }
+        if !below_actor || a.project() { continue; }
+        let raised = scope::raise(&a.scope, granted);
+        if raised != scope::normalize(&a.scope) { out.push((i, raised)); }
+    }
+    out
+}
+
+/// Raise the agents above a node to an explicit grant made for it (`for_name`): a folder, tool or level granted
+/// to an agent enters every superior that lacks it, and a user's grant the org's defaults too. One path for a
+/// grant after the hire (retool) and for the folders a hire is created with. Returns the raised agents' names
+/// and the folders each gained.
+#[logged]
+async fn raise_ancestors(tx: &Transaction<'_>, org: &Arc<OrgHandle>, actor: &Actor, ancestors: &[Node], granted: &Value, for_name: &str,
+                         settings: &Value, fx: &mut Effects) -> Result<(Vec<String>, Vec<Value>)> {
+    let mut cascaded = Vec::new();
+    let mut raised_dirs = Vec::new();
+    for (i, raised) in raise_plan(actor, ancestors, granted) {
+        let a = &ancestors[i];
+        let gained=super::settings_notice::parts(super::settings_notice::scope_only(&a.scope),super::settings_notice::scope_only(&raised));
+        tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&raised]).await?;
+        cascaded.push(a.name.clone());
+        let diff = scope::dirs_diff(scope::normalize(&a.scope)["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default(),
+            raised["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default());
+        if scope::dirs_changed(&diff) {
+            raised_dirs.push(json!({ "node": a.name, "added": diff["added"], "changed": diff["changed"] }));
+        }
+        fx.agents.insert(a.id);
+        fx.reconfigure.push(a.id);
+        let descendants = subtree(tx, a.id).await?;
+        fx.agents.extend(descendants.iter().copied());
+        fx.reconfigure.extend(descendants);
+        event(tx,org.id,"retool",actor,Some(a.id),json!({"node":a.name,"change":granted,"cascade_for":for_name,"notice":gained}),fx).await?;
+    }
+    // A user grant reaching the top level enters the org's defaults too.
+    if matches!(actor, Actor::User) {
+        let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?.get(0);
+        let base = json!({"add_dirs":settings["dirs"],"tools":settings["default_tools"],"org_visibility":settings["default_visibility"],"permission_mode":settings["permission_mode"]});
+        let raised = scope::raise(&base,granted);
+        let mut next = stored;
+        for (key, field) in [("add_dirs","dirs"),("tools","default_tools"),("org_visibility","default_visibility"),("permission_mode","permission_mode")] {
+            if granted.get(key).is_some() { next[field] = raised[key].clone(); }
+            if key == "tools" { next[field]["orgtree_disabled"] = json!(false); }
+        }
+        tx.execute("UPDATE ot.orgs SET settings=$2 WHERE id=$1", &[&org.id,&next]).await?;
+        fx.pulses.push(crate::changes::Change::Org);
+    }
+    Ok((cascaded, raised_dirs))
 }
 
 #[logged]
@@ -1591,6 +1751,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
     };
     let mut warnings: Vec<String> = Vec::new();
+    // the folders each superior gained for this hire (as retool's `raised`)
+    let mut scope_raised: Vec<Value> = Vec::new();
     let mut sc = if let Some(a) = &anchor {
         if a.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
         if !self_parent { insertion_authority(tx, actor, a).await?; }
@@ -1615,6 +1777,13 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     } else {
         let mut sc = hire_scope(&caps, req);
         warnings = hire_scope_rules(tx, actor, parent.as_ref(), &caps, req, &mut sc).await?;
+        // the folders the hire names enter every superior that lacks them, as a later grant would (retool)
+        if let (Some(p), Some(granted)) = (parent.as_ref(), hire_dirs_grant(req)?) {
+            let above = chain(tx, p.id).await?;
+            let (cascaded, raised) = raise_ancestors(tx, org, actor, &above, &granted, &name, &caps.settings, fx).await?;
+            if !cascaded.is_empty() { warnings.push(format!("cascaded permission increase to agents {}", cascaded.join(", "))); }
+            scope_raised = raised;
+        }
         sc
     };
     normalize_hire_preferences(&tier, &mut sc)?;
@@ -1740,6 +1909,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings);
     }
+    if !scope_raised.is_empty() { out["raised"] = json!(scope_raised); }
     Ok(out)
 }
 
@@ -4423,42 +4593,8 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     let mut raised_dirs = Vec::new();
     let mut clamped = Vec::new();
     if granted.as_object().is_some_and(|o| !o.is_empty()) {
-        let ancestors = chain(tx, n.id).await?;
-        let mut below_actor = matches!(actor, Actor::User);
-        for a in ancestors.iter().filter(|a| a.id != n.id) {
-            if matches!(actor, Actor::Agent { id, .. } if *id == a.id) { below_actor = true; continue; }
-            if !below_actor || a.project() { continue; }
-            let raised = scope::raise(&a.scope, &granted);
-            if raised != scope::normalize(&a.scope) {
-                let gained=super::settings_notice::parts(super::settings_notice::scope_only(&a.scope),super::settings_notice::scope_only(&raised));
-                tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&raised]).await?;
-                cascaded.push(a.name.clone());
-                let diff = scope::dirs_diff(scope::normalize(&a.scope)["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default(),
-                    raised["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default());
-                if scope::dirs_changed(&diff) {
-                    raised_dirs.push(json!({ "node": a.name, "added": diff["added"], "changed": diff["changed"] }));
-                }
-                fx.agents.insert(a.id);
-                fx.reconfigure.push(a.id);
-                let descendants = subtree(tx, a.id).await?;
-                fx.agents.extend(descendants.iter().copied());
-                fx.reconfigure.extend(descendants);
-                event(tx,org.id,"retool",actor,Some(a.id),json!({"node":a.name,"change":granted,"cascade_for":n.name,"notice":gained}),fx).await?;
-            }
-        }
-        // A user grant reaching the top level enters the org's defaults too.
-        if matches!(actor, Actor::User) {
-            let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?.get(0);
-            let base = json!({"add_dirs":settings["dirs"],"tools":settings["default_tools"],"org_visibility":settings["default_visibility"],"permission_mode":settings["permission_mode"]});
-            let raised = scope::raise(&base,&granted);
-            let mut next = stored;
-            for (key, field) in [("add_dirs","dirs"),("tools","default_tools"),("org_visibility","default_visibility"),("permission_mode","permission_mode")] {
-                if granted.get(key).is_some() { next[field] = raised[key].clone(); }
-                if key == "tools" { next[field]["orgtree_disabled"] = json!(false); }
-            }
-            tx.execute("UPDATE ot.orgs SET settings=$2 WHERE id=$1", &[&org.id,&next]).await?;
-            fx.pulses.push(crate::changes::Change::Org);
-        }
+        let above: Vec<Node> = chain(tx, n.id).await?.into_iter().filter(|a| a.id != n.id).collect();
+        (cascaded, raised_dirs) = raise_ancestors(tx, org, actor, &above, &granted, &n.name, &settings, fx).await?;
     }
     let charter = str_arg(req, "charter").map(str::to_string);
     let team = str_arg(req, "team_charter").map(str::to_string);

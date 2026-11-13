@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const root = process.env.QUICKCHAT_AGENT_LINK_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]agent-tooltip-luna[\\/]quickchat-agent-links-capture$/i.test(root || '')) {
+if (!/^S:[\\/]orgtree[\\/]build[\\/]agent-tooltip-luna[\\/]quickchat-agent-links-capture$/i.test(root || '')) {
   throw new Error('Expected assigned Quick chat capture output directory')
 }
 

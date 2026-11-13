@@ -5,7 +5,7 @@ const { app, BrowserWindow, session, clipboard } = require('electron')
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict')
 const { execFileSync } = require('node:child_process')
 const out = path.resolve(process.argv[2]), errors = []
-assert.match(out, /^C:\\orgtree-build\\canvas-sol\\superior-overlap\\capture$/i)
+assert.match(out, /^S:\\orgtree\\build\\canvas-sol\\superior-overlap\\capture$/i)
 const sessionId = pid => Number(execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-Process -Id ${Number(pid)}).SessionId`], { encoding: 'utf8', windowsHide: true }).trim())
 const isolation = { childPid: process.pid, childSessionId: sessionId(process.pid), input: 'own-window DOM/CDP; no OS input',
   nativeClipboard: 'empty reads; writes refused', browserClipboard: 'empty reads; writes refused', permissions: 'deny all', realClipboardAccess: false }

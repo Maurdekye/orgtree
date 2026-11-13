@@ -12,7 +12,7 @@ assert.ok((mode === 'red' || mode === 'green') && depsArg && outArg,
   'usage: node tools/rig/panel-steps-check.mjs red|green <existing-dependency-root> <assigned-C-output>')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
-assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i)
+assert.match(out.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\/.+/i)
 assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use an empty output directory')
 const require = createRequire(path.join(deps, 'package.json'))
 const esbuild = require('esbuild')

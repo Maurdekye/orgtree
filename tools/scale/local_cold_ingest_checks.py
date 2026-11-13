@@ -14,8 +14,8 @@ BASE = '5e99a25'
 out = repo / '.cold-results'
 out.mkdir(exist_ok=True)
 pgroot = Path('C:/Temp/cold-ingest-checks-pg')
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 names = ['engine/backend/orgtree/transcript_ingest.py', 'engine/backend/orgtree/transcript_records.py',
          'engine/backend/orgtree/store.py', 'tests/test_transcript_ingest.py',
          'tests/test_transcript_ingest_pg.py']

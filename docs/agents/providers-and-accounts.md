@@ -11,6 +11,92 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
 [decided: user 2026-10-28 10:07:18Z mb1ca1568502c; verified: `runtime/rate_limit.rs`,
 `runtime/actor.rs`; contract: `docs/rust-engine/rate-limit-retry.md`]
 
+## Gemini Hydrogen takes Flash's place; Flash is a legacy model (2026-11-13, 4.5.13)
+
+- **Hydrogen** (`hydrogen`, model `gemini-4-hydrogen`, letter H) is an Antigravity tier that is ALWAYS offered: unlike
+  Argon, Krypton and Carbon it does not wait for the account's `agy models` to list it (user: "make hydrogen always
+  available unconditionally regardless of the check"). The model is unreleased, so everything else is a PLACEHOLDER
+  until a real turn: the id is the user's word, seat 1 by the input-price rule ($1.5 per million), efforts low, medium, high
+  and xhigh (xhigh: user 2026-11-13 m39ddd2612ce5; medium, and `max` kept clamping to xhigh: user m293bedc7db68;
+  each is sent as `--effort <level>`; the installed
+  agy, 244,091,032 bytes, SHA256 `064e6519...aa2f`, names the id `gemini-4-hydrogen-xhigh`, the label "Gemini 4
+  Hydrogen (XHigh)" and `--effort (low|medium|high|xhigh|max)`, and the `-medium` id and label too: static inspection, nothing run,
+  no real turn), the Gemini usage pool, no bucket of its own. Colour `--tier-hydrogen` `#f7fff0`: near-white with the faintest
+  green cast, because astra is the near-white that leans violet and a neutral silver is the text colour itself (the
+  numbers are in the note above it in `styles.css`); on the two light themes its hire button takes the dark backing
+  Wonder Full's has. [decided: user 2026-11-12 m6b3dbb2cfa71, m7941d5c20ccc; 2026-11-13 m6258781910ea; verified:
+  `providers/catalog.rs`, `canvas/shared.ts`, `styles.css`, `tests/hydrogen.test.tsx`]
+- **A turn the account cannot run says so.** A failed Antigravity turn on a Gemini tier reads "<model> is not available
+  on this Antigravity account" when the user's own login has a confirmed model list that lacks the model, or when the
+  error itself names a model and refuses it; what happened stays in brackets. A signed-out or unread list is not
+  evidence. A turn on a model the confirmed list lacks is stopped after 120 s of silence (`UNLISTED_MODEL_IDLE_S`)
+  instead of the ordinary silence limit, also when that limit is turned off. Not measured against the real CLI: how
+  agy answers an unavailable model is unknown, so both kinds of evidence are kept. [decided: user 2026-11-13
+  m6258781910ea; verified: `runtime/agy.rs` `unavailable_model_error`, `runtime/actor.rs`, `providers::agy_lists`]
+- **Hydrogen's cost is an estimate**: $1.50 input (the user's figure), $0.15 cached, $7.50 output (guessed from
+  Flash's ratio) per million. Its turns are stored `estimated`, the spend badge's turn lines say `est.`, and a total
+  that includes one says `est.` too. Remove `catalog::cost_is_estimate` when the price is published. [decided: user
+  2026-11-13 md16909f83245 "Estimate"; verified: `runtime/agy.rs` `request_cost`, `canvas/desk.tsx` `SpendBadge`]
+- **Flash is legacy** (engine `legacy: true`, renderer `OPT_IN_LEGACY_TIERS`): out of `orgtree_list_tiers`, the staffing
+  options and the providers rows, and offered on the desktop only with Show legacy models (Gemini Pro, Gemini Flash)
+  on, marked legacy. Seats on Flash keep running, keep their letter, colour and seat, and Flash is still placed by
+  name. A saved template with a Flash seat has that seat blocked until a current model is picked, as one with a Gemini
+  Pro seat always had. [decided: user 2026-11-13 md16909f83245 "Now"; verified: `providers/catalog.rs`,
+  `domain/staffing/menu_availability_tests.rs`, `domain/templates.rs` tests]
+- **The built-in Antigravity team** is Hydrogen for the coordinator, redteam and curator and Carbon for the
+  implementer; Quick chat starts on Hydrogen. Carbon is conditional: where agy does not list it only the implementer
+  blocks until another model is picked. [decided: user 2026-11-13 mb720ed1d4d06; verified:
+  `engine/docs/templates/devteam-antigravity.json`, `domain/templates.rs` tests]
+- **Fable in the built-in teams.** devteam (claude): the implementer is Fable (was Opus); coordinator, redteam and
+  curator are unchanged, and the template names no effort, as before. Heavy dev shop: one more developer,
+  `developer-fable` (Fable, medium, the Developer charter), so twelve developers, sixteen seats and 74 credits at
+  catalog rates where there were eleven, fifteen and 64. A machine without Claude signed in blocks those seats
+  until another model is picked, as for any model that is not offered. [decided: user 2026-11-13 m99b4b994b8f0;
+  verified: `engine/docs/templates/{devteam-claude,heavy-dev-shop}.json`, `domain/templates.rs` tests]
+- **An unedited built-in template follows the app.** Built-ins are still written into the templates folder once and
+  never over a file the user changed. One exception: a seeded built-in that is byte-identical (line endings aside) to
+  a text Orgtree shipped before is replaced by the current text at the next start or listing. An edited, renamed or
+  deleted file is never touched. `SHIPPED_EARLIER` in `domain/templates.rs` holds the digests; whoever changes a
+  built-in adds its previous digest there, and a pin test fails until they do. [decided: coordinator 2026-11-13
+  mf9bb6ace1fe2, replacing "never over an existing file" (2026-10-10) for unedited files; verified:
+  `domain/templates.rs` `seed_into` and its tests]
+
+## Fable costs 8 credits (2026-11-13, 4.5.13)
+
+- **Fable costs 8 credits.** New hires, rehires and model switches to Fable take 8. Seats hired at 10
+  keep their stored price until rehired, as after the Carbon and Terra changes (no reprice of existing
+  seats or change to running orgs' stored grants). Wonder Full and Astra stay at 10. Listing order stays
+  unchanged: lists group providers, and Fable remains the dearest Claude tier; equal seats keep catalog
+  order. Heavy dev shop's sixteen seats now cost 72 credits rather than the 74 in the dated record above,
+  plus 20 spare (92 total); previews use actual offered seats. [decided: user 2026-11-13 md539ddd936f9;
+  verified: `providers/catalog.rs`, `canvas/shared.ts`, `tests/tierlisting.test.tsx`, `domain/templates.rs`]
+
+## Gemini Krypton replaces Barium; Carbon gets medium effort and costs 4 (2026-11-13, 4.5.13)
+
+Replaces what the preserved "Conditional Gemini tiers" and "Models are LISTED" entries below still
+say about Barium and about Carbon's seat (those texts are preserved records; this section is current).
+
+- **Krypton.** The `barium` tier is gone and `krypton` holds its catalog row: model `gemini-4-krypton`
+  (an unreleased internal model, so the id is the user's word, not a looked-up name), letter K, seat 2,
+  efforts low/high, conditional like Argon (offered only while the account's `agy models` lists the
+  id). Colour `--tier-krypton` `#cdc8fb`, krypton's pale lavender discharge glow; the numbers are in the
+  note above it in `styles.css`. There is no alias: a stored `barium` is an unknown tier, never offered and
+  refused on placement. The 3.x Python sources and `tests/test_barium_tier.py`
+  are historical and untouched. [decided: user 2026-11-11 mf4a3961eabc4, m56787a8f7bcf, m95727edfd9e9;
+  verified: `providers/catalog.rs`, `canvas/shared.ts`, `styles.css`, `tests/krypton.test.tsx`]
+- **Carbon is real.** A Carbon seat completed a turn on 2026-11-11 with `--model gemini-4-carbon`; its
+  first reply took about five minutes, mostly a silent wait on Google. It offers low, medium and high
+  effort: agy 1.5.6 carries `gemini-4-carbon-medium` (static inspection of the installed CLI, not a
+  measured turn at medium). [decided: user 2026-11-11 mefe16aae82e3; verified: `providers/catalog.rs`
+  `antigravity_effort` and its test]
+- **Carbon costs 4 credits**, the price of Opus, Wonder and agy-opus, no longer the placeholder 2 copied
+  from Pro. New hires, rehires and model switches to Carbon take 4. A seat hired at 2 keeps its stored
+  price until rehired, as after the Terra change (no reprice of catalog tiers). By the listing rule a
+  tier orders itself: Carbon now leads the Gemini group (carbon, pro, argon, krypton, flash) in the
+  dearest-first lists and stays last in the cheapest-first hire strips; `catalog::listed()` puts it
+  before agy-opus (equal seats keep catalog order). [decided: user 2026-11-12 m18bc0505e597; verified:
+  `providers/catalog.rs`, `canvas/shared.ts`, `tests/tierlisting.test.tsx`, `tests/carbon.test.tsx`]
+
 ## Gemini Carbon's colour is a light charcoal grey (2026-10-28, 4.5.1)
 
 Replaces the chartreuse `#c6ff00` that the "Conditional Gemini tiers" entry below still names for

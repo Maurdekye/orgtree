@@ -2,7 +2,9 @@
 //! organization is created. The templates are the files in
 //! ~/.orgtree/templates and nothing else; the built-ins (docs/templates) are
 //! written into that folder once each, never over an existing file, and one
-//! the user deletes stays deleted (ruling 2026-10-10). A template carries no folders and no accounts: both
+//! the user deletes stays deleted (ruling 2026-10-10). One exception (coordinator 2026-11-13): a built-in
+//! the user never edited, still byte-identical to a text Orgtree shipped, is replaced by the current text
+//! (`SHIPPED_EARLIER`). A template carries no folders and no accounts: both
 //! are this machine's, and are resolved when the org is created.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -22,6 +24,49 @@ const BUNDLED: &[(&str, &str)] = &[
     ("devteam-antigravity.json", include_str!("../../../../docs/templates/devteam-antigravity.json")),
     ("heavy-dev-shop.json", include_str!("../../../../docs/templates/heavy-dev-shop.json")),
 ];
+/// SHA-256 of every text a built-in has shipped with BEFORE its current one, line endings normalised to LF
+/// (`text_digest`). A seeded file that still matches one was never edited and is replaced by the current text;
+/// anything else is the user's. When a built-in changes, add its previous digest here (the pin test names it).
+const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
+    ("devteam-claude.json", &[
+        "0871de52bf075812f17c9b0167332a747e4fbafb8ef98deab8cd39db8870ee4e",
+        "0e36b6ba51391368a4c7c926038d2e322ae15c6d14a97854ddbf9a03334f0ed6",
+        "9408edbfb13f3a6aae963d4c6f32689c654af77943fd423e6e1c05f1efa08097",
+    ]),
+    ("devteam-codex.json", &[
+        "f7d0277b6eeb8cc13a7aa88109ac1273481be48b95c58752732bf23ec8bc6d57",
+        "3ce9d730049c6acdcfb17995961ad4c0814e69c242569129edb94867d76ce66e",
+    ]),
+    ("devteam-antigravity.json", &[
+        "92e68a608d7e7879b94a52ece90e6d8d37f75cf0c00b11455b831150ac04fdc8",
+    ]),
+    ("heavy-dev-shop.json", &[
+        "3865d44d8aeed485f60cbb27ac5700478afea39609c7e0f1bc2c7da3d4d22fa3",
+        "c65e1780a70f88945fbdbcb2227e4d8254ffb05a1a6200c2be46026eda2e271d",
+        "6ef93b215713a287f3c50fe97c3ff5e0dba7e8982565c305e24eda4e2963a064",
+        "ce6a0e9b5814305856a8777d9eb958cfc5e935f18cd4897b357ced67d08364e4",
+        "eb187d8b7ac11afd74513fb009e55bdd3019666f43b876adbdba6420f434d1f5",
+        "8fdb201732948ff05ca612162246be45c03015cf46fb17b30c6e52e1d98c2b5a",
+        "2003ff151fef08e03b36a47f6a6418472915637887b6bbafbbd4b357fbba533f",
+    ]),
+];
+
+/// The digest `SHIPPED_EARLIER` holds: SHA-256 of the text without its carriage returns, so the file a Windows
+/// build wrote and the one a checkout holds are the same text.
+#[nolog]
+fn text_digest(text: &[u8]) -> String {
+    use sha2::Digest;
+    let lf: Vec<u8> = text.iter().copied().filter(|b| *b != b'\r').collect();
+    hex::encode(sha2::Sha256::digest(&lf))
+}
+
+/// Whether `text` is one this built-in file shipped with before its current one.
+#[nolog]
+fn shipped_earlier(file: &str, text: &[u8]) -> bool {
+    let digest = text_digest(text);
+    SHIPPED_EARLIER.iter().any(|(f, digests)| *f == file && digests.contains(&digest.as_str()))
+}
+
 pub(crate) const FILE_MAX: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -280,6 +325,15 @@ fn seed_into(dir: &Path) -> Result<Vec<String>, String> {
     let mut created = Vec::new();
     for (f, body) in BUNDLED {
         if seeded.iter().any(|s| s == f) {
+            // written here before: the user's own from then on, unless it is still a text Orgtree shipped
+            // (never edited), which follows the app. A failed refresh keeps the old file and the listing.
+            let p = dir.join(f);
+            if std::fs::read(&p).is_ok_and(|have| shipped_earlier(f, &have)) {
+                match std::fs::write(&p, body) {
+                    Ok(()) => tracing::info!(template = %f, "an unedited built-in template was refreshed to the current text"),
+                    Err(e) => tracing::warn!(template = %f, error = %e, "an unedited built-in template could not be refreshed"),
+                }
+            }
             continue;
         }
         let p = dir.join(f);
@@ -1419,22 +1473,26 @@ mod tests {
         let t=bundled("heavy-dev-shop");
         assert!(validate(&t).is_empty(),"{:?}",validate(&t));
         let mut av=claude_only();
-        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google")] {
+        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google"),("fable",8.0,"claude")] {
             av.tiers.insert(tier.into(),offer(cost,provider));
         }
         let (p,b)=plan(&t,&Choices::default(),&av,&[]).unwrap();
         assert!(b.is_empty());
-        assert_eq!(p.len(),16); // fifteen seats plus one project, below the 24-node limit
-        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),15);
-        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),64.0);
+        // user 2026-11-13 m99b4b994b8f0 "add at least one fable to the heavy dev shop preset": one Fable developer
+        // at medium; Fable costs 8 (user 2026-11-13 md539ddd936f9), so sixteen seats and 72 credits
+        assert_eq!(p.len(),17); // sixteen seats plus one project, below the 24-node limit
+        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),16);
+        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),72.0);
         assert_eq!(p[0].name,"liaison");
-        assert_eq!(p[0].grant,80.0);
-        assert_eq!(p[1].grant,72.0);
+        assert_eq!(p[0].grant,88.0);
+        assert_eq!(p[1].grant,80.0);
         let developers:Vec<_>=p.iter().filter(|p|p.name.starts_with("developer-")).collect();
-        assert_eq!(developers.len(),11);
+        assert_eq!(developers.len(),12);
         for tier in ["opus","sol","astra"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),3); }
-        for tier in ["sonnet","argon"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
-        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),5);
+        for tier in ["sonnet","argon","fable"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
+        let fable=developers.iter().find(|p|p.name=="developer-fable").expect("the Fable developer");
+        assert_eq!((fable.tier.as_deref(),fable.slot.effort.as_deref(),fable.slot.charter.preset.as_deref(),fable.seat),(Some("fable"),Some("medium"),Some("developer"),8.0));
+        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),6);
         assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("high")).count(),4);
         let mut max_names:Vec<_>=developers.iter().filter(|p|p.slot.effort.as_deref()==Some("max")).map(|p|p.name.as_str()).collect();
         max_names.sort();
@@ -1466,7 +1524,8 @@ mod tests {
     fn bundled_templates_parse_and_carry_the_ruled_tiers() {
         let c = bundled("devteam-claude");
         let tiers: Vec<_> = c.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
-        assert_eq!(tiers, [("coordinator", "opus"), ("implementer", "opus"), ("redteam", "opus"), ("curator", "sonnet")]);
+        // user 2026-11-13 m99b4b994b8f0: "change the implementer in the claude devteam preset to a fable"
+        assert_eq!(tiers, [("coordinator", "opus"), ("implementer", "fable"), ("redteam", "opus"), ("curator", "sonnet")]);
         let x = bundled("devteam-codex");
         let tiers: Vec<_> = x.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "sol"), ("implementer", "astra"), ("redteam", "sol"), ("curator", "luna")]);
@@ -1475,46 +1534,131 @@ mod tests {
         let tiers: Vec<_> = m.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "wonder"), ("implementer", "wonder-full"), ("redteam", "wonder"), ("curator", "spark")]);
         assert!(m.agents.iter().all(|s| catalog::is_muse(&s.tier) && s.fallback.is_empty()));
-        // user 2026-10-14 17:55Z: Argon for everything except the curator, which runs Flash
+        // user 2026-11-13 mb720ed1d4d06 (replaces 2026-10-14 "Argon ... curator Flash"): "change the implementer
+        // in the antigravity devteam to carbon, and make every other seat hydrogen". Hydrogen is always offered
+        // (m6258781910ea), so no seat names a fallback.
         let g = bundled("devteam-antigravity");
         assert_eq!(g.name, "devteam (antigravity)");
         let tiers: Vec<_> = g.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
-        assert_eq!(tiers, [("coordinator", "argon"), ("implementer", "argon"), ("redteam", "argon"), ("curator", "flash")]);
+        assert_eq!(tiers, [("coordinator", "hydrogen"), ("implementer", "carbon"), ("redteam", "hydrogen"), ("curator", "hydrogen")]);
+        assert!(validate(&g).is_empty(), "{:?}", validate(&g));
         assert!(g.agents.iter()
             .all(|s| catalog::tier(&s.tier).is_some_and(|t| t.provider == catalog::GOOGLE) && s.fallback.is_empty()));
     }
 
-    /// A machine whose Antigravity lists Argon, plus Flash.
+    /// A machine whose Antigravity lists Carbon. Hydrogen is offered on every Antigravity machine; Flash is
+    /// legacy and no offer names it.
     fn agy_only() -> Avail {
         let mut tiers = HashMap::new();
-        tiers.insert("argon".into(), offer(2.0, "google"));
-        tiers.insert("flash".into(), offer(1.0, "google"));
+        tiers.insert("hydrogen".into(), offer(1.0, "google"));
+        tiers.insert("carbon".into(), offer(4.0, "google"));
         Avail { tiers, ..Avail::default() }
     }
 
     #[test]
-    fn the_antigravity_built_in_is_planned_on_argon_and_flash() {
+    fn the_antigravity_built_in_is_planned_on_hydrogen_and_carbon() {
         let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &agy_only(), &[]).unwrap();
         assert!(blocked.is_empty());
         let got: Vec<_> = p.iter().map(|x| (x.name.as_str(), x.tier.as_deref(), x.seat)).collect();
-        assert_eq!(got, [("coordinator", Some("argon"), 2.0), ("implementer", Some("argon"), 2.0),
-                         ("redteam", Some("argon"), 2.0), ("curator", Some("flash"), 1.0)]);
-        assert_eq!(p[0].grant, 10.0 + 2.0 + 2.0 + 1.0);
+        assert_eq!(got, [("coordinator", Some("hydrogen"), 1.0), ("implementer", Some("carbon"), 4.0),
+                         ("redteam", Some("hydrogen"), 1.0), ("curator", Some("hydrogen"), 1.0)]);
+        assert_eq!(p[0].grant, 10.0 + 4.0 + 1.0 + 1.0);
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator") && x.note.is_none()));
-        assert_eq!(quick_chat_for(&bundled("devteam-antigravity"), &p), Some(json!({ "superior": "coordinator", "tier": "argon" })));
-        // Argon is conditional on Antigravity listing it: unlisted, its slots block until another tier is picked
+        assert_eq!(quick_chat_for(&bundled("devteam-antigravity"), &p), Some(json!({ "superior": "coordinator", "tier": "hydrogen" })));
+        // Carbon is conditional on Antigravity listing it: unlisted, the implementer blocks until another model
+        // is picked, and the Hydrogen seats are unaffected
         let mut av = agy_only();
-        av.tiers.remove("argon");
+        av.tiers.remove("carbon");
         let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &av, &[]).unwrap();
-        assert_eq!(blocked, vec!["coordinator".to_string(), "implementer".to_string(), "redteam".to_string()]);
-        assert_eq!(p[3].tier.as_deref(), Some("flash"));
+        assert_eq!(blocked, vec!["implementer".to_string()]);
+        assert_eq!((p[0].tier.as_deref(), p[1].tier.as_deref(), p[3].tier.as_deref()), (Some("hydrogen"), None, Some("hydrogen")));
+        assert!(!unusable_here(&p, false));
+    }
+
+    /// Flash is legacy (user 2026-11-13): a saved template that names it, like one that names Gemini Pro, has
+    /// that seat blocked until a current model is picked. Nothing places a seat on a legacy model.
+    #[test]
+    fn a_saved_flash_or_pro_seat_blocks_like_any_model_that_is_not_offered() {
+        let mut t = bundled("devteam-antigravity");
+        t.agents[0].tier = "pro".into();
+        t.agents[3].tier = "flash".into();
+        let (p, blocked) = plan(&t, &Choices::default(), &agy_only(), &[]).unwrap();
+        assert_eq!(blocked, vec!["coordinator".to_string(), "curator".to_string()]);
+        assert_eq!((p[0].tier.as_deref(), p[3].tier.as_deref()), (None, None));
+    }
+
+    const ANTIGRAVITY_430: &str = include_str!("../../testdata/template-devteam-antigravity-4.3.0.json");
+
+    /// Coordinator 2026-11-13 mf9bb6ace1fe2 (replaces "never over an existing file" for this one case): a
+    /// built-in the user never edited follows the app. Byte-identical to a version Orgtree shipped (line endings
+    /// aside), it is replaced by the current text; an edited, renamed or deleted one is never touched.
+    #[test]
+    fn an_unedited_earlier_built_in_is_refreshed_and_the_users_own_files_are_not() {
+        let d = scratch("refresh");
+        std::fs::create_dir_all(&d).unwrap();
+        let note = BUNDLED.iter().map(|(f, _)| format!("{f}\n")).collect::<String>();
+        std::fs::write(d.join(SEEDED), &note).unwrap();
+        let now = BUNDLED[3].1;
+        assert_ne!(ANTIGRAVITY_430.replace('\r', ""), now.replace('\r', ""), "control: the built-in changed since 4.3.0");
+        // as 4.3.0 wrote it on Windows (CRLF) and as a checkout with LF has it: both are the shipped text
+        for shipped in [ANTIGRAVITY_430.replace('\r', ""), ANTIGRAVITY_430.replace('\r', "").replace('\n', "\r\n")] {
+            std::fs::write(d.join(BUNDLED[3].0), &shipped).unwrap();
+            assert!(seed_into(&d).unwrap().is_empty(), "a refresh is not a first write");
+            assert_eq!(std::fs::read_to_string(d.join(BUNDLED[3].0)).unwrap(), now);
+        }
+        // already current: left as it is, and nothing else appeared (the others were deleted by the user)
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join(BUNDLED[3].0)).unwrap(), now);
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 2);
+        // edited by the user, even by one character: never touched
+        let edited = ANTIGRAVITY_430.replace("\"spare\": 10", "\"spare\": 11");
+        assert_ne!(edited, ANTIGRAVITY_430);
+        std::fs::write(d.join(BUNDLED[3].0), &edited).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join(BUNDLED[3].0)).unwrap(), edited);
+        // the shipped text under another name is the user's own file; a deleted built-in stays deleted
+        std::fs::remove_file(d.join(BUNDLED[3].0)).unwrap();
+        std::fs::write(d.join("my-team.json"), ANTIGRAVITY_430).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join("my-team.json")).unwrap(), ANTIGRAVITY_430);
+        assert!(!d.join(BUNDLED[3].0).exists());
+        assert_eq!(std::fs::read_to_string(d.join(SEEDED)).unwrap(), note);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Whoever changes a built-in template must move its previous digest into `SHIPPED_EARLIER`, or installs that
+    /// have the previous text keep it forever. This pins the current texts so that the change cannot be missed.
+    #[test]
+    fn every_built_in_has_its_current_digest_pinned_and_its_earlier_ones_listed() {
+        const CURRENT: &[(&str, &str)] = &[
+            ("devteam-claude.json", "0652804769bb831d1fb1fd61aebc88d5be6892fd5a9ecaee18322598058f5a6c"),
+            ("devteam-codex.json", "ce1ef5b21152cd6f582ec4051d1749ce0e930b102899efc6a39de2efa3ee4908"),
+            ("devteam-muse.json", "993cec32790eee02e632500e89c9c3c701a80013d666570eb0a925315f99fba9"),
+            ("devteam-antigravity.json", "562e7c0e19bbfd9c43ebeee998edc1a4e17a7437f34f4546cfa4b995cf01cf83"),
+            ("heavy-dev-shop.json", "2a3bedc25438a21c5a3d3ea2c9dd40aa5d001e07e4665c6823dda5b9cc7ca99e"),
+        ];
+        assert_eq!(CURRENT.len(), BUNDLED.len());
+        for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {
+            assert_eq!(f, pinned_file);
+            assert_eq!(text_digest(body.as_bytes()), *pinned,
+                "{f} changed: add its PREVIOUS digest ({pinned}) to SHIPPED_EARLIER in templates.rs, then pin the new one here");
+            assert!(!shipped_earlier(f, body.as_bytes()), "{f}: the current text must not be listed as an earlier one");
+        }
+        assert!(shipped_earlier("devteam-antigravity.json", ANTIGRAVITY_430.as_bytes()));
+        assert_eq!(text_digest(ANTIGRAVITY_430.as_bytes()), "92e68a608d7e7879b94a52ece90e6d8d37f75cf0c00b11455b831150ac04fdc8");
+        assert!(!shipped_earlier("devteam-claude.json", ANTIGRAVITY_430.as_bytes()), "a digest belongs to its own file name");
+        assert!(!shipped_earlier("my-team.json", ANTIGRAVITY_430.as_bytes()));
     }
 
     #[test]
     fn grants_add_the_reports_seats() {
-        let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &claude_only(), &[]).unwrap();
+        // the implementer is Fable since 2026-11-13: its seat of 8 is in the coordinator's grant
+        let mut av = claude_only();
+        av.tiers.insert("fable".into(), offer(8.0, "claude"));
+        let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &av, &[]).unwrap();
         assert!(blocked.is_empty());
-        assert_eq!(p[0].grant, 10.0 + 4.0 + 4.0 + 2.0);
+        assert_eq!(p[1].tier.as_deref(), Some("fable"));
+        assert_eq!(p[0].grant, 10.0 + 8.0 + 4.0 + 2.0);
         assert_eq!(p[0].account.as_deref(), Some("primary"));
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator")));
     }

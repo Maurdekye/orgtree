@@ -1,7 +1,7 @@
 const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path')
 const out=path.resolve(process.argv[2])
-if(!out.toLowerCase().startsWith('c:\\orgtree-build\\canvas-sol\\'))throw Error('outside owned scope')
+if(!out.toLowerCase().startsWith('s:\\orgtree\\build\\canvas-sol\\'))throw Error('outside owned scope')
 app.setPath('userData',path.join(out,'profile'));app.setPath('sessionData',path.join(out,'session'))
 app.disableHardwareAcceleration()
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))

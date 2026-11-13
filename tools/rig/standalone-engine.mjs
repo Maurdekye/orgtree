@@ -11,7 +11,7 @@
 // HTTP API then sees, and answers chart/work/inbox as the user; a restart
 // reuses the token and the persisted port; shutdown goes through the API.
 //
-//   $env:CARGO_TARGET_DIR = "C:\orgtree-build\<you>"   (or ORGTREE_RIG_ENGINE)
+//   $env:CARGO_TARGET_DIR = "S:\orgtree\build\<you>"   (or ORGTREE_RIG_ENGINE)
 //   node tools/rig/rig.mjs build
 //   node tools/rig/standalone-engine.mjs
 //

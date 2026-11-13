@@ -8,8 +8,8 @@ import path from 'node:path'
 import { runDesktop } from './desktop.mjs'
 const root = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '')
 const mode = process.argv[2], out = process.argv[3]
-if (!['tests', 'visual'].includes(mode) || !out || !/^C:[\\/]orgtree-build[\\/]/i.test(out)) throw Error('tests|visual C:/orgtree-build/<caller>/... required')
-const deps = process.env.ORGTREE_DEPENDENCY_ROOT || 'E:/Libraries/Desktop/orgtree/.worktrees/rust-engine/node_modules'
+if (!['tests', 'visual'].includes(mode) || !out || !/^S:[\\/]orgtree[\\/]build[\\/]/i.test(out)) throw Error('tests|visual S:/orgtree/build/<caller>/... required')
+const deps = process.env.ORGTREE_DEPENDENCY_ROOT || 'S:/orgtree/orgtree/.worktrees/rust-engine/node_modules'
 const require = createRequire(path.join(deps, '..', 'package.json')), esbuild = require('esbuild')
 fs.mkdirSync(out, { recursive: true })
 if (mode === 'tests') {

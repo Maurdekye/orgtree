@@ -33,9 +33,9 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","events.fire","docket.write","fi
     if covering.is_empty(){crate::refuse!(Forbidden,"app does not declare the site {}; add it to the app's sites",site_key(host,port));}
     let capability=value["permissions"][CAPABILITY].as_str();
     if capability==Some("deny"){crate::refuse!(Forbidden,"internet access is denied for this app");}
-    let rows:Vec<&str>=value["site_permissions"].as_object().into_iter().flatten().filter(|(site,_)|site_matches(site,host,port)).filter_map(|(_,v)|v.as_str()).collect();
+    let rows:Vec<&str>=value["site_permissions"].as_object().into_iter().flatten().filter(|(site,_)|site_matches(site,host,port)).filter_map(|(_,v)|row_value(v)).collect();
     if rows.contains(&"deny"){crate::refuse!(Forbidden,"internet access to {} is denied for this app",site_key(host,port));}
-    if rows.contains(&"allow"){return Ok("allow");}
+    if rows.contains(&"allow")||private_pins(value,host,port).is_some(){return Ok("allow");}
     if rows.contains(&"ask"){return Ok("ask");}
     Ok(if capability==Some("allow")&&covering.iter().any(|s|*s!="*"){"allow"}else{"ask"})
 }
@@ -112,5 +112,72 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","events.fire","docket.write","fi
         for origin in ["created","imported","template","legacy"]{let v=json!({"origin":origin,"capabilities":["mail.send"],"permissions":{"mail.send":"allow"}});assert!(!org_allowed(&v,"mail.send"),"{origin}");assert!(decision(&v,"mail.send").is_err(),"{origin}");}
         let out=metadata(json!({"origin":"created","capabilities":["mail.send","files.read"],"permissions":{"mail.send":"allow","files.read":"deny"},"definition":{"capabilities":["mail.send"]}}));
         assert_eq!(out["capabilities"],json!(["files.read"]));assert_eq!(out["permissions"],json!({"files.read":"deny"}));assert_eq!(out["definition"]["capabilities"],json!([]));assert!(out["default_permissions"].get("mail.send").is_none());
+    }
+}
+/// A stored site row's choice: a plain string, or for a private-network row the object
+/// `{"value":"allow-private","addresses":[..]}` the engine writes when the user allows a site there (spec 3.4).
+#[nolog]pub fn row_value(row:&Value)->Option<&str>{row.as_str().or_else(||row["value"].as_str())}
+/// The address set pinned for an exact declared, non-wildcard site that the user allowed on the private network.
+/// Only such a row opens a private address: capability Allow, a plain `allow` row and `*` / `*.domain` rows never do.
+#[nolog]pub fn private_pins(value:&Value,host:&str,port:u16)->Option<Vec<std::net::IpAddr>>{
+    use super::net::{site_matches,CAPABILITY};
+    if !available(value,CAPABILITY)||value["permissions"][CAPABILITY].as_str()==Some("deny"){return None;}
+    let site=strings(&value["sites"]).into_iter().find(|s|*s!="*"&&!s.starts_with("*.")&&site_matches(s,host,port))?;
+    let row=&value["site_permissions"][site];
+    if row["value"].as_str()!=Some("allow-private"){return None;}
+    // Deny wins on any covering row, as for every other choice.
+    let denied=value["site_permissions"].as_object().into_iter().flatten().any(|(s,v)|site_matches(s,host,port)&&row_value(v)==Some("deny"));
+    if denied{return None;}
+    Some(row["addresses"].as_array().into_iter().flatten().filter_map(Value::as_str).filter_map(|a|a.parse().ok()).collect())
+}
+/// A site the user may allow on the private network: an exact declared site, never a wildcard.
+#[nolog]pub fn private_row_ok(value:&Value,site:&str)->Result<()>{
+    if site=="*"||site.starts_with("*.")||!strings(&value["sites"]).contains(&site){crate::refuse!(BadRequest,"private network access is allowed for an exact declared site only");}
+    Ok(())
+}
+#[cfg(test)]mod private_site_tests{
+    use super::*;
+    fn app(perms:Value,rows:Value)->Value{json!({"origin":"created","capabilities":["net.fetch"],"sites":["100.101.102.103:8642","nas.ts.net:8642","api.example.com","*.example.org","*"],"permissions":perms,"site_permissions":rows})}
+    fn allowed(addr:&str)->Value{json!({"value":"allow-private","addresses":[addr]})}
+    // Spec 3.3: a private address needs the user's allow-private row on the exact declared site.
+    #[test]fn allow_private_rows_open_only_their_exact_site_and_deny_still_wins(){
+        let v=app(json!({}),json!({"100.101.102.103:8642":allowed("100.101.102.103")}));
+        assert_eq!(net_decision(&v,"100.101.102.103",8642).unwrap(),"allow");
+        assert_eq!(private_pins(&v,"100.101.102.103",8642),Some(vec!["100.101.102.103".parse().unwrap()]));
+        // Another port or another host is another site.
+        assert!(private_pins(&v,"100.101.102.103",9000).is_none());
+        assert!(private_pins(&v,"100.101.102.104",8642).is_none());
+        // Capability Allow, a plain site Allow and `*` / `*.domain` rows never open a private address.
+        for rows in [json!({"100.101.102.103:8642":"allow"}),json!({"*":"allow"}),json!({"*.example.org":"allow"}),json!({})]{
+            let v=app(json!({"net.fetch":"allow"}),rows);
+            assert!(private_pins(&v,"100.101.102.103",8642).is_none(),"{v}");
+        }
+        // A wildcard-keyed row can never carry allow-private.
+        let wild=app(json!({}),json!({"*":allowed("100.101.102.103"),"*.example.org":allowed("100.101.102.103")}));
+        assert!(private_pins(&wild,"100.101.102.103",8642).is_none());
+        assert!(private_pins(&wild,"a.example.org",443).is_none());
+        // Deny wins: at the capability, and on a covering row.
+        let denied=app(json!({"net.fetch":"deny"}),json!({"100.101.102.103:8642":allowed("100.101.102.103")}));
+        assert!(net_decision(&denied,"100.101.102.103",8642).is_err());
+        let row_deny=app(json!({}),json!({"100.101.102.103:8642":allowed("100.101.102.103"),"*":"deny"}));
+        assert!(net_decision(&row_deny,"100.101.102.103",8642).is_err());
+        // A name declared exactly works like an address.
+        let named=app(json!({}),json!({"nas.ts.net:8642":allowed("100.64.0.9")}));
+        assert_eq!(net_decision(&named,"nas.ts.net",8642).unwrap(),"allow");
+        assert_eq!(private_pins(&named,"nas.ts.net",8642),Some(vec!["100.64.0.9".parse().unwrap()]));
+        // A site that is no longer declared (code change) loses its pin.
+        let mut gone=named.clone();gone["sites"]=json!(["api.example.com"]);
+        assert!(private_pins(&gone,"nas.ts.net",8642).is_none());
+    }
+    // An app code change clears every Allow, allow-private included (the stored row is an object, not "ask"/"deny").
+    #[test]fn a_code_change_clears_allow_private_rows_but_keeps_restrictive_ones(){
+        let kept=restrictive_overrides(&json!({"a:1":allowed("10.0.0.1"),"b":"deny","c":"ask","d":"allow"}));
+        assert_eq!(kept,json!({"b":"deny","c":"ask"}));
+    }
+    // Spec 3.4/3.6: only the user's desktop sets a row; the row is an exact declared, non-wildcard site.
+    #[test]fn private_rows_are_exact_declared_sites_only(){
+        let v=app(json!({}),json!({}));
+        assert!(private_row_ok(&v,"100.101.102.103:8642").is_ok());
+        for bad in ["*","*.example.org","api.example.com:9999","other.example.com","a.example.org"]{assert!(private_row_ok(&v,bad).is_err(),"{bad}");}
     }
 }

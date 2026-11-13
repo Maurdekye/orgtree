@@ -1,5 +1,5 @@
 //! A save says what it was based on (docs/rust-engine/remote-org.md, "The
-//! save that would replace a newer change"; decision 101).
+//! save that would replace a newer change"; decision 103).
 //!
 //! With the fields it changes, a window sends `expect`: for each of them the
 //! value that field had when the edit started. The engine compares under the

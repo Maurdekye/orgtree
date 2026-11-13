@@ -17,7 +17,7 @@ const tree = { slug: 'fresh-hire', name: 'Fresh hire', roots: [], dirs: [],
   credit_requests: [], audiences: [], audience_requests: [],
   audit: { live_nodes: 0, top_level_holds: 0, no_overdraft: true, problems: [] },
   cascade_hire: true, cascade_alloc: true } as unknown as TreePayload
-const samples = { claude: 'opus', openai: 'sol', google: 'flash' } as const
+const samples = { claude: 'opus', openai: 'sol', google: 'hydrogen' } as const
 function provider(id: string, connected = true): ProviderInfo {
   return { id, label: id, cli: id, status: { installed: true, connected },
     hire_enabled: connected, reason: connected ? null : 'sign in to this harness',

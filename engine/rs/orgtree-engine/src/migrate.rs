@@ -93,7 +93,9 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0083_project_watchdogs", include_str!("../migrations/0083_project_watchdogs.sql")),
     ("0084_org_inbox_projects", include_str!("../migrations/0084_org_inbox_projects.sql")),
     ("0085_org_inbox_waiting", include_str!("../migrations/0085_org_inbox_waiting.sql")),
-    ("0086_user_origin", include_str!("../migrations/0086_user_origin.sql")),
+    ("0086_app_private_sites", include_str!("../migrations/0086_app_private_sites.sql")),
+    ("0087_app_site_secrets", include_str!("../migrations/0087_app_site_secrets.sql")),
+    ("0088_user_origin", include_str!("../migrations/0088_user_origin.sql")),
 ];
 
 #[cfg(test)]

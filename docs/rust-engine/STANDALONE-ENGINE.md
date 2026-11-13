@@ -494,7 +494,7 @@ combined-build check.
 ### Client labels and who is connected, 2026-11-13 (4.6.0)
 
 USER 2026-11-11 18:56:17Z meba39d75fade ("Accept all 9", several people on one organization).
-DECISIONS entry 101; contract: [remote-org](remote-org.md#several-people-on-one-organization).
+DECISIONS entry 103; contract: [remote-org](remote-org.md#several-people-on-one-organization).
 
 - A client record may carry `label` (1 to 40 characters, no control characters): what other people
   see for that client. `PATCH /api/standalone/clients/{id} {"label": text | null}` sets or clears it

@@ -124,7 +124,7 @@ impl From<crate::domain::UserError> for ApiError {
 mod tests {
     use super::*;
 
-    /// Decision 101: a refusal with a code keeps its status, its code and
+    /// Decision 103: a refusal with a code keeps its status, its code and
     /// what else it says on every route, not only the undo history's. A
     /// refused save and a request someone else settled first rely on it.
     #[test]

@@ -73,7 +73,8 @@ function scene(node: CanvasNode, open: boolean, close = noop,
 const canvasBox = (el: HTMLElement) =>
   el.querySelector('[data-which="canvas"]') as HTMLElement
 const modal = () => document.querySelector('.tempdesk-panel') as HTMLElement | null
-const backdrop = () => document.querySelector('.tempdesk-over') as HTMLElement | null
+// the shared frame's backdrop (user 2026-11-13: the temporary desk is on PinFrame)
+const backdrop = () => (modal()?.parentElement?.classList.contains('overlay') ? modal()!.parentElement : null) as HTMLElement | null
 const borrowed = (el: HTMLElement) =>
   /desk is open elsewhere/.test(canvasBox(el).textContent ?? '')
 
@@ -89,9 +90,9 @@ test('temporary desks end their title bar with an X, and Escape still dismisses 
   const view = await mountView(scene(n, true, () => { closed++ }), (el) => el)
   t.after(() => view.unmount())
   await flush()
-  const x = document.querySelector<HTMLButtonElement>('.tempdesk-head .tempdesk-close')
+  const x = document.querySelector<HTMLButtonElement>('.tempdesk-panel > .modalpin-bar .modalpin-x')
   assert.ok(x, 'the title bar has the X')
-  assert.ok([...document.querySelectorAll('.tempdesk-head button')].at(-1) === x, 'the X is last in its row')
+  assert.ok([...document.querySelectorAll('.tempdesk-panel > .modalpin-bar button')].at(-1) === x, 'the X is last in its row')
   assert.equal(x!.title, 'Close (Esc)')
   const event = new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
   await inAct(() => { document.dispatchEvent(event) })
@@ -316,6 +317,8 @@ test('§4 the BACKDROP dismisses it and the panel does not', async (t: TestConte
     const press = (el: Element) => inAct(() => {
       el.dispatchEvent(new W.MouseEvent('pointerdown',
         { bubbles: true, cancelable: true, button: 0 }))
+      // the shared frame dismisses on the click a backdrop press ends in
+      el.dispatchEvent(new W.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
     })
     await press(modal()!)
     await flush()
@@ -468,13 +471,13 @@ test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets
     assert.equal(/opened temporarily/.test(modal()!.textContent ?? ''), false,
       'the temporary desk still shows the "opened temporarily" label')
     assert.equal(Boolean(modal()!.querySelector('.tempdesk-note')), false, 'the note span is back')
-    assert.equal(Boolean(modal()!.querySelector('.tempdesk-head .pinwin-name')), true,
+    assert.equal(Boolean(modal()!.querySelector(':scope > .modalpin-bar .pinwin-name')), true,
       'control failed: the title bar lost the agent name')
     assert.equal(Boolean(v.el.querySelector('.pinwin')), false, 'pinned before the click')
-    const pin = modal()!.querySelector<HTMLButtonElement>('.tempdesk-head .tempdesk-pin')
+    const pin = document.querySelector<HTMLButtonElement>('.tempdesk-panel > .modalpin-bar .modalpin-btn:not(.modalpin-x)')
     assert.ok(pin, 'the temporary desk has no Pin button')
-    assert.ok(pin!.classList.contains('pinwin-unpin'),
-      'the Pin button does not use the pinned-desk button style')
+    assert.equal(pin!.getAttribute('aria-label'), 'pin this to the window',
+      'the Pin button is not the pin of the shared frame')
     const frame = { x: 51.25, y: 42.5, w: 921.5, h: 633.25 }
     const measured = (r: typeof frame) => ({ ...r, left: r.x, top: r.y,
       width: r.w, height: r.h, right: r.x + r.w, bottom: r.y + r.h, toJSON() {} })
@@ -506,7 +509,7 @@ test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets
     // a jsdom element makes node's reporter run out of memory.
     // opened temporarily again, an already-pinned agent is offered no Pin
     await openTemporarily()
-    assert.equal(Boolean(modal()!.querySelector('.tempdesk-pin')), false,
+    assert.equal(Boolean(document.querySelector('.tempdesk-panel > .modalpin-bar .modalpin-btn:not(.modalpin-x)')), false,
       'an already-pinned agent still shows a Pin button')
     await inAct(() => { commitRect('mine', 'worker', {x: 30, y: 40, w: 600, h: 400}, {w: 1000, h: 580}) })
     assert.equal(readPins('mine')[0]!.initialPlacement, undefined, 'later gestures return to ordinary pin placement')

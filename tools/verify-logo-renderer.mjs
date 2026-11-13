@@ -10,7 +10,7 @@ if(process.env.ORGTREE_LOGO_JOB_CONTAINED!=='1')throw Error('Existing shared loc
 const repo=process.env.ORGTREE_LOGO_ROOT||process.cwd(),out=path.resolve(process.env.ORGTREE_LOGO_OUTPUT),base=process.env.ORGTREE_LOGO_BASE
 const suite=process.env.ORGTREE_LOGO_SUITE||'scopebody'
 if(!['scopebody','historyui'].includes(suite)||base&&suite!=='scopebody')throw Error('Use scopebody for matched red/green, or historyui for generic shortcut regression')
-if(!/^c:\/orgtree-build\/(hubchat-dm-sol|rig-haiku)\//i.test(out.replaceAll('\\','/')))throw Error('Owned C output required')
+if(!/^s:\/orgtree\/build\/(hubchat-dm-sol|rig-haiku)\//i.test(out.replaceAll('\\','/')))throw Error('Owned C output required')
 const deps=createRequire(path.join(process.env.ORGTREE_LOGO_DEPENDENCIES,'package.json')),esbuild=deps('esbuild')
 fs.mkdirSync(out,{recursive:true})
 const file=path.join(out,suite+'.test.mjs')

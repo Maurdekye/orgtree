@@ -13,10 +13,12 @@ const fields:Record<string,readonly string[]>={
   'org.read':['after','limit'],
   'docket.create':['title','objective','owner'], 'events.fire':['name','payload'],
   'net.fetch':['url','method','headers','body'],
+  // The live channel (spec section 5): the engine holds the socket; these are its bridge actions.
+  'net.connect':['url','protocols'],'net.recv':['channel','after'],'net.send':['channel','text'],'net.close':['channel'],
 }
 /** An internet request carries up to 1 MiB of base64 body (engine net.rs). */
 export const NET_REQUEST_MAX=1536*1024-4096
-const capability=(action:string)=>action==='docket.create'?'docket.write':action
+const capability=(action:string)=>action==='docket.create'?'docket.write':action.startsWith('net.')?'net.fetch':action
 /** Apps reach agents only through events (user 2026-10-26: "Remove; import, never
  * grant"). The engine refuses mail.send with the same directions. */
 export const MAIL_SEND_REMOVED='mail.send was removed: apps notify agents only through events. Declare the event, fire it with orgtree.events.fire(name, payload), and agents subscribe with an app_listener watchdog.'
@@ -62,7 +64,7 @@ export class AppActionClient {
     const args=input.args??{}
     if(!object(args)||Object.keys(args).some(k=>!fields[input.action as string].includes(k)))throw Error('Unsupported app action arguments or identity fields.')
     const request={...args,action:input.action}
-    if(new TextEncoder().encode(JSON.stringify(request)).length>(input.action==='net.fetch'?NET_REQUEST_MAX:64*1024))throw Error(input.action==='net.fetch'?'App internet request exceeds 1 MiB of body.':'App action exceeds 64 KiB.')
+    if(new TextEncoder().encode(JSON.stringify(request)).length>(input.action==='net.fetch'?NET_REQUEST_MAX:input.action==='net.send'?80*1024:64*1024))throw Error(input.action==='net.fetch'?'App internet request exceeds 1 MiB of body.':'App action exceeds 64 KiB.')
     // Renew BEFORE sending an action. Never retry a possibly executed action.
     const session=await this.hostSession()
     const result=await customAppsBridge<Record<string,unknown>>(this.slug,{action:'call',session,request})

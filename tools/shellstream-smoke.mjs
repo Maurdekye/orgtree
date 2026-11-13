@@ -4,7 +4,7 @@ import {createRequire} from 'node:module'
 import {fileURLToPath,pathToFileURL} from 'node:url'
 import {spawnSync} from 'node:child_process'
 const repo=path.dirname(path.dirname(fileURLToPath(import.meta.url))),[deps,out,mode='focused']=process.argv.slice(2)
-if(!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(out||'')||fs.existsSync(out))throw Error('Fresh owned output required')
+if(!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(out||'')||fs.existsSync(out))throw Error('Fresh owned output required')
 fs.mkdirSync(out,{recursive:true});const require=createRequire(path.join(deps,'package.json')),esbuild=require('esbuild')
 const suites=mode==='focused'?['shelloutput']:['shelloutput','tokencounts','toolclock-turn']
 try{

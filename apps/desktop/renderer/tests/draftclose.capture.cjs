@@ -3,7 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const {execFileSync}=require('node:child_process')
 const closeFrame=require('./draftclose.capture-helper.cjs')
 const out=path.resolve(process.argv[2])
-assert(/^C:[\\/]orgtree-build[\\/]native-tools-sol[\\/]draft-header-close[\\/]capture-[a-z0-9-]+$/i.test(out),'own output required')
+assert(/^S:[\\/]orgtree[\\/]build[\\/]native-tools-sol[\\/]draft-header-close[\\/]capture-[a-z0-9-]+$/i.test(out),'own output required')
 const sessionId=pid=>Number(execFileSync('powershell',['-NoProfile','-Command',`(Get-Process -Id ${pid}).SessionId`],{encoding:'utf8',windowsHide:true}).trim())
 assert.equal(sessionId(process.pid),0,'Session 0 required before any test window')
 fs.mkdirSync(out,{recursive:true})
@@ -16,10 +16,10 @@ assert.equal(clipboard.readText(),'')
 Menu.setApplicationMenu(null);app.disableHardwareAcceleration()
 const settle='new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,100))))'
 app.whenReady().then(async()=>{
-  const esbuild=require('E:/Libraries/Desktop/orgtree/node_modules/esbuild')
+  const esbuild=require('S:/orgtree/orgtree/node_modules/esbuild')
   try{
-    esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/draftclose.visual.tsx'],bundle:true,jsx:'automatic',platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:['E:/Libraries/Desktop/orgtree/node_modules'],define:{'process.env.NODE_ENV':'"production"'}})
-    esbuild.buildSync({stdin:{contents:'@import "./styles.css"; @import "./shell.css";',resolveDir:path.resolve('apps/desktop/renderer/src'),loader:'css'},bundle:true,outfile:path.join(out,'fixture.css'),nodePaths:['E:/Libraries/Desktop/orgtree/node_modules'],loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
+    esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/draftclose.visual.tsx'],bundle:true,jsx:'automatic',platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:['S:/orgtree/orgtree/node_modules'],define:{'process.env.NODE_ENV':'"production"'}})
+    esbuild.buildSync({stdin:{contents:'@import "./styles.css"; @import "./shell.css";',resolveDir:path.resolve('apps/desktop/renderer/src'),loader:'css'},bundle:true,outfile:path.join(out,'fixture.css'),nodePaths:['S:/orgtree/orgtree/node_modules'],loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
   }finally{esbuild.stop()}
   fs.writeFileSync(path.join(out,'index.html'),`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src data:; img-src data:; connect-src 'none'"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>`)
   const win=new BrowserWindow({width:1000,height:700,useContentSize:true,show:false,webPreferences:{offscreen:true,contextIsolation:true,sandbox:true,nodeIntegration:false,backgroundThrottling:false}})

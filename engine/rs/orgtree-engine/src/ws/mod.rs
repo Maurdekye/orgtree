@@ -190,7 +190,19 @@ pub struct Spec {
     pub source: creds::Source,
     /// Headers added to the upgrade request (the live feed's `X-Orgtree-Feed-Agent`); never shown, never stored.
     pub extra_headers: Vec<(String, String)>,
+    /// App channels (domain/apps/channel.rs): asked before EVERY dial for the vetted address to connect to and the
+    /// headers to add (the saved login); an Err refuses the attempt. None for watchdogs.
+    pub dialer: Option<Dialer>,
+    /// Hand text messages on whole, not cut to `KEEP_TEXT` (an app reads them as they came).
+    pub whole: bool,
 }
+
+/// What a [`Dialer`] decided for one attempt: connect here (the vetted address), with these headers.
+pub struct Dial {
+    pub addr: std::net::SocketAddr,
+    pub headers: Vec<(String, String)>,
+}
+pub type Dialer = Arc<dyn Fn() -> futures::future::BoxFuture<'static, Result<Dial, String>> + Send + Sync>;
 
 /// The counters a connection keeps for its dog (lists, cards, alerts).
 #[derive(Default)]
@@ -312,6 +324,12 @@ impl Hub {
     #[nolog]
     pub fn open(&self, spec: Spec, shutdown: &CancellationToken) -> Conn {
         conn::spawn(spec, self.timing.clone(), shutdown.child_token())
+    }
+
+    /// [`Hub::open`] with its own clocks (an app channel retries after 2 s, doubling to 60 s).
+    #[nolog]
+    pub fn open_with(&self, spec: Spec, timing: Timing, shutdown: &CancellationToken) -> Conn {
+        conn::spawn(spec, timing, shutdown.child_token())
     }
 
     /// Keep a create's connection for the dog in row `row` until its runner

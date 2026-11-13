@@ -13,7 +13,7 @@ import { pinModal, rememberModalOpen, forgetModalPins, forgetModalOpenCache } fr
 import type { ProviderInfo, ProvidersPayload, TreePayload } from '../src/types'
 
 const noop = () => {}
-const samples = { claude: 'opus', openai: 'sol', google: 'flash', muse: 'wonder',
+const samples = { claude: 'opus', openai: 'sol', google: 'hydrogen', muse: 'wonder',
   openrouter: 'or-fixture', langserver: 'ls-fixture' } as const
 const ids = Object.keys(samples) as (keyof typeof samples)[]
 const props = { claude: 'claudeHire', openai: 'codexHire', google: 'antigravityHire',
@@ -89,7 +89,7 @@ for (const id of ids) for (const condition of ['org-off', 'absent'] as const) {
 }
 test('canvas model switch: incomplete discovery preserves native choices', async t => {
   const select = await config(t, { providers: [], checking: true })
-  for (const tier of ['opus', 'sol', 'flash']) assert.ok([...select.options].some(o => o.value === tier))
+  for (const tier of ['opus', 'sol', 'hydrogen']) assert.ok([...select.options].some(o => o.value === tier))
 })
 test('canvas model switch: installed signed-out providers remain disabled previews', async t => {
   const p = payload()

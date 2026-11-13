@@ -10,7 +10,7 @@ export function controlOutput(value, owner) {
   assert.match(owner ?? '', /^[A-Za-z0-9_-]{1,64}$/, 'explicit control output needs ORGTREE_AGENT')
   assert(typeof value === 'string' && path.isAbsolute(value) && !value.includes('\0'), 'absolute control output required')
   assert(!value.split(/[\\/]/).some(part => part === '.' || part === '..'), 'control output traversal refused')
-  const base = path.resolve('C:/orgtree-build', owner), target = path.resolve(value), relative = path.relative(base, target)
+  const base = path.resolve('S:/orgtree/build', owner), target = path.resolve(value), relative = path.relative(base, target)
   assert(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'control output outside owned build scope')
   const check = dir => {
     const info = fs.lstatSync(dir)

@@ -1291,7 +1291,7 @@ fn muse_detail(found: Option<&MuseDiscovery>, error: Option<&str>) -> Value {
 }
 
 /// Whether an Antigravity tier is offered: always, unless it is CONDITIONAL
-/// (Argon, Barium, Carbon), which is offered only while the account's
+/// (Argon, Krypton, Carbon), which is offered only while the account's
 /// `agy models` lists its exact model id, bare or with an effort suffix.
 #[nolog]
 fn agy_offers(tier: &str, listed: &[String]) -> bool {
@@ -1299,6 +1299,16 @@ fn agy_offers(tier: &str, listed: &[String]) -> bool {
         Some(t) if t.conditional && t.provider == catalog::GOOGLE => agy_models::listed(t.model, listed),
         _ => true,
     }
+}
+
+/// What the user's own Antigravity login says about `model`: listed (bare or with an effort suffix) or not;
+/// None while no list is confirmed for that login (signed out, not read yet, another login's list). Evidence
+/// for explaining a failed turn, never an offer gate: Hydrogen is offered regardless (user 2026-11-13).
+#[nolog]
+pub fn agy_lists(engine: &Engine, model: &str) -> Option<bool> {
+    let st = engine.providers.state.load();
+    (st.agy_model_principal.is_some() && agy_auth::catalog_identity(engine).map(|i| i.principal) == st.agy_model_principal)
+        .then(|| agy_models::listed(model, &st.agy_models))
 }
 
 /// `agy_offers` on the last registry read: what the hire strips, staffing
@@ -1609,7 +1619,7 @@ mod conditional_tests {
 
     #[test]
     fn carbon_is_offered_only_while_agy_lists_it() {
-        let without: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-barium-high"].map(String::from).to_vec();
+        let without: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-krypton-high"].map(String::from).to_vec();
         assert!(!agy_offers("carbon", &without));
         assert!(!agy_offers("carbon", &[]));
         for listed in ["gemini-4-carbon", "gemini-4-carbon-high", "gemini-4-carbon-low"] {
@@ -1617,12 +1627,53 @@ mod conditional_tests {
         }
         // the three conditional tiers are judged independently, each by its
         // exact id; flash is never conditional
-        assert!(agy_offers("argon", &without) && agy_offers("barium", &without));
+        assert!(agy_offers("argon", &without) && agy_offers("krypton", &without));
         assert!(!agy_offers("argon", &["gemini-4-argonite".to_string(), "gemini-4-argon-2".to_string()]));
-        assert!(!agy_offers("argon", &[]) && !agy_offers("barium", &[]));
+        assert!(!agy_offers("argon", &[]) && !agy_offers("krypton", &[]));
         assert!(agy_offers("flash", &[]));
         let row = super::catalog::tier("carbon").unwrap();
-        assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 2.0, true));
+        assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 4.0, true));
+    }
+}
+
+#[cfg(test)]
+mod hydrogen_tests {
+    use super::*;
+
+    /// USER 2026-11-13 m6258781910ea: Hydrogen is offered on every Antigravity account whatever `agy models`
+    /// says; the list is only evidence for explaining a failed turn (`agy_lists`).
+    #[test]
+    fn hydrogen_is_offered_whatever_agy_lists_and_flash_leaves_the_payload_rows() {
+        let other: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon-high"].map(String::from).to_vec();
+        assert!(agy_offers("hydrogen", &other) && agy_offers("hydrogen", &[]) && agy_offers("hydrogen", &["gemini-4-hydrogen".to_string()]));
+        assert!(!agy_offers("carbon", &[]), "control: the conditional tiers still follow the list");
+        // the rows the desktop lists: Hydrogen is a current row, Flash only with legacy asked for
+        let current = tier_rows(catalog::GOOGLE, false);
+        assert!(current.iter().any(|r| r["tier"] == "hydrogen" && r["seat"] == 1.0 && r["letter"] == "H"
+            && r["model"] == "gemini-4-hydrogen" && r["display_name"] == "Gemini Hydrogen 4"));
+        assert!(!current.iter().any(|r| r["tier"] == "flash"), "Flash is behind Show legacy models");
+        assert!(tier_rows(catalog::GOOGLE, true).iter().any(|r| r["tier"] == "flash"));
+    }
+
+    #[tokio::test]
+    async fn the_logins_list_is_evidence_only_once_it_is_confirmed() {
+        let engine = Engine::for_tests(std::path::PathBuf::new());
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), None, "no list read yet: unknown, not absent");
+        agy_auth::catalog_test_metadata(&engine, Ok(Some(agy_auth::Stamp(1))));
+        agy_auth::record_catalog_identity(&engine, agy_auth::Stamp(1), Some("a@example.invalid"));
+        let listed = |ids: &[&str]| {
+            let catalog = agy_models::Catalog { ids: ids.iter().map(|s| s.to_string()).collect(), identity: agy_auth::catalog_identity(&engine) };
+            apply_agy_model_read(&engine, Ok(catalog));
+        };
+        listed(&["gemini-3.8-flash-high", "gemini-4-carbon-high"]);
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), Some(false));
+        assert_eq!(agy_lists(&engine, "gemini-4-carbon"), Some(true));
+        listed(&["gemini-4-hydrogen-low", "gemini-4-hydrogen-high"]);
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), Some(true));
+        // another login signs in: the old list says nothing about it
+        agy_auth::catalog_test_metadata(&engine, Ok(Some(agy_auth::Stamp(2))));
+        agy_auth::record_catalog_identity(&engine, agy_auth::Stamp(2), Some("b@example.invalid"));
+        assert_eq!(agy_lists(&engine, "gemini-4-hydrogen"), None);
     }
 }
 

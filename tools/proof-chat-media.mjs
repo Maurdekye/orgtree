@@ -1,6 +1,6 @@
 import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';import {spawnSync} from 'node:child_process';
 const repo=process.cwd(),out=process.env.MEDIA_OUT,require=createRequire(process.env.ORGTREE_TEST_DEPS);
-if(process.env.MEDIA_JOB!=='1'||!/^[A-Za-z0-9_-]{1,64}$/.test(process.env.ORGTREE_AGENT||'')||!new RegExp('^C:[\\\\/]orgtree-build[\\\\/]'+process.env.ORGTREE_AGENT+'[\\\\/]','i').test(out||''))throw Error('Assigned output (below C:/orgtree-build/<ORGTREE_AGENT>/) and Job required');
+if(process.env.MEDIA_JOB!=='1'||!/^[A-Za-z0-9_-]{1,64}$/.test(process.env.ORGTREE_AGENT||'')||!new RegExp('^S:[\\\\/]orgtree[\\\\/]build[\\\\/]'+process.env.ORGTREE_AGENT+'[\\\\/]','i').test(out||''))throw Error('Assigned output (below S:/orgtree/build/<ORGTREE_AGENT>/) and Job required');
 const esbuild=require('esbuild');
 fs.writeFileSync(out+'/verdict.json',JSON.stringify({passed:false,status:'not executed'}));
 try{await esbuild.build({entryPoints:[repo+'/apps/desktop/renderer/tests/mediacards-visual.tsx'],outfile:out+'/visual.js',bundle:true,format:'iife',platform:'browser',jsx:'automatic',nodePaths:[path.dirname(process.env.ORGTREE_TEST_DEPS)+'/node_modules'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},define:{'process.env.NODE_ENV':'"development"'}});}finally{esbuild.stop();}

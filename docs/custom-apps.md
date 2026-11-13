@@ -475,3 +475,32 @@ to use them matches your Display > Appearance choices and restyles at once when 
 change them, without reloading or losing its state; a panel that sets its own colors
 keeps them. App authors use the `--orgtree-*` CSS variables or `orgtree.theme`; see
 [the apps tool guide](skills/orgtree-working/team/tool-apps/SKILL.md#theme-colors).
+
+## Private networks, saved logins and live connections
+
+An app can watch a computer of yours on a private network, for example another Orgtree reached over
+Tailscale, without ever becoming a way into your network.
+
+- **Allow private network.** An app that declares an exact address (`100.101.102.103:8642`, or a name
+  such as `box.tailnet.ts.net:8642`) shows **Allow private network** in place of **Allow** in App
+  settings → Permissions → Internet access, once Orgtree sees the site is on a private network (a
+  Tailscale address, a home or office network). It asks you to confirm: the app can send that computer
+  anything it can read and read anything it answers. Only allow a computer you control. A private
+  site is never offered in a runtime prompt, a wildcard never covers one, an agent cannot allow one,
+  and an app code change clears it like every other Allow. Orgtree remembers the address it saw when
+  you allowed it; if the name later points somewhere else the app is refused and the row offers **Use
+  the new address**. This computer itself, the cloud metadata address and loopback are never
+  reachable. Such a site may use plain `http://` and `ws://` (the row says "Unencrypted (http)"
+  outside Tailscale's ranges); redirects off it are not followed.
+- **Saved login.** For a site you have allowed, **Add a saved login** keeps one bearer token or
+  header under the row. Orgtree adds it to that site's requests itself: the app, its agents and its
+  exports never see it, Orgtree never shows it again (replace or remove it instead), and it is not
+  sent for "Allow once" or to any other site. Permission history records that a login was saved,
+  replaced or removed, never its value. It is encrypted on disk like watchdog credentials.
+- **Live connection.** `orgtree.net.connect(url)` opens a WebSocket that Orgtree holds for the app
+  and returns `{onMessage(fn), onState(fn), send(text), close()}`. An app may hold 4 (2 per panel);
+  text messages only; messages and `onState` events arrive as they come. After a reconnect the first
+  state carries `reconnected: true`: reread whatever you show. The panel's status bar shows a chip
+  per open connection (dot, site, private network or internet, lock, key). Panel History records open,
+  down, reconnected and closed, never message content. A connection closes when you hide or stop the
+  panel, change the app's code, change that site's permission or login, or the panel stops polling.

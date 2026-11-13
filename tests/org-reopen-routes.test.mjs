@@ -10,7 +10,7 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module'
 
 const root = path.resolve(import.meta.dirname, '..')
 const out = path.resolve(process.env.ORG_REOPEN_TEST_OUT || '')
-assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i,
+assert.match(out.replaceAll('\\', '/'), /^S:\/orgtree\/build\/[^/]+\/.+/i,
   'ORG_REOPEN_TEST_OUT must name the rig assigned C artifact directory')
 fs.mkdirSync(out, { recursive: true })
 const rootUrl = pathToFileURL(root + path.sep).href

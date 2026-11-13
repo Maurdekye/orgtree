@@ -1,7 +1,7 @@
 const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
-const out=process.env.LINK_CAPTURE_ROOT,modules=process.env.ORGTREE_NODE_MODULES||'E:/Libraries/Desktop/orgtree/node_modules'
-if(!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(out||''))throw Error('owned capture output required')
+const out=process.env.LINK_CAPTURE_ROOT,modules=process.env.ORGTREE_NODE_MODULES||'S:/orgtree/orgtree/node_modules'
+if(!/^S:[\\/]orgtree[\\/]build[\\/]taskbar-orgs-sol[\\/]/i.test(out||''))throw Error('owned capture output required')
 fs.mkdirSync(out,{recursive:true})
 require(path.join(modules,'esbuild')).buildSync({entryPoints:[path.join(process.cwd(),'apps/desktop/renderer/tests/linkparity-ui.tsx')],bundle:true,platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:[modules],loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'}})
 fs.copyFileSync(path.join(process.cwd(),'apps/desktop/renderer/src/styles.css'),path.join(out,'styles.css'))

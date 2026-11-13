@@ -13,7 +13,7 @@ param(
   [string[]]$Run,
   [string[]]$RunArgs = @(),
   [switch]$Wait,
-  [string]$LockDirectory = 'E:\Libraries\Desktop\orgtree\artifacts\machine-test-run',
+  [string]$LockDirectory = 'S:\orgtree\orgtree\artifacts\machine-test-run',
   [switch]$Enqueue,
   [switch]$Dequeue,
   [string]$Purpose,

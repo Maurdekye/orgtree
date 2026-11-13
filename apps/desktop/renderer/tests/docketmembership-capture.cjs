@@ -1,6 +1,6 @@
 const { app, BrowserWindow } = require('electron'), fs = require('node:fs'), path = require('node:path'), http = require('node:http')
 const out = process.env.MEMBERSHIP_OUT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(out || '')) throw Error('Owned output required')
+if (!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(out || '')) throw Error('Owned output required')
 app.setPath('userData', path.join(out, 'user-data')); app.disableHardwareAcceleration()
 const paint = w => w.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,250))))')
 app.whenReady().then(async () => {

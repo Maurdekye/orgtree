@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 const env = process.env;
 for (const key of ['CROP_JOB_CONTAINED', 'CROP_OUT', 'CROP_DEPS', 'CROP_TOOLS_DEPS', 'CROP_CDP']) if (!env[key]) throw Error('Missing ' + key);
-if (env.CROP_JOB_CONTAINED !== '1' || !/^C:[\\/]orgtree-build[\\/]/i.test(env.CROP_OUT)) throw Error('Contained C output required');
+if (env.CROP_JOB_CONTAINED !== '1' || !/^S:[\\/]orgtree[\\/]build[\\/]/i.test(env.CROP_OUT)) throw Error('Contained C output required');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), out = path.resolve(env.CROP_OUT);
 const hub = fs.existsSync(path.join(root, 'src/components/PictureEditor.tsx'));
 const esbuild = createRequire(path.join(env.CROP_TOOLS_DEPS, 'package.json'))('esbuild');

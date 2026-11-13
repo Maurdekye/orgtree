@@ -1,7 +1,7 @@
 const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path')
 const root=process.env.TEAM_CAPTURE_ROOT
-if(!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root||''))throw Error('Expected own output')
+if(!/^S:[\\/]orgtree[\\/]build[\\/]helper-transcript-sol[\\/]/i.test(root||''))throw Error('Expected own output')
 app.setPath('userData',path.join(root,'user-data'));app.disableHardwareAcceleration()
 app.whenReady().then(async()=>{
  const win=new BrowserWindow({width:1000,height:700,useContentSize:true,show:false,paintWhenInitiallyHidden:true,

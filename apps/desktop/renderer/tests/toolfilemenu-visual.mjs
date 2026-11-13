@@ -10,7 +10,7 @@ const [outputArg, evidenceArg, depsArg] = process.argv.slice(2)
 if (!outputArg || !evidenceArg || !depsArg) throw new Error('Usage: toolfilemenu-visual.mjs <C build output> <C evidence> <shared node_modules>')
 const output = path.resolve(outputArg), evidence = path.resolve(evidenceArg), deps = path.resolve(depsArg)
 for (const dir of [output, evidence]) {
-  if (!/^C:[\\/]orgtree-build[\\/]message-docs-luna[\\/]/i.test(dir)) throw new Error(`Refusing output outside assigned C: scope: ${dir}`)
+  if (!/^S:[\\/]orgtree[\\/]build[\\/]message-docs-luna[\\/]/i.test(dir)) throw new Error(`Refusing output outside assigned C: scope: ${dir}`)
 }
 const esbuild = createRequire(path.join(deps, '../package.json'))('esbuild')
 mkdirSync(output, { recursive: true })

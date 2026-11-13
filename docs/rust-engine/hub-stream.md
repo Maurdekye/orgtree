@@ -9,7 +9,7 @@ speaking `/healthz` and the WebSocket on one port).
 ## What changes
 
 Each poller (one per hub address) owns one `Carrier`. For every poll it asks
-the carrier first: when the hub's `/healthz` lists `stream` (Mail hub 2.5.0),
+the carrier first: when the hub's `/healthz` lists `stream` (newer Mail hub versions),
 the poll goes over one WebSocket (`GET /api/stream`, subprotocol
 `orgtree-hub-stream.1`) and the carrier returns the hub's status and JSON
 body; otherwise it answers "HTTP" and the poller runs the unchanged

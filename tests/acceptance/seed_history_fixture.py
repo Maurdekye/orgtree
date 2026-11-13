@@ -1,6 +1,6 @@
 """Provider-free actual-app fixture. Refuses an existing root; never starts engine lifespan.
 
-python seed-history.py --repo E:/Libraries/Desktop/orgtree --root <NEW absolute directory>
+python seed-history.py --repo S:/orgtree/orgtree --root <NEW absolute directory>
 Run the desktop/engine with the environment printed in manifest.json.
 """
 import argparse

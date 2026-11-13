@@ -2,7 +2,7 @@ use super::*;
 use crate::accounts::{AccountInfo, Accounts};
 use crate::providers::{CliStatus, State, MuseDiscovery, muse_models::{MuseProbe, MuseCatalog, MuseModel}};
 
-const SAMPLES: [(&str, &str); 6] = [("claude", "opus"), ("openai", "sol"), ("google", "flash"),
+const SAMPLES: [(&str, &str); 6] = [("claude", "opus"), ("openai", "sol"), ("google", "hydrogen"),
     ("muse", "wonder"), ("openrouter", "or-fixture"), ("langserver", "ls-fixture-model")];
 
 fn account(provider: &str, id: &str) -> AccountInfo {
@@ -53,7 +53,7 @@ macro_rules! off_case { ($name:ident, $provider:literal, $tier:literal) => {
 }; }
 off_case!(claude_org_off, "claude", "opus");
 off_case!(codex_org_off, "openai", "sol");
-off_case!(agy_org_off, "google", "flash");
+off_case!(agy_org_off, "google", "hydrogen");
 off_case!(muse_org_off, "muse", "wonder");
 off_case!(openrouter_org_off, "openrouter", "or-fixture");
 off_case!(langserver_org_off, "langserver", "ls-fixture-model");
@@ -70,6 +70,20 @@ off_case!(langserver_org_off, "langserver", "ls-fixture-model");
         crate::org_accounts::set(&org, Default::default());
         assert!(hidden, "org allowance cannot override an app-disabled account: {provider}");
     }
+}
+
+/// Flash is legacy (user 2026-11-13 "Now"): no staffing surface offers it or Gemini Pro. Hydrogen takes its
+/// place with nothing listed by agy (the fixture's list is empty), where Carbon stays hidden.
+#[test] fn legacy_flash_left_the_staffing_options_and_hydrogen_is_there_unlisted() {
+    let (e, org) = fixture();
+    assert!(e.providers.state.load().agy_models.is_empty(), "control: agy lists nothing here");
+    let tiers: Vec<String> = options(&e, &org)["tiers"].as_array().unwrap().iter().map(|t| t["tier"].as_str().unwrap().to_string()).collect();
+    assert!(tiers.iter().any(|t| t == "hydrogen"), "{tiers:?}");
+    for hidden in ["flash", "pro", "carbon", "argon", "krypton"] { assert!(!tiers.iter().any(|t| t == hidden), "{hidden}: {tiers:?}"); }
+    let row = options(&e, &org)["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "hydrogen").cloned().unwrap();
+    assert_eq!((row["seat"].as_f64(), row["provider"].as_str()), (Some(1.0), Some("google")));
+    // user 2026-11-13 m39ddd2612ce5: xhigh is selectable wherever the hire menu's efforts are read
+    assert_eq!(row["efforts"], json!(["low", "medium", "high", "xhigh"]));
 }
 
 #[test] fn absent_native_harnesses_are_not_offered() {

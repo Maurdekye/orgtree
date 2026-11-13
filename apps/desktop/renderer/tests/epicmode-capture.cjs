@@ -11,8 +11,8 @@ const path = require('node:path')
 
 const root = process.env.EPIC_VISUAL_ROOT
 const url = process.env.EPIC_VISUAL_URL
-if (!/^C:\\orgtree-build\\[^\\]+\\/i.test((root || '') + '\\')) throw new Error('expected a C:\\orgtree-build output root')
-if (!/^file:\/\/\/C:\/orgtree-build\//i.test(url || '')) throw new Error('expected the generated fixture folder as a file:// URL')
+if (!/^S:\\orgtree\\build\\[^\\]+\\/i.test((root || '') + '\\')) throw new Error('expected a S:\\orgtree\\build output root')
+if (!/^file:\/\/\/S:\/orgtree\/build\//i.test(url || '')) throw new Error('expected the generated fixture folder as a file:// URL')
 const shots = path.join(root, 'shots')
 fs.mkdirSync(shots, { recursive: true })
 app.setPath('userData', path.join(root, 'user-data'))

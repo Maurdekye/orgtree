@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import App from '../src/App'
 import type { DesktopNotice } from '../src/notifications'
 import type { AskInfo, MailEntry, WorkItem } from '../src/types'
-import { forgetAttentionMode, setOrgView } from '../src/attention/mode'
+import { attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView } from '../src/attention/mode'
 import { resetConvos } from '../src/convo'
 import { resetLocalReads } from '../src/mailread'
 // a read made in one test is not still "read here" in the next
@@ -159,6 +159,20 @@ for (const [notice, key, kind] of [
     }
   })
 }
+
+test('a notification for an entry in a HIDDEN Needs attention panel brings the panel back', async (t) => {
+  // user 2026-11-13 m525fd3e66e99: the divider taken to the edge hides a panel.
+  // A notification click selects its entry there, which nobody would see.
+  const { el, click } = await setup(t)
+  await inAct(() => { setAttentionLayout(ORG, { hidden: 'left' }) })
+  assert.equal(el.querySelector('.attn-slot-queue')?.classList.contains('attn-slot-hidden'), true)
+  await click(notices[4]!)                     // not in the list: opens the docket, reveals nothing
+  assert.equal(attentionLayout(ORG).hidden, 'left')
+  await click(notices[0]!)
+  assert.equal(el.querySelector('[data-attn-row][aria-selected="true"]')?.getAttribute('data-attn-row'), 'ticket:flagged')
+  assert.equal(attentionLayout(ORG).hidden, null, 'the panel holding the entry is in view again')
+  assert.equal(el.querySelector('.attn-slot-queue')?.classList.contains('attn-slot-hidden'), false)
+})
 
 for (const [target, panel] of [[3, 'inbox'], [4, 'docket']] as const) {
   test(`Attention keeps the existing ${panel} modal for an unlisted notification target`, async (t) => {

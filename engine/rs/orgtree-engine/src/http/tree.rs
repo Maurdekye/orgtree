@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(actual["foreground"]["present"].as_array().unwrap().len(), 4);
     }
 
-    /// Decision 101: a window reads from the tree what the engine that runs
+    /// Decision 103: a window reads from the tree what the engine that runs
     /// the organization can do. The first read announces record changes
     /// whatever the settings group says, and keeps what else that group says.
     #[test]

@@ -50,6 +50,14 @@ around a shipped migration under a name that sorts between its neighbours (`0070
 and `0071a_restore_panel_messages` around 0071, D14); the staged migration tests cut the list at
 `name < "00NN"`, which relies on that order. [verified: `src/migrate.rs`; 2026-10-28]
 
+Two lines that number migrations apart collide when one is merged into the other. What a release
+carried keeps its number and its text; the migration no release carried takes the next free number
+in the merge commit, with its pin. 2026-11-13: 4.6.0's `0086_user_origin` became `0088_user_origin`
+behind 4.5.12's `0086_app_private_sites` and `0087_app_site_secrets`. Its additions are
+`ADD COLUMN IF NOT EXISTS`, so a database that a 4.6.0 development build opened still upgrades: it
+recorded the old name, and `migrate::run` asks only for the names it registers, so a recorded name
+it no longer knows is left alone. [decided: coordinator 2026-11-13; verified: `src/migrate.rs`]
+
 <a id="e-aad7fd24eb2bb4c0"></a>
 
 ## Engine log: one file per start, &lt;data&gt;\diagnostics\logs\&lt;start time&gt;.log, kept 30 days.
@@ -145,15 +153,15 @@ Original section: Architecture. Source lines 4313–4320.
 
 ## Which computer a user action came through (2026-11-13, 4.6.0)
 
-Every connected desktop is the user; the identities in the records stay `@user` and `"user"`. Beside them, a record of a user action stores `via`: the origin `http::guard` resolved from the token that authenticated the request (`caller.rs`), read with `caller::via()` or `caller::via_of(who)`. A new writer of a user action (mail from the user, an event whose actor is the user, a docket change by the user, an undo entry) stores it; a writer for an agent, the engine or an outside party never does. A reader for windows passes it on only when it is not null, beside the identity and never inside a typed event envelope; a reader for agents does not pass it on (decision 101: agents read "user"). See [several people on one organization](../rust-engine/remote-org.md#several-people-on-one-organization).
-[decided: user 2026-11-11, decision 101; verified: `caller.rs`, `migrations/0086_user_origin.sql`, `feed/compute.rs`; 2026-11-13]
+Every connected desktop is the user; the identities in the records stay `@user` and `"user"`. Beside them, a record of a user action stores `via`: the origin `http::guard` resolved from the token that authenticated the request (`caller.rs`), read with `caller::via()` or `caller::via_of(who)`. A new writer of a user action (mail from the user, an event whose actor is the user, a docket change by the user, an undo entry) stores it; a writer for an agent, the engine or an outside party never does. A reader for windows passes it on only when it is not null, beside the identity and never inside a typed event envelope; a reader for agents does not pass it on (decision 103: agents read "user"). See [several people on one organization](../rust-engine/remote-org.md#several-people-on-one-organization).
+[decided: user 2026-11-11, decision 103; verified: `caller.rs`, `migrations/0088_user_origin.sql`, `feed/compute.rs`; 2026-11-13]
 
 ## A save says what it was based on (2026-11-13, 4.6.0)
 
 A user save of something several people can edit takes `expect`: for each field it changes, the value the edit started from, as a window is shown it (`domain/expect.rs`). Compare under the lock the save writes under (`expect::differing`), write nothing when a field differs, and answer `expect::refusal(target, changed)`: a 409 with `code: "save_conflict"` and, per field, what is stored, who changed it and when. There is no force flag: "save anyway" is a new save based on what the refusal said is stored. Take `expect` out of the body before anything else reads it (`expect::take`, `expect::split`), so the recorded change never carries it. A save without `expect` is not checked, and the tree's `capabilities.expect` tells a window that the engine checks. A refusal with a code is a `domain::undo::Coded`; `http/error.rs` keeps its status and code on every route. Record what a save really changed, not what it was sent (`detail.changed` of a `scope` event), where the answer to "who changed this" is read from events. [docs/rust-engine/remote-org.md](../rust-engine/remote-org.md#the-save-that-would-replace-a-newer-change)
-[decided: user 2026-11-11, decision 101; verified: `domain/expect.rs`, `http/nodes.rs`, `http/settings.rs`; 2026-11-13]
+[decided: user 2026-11-11, decision 103; verified: `domain/expect.rs`, `http/nodes.rs`, `http/settings.rs`; 2026-11-13]
 
 ## A route is classified for a hosting desktop's members too (2026-11-13, 4.6.0)
 
 A desktop may let other computers open some of its organizations through a second listener, the door (`remote_access/`). A connection accepted there is marked (`Connection::door`), and `http::guard` judges a marked connection by `remote_access::admit` alone: its own tokens (`<data>/remote-access.json`, hashes only), the API and nothing else, and the member route table. A route added to `http::router` goes into exactly one list of `remote_access/member.rs`, or `every_route_is_classified_for_members` fails: a route of an organization in `ORG` unless it reaches beyond the organization, anything else in `REFUSED` unless a computer that was let in must read it, and then its answer holds nothing of the owner's (no e-mail address, no other organization). The viewer table (`http/viewer.rs`) and the route classes (`remote/routes.rs`) want the same route too. Never read the desktop token for a door request, never dispatch the language-server proxy or the credential bridge for one, and never relay one. [docs/rust-engine/remote-org.md](../rust-engine/remote-org.md#a-desktop-as-host), [what a reviewer needs](../rust-engine/remote-access-security.md)
-[decided: user 2026-11-11, decision 101; verified: `remote_access/mod.rs`, `remote_access/member.rs`, `http/mod.rs`; 2026-11-13]
+[decided: user 2026-11-11, decision 103; verified: `remote_access/mod.rs`, `remote_access/member.rs`, `http/mod.rs`; 2026-11-13]

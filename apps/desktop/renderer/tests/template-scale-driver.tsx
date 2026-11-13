@@ -11,7 +11,7 @@ import type { TreeNode, TreePayload } from '../src/types'
 const base = process.argv[2], rawOutput = process.argv[3].replaceAll('\\','/')
 const output = rawOutput.startsWith('//?/') ? rawOutput.slice(4) : rawOutput
 assert.equal(new URL(base).hostname, '127.0.0.1')
-assert.ok(path.resolve(output).toLowerCase().startsWith('c:\\orgtree-build\\template-dogs-sol\\'))
+assert.ok(path.resolve(output).toLowerCase().startsWith('s:\\orgtree\\build\\template-dogs-sol\\'))
 const originalFetch = globalThis.fetch
 type Receipt = { path: string; seconds: number; json_seconds: number; value: Record<string, any> }
 const receipts: Receipt[] = []

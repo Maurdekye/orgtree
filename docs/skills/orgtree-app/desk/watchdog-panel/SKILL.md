@@ -29,6 +29,8 @@ The available controls pause, resume or remove. MQTT and WebSocket watchers also
 
 Use `orgtree-tool-watchdog` (orgtree-working › watchdogs) for kinds, action parameters, fire semantics and creation constraints. This panel does not introduce a second watcher policy.
 
+A usage watcher shows its accounts, events and, when set, its **Threshold** percent. A Fable pip watcher shows **Fable pip offset: N points** ("point" when N is 1, signed) instead, and its description reads, for example, "comes within 2 points of the Fable pip", "reaches the Fable pip" or "is 1 point past the Fable pip". A pip watcher cannot be switched to or from a threshold watcher: remove it and create a new one.
+
 ## See also
 
 MQTT detail also shows the owner's sent-message count/time and its publishing

@@ -56,7 +56,7 @@ if(mode==='audit-controls'){
   process.exit(0)
 }
 const deps=path.resolve(depsArg),out=path.resolve(outputArg)
-if (!/^C:\\orgtree-build\\[^\\]+\\/i.test(out+'\\')) throw new Error('C build scope required')
+if (!/^S:\\orgtree\\build\\[^\\]+\\/i.test(out+'\\')) throw new Error('C build scope required')
 fs.mkdirSync(out,{recursive:true})
 const require=createRequire(path.join(deps,'package.json')), esbuild=require('esbuild')
 const baseline = (files, changes) => [{name:'composed-tool-display-control',setup(build){build.onLoad({filter:/canvas[\\/]((toolclock)|(desk))\.tsx$/},args=>{

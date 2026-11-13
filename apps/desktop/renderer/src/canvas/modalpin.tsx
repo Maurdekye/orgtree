@@ -3,7 +3,7 @@ import { canvasBox, pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, r
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import type { SurfaceOrigin } from '../popout'
-import { detachedKind, revealDetachedPanel } from '../windowlife'
+import { detachedKind, initiatingDocument, revealDetachedPanel } from '../windowlife'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind, legacyFamily, migratedKind, PER_TARGET_KINDS } from '../modalkinds'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
@@ -771,6 +771,23 @@ export interface PinFrameProps {
    *  modal pin: the project desk becomes the agent pin layer's window, as the
    *  agent temporary desk's pin does (tempdesk.tsx, user 2026-10-18 11:47Z) */
   pinElsewhere?: (rect: PinRect) => void
+  /** A SURFACE THAT ONLY EVER EXISTS CENTRED, AND SAVES NOTHING (the agent's
+   *  temporary desk, user 2026-11-13 m2672b93c2df8 "A + all 5"). It is the
+   *  shared frame, bar and menu, but it is never itself pinned or popped out
+   *  and never a window-layout row: its pin is `pinElsewhere` and its pop-out
+   *  is `popElsewhere`, each handing over to the real window and absent when
+   *  the caller passes none. */
+  transient?: boolean
+  /** open this as a window ELSEWHERE, in place of popping the frame out: the
+   *  bar's pop-out button and the menu's "Open in new window" call it. Only
+   *  read on a `transient` surface. */
+  popElsewhere?: () => void
+  /** A MODAL THAT KEEPS THE KEYBOARD (centred only): focus goes into the panel
+   *  when it opens, Tab stays inside it (a dialog or menu the content opens
+   *  keeps its own), and focus returns to the opener when it closes unless
+   *  something else took it on purpose. The temporary desk's handling, moved
+   *  here so any centred surface can ask for it. */
+  focusTrap?: boolean
   /** what Escape does while the surface is CENTRED; defaults to `close`.
    *  A PINNED window ignores Escape, like an agent window: it is not a modal
    *  interruption any more, and Escape there cancels a drag instead. */
@@ -813,14 +830,27 @@ export function PinFrame(props: PinFrameProps) {
   // handed to the window opener, which sits above the panel in the tree.
   const panelRef = useRef<HTMLDivElement>(null)
   const modalMin = modalMinDimensions(props.kind)
-  if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} panelRef={panelRef} />
-  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore} minDimensions={modalMin} onDismiss={props.close}
+  // WHICH WINDOW IT IS IN decides where a pin holds it (user 2026-11-12 md15fcb3a298e: a presentation reader
+  // opened from a popped-out desk's header "works, but trying to pin it makes it invisible"). The org's pin layer
+  // belongs to the MAIN window's canvas. A surface that lives in another window, because it was asked for there
+  // (MovableSurface opens it in the window the click came from) or because it is a child of a popped-out
+  // surface, is pinned inside that window: no anchor, so MovableSurface leaves it where it is, and
+  // PinFrameInner bounds it by that window's own area.
+  const hostSurface = useSurface()
+  const [asked] = useState(() => initiatingDocument())
+  const home = hostSurface?.document ?? asked
+  const elsewhere = home !== document && !home.defaultView?.closed
+  // a transient surface takes the same path as one with no org: no
+  // MovableSurface, so nothing can pop it out, restore it or save its place
+  if (!scope || props.pinnable === false || props.transient) return <PinFrameInner {...props} pinnable={false} orgScope={null} panelRef={panelRef} />
+  return <MovableSurface key={scope} anchor={pin && !elsewhere ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore} minDimensions={modalMin} onDismiss={props.close}
     sourceBox={() => { const r = panelRef.current?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null }}>
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
 function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal = false, closeInModal = false, pinElsewhere, panel, close, children, headerActions,
-  onEsc, backdropClose = true, closable = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
+  onEsc, backdropClose = true, closable = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef,
+  transient = false, popElsewhere, focusTrap = false }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
@@ -842,7 +872,12 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   const pinned = pinnable && orgScope !== null && pin !== null && !detached
   const inPlace = inline && !pinned && !detached
   const overlapSetting = useModalOverlap()
-  const bounds = useCanvasBox(ownerDocument, orgScope)
+  const canvas = useCanvasBox(ownerDocument, orgScope)
+  // A window other than the main one has no canvas: a pin there is bounded by the window itself (see PinFrame).
+  // Read at render; the geometry tick below makes a resize of that window a render.
+  const elsewhere = ownerDocument !== document
+  const bounds = canvas ?? (elsewhere && ownerWindow.innerWidth > 0 && ownerWindow.innerHeight > 0
+    ? { x: 0, y: 0, w: ownerWindow.innerWidth, h: ownerWindow.innerHeight } : null)
   const overlapsDesk = useDeskOverlap(panelRef, pinned && overlapSetting.enabled)
   // Escape is the CENTRED surface's exit only (see onEsc). The hook is always
   // called — hooks are not conditional — and is handed a no-op when pinned.
@@ -885,14 +920,18 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   }, [ownerWindow])
 
   const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds, modalMin) : null
-  const layout = usePinSurface(orgScope, kind, rect, true)
+  // The shared pin registry is the MAIN canvas's: its rects are that canvas's coordinates, for snapping and
+  // stacking among the windows there. A pin held in another window is not one of them, and they are not its
+  // neighbours.
+  const offCanvas = elsewhere && !canvas
+  const layout = usePinSurface(orgScope, kind, offCanvas ? null : rect, true)
   useEffect(() => {
     if (pinned) raisePinnedModal(kind, orgScope)
   }, [pinned, kind, orgScope])
 
   // Display > "snap pinned panels to edges" off: no gesture ever snaps
   const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => disabled || !pinSnapOn() ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
-    readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds,
+    offCanvas ? [] : readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds,
     g?.kind === 'size' ? { edge: g.edge, minWidth: modalMin?.width ?? PIN_MIN_W,
       minHeight: modalMin?.height ?? PIN_MIN_H } : undefined)
 
@@ -981,6 +1020,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
         y: origin.rect.y + origin.owner.screenY - ownerWindow.screenY }
     }
     if (!pinned && pinElsewhere) { pinElsewhere(measured()); return }
+    if (transient) return        // never a modal pin of its own
     if (pinned) {
       unpinModal(kind, orgScope)
       forgetModalOpen(kind, orgScope)
@@ -1019,6 +1059,13 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   const menu = useContextMenu()
   const barMenu = (): MenuEntry[] => {
     const entries: MenuEntry[] = []
+    // a transient surface offers the same two entries by the same names, each
+    // only while its hand-over exists
+    if (transient && !isMobile) {
+      if (popElsewhere) entries.push({ label: 'Open in new window', onSelect: popElsewhere })
+      if (pinElsewhere) entries.push({ label: 'Pin to window',
+        title: 'pin this to the window, so it stays put and can be dragged around', onSelect: toggle })
+    }
     if (pinnable && orgScope && surface && !isMobile) {
       entries.push(surface.detached
         ? { label: 'Return to main window', onSelect: () => surface.redock() }
@@ -1045,6 +1092,61 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
     return entries
   }
 
+  // FOCUS GOES IN, STAYS IN, AND COMES BACK OUT WHERE IT WAS (`focusTrap`).
+  // The element that opened the surface (a card, a tray row, a menu item) is
+  // remembered before focus moves, because "closing puts everything back"
+  // includes the keyboard: landing the user on `document.body` would leave the
+  // next keystroke going nowhere.
+  useEffect(() => {
+    if (!focusTrap) return
+    const doc = ownerDocument
+    const opener = doc.activeElement
+    const mountedPanel = panelRef.current
+    mountedPanel?.focus?.()
+    const trapTab = (event: KeyboardEvent) => {
+      const root = panelRef.current
+      if (event.key !== 'Tab' || event.defaultPrevented || !root) return
+      // The content can open its own dialog or menu. Let its handler consume
+      // Tab first, and leave focus alone while another modal owns it.
+      const active = doc.activeElement
+      // PinFrame dialogs do not all declare aria-modal. Menus and pickers
+      // also portal outside this panel and must keep their own keyboard focus.
+      const dialog = active?.closest('.overlay, [role="dialog"], [role="menu"], [role="listbox"]')
+      if (dialog && dialog !== root && dialog !== root.parentElement) return
+      const targets = Array.from(root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex], [contenteditable="true"]',
+      )).filter(element => {
+        if (element.tabIndex < 0 || element.matches(':disabled') || element.closest('[hidden], [inert]')) return false
+        // A desk carries collapsed panes as well as visible ones. Compute
+        // visibility in its own document, including hidden ancestors.
+        for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+          const style = doc.defaultView?.getComputedStyle(current)
+          if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false
+          if (current === root) break
+        }
+        return true
+      })
+      event.preventDefault()
+      if (!targets.length) { root.focus(); return }
+      const index = targets.findIndex(element => element === active)
+      const next = index < 0 ? (event.shiftKey ? targets.length - 1 : 0)
+        : (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length
+      ;(targets[next] ?? root).focus()
+    }
+    doc.addEventListener('keydown', trapTab)
+    return () => {
+      doc.removeEventListener('keydown', trapTab)
+      const active = doc.activeElement
+      const focusLeft = active && active !== doc.body && !mountedPanel?.contains(active)
+      // Adopted elements can retain another window's constructor realm.
+      // Match the available focus operation, and preserve any action that
+      // deliberately moved focus elsewhere before dismissing this surface.
+      if (!focusLeft && opener?.isConnected && opener !== doc.body
+        && 'focus' in opener && typeof opener.focus === 'function') opener.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTrap])
+
   const style: CSSProperties | undefined = rect
     ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h }
     : undefined
@@ -1052,7 +1154,9 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   return (
     <div className={(inPlace ? 'surface-inline' : 'overlay')
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}
-      style={pinned && bounds ? { zIndex: layout.z, inset:'auto', left:bounds.x, top:bounds.y,
+      // In the main window a pin joins the desks' stacking band. Another window has no such band: there the
+      // overlay keeps its own layer, above that window's content, as it had before it was pinned.
+      style={pinned && bounds ? { ...(offCanvas ? {} : { zIndex: layout.z }), inset:'auto', left:bounds.x, top:bounds.y,
         width:bounds.w, height:bounds.h, overflow:'clip' } : undefined}
       onClick={inPlace || pinned || detached || !backdropClose ? undefined
         : (e) => {
@@ -1066,6 +1170,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
           the class list and the inline rect change, so React keeps the whole
           subtree mounted across a pin, an unpin, a drag and a resize. */}
       <div ref={panelRef} role={dialogLabel ? (inPlace ? "region" : "dialog") : undefined} aria-label={dialogLabel}
+        aria-modal={focusTrap && dialogLabel && !inPlace ? true : undefined} tabIndex={focusTrap ? -1 : undefined}
         className={panel + (pinned ? ' modalpin-win' : '') + (ownWindow ? ' modalpin-detached' : '')}
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
@@ -1121,7 +1226,14 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}>{headerActions}</div>}
           {pinnable && orgScope && !deskTitle && <PopoutButton />}
-          {pinnable && <button type="button" className="modalpin-btn" disabled={detached}
+          {/* a transient surface's pop-out: PopoutButton's look and name, the
+              caller's hand-over behind it */}
+          {transient && popElsewhere && !isMobile && (
+            <button type="button" className="popout-button" title="Open in new window" aria-label="Open in new window"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); popElsewhere() }}>↗</button>
+          )}
+          {(pinnable || (transient && !!pinElsewhere && !isMobile)) && <button type="button" className="modalpin-btn" disabled={detached}
             title={pinned
               ? 'unpin — put this back in the middle of the screen'
               : 'pin this to the window, so it stays put and can be dragged around'}

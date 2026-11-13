@@ -34,6 +34,7 @@ carries the app-server's reason. In addition, as 3.x did:
   turn died and the error.
 - It is announced once per run of failures. `hard_fail_run` counts the failed
   turns, a completed turn clears it, and the next failure is news again.
+  A deliberate wake (user/agent mail, outside-mail delivery to a live non-halted holder, a user answer, or manual unstick) also clears only `hard_fail_run`, so another failure is reported again; automatic wakes keep the existing once-per-run behavior (USER 2026-11-13 m482b381453cb).
 - Nothing retries it. A launch that cannot start would fail the same way, and
   the superior or the next mail decides.
 - A freeze, halt, limit lock, killswitch, a seat that is not live and an engine

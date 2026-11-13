@@ -62,7 +62,7 @@ export function AppPermissions({slug,app,close,embedded=false}:{slug:string;app:
     {!appCapabilities(current).length&&<p>This app declares no engine actions.</p>}
     {appCapabilities(current).filter(cap=>!cap.startsWith('files.')&&cap!=='net.fetch').map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to each panel's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={appPermission(current,cap)} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
     {appCapabilities(current).some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
-    {appCapabilities(current).includes('net.fetch')&&<AppNetPermissions app={current} save={save} disabled={busy}/>}
+    {appCapabilities(current).includes('net.fetch')&&<AppNetPermissions app={current} save={save} disabled={busy} slug={slug}/>}
     {error&&<p role="alert">{error}</p>}
   </>
   return embedded?<section className="custom-app-permissions" aria-label="App permissions">{content}</section>:<AppDialog title="App permissions" close={close}>{content}</AppDialog>

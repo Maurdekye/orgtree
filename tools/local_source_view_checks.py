@@ -18,8 +18,8 @@ BASE, PHASE = sys.argv[1], sys.argv[3]
 out = Path('C:/Temp/source-view-checks-' + sys.argv[2]) / PHASE
 out.mkdir(parents=True)
 pgroot = out / 'pg'
-tool = 'E:/Libraries/Desktop/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
-pgbin = 'E:/Libraries/Desktop/orgtree/artifacts/p03-postgresql/18.6-4/bin'
+tool = 'S:/orgtree/orgtree/artifacts/p03-tools/pg-custodian-e4f3c8f.exe'
+pgbin = 'S:/orgtree/orgtree/artifacts/p03-postgresql/18.6-4/bin'
 GROUP = ['tests/test_transcript_ingest.py', 'tests/test_transcript_ingest_pg.py',
          'tests/test_claude_pipe_lifecycle.py', 'tests/test_freeze_classification.py',
          'tests/test_live_effort.py', 'tests/test_mail_runtime_reclaim.py',

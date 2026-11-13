@@ -199,7 +199,7 @@ onto that call's own chip, shown as the checklist (`TodoWrite`, with
 2026-10-14 one such call showed as two chips (`actor.rs` `muse_todos_on_call`).
 
 **Tool calls past the silence limit** (`actor.rs` `stop_silent_muse_tools`,
-`muse.rs` `stop_task`). The silence limit (Runtime `turn_idle_s`, 10 minutes
+`muse.rs` `stop_task`). The silence limit (Runtime `turn_idle_s`, 30 minutes
 by default) counts from the last thing the host sent. When it runs out on a
 Muse turn that is waiting on tool calls, the silence is theirs. Orgtree first
 steers a note into the turn ("Orgtree stopped your powershell call: it

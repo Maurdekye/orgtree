@@ -106,7 +106,7 @@ function picture(kind) {
     bytes: png.length, width: 64, height: 64 }
 }
 const normalize = png => ({ png, width: 64, height: 64 })
-const iconDir = () => fs.mkdtempSync(path.join(process.env.ORGTREE_TEST_OUTPUT || 'C:/orgtree-build/taskbar-orgs-sol', 'jump-icons-'))
+const iconDir = () => fs.mkdtempSync(path.join(process.env.ORGTREE_TEST_OUTPUT || 'S:/orgtree/build/taskbar-orgs-sol', 'jump-icons-'))
 
 test('logo icons are owned ICO files, version paths on edits, and disappear from removed logos', async () => {
   const dir = iconDir(), one = picture('home'), two = picture('create')

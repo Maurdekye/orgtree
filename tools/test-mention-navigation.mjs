@@ -10,7 +10,7 @@ const [outArg, sourceArg] = process.argv.slice(2)
 const out = path.resolve(outArg), source = path.resolve(sourceArg)
 const owner=process.env.ORGTREE_AGENT
 assert.match(owner ?? '', /^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'ORGTREE_AGENT required')
-const ownerRoot=path.resolve('C:/orgtree-build',owner)
+const ownerRoot=path.resolve('S:/orgtree/build',owner)
 assert.ok(out.toLowerCase().startsWith(ownerRoot.toLowerCase()+path.sep), 'private owned output required')
 for (let p=out; ; p=path.dirname(p)) {
   if (fs.existsSync(p)) assert.ok(!fs.lstatSync(p).isSymbolicLink(), 'linked output ancestor refused')

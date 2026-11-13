@@ -1,4 +1,4 @@
-// Proof: the conditional Gemini tiers (Argon, Barium, Carbon) follow the
+// Proof: the conditional Gemini tiers (Argon, Krypton, Carbon) follow the
 // account's `agy models` registry, read when it matters and never polled
 // (docket gemini-4-argon-is-selectable-in-agy-but-orgtree-d; user 2026-10-14).
 //   - the fake agy prints the registry from fakecli/agy-models.txt (absent:
@@ -7,7 +7,7 @@
 //     further read happens (no periodic reads)
 //   - opening a model choice (the renderer's POST
 //     /api/providers/agy-models/refresh) re-reads it: Argon appears with no
-//     restart, Barium and Carbon stay hidden (each judged on its own id)
+//     restart, Krypton and Carbon stay hidden (each judged on its own id)
 //   - debounce: a refresh under 30 s after a read reuses it (no new run)
 //   - exact id: `gemini-4-argonite`, `gemini-4-argon-preview` and a label are
 //     no evidence; signed out (no rows) withdraws Argon
@@ -30,7 +30,7 @@ const MEASURED = [
   'gemini-3.8-flash-high\tGemini 3.8 Flash (High)', 'gemini-3.8-flash-low\tGemini 3.8 Flash (Low)',
   'gemini-3.1-pro-high\tGemini 3.1 Pro (High)', 'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
 ]
-const CONDITIONAL = ['argon', 'barium', 'carbon']
+const CONDITIONAL = ['argon', 'krypton', 'carbon']
 const REUSE_MS = 30_000
 const NOT_LISTED = /not in the model list the Antigravity CLI returns/
 const refusal = (pr) => pr.then(() => null, (e) => ({ status: e.status ?? -1, message: String(e.message ?? e) }))
@@ -65,7 +65,7 @@ export default async function (rig) {
   await sleep(8000)
   p.check('the engine read the list once at start and not again with no model choice opened', atStart === 1 && calls().length === 1, calls().length)
   const g = await google()
-  p.check('control: Antigravity is installed in this rig (its fake CLI) and offers flash', g?.status?.installed !== false && (await offered()).includes('flash'), g?.status)
+  p.check('control: Antigravity is installed in this rig (its fake CLI) and offers Hydrogen, its always-offered model (Flash is legacy)', g?.status?.installed !== false && (await offered()).includes('hydrogen') && !(await offered()).includes('flash'), g?.status)
   p.check('without Argon in the registry no conditional tier is offered', !(await offered()).some((t) => CONDITIONAL.includes(t)), await offered())
   p.check('staffing offers no conditional tier either', !(await staffed()).some((t) => CONDITIONAL.includes(t)), await staffed())
 
@@ -87,8 +87,8 @@ export default async function (rig) {
   }
   p.check('opening a model choice after the reuse window runs one fresh read', (await openFresh()) === 1)
   p.check('Argon is offered once agy lists it, with no restart', (await offered()).includes('argon'), await offered())
-  p.check('Barium and Carbon stay hidden: each tier is judged on its own id',
-    !(await offered()).includes('barium') && !(await offered()).includes('carbon'), await offered())
+  p.check('Krypton and Carbon stay hidden: each tier is judged on its own id',
+    !(await offered()).includes('krypton') && !(await offered()).includes('carbon'), await offered())
   p.check('staffing offers Argon too', (await staffed()).includes('argon'), await staffed())
   const row = ((await google())?.tiers ?? []).find((t) => t.tier === 'argon')
   p.check('the Argon row is the catalog row (gemini-4-argon, letter A, seat 2)', row?.model === 'gemini-4-argon' && row?.letter === 'A' && row?.seat === 2, row)
@@ -108,7 +108,7 @@ export default async function (rig) {
   registry([])
   await openFresh()
   p.check('signed out (no rows): Argon disappears, with no restart', !(await offered()).includes('argon') && !(await staffed()).includes('argon'))
-  p.check('control: Antigravity is still listed and still offers flash', (await offered()).includes('flash'))
+  p.check('control: Antigravity is still listed and still offers Hydrogen', (await offered()).includes('hydrogen'))
   p.check('the seat already on Argon is untouched: still live, still Argon', seat('arg1')?.state === 'live' && seat('arg1')?.tier === 'argon', seat('arg1'))
   r = await refusal(rig.op({ op: 'hire', name: 'arg3', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
   p.check('signed out: a hire naming Argon is refused again', r?.status === 409 && NOT_LISTED.test(r.message), r)

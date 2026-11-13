@@ -775,7 +775,7 @@ async fn open_by(tx: &Transaction<'_>, org_id: i64, uid: Option<&str>, agent: Op
     let Some(r) = r else { refuse!(NotFound, "that request no longer exists") };
     let status: String = r.get(5);
     if status != "open" {
-        // Someone settled it first (decision 101): the same sentence as before, and beside it how it
+        // Someone settled it first (decision 103): the same sentence as before, and beside it how it
         // was settled, by whom and when, so a window can show the settled card instead of an error.
         let (answer, via, at): (Option<Value>, Option<Value>, Option<chrono::DateTime<chrono::Utc>>) = (r.get(6), r.get(7), r.get(8));
         return Err(anyhow::Error::new(super::undo::Coded {
@@ -902,6 +902,9 @@ async fn publish_decision(engine: &Arc<Engine>, org: &Arc<OrgHandle>, decision: 
     ]);
     if let Some(request)=question {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("docket.question.answered",crate::runtime::watchdogs::events::Scope::Agent(org.id,agent_id),json!({"agent_id":agent_id,"request":request})));}
     if live && !halted {
+        if let Err(error) = crate::runtime::recovery::forget_hard_fail(engine, agent_id).await {
+            tracing::warn!(agent=agent_id, error=%format!("{error:#}"), "user decision wake could not reset stalled report");
+        }
         crate::runtime::wake(engine, org.id, agent_id);
     }
     if let Some(h) = engine.agents.get(agent_id) {

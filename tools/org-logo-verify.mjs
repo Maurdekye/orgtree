@@ -4,11 +4,11 @@ import http from 'node:http'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { launch } from 'file:///D:/orgtree-work/worktrees/hubchat-dm-sol-avatar-edit/tools/cdp.mjs'
+import { launch } from 'file:///S:/orgtree/work/worktrees/hubchat-dm-sol-avatar-edit/tools/cdp.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const out = process.env.ORG_LOGO_OUT
-if (!out?.startsWith('C:\\orgtree-build\\hubchat-dm-sol\\')) throw Error('Owned output required')
-const depsRoot = 'E:/Libraries/Desktop/orgtree', req = createRequire(depsRoot + '/package.json'), esbuild = req('esbuild')
+if (!out?.startsWith('S:\\orgtree\\build\\hubchat-dm-sol\\')) throw Error('Owned output required')
+const depsRoot = 'S:/orgtree/orgtree', req = createRequire(depsRoot + '/package.json'), esbuild = req('esbuild')
 fs.mkdirSync(out, { recursive: true })
 const checks = [], check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); console.log(JSON.stringify({ name, ok: !!ok, detail })) }
 const common = { bundle: true, jsx: 'automatic', nodePaths: [depsRoot + '/node_modules'], logLevel: 'warning' }

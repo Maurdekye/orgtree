@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const [deps, output, mode = 'test'] = process.argv.slice(2)
-if (!deps || !output || !/^C:[\\/]orgtree-build[\\/]ordering-sol[\\/]/i.test(path.resolve(output))) throw Error('Expected assigned C output and provisioned dependencies')
+if (!deps || !output || !/^S:[\\/]orgtree[\\/]build[\\/]ordering-sol[\\/]/i.test(path.resolve(output))) throw Error('Expected assigned C output and provisioned dependencies')
 const require = createRequire(path.join(path.resolve(deps), 'package.json'))
 const esbuild = require('esbuild')
 const visual = mode === 'visual'

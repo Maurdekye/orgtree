@@ -100,7 +100,7 @@ try:
         page.wait_for_timeout(500)
         result['cases']['attention'] = page.evaluate(MEASURE)
         page.screenshot(path=str(OUT / 'tempdesk-attention.png'))
-        page.locator('.tempdesk-close').click()
+        page.locator('.tempdesk-panel > .modalpin-bar .modalpin-x').click()
         page.wait_for_timeout(300)
         result['cases']['attention-closed'] = page.locator('.tempdesk-panel').count() == 0
         browser.close()

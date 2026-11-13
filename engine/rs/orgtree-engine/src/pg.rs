@@ -158,8 +158,9 @@ impl Cluster {
             if let Some(child) = self.child.as_mut() {
                 if let Ok(Some(status)) = child.try_wait() {
                     bail!(
-                        "postgres.exe exited during startup ({status}); see {}",
-                        self.cluster_dir.join("log").join("postgres.log").display()
+                        "postgres.exe exited during startup ({status}); see {}.{}",
+                        self.cluster_dir.join("log").join("postgres.log").display(),
+                        vc_runtime_hint(status.code())
                     );
                 }
             }
@@ -361,6 +362,21 @@ fn is_postgres(_pid: u32) -> bool {
     true
 }
 
+/// Windows ends a program that cannot load a DLL it needs (not found, entry point not found, failed to
+/// initialize, bad image), or that crashes inside one, with one of these statuses. The bundled PostgreSQL ships
+/// no Microsoft Visual C++ runtime of its own, so on a PC where that runtime is missing or too old its programs
+/// end this way before they can say anything (user 2026-11-12). Setup checks the runtime
+/// (tools/vc-runtime.ps1), but a silent update only reports it, and the runtime can be removed later. The text
+/// follows the error's own words; "" for every other exit.
+pub(crate) fn vc_runtime_hint(code: Option<i32>) -> &'static str {
+    match code.map(|c| c as u32) {
+        Some(0xC000_0135 | 0xC000_0139 | 0xC000_0142 | 0xC000_007B | 0xC000_0005) => {
+            " A likely cause is a missing or outdated Microsoft Visual C++ runtime on this PC: install the latest from https://aka.ms/vs/17/release/vc_redist.x64.exe, then start Orgtree again."
+        }
+        _ => "",
+    }
+}
+
 #[logged]
 async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Path, cancelled: &tokio_util::sync::CancellationToken) -> Result<()> {
     use rand::RngCore;
@@ -389,7 +405,7 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
     std::fs::remove_file(&pwfile).ok();
     let out = out?;
     if !out.status.success() {
-        bail!("initdb failed: {}", String::from_utf8_lossy(&out.stderr));
+        bail!("initdb failed ({}): {}{}", out.status, String::from_utf8_lossy(&out.stderr).trim_end(), vc_runtime_hint(out.status.code()));
     }
     let creds = json!({ ADMIN_ROLE: admin_pw, "orgtree_runtime": runtime_pw });
     std::fs::write(creds_file, serde_json::to_vec_pretty(&creds)?)?;
@@ -436,3 +452,33 @@ mod tests {
 
 #[cfg(all(test, windows))]
 mod rights_tests;
+
+#[cfg(test)]
+mod vc_runtime_hint_tests {
+    use super::vc_runtime_hint;
+
+    // user 2026-11-12: on a PC with an outdated Visual C++ runtime the bundled PostgreSQL "failed to initialize
+    // every time it tried to start up"; the database-start error names the runtime as a likely cause
+    #[test]
+    fn a_start_that_windows_ended_for_a_missing_or_broken_dll_names_the_visual_cpp_runtime() {
+        // DLL not found, entry point not found, DLL initialization failed, bad image, access violation
+        for status in [0xC000_0135u32, 0xC000_0139, 0xC000_0142, 0xC000_007B, 0xC000_0005] {
+            let hint = vc_runtime_hint(Some(status as i32));
+            assert!(hint.contains("Microsoft Visual C++ runtime"), "{status:#x}: {hint}");
+            assert!(hint.contains("https://aka.ms/vs/17/release/vc_redist.x64.exe"), "{status:#x}: {hint}");
+            assert!(hint.contains("likely cause"), "a likely cause, not a certainty: {hint}");
+            assert!(hint.starts_with(' '), "it follows the error's own words: {hint:?}");
+        }
+    }
+
+    #[test]
+    fn an_ordinary_failure_keeps_its_own_words() {
+        // initdb and postgres report their own errors with small exit codes; a signal or a clean exit says nothing
+        for code in [Some(0), Some(1), Some(2), Some(3), Some(-1), None] {
+            assert_eq!(vc_runtime_hint(code), "", "{code:?}");
+        }
+        // control-C and a stack overflow are not about a DLL
+        assert_eq!(vc_runtime_hint(Some(0xC000_013Au32 as i32)), "");
+        assert_eq!(vc_runtime_hint(Some(0xC000_00FDu32 as i32)), "");
+    }
+}

@@ -1,7 +1,7 @@
 {
   "id": "devteam-claude",
   "name": "devteam (claude)",
-  "description": "A small development team on Claude: a coordinator (Opus) who plans and reviews, an implementer (Opus) who builds, a redteam reviewer (Opus) who tries to break the work, and a curator (Sonnet) who keeps notes and docs tidy.",
+  "description": "A small development team on Claude: a coordinator (Opus) who plans and reviews, an implementer (Fable) who builds, a redteam reviewer (Opus) who tries to break the work, and a curator (Sonnet) who keeps notes and docs tidy.",
   "version": 1,
   "quick_chat": { "superior": "coordinator", "tier": "opus" },
   "agents": [
@@ -9,7 +9,7 @@
       "name": "coordinator", "tier": "opus", "charter": { "preset": "coordinator" }, "spare": 10,
       "kickoff": "Introduce yourself and your team to the user, and ask what we are building first.",
       "reports": [
-        { "name": "implementer", "tier": "opus", "charter": { "preset": "implementer" }, "spare": 0 },
+        { "name": "implementer", "tier": "fable", "charter": { "preset": "implementer" }, "spare": 0 },
         { "name": "redteam", "tier": "opus", "charter": { "preset": "redteam" }, "spare": 0 },
         { "name": "curator", "tier": "sonnet", "charter": { "preset": "curator" }, "spare": 0 }
       ]
