@@ -380,6 +380,22 @@ test('Reset to center with the left panel hidden shows both at 50%', async (t) =
   assert.ok(near(seen().split, 0.5))
 })
 
+// USER 2026-11-13 22:14:43Z m5ae27bfba121 "the split divider now has no context menu": the button sits on the divider's
+// middle, where people right-click, so it opens the divider's menu too.
+test('right-clicking the Swap panels button opens the same two-entry menu as the divider', async (t) => {
+  reset()
+  await mounted(t)
+  for (const sel of ['button.attn-swap', '.attn-divider']) {
+    await inAct(() => { q(sel)!.dispatchEvent(new window.MouseEvent('contextmenu',
+      { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
+    await inAct(() => flush(3))
+    const entries = [...document.querySelectorAll<HTMLElement>('.ctxmenu button')]
+    assert.deepEqual(entries.map((b) => b.textContent?.trim()), ['Swap panels', 'Reset to center'], sel)
+    await inAct(() => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    await inAct(() => flush(3))
+  }
+})
+
 test('Reset to center keeps the panels swapped', async (t) => {
   reset()
   setAttentionLayout(SLUG, { split: 0.3, swapped: true })

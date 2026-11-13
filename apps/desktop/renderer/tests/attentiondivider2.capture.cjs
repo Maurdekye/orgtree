@@ -145,7 +145,7 @@ app.whenReady().then(async () => {
     const [bx, by] = await btn()
     mouse('mouseMove', bx, by); await settle()
     const onBtn = steps.onButton = await grip(); steps.onButton.png = await shot(wc, '3-pointer-on-button')
-    const same = ['gripHeight', 'gripBg', 'btnOpacity', 'btnBg', 'btnBorder', 'btnColor'].every(k => onBtn[k] === onDiv[k]) && JSON.stringify(onBtn.btnBox) === JSON.stringify(onDiv.btnBox)
+    const same = ['gripHeight', 'gripBg', 'btnOpacity', 'btnBg', 'btnColor'].every(k => onBtn[k] === onDiv[k]) && JSON.stringify(onBtn.btnBox) === JSON.stringify(onDiv.btnBox)
     need(same, `the button hover differs from the divider hover: ${JSON.stringify([onDiv, onBtn])}`)
 
     // 4. a drag that starts on the button
@@ -163,6 +163,37 @@ app.whenReady().then(async () => {
     mouse('mouseMove', cx, cy); await pause(40); mouse('mouseDown', cx, cy); mouse('mouseUp', cx, cy); await settle()
     const clicked = steps.clickDivider = await grip(); steps.clickDivider.png = await shot(wc, '5-after-click-on-divider')
     need(clicked.layout.swapped === true && clicked.dividerLeft === before.dividerLeft, `a click on the divider did not swap in place: ${JSON.stringify([before.dividerLeft, clicked.dividerLeft, clicked.layout])}`)
+
+    // 6. a REAL right-click on the button area (USER 2026-11-13 m5ae27bfba121): the divider's menu opens
+    const menuNow = () => js("[...document.querySelectorAll('.ctxmenu button')].map(b => b.textContent.trim())")
+    await js("document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+    const [rx, ry] = await btn()
+    mouse('mouseMove', rx, ry); await settle()
+    mouse('mouseDown', rx, ry, { button: 'right' }); mouse('mouseUp', rx, ry, { button: 'right' }); await settle()
+    steps.rightClickButton = { entries: await menuNow() }
+    steps.rightClickButton.png = await shot(wc, '6-right-click-on-button')
+    need(JSON.stringify(steps.rightClickButton.entries) === JSON.stringify(['Swap panels', 'Reset to center']), `right-clicking the button did not open the divider menu: ${JSON.stringify(steps.rightClickButton.entries)}`)
+    mouse('mouseDown', 10, 10); mouse('mouseUp', 10, 10); await settle()
+    const gd = (await look()).divider.box
+    mouse('mouseMove', gd[0] + gd[2] / 2, gd[1] + gd[3] * 0.25); await pause(100)
+    mouse('mouseDown', gd[0] + gd[2] / 2, gd[1] + gd[3] * 0.25, { button: 'right' }); mouse('mouseUp', gd[0] + gd[2] / 2, gd[1] + gd[3] * 0.25, { button: 'right' }); await settle()
+    steps.rightClickDivider = { entries: await menuNow() }
+    need(JSON.stringify(steps.rightClickDivider.entries) === JSON.stringify(['Swap panels', 'Reset to center']), `right-clicking the divider did not open its menu: ${JSON.stringify(steps.rightClickDivider.entries)}`)
+
+    // 7. the button, borderless, shown (divider hovered) in the dark and the light theme (USER 2026-11-13 macd4c02a93b7)
+    mouse('mouseDown', 10, 10); mouse('mouseUp', 10, 10); await settle()
+    steps.themes = {}
+    for (const theme of ['dark', 'light']) {
+      await js(`document.documentElement.classList.toggle('contrast-light', ${theme === 'light'})`)
+      const g = (await look()).divider.box
+      mouse('mouseMove', g[0] + g[2] / 2, g[1] + g[3] * 0.25); await settle()
+      const st = await js("(() => { const b = document.querySelector('button.attn-swap'), c = getComputedStyle(b); return { opacity: c.opacity, borderWidth: c.borderTopWidth, background: c.backgroundColor, color: c.color } })()")
+      st.png = await shot(wc, '7-button-' + theme)
+      steps.themes[theme] = st
+      need(st.opacity === '1' && st.borderWidth === '0px', `the ${theme} button is not shown borderless: ${JSON.stringify(st)}`)
+      mouse('mouseMove', 10, 10); await settle()
+    }
+    await js("document.documentElement.classList.remove('contrast-light')")
 
     const result = { label, status: problems.length ? 'FAIL' : 'PASS', problems, steps, sessionId: sid(process.pid), rendererSessionId: sid(wc.getOSProcessId()),
       muted: wc.isAudioMuted(), clipboardCalls, errors }

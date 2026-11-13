@@ -40,7 +40,7 @@ import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
 } from 'react'
 import type {
-  KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode,
+  KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode,
 } from 'react'
 import type { ToastFn, TreePayload } from '../types'
 import type { CanvasNode, MailLinkFn, OpFn, PolledStatus, Pt } from '../canvas/shared'
@@ -673,6 +673,12 @@ export function AttentionView(props: AttentionViewProps) {
   const rightStyle = { flex: swapped ? leftFlex : fill, order: swapped ? 1 : 3 }
   const dividerStyle = { order: 2 }
   const menu = useContextMenu(props.toast)
+  // ONE menu for the divider and its button: the button sits on the divider's
+  // middle, where a right-click lands (USER 2026-11-13 m5ae27bfba121)
+  const onDividerMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, [
+    { label: 'Swap panels', onSelect: swapPanels },
+    { label: 'Reset to center', onSelect: () => commit({ left: 0.5, hidden: null }) },
+  ])
 
   return (
     <div ref={stageRef}
@@ -715,10 +721,7 @@ export function AttentionView(props: AttentionViewProps) {
           onPointerDown={onDividerDown} onPointerMove={onDividerMove}
           onPointerUp={(e) => endDrag(e)} onPointerCancel={(e) => endDrag(e, true)}
           style={dividerStyle}
-          onContextMenu={(e) => menu.open(e, [
-            { label: 'Swap panels', onSelect: swapPanels },
-            { label: 'Reset to center', onSelect: () => commit({ left: 0.5, hidden: null }) },
-          ])}
+          onContextMenu={onDividerMenu}
           onKeyDown={onDividerKey}>
           <span className="attn-divider-grip" aria-hidden="true" />
         </div>
@@ -734,7 +737,7 @@ export function AttentionView(props: AttentionViewProps) {
           <button type="button" className="attn-swap" aria-label="Swap panels" title="Swap panels"
             onPointerDown={onDividerDown} onPointerMove={onDividerMove}
             onPointerUp={(e) => endDrag(e)} onPointerCancel={(e) => endDrag(e, true)}
-            onClick={onSwapClick}>
+            onClick={onSwapClick} onContextMenu={onDividerMenu}>
             <SwapHorizIcon fontSize="inherit" />
           </button>
         </div>

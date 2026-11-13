@@ -186,7 +186,8 @@
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1px solid var(--line);
+  /* no border (USER 2026-11-13 macd4c02a93b7): the arrows on a filled background */
+  border: 0;
   border-radius: 50%;
   background: var(--panel);
   color: var(--dim);
@@ -209,7 +210,7 @@
  * border) must not give the button its own hover. The id-in-:not() only wins
  * the specificity contest against that rule's long :not() chain. */
 button.attn-swap:not(#attn-swap-one-look):hover {
-  background: var(--panel); border-color: var(--line); color: var(--dim);
+  background: var(--panel); color: var(--dim);
 }
 .attn-divider:has(+ .attn-swap-anchor:hover) .attn-divider-grip {
   background: var(--accent, var(--line-hover));
