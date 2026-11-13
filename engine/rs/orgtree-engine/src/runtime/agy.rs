@@ -715,6 +715,10 @@ pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
     let pro = ["gemini-3.1-pro", "gemini-4-argon", "gemini-4-krypton", "gemini-4-carbon"].contains(&model);
     let (pi, pc, po) = if model.contains("flash") {
         (0.75, 0.075, 3.75)
+    } else if model.starts_with("gemini-4-hydrogen") {
+        // an ESTIMATE (user 2026-11-13): $1.50 input as the user gave it, the usual tenth cached, output guessed
+        // at Flash's 5x ratio. Its turns are marked estimated (`catalog::cost_is_estimate`).
+        (1.50, 0.15, 7.50)
     } else if pro && input + cached > 200_000 {
         (4.00, 0.40, 18.00)
     } else {

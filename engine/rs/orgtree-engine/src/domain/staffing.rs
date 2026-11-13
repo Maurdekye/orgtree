@@ -33,6 +33,13 @@ struct Offer {
 /// current tiers, and the OpenRouter favorites while a key is stored.
 #[logged]
 fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
+    runnable(engine, org_slug, None)
+}
+
+/// `runnable_tiers`, or with `legacy_tier` the one named LEGACY catalog tier under the same machine checks
+/// (installed, enabled, lane allowed) and nothing else: what a template that names it may still be placed on.
+#[logged]
+fn runnable(engine: &Engine, org_slug: &str, legacy_tier: Option<&str>) -> Vec<Offer> {
     let st = engine.providers.state.load();
     let view = engine.accounts.view();
     let mut out: Vec<Offer> = catalog::listed()
@@ -40,7 +47,8 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
         .copied()
         // a Muse tier is conditional on a Muse login's own catalog: the user's
         // own, or a registered one (primary entitlement is no prerequisite)
-        .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier))
+        .filter(|t| legacy_tier.map_or(!t.legacy, |name| t.legacy && t.tier == name))
+        .filter(|t| (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier))
                 || (t.provider == catalog::GOOGLE && crate::providers::agy_offered(engine, t.tier)))
             && engine.settings.provider_enabled(t.provider))
         .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
@@ -60,7 +68,8 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
         .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider,
                          efforts: if t.provider == catalog::MUSE { muse_efforts(engine, t) } else { efforts(t, &st) } })
         .collect();
-    let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
+    let key_set = legacy_tier.is_none()
+        && engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
     if key_set && engine.settings.provider_enabled(catalog::OPENROUTER)
         && host_for(engine, org_slug, "", catalog::OPENROUTER) {
         for (tier, seat, _) in engine.providers.openrouter_tiers() {
@@ -69,7 +78,7 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
     }
     // the offered models of every enabled language model server whose harness is
     // installed (no effort: a local model's reasoning switch is its own)
-    if engine.settings.provider_enabled(catalog::LANGSERVER) {
+    if legacy_tier.is_none() && engine.settings.provider_enabled(catalog::LANGSERVER) {
         for (tier, seat, _, _, _) in crate::langserver::tiers(engine) {
             let harness_ok = crate::langserver::route_of(engine, &tier)
                 .map(|(s, _)| crate::harnesses::installed(engine, s["harness"].as_str().unwrap_or("claude-code")))
@@ -552,24 +561,43 @@ mod hire_position_tests {
 pub fn options(engine: &Engine, org_slug: &str) -> Value {
     let tiers: Vec<Value> = runnable_tiers(engine, org_slug)
         .into_iter()
-        .filter_map(|t| {
-            let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
-            let host = host_for(engine, org_slug, &t.tier, t.provider)
-                && crate::usage::antigravity_limit(engine, &t.tier).is_none()
-                && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier));
-            if accounts.is_empty() && !host {
-                return None;
-            }
-            Some(json!({ "tier": t.tier, "seat": t.seat, "provider": t.provider, "efforts": t.efforts,
-                         "accounts": accounts, "default_ok": host,
-                         "native_ok": host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none()) }))
-        })
+        .filter_map(|t| option_row(engine, org_slug, t))
         .collect();
     let mut result = availability(engine);
     result["tiers"] = json!(tiers);
     result["generation"] = json!(0);
     result
 }
+
+/// One staffing-options row: the tier, its efforts, its eligible accounts and whether a hire naming no
+/// account can run it; None when nothing here can.
+#[logged]
+fn option_row(engine: &Engine, org_slug: &str, t: Offer) -> Option<Value> {
+    let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
+    let host = host_for(engine, org_slug, &t.tier, t.provider)
+        && crate::usage::antigravity_limit(engine, &t.tier).is_none()
+        && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier));
+    if accounts.is_empty() && !host {
+        return None;
+    }
+    Some(json!({ "tier": t.tier, "seat": t.seat, "provider": t.provider, "efforts": t.efforts,
+                 "accounts": accounts, "default_ok": host,
+                 "native_ok": host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none()) }))
+}
+
+/// The options row of ONE legacy tier that this machine can still run, for template planning only: Gemini 3.8
+/// Flash (coordinator 2026-11-13 mf9bb6ace1fe2: Flash only, so a saved Gemini Pro seat keeps blocking). No
+/// staffing surface lists it; `options` is unchanged.
+#[logged]
+pub fn legacy_option(engine: &Engine, org_slug: &str, tier: &str) -> Option<Value> {
+    if tier != TEMPLATE_LEGACY_TIER {
+        return None;
+    }
+    runnable(engine, org_slug, Some(tier)).into_iter().find_map(|t| option_row(engine, org_slug, t))
+}
+
+/// The one legacy tier a template may still be placed on (see `legacy_option`).
+pub const TEMPLATE_LEGACY_TIER: &str = "flash";
 
 #[logged]
 fn availability(engine: &Engine) -> Value {

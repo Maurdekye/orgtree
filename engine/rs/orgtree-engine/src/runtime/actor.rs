@@ -8790,12 +8790,14 @@ impl Actor {
             .execute(
                 "UPDATE ot.turns SET ended_at = now(), cost_usd = $2::float8::numeric, toks = $3, input_tokens = $4,
                         cache_read = $5, cache_write = $6, cache_ttl_s = $7, ms = $8, denials = $9, killed = $10,
-                        error = $11, model = coalesce($12, model), cost_source = $13
+                        error = $11, model = coalesce($12, model), cost_source = $13, estimated = estimated OR $14
                   WHERE id = $1",
                 &[
                     &turn.id, &cost, &output, &input, &cache_read, &cache_write, &(!muse && !turn.acp).then_some(ttl), &ms, &(denials.len() as i32),
                     &turn.killed, &error, &turn.model, &(if (turn.acp && !langserver) || (agy && catalog::antigravity_claude(&turn.serving_tier)) || muse { "unknown" }
                         else if langserver { "local" } else if codex || agy || openrouter { "priced" } else { "cli" }),
+                    // priced from a guess, not a published price (Hydrogen): the spend badge says "est."
+                    &(agy && catalog::cost_is_estimate(&turn.serving_tier)),
                 ],
             )
             .await?;

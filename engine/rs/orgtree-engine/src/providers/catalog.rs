@@ -66,9 +66,18 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "gpt-reserve", provider: OPENAI, seat: 0.2, model: "gpt-reserve",
         versions: &[], letter: "R",
         context: None, live_effort: false, legacy: true, conditional: false, prices: Some((0.20, 0.02, 1.20)) },
+    // Flash is LEGACY since Hydrogen (user 2026-11-13 md16909f83245 "Now"): behind "Show legacy models" on the
+    // desktop, out of list_tiers and the staffing options. Seats on it keep running and it is still placed by name.
     Tier { tier: "flash", provider: GOOGLE, seat: 1.0, model: "gemini-3.8-flash",
         versions: &[("3.8", "gemini-3.8-flash"), ("3.7", "gemini-3.7-flash"), ("3.6", "gemini-3.6-flash")], letter: "F",
-        context: Some(1_000_000), live_effort: false, legacy: false, conditional: false, prices: None },
+        context: Some(1_000_000), live_effort: false, legacy: true, conditional: false, prices: None },
+    // Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71; unreleased, nobody has access): Flash's successor, offered
+    // only while the account's `agy models` lists it. PLACEHOLDERS until a real turn: the id is the user's word,
+    // seat 1 by the input-price rule ($1.5 per million), efforts low/high, the Gemini pool. Declared right after
+    // Flash so it takes Flash's place in the default order.
+    Tier { tier: "hydrogen", provider: GOOGLE, seat: 1.0, model: "gemini-4-hydrogen",
+        versions: &[("4", "gemini-4-hydrogen")], letter: "H",
+        context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
     Tier { tier: "pro", provider: GOOGLE, seat: 2.0, model: "gemini-3.1-pro",
         versions: &[("3.1", "gemini-3.1-pro")], letter: "P",
         context: Some(1_000_000), live_effort: false, legacy: true, conditional: false, prices: None },
@@ -208,6 +217,14 @@ pub fn antigravity_model(tier: &str, model: &str, effort: &str) -> String {
     }
 }
 
+/// A tier whose turn cost is an ESTIMATE: its provider has not published a price, so its turns are priced from
+/// a guess and marked estimated (the spend badge's "est."). Hydrogen only (user 2026-11-13 md16909f83245:
+/// $1.50 input as given, output guessed from Flash's ratio); drop it here when the real price is known.
+#[nolog]
+pub fn cost_is_estimate(tier: &str) -> bool {
+    tier == "hydrogen"
+}
+
 #[nolog]
 pub fn antigravity_pool(tier: &str) -> &'static str {
     if antigravity_claude(tier) { "3p" } else { "gemini" }
@@ -273,6 +290,7 @@ fn display_family(t: &Tier) -> Option<&'static str> {
         (GOOGLE, "argon") => "Gemini Argon",
         (GOOGLE, "krypton") => "Gemini Krypton",
         (GOOGLE, "carbon") => "Gemini Carbon",
+        (GOOGLE, "hydrogen") => "Gemini Hydrogen",
         (MUSE, "wonder") => "Muse Wonder",
         (MUSE, "wonder-full") => "Muse Wonder Full",
         (MUSE, "spark") => "Muse Spark",

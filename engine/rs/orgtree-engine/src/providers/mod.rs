@@ -1301,6 +1301,22 @@ fn agy_offers(tier: &str, listed: &[String]) -> bool {
     }
 }
 
+/// Fixtures elsewhere in the crate: this engine's Antigravity lists `ids` for a confirmed synthetic login,
+/// without a registry read or a publication.
+#[cfg(test)]
+pub(crate) fn list_agy_models_for_tests(engine: &Engine, ids: &[&str]) {
+    agy_auth::catalog_test_metadata(engine, Ok(Some(agy_auth::Stamp(1))));
+    agy_auth::record_catalog_identity(engine, agy_auth::Stamp(1), Some("fixture@example.invalid"));
+    let principal = agy_auth::catalog_identity(engine).map(|i| i.principal);
+    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    engine.providers.state.rcu(|cur| {
+        let mut st = State::clone(cur);
+        st.agy_models = ids.clone();
+        st.agy_model_principal = principal.clone();
+        st
+    });
+}
+
 /// `agy_offers` on the last registry read: what the hire strips, staffing
 /// and the tier list offer.
 #[nolog]
