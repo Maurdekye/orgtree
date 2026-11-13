@@ -82,6 +82,8 @@ pub(super) fn overview_of(engine: &Engine) -> Value {
 async fn settled(engine: &Arc<Engine>) {
     lifecycle::refresh(engine).await;
     lifecycle::publish(engine);
+    // and the loop looks from now on: who is connected is not a minute old when a switch has just gone on
+    engine.access.doors.wake();
 }
 
 /// `GET /api/remote-access/orgs/{slug}`: the switch, the computers that have this organization,

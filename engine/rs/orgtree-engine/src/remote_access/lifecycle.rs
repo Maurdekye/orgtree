@@ -156,6 +156,8 @@ pub struct Doors {
     state: Mutex<State>,
     /// Rig and tests only: the reading to go by instead of asking the computer.
     fixed: Mutex<Option<Reading>>,
+    /// Wakes the loop out of its wait (`wake`, `rest`).
+    woken: tokio::sync::Notify,
 }
 
 #[nolog]
@@ -176,13 +178,23 @@ impl Doors {
     fn fixed(&self) -> Option<Reading> {
         self.fixed.lock().ok().and_then(|fixed| fixed.clone())
     }
+
+    /// The owner changed something: the loop looks again from now. While nothing is shared it
+    /// rests a minute at a time, and a switch that has just gone on must not wait that minute
+    /// out before anybody looks at who is connected. A wake that finds the loop busy is kept
+    /// for its next rest.
+    pub fn wake(&self) {
+        self.woken.notify_one();
+    }
 }
 
-/// The loop's rest between two looks: `wait` long. False when the engine stops.
+/// The loop's rest between two looks: `wait` long, or until an owner's change wakes it. False
+/// when the engine stops.
 #[nolog]
 pub(super) async fn rest(engine: &Engine, wait: Duration) -> bool {
     tokio::select! {
         _ = engine.shutdown.cancelled() => false,
+        _ = engine.access.doors.woken.notified() => true,
         _ = tokio::time::sleep(wait) => true,
     }
 }
