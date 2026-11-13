@@ -178,6 +178,32 @@ pub async fn mint(probe: &Probe, pasted: &Token, client_name: &str, timing: &Tim
     Ok((Token::new(token), id.to_string()))
 }
 
+/// The remote engine's client list as this token may read it: the clients,
+/// and from 4.6.0 `you` (whose token asked) and who is connected. Nothing
+/// when the engine did not answer with one.
+#[nolog]
+pub async fn clients(http: &reqwest::Client, base: &str, token: &Token, wait: Duration) -> Option<Value> {
+    let response = http.get(format!("{base}/api/standalone/clients")).bearer_auth(token.expose()).timeout(wait).send().await.ok()?;
+    if response.status().as_u16() != 200 {
+        return None;
+    }
+    serde_json::from_slice(&read_capped(response, 1 << 20).await.ok()?).ok()
+}
+
+/// Give this desktop's own client on the remote the name other people see
+/// (`None`: its own name again). Answers the name it has there now; nothing
+/// when the engine did not take it (an engine older than 4.6.0 has no such route).
+#[nolog]
+pub async fn set_label(http: &reqwest::Client, base: &str, token: &Token, client_id: &str, label: Option<&str>, wait: Duration) -> Option<String> {
+    let response = http.patch(format!("{base}/api/standalone/clients/{client_id}")).bearer_auth(token.expose()).timeout(wait)
+        .json(&serde_json::json!({ "label": label })).send().await.ok()?;
+    if response.status().as_u16() != 200 {
+        return None;
+    }
+    let row: Value = serde_json::from_slice(&read_capped(response, 64 * 1024).await.ok()?).ok()?;
+    row["label"].as_str().map(|label| label.chars().take(crate::caller::LABEL_MAX).collect())
+}
+
 /// Take back a client token on the remote, with that very token, within
 /// `wait`. The remote ends every connection of the client as it revokes it,
 /// the one that carries this request too, and promises no answer; a

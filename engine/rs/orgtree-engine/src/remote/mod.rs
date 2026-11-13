@@ -201,6 +201,15 @@ pub struct Row {
     pub notices: Option<Vec<Value>>,
 }
 
+/// Whose token a remote engine says this connection uses (`you` of its client
+/// list): the origin its records carry for what this desktop does there, and
+/// the name other people see for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Me {
+    pub id: String,
+    pub name: String,
+}
+
 /// One remote engine. It lives as long as its connection is saved; what the
 /// user can change (`saved`) and what the link learns are swapped in whole.
 pub struct Remote {
@@ -209,6 +218,9 @@ pub struct Remote {
     token: ArcSwap<Token>,
     state: watch::Sender<LinkState>,
     conn: ArcSwapOption<Conn>,
+    /// Who the remote engine says this connection is; `None` until it said
+    /// (an engine older than 4.6.0 never does). Kept across an outage.
+    me: ArcSwapOption<Me>,
     /// The remote process last seen (`X-Orgtree-Instance`), empty before any.
     boot: ArcSwap<String>,
     /// The rows last handed to the app feed.
@@ -236,6 +248,7 @@ impl Remote {
             token: ArcSwap::from_pointee(token),
             state,
             conn: ArcSwapOption::empty(),
+            me: ArcSwapOption::empty(),
             boot: ArcSwap::from_pointee(boot),
             rows: ArcSwap::from_pointee(Vec::new()),
             inflight: Arc::new(Semaphore::new(INFLIGHT_MAX)),
@@ -296,6 +309,19 @@ impl Remote {
     #[nolog]
     pub fn boot(&self) -> Arc<String> {
         self.boot.load_full()
+    }
+    #[nolog]
+    pub fn me(&self) -> Option<Arc<Me>> {
+        self.me.load_full()
+    }
+    /// What the remote engine said about this connection's token; answers whether that is news.
+    #[nolog]
+    pub(crate) fn set_me(&self, me: Option<Me>) -> bool {
+        if self.me.load().as_deref() == me.as_ref() {
+            return false;
+        }
+        self.me.store(me.map(Arc::new));
+        true
     }
     /// The remote process answered: remember which one.
     #[nolog]
@@ -359,6 +385,14 @@ impl Remote {
         let saved = self.saved.load();
         let state = self.state.borrow().clone();
         let app = env!("CARGO_PKG_VERSION");
+        // Who this desktop is on that engine: what the engine said, else the client this desktop made there
+        // (known before the first connect of a run). Not a secret: it is the id its records carry as `via`.
+        let said = self.me.load_full();
+        let me = match (&said, &saved.client_id) {
+            (Some(me), _) => json!({ "id": me.id, "name": me.name }),
+            (None, Some(client_id)) => json!({ "id": client_id, "name": null }),
+            (None, None) => Value::Null,
+        };
         json!({
             "id": saved.id, "name": saved.name, "tag": saved.tag, "url": saved.url, "enabled": saved.enabled,
             "state": state.phase.as_str(), "since": crate::util::iso(state.since),
@@ -366,7 +400,7 @@ impl Remote {
             "version": state.version, "app_version": app,
             "version_differs": state.version.as_deref().is_some_and(|v| v != app),
             "transport": state.transport.map(Transport::as_str),
-            "client_name": saved.client_name, "own_token": saved.client_id.is_some(),
+            "client_name": saved.client_name, "own_token": saved.client_id.is_some(), "me": me,
             "last_error": state.error, "error_code": state.code,
             "refusal": self.refusal(),
             "last_connected_at": saved.last_connected_at,
@@ -386,12 +420,14 @@ pub struct Directory {
     /// their alias is reserved while the connection exists.
     by_alias: HashMap<String, (Arc<Remote>, String)>,
     next_local_id: i64,
+    /// What this desktop's user chose to be called (`store::SavedFile`).
+    shown_as: Option<String>,
 }
 
 #[logged]
 impl Directory {
     #[nolog]
-    fn build(remotes: Vec<Arc<Remote>>, next_local_id: i64) -> Directory {
+    fn build(remotes: Vec<Arc<Remote>>, next_local_id: i64, shown_as: Option<String>) -> Directory {
         let mut by_id = HashMap::new();
         let mut by_alias = HashMap::new();
         for remote in &remotes {
@@ -400,7 +436,12 @@ impl Directory {
                 by_alias.insert(org.alias.clone(), (remote.clone(), org.remote_slug.clone()));
             }
         }
-        Directory { remotes, by_id, by_alias, next_local_id }
+        Directory { remotes, by_id, by_alias, next_local_id, shown_as }
+    }
+    /// The same connections, one more or one fewer.
+    #[nolog]
+    fn with(&self, remotes: Vec<Arc<Remote>>) -> Directory {
+        Directory::build(remotes, self.next_local_id, self.shown_as.clone())
     }
     #[nolog]
     pub fn get(&self, id: &str) -> Option<Arc<Remote>> {
@@ -476,7 +517,7 @@ impl Remotes {
             return remotes;
         }
         match store::load(&remotes.path) {
-            Ok((saved, next_local_id)) => {
+            Ok(store::Loaded { remotes: saved, next_local_id, shown_as }) => {
                 let live: Vec<Arc<Remote>> = saved
                     .into_iter()
                     .map(|row| {
@@ -491,7 +532,7 @@ impl Remotes {
                         }
                     })
                     .collect();
-                remotes.dir.store(Arc::new(Directory::build(live, next_local_id)));
+                remotes.dir.store(Arc::new(Directory::build(live, next_local_id, shown_as)));
             }
             Err(why) => {
                 tracing::error!(error = %why, "the saved remote engines could not be read; they are left as they are");
@@ -549,7 +590,7 @@ impl Remotes {
     #[nolog]
     fn commit(&self, next: Directory) -> Result<(), Refusal> {
         let rows: Vec<SavedRemote> = next.remotes.iter().map(|remote| (*remote.saved()).clone()).collect();
-        store::save(&self.path, &rows, next.next_local_id).map_err(|e| Refusal::new(Kind::Storage, "E15", text::e15(&e.to_string())))?;
+        store::save(&self.path, &rows, next.next_local_id, next.shown_as.as_deref()).map_err(|e| Refusal::new(Kind::Storage, "E15", text::e15(&e.to_string())))?;
         self.dir.store(Arc::new(next));
         Ok(())
     }
@@ -620,12 +661,13 @@ impl Remotes {
         let saved = SavedRemote {
             id, name, tag, url: address.base(), data_root_id: probe.data_root_id.clone(), client_id: client_id.clone(), client_name,
             sealed_token: sealed, enabled: true, created_at: crate::util::now_iso(), last_connected_at: None,
-            last_version: Some(probe.version.clone()), last_boot_id: Some(probe.boot_id.clone()).filter(|b| !b.is_empty()), orgs: Vec::new(),
+            last_version: Some(probe.version.clone()), last_boot_id: Some(probe.boot_id.clone()).filter(|b| !b.is_empty()), label_sent: None,
+            orgs: Vec::new(),
         };
         let remote = Remote::new(saved, token.clone(), Phase::Connecting);
         let mut all = dir.remotes.clone();
         all.push(remote.clone());
-        if let Err(refusal) = self.commit(Directory::build(all, dir.next_local_id)) {
+        if let Err(refusal) = self.commit(dir.with(all)) {
             undo_mint(&probe, &token, &client_id).await;
             return Err(refusal);
         }
@@ -695,13 +737,15 @@ impl Remotes {
                 replaced = Some(((*remote.token()).clone(), saved.client_id.clone()));
                 saved.client_id = client_id;
                 saved.client_name = client_name;
+                // another client there: it has no name from this desktop yet
+                saved.label_sent = None;
                 remote.token.store(Arc::new(token));
             }
             saved.last_version = Some(probe.version);
         }
         remote.saved.store(Arc::new(saved));
         let all = dir.remotes.clone();
-        if let Err(refusal) = self.commit(Directory::build(all, dir.next_local_id)) {
+        if let Err(refusal) = self.commit(dir.with(all)) {
             remote.saved.store(before);
             if let Some((old, _)) = replaced {
                 remote.token.store(Arc::new(old));
@@ -732,7 +776,7 @@ impl Remotes {
             return Err(Refusal::new(Kind::Missing, "", "no such remote engine"));
         };
         let all: Vec<Arc<Remote>> = dir.remotes.iter().filter(|r| r.id != id).cloned().collect();
-        self.commit(Directory::build(all, dir.next_local_id))?;
+        self.commit(dir.with(all))?;
         drop(_write);
         let saved = remote.saved();
         let conn = remote.conn.load_full();
@@ -807,7 +851,7 @@ impl Remotes {
         }
         let before = remote.saved();
         remote.saved.store(Arc::new(saved));
-        if let Err(refusal) = self.commit(Directory::build(dir.remotes.clone(), next_local_id)) {
+        if let Err(refusal) = self.commit(Directory::build(dir.remotes.clone(), next_local_id, dir.shown_as.clone())) {
             tracing::warn!(error = %refusal.text, "a remote engine's organizations could not be saved");
             remote.saved.store(before);
         }
@@ -827,10 +871,97 @@ impl Remotes {
         saved.last_version = Some(version.to_string());
         saved.last_boot_id = Some((*remote.boot()).clone()).filter(|b| !b.is_empty());
         remote.saved.store(Arc::new(saved));
-        if let Err(refusal) = self.commit(Directory::build(dir.remotes.clone(), dir.next_local_id)) {
+        if let Err(refusal) = self.commit(dir.with(dir.remotes.clone())) {
             tracing::warn!(error = %refusal.text, "a remote engine's connection record could not be saved");
             remote.saved.store(before);
         }
+    }
+
+    /// This computer's name, as the client tokens it makes carry it.
+    #[nolog]
+    pub fn computer(&self) -> &str {
+        &self.computer
+    }
+
+    /// What this desktop is called where other people see its actions: the
+    /// name its user chose, else the computer's name.
+    #[nolog]
+    pub fn shown_as(&self) -> String {
+        self.dir.load().shown_as.clone().unwrap_or_else(|| crate::caller::default_label(&self.computer))
+    }
+
+    /// The name this desktop's user chose, if they chose one.
+    #[nolog]
+    pub fn chosen_name(&self) -> Option<String> {
+        self.dir.load().shown_as.clone()
+    }
+
+    /// Choose the name (`None`: the computer's name again). Every link then
+    /// gives it to this desktop's own client on its engine.
+    #[nolog]
+    pub async fn set_shown_as(&self, engine: &Arc<Engine>, name: Option<String>) -> Result<(), Refusal> {
+        self.usable()?;
+        let name = match name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(text) => Some(crate::caller::label(text).ok_or_else(|| Refusal::input("", text::NAME_SHOWN))?),
+            None => None,
+        };
+        let _write = self.write.lock().await;
+        let dir = self.dir.load_full();
+        if dir.shown_as != name {
+            self.commit(Directory::build(dir.remotes.clone(), dir.next_local_id, name))?;
+        }
+        drop(_write);
+        for remote in dir.remotes.iter() {
+            remote.wake.notify_one();
+        }
+        self.publish(engine);
+        Ok(())
+    }
+
+    /// The link gave this desktop's client on `remote` the name `sent`.
+    #[nolog]
+    pub async fn label_sent(&self, remote: &Arc<Remote>, sent: Option<String>) {
+        let _write = self.write.lock().await;
+        let dir = self.dir.load_full();
+        if dir.get(&remote.id).is_none() {
+            return;
+        }
+        let before = remote.saved();
+        let mut saved = (*before).clone();
+        saved.label_sent = sent;
+        remote.saved.store(Arc::new(saved));
+        if let Err(refusal) = self.commit(dir.with(dir.remotes.clone())) {
+            tracing::warn!(error = %refusal.text, "a remote engine's connection record could not be saved");
+            remote.saved.store(before);
+        }
+    }
+
+    /// Who is connected to a remote engine, as its client list says: this
+    /// desktop among them (`you`). `supported` is false for an engine that
+    /// does not say who is connected (older than 4.6.0).
+    #[nolog]
+    pub async fn people(&self, remote: &Arc<Remote>) -> Result<Value, Refusal> {
+        let Some(conn) = remote.conn() else {
+            return Err(Refusal::new(Kind::Offline, "E9", remote.refusal().unwrap_or_else(|| text::e9(&remote.name()))));
+        };
+        let listed = handshake::clients(&conn.http, &conn.address.base(), &remote.token(), self.timing().request).await
+            .ok_or_else(|| Refusal::new(Kind::Offline, "E9", text::e9(&remote.name())))?;
+        let rows = listed["clients"].as_array().cloned().unwrap_or_default();
+        let supported = rows.iter().any(|row| row.get("connected").is_some());
+        let you = listed["you"]["id"].as_str().or(remote.saved().client_id.as_deref()).map(str::to_string);
+        let cut = |value: &Value, max: usize| value.as_str().map(|text| text.chars().take(max).collect::<String>());
+        let people: Vec<Value> = rows.iter().take(256).filter(|_| supported).filter_map(|row| {
+            let id = cut(&row["id"], 100)?;
+            let name = cut(&row["name"], 100).unwrap_or_default();
+            Some(json!({
+                "you": you.as_deref() == Some(id.as_str()),
+                "label": cut(&row["label"], crate::caller::LABEL_MAX).unwrap_or_else(|| crate::caller::default_label(&name)),
+                "name": name, "connected": row["connected"].as_bool().unwrap_or(false),
+                "since": cut(&row["connected_since"], 40), "last_seen_at": cut(&row["last_seen_at"], 40),
+                "scope": cut(&row["scope"], 20), "id": id,
+            }))
+        }).collect();
+        Ok(json!({ "supported": supported, "people": people }))
     }
 
     /// What waits on the user in every remote organization this engine can

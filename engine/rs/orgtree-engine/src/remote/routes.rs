@@ -128,6 +128,8 @@ pub const LOCAL: &[&str] = &[
     "/api/remotes",
     "/api/remotes/{id}",
     "/api/remotes/{id}/retry",
+    "/api/remotes/shown-as",
+    "/api/remotes/{id}/people",
     "/api/orgs",
     "/api/changelog",
     "/api/changelog/{version}",

@@ -45,7 +45,31 @@ fn available(engine: &Engine) -> ApiResult<()> {
 #[nolog]
 pub async fn list(State(engine): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     available(&engine)?;
-    Ok(Json(json!({ "remotes": engine.remotes.views() })))
+    // `me`: who this desktop's own windows are in the records of its own organizations (`caller::LOCAL`)
+    Ok(Json(json!({ "remotes": engine.remotes.views(), "me": crate::http::local_origin(&engine).json() })))
+}
+
+/// `PUT /api/remotes/shown-as {"label": text | null}`: what this desktop is
+/// called where other people see its actions; `null` or blank is the
+/// computer's name again. Every connection gives it to its engine.
+#[nolog]
+pub async fn shown_as(State(engine): State<Arc<Engine>>, Json(body): Json<serde_json::Map<String, Value>>) -> ApiResult<Json<Value>> {
+    available(&engine)?;
+    let label = match (body.len(), body.get("label")) {
+        (1, Some(Value::Null)) => None,
+        (1, Some(Value::String(text))) => Some(text.clone()),
+        _ => return Err(ApiError::bad_request("the body is {\"label\": text or null}")),
+    };
+    engine.remotes.set_shown_as(&engine, label).await.map_err(refused)?;
+    Ok(Json(json!({ "shown_as": engine.remotes.chosen_name(), "me": crate::http::local_origin(&engine).json() })))
+}
+
+/// `GET /api/remotes/{id}/people`: who is connected to that engine right now.
+#[nolog]
+pub async fn people(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    available(&engine)?;
+    let remote = engine.remotes.get(&id).ok_or_else(|| ApiError::not_found("no such remote engine"))?;
+    Ok(Json(engine.remotes.people(&remote).await.map_err(refused)?))
 }
 
 #[derive(Deserialize)]

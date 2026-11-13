@@ -18,6 +18,7 @@ mod accounts;
 mod app_instructions;
 mod appfeed;
 mod bridge;
+mod caller;
 mod changelog;
 mod changes;
 mod client_tokens;

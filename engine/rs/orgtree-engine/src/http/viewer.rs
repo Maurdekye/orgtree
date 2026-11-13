@@ -79,6 +79,8 @@ pub const DENIED_FOR_VIEWER: &[&str] = &[
     "/api/remotes",
     "/api/remotes/{id}",
     "/api/remotes/{id}/retry",
+    "/api/remotes/shown-as",
+    "/api/remotes/{id}/people",
     "/api/orgs/{slug}/apps",
     "/api/orgs/{slug}/apps/bridge",
     "/api/orgs/{slug}/apps/runtime",

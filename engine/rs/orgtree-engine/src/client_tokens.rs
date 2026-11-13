@@ -8,11 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 
 use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::caller::{self, Origin};
 use crate::http::error::ApiError;
 use transport::Connection;
 
@@ -21,6 +23,9 @@ const MAX_CLIENTS: usize = 128;
 const MAX_FILE: u64 = 128 * 1024;
 
 const FILE_VERSION: u8 = 2;
+/// The version of a file in which some client has a label. A file without
+/// labels is still written as version 2, which older engines read.
+const LABEL_VERSION: u8 = 3;
 
 /// What a named client token may do. `Viewer` is read-only for one org
 /// (`http/viewer.rs` lists its routes). The bootstrap key is always `Full`.
@@ -43,6 +48,10 @@ struct Record {
     /// The org slug of a viewer token; absent for a full one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     org: Option<String>,
+    /// What other people see for this client (`caller::label`); absent until
+    /// someone chooses one, and the client then goes by `caller::default_label`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
 }
 
 #[nolog]
@@ -64,6 +73,10 @@ impl Record {
             _ => false,
         }
     }
+    /// Where a request made with this client's token came through.
+    fn origin(&self) -> Origin {
+        Origin::client(&self.id, &self.name, self.label.as_deref())
+    }
 }
 
 #[nolog]
@@ -81,6 +94,31 @@ struct Saved {
 struct Client {
     record: Record,
     connections: Vec<Weak<Connection>>,
+    /// When the first of its open connections authenticated. Meaningful only
+    /// while one is open (`connected`).
+    since: Option<DateTime<Utc>>,
+    /// Its last authenticated request since this engine started.
+    seen: Option<DateTime<Utc>>,
+}
+
+#[nolog]
+impl Client {
+    fn new(record: Record) -> Client {
+        Client { record, connections: Vec::new(), since: None, seen: None }
+    }
+    /// Does a connection that used this client's token stay open?
+    fn connected(&self) -> bool {
+        self.connections.iter().any(|weak| weak.upgrade().is_some_and(|connection| !connection.closed()))
+    }
+    /// The list row: the record, and whether its computer is connected now.
+    fn row(&self) -> Value {
+        let mut row = public(&self.record);
+        let connected = self.connected();
+        row["connected"] = json!(connected);
+        row["connected_since"] = json!(self.since.filter(|_| connected).map(crate::util::iso));
+        row["last_seen_at"] = json!(self.seen.map(crate::util::iso));
+        row
+    }
 }
 
 pub struct Registry {
@@ -96,13 +134,14 @@ impl Registry {
             Ok(file) => {
                 if file.metadata()?.len() > MAX_FILE { bail!("standalone client registry is too large"); }
                 let saved: Saved = serde_json::from_reader(file).context("invalid standalone client registry")?;
-                if !(saved.version == 1 || saved.version == FILE_VERSION) || saved.clients.len() > MAX_CLIENTS {
+                if !(saved.version == 1 || saved.version == FILE_VERSION || saved.version == LABEL_VERSION) || saved.clients.len() > MAX_CLIENTS {
                     bail!("unsupported or oversized standalone client registry");
                 }
                 for (index, row) in saved.clients.iter().enumerate() {
                     if uuid::Uuid::parse_str(&row.id).is_err() || !valid_name(&row.name)
                         || chrono::DateTime::parse_from_rfc3339(&row.created_at).is_err()
                         || !row.scope_valid() || (saved.version == 1 && row.scope != "full")
+                        || row.label.as_deref().is_some_and(|label| saved.version != LABEL_VERSION || caller::label(label).as_deref() != Some(label))
                         || row.hash.len() != 64 || !row.hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
                         || saved.clients[..index].iter().any(|old| old.id == row.id || old.hash == row.hash) {
                         bail!("invalid standalone client registry entry");
@@ -113,22 +152,48 @@ impl Registry {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(error) => return Err(error).context("cannot read standalone client registry"),
         };
-        Ok(Self { path, clients: Mutex::new(records.into_iter().map(|record| Client { record, connections: Vec::new() }).collect()) })
+        Ok(Self { path, clients: Mutex::new(records.into_iter().map(Client::new).collect()) })
     }
 
     /// The same lock admits authentication and commits revocation. A socket
-    /// cannot be registered after its credential has been removed.
-    pub fn authenticate(&self, token: &str, connection: &Arc<Connection>) -> Option<Scope> {
+    /// cannot be registered after its credential has been removed. Answers
+    /// what the token may do and whose it is.
+    pub fn authenticate(&self, token: &str, connection: &Arc<Connection>) -> Option<(Scope, Origin)> {
         if connection.closed() { return None; }
         let hash = hash(token);
         let Ok(mut clients) = self.clients.lock() else { return None; };
         let client = clients.iter_mut().find(|client| constant_eq(client.record.hash.as_bytes(), hash.as_bytes()))?;
         if connection.closed() { return None; }
         client.connections.retain(|weak| weak.strong_count() != 0);
+        let now = Utc::now();
+        // the first open connection after none starts "connected since"
+        if !client.connected() { client.since = Some(now); }
+        client.seen = Some(now);
         if !client.connections.iter().any(|weak| weak.upgrade().is_some_and(|old| Arc::ptr_eq(&old, connection))) {
             client.connections.push(Arc::downgrade(connection));
         }
-        Some(client.record.scope())
+        Some((client.record.scope(), client.record.origin()))
+    }
+
+    /// Set or clear (`None`) what other people see for one client. Not part of
+    /// `manage`: the user's MCP tool does not offer it.
+    pub fn set_label(&self, id: &str, label: Option<&str>) -> Result<Value, ApiError> {
+        let label = match label.map(str::trim).filter(|text| !text.is_empty()) {
+            Some(text) => Some(caller::label(text).ok_or_else(|| ApiError::bad_request("label must have 1 to 40 characters, without control characters"))?),
+            None => None,
+        };
+        let mut clients = self.clients.lock().map_err(|_| ApiError::unavailable("client registry unavailable"))?;
+        let Some(index) = clients.iter().position(|client| client.record.id == id) else {
+            return Err(ApiError::not_found("active client token not found"));
+        };
+        if clients[index].record.label != label {
+            let mut records: Vec<_> = clients.iter().map(|client| client.record.clone()).collect();
+            records[index].label = label.clone();
+            self.persist(records).map_err(|_| ApiError::internal("could not persist client registry"))?;
+            clients[index].record.label = label;
+            tracing::info!(client_id = %id, "standalone client label changed");
+        }
+        Ok(clients[index].row())
     }
 
     pub fn manage(&self, args: &Value) -> Result<Value, ApiError> {
@@ -147,7 +212,7 @@ impl Registry {
         }
         let mut clients = self.clients.lock().map_err(|_| ApiError::unavailable("client registry unavailable"))?;
         if action == "list" {
-            return Ok(json!({"clients": clients.iter().map(|client| public(&client.record)).collect::<Vec<_>>()}));
+            return Ok(json!({"clients": clients.iter().map(Client::row).collect::<Vec<_>>()}));
         }
         if action == "create" {
             let name = args["name"].as_str().unwrap_or("").trim();
@@ -171,14 +236,14 @@ impl Registry {
             rand::rngs::OsRng.fill_bytes(&mut bytes);
             let token = hex::encode(bytes);
             let record = Record { id: uuid::Uuid::new_v4().to_string(), name: name.into(),
-                created_at: chrono::Utc::now().to_rfc3339(), hash: hash(&token), scope: scope.into(), org };
+                created_at: chrono::Utc::now().to_rfc3339(), hash: hash(&token), scope: scope.into(), org, label: None };
             let mut records: Vec<_> = clients.iter().map(|client| client.record.clone()).collect();
             records.push(record.clone());
             self.persist(records).map_err(|_| ApiError::internal("could not persist client registry"))?;
             let mut result = public(&record);
             result["token"] = json!(token);
             tracing::info!(client_id = %record.id, "standalone client created");
-            clients.push(Client { record, connections: Vec::new() });
+            clients.push(Client::new(record));
             return Ok(result);
         }
         let id = args["id"].as_str().unwrap_or("");
@@ -198,7 +263,8 @@ impl Registry {
     }
 
     fn persist(&self, records: Vec<Record>) -> std::io::Result<()> {
-        let bytes = serde_json::to_vec(&Saved { version: FILE_VERSION, clients: records })?;
+        let version = if records.iter().any(|record| record.label.is_some()) { LABEL_VERSION } else { FILE_VERSION };
+        let bytes = serde_json::to_vec(&Saved { version, clients: records })?;
         let tmp = self.path.with_file_name(format!(".standalone-clients-{}.tmp", uuid::Uuid::new_v4().simple()));
         let result = (|| {
             let mut options = std::fs::OpenOptions::new();
@@ -227,7 +293,8 @@ impl Registry {
 
 #[nolog]
 fn public(record: &Record) -> Value {
-    let mut row = json!({"id":record.id,"name":record.name,"created_at":record.created_at,"scope":record.scope});
+    let mut row = json!({"id":record.id,"name":record.name,"created_at":record.created_at,"scope":record.scope,
+        "label":record.origin().name});
     if let Some(org) = &record.org { row["org"] = json!(org); }
     row
 }

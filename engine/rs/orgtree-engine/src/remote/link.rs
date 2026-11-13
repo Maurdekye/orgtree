@@ -16,7 +16,7 @@ use tokio_tungstenite::tungstenite::Message as Frame;
 
 use super::address::Address;
 use super::wsdial::{self, DialError, Upstream};
-use super::{handshake, text, Conn, Kind, LinkState, OrgSeen, Phase, Refusal, Remote, Row, Timing};
+use super::{handshake, text, Conn, Kind, LinkState, Me, OrgSeen, Phase, Refusal, Remote, Row, Timing};
 use crate::engine::Engine;
 use crate::mqtt::backoff::{Backoff, Waits};
 
@@ -418,12 +418,39 @@ async fn connect(engine: &Arc<Engine>, remote: &Arc<Remote>, timing: &Timing) ->
     if remote.stop.is_cancelled() {
         return Err(offline());
     }
+    identify(engine, remote, &conn, timing).await;
     remote.conn.store(Some(conn));
     let next = LinkState { phase: Phase::Connected, since: Utc::now(), next_attempt_at: None, error: None, code: None,
         version: Some(version), transport: Some(transport) };
     tracing::info!(remote = %remote.tag(), transport = transport.as_str(), "remote engine connected");
     show(engine, remote, next, Some(&mirror));
     Ok((socket, mirror))
+}
+
+/// Who this connection is on the remote engine, and the name it shows there.
+/// The remote's client list says whose token asked (`you`); this desktop's
+/// own client is given the name its user chose when the remote does not have
+/// it yet. An engine that says nothing (older than 4.6.0) leaves it unknown,
+/// and nothing here can fail a connection.
+#[nolog]
+async fn identify(engine: &Arc<Engine>, remote: &Arc<Remote>, conn: &Conn, timing: &Timing) {
+    let (token, base) = (remote.token(), conn.address.base());
+    let Some(listed) = handshake::clients(&conn.http, &base, &token, timing.request).await else { return };
+    let text = |value: &Value| value.as_str().filter(|t| !t.is_empty()).map(|t| t.chars().take(100).collect::<String>());
+    let Some(mut me) = text(&listed["you"]["id"]).zip(text(&listed["you"]["name"])).map(|(id, name)| Me { id, name }) else {
+        remote.set_me(None);
+        return;
+    };
+    let saved = remote.saved();
+    let chosen = engine.remotes.chosen_name();
+    // a token this desktop only borrowed (it could make none of its own) keeps the name it has there
+    if saved.client_id.as_deref() == Some(me.id.as_str()) && saved.label_sent != chosen {
+        if let Some(name) = handshake::set_label(&conn.http, &base, &token, &me.id, chosen.as_deref(), timing.request).await {
+            me.name = name;
+            engine.remotes.label_sent(remote, chosen).await;
+        }
+    }
+    remote.set_me(Some(me));
 }
 
 /// The connected life of a link: the remote's frames keep the mirror and the
@@ -448,6 +475,14 @@ async fn session(engine: &Arc<Engine>, remote: &Arc<Remote>, timing: &Timing, so
                 }
                 // a new name shows in the rows; "retry now" while connected has nothing to do
                 push_rows(engine, remote, Some(mirror));
+                // the name this desktop shows to others may be what changed
+                if let Some(conn) = remote.conn() {
+                    let before = remote.me();
+                    identify(engine, remote, &conn, timing).await;
+                    if before != remote.me() {
+                        engine.remotes.publish(engine);
+                    }
+                }
             }
             _ = remote.lost.notified() => return End::Lost("relayed requests failed".into()),
             frame = socket.next() => {

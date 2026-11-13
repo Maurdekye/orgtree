@@ -166,7 +166,10 @@ async fn self_revoke_drops_calling_socket_and_mcp_can_manage_clients() {
     let (_, listed) = server.request("POST", "/api/mcp", token, Some(rpc(2, json!({"action":"list"})))).await;
     let listing: Value = serde_json::from_str(listed["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(listing["clients"].as_array().unwrap().len(), 1);
-    assert_eq!(listing["clients"][0].as_object().unwrap().len(), 4, "id, name, created_at, scope");
+    let mut keys: Vec<&str> = listing["clients"][0].as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["connected", "connected_since", "created_at", "id", "label", "last_seen_at", "name", "scope"],
+        "the record, the name others see and who is connected; never a hash");
     assert!(!listing.to_string().contains(token));
     assert!(!std::fs::read_to_string(root.0.join(FILE)).unwrap().contains(token));
     let (_, revoked) = server.request("POST", "/api/mcp", BOOTSTRAP, Some(rpc(3, json!({"action":"revoke","id":value["id"]})))).await;

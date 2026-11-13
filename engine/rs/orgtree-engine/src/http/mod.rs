@@ -89,11 +89,13 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/mcp", post(usermcp::orgless).get(usermcp::no_stream))
         .route("/api/orgs/{slug}/mcp", post(usermcp::per_org).get(usermcp::no_stream))
         .route("/api/standalone/clients", get(client_tokens::list).post(client_tokens::create))
-        .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
+        .route("/api/standalone/clients/{id}", delete(client_tokens::revoke).patch(client_tokens::label))
         // the remote engines this desktop is connected to (remote/api.rs; 404 on a standalone engine)
         .route("/api/remotes", get(crate::remote::api::list).post(crate::remote::api::add))
+        .route("/api/remotes/shown-as", axum::routing::put(crate::remote::api::shown_as))
         .route("/api/remotes/{id}", axum::routing::patch(crate::remote::api::update).delete(crate::remote::api::remove))
         .route("/api/remotes/{id}/retry", post(crate::remote::api::retry))
+        .route("/api/remotes/{id}/people", get(crate::remote::api::people))
         .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
         .route("/api/orgs/{slug}/apps/bridge", post(apps::bridge).layer(axum::extract::DefaultBodyLimit::max(crate::domain::apps::net::BRIDGE_INPUT_MAX)))
         .route("/api/orgs/{slug}/apps/runtime", post(apps::runtime).layer(axum::extract::DefaultBodyLimit::max(1024*1024)))
@@ -362,14 +364,22 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
     }
     // The token's scope is decided once, here, before any dispatch: a viewer token reaches
     // only the routes `viewer.rs` allows, never the language-server proxy or the credential bridge.
-    if engine.cfg.standalone {
-        if let Some(scope) = standalone_scope(&engine, &req) {
-            if let crate::client_tokens::Scope::Viewer { org, client_id } = &scope {
-                if let Some(refusal) = viewer_refusal(&engine, &req, org, client_id) { return refusal; }
+    // Who the request came through (`caller`) is decided with it, from the token and nothing else.
+    let origin = if engine.cfg.standalone {
+        match standalone_scope(&engine, &req) {
+            Some((scope, origin)) => {
+                if let crate::client_tokens::Scope::Viewer { org, client_id } = &scope {
+                    if let Some(refusal) = viewer_refusal(&engine, &req, org, client_id) { return refusal; }
+                }
+                req.extensions_mut().insert(scope);
+                Some(origin)
             }
-            req.extensions_mut().insert(scope);
+            None => None,
         }
-    }
+    } else {
+        // This engine's own desktop is the only caller it has; a request without its token ends in `guarded`.
+        Some(local_origin(&engine))
+    };
     if crate::lsproxy::route(req.uri().path()) {
         return crate::lsproxy::dispatch(State(engine), req).await;
     }
@@ -377,7 +387,14 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
         return crate::credential_bridge::dispatch(State(engine), req).await;
     }
     let client = if req.uri().path().starts_with("/api/desktop/") { "desktop" } else { "user" };
-    tracing::Instrument::instrument(guarded(engine, req, next), crate::trace::request(client)).await
+    tracing::Instrument::instrument(crate::caller::scope(origin, guarded(engine, req, next)), crate::trace::request(client)).await
+}
+
+/// The desktop this engine belongs to, under the name it shows to others
+/// (`remote::Remotes::shown_as`: the name its user chose, else the computer's).
+#[nolog]
+pub fn local_origin(engine: &Engine) -> crate::caller::Origin {
+    crate::caller::Origin::local(&engine.remotes.shown_as())
 }
 
 /// Bodies the log never holds: private template traffic, uploads, downloads, UI, sockets.
@@ -642,25 +659,28 @@ fn token_ok(engine: &Engine, req: &Request) -> bool {
     token_ok_headers(&engine.cfg.desktop_token, engine.cfg.standalone, req.headers())
 }
 
-/// What the request's token(s) may do, or `None` when none authenticates. When both the header and
-/// the Bearer token authenticate, the narrower scope wins (a viewer over a full one), so adding a
-/// header can never widen access.
+/// What the request's token(s) may do and whose they are, or `None` when none authenticates. When
+/// both the header and the Bearer token authenticate, the narrower scope wins (a viewer over a full
+/// one), so adding a header can never widen access. Between two full tokens a named client is who
+/// the request came through, not the startup token beside it.
 #[nolog]
-fn standalone_scope(engine: &Engine, req: &Request) -> Option<crate::client_tokens::Scope> {
+fn standalone_scope(engine: &Engine, req: &Request) -> Option<(crate::client_tokens::Scope, crate::caller::Origin)> {
     use axum::extract::ConnectInfo;
+    use crate::caller::Origin;
     use crate::client_tokens::{transport::ClientInfo, Scope};
     let connection = req.extensions().get::<ConnectInfo<ClientInfo>>().map(|info| &info.0.0);
     if connection.is_some_and(|connection| connection.closed()) { return None; }
     let bootstrap = engine.cfg.desktop_token.as_bytes();
-    let mut found: Option<Scope> = None;
+    let mut found: Option<(Scope, Origin)> = None;
     for token in [req.headers().get(TOKEN_HEADER).and_then(|value| value.to_str().ok()),
                   req.headers().get(axum::http::header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "))]
         .into_iter().flatten() {
-        let scope = if !bootstrap.is_empty() && constant_eq(token.as_bytes(), bootstrap) { Some(Scope::Full) }
+        let scope = if !bootstrap.is_empty() && constant_eq(token.as_bytes(), bootstrap) { Some((Scope::Full, Origin::startup())) }
             else if let (Some(registry), Some(connection)) = (&engine.clients, connection) { registry.authenticate(token, connection) }
             else { None };
         match (&found, scope) {
-            (_, None) | (Some(Scope::Viewer { .. }), _) => {}
+            (_, None) | (Some((Scope::Viewer { .. }, _)), _) => {}
+            (Some((Scope::Full, _)), Some((Scope::Full, origin))) if origin.id == crate::caller::STARTUP => {}
             (_, Some(scope)) => found = Some(scope),
         }
     }

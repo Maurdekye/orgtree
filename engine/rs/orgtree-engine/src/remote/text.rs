@@ -8,6 +8,8 @@ pub const E4: &str = "That engine didn't accept the token.";
 pub const E5: &str = "That address is an Orgtree desktop's own engine. Only a standalone (headless) engine can be added.";
 pub const E5B: &str = "That is this computer's own Orgtree.";
 pub const E6: &str = "This is a watch-only token. The desktop needs a full client token; watch-only tokens are for the viewer app.";
+/// The name this desktop shows to others is not one.
+pub const NAME_SHOWN: &str = "The name can have 1 to 40 characters.";
 pub const TOKEN_MISSING: &str = "Paste the engine's startup token or a client token.";
 pub const TOO_MANY: &str = "At most 32 remote engines can be added.";
 pub const STANDALONE: &str = "remote engines are added from the desktop app, not from a standalone engine";

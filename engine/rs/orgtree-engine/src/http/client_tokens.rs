@@ -21,9 +21,30 @@ pub fn manage(engine: &Engine, args: &Value) -> ApiResult<Value> {
     registry.manage(args)
 }
 
+/// The clients, and `you`: whose token asked (`caller::Origin`), so a
+/// connected desktop learns which of the rows is its own.
 #[nolog]
 pub async fn list(State(engine): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
-    Ok(Json(manage(&engine, &json!({"action":"list"}))?))
+    let mut listed = manage(&engine, &json!({"action":"list"}))?;
+    if let Some(origin) = crate::caller::current() { listed["you"] = origin.json(); }
+    Ok(Json(listed))
+}
+
+/// `PATCH /api/standalone/clients/{id} {"label": text | null}`: what other
+/// people see for one client; `null` or blank goes back to its own name. A
+/// full token may set anyone's (every full token is the user); a viewer token
+/// never reaches this route (`http/viewer.rs`).
+#[nolog]
+pub async fn label(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<serde_json::Map<String, Value>>) -> ApiResult<Json<Value>> {
+    let registry = engine.clients.as_ref().filter(|_| engine.cfg.standalone)
+        .ok_or_else(|| ApiError::not_found("client tokens are available in standalone mode only"))?;
+    if body.len() != 1 { return Err(ApiError::bad_request("the body is {\"label\": text or null}")); }
+    let label = match body.get("label") {
+        Some(Value::Null) => None,
+        Some(Value::String(text)) => Some(text.as_str()),
+        _ => return Err(ApiError::bad_request("the body is {\"label\": text or null}")),
+    };
+    Ok(Json(registry.set_label(&id, label)?))
 }
 
 #[derive(Deserialize)]

@@ -91,6 +91,12 @@ pub struct SavedRemote {
     /// up is stamped with it, so connecting to the same process reloads nothing.
     #[serde(default)]
     pub last_boot_id: Option<String>,
+    /// The name this desktop last gave its own client on that engine (the
+    /// file's `shown_as` then); absent while it never gave one. The link sends
+    /// the name again only when the two differ, so a name the engine's operator
+    /// set there stays until this desktop's user chooses another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_sent: Option<String>,
     #[serde(default)]
     pub orgs: Vec<SavedOrg>,
 }
@@ -108,15 +114,26 @@ struct SavedFile {
     version: u8,
     /// The next local org id to hand out (negative, counting down).
     next_local_id: i64,
+    /// What this desktop's user chose to be called where other people see its
+    /// actions; absent until they chose (the computer's name is used).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shown_as: Option<String>,
     remotes: Vec<SavedRemote>,
+}
+
+/// What the file holds.
+pub struct Loaded {
+    pub remotes: Vec<SavedRemote>,
+    pub next_local_id: i64,
+    pub shown_as: Option<String>,
 }
 
 /// What the file holds, or why it cannot be used (it is then left alone).
 #[nolog]
-pub fn load(path: &Path) -> Result<(Vec<SavedRemote>, i64), String> {
+pub fn load(path: &Path) -> Result<Loaded, String> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), -1)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Loaded { remotes: Vec::new(), next_local_id: -1, shown_as: None }),
         Err(error) => return Err(format!("cannot read {FILE}: {error}")),
     };
     if file.metadata().map_err(|e| format!("cannot read {FILE}: {e}"))?.len() > MAX_FILE {
@@ -144,14 +161,16 @@ pub fn load(path: &Path) -> Result<(Vec<SavedRemote>, i64), String> {
             }
         }
     }
-    Ok((saved.remotes, saved.next_local_id))
+    // a name that is no label (edited by hand) is not used: the computer's name is
+    let shown_as = saved.shown_as.as_deref().and_then(crate::caller::label);
+    Ok(Loaded { remotes: saved.remotes, next_local_id: saved.next_local_id, shown_as })
 }
 
 /// Replace the file with these connections (a temporary file beside it, then
 /// one atomic move), owner-only where the platform has file modes.
 #[nolog]
-pub fn save(path: &Path, remotes: &[SavedRemote], next_local_id: i64) -> std::io::Result<()> {
-    let bytes = serde_json::to_vec_pretty(&SavedFile { version: 1, next_local_id, remotes: remotes.to_vec() })?;
+pub fn save(path: &Path, remotes: &[SavedRemote], next_local_id: i64, shown_as: Option<&str>) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec_pretty(&SavedFile { version: 1, next_local_id, shown_as: shown_as.map(str::to_string), remotes: remotes.to_vec() })?;
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
@@ -299,7 +318,7 @@ mod tests {
         SavedRemote { id: id.into(), name: "Galaxy".into(), tag: "galaxy".into(), url: "http://127.0.0.1:7430".into(),
             data_root_id: "root-1".into(), client_id: Some("c1".into()), client_name: Some("Orgtree desktop (test)".into()),
             sealed_token: sealed, enabled: true, created_at: crate::util::now_iso(), last_connected_at: None, last_version: None,
-            last_boot_id: None, orgs: vec![SavedOrg { remote_slug: "acme".into(), alias: "acme".into(), local_id: -1, org_uuid: "u".into(),
+            last_boot_id: None, label_sent: None, orgs: vec![SavedOrg { remote_slug: "acme".into(), alias: "acme".into(), local_id: -1, org_uuid: "u".into(),
                 name: "Acme".into(), last_summary: None, first_seen: crate::util::now_iso(), gone_at: None }] }
     }
 
@@ -318,12 +337,12 @@ mod tests {
         // the file never holds the token, and what it holds reads back the same
         let path = d.join(FILE);
         let saved = vec![remote(&a, sealed)];
-        save(&path, &saved, -2).unwrap();
+        save(&path, &saved, -2, None).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("REMOTE-TOKEN-CANARY-7731"));
         assert!(format!("{:?}", saved[0]).find("sealed").is_none(), "Debug shows no token field");
-        let (back, next) = load(&path).unwrap();
-        assert!(back == saved && next == -2);
+        let Loaded { remotes: back, next_local_id: next, shown_as } = load(&path).unwrap();
+        assert!(back == saved && next == -2 && shown_as.is_none());
         let beside: Vec<String> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
         assert!(beside.iter().all(|n| !n.ends_with(".tmp")), "no temporary file is left: {beside:?}");
         std::fs::remove_dir_all(&d).ok();
@@ -333,7 +352,7 @@ mod tests {
     fn a_missing_file_is_an_empty_list_and_a_damaged_one_is_refused_not_replaced() {
         let d = dir();
         let path = d.join(FILE);
-        assert_eq!(load(&path).unwrap().0.len(), 0);
+        assert_eq!(load(&path).unwrap().remotes.len(), 0);
         std::fs::write(&path, b"{ not json").unwrap();
         assert!(load(&path).is_err());
         std::fs::write(&path, br#"{"version":2,"next_local_id":-1,"remotes":[]}"#).unwrap();
@@ -342,8 +361,32 @@ mod tests {
         let id = uuid::Uuid::new_v4().to_string();
         let mut r = remote(&id, "x".into());
         r.orgs.push(r.orgs[0].clone());
-        save(&path, &[r], -3).unwrap();
+        save(&path, &[r], -3, None).unwrap();
         assert!(load(&path).is_err());
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// The name this desktop shows to others, and the name each engine was
+    /// last given, are kept. A file that has neither is written exactly as
+    /// before they existed, so an older app still reads it.
+    #[test]
+    fn the_name_shown_to_others_is_kept_and_a_file_without_one_is_as_before() {
+        let d = dir();
+        let path = d.join(FILE);
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut r = remote(&id, "x".into());
+        save(&path, &[r.clone()], -2, None).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("shown_as") && !text.contains("label_sent"), "{text}");
+        r.label_sent = Some("Sam".into());
+        save(&path, &[r.clone()], -2, Some("Sam")).unwrap();
+        let back = load(&path).unwrap();
+        assert_eq!(back.shown_as.as_deref(), Some("Sam"));
+        assert_eq!(back.remotes[0].label_sent.as_deref(), Some("Sam"));
+        // a name edited into something that is no label is not used
+        let long = "x".repeat(41);
+        save(&path, &[r], -2, Some(&long)).unwrap();
+        assert_eq!(load(&path).unwrap().shown_as, None);
         std::fs::remove_dir_all(&d).ok();
     }
 
