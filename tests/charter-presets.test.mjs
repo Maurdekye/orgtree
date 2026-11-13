@@ -45,7 +45,7 @@ test('Heavy dev shop inherits the standalone Developer without lower-note role d
   const template = JSON.parse(readFileSync(path.join(root, 'engine/docs/templates/heavy-dev-shop.json'), 'utf8'))
   const coordinator = template.agents[0].reports[0], project = coordinator.reports[0]
   const developers = project.reports.filter(s => s.name.startsWith('developer-'))
-  assert.equal(developers.length, 11)
+  assert.equal(developers.length, 12)
   for (const seat of developers) assert.deepEqual(seat.charter, {preset: 'developer'})
   const notes = { shared: template.shared_agents_md }
   function collect(slots) {
