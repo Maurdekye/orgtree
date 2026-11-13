@@ -356,6 +356,88 @@ async fn upload(State(state): State<Arc<FarState>>, req: Request) -> Json<Value>
     Json(json!({ "bytes": total }))
 }
 
+// ---------------------------------------------------------------- RealFar
+
+/// A real engine in standalone mode on loopback, served as `main` serves it:
+/// the real router and guard, its client registry and its app feed. It has no
+/// database, so it has no organizations of its own.
+pub struct RealFar {
+    pub address: SocketAddr,
+    pub engine: Arc<Engine>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl RealFar {
+    pub async fn start(root: &Root) -> RealFar {
+        let mut engine = Engine::for_tests(root.0.clone());
+        let e = Arc::get_mut(&mut engine).unwrap();
+        e.cfg.standalone = true;
+        e.cfg.desktop_token = BOOTSTRAP.into();
+        e.cfg.data_root_id = "real-far-root".into();
+        e.clients = Some(Arc::new(crate::client_tokens::Registry::open(&root.0).unwrap()));
+        let (app, inbox) = crate::appfeed::AppFeed::new();
+        e.app = app;
+        crate::appfeed::start(&engine, inbox);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = crate::http::router(engine.clone());
+        let stop = engine.shutdown.clone();
+        let task = tokio::spawn(async move {
+            axum::serve(crate::client_tokens::transport::ClientListener(listener),
+                router.into_make_service_with_connect_info::<crate::client_tokens::transport::ClientInfo>())
+                .with_graceful_shutdown(stop.cancelled_owned()).await.unwrap();
+        });
+        RealFar { address, engine, task }
+    }
+
+    pub fn url(&self) -> String {
+        format!("http://{}", self.address)
+    }
+
+    /// One request with `token` as a remote caller sends it (`Authorization:
+    /// Bearer`), on a connection of its own that ends with the answer.
+    pub async fn call(&self, method: &str, path: &str, token: &str, body: Option<Value>, extra: &[(&str, &str)]) -> (u16, Value) {
+        let http = reqwest::Client::builder().no_proxy().pool_max_idle_per_host(0).build().unwrap();
+        let mut request = http.request(method.parse().unwrap(), format!("http://{}{path}", self.address)).bearer_auth(token);
+        for (k, v) in extra {
+            request = request.header(*k, *v);
+        }
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = tokio::time::timeout(Duration::from_secs(10), request.send()).await.expect("the engine answered in time").unwrap();
+        let status = response.status().as_u16();
+        let bytes = response.bytes().await.unwrap_or_default();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    /// A named client made with the startup token: its id and its token.
+    pub async fn create(&self, name: &str) -> (String, String) {
+        let (status, made) = self.call("POST", "/api/standalone/clients", BOOTSTRAP, Some(json!({ "name": name })), &[]).await;
+        assert_eq!(status, 200, "{made}");
+        (made["id"].as_str().unwrap().to_string(), made["token"].as_str().unwrap().to_string())
+    }
+
+    /// The client list as the startup token reads it.
+    pub async fn listed(&self) -> Value {
+        let (status, listed) = self.call("GET", "/api/standalone/clients", BOOTSTRAP, None, &[]).await;
+        assert_eq!(status, 200, "{listed}");
+        listed
+    }
+
+    /// One client's row of the list.
+    pub async fn row(&self, id: &str) -> Value {
+        self.listed().await["clients"].as_array().and_then(|rows| rows.iter().find(|row| row["id"] == id).cloned()).unwrap_or(Value::Null)
+    }
+}
+
+impl Drop for RealFar {
+    fn drop(&mut self) {
+        self.engine.shutdown.cancel();
+        self.task.abort();
+    }
+}
+
 // ---------------------------------------------------------------- Near
 
 /// This engine on loopback: a desktop token, a synthetic data root, the app

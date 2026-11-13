@@ -778,3 +778,244 @@ async fn t15_the_log_names_a_relayed_request_and_never_its_body_or_a_token() {
         assert!(!log.contains(secret), "{secret} reached the log");
     }
 }
+
+// ------------------------------------------------------------------ E-T1, E-T6
+// Several people on one organization (docs/rust-engine/remote-org.md): who a
+// request came through, the name others see, and who is connected.
+
+/// The computer in "Orgtree desktop (<computer>)".
+fn computer_of(client_name: &str) -> String {
+    let computer = client_name.strip_prefix("Orgtree desktop (").and_then(|rest| rest.strip_suffix(')')).expect("a desktop's client name");
+    computer.chars().take(40).collect::<String>().trim().to_string()
+}
+
+#[tokio::test]
+async fn e1_a_request_is_whose_token_made_it_and_nothing_it_carries_says_otherwise() {
+    let root = Root::new();
+    let far = RealFar::start(&root).await;
+    let list = "/api/standalone/clients";
+    // the startup token
+    let (_, listed) = far.call("GET", list, BOOTSTRAP, None, &[]).await;
+    assert_eq!(listed["you"], json!({ "id": "startup", "name": "Startup token" }), "{listed}");
+    // a named client: its id, the name others see, and where that name is from
+    let (pc2, pc2_token) = far.create("Orgtree desktop (PC2)").await;
+    let (laptop, laptop_token) = far.create("laptop").await;
+    let (_, listed) = far.call("GET", list, &pc2_token, None, &[]).await;
+    assert_eq!(listed["you"], json!({ "id": pc2, "name": "PC2", "on": "Orgtree desktop (PC2)" }));
+    let (_, listed) = far.call("GET", list, &laptop_token, None, &[]).await;
+    assert_eq!(listed["you"], json!({ "id": laptop, "name": "laptop" }), "a name that says it all is not said twice");
+    // nothing a request carries says who it is: not a header a page could add, not its query, not its body
+    let claims = [("x-orgtree-origin", pc2.as_str()), ("x-orgtree-via", pc2.as_str()), ("x-orgtree-client", pc2.as_str()),
+        ("x-orgtree-remote", pc2.as_str()), ("x-forwarded-user", "PC2"), ("from", "PC2")];
+    let claimed = format!("{list}?you={pc2}&via={pc2}&origin={pc2}");
+    let (status, listed) = far.call("GET", &claimed, &laptop_token, Some(json!({ "via": { "id": pc2, "name": "PC2" }, "origin": pc2, "you": pc2 })), &claims).await;
+    assert_eq!((status, &listed["you"]["id"]), (200, &json!(laptop)), "{listed}");
+    // the startup token beside a client's token: the client is who it came through, whichever header holds which
+    let (_, listed) = far.call("GET", list, &laptop_token, None, &[(crate::http::TOKEN_HEADER, BOOTSTRAP)]).await;
+    assert_eq!(listed["you"]["id"], json!(laptop));
+    let (_, listed) = far.call("GET", list, BOOTSTRAP, None, &[(crate::http::TOKEN_HEADER, laptop_token.as_str())]).await;
+    assert_eq!(listed["you"]["id"], json!(laptop));
+    // no token, no origin, no answer
+    let (status, listed) = far.call("GET", list, "wrong", None, &claims).await;
+    assert_eq!((status, listed.get("you")), (403, None), "{listed}");
+}
+
+#[tokio::test]
+async fn e1_this_desktop_is_local_under_the_name_its_user_chose() {
+    let root = Root::new();
+    let near = Near::start(&root).await;
+    let me = || {
+        let near = &near;
+        async move { near.call("GET", "/api/remotes", None, None).await.2["me"].clone() }
+    };
+    // before anyone chose: the computer's name
+    let first = me().await;
+    assert_eq!(first["id"], "local", "{first}");
+    let computer = first["name"].as_str().expect("the computer's name").to_string();
+    assert!(!computer.is_empty() && first.get("on").is_none(), "{first}");
+    // a header cannot change who this desktop is
+    let (_, _, listed) = near.call_with("GET", "/api/remotes", None, None, &[("x-orgtree-origin", "someone"), ("x-orgtree-via", "someone")]).await;
+    assert_eq!(listed["me"], first);
+    // the chosen name, trimmed; it is kept in the file
+    let (status, _, body) = near.call("PUT", "/api/remotes/shown-as", None, Some(json!({ "label": "  Sam " }))).await;
+    assert_eq!((status, &body["shown_as"], &body["me"]), (200, &json!("Sam"), &json!({ "id": "local", "name": "Sam" })), "{body}");
+    assert_eq!(me().await, json!({ "id": "local", "name": "Sam" }));
+    let file: Value = serde_json::from_slice(&std::fs::read(root.0.join(store::FILE)).unwrap()).unwrap();
+    assert_eq!(file["shown_as"], "Sam", "{file}");
+    // what is no name is refused and changes nothing
+    for bad in [json!({ "label": "x".repeat(41) }), json!({ "label": "a\nb" }), json!({ "label": 5 }), json!({}), json!({ "label": "Sam", "more": 1 })] {
+        let (status, _, body) = near.call("PUT", "/api/remotes/shown-as", None, Some(bad.clone())).await;
+        assert_eq!(status, 400, "{bad}: {body}");
+    }
+    let (_, _, body) = near.call("PUT", "/api/remotes/shown-as", None, Some(json!({ "label": "x".repeat(41) }))).await;
+    assert_eq!(body["detail"], "The name can have 1 to 40 characters.");
+    assert_eq!(me().await["name"], "Sam");
+    // no name: the computer's again, and the file is as it was before names existed
+    let (status, _, body) = near.call("PUT", "/api/remotes/shown-as", None, Some(json!({ "label": null }))).await;
+    assert_eq!((status, &body["shown_as"], body["me"]["name"].as_str()), (200, &Value::Null, Some(computer.as_str())), "{body}");
+    let file: Value = serde_json::from_slice(&std::fs::read(root.0.join(store::FILE)).unwrap()).unwrap();
+    assert!(file.get("shown_as").is_none(), "{file}");
+}
+
+#[tokio::test]
+async fn e6_a_client_has_a_label_and_the_list_says_who_is_connected() {
+    let root = Root::new();
+    let far = RealFar::start(&root).await;
+    let (pc2, pc2_token) = far.create("Orgtree desktop (PC2)").await;
+    let (laptop, laptop_token) = far.create("laptop").await;
+    let saved = || serde_json::from_slice::<Value>(&std::fs::read(root.0.join("standalone-clients.json")).unwrap()).unwrap();
+    // nobody chose a name: each goes by its computer, or by its own name; neither has made a request
+    let row = far.row(&pc2).await;
+    assert_eq!((&row["label"], &row["connected"], &row["connected_since"], &row["last_seen_at"]), (&json!("PC2"), &json!(false), &Value::Null, &Value::Null), "{row}");
+    assert_eq!(far.row(&laptop).await["label"], "laptop");
+    assert_eq!(saved()["version"], 2, "a registry without labels is written as before, for an older engine to read");
+    // a client names itself
+    let patch = |id: &str, token: &str, body: Value| {
+        let (far, path, token) = (&far, format!("/api/standalone/clients/{id}"), token.to_string());
+        async move { far.call("PATCH", &path, &token, Some(body), &[]).await }
+    };
+    let (status, row) = patch(&pc2, &pc2_token, json!({ "label": "  Sam " })).await;
+    assert_eq!((status, &row["label"], &row["id"]), (200, &json!("Sam"), &json!(pc2)), "{row}");
+    assert_eq!(far.row(&pc2).await["label"], "Sam");
+    let (_, listed) = far.call("GET", "/api/standalone/clients", &pc2_token, None, &[]).await;
+    assert_eq!(listed["you"], json!({ "id": pc2, "name": "Sam", "on": "Orgtree desktop (PC2)" }));
+    assert_eq!((&saved()["version"], &saved()["clients"][0]["label"]), (&json!(3), &json!("Sam")));
+    // the registry reads back with the label
+    let reopened = crate::client_tokens::Registry::open(&root.0).unwrap().manage(&json!({ "action": "list" })).unwrap();
+    assert_eq!(reopened["clients"][0]["label"], "Sam", "{reopened}");
+    // what is no label is refused and changes nothing
+    for bad in [json!({ "label": "x".repeat(41) }), json!({ "label": "a\u{7}b" }), json!({ "label": 5 }), json!({}), json!({ "label": "Sam", "more": 1 })] {
+        let (status, body) = patch(&pc2, &pc2_token, bad.clone()).await;
+        assert_eq!(status, 400, "{bad}: {body}");
+    }
+    assert_eq!(patch("no-such-client", &pc2_token, json!({ "label": "Sam" })).await.0, 404);
+    assert_eq!(far.row(&pc2).await["label"], "Sam");
+    // a watch-only token names nobody, itself included
+    far.engine.orgs.insert(crate::orgs::provisional(1, "u-acme".into(), "acme".into(), "Acme".into()));
+    let (status, viewer) = far.call("POST", "/api/standalone/clients", BOOTSTRAP, Some(json!({ "name": "watcher", "scope": "viewer", "org": "acme" })), &[]).await;
+    assert_eq!(status, 200, "{viewer}");
+    let (viewer_id, viewer_token) = (viewer["id"].as_str().unwrap().to_string(), viewer["token"].as_str().unwrap().to_string());
+    for id in [&viewer_id, &pc2] {
+        let (status, body) = patch(id, &viewer_token, json!({ "label": "Mallory" })).await;
+        assert_eq!((status, body["detail"].as_str()), (403, Some("this client token is read-only")), "{body}");
+    }
+    assert_eq!((far.row(&viewer_id).await["label"].as_str(), far.row(&pc2).await["label"].as_str()), (Some("watcher"), Some("Sam")));
+    // no label again: its computer, and a registry with no label left is written as before
+    let (status, row) = patch(&pc2, &pc2_token, json!({ "label": null })).await;
+    assert_eq!((status, &row["label"]), (200, &json!("PC2")), "{row}");
+    assert_eq!(saved()["version"], 2);
+    assert!(saved()["clients"][0].get("label").is_none());
+    // who is connected: a computer whose connection stays open, since when, and when it was last heard
+    let mut open = TcpStream::connect(far.address).await.unwrap();
+    open.write_all(format!("GET /api/desktop/alive HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {laptop_token}\r\n\r\n").as_bytes()).await.unwrap();
+    assert_eq!(raw_response(&mut open).await.0, 200);
+    let row = far.row(&laptop).await;
+    assert_eq!(row["connected"], true, "{row}");
+    let since = chrono::DateTime::parse_from_rfc3339(row["connected_since"].as_str().expect("connected since")).unwrap();
+    let seen = chrono::DateTime::parse_from_rfc3339(row["last_seen_at"].as_str().expect("last seen")).unwrap();
+    assert!(seen >= since && (chrono::Utc::now() - since.with_timezone(&chrono::Utc)).num_seconds() < 30, "{row}");
+    // the requests above each ended with their connection: that computer is not connected, but was heard
+    let mut gone = Value::Null;
+    for _ in 0..200 {
+        gone = far.row(&pc2).await;
+        if gone["connected"] == false { break; }
+        tokio::time::sleep(Duration::from_millis(15)).await;
+    }
+    assert_eq!((&gone["connected"], &gone["connected_since"], gone["last_seen_at"].is_string()), (&json!(false), &Value::Null, true), "{gone}");
+    // its connection ends: not connected any more, last heard stays
+    drop(open);
+    let mut after = Value::Null;
+    for _ in 0..200 {
+        after = far.row(&laptop).await;
+        if after["connected"] == false { break; }
+        tokio::time::sleep(Duration::from_millis(15)).await;
+    }
+    assert_eq!((&after["connected"], &after["connected_since"], after["last_seen_at"].as_str()), (&json!(false), &Value::Null, row["last_seen_at"].as_str()), "{after}");
+}
+
+#[tokio::test]
+async fn e1_a_connection_knows_who_it_is_there_and_carries_the_name_its_user_chose() {
+    let (near_root, far_root) = (Root::new(), Root::new());
+    let near = Near::start(&near_root).await;
+    let far = RealFar::start(&far_root).await;
+    let (status, _, view) = near.call("POST", "/api/remotes", None, Some(json!({ "url": far.url(), "token": BOOTSTRAP, "name": "Galaxy" }))).await;
+    assert_eq!(status, 200, "{view}");
+    let id = view["id"].as_str().unwrap().to_string();
+    let view = near.state(&id, "connected", 8000).await;
+    // this desktop made one client there; the engine says that is who this connection is, by its computer's name
+    let listed = far.listed().await;
+    let client = listed["clients"][0]["id"].as_str().unwrap().to_string();
+    let computer = computer_of(view["client_name"].as_str().unwrap());
+    assert_eq!(view["me"], json!({ "id": client, "name": computer }), "{view}");
+    let saved = || serde_json::from_slice::<Value>(&std::fs::read(near_root.0.join(store::FILE)).unwrap()).unwrap()["remotes"][0].clone();
+    assert!(saved().get("label_sent").is_none(), "nothing was chosen, so nothing was sent: {}", saved());
+    // the user chooses a name: the connection gives it to its own client there
+    let wait_name = |want: &'static str| {
+        let (near, id) = (&near, id.clone());
+        async move {
+            let mut view = Value::Null;
+            for _ in 0..400 {
+                view = near.view(&id).await;
+                if view["me"]["name"] == want { break; }
+                tokio::time::sleep(Duration::from_millis(15)).await;
+            }
+            assert_eq!(view["me"]["name"], want, "{view}");
+        }
+    };
+    let (status, _, body) = near.call("PUT", "/api/remotes/shown-as", None, Some(json!({ "label": "Sam" }))).await;
+    assert_eq!(status, 200, "{body}");
+    wait_name("Sam").await;
+    assert_eq!(far.row(&client).await["label"], "Sam");
+    assert_eq!(saved()["label_sent"], "Sam");
+    // the engine's operator renames it there: this desktop shows that name and does not put its own back
+    let (status, _) = far.call("PATCH", &format!("/api/standalone/clients/{client}"), BOOTSTRAP, Some(json!({ "label": "Samuel" })), &[]).await;
+    assert_eq!(status, 200);
+    near.call("POST", &format!("/api/remotes/{id}/retry"), None, None).await;
+    wait_name("Samuel").await;
+    assert_eq!(far.row(&client).await["label"], "Samuel");
+    // who is connected there: this desktop, marked as itself, and another computer once it connects
+    let (other, other_token) = far.create("Orgtree desktop (PC9)").await;
+    let (status, _, people) = near.call("GET", &format!("/api/remotes/{id}/people"), None, None).await;
+    assert_eq!((status, &people["supported"]), (200, &json!(true)), "{people}");
+    let person = |people: &Value, id: &str| people["people"].as_array().unwrap().iter().find(|p| p["id"] == id).cloned().unwrap_or(Value::Null);
+    let mine = person(&people, &client);
+    assert_eq!((&mine["you"], &mine["label"], &mine["connected"], mine["since"].is_string()), (&json!(true), &json!("Samuel"), &json!(true), true), "{people}");
+    assert_eq!((&person(&people, &other)["you"], &person(&people, &other)["connected"], &person(&people, &other)["label"]), (&json!(false), &json!(false), &json!("PC9")), "{people}");
+    let mut open = TcpStream::connect(far.address).await.unwrap();
+    open.write_all(format!("GET /api/desktop/alive HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {other_token}\r\n\r\n").as_bytes()).await.unwrap();
+    assert_eq!(raw_response(&mut open).await.0, 200);
+    let (_, _, people) = near.call("GET", &format!("/api/remotes/{id}/people"), None, None).await;
+    assert_eq!(person(&people, &other)["connected"], true, "{people}");
+    // the user's next choice goes there again; no name is the computer's
+    let (status, _, _) = near.call("PUT", "/api/remotes/shown-as", None, Some(json!({ "label": null }))).await;
+    assert_eq!(status, 200);
+    let computer: &'static str = Box::leak(computer.into_boxed_str());
+    wait_name(computer).await;
+    assert_eq!(far.row(&client).await["label"], computer);
+    assert!(saved().get("label_sent").is_none(), "{}", saved());
+    // nobody is asked while the connection is not up
+    near.call("PATCH", &format!("/api/remotes/{id}"), None, Some(json!({ "enabled": false }))).await;
+    near.state(&id, "paused", 8000).await;
+    let (status, _, body) = near.call("GET", &format!("/api/remotes/{id}/people"), None, None).await;
+    assert_eq!(status, 502, "{body}");
+    assert_eq!(near.call("GET", "/api/remotes/no-such/people", None, None).await.0, 404);
+}
+
+#[tokio::test]
+async fn e1_an_engine_that_does_not_say_who_is_who_leaves_it_unknown() {
+    let root = Root::new();
+    let near = Near::start(&root).await;
+    let far = Far::start().await;
+    let (id, _) = connected(&near, &far).await;
+    // an engine before 4.6.0: no `you`, no labels, no route to set one
+    let (status, _, _) = near.call("PUT", "/api/remotes/shown-as", None, Some(json!({ "label": "Sam" }))).await;
+    assert_eq!(status, 200);
+    near.call("POST", &format!("/api/remotes/{id}/retry"), None, None).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let view = near.state(&id, "connected", 8000).await;
+    let client = far.state.clients.lock().unwrap()[0].0.clone();
+    assert_eq!(view["me"], json!({ "id": client, "name": null }), "the client this desktop made there, under no known name: {view}");
+    assert!(!far.state.seen_paths().iter().any(|p| p.starts_with("PATCH ")), "{:?}", far.state.seen_paths());
+    let (status, _, people) = near.call("GET", &format!("/api/remotes/{id}/people"), None, None).await;
+    assert_eq!((status, &people["supported"], people["people"].as_array().map(Vec::len)), (200, &json!(false), Some(0)), "{people}");
+}
