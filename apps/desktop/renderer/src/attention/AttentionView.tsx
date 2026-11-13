@@ -65,6 +65,7 @@ import './attention.css'
 
 /** how long the panels take to change places on Swap panels (point 6) */
 export const SWAP_SLIDE_MS = 150
+export const SWAP_DRAG_THRESHOLD_PX = 4
 
 const reducedMotion = (): boolean => {
   try { return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true } catch { return false }
@@ -511,7 +512,8 @@ export function AttentionView(props: AttentionViewProps) {
     active && !deskPinned && !deskOut ? 'automatic' : undefined
 
   const stageRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<number | null>(null)
+  const press = useRef<{ id: number; startX: number; max: number; started: boolean; onButton: boolean } | null>(null)
+  const suppressClick = useRef(false)
   // the in-flight rect lives in component state (one render per pointer move);
   // the store is written ONCE, at pointer-up — the same rule every drag in
   // this app follows (see PinFrameInner in canvas/modalpin.tsx)
@@ -536,31 +538,53 @@ export function AttentionView(props: AttentionViewProps) {
     if (!box || box.width <= 0) return null
     return placeFromPointer((clientX - box.left) / box.width)
   }
-  const onDividerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  // ONE press handler for the divider AND its Swap panels button (USER
+  // 2026-11-13 mb445dc041229, mfc2dce66b9f3). A press that stays under
+  // SWAP_DRAG_THRESHOLD_PX is a CLICK and swaps; one that reaches it is a DRAG.
+  const onDividerDown = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()          // never let this reach the canvas behind it
-    drag.current = e.pointerId
-    setDragging(true)
+    press.current = {
+      id: e.pointerId, startX: e.clientX, max: 0, started: false,
+      onButton: e.currentTarget.tagName === 'BUTTON',
+    }
+    suppressClick.current = false
     e.currentTarget.setPointerCapture(e.pointerId)
   }
-  const onDividerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (drag.current !== e.pointerId) return
+  const onDividerMove = (e: ReactPointerEvent<HTMLElement>) => {
+    const p = press.current
+    if (!p || p.id !== e.pointerId) return
+    p.max = Math.max(p.max, Math.abs(e.clientX - p.startX))
+    if (!p.started && p.max >= SWAP_DRAG_THRESHOLD_PX) { p.started = true; setDragging(true) }
+    if (!p.started) return
     const next = fromPointer(e.clientX)
     if (next !== null) setLive(next)
   }
-  const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (drag.current !== e.pointerId) return
-    drag.current = null
-    setDragging(false)
+  const endDrag = (e: ReactPointerEvent<HTMLElement>, cancelled = false) => {
+    const p = press.current
+    if (!p || p.id !== e.pointerId) return
+    press.current = null
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* gone */ }
-    if (live !== null) commit(live)
-    setLive(null)
+    if (p.started) {
+      setDragging(false)
+      suppressClick.current = true   // the click the browser fires after a drag
+      if (live !== null) commit(live)
+      setLive(null)
+    } else if (!cancelled && !p.onButton) {
+      swapPanels()                   // the button swaps through its own click
+    }
+  }
+  // the click after a drag must not swap; a press resets this
+  const onSwapClick = () => {
+    if (suppressClick.current) { suppressClick.current = false; return }
+    swapPanels()
   }
   // Left and right are the STAGE's, whichever panel is on that side: an arrow
   // moves the divider the way it points, past a panel's minimum it hides that
   // panel, and Home / End hide the left / right one (point 4).
   const onDividerKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); swapPanels(); return }
     const next = placeFromKey(place, e.key, e.shiftKey)
     if (next === null) return
     e.preventDefault()
@@ -683,15 +707,17 @@ export function AttentionView(props: AttentionViewProps) {
       {dividable && (
         <div className="attn-divider" role="separator" tabIndex={0}
           aria-orientation="vertical"
-          aria-label="Resize the Needs attention panel"
+          aria-label="Resize the Needs attention panel; click to swap panels"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={queueHidden ? 0 : deskHidden ? 100 : Math.round(split * 100)}
           aria-valuetext={queueHidden ? 'Needs attention hidden' : deskHidden ? 'Agent desk hidden' : undefined}
           onPointerDown={onDividerDown} onPointerMove={onDividerMove}
-          onPointerUp={endDrag} onPointerCancel={endDrag}
+          onPointerUp={(e) => endDrag(e)} onPointerCancel={(e) => endDrag(e, true)}
           style={dividerStyle}
-          onContextMenu={(e) => menu.open(e, [{ label: 'Swap panels', onSelect: swapPanels }])}
+          onContextMenu={(e) => menu.open(e, [
+            { label: 'Swap panels', onSelect: swapPanels },
+          ])}
           onKeyDown={onDividerKey}>
           <span className="attn-divider-grip" aria-hidden="true" />
         </div>
@@ -705,7 +731,9 @@ export function AttentionView(props: AttentionViewProps) {
         <div className={'attn-swap-anchor' + (place.hidden ? ' attn-swap-at-' + place.hidden : '')}
           style={dividerStyle}>
           <button type="button" className="attn-swap" aria-label="Swap panels" title="Swap panels"
-            onPointerDown={(e) => e.stopPropagation()} onClick={swapPanels}>
+            onPointerDown={onDividerDown} onPointerMove={onDividerMove}
+            onPointerUp={(e) => endDrag(e)} onPointerCancel={(e) => endDrag(e, true)}
+            onClick={onSwapClick}>
             <SwapHorizIcon fontSize="inherit" />
           </button>
         </div>
