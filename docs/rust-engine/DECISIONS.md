@@ -2536,8 +2536,9 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     [remote-org](remote-org.md#several-people-on-one-organization). Of the host (phase F), landed so
     far: the door's listener and guard, the registry (each organization's switch, the port, the
     computers and one-time codes, all in `remote-access.json` and none of it in a database), the
-    member route table, the owner's routes, the limit on refused tokens, and where the door stands
-    and when (Tailscale's address, the private network's by choice, never a public one;
-    `remote_access/`). Nothing in the app turns a switch on yet. Contract:
+    member route table, the owner's routes, the limit on refused tokens, where the door stands and
+    when (Tailscale's address, the private network's by choice, never a public one), and what a
+    member is sent (an app feed of its organizations only; no e-mail address of the owner in a
+    list; `remote_access/`). Nothing in the app turns a switch on yet. Contract:
     [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
     [remote-access-security](remote-access-security.md).

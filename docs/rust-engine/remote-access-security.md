@@ -47,7 +47,7 @@ can end any computer's access at once.**
 | 10 | A web page in a browser on some computer of the tailnet calls the door (cross-site request, DNS rebinding) | No cookie or ambient credential exists: a request needs `Authorization: Bearer`. A request that names an `Origin` is refused outright | `admit` | **built** (same test) |
 | 11 | A member changes who may come in: the switch, the lists, codes, the port | None of it is in an organization's settings or database: it is in `remote-access.json`, changed only by the owner's routes. Those are this computer's own (`LOCAL`, never relayed), in `REFUSED` at the door, denied to a viewer, 404 on a standalone engine, and each handler refuses any request with a token scope | `api.rs` `owner`, `member.rs`, `registry.rs` | **built** (`only_this_desktop_itself_reaches_the_owners_routes`) |
 | 12 | A member deletes the organization | `DELETE /api/orgs/{slug}` is not in its table (`READ` is `GET` only) | `member.rs` | **built** (`a_member_has_the_organization...`) |
-| 13 | A member learns the owner's e-mail addresses or other organizations' names from answers it may read (the app feed, the organization list, accounts, usage) | Those answers are refused until scoped: a member is sent a feed and lists made for it | scoped feed and reads | **refused today** (in `REFUSED`); scoped versions **planned** (the "what a member is sent" job) |
+| 13 | A member learns other organizations' names, or the owner's e-mail addresses, from answers it may read (the app feed, accounts, providers) | Its app feed is made for it: its organizations only, two values, never a broadcast frame. An app-wide answer passes a filter that removes every address and every mention of where else an account is used; an organization's answer and socket frame lose the owner's known addresses where one is a whole text. Usage, model servers, OpenRouter and the organization list stay refused | `appfeed.rs` `Audience::Member`, `shown.rs`, `http::guarded`, `feed/socket.rs` | **built** (`a_member_is_sent_its_organizations_and_no_others...`, `an_answer_to_a_member_holds_no_address...`, `shown::tests`). Addresses are a courtesy, not a wall: see "Known and accepted" |
 | 14 | A revoked computer keeps working on an open connection or socket | Revoke ends every connection the computer has open before it returns; the same lock admits tokens and commits the removal | `registry.rs` | **built** (`revoking_a_computer_or_switching...`, `a_member_reads_names_and_removes...`) |
 | 15 | The switch is turned off but a connection stays, or a code made before still works | Turning it off ends the connections of every computer that has the organization and takes back its open codes; "Stop all" does it for every organization. The door goes by what was written: a change that could not be written changes nothing | `Registry::set_open`, `stop_all`, `commit` | **built** (same test, `stopping_all_remote_access...`, `the_owner_switches_an_organization_on...`) |
 | 15a | An organization comes back shared without the owner saying so (a restored backup, a copy, a template, an organization deleted and restored) | The switch is not in the organization's data at all; deleting an organization switches it off | `registry.rs`, `remote_access::org_deleted` | **built** (the file: `a_registry_file_is_taken_as_a_whole...`; the delete hook is one line in `http/orgops.rs`, not covered by a unit test: it needs a database) |
@@ -97,7 +97,12 @@ can end any computer's access at once.**
 ## Known and accepted
 
 - A member can do on the hosting computer whatever the organization's agents can. This is the
-  feature; the switch says it.
+  feature; the switch says it. It follows that a member can learn things this page says it is not
+  shown, by having an agent look: the owner's e-mail address (git's configuration, a CLI's sign-in
+  file), the names of folders, what else is installed. The filter in `shown.rs` keeps addresses out
+  of lists and pickers; it does not make them secret from a computer the owner trusted with an
+  organization. What stays out of reach by construction is the API itself: other organizations'
+  routes and data, tokens, sign-ins and every app-wide write.
 - Plain http on a private network, when the owner chooses it.
 - A code is a bearer secret for 15 minutes; whoever redeems it first gets in. The owner sees the
   computer's name in the list.

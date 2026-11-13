@@ -492,10 +492,9 @@ it is in `remote_access/`. The security notes an independent reader needs are in
 
 Built so far: the door's listener and guard, the registry (the switch of each organization, the
 port, the computers and the one-time codes), the member route table, the owner's routes and the limit
-on refused tokens, and where the door stands and when. Not built yet: what a member is sent of the
-app feed and of the organization list (a connecting desktop cannot list its organizations yet), the
-connecting side's part, the firewall rule and the windows. Nothing in the app can turn a switch on
-yet, so a running app still opens no door.
+on refused tokens, where the door stands and when, and what a member is sent. Not built yet: the
+connecting side's part (a desktop cannot yet add a hosting desktop with a code), the firewall rule and
+the windows. Nothing in the app can turn a switch on yet, so a running app still opens no door.
 
 ### The door
 
@@ -618,7 +617,7 @@ of its lists, and `every_route_is_classified_for_members` fails for a route that
 | List | Means |
 | --- | --- |
 | `ORG` | a route below `/api/orgs/{slug}/`: every method, for an organization the member was given whose switch is on |
-| `READ` | `GET` and `HEAD` only: the organization itself (deleting it is its owner's), `/api/desktop/alive`, `/api/host` |
+| `READ` | `GET` and `HEAD` only: the organization itself (deleting it is its owner's), `/api/desktop/alive`, `/api/host`, the app feed made for a member (`/api/app/ws`, `/api/app/records`), and what a window of an organization needs of the app: `/api/providers`, `/api/accounts`, `/api/harnesses`, `/api/skills`, `/api/charters`, `/api/templates`, `/api/defaults`, `/api/mcp-servers`, `/api/fs`, `/api/markdown-image` |
 | `OWN` | its own client record: `GET /api/standalone/clients` (one row and `you`), `PATCH` and `DELETE` of its own id |
 | `REFUSED` | everything app-wide and everything of the hosting computer; and two routes below an organization that reach beyond it: `/mcp` and `/template` |
 
@@ -629,8 +628,36 @@ of its lists, and `every_route_is_classified_for_members` fails for a route that
   beyond the organization; anything else goes in `REFUSED` unless a computer that was let in must
   read it, and then its answer must hold nothing of the owner's (no e-mail address, no other
   organization).
-- The app-wide reads a window needs (providers, accounts without e-mail addresses, usage, skills,
-  templates, charters, folders) are in `REFUSED` until the job that audits what each answers.
+- Still in `REFUSED` among the reads: usage, the model servers, OpenRouter, the changelog and the
+  organization list (`GET /api/orgs`: a member's list is its app feed). A window of a hosted
+  organization shows those pages without their figures until each answer has been looked at.
+
+### What a member is sent
+
+Two rules (`remote_access/shown.rs`), and one place that applies each.
+
+- **The owner's e-mail addresses are not shown.** Every JSON answer to a member (`shown::answer`,
+  called by `http::guarded`), every frame of an organization's socket (`feed/socket.rs`) and every
+  value of the app feed passes `shown::hide`. A text that *is* one of the addresses this engine knows
+  its accounts and sign-ins by is replaced by the account's id (the row's own account when it names
+  one, so a picker still tells two accounts apart); a member called `email` that holds one becomes
+  null. A text that merely contains an address is the organization's content and is left as written.
+- **An app-wide answer holds no address at all and names no other organization.** For a path that is
+  not an organization's, every member called `email` is nulled whatever it holds, a text that has the
+  shape of an address is replaced whether the engine knows it or not, and the members that say where
+  else an account is used (`bound`, `origin_org`, `host_identity`) are removed.
+
+This keeps addresses out of lists. It is not a wall: a computer that may run the organization's
+agents on the hosting computer can learn whose account they run under.
+
+**The app feed of a member** (`appfeed::Audience::Member`, decided from the token's scope): the
+registry, the summaries, the notices and the working counts of the organizations it may open now
+(given to it, switch on) and of no other; of this computer's values only `MEMBER_VALUES` (`providers`
+and `accounts`), each through `hide`. It is never among the windows a frame is broadcast to: what it
+gets is made for it (`to_members`, `member_frames`, `member_value`). When what a member may open
+changes (a switch, an organization given), `lifecycle::publish` tells the feed and each member's
+sockets are sent their registry and what they see of it again, on the connection they have. A member
+whose organization was switched off, or that was revoked, loses its connections with that.
 
 `GET /api/host` gains `mode` (`standalone`, `host` at the door, `desktop` on a desktop's own
 listener) and `computer`.
@@ -688,7 +715,10 @@ on refused tokens through the door. Where the door stands: the plan and the deci
 (`lifecycle::tests`), and with real listeners on loopback: no door while nothing is shared, a door at
 once when something is, the port followed, a taken port said and retried, and gone when everything is
 off; a door with nowhere to stand waits and says why; a switch that could let nobody in is refused; who
-is connected now.
+is connected now. What a member is sent: the two rules by themselves (`shown::tests`), and through the
+door: its app feed holds its organizations and two values and nothing else (no address, no other
+organization, no connection of this computer), a second organization that is given arrives on the open
+socket, a change in an organization it may not open does not, and every answer passes the filter.
 
 ## Desktop
 
