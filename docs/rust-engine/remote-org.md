@@ -482,6 +482,111 @@ client goes by the computer in "Orgtree desktop (<computer>)", else by its own n
 
 Both routes are this computer's (`Local`) and are refused to viewer tokens.
 
+## A desktop as host
+
+A desktop can let other computers open some of its organizations (phase F, decision 101). It is off
+by default and switched on per organization. The other computer uses the same "Add a remote engine"
+dialog, list and windows as for a standalone engine; what differs is on the hosting side, and all of
+it is in `remote_access/`. The security notes an independent reader needs are in
+[remote-access-security](remote-access-security.md).
+
+Built so far: the door's listener and guard, the registry of computers and one-time codes, and the
+member route table. Not built yet: the switch in an organization's settings and the owner's routes,
+where the door binds and when (`remote_access::RemoteAccess::set_open` is called by tests only), what a
+member is sent of the app feed and of the organization list, the connecting side's part, the firewall
+rule and the windows. Until those land nothing opens a door in a running app.
+
+### The door
+
+A second listener (`remote_access/door.rs`), apart from the loopback listener the app itself uses.
+The two share the router and nothing else.
+
+- A connection accepted at the door is marked where it is accepted (`Connection::door`,
+  `client_tokens/transport.rs`). The request guard decides by that mark alone which rules a request
+  is judged by; nothing in a request can set or clear it.
+- A peer is asked about as it is accepted (`PeerRule::admits`, by `remote::address::classify`):
+  Tailscale's addresses always, private ones only by the app-wide choice, a public one never. A
+  connection that is not taken is dropped unread. Loopback peers exist only for tests and the rig
+  (`PeerRule::with_loopback`, not compiled into a release build).
+
+### Tokens
+
+`<data>/remote-access.json` (`remote_access/registry.rs`), version 1:
+
+```json
+{ "version": 1,
+  "clients": [{ "id": "<uuid>", "name": "Orgtree desktop (PC2)", "label": "Sam", "orgs": ["<organization uuid>"],
+                "hash": "<sha-256 of its token>", "created_at": "...", "last_seen_at": "..." }],
+  "invitations": [{ "id": "<uuid>", "hash": "<sha-256 of the code>", "org": "<organization uuid>",
+                    "created_at": "...", "expires_at": "..." }] }
+```
+
+- A **computer** holds its own token (64 hex digits) for the organizations it was given. An
+  **invitation** is a one-time code (26 characters of Crockford base 32, 130 random bits) for one
+  organization, valid 15 minutes. Both are stored as hashes only and shown once.
+- Organizations are named by uuid, so renaming one moves nobody's access.
+- At most 32 computers and 5 open codes per organization.
+- A code does three things and nothing else: `GET /api/desktop/alive`, `GET /api/host`, and
+  `POST /api/standalone/clients {"name"}`, which makes the one computer the code is for and uses the
+  code up in the same write. The answer carries the computer's token.
+- `give` adds an organization to a computer that is already known (no code). `revoke` removes the
+  record and ends every connection the computer has open, the asking one too. Switching an
+  organization off (`RemoteAccess::set_open(uuid, false)`) ends the connections of every computer that
+  has it and keeps their records. `forget_org` is for a deleted organization.
+- One lock admits a token and commits every change, so a connection is never registered after its
+  record was removed.
+- A file that cannot be read as a registry lets nobody in: it is renamed
+  `remote-access.broken-<time>.json` and the registry starts empty.
+
+### The door's guard
+
+`remote_access::admit`, called by `http::guard` for a connection that is the door's, before any
+handler or dispatch. In order:
+
+1. The desktop token header and `X-Orgtree-Remote` are removed from the request. Neither is read.
+2. A path outside `/api/` is 404. The door serves no page, and the language-server proxy and the
+   credential bridge are never dispatched for it.
+3. A request with an `Origin` header is refused: a page is never a caller. The exception is the app
+   media route with `Origin: null` (a sandboxed panel frame).
+4. The app media route (`GET /api/orgs/{slug}/apps/media`) without a token is let through for an
+   organization whose switch is on; its handler checks the ticket's grant, as on a standalone engine.
+5. The token is `Authorization: Bearer` and nothing else. One the registry does not know is 403
+   `remote access token required` (the connecting side reads that as E4, "no longer accepts this
+   computer's token").
+6. A code: its organization's switch must be on, and the request must be one of its three.
+7. A computer: `member::verdict`.
+
+The other direction holds by construction: the app's own listener compares the desktop token header
+and never reads `Authorization` (`http::guarded`), so a door token is nobody's there.
+
+A request from the door is never carried on to another engine (`http::guarded` asks the relay for
+nothing): a hosting desktop is no way into the engines it is connected to.
+
+### What a member may do
+
+`remote_access/member.rs` is a fail-closed table. Every route of `http::router` is in exactly one
+of its lists, and `every_route_is_classified_for_members` fails for a route that is in none.
+
+| List | Means |
+| --- | --- |
+| `ORG` | a route below `/api/orgs/{slug}/`: every method, for an organization the member was given whose switch is on |
+| `READ` | `GET` and `HEAD` only: the organization itself (deleting it is its owner's), `/api/desktop/alive`, `/api/host` |
+| `OWN` | its own client record: `GET /api/standalone/clients` (one row and `you`), `PATCH` and `DELETE` of its own id |
+| `REFUSED` | everything app-wide and everything of the hosting computer; and two routes below an organization that reach beyond it: `/mcp` and `/template` |
+
+- An organization that is not the member's and one that does not exist are refused alike (403, code
+  `E17`, "This belongs to <computer>."), so a member cannot learn what else the desktop has.
+- An organization it was given whose switch is off is 403 with code `E16`.
+- A new route must be put in a list. A route of an organization goes in `ORG` unless it reaches
+  beyond the organization; anything else goes in `REFUSED` unless a computer that was let in must
+  read it, and then its answer must hold nothing of the owner's (no e-mail address, no other
+  organization).
+- The app-wide reads a window needs (providers, accounts without e-mail addresses, usage, skills,
+  templates, charters, folders) are in `REFUSED` until the job that audits what each answers.
+
+`GET /api/host` gains `mode` (`standalone`, `host` at the door, `desktop` on a desktop's own
+listener) and `computer`.
+
 ## Tests
 
 `cargo test --bin orgtree-engine remote::` (no database, loopback only): the address rule, the sealed
@@ -492,6 +597,13 @@ cover the origin of a request, labels, who is connected and what a connection le
 against a real standalone test engine; `caller::` covers the origin itself, and `via_tests` what a
 window is sent. What is recorded is proved with two real engines by the rig proof `remote-people`
 (below).
+
+`cargo test --bin orgtree-engine remote_access::` (no database, loopback only): a desktop engine with
+its own listener and the door beside it, through the real router. The two listeners take only their own
+tokens; the door serves the API and nothing else; a code makes exactly one computer, runs out, and
+opens no organization; a member has its organization and is refused everything else, another
+organization and a missing one alike; its own record only; revoke and the switch end connections; the
+registry's file; the route table by itself, every route classified.
 
 ## Desktop
 

@@ -2533,4 +2533,8 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     ships only after an independent security review. Landed so far (2026-11-13): the origin of a
     request, client labels and who is connected; what is recorded and what a window is sent; the
     save check (`expect`, `domain/expect.rs`). Contract:
-    [remote-org](remote-org.md#several-people-on-one-organization).
+    [remote-org](remote-org.md#several-people-on-one-organization). Of the host (phase F), landed so
+    far: the door's listener and guard, the registry of computers and one-time codes and the member
+    route table (`remote_access/`); nothing opens a door in a running app yet. Contract:
+    [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
+    [remote-access-security](remote-access-security.md).
