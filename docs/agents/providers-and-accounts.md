@@ -16,11 +16,12 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
 - **Hydrogen** (`hydrogen`, model `gemini-4-hydrogen`, letter H) is an Antigravity tier that is ALWAYS offered: unlike
   Argon, Krypton and Carbon it does not wait for the account's `agy models` to list it (user: "make hydrogen always
   available unconditionally regardless of the check"). The model is unreleased, so everything else is a PLACEHOLDER
-  until a real turn: the id is the user's word, seat 1 by the input-price rule ($1.5 per million), efforts low, high
-  and xhigh (xhigh: user 2026-11-13 m39ddd2612ce5; sent as `--effort xhigh`, and `max` clamps to it; the installed
+  until a real turn: the id is the user's word, seat 1 by the input-price rule ($1.5 per million), efforts low, medium, high
+  and xhigh (xhigh: user 2026-11-13 m39ddd2612ce5; medium, and `max` kept clamping to xhigh: user m293bedc7db68;
+  each is sent as `--effort <level>`; the installed
   agy, 244,091,032 bytes, SHA256 `064e6519...aa2f`, names the id `gemini-4-hydrogen-xhigh`, the label "Gemini 4
-  Hydrogen (XHigh)" and `--effort (low|medium|high|xhigh|max)`: static inspection, nothing run, no real turn;
-  it also names a `-medium` id, which is not offered), the Gemini usage pool, no bucket of its own. Colour `--tier-hydrogen` `#f7fff0`: near-white with the faintest
+  Hydrogen (XHigh)" and `--effort (low|medium|high|xhigh|max)`, and the `-medium` id and label too: static inspection, nothing run,
+  no real turn), the Gemini usage pool, no bucket of its own. Colour `--tier-hydrogen` `#f7fff0`: near-white with the faintest
   green cast, because astra is the near-white that leans violet and a neutral silver is the text colour itself (the
   numbers are in the note above it in `styles.css`); on the two light themes its hire button takes the dark backing
   Wonder Full's has. [decided: user 2026-11-12 m6b3dbb2cfa71, m7941d5c20ccc; 2026-11-13 m6258781910ea; verified:

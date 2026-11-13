@@ -75,7 +75,7 @@ pub static TIERS: &[Tier] = &[
     // or not the account's `agy models` lists it (user 2026-11-13 m6258781910ea "make hydrogen always available
     // unconditionally regardless of the check"); a turn the account cannot run ends with a plain reason
     // (`runtime::agy::unavailable_model_error`). PLACEHOLDERS until a real turn: the id is the user's word, seat 1
-    // by the input-price rule ($1.5 per million), efforts low/high/xhigh, the Gemini pool. Declared right after Flash
+    // by the input-price rule ($1.5 per million), efforts low/medium/high/xhigh, the Gemini pool. Declared right after Flash
     // so it takes Flash's place in the default order.
     Tier { tier: "hydrogen", provider: GOOGLE, seat: 1.0, model: "gemini-4-hydrogen",
         versions: &[("4", "gemini-4-hydrogen")], letter: "H",
@@ -200,7 +200,7 @@ pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     match effort {
         "low" | "high" => effort,
         "none" | "minimal" => "low",
-        "medium" if matches!(tier, "flash" | "argon" | "carbon") || antigravity_claude(tier) => effort,
+        "medium" if matches!(tier, "flash" | "argon" | "carbon" | "hydrogen") || antigravity_claude(tier) => effort,
         "xhigh" | "max" if tier == "hydrogen" => "xhigh",
         _ => "high",
     }
