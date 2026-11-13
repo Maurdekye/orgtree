@@ -1652,9 +1652,13 @@ mod tests {
 
     #[test]
     fn grants_add_the_reports_seats() {
-        let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &claude_only(), &[]).unwrap();
+        // the implementer is Fable since 2026-11-13: its seat of 10 is in the coordinator's grant
+        let mut av = claude_only();
+        av.tiers.insert("fable".into(), offer(10.0, "claude"));
+        let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &av, &[]).unwrap();
         assert!(blocked.is_empty());
-        assert_eq!(p[0].grant, 10.0 + 4.0 + 4.0 + 2.0);
+        assert_eq!(p[1].tier.as_deref(), Some("fable"));
+        assert_eq!(p[0].grant, 10.0 + 10.0 + 4.0 + 2.0);
         assert_eq!(p[0].account.as_deref(), Some("primary"));
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator")));
     }
