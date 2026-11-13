@@ -14,7 +14,7 @@ build procedure under the current project permit/resource policy. The rig
 never obtains or releases a permit itself; see What keeps it safe below.
 
 ```bash
-export CARGO_TARGET_DIR='C:/orgtree-build/<you>'             # team rule: use your own C:/orgtree-build folder; E: is refused
+export CARGO_TARGET_DIR='S:/orgtree/build/<you>'             # team rule: your own S:/orgtree/build folder; C:, D: and E: are refused
 # Debug engine + fake CLI must already be built by the assigned slot-governed procedure.
 node tools/rig/rig.mjs up                             # ~20 s: run + basic fixture; prints url, token, org
 node tools/rig/rig.mjs tool alice orgtree_chart '{}'  # any tool, as any live agent
@@ -501,11 +501,10 @@ never weaken shared ancestor ACLs to run it.
   not isolate a packaged engine; Windows known folders can still discover real
   provider CLIs. Isolate those paths too or skip provider discovery in the assigned
   smoke. Never use real auth/data; release binaries do not acquire debug rig mode.
-- **The rig home** (`ORGTREE_RIG_HOME`; by default your own `D:\orgtree-work\rig\<agent>`, by
-  `ORGTREE_AGENT`, when `D:\orgtree-work` exists, else `E:\orgtree-rig`; runs, evidence and
-  "before" engines made earlier stay in `E:\orgtree-rig`) is refused inside the live data folder
+- **The rig home** (`ORGTREE_RIG_HOME`; by default your own `S:\orgtree\work\rig\<agent>`, by
+  `ORGTREE_AGENT`, when `S:\orgtree\work` exists, else the temp folder) is refused inside the live data folder
   or the repository, by its path and by where a link among its folders really leads (see the
-  `setup()` note above). So is the shared `D:\orgtree-work\rig`, or any home with another rig home
+  `setup()` note above). So is the shared `S:\orgtree\work\rig`, or any home with another rig home
   inside it (a folder holding `runs` or `pg`), because its cleanup would kill that home's
   processes (it did once, 2026-10-10). PostgreSQL binaries are copied there once (never run from the
   installed app, whose files an installer must be able to replace). Each run gets a copy of a
