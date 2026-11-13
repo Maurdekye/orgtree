@@ -1,5 +1,27 @@
 # Desktop and renderer
 
+## A panel pinned in a popped-out window stays in that window (2026-11-13, 4.5.13)
+
+A presentation reader opened from a popped-out desk's header card opened in that window, and pinning it made it
+"invisible and unable to be interacted with" (user 2026-11-12 16:33:11Z md15fcb3a298e). MEASURED in a real second
+window (`tests/readerpinpopout.capture.cjs`): the pin handed the reader the MAIN window's pin layer as its anchor,
+so it left the window the user was looking at and sat on the main window's canvas.
+
+- `PinFrame` (`canvas/modalpin.tsx`) asks which window the surface lives in: the window it was asked for from
+  (`initiatingDocument()`, read once at mount, as `MovableSurface` does) or its host surface's window. Only in the
+  main window does a pin take the org's pin layer as anchor. Elsewhere it takes none, so `MovableSurface` leaves
+  the surface where it is.
+- `PinFrameInner` bounds such a pin by that window's own area (there is no canvas box in it), keeps the overlay's
+  own layer instead of the desks' stacking band, and keeps it out of the shared pin registry: the registry's
+  rects are main-canvas coordinates, so it neither registers there nor snaps to those windows.
+- The stored pin is still one per kind and organization. A kind already pinned opens pinned in whichever window
+  it is asked for from; a rect that does not fit that window is clamped at render, not rewritten.
+- NOT measured: dragging or resizing the pinned panel inside a popped-out window, and the real app's own
+  pop-out window (frameless, with the app's main process); the capture uses a plain second window.
+
+[decided: user report md15fcb3a298e; verified: `tests/readerpinpopout.test.tsx` (3 tests),
+`tests/readerpinpopout.capture.cjs` (FAIL before, PASS after, Session 0)]
+
 ## Pinned desk default and minimum size (2026-11-10, 4.5.11)
 
 A pinned agent or project desk has its own size rule; the generic 320x240 window

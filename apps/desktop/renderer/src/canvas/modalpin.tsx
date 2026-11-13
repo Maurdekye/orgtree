@@ -3,7 +3,7 @@ import { canvasBox, pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, r
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import type { SurfaceOrigin } from '../popout'
-import { detachedKind, revealDetachedPanel } from '../windowlife'
+import { detachedKind, initiatingDocument, revealDetachedPanel } from '../windowlife'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind, legacyFamily, migratedKind, PER_TARGET_KINDS } from '../modalkinds'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
@@ -813,8 +813,18 @@ export function PinFrame(props: PinFrameProps) {
   // handed to the window opener, which sits above the panel in the tree.
   const panelRef = useRef<HTMLDivElement>(null)
   const modalMin = modalMinDimensions(props.kind)
+  // WHICH WINDOW IT IS IN decides where a pin holds it (user 2026-11-12 md15fcb3a298e: a presentation reader
+  // opened from a popped-out desk's header "works, but trying to pin it makes it invisible"). The org's pin layer
+  // belongs to the MAIN window's canvas. A surface that lives in another window, because it was asked for there
+  // (MovableSurface opens it in the window the click came from) or because it is a child of a popped-out
+  // surface, is pinned inside that window: no anchor, so MovableSurface leaves it where it is, and
+  // PinFrameInner bounds it by that window's own area.
+  const hostSurface = useSurface()
+  const [asked] = useState(() => initiatingDocument())
+  const home = hostSurface?.document ?? asked
+  const elsewhere = home !== document && !home.defaultView?.closed
   if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} panelRef={panelRef} />
-  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore} minDimensions={modalMin} onDismiss={props.close}
+  return <MovableSurface key={scope} anchor={pin && !elsewhere ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore} minDimensions={modalMin} onDismiss={props.close}
     sourceBox={() => { const r = panelRef.current?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null }}>
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
@@ -842,7 +852,12 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   const pinned = pinnable && orgScope !== null && pin !== null && !detached
   const inPlace = inline && !pinned && !detached
   const overlapSetting = useModalOverlap()
-  const bounds = useCanvasBox(ownerDocument, orgScope)
+  const canvas = useCanvasBox(ownerDocument, orgScope)
+  // A window other than the main one has no canvas: a pin there is bounded by the window itself (see PinFrame).
+  // Read at render; the geometry tick below makes a resize of that window a render.
+  const elsewhere = ownerDocument !== document
+  const bounds = canvas ?? (elsewhere && ownerWindow.innerWidth > 0 && ownerWindow.innerHeight > 0
+    ? { x: 0, y: 0, w: ownerWindow.innerWidth, h: ownerWindow.innerHeight } : null)
   const overlapsDesk = useDeskOverlap(panelRef, pinned && overlapSetting.enabled)
   // Escape is the CENTRED surface's exit only (see onEsc). The hook is always
   // called — hooks are not conditional — and is handed a no-op when pinned.
@@ -885,14 +900,18 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   }, [ownerWindow])
 
   const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds, modalMin) : null
-  const layout = usePinSurface(orgScope, kind, rect, true)
+  // The shared pin registry is the MAIN canvas's: its rects are that canvas's coordinates, for snapping and
+  // stacking among the windows there. A pin held in another window is not one of them, and they are not its
+  // neighbours.
+  const offCanvas = elsewhere && !canvas
+  const layout = usePinSurface(orgScope, kind, offCanvas ? null : rect, true)
   useEffect(() => {
     if (pinned) raisePinnedModal(kind, orgScope)
   }, [pinned, kind, orgScope])
 
   // Display > "snap pinned panels to edges" off: no gesture ever snaps
   const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => disabled || !pinSnapOn() ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
-    readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds,
+    offCanvas ? [] : readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds,
     g?.kind === 'size' ? { edge: g.edge, minWidth: modalMin?.width ?? PIN_MIN_W,
       minHeight: modalMin?.height ?? PIN_MIN_H } : undefined)
 
@@ -1052,7 +1071,9 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   return (
     <div className={(inPlace ? 'surface-inline' : 'overlay')
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}
-      style={pinned && bounds ? { zIndex: layout.z, inset:'auto', left:bounds.x, top:bounds.y,
+      // In the main window a pin joins the desks' stacking band. Another window has no such band: there the
+      // overlay keeps its own layer, above that window's content, as it had before it was pinned.
+      style={pinned && bounds ? { ...(offCanvas ? {} : { zIndex: layout.z }), inset:'auto', left:bounds.x, top:bounds.y,
         width:bounds.w, height:bounds.h, overflow:'clip' } : undefined}
       onClick={inPlace || pinned || detached || !backdropClose ? undefined
         : (e) => {

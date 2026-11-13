@@ -35,7 +35,7 @@ line, history, agent links and age updates. If capacity becomes zero while it
 is open, it shows a safe empty state. Agent data access already exists through
 `orgtree_project action=slots name=<project>`; no new tool is needed to read it.
 
-Open in new window detaches the mounted surface. Explicit Pop in/Return to main window brings it back. Native window Close dismisses a closeable modal instead of reopening it in the main window. Its existing draft-storage rules still apply; closing is not an automatic engine mutation or a promise that a form was saved.
+Open in new window detaches the mounted surface. Explicit Pop in/Return to main window brings it back. Native window Close dismisses a closeable modal instead of reopening it in the main window. Its existing draft-storage rules still apply; closing is not an automatic engine mutation or a promise that a form was saved. A panel asked for from a popped-out window (a presentation opened from a popped-out desk's header, for example) opens in that window. Pinned there it stays in that window, as a movable window bounded by it; it does not join the main window's pinned windows, and it snaps to none of them.
 
 A persistent desk keeps its canonical content. Native Close returns it only to an already connected destination; if none is mounted it stays retained off-screen until a real destination appears. It does not force navigation to create a missing main-view slot. Explicit return retains its normal destination activation. Failure recovery, parent-window lifecycle and temporary borrowing follow their own restoration paths; do not treat an accidental popup failure as a deliberate dismiss.
 
