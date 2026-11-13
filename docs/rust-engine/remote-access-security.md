@@ -5,8 +5,10 @@ A desktop can let other computers open some of its organizations (decision 101, 
 ships only after a reader who did not write it has gone through this page against the code.
 
 This page is kept true with each landing. Every line of the tables says whether it is **built** (with
-the test that pins it) or **planned** (with the part of the phase that brings it). Nothing planned is
-reachable in a running app: until the switch lands, no door is ever opened.
+the test that pins it) or **planned** (with the part of the phase that brings it). The switch is in
+the app from the landing that brings the windows: from then on a running build can open the door,
+when its owner turns the switch of an organization on. Such a build is for the owner alone until
+this review is done.
 
 ## What is exposed
 
@@ -52,9 +54,9 @@ can end any computer's access at once.**
 | 14 | A revoked computer keeps working on an open connection or socket | Revoke ends every connection the computer has open before it returns; the same lock admits tokens and commits the removal | `registry.rs` | **built** (`revoking_a_computer_or_switching...`, `a_member_reads_names_and_removes...`) |
 | 15 | The switch is turned off but a connection stays, or a code made before still works | Turning it off ends the connections of every computer that has the organization and takes back its open codes; "Stop all" does it for every organization. The door goes by what was written: a change that could not be written changes nothing | `Registry::set_open`, `stop_all`, `commit` | **built** (same test, `stopping_all_remote_access...`, `the_owner_switches_an_organization_on...`) |
 | 15a | An organization comes back shared without the owner saying so (a restored backup, a copy, a template, an organization deleted and restored) | The switch is not in the organization's data at all; deleting an organization switches it off | `registry.rs`, `remote_access::org_deleted` | **built** (the file: `a_registry_file_is_taken_as_a_whole...`; the delete hook is one line in `http/orgops.rs`, not covered by a unit test: it needs a database) |
-| 16 | The traffic is read on the wire | On Tailscale the tunnel encrypts it. On a private network plain http is not encrypted; it is off unless the owner chose it, each address the door stands at says `encrypted`, and the connecting side labels the transport | `lifecycle.rs` `status`, the registry's `lan` | choice and status **built**; the words in the windows **planned** (renderer) |
+| 16 | The traffic is read on the wire | On Tailscale the tunnel encrypts it. On a private network plain http is not encrypted; it is off unless the owner chose it, each address the door stands at says `encrypted`, and the connecting side labels the transport | `lifecycle.rs` `status`, the registry's `lan` | choice and status **built**; the words in the windows **built** (each address of the block and of the App settings page says how the bytes travel; `tests/remoteaccess.test.tsx`) |
 | 17 | A broken or tampered registry file admits someone | A file that does not validate as a whole admits nobody; it is set aside and the registry starts empty | `registry.rs` `read` | **built** (`the_registry_survives_a_restart_and_a_broken_file...`) |
-| 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`); events for connect, revoke and codes **planned** |
+| 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`). The events (`on`, `off`, `code`, `code_withdrawn`, `computer_added`, `computer_given`, `computer_revoked`, `connected`, `disconnected`) are written by `remote_access::record` beside each change; no unit test has a database to read them back from, so they are **not proved yet**: the rig proof with two engines is to show them |
 | 19 | Adding the firewall rules opens more than the door needs, or something makes the desktop add a rule for another program or run other text as administrator | The elevated script is made in main from three things: a port main checked (an integer, 1024 to 65535), a boolean, and the engine's program as main itself finds it, quoted as PowerShell quotes. The page sends the port and the boolean and nothing else. Each rule is inbound TCP for that one port and that one program, with remote addresses limited to Tailscale's, or to the local subnet on Private networks. Without the engine's program nothing is added. The engine never changes the firewall: its read is a constant script of `Get-` commands that no request's text enters, run for the owner only | `apps/desktop/main/remotefirewall.ts`, `main/index.ts` (`desktop:remote-access-firewall`), `remote_access/firewall.rs` | **built** (`tests/remote-access-firewall.test.mjs`; `firewall::tests`, `the_owner_is_told_whether_windows_firewall...`) |
 
 ## Review point: the app-wide reads a member has
@@ -107,8 +109,9 @@ connections to other engines and every client record but the member's own stay i
   the engine ([remote-org](remote-org.md#the-firewall-rules)). `Orgtree remote access` lets
   Tailscale's addresses reach the door's port; `Orgtree remote access (private network)`, only with
   that choice, lets the local subnet reach it on networks Windows calls Private. Both are for the
-  engine's program alone. The windows are to add the rules before the first switch goes on (not
-  built yet), so the door is never bound first and left to Windows' own "allow this app?" question.
+  engine's program alone. The windows add the rules before the switch goes on (`turnOnOrgAccess`),
+  so the door is never bound first and left to Windows' own "allow this app?" question; a No at the
+  prompt leaves the switch off.
 
 ## Token lifecycle
 

@@ -2542,6 +2542,8 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     list; `remote_access/`), the connecting side (a hosting desktop is added with a one-time
     code; what was pasted is never kept), and the door's Windows Firewall rules (added by the
     desktop behind one prompt, for the engine's program, Tailscale's addresses and by choice the
-    private network; the engine only reads them). Nothing in the app turns a switch on yet. Contract:
+    private network; the engine only reads them), and the windows (the Remote access block of an
+    organization's Connections tab, the App settings page, the strip's chip, and the other
+    computer's words). The switch is in the app from that landing on. Contract:
     [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
     [remote-access-security](remote-access-security.md).

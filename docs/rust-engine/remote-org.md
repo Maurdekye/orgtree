@@ -493,9 +493,11 @@ it is in `remote_access/`. The security notes an independent reader needs are in
 Built so far: the door's listener and guard, the registry (the switch of each organization, the
 port, the computers and the one-time codes), the member route table, the owner's routes and the limit
 on refused tokens, where the door stands and when, what a member is sent, the connecting side
-(a desktop adds a hosting desktop with a code), and the Windows Firewall rules (added by the desktop,
-read back by the engine). Not built yet: the windows. Nothing in the app can turn a switch on yet, so
-a running app still opens no door and asks for no rule.
+(a desktop adds a hosting desktop with a code), the Windows Firewall rules (added by the desktop,
+read back by the engine), and the windows ("A hosting desktop's windows" under Desktop below). From
+the windows on, a running app can open the door: the switch is in an organization's settings. Not
+built yet: the rig proof with two engines and the user's guide. Phase F is not to reach anybody but
+its owner before the independent security review.
 
 ### The door
 
@@ -595,6 +597,13 @@ from the phone door's rule (`Orgtree phone access`), so turning one off never ta
   chosen. The rule's addresses and profile are not judged: a rule changed by hand is its owner's.
   `present` says a rule of the door's is there at all, so it can be offered for removal once nothing is
   shared.
+- **The order in the windows** (`turnOnOrgAccess`, `changeListening` in the renderer's
+  `remoteaccess.ts`): the engine is asked first whether the switch could be turned on at all
+  (`?fresh=1` answers `refusal`), then Windows, then the switch. A No at the prompt leaves the switch
+  off, as it does for phone access. The rule comes before the door because a program that listens
+  with no rule makes Windows ask its own "allow this app?" question, and a No there leaves a blocking
+  rule that beats ours. A changed port or choice while something is shared asks Windows first too,
+  with what the door will have.
 - **When it is read.** Never on a timer: a reading starts a process. `GET /api/remote-access` and
   `GET .../orgs/{slug}` answer what is known and, when that is older than 30 s, read again behind the
   answer and push `remote_access` if it changed. With `?fresh=1` the answer waits for a reading: the
@@ -740,7 +749,7 @@ shared on.
 | `PUT /api/remote-access {"port"?, "lan"?}` | the door's port (1024 to 65535) and the private-network choice |
 | `POST /api/remote-access/stop` | every switch off, every connection ended, every open code taken back; the computers' records stay |
 | `GET /api/remote-access/orgs/{slug}` | `on`, `door`, `computers` (that have it), `known` (computers of other organizations, which can be given this one), `invitations` (id and times, never a code), `limits` |
-| either `GET` with `?fresh=1` | the same, after Windows Firewall was read again ("The firewall rules" above) |
+| either `GET` with `?fresh=1` | the same, after Windows Firewall was read again ("The firewall rules" above). The organization's answer also has `refusal`: the sentence turning its switch on would be refused with now, or null. This computer's addresses are read for it; nothing is changed |
 | `PUT /api/remote-access/orgs/{slug} {"on"}` | the switch. Turning it on is 409 with the reason while the door would have nowhere to stand |
 | `POST /api/remote-access/orgs/{slug}/invitations` | a one-time code: `id`, `code`, `created_at`, `expires_at`, `minutes`. 409 while the switch is off |
 | `DELETE /api/remote-access/orgs/{slug}/invitations/{id}` | take a code back |
@@ -840,8 +849,60 @@ Tests: `tests/remote-org-window-header.test.mjs` (main), `apps/desktop/renderer/
 and `remotedraft.test.tsx`.
 
 For a hosting desktop, main adds and removes the door's Windows Firewall rules
-(`main/remotefirewall.ts`, "The firewall rules" above; `tests/remote-access-firewall.test.mjs`). The
-windows that use it are not built yet.
+(`main/remotefirewall.ts`, "The firewall rules" above; `tests/remote-access-firewall.test.mjs`).
+
+### A hosting desktop's windows
+
+`src/remoteaccess.ts` (the pushed value `remote_access`, the owner's routes, the order of a change,
+the words) and `src/canvas/remoteaccess.tsx`. Everything is built from a sibling's piece: the
+Connections tab's group, rows and switch, the provider dialogs' frame, the shared confirmation, the
+status strip's chip.
+
+- **Org settings, Connections, "Remote access"** (`RemoteAccess`, at the end of the tab). Shown only
+  where this computer can share: an organization of its own, on a desktop's own engine. The value
+  `remote_access` is absent on a standalone engine, and an organization on a remote engine has no
+  block (no chains). The switch "Let other computers open this organization" with its plain
+  sentence; while on: where the door stands (each address with Copy, and how the bytes travel), the
+  door's trouble when it has any, "Windows Firewall is blocking this" with Allow when the engine
+  read that the rules are missing, the list Computers (the name others see, what the computer calls
+  itself, added, connected since or last seen, Revoke behind a confirmation that says how many
+  organizations go), and "Add a computer...". Switching off while somebody is connected says first
+  who loses it.
+- **Add a computer** (`AddComputerDialog`): one code is made for one opening of the dialog. It shows
+  the address, the code (shown here once), both in one line to send, and how long the code holds;
+  under it the computers that have another organization of this computer, each with "Give access"
+  (no code). The engine's refusal (five open codes, the switch off) is the sentence under the rows.
+- **App settings, "Remote access"** (`RemoteAccessSettings`; the tab is listed only where the value
+  exists, and is one of this computer's in a remote organization's window): where it listens
+  (Tailscale only, or Tailscale and this private network), the port, what the door does now, the
+  organizations that are shared with how many computers each has, "Stop all remote access" behind a
+  confirmation, Allow when the rules are missing, and "Remove the rules" when nothing is shared and
+  the rules are still there. Opening the page asks the engine once, which reads Windows Firewall
+  behind its answer.
+- **The chip** (`SharedChip`, in the status strip's lead beside the remote chip): "1 computer
+  connected" while another computer is connected to this organization, who in the tooltip, a click to
+  the Connections tab. It is pushed; it asks the engine nothing.
+- **Streamer mode**: addresses and a computer's own name are host fields; the code, and the line with
+  address and code, are secret fields; the name others see is an external name.
+- **The other computer** (`shell/remotes.tsx`, `remotes.ts`): the connection's view says `mode` and
+  `scope`. Connection details reads "Signed in as ... · these organizations only" for a hosting
+  desktop. The Add dialog's Address field takes the one line with address and code and fills both
+  fields (`addressWithCode`), unless a token was typed already. A window of an organization its
+  hosting desktop no longer shares has the banner "<name> no longer shares this organization."
+  (`noLongerShared`: connected, a hosting desktop, the organization gone from its list). In such a
+  window App settings says that the hosting computer's settings can be read and that a change is
+  refused with its sentence (E17); the controls themselves are not disabled yet.
+
+Not built: links from the App settings page to each organization's settings (the page names them and
+says where the switch is), and disabled controls on the hosting computer's settings in the other
+computer's window.
+
+Tests: `apps/desktop/renderer/tests/remoteaccess.test.tsx` (F-T8): the words; the order of turning
+on, with the bridge as a recorder; the block from off to on, the address, the computers and Revoke,
+and no block for a remote organization or where nothing is offered; a No at the prompt, a door that
+cannot stand, Allow; Add a computer with its code, the one line, a known computer, and a refusal; the
+App settings page; the order of a change of port or choice; the chip; and the other computer's
+side.
 
 ## Rig proof
 
