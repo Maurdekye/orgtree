@@ -48,7 +48,7 @@ const rect = (el: Element) => {
     return {rect: rect(modal), screenX, screenY, ratio: devicePixelRatio}
   },
   async pin() {
-    document.querySelector<HTMLButtonElement>('.tempdesk-pin')!.click()
+    document.querySelector<HTMLButtonElement>('.tempdesk-panel > .modalpin-bar .modalpin-btn:not(.modalpin-x)')!.click()
     const pin = await until(() => document.querySelector('.pinwin'))
     await pause()
     const r = rect(pin)
@@ -61,5 +61,5 @@ const rect = (el: Element) => {
     document.querySelector<HTMLButtonElement>('.tempdesk-panel [aria-label="Open in new window"]')!.click()
   },
   state() { return {modal: !!document.querySelector('.tempdesk-panel'),
-    backdrop: !!document.querySelector('.tempdesk-over'), composers: document.querySelectorAll('textarea').length} },
+    backdrop: !!document.querySelector('.overlay > .tempdesk-panel'), composers: document.querySelectorAll('textarea').length} },
 }

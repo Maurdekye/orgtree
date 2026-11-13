@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { PinFrame, forgetModalPins, forgetModalOpenCache, isModalPinned, pinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
-import { DeskHead, DeskTitleBar } from '../src/canvas/deskshell'
+import { DeskHead } from '../src/canvas/deskshell'
 import { AppsButton, AppsWorkspace } from '../src/canvas/apps/ui'
 import type { CustomApp, CustomPanel } from '../src/canvas/apps/types'
 import { AttentionView, DESK_KIND, QUEUE_KIND } from '../src/attention/AttentionView'
@@ -128,22 +128,8 @@ test('§5 CONTROL the in-canvas desk header has no X (USER me188f67b3944 "No X t
   assert.equal(v.el.querySelector('.cc-head [data-testid="CloseIcon"]'), null, 'no X anywhere in the header')
 })
 
-test('§5b the temporary desk title bar ends with its X after the pin when given its close (tempdesk.tsx always gives it)', async t => {
-  const closes = { n: 0 }
-  const without = await rawMountView(<DeskTitleBar id="ada" tier="haiku" onPin={() => {}} />, el => el)
-  assert.equal(without.el.querySelector('.tempdesk-close'), null, 'switch off: no X, Escape and the backdrop close it')
-  await without.unmount()
-  const v = await rawMountView(<DeskTitleBar id="ada" tier="haiku" onPin={() => {}} onClose={() => { closes.n += 1 }} />, el => el)
-  t.after(() => v.unmount())
-  const buttons = [...v.el.querySelectorAll<HTMLButtonElement>('.tempdesk-head button')]
-  const x = v.el.querySelector<HTMLButtonElement>('.tempdesk-head button.tempdesk-close')
-  assert.ok(x, 'given a close, the title bar has an X')
-  assert.equal(buttons.at(-1), x, 'after the pin')
-  assert.equal(x.classList.contains('pinwin-unpin'), true, 'the same button as the pin')
-  assert.equal(x.title, 'Close (Esc)')
-  await inAct(() => { x.click() })
-  assert.equal(closes.n, 1)
-})
+// §5b (the temporary desk's own title bar) is gone with that bar: since 2026-11-13 the temporary desk is on the shared
+// frame, whose X §1 covers; tempdesk.test.tsx checks that its bar ends with it.
 
 // ---- the custom-app panel: its hide X, retitled ---------------------------------------------------------------
 const tick = async () => { for (let i = 0; i < 5; i++) await flush() }

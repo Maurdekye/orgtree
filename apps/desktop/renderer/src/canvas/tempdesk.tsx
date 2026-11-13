@@ -22,15 +22,34 @@
 // no change to the focused agent. The modal is local component state in
 // OrgCanvas and nothing else; closing it restores the prior view because
 // nothing about the view was ever changed.
-import { useEffect, useRef } from 'react'
+//
+// IT IS ON THE SHARED MODAL FRAME (user 2026-11-13 mf430d688fdcb; the design
+// chosen in m2672b93c2df8, "A + all 5"): `DeskModalShell`, the frame the
+// project desk's modal already used, in its `glance` configuration. That gives
+// it the shared backdrop, title bar, buttons, right-click menu and stacking,
+// and three rules of its own:
+//   · HAND-OVER. An agent's desk already has a pinned form and a popped-out
+//     form. This is the third, centred one, and it is never itself pinned or
+//     popped out: its pin and pop-out buttons hand the desk to the real pinned
+//     window and the real desk window, and close this.
+//   · ONE AT A TIME, per agent. The kind names the agent
+//     (`agent-desk-glance:<id>`); the host holds one id, so opening a second
+//     agent's replaces the first. Several centred desks would only stack.
+//   · NOTHING SAVED, as above: the frame runs `transient`.
+import { useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { DeskChat } from './desk'
-import { DeskTitleBar } from './deskshell'
+import { DeskModalShell } from './deskshell'
 import type { DeskChatProps } from './desk'
-import { providerOf, useEsc } from './shared'
+import { useDeskActionsNow } from './deskhosts'
+import { providerOf } from './shared'
 import type { CanvasNode } from './shared'
-import { useOverlayRoot, useSurfaceDocument } from '../popout'
+import { useOverlayRoot } from '../popout'
+import { instanceKind } from '../modalkinds'
 import type { PinRect } from './pins'
+
+/** the temporary desk's storage-shaped identity; nothing is stored under it */
+export const DESK_GLANCE_KIND = 'agent-desk-glance'
 
 export interface TempDeskProps {
   node: CanvasNode
@@ -44,107 +63,51 @@ export interface TempDeskProps {
 }
 
 /**
- * The modal. Backdrop, Escape, focus handling and sizing follow the app's
- * existing conventions rather than inventing any:
+ * The modal. Backdrop, Escape, the title bar and its menu are the shared
+ * frame's; the focus handling is the frame's `focusTrap`, which is this
+ * modal's old handling moved there.
  *
- *  · `useEsc` — THE SHARED ESCAPE STACK, not a keydown listener of its own.
- *    One Escape closes one thing: with a context menu open over this modal the
+ *  · Escape goes through THE SHARED ESCAPE STACK (the frame's `useEsc`). One
+ *    Escape closes one thing: with a context menu open over this modal the
  *    menu takes the key first, and this closes on the next one.
  *  · the backdrop swallows `pointerdown` so a click meant for "dismiss" cannot
- *    also reach the canvas underneath and start a pan — the same reason
- *    `ModalOverPins` and every in-card control stop that event.
- *  · portaled to the overlay root, so it is above the pin layer and lands in
- *    the right document when the canvas itself is inside a popped-out window.
+ *    also reach the canvas underneath and start a pan.
+ *  · portaled to the overlay root, so it lands in the right document when the
+ *    canvas itself is inside a popped-out window.
  */
 export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
-  const doc = useSurfaceDocument()
   const overlayRoot = useOverlayRoot()
-  const panel = useRef<HTMLDivElement | null>(null)
-  const opener = useRef<Element | null>(null)
+  const host = useRef<HTMLDivElement | null>(null)
+  const actions = useDeskActionsNow(desk.slug)
+  // the frame's panel, measured before the desk leaves it for a real window
   const sourceBox = (): PinRect | null => {
-    const r = panel.current?.getBoundingClientRect()
+    const r = host.current?.closest('.tempdesk-panel')?.getBoundingClientRect()
     return r && r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null
   }
-  useEsc(close)
-  // FOCUS GOES IN, AND COMES BACK OUT WHERE IT WAS. The element that opened
-  // this (a card, a tray row, a menu item) is remembered before focus moves,
-  // because "closing puts everything back" includes the keyboard: landing the
-  // user on `document.body` would leave the next keystroke going nowhere.
-  useEffect(() => {
-    opener.current = doc.activeElement
-    const mountedPanel = panel.current
-    panel.current?.focus?.()
-    const trapTab = (event: KeyboardEvent) => {
-      const root = panel.current
-      if (event.key !== 'Tab' || event.defaultPrevented || !root) return
-      // A Desk can open its own dialog or menu. Let its handler consume Tab
-      // first, and leave focus alone while another modal owns it.
-      const active = doc.activeElement
-      // PinFrame dialogs do not all declare aria-modal. Menus and pickers
-      // also portal outside this panel and must keep their own keyboard focus.
-      const dialog = active?.closest('.overlay, [role="dialog"], [role="menu"], [role="listbox"]')
-      if (dialog && dialog !== root) return
-      const targets = Array.from(root.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex], [contenteditable="true"]',
-      )).filter(element => {
-        if (element.tabIndex < 0 || element.matches(':disabled') || element.closest('[hidden], [inert]')) return false
-        // The canonical Desk carries collapsed panes as well as visible ones.
-        // Compute visibility in its own document, including hidden ancestors.
-        for (let current: HTMLElement | null = element; current; current = current.parentElement) {
-          const style = doc.defaultView?.getComputedStyle(current)
-          if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false
-          if (current === root) break
-        }
-        return true
-      })
-      event.preventDefault()
-      if (!targets.length) { root.focus(); return }
-      const index = targets.findIndex(element => element === active)
-      const next = index < 0 ? (event.shiftKey ? targets.length - 1 : 0)
-        : (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length
-      ;(targets[next] ?? root).focus()
-    }
-    doc.addEventListener('keydown', trapTab)
-    return () => {
-      doc.removeEventListener('keydown', trapTab)
-      const back = opener.current
-      const active = doc.activeElement
-      const focusLeft = active && active !== doc.body && !mountedPanel?.contains(active)
-      // Adopted Desk elements can retain another window's constructor realm.
-      // Match the available focus operation, and preserve any action that
-      // deliberately moved focus elsewhere before dismissing this modal.
-      if (!focusLeft && back?.isConnected && back !== doc.body
-        && 'focus' in back && typeof back.focus === 'function') back.focus()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="tempdesk-over" onPointerDown={(e) => {
-      // a press on the BACKDROP dismisses; a press inside the panel does not.
-      // Checked against the press target rather than by putting a handler on
-      // the panel, so a drag that starts inside and ends outside is not a
-      // dismissal either.
-      if (e.target === e.currentTarget) { e.stopPropagation(); close() }
-      else e.stopPropagation()
-    }}>
-      {/* THE TEMPORARY DESK'S FRAME AND TITLE BAR (user 2026-09-29: reuse the
-          pinned-desk styling): the provider accent border, the tier + bold
-          name and a small state chip from the `.pinwin-*` classes. It closes
-          by its X (USER 2026-10-29 me188f67b3944), the backdrop or Escape; the
-          desk's own header does not repeat the name (styles.css). */}
-      <div className={'tempdesk-panel prov-' + providerOf(node.tier ?? '')} ref={panel} tabIndex={-1}
-        role="dialog" aria-modal="true"
-        aria-label={`${node.id} · desk, opened temporarily`}>
-        <DeskTitleBar id={node.id} tier={node.tier}
-          onPin={onPin ? () => { const rect = sourceBox(); if (rect) onPin(rect) } : undefined}
-          onClose={close} />
+    // THE FRAME (user 2026-09-29: the pinned-desk look): the provider accent
+    // border and the tier + bold name in the bar. It closes by its X (USER
+    // 2026-10-29 me188f67b3944), the backdrop or Escape; the desk's own header
+    // does not repeat the name (styles.css) or the pop-out (`hidePopout`).
+    <DeskModalShell kind={instanceKind(DESK_GLANCE_KIND, node.id)} title={`${node.id} · desk`}
+      nodeId={node.id} generation={node.generation} tier={node.tier}
+      panel={'tempdesk-panel tempdesk-glance prov-' + providerOf(node.tier ?? '')} close={close}
+      pinElsewhere={onPin}
+      glance={{
+        label: `${node.id} · desk, opened temporarily`,
+        // THE POP-OUT HANDS OVER: the borrowed desk's own surface opens the
+        // real desk window from this panel's box, and `onPopout` below closes
+        // this modal once that window exists. A blocked window changes nothing.
+        popElsewhere: () => actions(node).requestPopout(),
+      }}>
+      <div ref={host} className="tempdesk-host">
         {/* ⚠ `borrow` IS THE WHOLE MECHANISM. It takes the canonical desk for
             this modal's lifetime and the registry returns it on unmount — see
             `Desks.endBorrow`. `bare` renders the desk 1:1 rather than
             counter-scaled into a canvas card, which is what a modal wants. */}
-        <DeskChat {...desk} node={node} borrow bare temporaryPlacement={{ sourceBox, onPopout: close }} />
+        <DeskChat {...desk} node={node} borrow bare hidePopout temporaryPlacement={{ sourceBox, onPopout: close }} />
       </div>
-    </div>,
+    </DeskModalShell>,
     overlayRoot)
 }

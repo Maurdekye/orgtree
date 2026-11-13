@@ -405,6 +405,36 @@ event, so whatever its builders add must validate against
 `.event-unsupported` in the `.pendrow` (`tests/resolutionfirstframe.test.tsx`
 §9, §10: tabs that are docket items).
 
+## Temporary agent desk on the shared modal frame (2026-11-13, 4.5.13)
+
+User 2026-11-13 mf430d688fdcb; design A and five recommendations approved in m2672b93c2df8.
+
+- `TempDeskModal` (`canvas/tempdesk.tsx`) is `DeskModalShell` in its `glance` configuration, the
+  frame the project desk's modal already used. Its own backdrop, title bar (`DeskTitleBar`) and
+  `.tempdesk-over` / `.tempdesk-head` styles are gone. The panel keeps `.tempdesk-panel` and adds
+  `.tempdesk-glance`; its backdrop is the shared `.overlay` held at z-index 20, below ordinary
+  dialogs (30), because a desk opens its own dialogs and they must land above it.
+- `PinFrame` gained three options, used together by `glance`:
+  `transient` (no `MovableSurface`: the surface can never be pinned, popped out, restored or saved,
+  even inside an organization), `popElsewhere` (the bar's pop-out button and the menu's "Open in new
+  window" call it; only read when transient), and `focusTrap` (focus in, Tab kept inside, focus back
+  to the opener: the temporary desk's old handling, now available to any centred surface).
+  `pinElsewhere` is unchanged and is the transient surface's only pin.
+- Hand-over: pin calls the host's `onPin` with the panel's box (OrgCanvas adds the real pin and closes
+  the modal). Pop-out calls `useDeskActionsNow(slug)(node).requestPopout()`, so the borrowed desk's
+  own surface opens the real desk window from `temporaryPlacement.sourceBox`, and
+  `temporaryPlacement.onPopout` closes the modal once that window exists. A blocked window leaves the
+  modal as it was.
+- The kind is `agent-desk-glance:<agent>` (`DESK_GLANCE_KIND`); nothing is stored under it. One at a
+  time: OrgCanvas still holds one `tempDeskId`.
+- The borrowed desk's header pop-out is hidden by CSS inside `.tempdesk-glance`. `hidePopout` is
+  passed too, but in a real window the desk moves in without re-rendering its header and the prop
+  alone left two pop-out buttons (measured in the capture; jsdom did not show it).
+
+[verified: `canvas/tempdesk.tsx`, `canvas/deskshell.tsx`, `canvas/modalpin.tsx`, `styles.css`,
+`tests/tempdeskframe.test.tsx` (8), `tests/tempdesk.test.tsx`, `tests/closex.test.tsx`,
+`tests/tempdeskframe.capture.cjs` + `.visual.tsx` (Session 0, real mouse and keys, real desk window)]
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`

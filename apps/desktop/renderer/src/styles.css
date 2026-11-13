@@ -652,15 +652,19 @@ main {
    88% of the window height with no pixel cap, which on a tall screen was
    holding it near half height; the width stays capped so it still reads as a
    panel over the canvas rather than a takeover. */
-.tempdesk-over {
-  /* Above the pin layer (16), canvas controls (17) and drawer (19), below
-     ordinary dialogs (30), nested dialogs (31), pickers (60) and menus (90).
-     A temporary desk is a desk host; its own actions must open above it. */
-  position: fixed; inset: 0; z-index: 20;
-  display: flex; align-items: center; justify-content: center;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  backdrop-filter: blur(2px);
+.overlay:has(> .tempdesk-glance) {
+  /* The shared backdrop (modalpin.tsx PinFrame, user 2026-11-13), one level
+     down: above the pin layer (16), canvas controls (17) and drawer (19),
+     below ordinary dialogs (30), nested dialogs (31), pickers (60) and menus
+     (90). A temporary desk is a desk host; its own actions must open above it. */
+  z-index: 20;
 }
+/* one pop-out, in the title bar: the borrowed desk's header keeps its own out of
+   sight here (the desk is moved in without a re-render, so its `hidePopout`
+   prop alone was measured not to remove it) */
+.tempdesk-glance .cc-head-right > .popout-button { display: none; }
+/* the wrapper the modal measures from; the desk lays out as the panel's child */
+.tempdesk-host { display: contents; }
 /* THE PINNED DESK'S LOOK (user 2026-09-29): the same frame as `.pinwin` — a
    provider-accent border with the heavier top edge, the panel background and
    its shadow ring — and its title bar comes from `.pinwin-title` (tempdesk.tsx).
@@ -679,17 +683,15 @@ main {
 .tempdesk-panel.prov-google { --accent: var(--prov-google); --accent-soft: color-mix(in srgb, var(--prov-google) 16%, transparent); }
 .tempdesk-panel.prov-openrouter { --accent: var(--prov-openrouter); --accent-soft: color-mix(in srgb, var(--prov-openrouter) 16%, transparent); }
 .tempdesk-panel:focus { outline: none; }
-/* a title, not a drag handle: this modal does not move */
-.tempdesk-head.pinwin-title { cursor: default; }
 /* the desk fills what is left and scrolls inside itself as it always does.
    The slot and the bare wrapper are `display: contents`, so the padding a
    pinned window puts on `.pinwin-body` goes on the desk body itself here. */
-.tempdesk-panel > .desk-slot { flex: 1; min-height: 0; }
+.tempdesk-panel > .desk-slot, .tempdesk-host > .desk-slot { flex: 1; min-height: 0; }
 .tempdesk-panel .desk-body { flex: 1; min-height: 0; padding: 6px 8px 8px; }
 /* the project desk as a modal, pinned window or popped-out window
    (projectdesk.tsx ProjectDeskModal, user 2026-10-18 08:25Z): the frame above
    inside a PinFrame, whose bar reads these paddings (see `.settings`) */
-.project-desk-modal { --panel-pad-y: 6px; --panel-pad-x: 8px; }
+.project-desk-modal, .tempdesk-glance { --panel-pad-y: 6px; --panel-pad-x: 8px; }
 /* as in a pinned window, the title bar already names the agent */
 .tempdesk-panel .cc-head-left > .tier, .tempdesk-panel .cc-head-left > .cc-name { display: none; }
 
@@ -1525,11 +1527,13 @@ button.badge.audience-fold.alert {
 .pinwin-body .project-desk .cc-head-left > .name { display: none; }
 /* the centred project desk's bar is a title bar, as the agent temporary
    desk's `.tempdesk-head` (modalpin.tsx deskTitle): full width, not a handle */
-.project-desk-modal > .modalpin-bar.desk-title {
+.project-desk-modal > .modalpin-bar.desk-title,
+.tempdesk-glance > .modalpin-bar.desk-title {
   margin: 0; padding: 0 4px 0 8px; height: 28px; flex: none; font-size: 13px;
   background: var(--panel-2, var(--panel)); border-bottom: 1px solid var(--line); cursor: default; }
 /* its title is the agent temporary desk's: AgentName's mark and bold name */
-.project-desk-modal > .modalpin-bar.desk-title .modalpin-name { display: inline-flex; align-items: center; gap: 6px; font-size: inherit; }
+.project-desk-modal > .modalpin-bar.desk-title .modalpin-name,
+.tempdesk-glance > .modalpin-bar.desk-title .modalpin-name { display: inline-flex; align-items: center; gap: 6px; font-size: inherit; }
 .project-desk-modal > .modalpin-bar .modalpin-name .project-mark { color: var(--accent); display: inline-flex; }
 /* the project's active count is plain text beside "Active …", its x/y
    bold (user 2026-10-19 17:22Z): no chip box, a slightly smaller font */

@@ -10,9 +10,8 @@ import { useLayoutEffect, useRef } from 'react'
 import { installNavigationKeys } from '../shell/navigationkeys'
 import { useSurfaceDocument } from '../popout'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
-import PushPinFilledIcon from '@mui/icons-material/PushPin'
 import type { ToastFn } from '../types'
-import { CloseIcon, DocIcon, SettingsIcon } from '../icons'
+import { DocIcon, SettingsIcon } from '../icons'
 import { PopoutWindowControls } from '../popout'
 import { agentNavProps } from './agentnav'
 import { AgentName } from './identity'
@@ -26,43 +25,13 @@ export function DeskModalName({ id, tier }: { id: string; tier?: string | null }
   return <AgentName id={id} tier={tier} nameClass="pinwin-name" />
 }
 
-/** A desk modal's title bar: the name, and the pin button while pinning is
- *  on offer. The temporary agent desk renders this as its head; the
- *  project desk's PinFrame bar carries the same name element. */
-export function DeskTitleBar({ id, tier, onPin, onClose }: {
-  id: string
-  tier?: string | null
-  onPin?: () => void
-  /** the X, last after the pin: a centred desk has one too (USER 2026-10-29
-   *  m6c5594110094, me188f67b3944 "Yes, add the X") */
-  onClose?: () => void
-}) {
-  return (
-    <div className="tempdesk-head pinwin-title" data-copy-agent-name={id}>
-      <DeskModalName id={id} tier={tier} />
-      <span className="spacer" />
-      {onPin && (
-        <button className="tempdesk-pin pinwin-unpin" onClick={onPin}
-          aria-label={`pin ${id}`} title={`pin ${id}'s desk as a window`}>
-          <PushPinFilledIcon fontSize="inherit" />
-        </button>
-      )}
-      {onClose && (
-        <button className="tempdesk-close pinwin-unpin" onClick={onClose}
-          aria-label={`close ${id}'s desk`} title="Close (Esc)">
-          <CloseIcon fontSize="inherit" />
-        </button>
-      )}
-    </div>
-  )
-}
-
 /** The framed-desk modal shell: PinFrame in its desk configuration — the
- *  temporary desk's panel type, one title bar carrying the desk's name,
- *  the desk inside bare. The project desk's modal is this; the temporary
- *  agent desk keeps its own frame (its borrow and focus semantics are
- *  desk-specific) and shares the title bar above instead. */
-export function DeskModalShell({ kind, title, nodeId, generation, tier, panel, close, pinElsewhere, children }: {
+ *  desk panel type, one title bar carrying the desk's name, the desk inside
+ *  bare. BOTH desk modals are this: the project desk's, and since 2026-11-13
+ *  (user m2672b93c2df8) the agent's temporary desk, which passes `glance`: a
+ *  surface that is only ever centred, saves nothing, keeps the keyboard, and
+ *  whose pin and pop-out hand over to the agent's real windows. */
+export function DeskModalShell({ kind, title, nodeId, generation, tier, panel, close, pinElsewhere, glance, children }: {
   kind: string
   title: string
   nodeId: string
@@ -71,14 +40,16 @@ export function DeskModalShell({ kind, title, nodeId, generation, tier, panel, c
   panel: string
   close: () => void
   pinElsewhere?: (rect: PinRect) => void
+  glance?: { label: string; popElsewhere?: () => void }
   children: ReactNode
 }) {
   return (
     <PinFrame kind={kind} title={title}
-      restore={{ agent: nodeId, generation }}
+      restore={glance ? undefined : { agent: nodeId, generation }}
       panel={panel} close={close}
       deskTitle titleBar={<DeskModalName id={nodeId} tier={tier} />}
-      pinElsewhere={pinElsewhere}>
+      pinElsewhere={pinElsewhere}
+      transient={!!glance} focusTrap={!!glance} dialogLabel={glance?.label} popElsewhere={glance?.popElsewhere}>
       {children}
     </PinFrame>
   )
