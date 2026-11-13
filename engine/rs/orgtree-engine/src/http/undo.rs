@@ -5,27 +5,19 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::domain::undo::{self, Coded, Dir};
+use crate::domain::undo::{self, Dir};
 use crate::engine::Engine;
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::orgs::OrgHandle;
 
-/// A domain error, its code kept (`gesture_mixed`, `history_conflict`, …).
+/// A domain error, its code kept (`gesture_mixed`, `history_conflict`, …):
+/// `http/error.rs` keeps the code of a `Coded` refusal on every route.
 #[logged]
 fn api(e: anyhow::Error) -> ApiError {
-    if let Some(c) = e.downcast_ref::<Coded>() {
-        let mut extra = c.extra.clone();
-        if !extra.is_object() {
-            extra = json!({});
-        }
-        extra["code"] = json!(c.code);
-        return ApiError::new(StatusCode::from_u16(c.status).unwrap_or(StatusCode::BAD_REQUEST), c.detail.clone()).with(extra);
-    }
     e.into()
 }
 

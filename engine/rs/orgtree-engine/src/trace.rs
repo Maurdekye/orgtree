@@ -723,7 +723,10 @@ pub mod show {
     }
 
     fn anyhow_err(e: &anyhow::Error) -> Shown {
-        let fail = if e.downcast_ref::<crate::domain::UserError>().is_some() { Fail::Refusal } else { Fail::Error };
+        // a refusal with a code (`domain::undo::Coded`: a refused save, a settled request) is no engine error either
+        let refused = e.downcast_ref::<crate::domain::UserError>().is_some()
+            || e.downcast_ref::<crate::domain::undo::Coded>().is_some_and(|c| c.status < 500);
+        let fail = if refused { Fail::Refusal } else { Fail::Error };
         Shown::text(format!("{e:#}")).failed(fail)
     }
 

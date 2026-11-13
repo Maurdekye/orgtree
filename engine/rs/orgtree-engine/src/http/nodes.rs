@@ -852,12 +852,22 @@ pub(crate) struct ScopeEffects {
     out: Value,
 }
 
+/// The settings of an agent a save may say it was based on (`domain/expect.rs`), beside `charter`,
+/// `team_charter` and `peer_mail`: each as `configured_scope` shows it to a window.
+const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "fast_mode",
+    "account_fallback", "auto_cheap_compact", "session"];
+
 /// Shared mutation path for direct user edits and atomic request approvals.
 #[logged]
 pub(crate) async fn apply_user_scope_in_tx(
     e: &Engine, org: &Arc<OrgHandle>, tx: &tokio_postgres::Transaction<'_>, nid: &str, b: &Value,
     approved_dirs: Option<&[Value]>,
 ) -> anyhow::Result<ScopeEffects> {
+    // What the edit started from, when the window says so (`domain/expect.rs`). It is taken out of
+    // the body here, so nothing below sees it and the recorded change does not carry it.
+    let (stripped, expect) = crate::domain::expect::split(b)
+        .map_err(|why| anyhow::Error::new(crate::domain::UserError::BadRequest(why)))?;
+    let b = &stripped;
     // Same order as org-folder settings/revocation: org before agent rows.
     // Approval acquires this before opening its card or changing credits too.
     // Settings are non-key columns. Serialize their writers without blocking
@@ -886,6 +896,29 @@ pub(crate) async fn apply_user_scope_in_tx(
         .ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("peer_mail must be a boolean".into())))).transpose()?;
     let before: Value = row.get(0);
     let (old_charter, old_team): (Option<String>, Option<String>) = (row.get(1), row.get(2));
+    // Compared under the row lock this save writes under: when a field is no longer what the edit
+    // started from, nothing is written and the answer says what is stored, who changed it and when.
+    if let Some(expect) = &expect {
+        let configured = scope::normalize(&before);
+        // each field as the tree shows it to a window: `charter`, `team_charter`, `peer_mail`, else `configured_scope`
+        let shown = |field: &str| -> Option<Value> {
+            Some(match field {
+                "charter" => json!(old_charter),
+                "team_charter" => json!(old_team),
+                "peer_mail" => json!(crate::domain::peer_mail::enabled(&configured)),
+                key if SCOPE_FIELDS.contains(&key) => configured.get(key).cloned().unwrap_or(Value::Null),
+                _ => return None,
+            })
+        };
+        let mut changed = crate::domain::expect::differing(expect, shown)
+            .map_err(|why| anyhow::Error::new(crate::domain::UserError::BadRequest(why)))?;
+        if !changed.is_empty() {
+            for field in &mut changed {
+                field.by = crate::domain::expect::agent_changed_by(tx, a.id, &field.field).await?;
+            }
+            return Err(anyhow::Error::new(crate::domain::expect::refusal(&format!("agent:{}", a.name), changed)));
+        }
+    }
     // A speed-only save is node-local and never reconfigures a warm process.
     if let Some(value) = b.get("fast_mode").filter(|_| b.as_object().is_some_and(|o|
         o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "fast_mode")))) {
@@ -1057,9 +1090,22 @@ pub(crate) async fn apply_user_scope_in_tx(
     // a grant the chain above does not hold is raised on the way up (the
     // user grants it; every ancestor gets at least as much)
     let (cascaded, raised) = cascade_up(&tx, a.parent_id, &sc).await?;
+    // What this save really changed. `change` is what was sent, and an older window sends its whole form, the
+    // unchanged instructions included: whose a field's value is, is read from `changed` (`domain/expect.rs`).
+    let was = scope::normalize(&before);
+    let mut really_changed: Vec<&str> = SCOPE_FIELDS.iter().copied().filter(|key| was.get(*key) != sc.get(*key)).collect();
+    if crate::domain::peer_mail::enabled(&was) != crate::domain::peer_mail::enabled(&sc) {
+        really_changed.push("peer_mail");
+    }
+    if charter.as_deref().is_some_and(|text| text != old_charter.as_deref().unwrap_or("")) {
+        really_changed.push("charter");
+    }
+    if team_charter.as_deref().is_some_and(|text| text != old_team.as_deref().unwrap_or("")) {
+        really_changed.push("team_charter");
+    }
     tx.execute(
         "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, 'scope', '@user', $2, $3, $4)",
-        &[&org.id, &a.id, &json!({ "node": a.name, "change": b, "cascaded": cascaded }), &crate::caller::via()],
+        &[&org.id, &a.id, &json!({ "node": a.name, "change": b, "changed": really_changed, "cascaded": cascaded }), &crate::caller::via()],
     )
     .await?;
     // what this save changed, from the stored before and after: the dialog

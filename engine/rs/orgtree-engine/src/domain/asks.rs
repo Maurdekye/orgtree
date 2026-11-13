@@ -754,7 +754,8 @@ async fn open_by(tx: &Transaction<'_>, org_id: i64, uid: Option<&str>, agent: Op
     let r = match (uid, agent) {
         (Some(u), _) => {
             tx.query_opt(
-                "SELECT k.uid, k.agent_id, a.name, k.rev, k.body, k.status FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
+                "SELECT k.uid, k.agent_id, a.name, k.rev, k.body, k.status, k.answer, k.answered_via, k.resolved_at
+                   FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
                   WHERE k.org_id = $1 AND k.uid = $2 FOR UPDATE OF k",
                 &[&org_id, &u.split(':').next().unwrap_or(u)],
             )
@@ -762,7 +763,8 @@ async fn open_by(tx: &Transaction<'_>, org_id: i64, uid: Option<&str>, agent: Op
         }
         (None, Some(n)) => {
             tx.query_opt(
-                "SELECT k.uid, k.agent_id, a.name, k.rev, k.body, k.status FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
+                "SELECT k.uid, k.agent_id, a.name, k.rev, k.body, k.status, k.answer, k.answered_via, k.resolved_at
+                   FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
                   WHERE k.org_id = $1 AND a.name = $2 AND k.status = 'open' ORDER BY k.id DESC LIMIT 1 FOR UPDATE OF k",
                 &[&org_id, &n],
             )
@@ -773,7 +775,14 @@ async fn open_by(tx: &Transaction<'_>, org_id: i64, uid: Option<&str>, agent: Op
     let Some(r) = r else { refuse!(NotFound, "that request no longer exists") };
     let status: String = r.get(5);
     if status != "open" {
-        refuse!(Conflict, "that request was already {status}");
+        // Someone settled it first (decision 101): the same sentence as before, and beside it how it
+        // was settled, by whom and when, so a window can show the settled card instead of an error.
+        let (answer, via, at): (Option<Value>, Option<Value>, Option<chrono::DateTime<chrono::Utc>>) = (r.get(6), r.get(7), r.get(8));
+        return Err(anyhow::Error::new(super::undo::Coded {
+            status: 409, code: "request_settled", detail: format!("that request was already {status}"),
+            extra: json!({ "settled": { "id": r.get::<_, String>(0), "status": status, "answer": answer, "answered_via": via,
+                                        "resolved_at": at.map(crate::util::iso) } }),
+        }));
     }
     Ok(Open { uid: r.get(0), agent_id: r.get(1), agent: r.get(2), rev: r.get(3), parts: Parts::of(&r.get::<_, Value>(4)) })
 }

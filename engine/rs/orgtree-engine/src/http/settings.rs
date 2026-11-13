@@ -27,6 +27,29 @@ const ORG_KEYS: &[&str] = &[
     "quick_chat", "default_fast_mode",
 ];
 
+/// An organization setting as a window is shown it (the settings group of
+/// `feed/groups.rs`): what a save's `expect` is compared with
+/// (`domain/expect.rs`). `None` for what is no setting.
+#[nolog]
+fn org_setting_shown(effective: &Value, name: &str, field: &str) -> Option<Value> {
+    Some(match field {
+        "org_name" => json!(name),
+        "org_dirs" => effective["dirs"].clone(),
+        "compact_at" => json!(crate::feed::groups::compact_frac(&effective["compact_at"])),
+        key if ORG_KEYS.contains(&key) => effective.get(key).cloned().unwrap_or(Value::Null),
+        _ => return None,
+    })
+}
+
+/// The compaction threshold is saved as a percentage and shown as a
+/// fraction: an expectation may be either.
+#[nolog]
+fn percent_as_fraction(expect: &mut Map<String, Value>) {
+    if let Some(percent) = expect.get("compact_at").and_then(Value::as_f64).filter(|p| *p > 1.0) {
+        expect.insert("compact_at".into(), json!(percent / 100.0));
+    }
+}
+
 /// Settings of removed features: accepted and ignored (the UI no longer shows them).
 const INERT_KEYS: &[&str] = &[
     "fable_limit_policy", "fable_filter_policy", "fable_filter_model", "clear_fable_lock", "prefer_reserve",
@@ -271,8 +294,13 @@ pub async fn reconfigure_all(engine: &Engine) -> anyhow::Result<()> {
 }
 
 #[logged]
-pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
+pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(mut b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    // what the edits started from, when the window says so (`domain/expect.rs`); compared below, under the row lock
+    let mut expect = crate::domain::expect::take(&mut b).map_err(ApiError::bad_request)?;
+    if let Some(expect) = &mut expect {
+        percent_as_fraction(expect);
+    }
     let mut patch = Map::new();
     let mut warnings = Vec::new();
     // a display-name change (Org settings > Basic > Name): the slug never moves
@@ -327,6 +355,20 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     // No referenced org key is changed. Keep settings writers exclusive to
     // each other while allowing FK KEY SHARE from ordinary node operations.
     let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&o.id]).await?.get(0);
+    if let Some(expect) = &expect {
+        let effective = effective_settings(&old, &e.settings.defaults());
+        let name = o.name.load_full();
+        let mut changed = crate::domain::expect::differing(expect, |field| org_setting_shown(&effective, name.as_str(), field))
+            .map_err(ApiError::bad_request)?;
+        if !changed.is_empty() {
+            // nothing is written: the answer says what is stored now, who changed it and when
+            for field in &mut changed {
+                let key = if field.field == "org_dirs" { "dirs" } else { field.field.as_str() };
+                field.by = crate::domain::expect::org_changed_by(&*client, o.id, key).await?;
+            }
+            return Err((&crate::domain::expect::refusal("org", changed)).into());
+        }
+    }
     if let Some(acc) = patch.remove("auto_cheap_compact") {
         // 3.x: a partial write keeps the other current value; occ stays within 5–95%
         let current = effective_settings(&old, &e.settings.defaults())["auto_cheap_compact"].clone();
@@ -460,7 +502,8 @@ pub async fn save_org_defaults(
     Json(b): Json<Map<String, Value>>,
 ) -> ApiResult<Json<Value>> {
     let mut keep = Map::new();
-    for k in ["default_tools", "default_visibility", "default_effort", "default_account"] {
+    // `expect` rides along: what these edits started from (`domain/expect.rs`)
+    for k in ["default_tools", "default_visibility", "default_effort", "default_account", "expect"] {
         if let Some(v) = b.get(k) {
             keep.insert(k.into(), v.clone());
         }
@@ -471,9 +514,17 @@ pub async fn save_org_defaults(
 
 #[logged]
 fn defaults_payload(engine: &Engine) -> Value {
+    defaults_shown(&engine.settings.get())
+}
+
+/// The app-wide defaults as the defaults form is shown them, from the stored
+/// app settings document: what `GET /api/defaults` answers, and what a
+/// save's `expect` is compared with.
+#[nolog]
+fn defaults_shown(doc: &Value) -> Value {
     let mut out = setting_defaults();
     if let Some(o) = out.as_object_mut() {
-        for (k, v) in engine.settings.defaults() {
+        for (k, v) in doc.get("defaults").and_then(Value::as_object).cloned().unwrap_or_default() {
             o.insert(k, v);
         }
         // the defaults form reads the threshold as a fraction
@@ -483,13 +534,37 @@ fn defaults_payload(engine: &Engine) -> Value {
     out
 }
 
+/// The app-wide defaults a save's `expect` no longer matches, with who set
+/// each last (`defaults_changed`, written beside the values by every save:
+/// for each key the pair `[via, at]`).
+#[nolog]
+fn defaults_differing(doc: &Value, expect: &Map<String, Value>) -> std::result::Result<Vec<crate::domain::expect::Changed>, String> {
+    let shown = defaults_shown(doc);
+    let mut changed = crate::domain::expect::differing(expect, |field| match field {
+        "org_dirs" => Some(shown["dirs"].clone()),
+        key if ORG_KEYS.contains(&key) => Some(shown.get(key).cloned().unwrap_or(Value::Null)),
+        _ => None,
+    })?;
+    for field in &mut changed {
+        let stamp = &doc["defaults_changed"][field.field.as_str()];
+        field.by = stamp[1].as_str().and_then(crate::util::parse_ts).map(|at| crate::domain::expect::Who {
+            actor: crate::events::USER.to_string(), via: Some(stamp[0].clone()).filter(|v| !v.is_null()), at });
+    }
+    Ok(changed)
+}
+
 #[logged]
 pub async fn get_defaults(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     Ok(Json(defaults_payload(&e)))
 }
 
 #[logged]
-pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
+pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(mut b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
+    // what the edits started from, when the window says so (`domain/expect.rs`)
+    let mut expect = crate::domain::expect::take(&mut b).map_err(ApiError::bad_request)?;
+    if let Some(expect) = &mut expect {
+        percent_as_fraction(expect);
+    }
     let mut defaults = Map::new();
     let mut top = Map::new();
     for (k, v) in &b {
@@ -518,8 +593,30 @@ pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(b): Json<Map<Strin
         }
     }
     top.insert("defaults".into(), Value::Object(defaults));
+    // Who set each default and when (decision 101), beside the values and never among them: the next save
+    // that would replace one is told. A stamp is the pair [via, at]: a list, which the merge below replaces
+    // whole (it merges objects member by member, so members of an older stamp would stay).
+    let stamp = json!([crate::caller::via(), crate::util::now_iso()]);
+    let stamps: Map<String, Value> = b.keys().filter(|k| *k == "org_dirs" || ORG_KEYS.contains(&k.as_str())).map(|k| (k.clone(), stamp.clone())).collect();
+    top.insert("defaults_changed".into(), Value::Object(stamps));
     let mut client = e.db.get().await?;
-    e.settings.merge(&mut client, Value::Object(top)).await?;
+    match &expect {
+        None => {
+            e.settings.merge(&mut client, Value::Object(top)).await?;
+        }
+        // compared and written under one row lock
+        Some(expect) => {
+            let outcome = e.settings.merge_unless(&mut client, Value::Object(top), |doc| match defaults_differing(doc, expect) {
+                Ok(changed) if changed.is_empty() => None,
+                other => Some(other),
+            }).await?;
+            match outcome {
+                Ok(_) => {}
+                Err(Err(why)) => return Err(ApiError::bad_request(why)),
+                Err(Ok(changed)) => return Err((&crate::domain::expect::refusal("defaults", changed)).into()),
+            }
+        }
+    }
     drop(client);
     for o in e.orgs.all() {
         changes::notify(&e, &o, vec![Change::Org]);
@@ -582,12 +679,35 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(err) => return Err(ApiError::internal(format!("org.md could not be read: {err}"))),
         };
-        if crate::phone::orgmd_rev(now.as_bytes()) != base {
-            return Err(ApiError::conflict("org.md changed since you opened it (Connect your phone added or removed its note). Reload it and make your edit again."));
+        let stored_rev = crate::phone::orgmd_rev(now.as_bytes());
+        if stored_rev != base {
+            // Beside the sentence (decision 101): the text that is there now, and who saved it when a window
+            // did. Connect your phone changes org.md with no such record, and the sentence is then the one this
+            // refusal always had.
+            let by = {
+                let client = e.db.get().await?;
+                crate::domain::expect::notes_saved_by(&**client, o.id, &stored_rev).await?
+            };
+            let named = by.as_ref().map(crate::domain::expect::name_of);
+            let conflict = crate::domain::expect::refusal("orgmd", vec![crate::domain::expect::Changed { field: "org.md".into(), stored: json!(now), by }]);
+            let mut refusal: ApiError = (&conflict).into();
+            refusal.detail = match named {
+                Some(name) => format!("{name} changed org.md since you opened it. Reload it and make your edit again."),
+                None => "org.md changed since you opened it (Connect your phone added or removed its note). Reload it and make your edit again.".into(),
+            };
+            return Err(refusal);
         }
     }
-    crate::phone::replace_file(&path, b.content.as_bytes()).map_err(|x| ApiError::internal(x.to_string()))?;
     let rev = crate::phone::orgmd_rev(b.content.as_bytes());
+    // Who saves it, recorded first: the next save that would replace this text is told (decision 101). An
+    // event whose text was then not written names a revision no stored text has, so it names nobody.
+    {
+        let client = e.db.get().await?;
+        client.execute("INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'notes_saved', '@user', $2, $3)",
+            &[&o.id, &json!({ "what": "org.md", "rev": rev, "chars": chars }), &crate::caller::via()]).await?;
+    }
+    crate::phone::replace_file(&path, b.content.as_bytes()).map_err(|x| ApiError::internal(x.to_string()))?;
+    changes::notify(&e, &o, vec![Change::Events]);
     let mut warnings = Vec::new();
     if chars > ORGMD_PROMPT_MAX {
         warnings.push(format!("only the first {ORGMD_PROMPT_MAX} characters reach agents' instructions"));
@@ -615,21 +735,33 @@ pub async fn put_app_instructions(State(e): State<Arc<Engine>>, Json(b): Json<Or
     use crate::app_instructions::{check, rev, Doc, PROMPT_MAX};
     check(&b.content).map_err(ApiError::bad_request)?;
     let (content, base) = (b.content.clone(), b.base_rev.clone());
+    // who saves it and when (decision 101): the next save that would replace this text is told
+    let saved = json!({ "rev": rev(&b.content), "via": crate::caller::via(), "at": crate::util::now_iso() });
     let (text, changed) = e
         .app_instructions
-        .update(&e.db, move |doc| {
+        .update_or(&e.db, move |doc| {
             if base.as_deref().is_some_and(|base| rev(&doc.text) != base) {
-                return Err("The instructions for all orgs changed since you opened them (Connect your phone added \
-                            or removed its note). Reload them and make your edit again."
-                    .to_string());
+                // Beside the sentence: the text that is there now, and who saved it when the editor did.
+                // Otherwise the sentence is the one this refusal always had.
+                let by = doc.saved_by();
+                let named = by.as_ref().map(crate::domain::expect::name_of);
+                let conflict = crate::domain::expect::refusal("instructions", vec![crate::domain::expect::Changed {
+                    field: "instructions".into(), stored: json!(doc.text), by }]);
+                let mut refusal: ApiError = (&conflict).into();
+                refusal.detail = match named {
+                    Some(name) => format!("{name} changed the instructions for all orgs since you opened them. Reload them and make your edit again."),
+                    None => "The instructions for all orgs changed since you opened them (Connect your phone added \
+                             or removed its note). Reload them and make your edit again."
+                        .to_string(),
+                };
+                return Err(refusal);
             }
-            let next = Doc { text: content.clone(), ..doc.clone() };
+            let next = Doc { text: content.clone(), saved: Some(saved), ..doc.clone() };
             let text = next.text.clone();
             Ok((next, text))
         })
         .await
-        .map_err(|x| ApiError::internal(format!("the instructions for all orgs could not be saved: {x:#}")))?
-        .map_err(ApiError::conflict)?;
+        .map_err(|x| ApiError::internal(format!("the instructions for all orgs could not be saved: {x:#}")))??;
     if changed {
         // every agent's system prompt changed: running CLIs restart before their next turn
         reconfigure_all(&e).await?;
@@ -1205,6 +1337,52 @@ pub async fn fs(Query(q): Query<FsQuery>) -> ApiResult<Json<Value>> {
     dirs.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase()));
     let parent = path.parent().map(|p| p.to_string_lossy().to_string()).filter(|p| !p.is_empty());
     Ok(Json(json!({ "path": path.to_string_lossy(), "parent": parent, "dirs": dirs, "home": home })))
+}
+
+#[cfg(test)]
+mod expect_tests {
+    use super::*;
+
+    fn fields(v: Value) -> Map<String, Value> {
+        v.as_object().unwrap().clone()
+    }
+
+    /// Decision 101: what a save says it was based on is compared with the
+    /// setting as the form is shown it.
+    #[test]
+    fn an_organization_setting_is_compared_as_the_window_is_shown_it() {
+        let effective = json!({ "dirs": [{ "path": "S:/a", "mode": "rw" }], "compact_at": 80, "default_effort": "high", "auto_resume": true });
+        assert_eq!(org_setting_shown(&effective, "Far Lab", "org_name"), Some(json!("Far Lab")));
+        assert_eq!(org_setting_shown(&effective, "Far Lab", "org_dirs"), Some(json!([{ "path": "S:/a", "mode": "rw" }])));
+        assert_eq!(org_setting_shown(&effective, "Far Lab", "compact_at"), Some(json!(0.8)), "the threshold is shown as a fraction");
+        assert_eq!(org_setting_shown(&effective, "Far Lab", "default_effort"), Some(json!("high")));
+        assert_eq!(org_setting_shown(&effective, "Far Lab", "default_account"), Some(Value::Null), "a setting nobody set");
+        assert_eq!(org_setting_shown(&effective, "Far Lab", "colour"), None);
+        // the form saves the threshold as a percentage: its base may be either
+        let mut expect = fields(json!({ "compact_at": 80, "default_effort": "high" }));
+        percent_as_fraction(&mut expect);
+        assert_eq!(Value::Object(expect.clone()), json!({ "compact_at": 0.8, "default_effort": "high" }));
+        let changed = crate::domain::expect::differing(&expect, |field| org_setting_shown(&effective, "Far Lab", field)).unwrap();
+        assert!(changed.is_empty(), "{changed:?}");
+    }
+
+    #[test]
+    fn an_app_wide_default_names_who_set_it_last() {
+        let sam = json!({ "id": "c-1", "name": "Sam" });
+        let doc = json!({ "defaults": { "default_effort": "high", "compact_at": 80 },
+            "defaults_changed": { "default_effort": [sam, "2026-11-13T14:02:00.000Z"], "compact_at": [null, "2026-11-13T14:03:00.000Z"] } });
+        assert!(defaults_differing(&doc, &fields(json!({ "default_effort": "high", "compact_at": 0.8 }))).unwrap().is_empty());
+        let changed = defaults_differing(&doc, &fields(json!({ "default_effort": "medium", "compact_at": 0.7, "default_visibility": "none-such" }))).unwrap();
+        let of = |name: &str| changed.iter().find(|c| c.field == name).unwrap_or_else(|| panic!("{name} differs: {changed:?}"));
+        assert_eq!(changed.len(), 3, "{changed:?}");
+        assert_eq!(of("default_effort").stored, json!("high"));
+        assert_eq!(of("default_effort").by.as_ref().unwrap().via, Some(sam.clone()));
+        assert_eq!(of("compact_at").stored, json!(0.8));
+        let unnamed = of("compact_at").by.as_ref().unwrap();
+        assert_eq!((unnamed.actor.as_str(), &unnamed.via), ("@user", &None), "set through no named computer");
+        assert!(of("default_visibility").by.is_none(), "nobody set it: it is the built-in default");
+        assert!(defaults_differing(&doc, &fields(json!({ "colour": "blue" }))).unwrap_err().contains("colour"));
+    }
 }
 
 /// `GET /api/orgs/{slug}/accounts-allowed`: every account lane this org could

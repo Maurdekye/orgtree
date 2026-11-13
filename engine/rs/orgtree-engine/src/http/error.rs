@@ -72,8 +72,25 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// A refusal with a code and more to say (`domain::undo::Coded`): `code` and
+/// its other members ride beside `detail` (a refused save's `conflict`, a
+/// settled request's `settled`, an undo's code).
+impl From<&crate::domain::undo::Coded> for ApiError {
+    fn from(c: &crate::domain::undo::Coded) -> Self {
+        let mut extra = c.extra.clone();
+        if !extra.is_object() {
+            extra = json!({});
+        }
+        extra["code"] = json!(c.code);
+        ApiError::new(StatusCode::from_u16(c.status).unwrap_or(StatusCode::BAD_REQUEST), c.detail.clone()).with(extra)
+    }
+}
+
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
+        if let Some(c) = e.downcast_ref::<crate::domain::undo::Coded>() {
+            return c.into();
+        }
         // A domain error raised as `UserError` keeps its status; anything else is a 500.
         if let Some(u) = e.downcast_ref::<crate::domain::UserError>() {
             return ApiError::new(u.status(), u.to_string());

@@ -36,6 +36,21 @@ pub struct Doc {
     /// bumped by every committed write, so a slower writer never publishes
     /// an older row over a newer one
     pub seq: i64,
+    /// Who saved the text from the editor, and when: `{"rev", "via", "at"}`,
+    /// `rev` being the revision of the text they saved. It says who changed
+    /// the block only while the block still has that revision: Connect your
+    /// phone changes the text without it.
+    pub saved: Option<Value>,
+}
+
+#[nolog]
+impl Doc {
+    /// Who saved the text that is stored now, when the editor did (`saved`).
+    pub fn saved_by(&self) -> Option<crate::domain::expect::Who> {
+        let saved = self.saved.as_ref().filter(|s| s["rev"].as_str() == Some(rev(&self.text).as_str()))?;
+        let at = saved["at"].as_str().and_then(crate::util::parse_ts)?;
+        Some(crate::domain::expect::Who { actor: crate::events::USER.to_string(), via: saved.get("via").filter(|v| !v.is_null()).cloned(), at })
+    }
 }
 
 pub struct AppInstructions {
@@ -78,6 +93,16 @@ impl AppInstructions {
         pool: &deadpool_postgres::Pool,
         change: impl FnOnce(&Doc) -> std::result::Result<(Doc, T), String>,
     ) -> Result<std::result::Result<(T, bool), String>> {
+        self.update_or(pool, change).await
+    }
+
+    /// The same, with a refusal of the caller's own kind.
+    #[nolog]
+    pub async fn update_or<T, R>(
+        &self,
+        pool: &deadpool_postgres::Pool,
+        change: impl FnOnce(&Doc) -> std::result::Result<(Doc, T), R>,
+    ) -> Result<std::result::Result<(T, bool), R>> {
         let mut client = pool.get().await?;
         let tx = client.transaction().await?;
         tx.execute("INSERT INTO ot.kv (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING", &[&KEY])
@@ -113,12 +138,17 @@ fn parse(v: &Value) -> Doc {
         text: v["text"].as_str().unwrap_or_default().to_string(),
         phone_notes_moved: v["phone_notes_moved"].as_bool().unwrap_or(false),
         seq: v["seq"].as_i64().unwrap_or(0),
+        saved: v.get("saved").filter(|s| s.is_object()).cloned(),
     }
 }
 
 #[nolog]
 fn stored(doc: &Doc) -> Value {
-    json!({ "text": doc.text, "phone_notes_moved": doc.phone_notes_moved, "seq": doc.seq })
+    let mut row = json!({ "text": doc.text, "phone_notes_moved": doc.phone_notes_moved, "seq": doc.seq });
+    if let Some(saved) = &doc.saved {
+        row["saved"] = saved.clone();
+    }
+    row
 }
 
 /// What the editor may save: anything within the limit, the note included,
@@ -220,7 +250,7 @@ mod tests {
             let text = std::fs::read_to_string(file).unwrap();
             // a call may wrap across lines, one method per line
             let flat: String = text.split_whitespace().collect();
-            if flat.contains(".app_instructions.update(") || flat.contains(".app_instructions.publish(") {
+            if [".app_instructions.update(", ".app_instructions.update_or(", ".app_instructions.publish("].iter().any(|call| flat.contains(call)) {
                 writers.push(rel.clone());
             }
             if rel.starts_with("tools/") || rel.contains("template") || rel.starts_with("import") {
@@ -230,6 +260,24 @@ mod tests {
         writers.sort();
         assert_eq!(writers, ["http/settings.rs", "phone.rs"]);
         assert!(files.len() > 100, "the audit read the whole crate");
+    }
+
+    /// Decision 101: the row says who saved the text from the editor, and
+    /// names them only while the block is still the text they saved.
+    #[test]
+    fn the_row_says_who_saved_the_text_only_while_it_is_that_text() {
+        let via = json!({ "id": "c-1", "name": "Sam" });
+        let saved = json!({ "rev": rev("Keep records.\n"), "via": via, "at": "2026-11-13T14:02:00.000Z" });
+        let doc = Doc { text: "Keep records.\n".into(), saved: Some(saved.clone()), ..Doc::default() };
+        let by = doc.saved_by().expect("the editor's save is named");
+        assert_eq!((by.actor.as_str(), by.via.as_ref(), crate::util::iso(by.at).as_str()), ("@user", Some(&via), "2026-11-13T14:02:00.000Z"));
+        // Connect your phone changed the text since: nobody is named
+        let linked = Doc { text: crate::phone::with_block(&doc.text, "alex.123456").unwrap(), ..doc.clone() };
+        assert!(linked.saved_by().is_none());
+        // the row keeps it, and a row written before this has none
+        assert_eq!(parse(&stored(&doc)).saved, Some(saved));
+        assert_eq!(stored(&Doc::default()), json!({ "text": "", "phone_notes_moved": false, "seq": 0 }));
+        assert!(parse(&json!({ "text": "x", "seq": 4 })).saved.is_none());
     }
 
     #[test]

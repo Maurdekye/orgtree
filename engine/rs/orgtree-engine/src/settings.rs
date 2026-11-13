@@ -76,6 +76,34 @@ impl AppSettings {
         Ok(Some(arc))
     }
 
+    /// Merge unless `refuse` says no. It sees the stored document under the
+    /// same row lock the merge writes under, so a save that says what it was
+    /// based on (`domain/expect.rs`) is compared and written as one step.
+    #[nolog]
+    pub async fn merge_unless<R>(&self, client: &mut tokio_postgres::Client, patch: Value, refuse: impl FnOnce(&Value) -> Option<R>)
+        -> Result<std::result::Result<Arc<Value>, R>> {
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO ot.kv (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING",
+            &[&KEY],
+        )
+        .await?;
+        let row = tx.query_one("SELECT value FROM ot.kv WHERE key = $1 FOR UPDATE", &[&KEY]).await?;
+        let mut next: Value = row.get(0);
+        if let Some(refusal) = refuse(&next) {
+            tx.commit().await?;
+            self.snapshot.store(Arc::new(next));
+            return Ok(Err(refusal));
+        }
+        deep_merge(&mut next, &patch);
+        tx.execute("UPDATE ot.kv SET value = $2, updated_at = now() WHERE key = $1", &[&KEY, &next])
+            .await?;
+        tx.commit().await?;
+        let arc = Arc::new(next);
+        self.snapshot.store(arc.clone());
+        Ok(Ok(arc))
+    }
+
     // ---- typed readers with the documented defaults ----
     /// Separate Antigravity Claude tiers are opt-in; existing installations keep them off.
     pub fn antigravity_claude_enabled(&self) -> bool {
