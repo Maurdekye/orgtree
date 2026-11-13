@@ -12,8 +12,10 @@
 // Engines only: no window is opened, so it runs in any session.
 //
 // At the base nothing records who an action came through: every check on a
-// name fails.
+// name fails. Before the save check exists, every save goes through and the
+// checks on a refused save fail.
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 
 import { farEngine } from '../far.mjs'
@@ -34,6 +36,11 @@ const SCENARIO = {
 }
 
 export function setup() { return { fixture: 'basic' } }
+
+/** How a long text is named in `expect`: the first 16 hex digits of its SHA-256 (domain/expect.rs). */
+const rev = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
+/** One agent of a tree read. */
+const nodeOf = (tree, id) => { const walk = nodes => { for (const n of nodes ?? []) { if (n.id === id) return n; const below = walk(n.children); if (below) return below } return null }; return walk(tree?.roots) }
 
 export default async function (rig) {
   const proof = new Proof('remote-people')
@@ -66,6 +73,10 @@ export default async function (rig) {
     const asDana = (method, route, body) => far.call(method, route, { body, token: dana.token })
     /** This desktop's user, in a window of the far organization. */
     const asSam = (method, route, body) => near(method, route, { body, remote: id })
+    /** A tree read is built from the feed and follows a save by a moment: wait until it shows what is expected. */
+    const shows = (read, pick, want) => rig.waitFor(async () => pick((await read('GET', `/api/orgs/${org}`)).json) === want,
+      { timeout: 20000, every: 200, what: `the tree to show ${JSON.stringify(want)}` }).then(() => true, () => false)
+    const charterOf = tree => nodeOf(tree, 'scout')?.charter ?? null
 
     // ------------------------------------------------------------ who is who
     const computer = /^Orgtree desktop \((.+)\)$/.exec(first.client_name ?? '')?.[1] ?? null
@@ -167,6 +178,83 @@ export default async function (rig) {
     await asSam('POST', `/api/orgs/${org}/settings`, { default_effort: 'medium' })
     const both = (await events(asDana)).filter(e => e.op === 'settings').map(e => e.via?.name)
     proof.check('a record keeps the name its person had then', both.length >= 2 && both.at(-2) === SAM && both.at(-1) === 'Samantha', both)
+
+    // ------------------------------------------------------------ a save that would replace someone's newer change
+    proof.check('the organization says a save may say what it was based on', (await asSam('GET', `/api/orgs/${org}`)).json?.capabilities?.expect === true)
+    // both open the agent's settings while its charter is this
+    const opened = 'You scout for the far org. You exist only in test runs.'
+    const sawIt = await shows(asSam, charterOf, opened) && await shows(asDana, charterOf, opened)
+    const hers = await asDana('POST', `/api/orgs/${org}/nodes/scout/scope`, { charter: 'The charter as Dana left it.', expect: { charter: opened } })
+    proof.check('a save based on what is stored goes through', sawIt && hers.status === 200 && await shows(asSam, charterOf, 'The charter as Dana left it.'),
+      { sawIt, status: hers.status, detail: hers.json?.detail })
+    const entriesBefore = ((await asSam('GET', `/api/orgs/${org}/undo-history`)).json?.entries ?? []).length
+    // the desk saves through a gesture; this one is based on the charter as it was before Dana's save
+    const stale = await asSam('POST', `/api/orgs/${org}/gesture`, { label: 'Settings: scout', steps: [{ op: 'scope', node: 'scout', charter: 'The charter as Sam would have it.', expect: { charter: opened } }] })
+    const field = stale.json?.conflict?.fields?.[0]
+    proof.check('a save based on an older charter is refused and says who changed it and when', stale.status === 409 && stale.json?.code === 'save_conflict'
+      && stale.json?.conflict?.target === 'agent:scout' && field?.field === 'charter' && field?.stored === 'The charter as Dana left it.' && field?.actor === '@user'
+      && field?.changed_by?.id === dana.id && field?.changed_by?.name === 'PC-DANA' && Math.abs(Date.now() - Date.parse(field?.changed_at ?? '')) < 120000
+      && stale.json?.detail === 'PC-DANA changed charter since you opened it. Nothing was saved.', { status: stale.status, body: stale.json })
+    const entriesAfter = ((await asSam('GET', `/api/orgs/${org}/undo-history`)).json?.entries ?? []).length
+    proof.check('a refused save leaves no entry in the undo history', entriesAfter === entriesBefore, { entriesBefore, entriesAfter })
+    // "Save mine anyway" is a new save, based on what is stored now (named by its revision). It goes through only
+    // while the stored charter is still Dana's, so it also shows that the refused save wrote nothing.
+    const anyway = await asSam('POST', `/api/orgs/${org}/gesture`, { label: 'Settings: scout', steps: [{ op: 'scope', node: 'scout', charter: 'The charter as Sam would have it.', expect: { charter: { rev: rev('The charter as Dana left it.') } } }] })
+    proof.check('saving it anyway is a new save based on what is stored now', anyway.status === 200 && await shows(asDana, charterOf, 'The charter as Sam would have it.'),
+      { status: anyway.status, detail: anyway.json?.detail })
+    // there is no force flag: Dana's "anyway", still based on her own text, meets Sam's newer save
+    const third = await asDana('POST', `/api/orgs/${org}/nodes/scout/scope`, { charter: 'A third text.', expect: { charter: { rev: rev('The charter as Dana left it.') } } })
+    const thirdField = third.json?.conflict?.fields?.[0]
+    proof.check('a save anyway whose base changed in between is refused again', third.status === 409 && third.json?.code === 'save_conflict'
+      && thirdField?.stored === 'The charter as Sam would have it.' && thirdField?.changed_by?.id === mine && thirdField?.changed_by?.name === 'Samantha', { status: third.status, body: third.json })
+    const unchecked = await asDana('POST', `/api/orgs/${org}/nodes/scout/scope`, { charter: 'A save that says nothing about its base.' })
+    proof.check('a save that names no base is not checked (an older window)', unchecked.status === 200, { status: unchecked.status })
+    const unknown = await asDana('POST', `/api/orgs/${org}/nodes/scout/scope`, { effort: 'high', expect: { colour: 'blue' } })
+    proof.check('a base for a field the save does not have is refused as a mistake', unknown.status === 400 && String(unknown.json?.detail).includes('colour'), { status: unknown.status, detail: unknown.json?.detail })
+
+    // the same for an organization setting, the app-wide defaults, org.md and the instructions for all organizations
+    const effortShown = await shows(asSam, tree => tree?.default_effort, 'medium') && await shows(asDana, tree => tree?.default_effort, 'medium')
+    const mineFirst = await asSam('POST', `/api/orgs/${org}/settings`, { default_effort: 'max', expect: { default_effort: 'medium' } })
+    const herLate = await asDana('POST', `/api/orgs/${org}/settings`, { default_effort: 'low', expect: { default_effort: 'medium' } })
+    const setting = herLate.json?.conflict?.fields?.[0]
+    proof.check('an organization setting someone else changed is not replaced', effortShown && mineFirst.status === 200 && herLate.status === 409 && herLate.json?.code === 'save_conflict'
+      && herLate.json?.conflict?.target === 'org' && setting?.field === 'default_effort' && setting?.stored === 'max' && setting?.changed_by?.name === 'Samantha'
+      && herLate.json?.detail === 'Samantha changed default_effort since you opened it. Nothing was saved.',
+      { effortShown, first: mineFirst.status, late: herLate.status, body: herLate.json })
+    const defaults = (await asDana('GET', '/api/defaults')).json
+    const herDefault = await asDana('POST', '/api/defaults', { default_effort: 'high', expect: { default_effort: defaults?.default_effort ?? null } })
+    const myDefault = await asSam('POST', '/api/defaults', { default_effort: 'low', expect: { default_effort: defaults?.default_effort ?? null } })
+    const appField = myDefault.json?.conflict?.fields?.[0]
+    proof.check('an app-wide default someone else changed is not replaced', herDefault.status === 200 && myDefault.status === 409 && myDefault.json?.conflict?.target === 'defaults'
+      && appField?.field === 'default_effort' && appField?.stored === 'high' && appField?.changed_by?.id === dana.id, { hers: herDefault.status, mine: myDefault.status, body: myDefault.json })
+    const md = (await asSam('GET', `/api/orgs/${org}/orgmd`)).json
+    const herMd = await asDana('PUT', `/api/orgs/${org}/orgmd`, { content: '# The far lab, as Dana wrote it\n', base_rev: md?.rev })
+    const myMd = await asSam('PUT', `/api/orgs/${org}/orgmd`, { content: '# The far lab, as Sam wrote it\n', base_rev: md?.rev })
+    const mdField = myMd.json?.conflict?.fields?.[0]
+    proof.check('org.md someone else saved is not replaced, and the answer carries their text and their name', herMd.status === 200 && myMd.status === 409
+      && myMd.json?.detail === 'PC-DANA changed org.md since you opened it. Reload it and make your edit again.' && myMd.json?.code === 'save_conflict' && myMd.json?.conflict?.target === 'orgmd'
+      && mdField?.stored === '# The far lab, as Dana wrote it\n' && mdField?.changed_by?.name === 'PC-DANA', { hers: herMd.status, mine: myMd.status, body: myMd.json })
+    const all = (await asSam('GET', '/api/app-settings/instructions')).json
+    const herAll = await asDana('PUT', '/api/app-settings/instructions', { content: 'For every organization, as Dana wrote it.\n', base_rev: all?.rev })
+    const myAll = await asSam('PUT', '/api/app-settings/instructions', { content: 'For every organization, as Sam wrote it.\n', base_rev: all?.rev })
+    const allField = myAll.json?.conflict?.fields?.[0]
+    proof.check('the instructions for all organizations are kept the same way', herAll.status === 200 && myAll.status === 409 && myAll.json?.conflict?.target === 'instructions'
+      && myAll.json?.detail === 'PC-DANA changed the instructions for all orgs since you opened them. Reload them and make your edit again.'
+      && allField?.stored === 'For every organization, as Dana wrote it.\n' && allField?.changed_by?.id === dana.id, { hers: herAll.status, mine: myAll.status, body: myAll.json })
+
+    // ------------------------------------------------------------ a question two people answer
+    const againAt = farTurns()
+    await asSam('POST', `/api/orgs/${org}/nodes/lead/message`, { text: 'ask me a question' })
+    await rig.waitFor(() => farTurns() > againAt, { timeout: 150000, what: 'the far agent to ask again' })
+    const second = await rig.waitFor(async () => ((await asDana('GET', `/api/orgs/${org}`)).json?.asks ?? []).find(a => a.status === 'open' && a.node === 'lead') ?? null,
+      { timeout: 30000, every: 250, what: 'the second question' }).catch(() => null)
+    const herAnswer = second ? await asDana('POST', `/api/orgs/${org}/asks/${second.id}/answer`, { selected: ['Green'], rev: second.rev }) : { status: 0 }
+    const myAnswer = second ? await asSam('POST', `/api/orgs/${org}/asks/${second.id}/answer`, { selected: ['Blue'], rev: second.rev }) : { status: 0 }
+    const settledBy = myAnswer.json?.settled
+    proof.check('a question someone else answered first says who answered it, and what', herAnswer.status === 200 && myAnswer.status === 409 && myAnswer.json?.code === 'request_settled'
+      && myAnswer.json?.detail === 'that request was already answered' && settledBy?.status === 'answered' && settledBy?.answered_via?.id === dana.id
+      && settledBy?.answered_via?.name === 'PC-DANA' && JSON.stringify(settledBy?.answer ?? null).includes('Green') && !!settledBy?.resolved_at,
+      { hers: herAnswer.status, mine: myAnswer.status, body: myAnswer.json })
   } catch (e) {
     proof.check(`the proof ran to its end (${String(e?.message ?? e).slice(0, 300)})`, false)
   } finally {

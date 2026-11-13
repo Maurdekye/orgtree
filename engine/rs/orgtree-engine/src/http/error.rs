@@ -102,3 +102,28 @@ impl From<crate::domain::UserError> for ApiError {
         ApiError::new(e.status(), e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Decision 101: a refusal with a code keeps its status, its code and
+    /// what else it says on every route, not only the undo history's. A
+    /// refused save and a request someone else settled first rely on it.
+    #[test]
+    fn a_refusal_with_a_code_keeps_its_status_and_code_on_any_route() {
+        let refusal = anyhow::Error::new(crate::domain::undo::Coded {
+            status: 409,
+            code: "save_conflict",
+            detail: "Sam changed charter since you opened it. Nothing was saved.".into(),
+            extra: json!({ "conflict": { "target": "agent:lead", "fields": [] } }),
+        });
+        let api: ApiError = refusal.into();
+        assert_eq!(api.status, StatusCode::CONFLICT);
+        assert_eq!(api.detail, "Sam changed charter since you opened it. Nothing was saved.");
+        assert_eq!(api.extra, Some(json!({ "conflict": { "target": "agent:lead", "fields": [] }, "code": "save_conflict" })));
+        // an ordinary refusal is as before
+        let plain: ApiError = anyhow::Error::new(crate::domain::UserError::Conflict("taken".into())).into();
+        assert_eq!((plain.status, plain.detail.as_str(), plain.extra), (StatusCode::CONFLICT, "taken", None));
+    }
+}
