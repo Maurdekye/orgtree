@@ -416,9 +416,27 @@ error it throws.
 Tests: `tests/run.mjs saveconflict` (the sentences, edited-only fields, `expect`, the three choices,
 the line under an edited text, the answer that came second).
 
-Not yet in the window: organization settings and the app-wide defaults (their cells save one value
-each and send no `expect` yet), and the org.md and instructions editors (they show the engine's
-sentence, which names the person, as an ordinary error).
+- A setting that saves by itself (Org settings; `settingsautosave.tsx`) says what its edit started
+  from: the server's value when the field's first unsaved edit began, which a later keystroke of the
+  same edit does not move. The organization settings form sends it as `expect` for the settings a
+  window is shown the way it saves them (`org_name`, `max_top_grant`, `default_top_grant`,
+  `compact_at`, `default_effort`, `permission_mode`, `default_visibility`, `default_account`). The
+  folders, the tools, the fast-mode table, the cold-turn reset and the mailbox switches are shown in
+  another shape than they are saved, and stay unchecked rather than risk a false refusal. When a
+  value is refused, the cell goes back to what is stored and a toast says "Sam set the default effort
+  to max just now. Your change was not saved." with **Use mine**: a new save of the same value, based
+  on what the refusal said is stored.
+- The org.md editor (`App.tsx`) and the instructions editor (`canvas/appinstructions.tsx`) show the
+  same notice in place of their Save button. See their version shows the stored text, Use theirs
+  loads it into the editor, Save mine anyway reads the stored revision again and saves over it,
+  Cancel leaves the editor as it is. A refusal without `conflict` (an older engine) is the plain
+  error it always was.
+
+Tests: `tests/run.mjs settingsconflict` (a self-saving setting and Use mine; the instructions editor's
+three choices).
+
+Not yet in the window: the app-wide defaults form sends no `expect` (it has no tree to tell it
+whether the engine checks); the engine checks them when asked.
 
 ### Labels and who is connected (the engine that is connected to)
 

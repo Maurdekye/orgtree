@@ -43,8 +43,13 @@ Save includes the revision read when the editor opened. If another writer,
 including Connect your phone, changed the file meanwhile, it refuses with
 **org.md changed since you opened it ... Reload it and make your edit again.**
 When another person saved it from their window (several people on one
-organization, from 4.6.0), the sentence names them: **<name> changed org.md
-since you opened it. Reload it and make your edit again.** Reload and
+organization, from 4.6.0), a notice stands where Save was: **Sam changed
+org.md at 14:02. Nothing was saved.** **See their version** shows the stored
+text and **Use theirs** loads it into the editor; **Save mine anyway** saves
+your text over it (refused again if it changed once more in between);
+**Cancel** leaves the editor as it is, unsaved. Your text is never dropped.
+When nobody is known to have saved the newer file (Connect your phone, or a
+file changed on disk), the refusal is the sentence above: reload and
 reconcile the current file rather than overwriting the newer text.
 
 ## Trust notes

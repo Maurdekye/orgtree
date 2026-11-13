@@ -16,7 +16,13 @@ The **Organization** group at the top has a **Name** field holding the org's
 display name. Edit it and it saves automatically a moment after you stop
 typing (the same autosave as the other General fields); an empty name, or one
 with no letters or digits, is refused with the usual inline save error and
-nothing is written. Two orgs may share a display name. Under the field the
+nothing is written. From 4.6.0, when someone else on the same organization set
+a setting while you were changing it, your value is not saved: the row goes
+back to the stored value and a notice says who set it ("Sam set the default
+effort to max just now. Your change was not saved.") with **Use mine**, which
+saves your value over it. This covers the name, the grant limits, the
+compaction threshold, the default effort, permission mode, visibility and
+account. Two orgs may share a display name. Under the field the
 read-only line "ID: <id>. Used in mentions, addresses and folders; it doesn't
 change." names the org's permanent id (its slug): mentions, folders, the mail
 hub address, docket references and links keep using the id after a rename.
