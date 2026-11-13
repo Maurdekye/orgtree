@@ -238,12 +238,77 @@ exist" would tell the remote engine about this computer.
   heads get the same badge from the style sheet. "Wrap object mentions" and the Enter key rule
   are engine values, so they are the remote engine's.
 
+## Several people on one organization
+
+Decided: USER 2026-11-11 11:49:08Z me1216df27194 (asked for), 18:56:17Z meba39d75fade ("Accept all 9":
+the nine recommendations of the amendment). Decision 101. It lands in parts; this section says only
+what has landed.
+
+Every connected desktop is the user and has the user's authority. The engine that runs an
+organization still knows which computer an action came through, so that people can tell each other
+apart. Names grant nothing.
+
+### Who a request came through
+
+`caller.rs`. The request guard (`http::guard`) resolves an **origin** once, from the token that
+authenticated the request, and runs the request inside it (a task-local, `caller::scope`). Nothing
+reads an origin from a header, a query or a body, so a page or a relayed request cannot claim to be
+someone else.
+
+| Token | Origin `id` | Origin `name` |
+| --- | --- | --- |
+| a named client token | the client's id | its label |
+| a standalone engine's startup token | `startup` | "Startup token" |
+| a desktop engine's own token | `local` | the name its user chose, else the computer's |
+
+As JSON an origin is `{"id", "name"}`, plus `"on"` when the client's own name says more than the label
+("Sam", on "Orgtree desktop (PC2)"). When a request carries the startup token and a client's token,
+the client is who it came through. Work done in another task than the request's has no origin, which
+means unknown. Nothing records an origin yet.
+
+### Labels and who is connected (the engine that is connected to)
+
+A client record has an optional `label`: 1 to 40 characters, no control characters. Without one a
+client goes by the computer in "Orgtree desktop (<computer>)", else by its own name.
+
+- `PATCH /api/standalone/clients/{id} {"label": text | null}` sets it; `null` or blank clears it. Any
+  full token may set anyone's, because every full token is the user. A viewer token cannot: the route
+  is not in its list.
+- `GET /api/standalone/clients`: each row gains `label` (the one in effect), `connected` (a connection
+  that used the token is open), `connected_since` and `last_seen_at` (the last authenticated request
+  since the engine started; it is not kept across a restart). The answer gains `you`: the origin of the
+  token that asked.
+- `standalone-clients.json` is written as version 3 only while some client has a label. A registry
+  with none is still version 2, which an older engine reads.
+- The user MCP tool `orgtree_client_tokens` lists the new fields. It does not set labels.
+
+### This desktop among other engines
+
+- The name this desktop shows to others is kept in `remote-engines.json` (`shown_as`; absent means the
+  computer's name, and the file is then as it was before). `PUT /api/remotes/shown-as {"label": text |
+  null}` sets it. `GET /api/remotes` answers `me`, `{"id": "local", "name"}`: who this desktop's own
+  windows are in the records of its own organizations.
+- At each connect, and when that name changes, the link reads the remote's client list to learn who it
+  is there (`you`). It gives its **own** client the chosen name when the remote was last given another
+  one (`label_sent` of the connection). A name the engine's operator set there therefore stays until
+  this desktop's user chooses again. A pasted token this desktop only borrowed is never renamed.
+- The connection view gains `me`, `{"id", "name"}`: the origin this desktop's actions carry on that
+  engine, and the name others see there. Until the engine has said so it is `{"id": <the client this
+  desktop made>, "name": null}`, or `null` for a borrowed token. An engine older than 4.6.0 never says.
+- `GET /api/remotes/{id}/people` answers `{"supported", "people": [{"id", "label", "name", "connected",
+  "since", "last_seen_at", "scope", "you"}]}` from the remote's client list, and 502 while the link is
+  not connected. `supported` is false for an engine that does not say who is connected.
+
+Both routes are this computer's (`Local`) and are refused to viewer tokens.
+
 ## Tests
 
 `cargo test --bin orgtree-engine remote::` (no database, loopback only): the address rule, the sealed
 store, route coverage, the handshake against a stand-in and against a real standalone test engine,
 aliases, the routing rule, streaming and header hygiene, the instance stamp, the org socket, link
-states, the offline answer, the merged list, removal and log privacy.
+states, the offline answer, the merged list, removal and log privacy. The tests named `e1_` and `e6_`
+cover the origin of a request, labels, who is connected and what a connection learns about itself,
+against a real standalone test engine; `caller::` covers the origin itself.
 
 ## Desktop
 

@@ -250,7 +250,8 @@ can create, list and revoke named client tokens through the engine-wide API:
 | Request | Result |
 | --- | --- |
 | `POST /api/standalone/clients` with `{"name":"My client"}` (optional `"scope"`, and `"org"` for a viewer) | New `id`, `name`, `created_at`, `scope` and a `token` shown once. Save the token now. |
-| `GET /api/standalone/clients` | Active clients' `id`, `name`, `created_at`, `scope` and, for a viewer, `org`; no secrets or hashes. |
+| `GET /api/standalone/clients` | Active clients' `id`, `name`, `created_at`, `scope` and, for a viewer, `org`; no secrets or hashes. From 4.6.0 also `label` (the name other people see for that client), `connected`, `connected_since` and `last_seen_at`, and `you`: whose token asked. |
+| `PATCH /api/standalone/clients/<id>` with `{"label":"Sam"}` | From 4.6.0. Sets the name other people see for that client (1 to 40 characters; `null` goes back to its own name). A desktop sets its own. |
 | `DELETE /api/standalone/clients/<id>` | Revokes that client and immediately disconnects its HTTP, WebSocket and MCP connections. |
 
 The orgless MCP endpoint offers the same operations through

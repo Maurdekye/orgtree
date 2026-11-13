@@ -491,6 +491,25 @@ provider, real credential or running broker is touched. Fresh Linux compile
 passes under the same6GiB/job1 limits. Windows compilation remains a separate
 combined-build check.
 
+### Client labels and who is connected, 2026-11-13 (4.6.0)
+
+USER 2026-11-11 18:56:17Z meba39d75fade ("Accept all 9", several people on one organization).
+DECISIONS entry 101; contract: [remote-org](remote-org.md#several-people-on-one-organization).
+
+- A client record may carry `label` (1 to 40 characters, no control characters): what other people
+  see for that client. `PATCH /api/standalone/clients/{id} {"label": text | null}` sets or clears it
+  (a full token; a viewer token cannot). Without one a client goes by the computer in
+  "Orgtree desktop (<computer>)", else by its own name.
+- `GET /api/standalone/clients` rows gain `label`, `connected`, `connected_since` and `last_seen_at`
+  (since this engine started), and the answer gains `you`: `{"id", "name"}` (and `"on"`) of the token
+  that asked, with the id `startup` for the bootstrap key. This replaces "List returns only active
+  id/name/created_at" above. `orgtree_client_tokens` lists the same fields and sets no label.
+- `standalone-clients.json` is version 3 only while some record has a label; without one it is
+  written as version 2, so an older engine still reads it. A labelled version 2 file fails to load.
+- `Registry::authenticate` returns the scope and the origin (`caller::Origin`). `http::guard` runs
+  the request inside that origin; no header or body can set it. When a request presents the
+  bootstrap key and a client's token, the client is the origin.
+
 ### Viewer-scoped client tokens, 2026-11-11 (4.5.12)
 
 USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps" and 08:56:16Z mbad040c63ccb "Accept all,

@@ -2515,3 +2515,21 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     with a warning. Engine part first (2026-11-11): connections in `remote-engines.json`, the link,
     the route classes with a coverage test, the HTTP and org-socket relay, `/api/remotes`.
     Contract: [remote-org](remote-org.md).
+
+101. **Several people on one organization, and a desktop that hosts its organizations** (USER
+    2026-11-11 11:49:08Z me1216df27194 "Add as a later phase / work these two requirements into the
+    design"; 11:50:25Z mf57b47232264 "desktop host is a per-org setting"; 18:56:17Z meba39d75fade
+    "Accept all 9" on the amendment's nine recommendations; docket
+    `remote-org-connect-the-desktop-app-to-an-org-run`). Several people (phase E): the engine that
+    runs an organization records which computer each user action came through, and windows show it
+    on other people's actions ("User · Sam"); one's own look as before, and agents keep reading
+    "user". A save says what it was based on and is refused, with who changed it and when, once
+    that is no longer what is stored; there is no force flag. One person may undo another's action
+    after a confirmation that names whose it was. Each desktop has one name it shows to others. A
+    desktop as host (phase F, after E): a desktop may let other computers open single
+    organizations, off by default and switched on per organization, on Tailscale and by choice the
+    private network, never a public address; each computer gets in with a one-time code and holds
+    a member token that reaches only the organizations it was given and nothing app-wide. Phase F
+    ships only after an independent security review. First part (2026-11-13): the origin of a
+    request, client labels and who is connected. Contract:
+    [remote-org](remote-org.md#several-people-on-one-organization).

@@ -70,14 +70,19 @@ acts as the user, including client-token administration; a viewer client is read
 for one org (see "Viewer tokens" below). The standalone-only
 HTTP API is `GET/POST /api/standalone/clients` and
 `DELETE /api/standalone/clients/<id>`. POST takes `{"name":"My client"}` and
-returns `id`, `name`, `created_at`, `scope` and a secret shown **once**. GET returns
-`{"clients":[{"id":"...","name":"...","created_at":"...","scope":"full"}]}` only (a viewer also shows `org`).
+returns `id`, `name`, `created_at`, `scope`, `label` and a secret shown **once**. GET returns
+`{"clients":[{"id":"...","name":"...","created_at":"...","scope":"full","label":"...","connected":true,"connected_since":"...","last_seen_at":"..."}],"you":{"id":"...","name":"..."}}`
+(a viewer also shows `org`). `label` is what other people see for that client: the one it was given with
+`PATCH /api/standalone/clients/<id>` and `{"label":"Sam"}` (1 to 40 characters; `null` clears it), else
+the computer in "Orgtree desktop (computer)", else its name. `connected` says a connection that used
+the token is open, `connected_since` since when, and `last_seen_at` when it last asked anything since
+the engine started. `you` is whose token asked; the startup token's id is `startup`.
 
 The orgless user MCP endpoint provides `orgtree_client_tokens`:
 
 | Action | Fields | Result |
 | --- | --- | --- |
-| `list` (default) | none | Active id/name/created_at/scope (and org for a viewer) only. |
+| `list` (default) | none | Active id/name/created_at/scope (and org for a viewer), with label, connected, connected_since and last_seen_at. No secrets. |
 | `create` | `name`; optional `scope` (`full` default, or `viewer`), `org` (required with `viewer`, refused with `full`; the org must exist) | New metadata plus one-time token. |
 | `revoke` | `id` | Removes the client and immediately drops all its open HTTP/WS/MCP connections. |
 
