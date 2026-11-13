@@ -891,6 +891,9 @@ async fn publish_decision(engine: &Arc<Engine>, org: &Arc<OrgHandle>, decision: 
     ]);
     if let Some(request)=question {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("docket.question.answered",crate::runtime::watchdogs::events::Scope::Agent(org.id,agent_id),json!({"agent_id":agent_id,"request":request})));}
     if live && !halted {
+        if let Err(error) = crate::runtime::recovery::forget_hard_fail(engine, agent_id).await {
+            tracing::warn!(agent=agent_id, error=%format!("{error:#}"), "user decision wake could not reset stalled report");
+        }
         crate::runtime::wake(engine, org.id, agent_id);
     }
     if let Some(h) = engine.agents.get(agent_id) {

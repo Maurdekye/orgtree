@@ -2778,7 +2778,8 @@ impl Actor {
     /// 3.x's terminal belt (SH-4, user ruling 2026-09-12) for a turn that
     /// failed before its provider ran: its mail is back in the mailbox and
     /// nothing retries it, so the agent and its superior are told once per
-    /// run of failures (`hard_fail_run`, cleared by a completed turn). A
+    /// run of failures (`hard_fail_run`, cleared by a completed turn or a
+    /// deliberate wake (recovery::forget_hard_fail)). A
     /// freeze, halt, limit lock, killswitch, a seat that is not live and an
     /// engine shutdown own the stopped state and are never announced.
     async fn launch_failed(&self, err: &str) {
@@ -8918,8 +8919,8 @@ impl Actor {
         }
         if !turn.interrupted && !turn.session_ended && !classified {
             // 3.x `hard_fail_run`: a run of terminal failures, a turn the idle
-            // or time limit killed included, is told once; only a completed
-            // turn makes the next failure news again
+            // or time limit killed included, is told once; cleared by a completed
+            // turn or a deliberate wake (recovery::forget_hard_fail).
             let tell = match (&error, &freeze_rec) {
                 (Some(e), None) => recovery::bump(&self.engine, self.id, "hard_fail_run").await
                     .map(|run| run == 1 || prompt::input_length_refusal(e)).unwrap_or(true),

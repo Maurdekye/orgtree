@@ -16,7 +16,7 @@
 //!   user ruling 2026-10-10, docket delivery-unread-notices-only-after-10-minutes-un).
 //!
 //! Run counters live in `ot.agents.extra` (one short statement each) and are
-//! cleared by a turn that completes.
+//! cleared by a turn that completes. A deliberate wake clears only `hard_fail_run`.
 
 use std::sync::Arc;
 
@@ -222,6 +222,14 @@ pub async fn bump(engine: &Engine, agent_id: i64, key: &str) -> Result<i64> {
         )
         .await?;
     Ok(row.get::<_, Option<i64>>(0).unwrap_or(1))
+}
+
+/// A deliberate wake permits a fresh stalled report without clearing retry/backoff state.
+#[logged]
+pub async fn forget_hard_fail(engine: &Engine, agent_id: i64) -> Result<()> {
+    let client = engine.db.get().await?;
+    client.execute("UPDATE ot.agents SET extra = extra - 'hard_fail_run' WHERE id = $1 AND extra ? 'hard_fail_run'", &[&agent_id]).await?;
+    Ok(())
 }
 
 /// A turn completed: every failure run of this agent is over, and so is its

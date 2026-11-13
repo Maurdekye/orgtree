@@ -261,7 +261,9 @@ pub struct Sent {
 
 /// Whether the sender starts a new deliberate failure-reporting episode.
 #[nolog]
-fn wake_resets_fail_run(_from: &From) -> bool { false }
+fn wake_resets_fail_run(from: &From) -> bool {
+    matches!(from, From::User | From::Agent { .. } | From::Extern(_))
+}
 
 #[cfg(test)]
 #[path = "mail_stall_alert_tests.rs"]
@@ -483,6 +485,11 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         (format!("Stored as a notice: {to} reads it at its next turn, which this notice does not start."), false)
     } else {
         if out.wake {
+            if wake_resets_fail_run(&out.from) {
+                if let Err(error) = crate::runtime::recovery::forget_hard_fail(engine, target_id).await {
+                    tracing::warn!(agent=target_id, error=%format!("{error:#}"), "deliberate mail wake could not reset stalled report");
+                }
+            }
             crate::runtime::wake(engine, org_id, target_id);
         }
         (format!("Delivered to {to}'s mailbox; it starts or joins {to}'s turn."), false)
