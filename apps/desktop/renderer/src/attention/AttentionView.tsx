@@ -568,7 +568,7 @@ export function AttentionView(props: AttentionViewProps) {
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* gone */ }
     if (p.started) {
       setDragging(false)
-      suppressClick.current = true   // the click the browser fires after a drag
+      if (p.onButton) suppressClick.current = true   // the click the browser fires after a drag
       if (live !== null) commit(live)
       setLive(null)
     } else if (!cancelled && !p.onButton) {

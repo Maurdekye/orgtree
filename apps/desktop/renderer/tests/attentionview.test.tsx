@@ -703,7 +703,7 @@ const orderOf = () => {
   return { queue: slot('.attn-slot-queue'), divider: slot('.attn-divider'), desk: slot('.attn-slot-desk') }
 }
 
-test('§6 right-clicking the divider offers exactly one entry, Swap panels, which swaps and is remembered per org', async () => {
+test('§6 right-clicking the divider offers Swap panels and Reset to center; Swap panels swaps and is remembered per org', async () => {
   reset()
   setOrgView(SLUG, 'attention')
   setAttentionLayout(SLUG, { split: 0.3 })
@@ -714,7 +714,7 @@ test('§6 right-clicking the divider offers exactly one entry, Swap panels, whic
   assert.ok(o.queue < o.divider && o.divider < o.desk, 'queue left of desk by default')
 
   await openDividerMenu()
-  assert.deepEqual(menuLabels(), ['Swap panels'], 'exactly one entry')
+  assert.deepEqual(menuLabels(), ['Swap panels', 'Reset to center'], 'the two entries')
   await inAct(() => {
     ;(document.querySelector('.ctxmenu button') as HTMLButtonElement).click()
   })
