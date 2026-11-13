@@ -241,6 +241,10 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(tags)=m.get("tags").filter(|t|t.as_array().is_some_and(|a|!a.is_empty())) { o.insert("tags".into(),tags.clone()); }
     o.insert("id".into(), m["uid"].clone());
     o.insert("from".into(), m["sender"].clone());
+    // which computer the user's mail came through (`caller`); a row without one reads as before
+    if let Some(via) = m.get("via").filter(|v| !v.is_null()) {
+        o.insert("via".into(), via.clone());
+    }
     o.insert("kind".into(), m["kind"].clone());
     o.insert("body".into(), m["body"].clone());
     o.insert("at".into(), ts(&m["created_at"]));
@@ -394,6 +398,10 @@ pub fn event_entry(e: &Value) -> Value {
     if let Some(w) = e.get("warnings").filter(|v| !v.is_null()) {
         o.insert("warnings".into(), w.clone());
     }
+    // which computer the user's action came through (`caller`); an event without one reads as before
+    if let Some(via) = e.get("via").filter(|v| !v.is_null()) {
+        o.insert("via".into(), via.clone());
+    }
     Value::Object(o)
 }
 
@@ -470,13 +478,16 @@ pub async fn agent_history(client: &Client, agent_id: i64) -> Result<Vec<(String
         .map(|r| {
             let id: i64 = r.get(0);
             let e: Value = r.get(1);
-            let item = json!({
+            let mut item = json!({
                 "at": ts(&e["at"]),
                 "kind": e["op"],
                 "actor": e["actor"],
                 "detail": e.get("detail").cloned().unwrap_or(json!({})),
                 "warnings": e.get("warnings").cloned().filter(|w| !w.is_null()).unwrap_or(json!([])),
             });
+            if let Some(via) = e.get("via").filter(|v| !v.is_null()) {
+                item["via"] = via.clone();
+            }
             (format!("event:{id}"), item)
         })
         .collect())

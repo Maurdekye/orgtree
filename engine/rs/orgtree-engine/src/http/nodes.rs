@@ -894,8 +894,8 @@ pub(crate) async fn apply_user_scope_in_tx(
         let mut next = before.clone();
         next["fast_mode"] = json!(enabled);
         tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
-        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'scope','@user',$2,$3)",
-            &[&org.id,&a.id,&json!({"node":a.name,"change":{"fast_mode":enabled}})]).await?;
+        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail,via) VALUES($1,'scope','@user',$2,$3,$4)",
+            &[&org.id,&a.id,&json!({"node":a.name,"change":{"fast_mode":enabled}}),&crate::caller::via()]).await?;
         let notice_ids=crate::domain::lifecycle::record(tx,org.id,"retool","@user",Some(a.id),
             &json!({"notice":settings_notice::parts(scope_only(&before),scope_only(&next))})).await?;
         return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids,fields:vec!["fast_mode".into()],
@@ -907,8 +907,8 @@ pub(crate) async fn apply_user_scope_in_tx(
         o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "peer_mail")))) {
         let next = crate::domain::peer_mail::with_setting(&before,enabled);
         tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
-        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'scope','@user',$2,$3)",
-            &[&org.id,&a.id,&json!({"node":a.name,"change":{"peer_mail":enabled}})]).await?;
+        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail,via) VALUES($1,'scope','@user',$2,$3,$4)",
+            &[&org.id,&a.id,&json!({"node":a.name,"change":{"peer_mail":enabled}}),&crate::caller::via()]).await?;
         let notice_ids=crate::domain::lifecycle::record(tx,org.id,"retool","@user",Some(a.id),
             &json!({"notice":settings_notice::parts(scope_only(&before),scope_only(&next))})).await?;
         return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids,fields:vec!["peer_mail".into()],
@@ -1058,8 +1058,8 @@ pub(crate) async fn apply_user_scope_in_tx(
     // user grants it; every ancestor gets at least as much)
     let (cascaded, raised) = cascade_up(&tx, a.parent_id, &sc).await?;
     tx.execute(
-        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'scope', '@user', $2, $3)",
-        &[&org.id, &a.id, &json!({ "node": a.name, "change": b, "cascaded": cascaded })],
+        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, 'scope', '@user', $2, $3, $4)",
+        &[&org.id, &a.id, &json!({ "node": a.name, "change": b, "cascaded": cascaded }), &crate::caller::via()],
     )
     .await?;
     // what this save changed, from the stored before and after: the dialog

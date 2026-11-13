@@ -78,6 +78,12 @@ impl Who {
         }
     }
 
+    /// Which computer this came through, for the user's own changes (`caller`).
+    #[nolog]
+    pub fn via(&self) -> Option<Value> {
+        if matches!(self, Who::User) { crate::caller::via() } else { None }
+    }
+
     #[nolog]
     pub fn label(&self) -> String {
         match self {
@@ -830,13 +836,17 @@ pub async fn user_references(engine: &Engine, org: &OrgHandle, names: &[String])
 async fn detail(client: &impl GenericClient, it: &Item) -> Result<(Vec<Value>, Vec<Value>)> {
     let mut history: Vec<Value> = client
         .query(
-            "SELECT at, by, op, detail FROM ot.work_events WHERE work_id = $1 ORDER BY id DESC LIMIT $2",
+            "SELECT at, by, op, detail, via FROM ot.work_events WHERE work_id = $1 ORDER BY id DESC LIMIT $2",
             &[&it.id, &HISTORY_SHOWN],
         )
         .await?
         .iter()
         .map(|r| {
             let mut h = json!({ "at": iso(r.get(0)), "by": r.get::<_, Value>(1), "op": r.get::<_, String>(2) });
+            // which computer the user's change came through; a row from before this has none
+            if let Some(via) = r.get::<_, Option<Value>>(4) {
+                h["via"] = via;
+            }
             if let Value::Object(d) = r.get::<_, Value>(3) {
                 for (k, v) in d {
                     if !v.is_null() {
@@ -1047,8 +1057,8 @@ async fn save(tx: &impl GenericClient, it: &Item) -> Result<()> {
 #[logged]
 async fn history(tx: &impl GenericClient, it: &Item, who: &Who, op: &str, detail: Value) -> Result<()> {
     tx.execute(
-        "INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, $2, $3, $4)",
-        &[&it.id, &who.actor(), &op, &detail],
+        "INSERT INTO ot.work_events (work_id, by, op, detail, via) VALUES ($1, $2, $3, $4, $5)",
+        &[&it.id, &who.actor(), &op, &detail, &who.via()],
     )
     .await?;
     Ok(())
@@ -1386,10 +1396,11 @@ async fn participation_notices_tx(tx: &impl GenericClient, post: &mut AfterCommi
             who.label(), it.slug, it.title, it.owner_name().unwrap_or("nobody yet"),
         );
         tx.execute("INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind,
-                       recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state)
-                    VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, 'notice', true, $8, '[]'::jsonb, $9, $10, 'pending')",
+                       recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state, via)
+                    VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, 'notice', true, $8, '[]'::jsonb, $9, $10, 'pending', $11)",
                    &[&crate::util::uid("m"), &org.id, &from, &sender_id, &generation, &id, p,
-                     &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&reply_to(it)).as_ref(), &crate::util::pg_json(&participant_ev(org, who, it)).as_ref()]).await?;
+                     &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&reply_to(it)).as_ref(), &crate::util::pg_json(&participant_ev(org, who, it)).as_ref(),
+                     &who.via()]).await?;
         post.recipients.push((id, false));
         noticed.push(p.clone());
         if state != "live" || halted {
@@ -2118,8 +2129,8 @@ pub async fn handoff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug
     let reason = if reason.trim().is_empty() { "the owner requests an authorized upward handoff" } else { reason.trim() };
     client
         .execute(
-            "INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, $2, 'handoff_request', $3)",
-            &[&it.id, &who.actor(), &json!({ "to": to, "reason": reason })],
+            "INSERT INTO ot.work_events (work_id, by, op, detail, via) VALUES ($1, $2, 'handoff_request', $3, $4)",
+            &[&it.id, &who.actor(), &json!({ "to": to, "reason": reason }), &who.via()],
         )
         .await?;
     drop(client);
@@ -2841,8 +2852,8 @@ pub async fn attach(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, name
         .await?;
     client
         .execute(
-            "INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, $2, 'attach', $3)",
-            &[&it.id, &by, &json!({ "name": stored, "bytes": bytes.len() })],
+            "INSERT INTO ot.work_events (work_id, by, op, detail, via) VALUES ($1, $2, 'attach', $3, $4)",
+            &[&it.id, &by, &json!({ "name": stored, "bytes": bytes.len() }), &crate::caller::via()],
         )
         .await?;
     drop(client);
@@ -2869,8 +2880,8 @@ pub async fn detach(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, aid:
     let it = load(&**client, org.id, slug, false).await?;
     client
         .execute(
-            "INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, '\"user\"', 'detach', $2)",
-            &[&it.id, &json!({ "name": name })],
+            "INSERT INTO ot.work_events (work_id, by, op, detail, via) VALUES ($1, '\"user\"', 'detach', $2, $3)",
+            &[&it.id, &json!({ "name": name }), &crate::caller::via()],
         )
         .await?;
     drop(client);

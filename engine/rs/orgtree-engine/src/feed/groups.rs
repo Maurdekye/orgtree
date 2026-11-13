@@ -136,7 +136,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 // headless is inert in Orgtree 4 (ledger I2c): never claimed
                 "headless": false,
                 "primed_restart": Value::Null,
-                "capabilities": { "record_changes_v1": true },
+                // `attribution`: this engine records which computer a user action came through (`via`)
+                "capabilities": { "record_changes_v1": true, "attribution": true },
             })
         }
         "tiers" => {

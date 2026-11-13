@@ -674,9 +674,10 @@ async fn event(tx: &Transaction<'_>, org_id: i64, op: &str, actor: &Actor, subje
     // into the event log the feed and history read
     let mut stored = detail.clone();
     if let Some(o) = stored.as_object_mut() { o.remove("notice"); }
+    // which computer the user's action came through (`caller`); nothing for an agent's
     tx.execute(
-        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, $2, $3, $4, $5)",
-        &[&org_id, &op, &actor.label(), &subject, &stored],
+        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, $2, $3, $4, $5, $6)",
+        &[&org_id, &op, &actor.label(), &subject, &stored, &crate::caller::via_of(&actor.label())],
     )
     .await?;
     fx.pulses.extend(crate::runtime::watchdogs::events::operation(org_id,op,subject,&stored).into_iter().map(crate::changes::Change::EngineEvent));
@@ -987,9 +988,10 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
             let reason = if req.get("staff_item").is_some() { "staff" } else { op };
             let ev = crate::events::typed("lifecycle.kickoff", &actor.label(), crate::events::node_ref(&org.slug, &node, target_generation as i64),
                 json!({ "body": kick, "hired_by": actor.label(), "reason": reason, "tier": target.tier, "grant": target.grant }));
-            tx.execute("INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, state, ev)
-                VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, false, $9, 'pending', $10)",
-                &[&uid, &org.id, &actor.label(), &sender, &generation, &target.id, &node, &kind, &crate::util::pg_text(&kick).as_ref(), &crate::util::pg_json(&ev).as_ref()]).await?;
+            tx.execute("INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, state, ev, via)
+                VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, false, $9, 'pending', $10, $11)",
+                &[&uid, &org.id, &actor.label(), &sender, &generation, &target.id, &node, &kind, &crate::util::pg_text(&kick).as_ref(), &crate::util::pg_json(&ev).as_ref(),
+                  &crate::caller::via_of(&actor.label())]).await?;
             fx.pulses.push(crate::changes::Change::Mailbox(target.id));
             fx.wake.push(target.id);
             out["kickoff"] = json!(uid);

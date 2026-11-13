@@ -356,8 +356,8 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
             }
             client
                 .execute(
-                    "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'org_renamed', '@user', $2)",
-                    &[&o.id, &json!({ "from": old_name.as_str(), "to": name })],
+                    "INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'org_renamed', '@user', $2, $3)",
+                    &[&o.id, &json!({ "from": old_name.as_str(), "to": name }), &crate::caller::via()],
                 )
                 .await?;
         }
@@ -415,8 +415,8 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     }
     client
         .execute(
-            "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'settings', '@user', $2)",
-            &[&o.id, &Value::Object(patch.clone())],
+            "INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'settings', '@user', $2, $3)",
+            &[&o.id, &Value::Object(patch.clone()), &crate::caller::via()],
         )
         .await?;
     client.commit().await?;

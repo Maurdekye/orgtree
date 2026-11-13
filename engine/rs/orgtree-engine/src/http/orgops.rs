@@ -135,8 +135,8 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
         Err(err) => return Err(err.into()),
     };
     tx.execute(
-        "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'org_created', '@user', $2)",
-        &[&id, &json!({ "name": name, "slug": slug, "template": planned.as_ref().map(|(t, _)| t.id.clone()) })],
+        "INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'org_created', '@user', $2, $3)",
+        &[&id, &json!({ "name": name, "slug": slug, "template": planned.as_ref().map(|(t, _)| t.id.clone()) }), &crate::caller::via()],
     )
     .await?;
     // the new row holds the name until this commits: folders a deleted org

@@ -72,7 +72,10 @@ pub fn project(snapshot: &Value) -> Vec<u8> {
     let retired_roots = header.remove("retired_roots_total").and_then(|t| t.as_i64()).unwrap_or(0);
     let retired_roots = (retired_roots - held.get(&None).copied().unwrap_or(0)).max(0);
     header.remove("roots");
-    header.insert("capabilities".into(), json!({ "record_changes_v1": true }));
+    // what the settings group says the engine can do, and always the record changes this read announces
+    let mut capabilities = header.get("capabilities").and_then(Value::as_object).cloned().unwrap_or_default();
+    capabilities.insert("record_changes_v1".into(), json!(true));
+    header.insert("capabilities".into(), Value::Object(capabilities));
     header.insert("sync_rev".into(), rev.clone());
     header.insert("org_rev".into(), rev);
     header.insert(

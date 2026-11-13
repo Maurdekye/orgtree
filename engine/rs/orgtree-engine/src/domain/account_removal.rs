@@ -356,7 +356,7 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
                 "pending_account_rebound": pa["account"].as_str() == Some(id),
                 "pending_switch_rebound": ps["account"].as_str() == Some(id),
                 "pending_account": next_pa["account"], "pending_switch_account": next_ps["account"]});
-            tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'account_removed', '@user', $2, $3)", &[&org_id, &aid, &detail]).await?;
+            tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, 'account_removed', '@user', $2, $3, $4)", &[&org_id, &aid, &detail, &crate::caller::via()]).await?;
             out.agents.entry(org_id).or_default().push(aid);
             out.orgs.insert(slug.clone());
             if bound {
@@ -391,7 +391,7 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
             let org_id: i64 = row.get(0);
             after = org_id;
             tx.execute("UPDATE ot.orgs SET settings = jsonb_set(settings, '{default_account}', to_jsonb($2::text)), row_version = row_version + 1 WHERE id = $1", &[&org_id, &primary]).await?;
-            tx.execute("INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_default_rebound', '@user', $2)", &[&org_id, &json!({"removed_account":id,"account":primary})]).await?;
+            tx.execute("INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'account_default_rebound', '@user', $2, $3)", &[&org_id, &json!({"removed_account":id,"account":primary}), &crate::caller::via()]).await?;
             out.defaults.insert(org_id);
             out.orgs.insert(row.get(1));
         }
@@ -552,7 +552,7 @@ async fn remove_key_once(engine: &Arc<Engine>, id: &str) -> Result<(Outcome, Vec
             let detail = json!({"node": name, "removed_account": id, "account": target,
                 "binding_rebound": rebind, "session_boundary": boundary, "thawed": thaw, "frozen": freeze,
                 "pending_account_rebound": names_original(&pa), "pending_switch_rebound": names_original(&ps)});
-            tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'account_removed', '@user', $2, $3)", &[&org_id, &aid, &detail]).await?;
+            tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, 'account_removed', '@user', $2, $3, $4)", &[&org_id, &aid, &detail, &crate::caller::via()]).await?;
             out.agents.entry(org_id).or_default().push(aid);
             out.orgs.insert(slug.clone());
             if billed && target.is_some() {
@@ -582,8 +582,8 @@ async fn remove_key_once(engine: &Arc<Engine>, id: &str) -> Result<(Outcome, Vec
             let org_id: i64 = row.get(0);
             after = org_id;
             tx.execute("UPDATE ot.orgs SET settings = settings - 'default_account', row_version = row_version + 1 WHERE id = $1", &[&org_id]).await?;
-            tx.execute("INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_default_rebound', '@user', $2)",
-                &[&org_id, &json!({"removed_account": id, "account": null})]).await?;
+            tx.execute("INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'account_default_rebound', '@user', $2, $3)",
+                &[&org_id, &json!({"removed_account": id, "account": null}), &crate::caller::via()]).await?;
             out.defaults.insert(org_id);
             out.orgs.insert(row.get(1));
         }

@@ -97,6 +97,8 @@ impl Filter {
 #[nolog]
 fn shown(raw: &Value, folder: &str) -> Value {
     let mut entry = crate::feed::compute::mail_entry(raw);
+    // agents read the user as "user": which computer a mail came through is for people (decision 101)
+    if let Some(row) = entry.as_object_mut() { row.remove("via"); }
     entry["message_id"] = raw["uid"].clone();
     entry["state"] = raw["state"].clone();
     entry["status"] = raw["project_status"].clone();

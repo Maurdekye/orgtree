@@ -132,6 +132,7 @@ pub async fn page(
         ),
         "events" => (
             "SELECT id, jsonb_build_object('op', op, 'actor', actor, 'at', at, 'detail', detail)
+                        || CASE WHEN via IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('via', via) END
                FROM ot.events WHERE org_id = $1 AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.events WHERE org_id = $1",
             o.id,

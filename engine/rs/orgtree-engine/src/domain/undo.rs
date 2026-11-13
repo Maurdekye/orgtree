@@ -480,13 +480,17 @@ pub async fn head<C: GenericClient + Sync>(client: &C, org: i64) -> Result<Value
 pub async fn history<C: GenericClient + Sync>(client: &C, org: i64) -> Result<Value> {
     let mut out = head(client, org).await?;
     let rows = client.query(
-        "SELECT id, kind, label, state, created_at, reason FROM ot.undo_entries WHERE org_id = $1 ORDER BY id DESC LIMIT $2",
+        "SELECT id, kind, label, state, created_at, reason, via FROM ot.undo_entries WHERE org_id = $1 ORDER BY id DESC LIMIT $2",
         &[&org, &BOUND]).await?;
     let entries: Vec<Value> = rows.iter().map(|r| {
         let mut e = json!({ "id": r.get::<_, i64>(0), "kind": r.get::<_, String>(1), "label": r.get::<_, String>(2),
                             "state": r.get::<_, String>(3), "at": at(r, 4) });
         if let Some(reason) = r.get::<_, Option<String>>(5) {
             e["reason"] = json!(reason);
+        }
+        // whose action it was: the computer it came through (`caller`); none on an entry from before this
+        if let Some(via) = r.get::<_, Option<Value>>(6) {
+            e["via"] = via;
         }
         e
     }).collect();
@@ -789,8 +793,8 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
         // a new action clears redo, and the oldest beyond the bound go
         tx.execute("DELETE FROM ot.undo_entries WHERE org_id = $1 AND state = 'undone'", &[&org.id]).await?;
         let id: i64 = tx.query_one(
-            "INSERT INTO ot.undo_entries (org_id, kind, label, request_id, data) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-            &[&org.id, &kind, &label, &request, &*data]).await?.get(0);
+            "INSERT INTO ot.undo_entries (org_id, kind, label, request_id, data, via) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+            &[&org.id, &kind, &label, &request, &*data, &crate::caller::via()]).await?.get(0);
         tx.execute(
             "DELETE FROM ot.undo_entries WHERE org_id = $1 AND id NOT IN
                (SELECT id FROM ot.undo_entries WHERE org_id = $1 ORDER BY id DESC LIMIT $2)",

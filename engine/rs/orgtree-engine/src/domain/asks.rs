@@ -853,20 +853,22 @@ async fn settle(
         refuse!(Conflict, "{} cannot receive the answer; nothing was changed", open.agent);
     }
     let mail_uid = crate::util::uid("m");
+    // whoever settles it: the answer mail, the request and the event all say which computer it came through
+    let via = crate::caller::via();
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id,
-                              recipient_name, kind, notice, body, ev, state)
-         VALUES ($1, $2, '@user', 'agent', $3, $4, 'message', false, $5, $6, 'pending')",
-        &[&mail_uid, &org.id, &open.agent_id, &open.agent, &crate::util::pg_text(&text).as_ref(), &crate::util::pg_json_option(&ev).as_ref()],
+                              recipient_name, kind, notice, body, ev, state, via)
+         VALUES ($1, $2, '@user', 'agent', $3, $4, 'message', false, $5, $6, 'pending', $7)",
+        &[&mail_uid, &org.id, &open.agent_id, &open.agent, &crate::util::pg_text(&text).as_ref(), &crate::util::pg_json_option(&ev).as_ref(), &via],
     ).await?;
     tx.execute(
-        "UPDATE ot.asks SET status = $2, resolved_at = now(), answer = $3, answer_mail = $4 WHERE uid = $1",
-        &[&open.uid, &status, &answer, &mail_uid],
+        "UPDATE ot.asks SET status = $2, resolved_at = now(), answer = $3, answer_mail = $4, answered_via = $5 WHERE uid = $1",
+        &[&open.uid, &status, &answer, &mail_uid, &via],
     ).await?;
     tx.execute(
-        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail)
-         VALUES ($1, 'request_resolved', '@user', $2, $3)",
-        &[&org.id, &open.agent_id, &json!({ "id": open.uid, "status": status })],
+        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via)
+         VALUES ($1, 'request_resolved', '@user', $2, $3, $4)",
+        &[&org.id, &open.agent_id, &json!({ "id": open.uid, "status": status }), &via],
     ).await?;
     tx.commit().await?;
     Ok(CommittedDecision {

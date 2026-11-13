@@ -438,12 +438,13 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     tx
         .execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub, replies, extra)
-             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $20)",
+                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub, replies, extra, via)
+             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $20, $21)",
             &[
                 &mail_uid, &org_id, &sender_name, &sender_agent, &sender_gen, &target_id, &to, &out.kind, &out.notice,
                 &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent,
                 &out.urgent_reason, &out.client_op, &out.net_id, &out.net_hub, &Value::Array(out.replies.clone()), &out.delivery_extra(),
+                &crate::caller::via_of(&sender_name),
             ],
         )
         .await?;
@@ -589,12 +590,12 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     } else { (Vec::new(),Vec::new()) };
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                              recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies, extra)
-         VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18)",
+                              recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies, extra, via)
+         VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19)",
         &[
             &mail_uid, &org.id, &out.from.name(), &sender_agent, &sender_gen, &project.id, &project.name, &out.kind, &out.notice,
             &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
-            &out.client_op, &Value::Array(out.replies.clone()), &out.delivery_extra(),
+            &out.client_op, &Value::Array(out.replies.clone()), &out.delivery_extra(), &crate::caller::via_of(&out.from.name()),
         ],
     )
     .await?;

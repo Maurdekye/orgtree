@@ -408,8 +408,8 @@ pub async fn clear(
                                     "pool": pool, "cleared": cleared, "kept": kept, "reason": reason });
     if let Some(org_id) = by.org_id {
         tx.execute(
-            "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_mark_cleared', $2, $3)",
-            &[&org_id, &by.actor, &entry],
+            "INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'account_mark_cleared', $2, $3, $4)",
+            &[&org_id, &by.actor, &entry, &crate::caller::via_of(&by.actor)],
         )
         .await?;
     }

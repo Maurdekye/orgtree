@@ -233,8 +233,8 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     }
     client
         .execute(
-            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_request', $2, $3, $4)",
-            &[&org.id, &actor_name, &actor_id, &json!({ "requester": my_name, "target": target, "holder": holder, "reason": reason })],
+            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, 'audience_request', $2, $3, $4, $5)",
+            &[&org.id, &actor_name, &actor_id, &json!({ "requester": my_name, "target": target, "holder": holder, "reason": reason }), &crate::caller::via_of(&actor_name)],
         )
         .await?;
     drop(client);
@@ -421,8 +421,8 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     }
     client
         .execute(
-            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', $2, $3, $4)",
-            &[&org.id, &by, &gid, &json!({ "grantee": grantee, "grantor": grantor })],
+            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail, via) VALUES ($1, 'audience_grant', $2, $3, $4, $5)",
+            &[&org.id, &by, &gid, &json!({ "grantee": grantee, "grantor": grantor }), &crate::caller::via_of(&by)],
         )
         .await?;
     if answered > 0 {
@@ -521,8 +521,8 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
     let sought: String = rows[0].get(0);
     client
         .execute(
-            "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'audience_deny', $2, $3)",
-            &[&org.id, &holder, &json!({ "requester": requester, "target": sought })],
+            "INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'audience_deny', $2, $3, $4)",
+            &[&org.id, &holder, &json!({ "requester": requester, "target": sought }), &crate::caller::via_of(&holder)],
         )
         .await?;
     drop(client);
@@ -612,8 +612,8 @@ async fn revoke_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, 
     };
     client
         .execute(
-            "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'audience_revoke', $2, $3)",
-            &[&org.id, &by, &json!({ "grantee": grantee, "grantor": grantor })],
+            "INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'audience_revoke', $2, $3, $4)",
+            &[&org.id, &by, &json!({ "grantee": grantee, "grantor": grantor }), &crate::caller::via_of(&by)],
         )
         .await?;
     let gid: Option<i64> = client

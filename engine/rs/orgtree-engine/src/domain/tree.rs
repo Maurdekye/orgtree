@@ -127,6 +127,10 @@ pub fn ask_card(raw: &Value, node_name: &str) -> Value {
     if let Some(a) = raw.get("answer").filter(|v| !v.is_null()) {
         o.insert("answer".into(), a.clone());
     }
+    // which computer it was settled through (`caller`)
+    if let Some(via) = raw.get("answered_via").filter(|v| !v.is_null()) {
+        o.insert("answered_via".into(), via.clone());
+    }
     let wi = raw.get("work_items").and_then(Value::as_array).cloned().unwrap_or_default();
     if !wi.is_empty() {
         o.insert("work_items".into(), Value::Array(wi));

@@ -99,6 +99,14 @@ pub fn via() -> Option<Value> {
     ORIGIN.try_with(Origin::json).ok()
 }
 
+/// What a record whose author is `who` stores as `via`: the current origin
+/// when `who` is the user, nothing for an agent, the engine or an outside
+/// party (their records never carry one).
+#[nolog]
+pub fn via_of(who: &str) -> Option<Value> {
+    if matches!(who, "@user" | "user") { via() } else { None }
+}
+
 /// A label as it may be stored: trimmed, 1 to `LABEL_MAX` characters, no
 /// control characters. `None` when `text` is not one.
 #[nolog]
@@ -170,5 +178,13 @@ mod tests {
         let other = scope(Some(sam), async { tokio::spawn(async { current() }).await.unwrap() }).await;
         assert_eq!(other, None);
         assert_eq!(current(), None);
+    }
+
+    #[tokio::test]
+    async fn only_the_users_records_carry_the_origin() {
+        let sam = Origin::client("c-1", "Orgtree desktop (PC2)", Some("Sam"));
+        let seen = scope(Some(sam.clone()), async { (via_of("@user"), via_of("user"), via_of("lead"), via_of("@system"), via_of("@net:bob.1")) }).await;
+        assert_eq!(seen, (Some(sam.json()), Some(sam.json()), None, None, None));
+        assert_eq!(via_of("@user"), None, "outside a request the user's record has no origin either");
     }
 }
