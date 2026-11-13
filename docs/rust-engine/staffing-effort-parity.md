@@ -17,7 +17,8 @@ The existing renderer already creates effort rows and posts the selected value.
 | Antigravity Flash | low, medium, high |
 | Antigravity Argon | low, medium, high |
 | Antigravity Carbon | low, medium, high |
-| Antigravity Pro, Krypton, Hydrogen | low, high |
+| Antigravity Pro, Krypton | low, high |
+| Antigravity Hydrogen | low, high, xhigh |
 
 Argon's medium omission was corrected on 2026-10-16 after offline inspection
 of the installed CLI's explicit medium model entry and effort resolver. The
