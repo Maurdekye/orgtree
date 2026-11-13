@@ -16,7 +16,9 @@ export function sessionId() {
 }
 
 /** Steps the page script asks for while its window stays open: POST <url><name>.
- *  The address carries a random key, and the server listens on loopback only. */
+ *  A step may be handed one JSON value in the request's body (what the page read
+ *  off the window, for the proof to act on). The address carries a random key,
+ *  and the server listens on loopback only. */
 export function control(handlers) {
   const key = crypto.randomBytes(8).toString('hex')
   const server = http.createServer(async (req, res) => {
@@ -24,7 +26,9 @@ export function control(handlers) {
     const fn = handlers[name]
     if (req.method !== 'POST' || !fn) { res.writeHead(404).end(); return }
     try {
-      const out = await fn()
+      let sent = ''
+      for await (const chunk of req) sent += chunk
+      const out = await fn(sent ? JSON.parse(sent) : undefined)
       res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out ?? { ok: true }))
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: String(e?.message ?? e) }))

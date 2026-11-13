@@ -1,5 +1,7 @@
-// tools/rig/far.mjs: a second engine for a rig run, in standalone mode: "the
-// remote engine" of the remote-organization proofs (docs/rust-engine/remote-org.md).
+// tools/rig/far.mjs: a second engine for a rig run: "the remote engine" of the
+// remote-organization proofs (docs/rust-engine/remote-org.md). In standalone
+// mode by default; with `desktop` it is somebody's own desktop engine, which
+// lets other computers in through its remote door ("A desktop as host").
 //
 // It is the run's own copy of the debug engine, started on a synthetic data
 // root inside the run folder (fake home, fake CLIs, offline, loopback only),
@@ -7,6 +9,7 @@
 // real engine, a real sign-in or the network.
 
 import { spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -16,8 +19,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /** The far engine of the run `rig`. `scenario` is what its fake CLIs do
  * (tools/rig/fakecli); `role` says in the root's marker which proof it serves.
+ * `desktop: { computer }` makes it a desktop's own engine instead of a
+ * standalone one: it is started as an app starts its engine (`serve`, a
+ * desktop token, a port it picks itself), it is called `computer`, and its
+ * remote door stands on loopback (`ORGTREE_RIG_REMOTE_DOOR`, which only a rig
+ * run of a debug build reads). `far.door` is a request at that door.
  * Nothing runs until `start()`. */
-export function farEngine(rig, { scenario, role }) {
+export function farEngine(rig, { scenario, role, desktop = null }) {
   const dir = path.join(rig.dir, 'far')
   const data = path.join(dir, 'data')
   assertSafeRoot(data)
@@ -30,7 +38,8 @@ export function farEngine(rig, { scenario, role }) {
   const bin = name => path.join(rig.dir, 'bin', name)
   const far = { dir, data, port: 0, token: '', child: null, exit: null, ready: null, stderr: '', starts: 0 }
   far.start = async () => {
-    if (!far.port) far.port = await freePort()
+    if (desktop) far.token ||= crypto.randomBytes(32).toString('hex')
+    else if (!far.port) far.port = await freePort()
     const env = {
       ...cleanEnv(),
       ...rigProfileEnv(data, { tmp: path.join(dir, 'tmp') }),
@@ -40,8 +49,16 @@ export function farEngine(rig, { scenario, role }) {
       ORGTREE_ENGINE_RIG: '1',
       ORGTREE_NET_OFFLINE: '1',
       ORGTREE_LOG_VERBOSE: '1',
-      ORGTREE_BIND: '127.0.0.1',
-      ORGTREE_PORT: String(far.port),
+      ...(desktop ? {
+        ORGTREE_V2_TOKEN: far.token,
+        // it ends with this run, as an app's engine ends with its app
+        ORGTREE_V2_PARENT_PID: String(process.pid),
+        ORGTREE_ENGINE_ALLOW_INITDB: '1',
+        ORGTREE_RIG_REMOTE_DOOR: '127.0.0.1',
+        COMPUTERNAME: desktop.computer,
+        // with a renderer bundle its own windows can be opened too (the hosting side's screens)
+        ...(rig.run.ui ? { ORGTREE_V2_UI_DIR: rig.run.ui } : {}),
+      } : { ORGTREE_BIND: '127.0.0.1', ORGTREE_PORT: String(far.port) }),
       ORGTREE_CLAUDE_BIN: bin('claude.exe'),
       ORGTREE_CODEX_BIN: bin('codex.exe'),
       ORGTREE_AGY_BIN: bin('agy.exe'),
@@ -56,7 +73,7 @@ export function farEngine(rig, { scenario, role }) {
     far.stderr = ''
     far.starts += 1
     // the run's own copy of the engine: a process under the run folder, which the run's reap finds
-    const child = spawn(bin('orgtree-engine.exe'), ['standalone'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const child = spawn(bin('orgtree-engine.exe'), [desktop ? 'serve' : 'standalone'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     far.child = child
     let buf = ''
     child.stdout.on('data', d => {
@@ -73,19 +90,28 @@ export function farEngine(rig, { scenario, role }) {
       touch(rig.dir)
       await sleep(250)
     }
-    far.token = fs.readFileSync(path.join(data, 'standalone-token'), 'utf8').trim()
+    if (desktop) far.port = far.ready.port
+    else far.token = fs.readFileSync(path.join(data, 'standalone-token'), 'utf8').trim()
+    far.url = `http://127.0.0.1:${far.port}`
     return far.ready
   }
-  /** One request with `token` (the startup token unless another is given). Never throws on a refusal. */
-  far.call = async (method, route, { body, token } = {}) => {
+  const send = async (base, method, route, headers, body) => {
     touch(rig.dir)
-    const res = await fetch(`http://127.0.0.1:${far.port}${route}`, { method, headers: { Authorization: `Bearer ${token ?? far.token}`, 'Content-Type': 'application/json' },
+    const res = await fetch(base + route, { method, headers: { ...headers, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(120000) })
     const text = await res.text()
     let json = null
     try { json = JSON.parse(text) } catch { /* not JSON */ }
     return { status: res.status, json, text }
   }
+  /** One request with `token` (the startup token unless another is given; a desktop's own app sends its
+   *  desktop token in its own header). Never throws on a refusal. */
+  far.call = (method, route, { body, token } = {}) => send(`http://127.0.0.1:${far.port}`, method, route,
+    desktop ? { 'X-Orgtree-Desktop-Token': token ?? far.token } : { Authorization: `Bearer ${token ?? far.token}` }, body)
+  /** One request at a desktop's remote door on `port`, as another computer sends it: `token` is a one-time
+   *  code or that computer's own token, or nothing. Never throws on a refusal. */
+  far.door = (port, method, route, { body, token, headers } = {}) => send(`http://127.0.0.1:${port}`, method, route,
+    { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers }, body)
   /** The same with the startup token, as its operator: the answer, or an error for a refusal. */
   far.api = async (method, route, body) => {
     const res = await far.call(method, route, { body })
