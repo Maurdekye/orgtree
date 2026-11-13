@@ -13,8 +13,8 @@ import { SetRow } from '../canvas/settingskit'
 import { useContextMenu } from '../canvas/contextmenu'
 import { ageTitle } from '../canvas/listage'
 import { RemoteIcon } from '../icons'
-import { addRemote, getPeople, getShownAs, patchRemote, remoteBanner, remoteOfOrg, removeRemote, retryRemote, setShownAs, stateWord,
-  transportLabel, useRemotes, type PeopleView, type RemoteView } from '../remotes'
+import { addRemote, addressWithCode, getPeople, getShownAs, noLongerShared, patchRemote, remoteBanner, remoteOfOrg, removeRemote, retryRemote,
+  setShownAs, stateWord, transportLabel, useRemotes, type PeopleView, type RemoteView } from '../remotes'
 
 const clock = (iso: string): string => {
   const at = new Date(iso)
@@ -49,10 +49,14 @@ export function RemoteEngineDialog({ close, replace }: { close: () => void; repl
         {!replace && <SetRow label="Address" hint="Where the standalone engine listens, as this computer reaches it.">
           <input data-streamer-field="ip" type="text" aria-label="Engine address" spellCheck={false} value={url}
             placeholder="http://100.x.y.z:7430" disabled={busy} onKeyDown={onEnter}
-            onChange={(e) => setUrl(e.target.value)} />
+            onChange={(e) => {
+              // another desktop's "Both in one line": its address and its one-time code, pasted at once
+              const both = addressWithCode(e.target.value)
+              if (both && !token) { setUrl(both.url); setToken(both.code) } else setUrl(e.target.value)
+            }} />
         </SetRow>}
         <SetRow label="Token"
-          hint="Paste the engine's startup token or a client token. Orgtree makes its own token on that engine and keeps only that.">
+          hint="Paste the engine's startup token or a client token; for another person's computer, the one-time code it gave you. Orgtree makes its own token there and keeps only that.">
           <input data-streamer-field="secret" type="password" aria-label="Engine token" autoComplete="off" spellCheck={false}
             value={token} disabled={busy} onKeyDown={onEnter} onChange={(e) => setToken(e.target.value)} />
         </SetRow>
@@ -231,10 +235,13 @@ export function RemoteDetails({ remote, actions, close }: { remote: RemoteView; 
           <span>{remote.version ?? 'unknown'}</span>
         </SetRow>
         <SetRow label="Signed in as"
-          hint={remote.own_token ? 'Full control. This computer has its own token there, which can be revoked alone.'
-            : 'Full control, with the token you pasted (that engine could not make one for this computer).'}>
+          hint={remote.scope === 'member'
+            ? `${remote.name} is somebody's own computer. It decides which of its organizations this computer may open, and can end that at any time. Nothing else of it can be changed from here.`
+            : remote.own_token ? 'Full control. This computer has its own token there, which can be revoked alone.'
+              : 'Full control, with the token you pasted (that engine could not make one for this computer).'}>
           {/* "Orgtree desktop (<computer>)": this computer's name is a host field, masked like the address */}
           {remote.client_name ? <span data-streamer-field="ip">{remote.client_name}</span> : <span>the pasted token</span>}
+          {remote.scope === 'member' && <span className="remote-member-scope"> · these organizations only</span>}
         </SetRow>
         <RemotePeople remote={remote} busy={actions.busy} />
         {remote.last_error && <SetRow label="Last error"><span className="ask-warn" role="status">{remote.last_error}</span></SetRow>}
@@ -308,6 +315,10 @@ export function RemoteBanner({ slug }: { slug: string }) {
   }, [state])
   if (!remote) return null
   const banner = remoteBanner(remote, now, clock)
+  // the hosting desktop switched this organization off, or took it from this computer: its own sentence, and nothing to do here
+  const unshared = noLongerShared(remote, slug)
+  if (!banner && unshared) return <div className="remote-banner" role="status"><RemoteIcon fontSize="inherit" />
+    <span className="remote-banner-text">{unshared}</span></div>
   if (!banner) return back ? <div className="remote-banner ok" role="status">Reconnected to {remote.name}.</div> : null
   const act = banner.action === 'retry' ? actions.retry : banner.action === 'token' ? actions.token
     : banner.action === 'details' ? actions.details : banner.action === 'connect' ? actions.connect : null

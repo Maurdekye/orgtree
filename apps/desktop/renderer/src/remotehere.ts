@@ -18,6 +18,8 @@ import { appValueNow, useAppValue } from './appfeed'
 export interface RemoteHere { id: string; name: string; state: string
   /** who this desktop is on that engine: the origin its actions carry there (people.tsx) */
   me?: { id: string; name: string | null } | null
+  /** `member`: that engine is somebody's own desktop, and this computer has its organizations only */
+  scope?: string
   /** that engine's organizations: the name each has here (`alias`) and there (`remote_slug`) */
   orgs?: readonly { alias: string; remote_slug: string; gone?: boolean }[] }
 

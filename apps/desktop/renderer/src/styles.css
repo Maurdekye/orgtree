@@ -10709,6 +10709,9 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 /* who else is connected to a remote engine (Connection details) */
 .remote-people { list-style: none; margin: 0; padding: 0; }
 .remote-people li { overflow-wrap: anywhere; }
+/* computers that were let in (org settings, Connections, Remote access): the text, then the row's one action */
+.remote-computers li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.remote-computers .remote-computer-text { flex: 1; min-width: 0; }
 /* a refused save: the notice in place of a Save row, and the line under an edited field (saveconflict.tsx) */
 .save-conflict { margin: 8px 0 2px; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid #e5c07b; border-radius: 4px; }
 .save-conflict-what { margin: 0 0 6px; color: #e5c07b; }

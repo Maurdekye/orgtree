@@ -166,7 +166,14 @@ pub async fn org(State(engine): State<Arc<Engine>>, Path(slug): Path<String>, sc
     owner(&engine, &scope)?;
     let org = local_org(&engine, &slug)?;
     looked(&engine, &look).await;
-    Ok(Json(org_view(&engine, &org)))
+    let mut view = org_view(&engine, &org);
+    if look.fresh.as_deref() == Some("1") {
+        // What turning the switch on would be refused with now, or null: the app asks before it
+        // asks Windows for anything, so nobody is shown an administrator prompt for nothing.
+        let (_, lan) = engine.access.registry.listening();
+        view["refusal"] = json!(lifecycle::way_in(&lifecycle::read(&engine).await, lan).err());
+    }
+    Ok(Json(view))
 }
 
 #[derive(Deserialize)]

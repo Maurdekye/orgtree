@@ -13,6 +13,8 @@ import { LiveFeedSetting } from './livefeedsetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { TemplateDocumentsSetting } from './templates'
 import { MailHubSettings } from './hosthub'
+import { RemoteAccessSettings } from './remoteaccess'
+import { useRemoteAccess } from '../remoteaccess'
 import { SettingsSearch, settingsSearchEscape } from './settingssearch'
 import { AppInstructionsSetting } from './appinstructions'
 import { useEffect, useRef, useState } from 'react'
@@ -312,12 +314,12 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'about' | 'providers' | 'harnesses' | 'runtime' | 'mailhub'
+type AppSettingsTab = 'about' | 'providers' | 'harnesses' | 'runtime' | 'mailhub' | 'remoteaccess'
   | 'display' | 'streamer' | 'defaults' | 'developer' | 'shortcuts'
 /** The tabs that hold only settings of this app on this computer. In a window of an
  *  organization on a remote engine they carry the badge "this computer"; the others show that
  *  engine's settings, with their few local groups marked one by one (`ThisComputer`). */
-const LOCAL_APP_TABS: ReadonlySet<AppSettingsTab> = new Set(['streamer', 'mailhub', 'shortcuts', 'about'])
+const LOCAL_APP_TABS: ReadonlySet<AppSettingsTab> = new Set(['streamer', 'mailhub', 'remoteaccess', 'shortcuts', 'about'])
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
 // Display, Default org settings, Mail hub, Developer, About. The panel OPENS
 // on Providers, the first tab (user 2026-09-30), unless the caller asks for a
@@ -343,6 +345,10 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   // access to it are machine-wide settings — they used to sit inside a single
   // organization's Connections tab, which is where they did not belong
   { id: 'mailhub', label: 'Mail hub' },
+  // what this computer lets other computers open, and where it listens for
+  // them: app-wide like the mail hub (the switches are each organization's).
+  // Only a desktop's own engine offers it; elsewhere the tab is not listed.
+  { id: 'remoteaccess', label: 'Remote access' },
   // tools for looking inside the running engine; nothing here changes behaviour
   { id: 'developer', label: 'Developer' },
   // a read-only list of every key Orgtree binds (user 2026-10-14: in Settings
@@ -807,6 +813,8 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
 }) {
   const [tab, setTab] = useState<AppSettingsTab>((target?.tab as AppSettingsTab | undefined) ?? initialTab ?? 'providers')
   const remote = useRemoteHere()
+  // this computer's own engine lets other computers in (a standalone engine and an older one do not)
+  const sharing = !!useRemoteAccess()
   const stripRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { if (target) setTab(target.tab as AppSettingsTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
   useSettingsTarget(stripRef, target, !!target && tab === target.tab)
@@ -926,7 +934,8 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   }
   // In a window of an organization on a remote engine the engine's settings here are that
   // engine's (remotehere.ts); the panel says so and marks what is this computer's.
-  const appTabs = remote ? APP_TABS.map(item => LOCAL_APP_TABS.has(item.id) ? { ...item, note: 'this computer' } : item) : APP_TABS
+  const appTabs = (remote ? APP_TABS.map(item => LOCAL_APP_TABS.has(item.id) ? { ...item, note: 'this computer' } : item) : APP_TABS)
+    .filter(item => item.id !== 'remoteaccess' || sharing)
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
     close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false)
       : settingsSearchEscape() ? undefined : close()}>
@@ -936,7 +945,9 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     <SettingsTabs tabs={appTabs} tab={tab} setTab={setTab} stripRef={stripRef} idBase="app-settings" label="Application settings sections" />
     {remote && <p className="dim settings-remote-note" role="note">
       These settings belong to {remote.name}, the remote engine this organization runs on.{' '}
-      Tabs and groups marked “This computer” belong to this app on this computer.</p>}
+      Tabs and groups marked “This computer” belong to this app on this computer.
+      {remote.scope === 'member' && <> {remote.name} is somebody's own computer: its settings can be read here,
+        and a change is refused with “This belongs to {remote.name}.”</>}</p>}
     {error && <div className="ask-warn" role="alert">{error}</div>}
     <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
       <AboutSection appVersion={appVersion} />
@@ -1101,6 +1112,9 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
       <MailHubSettings active={tab === 'mailhub' || searching} />
     </SettingsTabPanel>
+    {sharing && <SettingsTabPanel id="remoteaccess" idBase="app-settings" active={tab === 'remoteaccess'}>
+      <RemoteAccessSettings toast={toast} />
+    </SettingsTabPanel>}
     <SettingsTabPanel id="streamer" idBase="app-settings" active={tab === 'streamer'}>
       <StreamingSettings />
     </SettingsTabPanel>

@@ -80,6 +80,7 @@ import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appsho
 import type { CanvasShortcutRef } from './shell/appshortcuts'
 import { OrgStatusBar } from './shell/statusbar'
 import { RemoteBanner, RemoteChip, useRemoteAway } from './shell/remotes'
+import { SharedChip } from './canvas/remoteaccess'
 import { remoteOfOrg, useRemotes } from './remotes'
 import { treeHere } from './remotehere'
 import { HomepageView } from './shell/homepage'
@@ -2187,7 +2188,10 @@ export default function App() {
                   live in the header's `.bar-detail`, with every visibility
                   rule, tooltip and click-through intact (shell/statusbar.tsx) */}
               {v3 && <OrgStatusBar tree={tree} orgs={orgs} error={error}
-                lead={<RemoteChip slug={slug} />}
+                lead={<><RemoteChip slug={slug} /><SharedChip slug={slug} onOpen={() => {
+                  setSettingsInitialTab('mailserver')
+                  if (!showSettings) toggleSurface('org-settings', showSettings, setShowSettings)
+                }} /></>}
                 appVersion={appVersion}
                 quick={quickAt === 'bottom' ? quickChat : undefined}
                 onOpenConnections={() => {

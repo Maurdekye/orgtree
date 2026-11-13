@@ -13,6 +13,7 @@
 // immediately — hub membership is operational state, not a form draft.
 
 import { openPhonePanel } from './phonelink'
+import { RemoteAccess } from './remoteaccess'
 import { useEffect, useRef, useState } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { getNetRecent, getOrgNet, probeHub, saveSettings } from '../api'
@@ -149,6 +150,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
     <AddHub slug={tree.slug} address={adding} setAddress={setAdding} toast={toast}
       current={settings} busy={busy} apply={apply} />
     <p className="dim set-foot">Connection changes apply immediately; hub names are discovered on connect.</p>
+    <RemoteAccess slug={tree.slug} name={tree.name} toast={toast} />
   </>
 }
 

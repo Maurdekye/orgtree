@@ -44,6 +44,12 @@ export interface RemoteView {
   /** the client token this desktop made there ("Orgtree desktop (<computer>)") */
   client_name: string | null
   own_token: boolean
+  /** what the engine is: one that runs by itself, or another person's desktop
+   *  that lets this computer open some of its organizations (absent from an
+   *  engine before this) */
+  mode?: 'standalone' | 'host'
+  /** what this computer may do there: everything, or its organizations only */
+  scope?: 'full' | 'member'
   /** who this desktop is there: the origin its actions carry on that engine,
    *  and the name others see. `name` is null until the engine has said so; the
    *  whole value is null for a pasted token this desktop only borrowed, and
@@ -179,13 +185,25 @@ export function remoteBanner(remote: RemoteView, now: number, clock: (iso: strin
   }
 }
 
+/** What was typed or pasted into the Add dialog's Address field: another
+ *  desktop hands out its address and a one-time code as one line ("Both in
+ *  one line"), which goes into the two fields. `null`: it is an address alone. */
+export function addressWithCode(typed: string): { url: string; code: string } | null {
+  const parts = typed.trim().split(/\s+/)
+  return parts.length === 2 && /^https?:\/\//i.test(parts[0]!) && /^[0-9A-Za-z]{16,64}$/.test(parts[1]!)
+    ? { url: parts[0]!, code: parts[1]! } : null
+}
+
+/** Is this organization one its hosting desktop no longer shares? The link is
+ *  up, the desktop is somebody's own, and its list no longer has the
+ *  organization: the sentence is the hosting desktop's own (E16). */
+export function noLongerShared(remote: Pick<RemoteView, 'name' | 'state' | 'mode' | 'orgs'>, alias: string): string | null {
+  const org = remote.orgs.find((o) => o.alias === alias)
+  return remote.mode === 'host' && remote.state === 'connected' && org?.gone ? `${remote.name} no longer shares this organization.` : null
+}
+
 /** The tooltip of a remote organization's row and of the window's chip. */
 export function remoteTitle(remote: Pick<RemoteView, 'name' | 'url'>, mark?: Pick<RemoteMark, 'slug'> | null, alias?: string): string {
   const there = mark && alias && mark.slug !== alias ? ` · named ${mark.slug} there` : ''
   return `On ${remote.name} (remote engine) · ${remote.url}${there}`
 }
-
-/** Not built yet (the shape the test is written against). */
-export const addressWithCode = (_typed: string): { url: string; code: string } | null => null
-/** Not built yet (the shape the test is written against). */
-export const noLongerShared = (_remote: unknown, _alias: string): string | null => null
