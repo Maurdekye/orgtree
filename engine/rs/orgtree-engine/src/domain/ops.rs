@@ -1343,6 +1343,88 @@ fn self_parent_fallback(requested: Option<bool>, effective: Option<bool>, defaul
 }
 
 #[cfg(test)]
+mod hire_folder_raise_tests {
+    use super::*;
+
+    fn node(id: i64, name: &str, kind: &str, dirs: Value) -> Node {
+        Node { id, name: name.into(), parent: (id > 1).then_some(id - 1), state: "live".into(), tier: "opus".into(), seat: 4.0, grant: 10.0,
+               scope: json!({ "add_dirs": dirs }), account: None, session: None, kind: kind.into() }
+    }
+    /// boss(1) > lead(2) > [build project](3) > dev(4): the chain a hire under `dev` walks, root first
+    fn team() -> Vec<Node> {
+        vec![node(1, "boss", "agent", json!([{ "path": "S:/work", "mode": "rw" }, { "path": "S:/data", "mode": "ro" }])),
+             node(2, "lead", "agent", json!([{ "path": "S:/work", "mode": "rw" }])),
+             node(3, "build", "project", json!([])),
+             node(4, "dev", "agent", json!([{ "path": "S:/work/dev", "mode": "rw" }]))]
+    }
+    fn dirs(n: &Value) -> Vec<(String, String)> {
+        n["add_dirs"].as_array().into_iter().flatten()
+            .map(|d| (d["path"].as_str().unwrap_or("").to_string(), d["mode"].as_str().unwrap_or("").to_string())).collect()
+    }
+
+    /// USER 2026-11-11 m4da870539dfe: "i cant grant a folder to an agent while drafting that its superior doesnt
+    /// hold. it should be raised automatically on creation, instead its refused."
+    #[test]
+    fn a_user_hire_with_a_folder_the_superiors_lack_is_allowed_and_raises_each_of_them() {
+        let req = json!({ "name": "new", "add_dirs": [{ "path": "S:/extra", "mode": "rw" }] });
+        let granted = hire_dirs_grant(&req).unwrap().expect("the hire names folders");
+        assert!(hire_dirs_within_actor(&Actor::User, None, &granted).is_ok(), "the user grants anything: nothing is refused at creation");
+        let team = team();
+        let plan = raise_plan(&Actor::User, &team, &granted);
+        let raised: Vec<&str> = plan.iter().map(|(i, _)| team[*i].name.as_str()).collect();
+        assert_eq!(raised, ["boss", "lead", "dev"], "every agent above the hire, never the project");
+        for (_, scope) in &plan {
+            assert!(dirs(scope).contains(&("S:/extra".to_string(), "rw".to_string())), "{scope}");
+        }
+        // what each already held stays
+        assert!(dirs(&plan[0].1).contains(&("S:/work".to_string(), "rw".to_string())));
+        assert!(dirs(&plan[2].1).contains(&("S:/work/dev".to_string(), "rw".to_string())));
+    }
+
+    #[test]
+    fn read_only_above_is_raised_to_read_write_and_folders_already_held_raise_nobody() {
+        let team = team();
+        // boss holds S:/data read-only, the others not at all: read/write for the hire raises all three
+        let rw = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/data/sets", "mode": "rw" }] })).unwrap().unwrap();
+        let plan = raise_plan(&Actor::User, &team, &rw);
+        assert_eq!(plan.iter().map(|(i, _)| team[*i].name.as_str()).collect::<Vec<_>>(), ["boss", "lead", "dev"]);
+        assert!(dirs(&plan[0].1).contains(&("S:/data/sets".to_string(), "rw".to_string())));
+        // a folder inside what everyone holds raises no one (boss and lead hold S:/work, dev holds S:/work/dev)
+        let held = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/work/dev/x", "mode": "rw" }] })).unwrap().unwrap();
+        assert!(raise_plan(&Actor::User, &team, &held).is_empty());
+        // no folders named: nothing to grant, nothing raised
+        assert_eq!(hire_dirs_grant(&json!({ "name": "new" })).unwrap(), None);
+        assert_eq!(hire_dirs_grant(&json!({ "add_dirs": null })).unwrap(), None);
+        assert!(hire_dirs_grant(&json!({ "add_dirs": "S:/x" })).is_err());
+    }
+
+    /// The post-hire path's authority, unchanged: an agent grants only inside what it holds itself, and raises
+    /// only the agents between itself and the hire.
+    #[test]
+    fn an_agent_hires_inside_its_own_folders_only_and_raises_only_those_below_it() {
+        let team = team();
+        let lead = Actor::Agent { id: 2, name: "lead".into() };
+        let lead_holds = json!({ "add_dirs": [{ "path": "S:/work", "mode": "rw" }], "tools": {}, "org_visibility": "team", "permission_mode": "default" });
+        // inside lead's own S:/work, outside dev's S:/work/dev: allowed, and dev alone is raised
+        let inside = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/work/other", "mode": "rw" }] })).unwrap().unwrap();
+        assert!(hire_dirs_within_actor(&lead, Some(&lead_holds), &inside).is_ok());
+        let plan = raise_plan(&lead, &team, &inside);
+        assert_eq!(plan.iter().map(|(i, _)| team[*i].name.as_str()).collect::<Vec<_>>(), ["dev"], "not boss above it, not itself, not the project");
+        // outside what lead holds: refused with the post-hire path's own message, and nobody is raised by a refusal
+        let outside = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/extra", "mode": "rw" }] })).unwrap().unwrap();
+        let err = hire_dirs_within_actor(&lead, Some(&lead_holds), &outside).unwrap_err();
+        assert_eq!(err.to_string(), "add_dirs exceeds your own capability; nobody grants above themselves");
+        // read/write where lead holds read-only is above it too
+        let ro = json!({ "add_dirs": [{ "path": "S:/work", "mode": "ro" }], "tools": {}, "org_visibility": "team", "permission_mode": "default" });
+        assert!(hire_dirs_within_actor(&lead, Some(&ro), &inside).is_err());
+        // an agent hiring directly under itself raises no one
+        let dev = Actor::Agent { id: 4, name: "dev".into() };
+        let own = hire_dirs_grant(&json!({ "add_dirs": [{ "path": "S:/work/dev/sub", "mode": "rw" }] })).unwrap().unwrap();
+        assert!(raise_plan(&dev, &team, &own).is_empty());
+    }
+}
+
+#[cfg(test)]
 mod parent_hire_tests {
     use super::self_parent_fallback;
 
