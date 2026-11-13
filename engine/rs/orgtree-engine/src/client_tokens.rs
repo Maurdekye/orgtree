@@ -29,10 +29,20 @@ const LABEL_VERSION: u8 = 3;
 
 /// What a named client token may do. `Viewer` is read-only for one org
 /// (`http/viewer.rs` lists its routes). The bootstrap key is always `Full`.
+///
+/// `Member` and `Invitation` exist only on a hosting desktop's remote door
+/// (`remote_access/`): a computer the owner let in, and the one-time code that
+/// lets one in. A standalone engine never makes either.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scope {
     Full,
     Viewer { org: String, client_id: String },
+    /// Everything inside the organizations it was given (their uuids), nothing
+    /// app-wide (`remote_access/member.rs` lists its routes).
+    Member { orgs: Vec<String>, client_id: String },
+    /// It reads `/api/desktop/alive` and `/api/host` and makes one client for
+    /// this organization (its uuid).
+    Invitation { org: String },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -300,15 +310,15 @@ fn public(record: &Record) -> Value {
 }
 
 #[nolog]
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.trim().is_empty() && name.chars().count() <= 100 && !name.chars().any(char::is_control)
 }
 
 #[nolog]
-fn hash(token: &str) -> String { hex::encode(Sha256::digest(token.as_bytes())) }
+pub(crate) fn hash(token: &str) -> String { hex::encode(Sha256::digest(token.as_bytes())) }
 
 #[nolog]
-fn constant_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |n, (a, b)| n | (a ^ b)) == 0
 }
 

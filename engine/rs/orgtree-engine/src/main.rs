@@ -66,6 +66,7 @@ mod phone;
 mod profile_pictures;
 mod providers;
 mod remote;
+mod remote_access;
 mod rig;
 mod runtime;
 mod settings;
@@ -283,6 +284,7 @@ async fn run_with_cluster(
         elicitations: runtime::elicitation::Registry::default(),
         live_feed: Default::default(),
         remotes: remote::Remotes::open(&cfg.data_root),
+        access: remote_access::RemoteAccess::open(&cfg.data_root),
     });
 
     progress("engine-load-orgs");

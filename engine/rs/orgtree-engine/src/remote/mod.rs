@@ -25,7 +25,7 @@ pub mod text;
 mod wsdial;
 
 #[cfg(test)]
-mod testkit;
+pub(crate) mod testkit;
 #[cfg(test)]
 mod tests;
 

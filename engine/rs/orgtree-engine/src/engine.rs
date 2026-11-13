@@ -49,6 +49,8 @@ pub struct Engine {
     pub live_feed: crate::live_feed::LiveFeed,
     /// the remote engines this desktop is connected to (remote/mod.rs)
     pub remotes: crate::remote::Remotes,
+    /// the computers this desktop lets open some of its organizations (remote_access/mod.rs)
+    pub access: crate::remote_access::RemoteAccess,
 }
 
 pub type EngineRef = Arc<Engine>;
@@ -80,6 +82,7 @@ impl Engine {
         let mgr = Manager::from_config(tokio_postgres::Config::new(), tokio_postgres::NoTls, ManagerConfig { recycling_method: RecyclingMethod::Fast });
         let db = Pool::builder(mgr).max_size(1).runtime(Runtime::Tokio1).build().expect("an unconnected pool");
         let remotes = crate::remote::Remotes::open(&data_root);
+        let access = crate::remote_access::RemoteAccess::open(&data_root);
         let cfg = Config { data_root, data_root_id: String::new(), desktop_token: String::new(), ui_dir: None, parent_pid: None,
             pg_bin: None, exe_dir: std::path::PathBuf::new(), pg_bootstrap: false,
             standalone: false, bind: std::net::IpAddr::from([127, 0, 0, 1]), port: None, standalone_generated_token: false };
@@ -111,6 +114,7 @@ impl Engine {
             elicitations: Default::default(),
             live_feed: Default::default(),
             remotes,
+            access,
         })
     }
 }

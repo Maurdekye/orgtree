@@ -12,12 +12,23 @@ use tokio::net::{TcpListener, TcpStream};
 
 pub struct Connection {
     pub peer: SocketAddr,
+    /// It came in through a hosting desktop's remote door (`remote_access/door.rs`), never
+    /// through the listener the app itself uses. Set where the connection is accepted and
+    /// nowhere else: the request guard decides by it which tokens may be presented at all.
+    pub door: bool,
     socket: std::net::TcpStream,
     closed: AtomicBool,
 }
 
 #[nolog]
 impl Connection {
+    /// The engine's handle on one accepted connection, and the stream to serve it on.
+    pub(crate) fn accept(stream: TcpStream, peer: SocketAddr, door: bool) -> io::Result<ClientIo> {
+        let socket = stream.into_std()?;
+        let handle = socket.try_clone()?;
+        Ok(ClientIo { stream: TcpStream::from_std(socket)?,
+            connection: Arc::new(Connection { peer, door, socket: handle, closed: AtomicBool::new(false) }) })
+    }
     pub fn closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
@@ -40,12 +51,7 @@ impl Listener for ClientListener {
     type Addr = SocketAddr;
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         loop {
-            match self.0.accept().await.and_then(|(stream, peer)| {
-                let socket = stream.into_std()?;
-                let handle = socket.try_clone()?;
-                Ok((ClientIo { stream: TcpStream::from_std(socket)?,
-                    connection: Arc::new(Connection { peer, socket: handle, closed: AtomicBool::new(false) }) }, peer))
-            }) {
+            match self.0.accept().await.and_then(|(stream, peer)| Ok((Connection::accept(stream, peer, false)?, peer))) {
                 Ok(pair) => return pair,
                 Err(error) => {
                     tracing::warn!(error = %error, "standalone accept failed");
@@ -59,6 +65,11 @@ impl Listener for ClientListener {
 
 impl Connected<IncomingStream<'_, ClientListener>> for ClientInfo {
     fn connect_info(stream: IncomingStream<'_, ClientListener>) -> Self { Self(stream.io().connection.clone()) }
+}
+
+impl ClientIo {
+    /// The connection this stream serves.
+    pub(crate) fn connection(&self) -> &Arc<Connection> { &self.connection }
 }
 
 impl AsyncRead for ClientIo {
