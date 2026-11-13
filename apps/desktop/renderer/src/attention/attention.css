@@ -193,8 +193,22 @@
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
+  /* ONE hover target with the divider (USER 2026-11-13 me8b3377fe2b4): the
+   * button has a single look, shown or not, and fades with the divider's own
+   * grip transition. It stays in the DOM, focusable and clickable. */
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-.attn-swap:hover { color: var(--ink-strong); border-color: var(--line-hover); background: var(--panel-2); }
+.attn-divider:hover + .attn-swap-anchor .attn-swap,
+.attn-divider:focus-visible + .attn-swap-anchor .attn-swap,
+.attn-swap-anchor:hover .attn-swap,
+.attn-swap:focus-visible,
+.attn-dragging .attn-swap { opacity: 1; }
+@media (hover: none) { .attn-swap { opacity: 1; } }
+.attn-divider:has(+ .attn-swap-anchor:hover) .attn-divider-grip {
+  background: var(--accent, var(--line-hover));
+  height: 78px;
+}
 .attn-swap:focus-visible { outline: 1px solid var(--accent, var(--line-hover)); outline-offset: 1px; }
 .attn-swap-at-left .attn-swap { left: -6px; transform: translate(0, -50%); }
 .attn-swap-at-right .attn-swap { left: 0; transform: translate(-100%, -50%); }
@@ -323,7 +337,7 @@
 @media (prefers-reduced-motion: reduce) {
   .attn-agents, .attn-agents-wrap.list-open .attn-agents,
   .attn-agents-scrim { transition: none; }
-  .attn-divider-grip { transition: none; }
+  .attn-divider-grip, .attn-swap { transition: none; }
 }
 
 .attn-desk {
