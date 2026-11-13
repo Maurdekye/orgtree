@@ -61,6 +61,16 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
   mf9bb6ace1fe2, replacing "never over an existing file" (2026-10-10) for unedited files; verified:
   `domain/templates.rs` `seed_into` and its tests]
 
+## Fable costs 8 credits (2026-11-13, 4.5.13)
+
+- **Fable costs 8 credits.** New hires, rehires and model switches to Fable take 8. Seats hired at 10
+  keep their stored price until rehired, as after the Carbon and Terra changes (no reprice of existing
+  seats or change to running orgs' stored grants). Wonder Full and Astra stay at 10. Listing order stays
+  unchanged: lists group providers, and Fable remains the dearest Claude tier; equal seats keep catalog
+  order. Heavy dev shop's sixteen seats now cost 72 credits rather than the 74 in the dated record above,
+  plus 20 spare (92 total); previews use actual offered seats. [decided: user 2026-11-13 md539ddd936f9;
+  verified: `providers/catalog.rs`, `canvas/shared.ts`, `tests/tierlisting.test.tsx`, `domain/templates.rs`]
+
 ## Gemini Krypton replaces Barium; Carbon gets medium effort and costs 4 (2026-11-13, 4.5.13)
 
 Replaces what the preserved "Conditional Gemini tiers" and "Models are LISTED" entries below still
