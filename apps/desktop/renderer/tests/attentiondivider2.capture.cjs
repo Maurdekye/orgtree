@@ -180,6 +180,21 @@ app.whenReady().then(async () => {
     steps.rightClickDivider = { entries: await menuNow() }
     need(JSON.stringify(steps.rightClickDivider.entries) === JSON.stringify(['Swap panels', 'Reset to center']), `right-clicking the divider did not open its menu: ${JSON.stringify(steps.rightClickDivider.entries)}`)
 
+    // 7. the button, borderless, shown (divider hovered) in the dark and the light theme (USER 2026-11-13 macd4c02a93b7)
+    mouse('mouseDown', 10, 10); mouse('mouseUp', 10, 10); await settle()
+    steps.themes = {}
+    for (const theme of ['dark', 'light']) {
+      await js(`document.documentElement.classList.toggle('contrast-light', ${theme === 'light'})`)
+      const g = (await look()).divider.box
+      mouse('mouseMove', g[0] + g[2] / 2, g[1] + g[3] * 0.25); await settle()
+      const st = await js("(() => { const b = document.querySelector('button.attn-swap'), c = getComputedStyle(b); return { opacity: c.opacity, borderWidth: c.borderTopWidth, background: c.backgroundColor, color: c.color } })()")
+      st.png = await shot(wc, '7-button-' + theme)
+      steps.themes[theme] = st
+      need(st.opacity === '1' && st.borderWidth === '0px', `the ${theme} button is not shown borderless: ${JSON.stringify(st)}`)
+      mouse('mouseMove', 10, 10); await settle()
+    }
+    await js("document.documentElement.classList.remove('contrast-light')")
+
     const result = { label, status: problems.length ? 'FAIL' : 'PASS', problems, steps, sessionId: sid(process.pid), rendererSessionId: sid(wc.getOSProcessId()),
       muted: wc.isAudioMuted(), clipboardCalls, errors }
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(result, null, 2))
