@@ -183,13 +183,51 @@ test('dragging back in from the edge restores the hidden panel at its minimum', 
   assert.equal(q('.attn-divider')!.getAttribute('aria-valuetext'), null)
 })
 
-test('a press on the divider without a move changes nothing', async (t) => {
+// USER 2026-11-13 mfc2dce66b9f3: clicking anywhere on the divider swaps the panels.
+test('a press and release on the divider swaps the panels and the divider stays put', async (t) => {
   reset()
-  setAttentionLayout(SLUG, { split: 0.2, hidden: 'left' } as never)
   const { point } = await mounted(t)
-  await point('pointerdown', 3)
-  await point('pointerup', 3)
-  assert.equal(seen().hidden, 'left')
+  await point('pointerdown', 380)
+  await point('pointerup', 380)
+  assert.equal(seen().swapped, true)
+  assert.ok(near(seen().split, 0.62), 'the left area keeps its physical width')
+})
+
+test('a 2px move on the divider still swaps, and the divider does not move', async (t) => {
+  reset()
+  const { point } = await mounted(t)
+  await point('pointerdown', 380)
+  await point('pointermove', 382)
+  await point('pointerup', 382)
+  assert.equal(seen().swapped, true)
+  assert.ok(near(seen().split, 0.62))
+  assert.equal(seen().hidden, null)
+})
+
+test('a move of 4px or more on the divider is a drag and does not swap', async (t) => {
+  reset()
+  const { point } = await mounted(t)
+  await point('pointerdown', 380)
+  await point('pointermove', 384)
+  await point('pointerup', 384)
+  assert.equal(seen().swapped, false)
+  assert.ok(near(seen().split, 0.384), 'it moved to the pointer')
+})
+
+test('Enter and Space on the focused divider swap the panels', async (t) => {
+  reset()
+  const { press } = await mounted(t)
+  await press('Enter')
+  assert.equal(seen().swapped, true)
+  await press(' ')
+  assert.equal(seen().swapped, false)
+})
+
+test('the divider says click swaps', async (t) => {
+  reset()
+  await mounted(t)
+  assert.equal(q('.attn-divider')!.getAttribute('aria-label'),
+    'Resize the Needs attention panel; click to swap panels')
 })
 
 // USER 2026-11-13 mb445dc041229: a drag starting on Swap panels resizes.
@@ -316,10 +354,50 @@ test('the right-click Swap panels entry does the same as the button', async (t) 
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
   await inAct(() => flush(3))
   const entries = [...document.querySelectorAll<HTMLElement>('.ctxmenu button')]
-  assert.deepEqual(entries.map((b) => b.textContent?.trim()), ['Swap panels'])
+  assert.deepEqual(entries.map((b) => b.textContent?.trim()), ['Swap panels', 'Reset to center'])
   await inAct(() => { entries[0]!.click() })
   await inAct(() => flush(3))
   assert.deepEqual([seen().queue, seen().desk, seen().hidden], [false, true, 'right'])
+})
+
+// USER 2026-11-13 m80a0aa581880: a "reset to center" entry in the divider's menu.
+async function openMenu(entry: number) {
+  await inAct(() => { q('.attn-divider')!.dispatchEvent(new window.MouseEvent('contextmenu',
+    { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
+  await inAct(() => flush(3))
+  const entries = [...document.querySelectorAll<HTMLElement>('.ctxmenu button')]
+  await inAct(() => { entries[entry]!.click() })
+  await inAct(() => flush(3))
+}
+
+test('Reset to center with the left panel hidden shows both at 50%', async (t) => {
+  reset()
+  const { drag } = await mounted(t)
+  await drag(380, 20)
+  assert.equal(seen().hidden, 'left')
+  await openMenu(1)
+  assert.deepEqual([seen().hidden, seen().queue, seen().desk, seen().swapped], [null, true, true, false])
+  assert.ok(near(seen().split, 0.5))
+})
+
+test('Reset to center keeps the panels swapped', async (t) => {
+  reset()
+  setAttentionLayout(SLUG, { split: 0.3, swapped: true })
+  await mounted(t)
+  await openMenu(1)
+  assert.ok(near(seen().split, 0.5))
+  assert.equal(seen().swapped, true)
+})
+
+test('the unhovered Swap panels button stays in the DOM, focusable and clickable', async (t) => {
+  reset()
+  const { swap } = await mounted(t)
+  const button = q('button.attn-swap') as HTMLButtonElement
+  assert.ok(button)
+  assert.notEqual(button.tabIndex, -1)
+  assert.equal(button.disabled, false)
+  await swap()
+  assert.equal(seen().swapped, true)
 })
 
 // ------------------------------------------------------------ 5: persistence
