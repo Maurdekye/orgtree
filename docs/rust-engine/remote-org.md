@@ -492,9 +492,10 @@ it is in `remote_access/`. The security notes an independent reader needs are in
 
 Built so far: the door's listener and guard, the registry (the switch of each organization, the
 port, the computers and the one-time codes), the member route table, the owner's routes and the limit
-on refused tokens. Not built yet: where the door binds and when (nothing starts a door in a running
-app; tests serve one on loopback), what a member is sent of the app feed and of the organization
-list, the connecting side's part, the firewall rule and the windows.
+on refused tokens, and where the door stands and when. Not built yet: what a member is sent of the
+app feed and of the organization list (a connecting desktop cannot list its organizations yet), the
+connecting side's part, the firewall rule and the windows. Nothing in the app can turn a switch on
+yet, so a running app still opens no door.
 
 ### The door
 
@@ -508,6 +509,38 @@ The two share the router and nothing else.
   Tailscale's addresses always, private ones only by the app-wide choice, a public one never. A
   connection that is not taken is dropped unread. Loopback peers exist only for tests and the rig
   (`PeerRule::with_loopback`, not compiled into a release build).
+
+### Where the door listens
+
+`remote_access/lifecycle.rs`. The door exists only while at least one organization is shared.
+
+- `plan` is the one place that says where: this computer's Tailscale IPv4 address when
+  `remote::address::classify` calls it Tailscale's, and its address on the local network too when the
+  owner chose that and the address is a private one. Nothing else, ever: no public address, no
+  loopback, no `0.0.0.0`, no port below 1024. A separate listener is bound to each address.
+- The addresses are read as the phone door reads them (`phone::tailscale`, `phone::lan_ipv4`), every
+  30 s while something is shared. Tailscale that does not answer says nothing: its address is taken to
+  be what the door has.
+- `decide`: what the owner changes (a switch, the port, the private-network choice) takes effect at
+  once, in the request that changed it (`refresh`). An address that moved by itself is followed only
+  when two readings in a row agree (5 s apart), so one odd reading never closes a door people work
+  through. An address the door could not be bound to is tried again at every step.
+- When the door leaves an address, every connection of every computer is ended
+  (`Registry::close_all`): they come back through where the door stands.
+- `status`: `state` is `closed` (nothing is shared), `open`, `waiting` (something is shared but this
+  computer has no address the door may stand at; `reason` says so) or `blocked` (the port is taken;
+  `reason` names it), and `addresses` are where it stands: `kind` (`tailscale`, `lan`), `ip`, `port`,
+  `url` (with the MagicDNS name when Tailscale has one) and `encrypted` (true on Tailscale only).
+- A switch that could let nobody in is not turned on: `PUT .../orgs/{slug} {"on": true}` answers 409
+  with the reason when this computer has no Tailscale address and the private network was not chosen
+  (or has no private address either). Switching off is never refused.
+- The loop (`start`, a desktop only) also looks every 5 s at who is connected while the door stands,
+  writes `connected` and `disconnected` into the organizations' histories when someone came or went,
+  pushes the app value `remote_access` (the answer of `GET /api/remote-access`) to this desktop's own
+  windows when anything changed, and tidies the registry (`Registry::tidy`).
+- A rig run never listens beyond this computer: the door goes to the loopback address
+  `ORGTREE_RIG_REMOTE_DOOR` names, in a debug build, or nowhere. A unit test never asks the computer
+  for its addresses at all: it goes by the reading it fixed (`Doors::fix`).
 
 ### The registry
 
@@ -613,11 +646,11 @@ shared on.
 
 | Route | Does |
 | --- | --- |
-| `GET /api/remote-access` | `computer`, `port`, `default_port`, `lan`, and per organization `slug`, `name`, `on`, `computers`, `connected` |
+| `GET /api/remote-access` | `computer`, `port`, `default_port`, `lan`, `door` (`lifecycle::status`), and per organization `slug`, `name`, `on`, `computers`, `connected`, `connected_now` (`id`, `label`, `name`, `since`). Also pushed to this desktop's windows as the app value `remote_access` |
 | `PUT /api/remote-access {"port"?, "lan"?}` | the door's port (1024 to 65535) and the private-network choice |
 | `POST /api/remote-access/stop` | every switch off, every connection ended, every open code taken back; the computers' records stay |
-| `GET /api/remote-access/orgs/{slug}` | `on`, `computers` (that have it), `known` (computers of other organizations, which can be given this one), `invitations` (id and times, never a code), `limits` |
-| `PUT /api/remote-access/orgs/{slug} {"on"}` | the switch |
+| `GET /api/remote-access/orgs/{slug}` | `on`, `door`, `computers` (that have it), `known` (computers of other organizations, which can be given this one), `invitations` (id and times, never a code), `limits` |
+| `PUT /api/remote-access/orgs/{slug} {"on"}` | the switch. Turning it on is 409 with the reason while the door would have nowhere to stand |
 | `POST /api/remote-access/orgs/{slug}/invitations` | a one-time code: `id`, `code`, `created_at`, `expires_at`, `minutes`. 409 while the switch is off |
 | `DELETE /api/remote-access/orgs/{slug}/invitations/{id}` | take a code back |
 | `PUT /api/remote-access/orgs/{slug}/computers/{id}` | give a known computer this organization (no code). 409 while the switch is off |
@@ -626,9 +659,9 @@ shared on.
 The bodies of these routes are never in the wire log (`http::quiet_body`): an answer can carry a code.
 
 Each change is written into the organization's history as an event `remote_access` whose `detail.what`
-is `on`, `off`, `code`, `code_withdrawn`, `computer_added`, `computer_given` or `computer_revoked`
-(with `detail.computer`), and whose `via` is who did it: this desktop, or the computer itself when it
-came in with a code or removed its own record. The event is written beside the change, not with it
+is `on`, `off`, `code`, `code_withdrawn`, `computer_added`, `computer_given`, `computer_revoked`,
+`connected` or `disconnected` (with `detail.computer`), and whose `via` is who did it: this desktop,
+or the computer itself when it came in with a code, removed its own record, connected or went. The event is written beside the change, not with it
 (`remote_access::record`): a database that is away must not keep the owner from switching remote
 access off.
 
@@ -651,7 +684,11 @@ organization and a missing one alike; its own record only; revoke and the switch
 registry's file; the route table by itself, every route classified. The owner's routes: the whole
 round from switching on to revoking, that only the desktop itself reaches them (not a member, a code,
 nobody, a door token on the app's listener, or a standalone engine), stop all, the port, and the limit
-on refused tokens through the door.
+on refused tokens through the door. Where the door stands: the plan and the decision by themselves
+(`lifecycle::tests`), and with real listeners on loopback: no door while nothing is shared, a door at
+once when something is, the port followed, a taken port said and retried, and gone when everything is
+off; a door with nowhere to stand waits and says why; a switch that could let nobody in is refused; who
+is connected now.
 
 ## Desktop
 

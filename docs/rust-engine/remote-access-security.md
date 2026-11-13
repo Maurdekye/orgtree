@@ -35,7 +35,7 @@ can end any computer's access at once.**
 
 | # | Threat | Answer | Where | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Someone on the internet reaches the door | It binds the Tailscale address and by choice the LAN address, never a public one or `0.0.0.0`; a peer at a public address is dropped unread | `door.rs` `PeerRule`; binding: the lifecycle | peer rule **built** (`the_door_takes_tailscale_peers...`, `a_peer_the_door_does_not_take...`); binding **planned** (the switch and lifecycle job) |
+| 1 | Someone on the internet reaches the door | It is bound to the Tailscale address and by choice the private-network address, each only when `classify` calls it that; never a public one, loopback or `0.0.0.0`. A peer at a public address is dropped unread. The door does not exist while nothing is shared | `lifecycle.rs` `plan`, `door.rs` `PeerRule` | **built** (`the_door_is_planned_at_the_tailscale_address...`, `the_door_stands_only_while_something_is_shared...`, `a_door_with_nowhere_to_stand...`, `the_door_takes_tailscale_peers...`, `a_peer_the_door_does_not_take...`). Windows Firewall rule: **planned** (Electron main) |
 | 2 | Someone on the tailnet or LAN guesses a token or code | Tokens are 256 random bits, codes 130; compared by hash in constant time; requests that show no known token are counted per address: 10 within a minute close the door to that address for a minute (429 to everything, a good token included) | `registry.rs`, `limiter.rs`, `admit` | **built** (`an_address_that_is_refused_too_often...`, `limiter::tests`) |
 | 3 | A code leaks (chat, screen share) | One use, 15 minutes, one organization; used up in the same write that makes the computer; the owner sees the new computer in the list and can revoke it; a code for an organization switched off opens nothing | `registry.rs` `redeem`, `admit` | **built** (`a_code_makes_exactly_one_computer...`, `a_code_runs_out...`, `a_code_for_an_organization_that_was_switched_off...`) |
 | 4 | The registry file is read (backup, another local user) | It holds SHA-256 hashes only; the token and the code are shown once | `registry.rs` | **built** (`a_code_makes_exactly_one_computer...` reads the file) |
@@ -51,9 +51,23 @@ can end any computer's access at once.**
 | 14 | A revoked computer keeps working on an open connection or socket | Revoke ends every connection the computer has open before it returns; the same lock admits tokens and commits the removal | `registry.rs` | **built** (`revoking_a_computer_or_switching...`, `a_member_reads_names_and_removes...`) |
 | 15 | The switch is turned off but a connection stays, or a code made before still works | Turning it off ends the connections of every computer that has the organization and takes back its open codes; "Stop all" does it for every organization. The door goes by what was written: a change that could not be written changes nothing | `Registry::set_open`, `stop_all`, `commit` | **built** (same test, `stopping_all_remote_access...`, `the_owner_switches_an_organization_on...`) |
 | 15a | An organization comes back shared without the owner saying so (a restored backup, a copy, a template, an organization deleted and restored) | The switch is not in the organization's data at all; deleting an organization switches it off | `registry.rs`, `remote_access::org_deleted` | **built** (the file: `a_registry_file_is_taken_as_a_whole...`; the delete hook is one line in `http/orgops.rs`, not covered by a unit test: it needs a database) |
-| 16 | The traffic is read on the wire | On Tailscale the tunnel encrypts it. On a private network plain http is not encrypted; both sides say so, and it is off unless chosen | the app-wide choice | **planned** (the switch job; the connecting side already labels the transport) |
+| 16 | The traffic is read on the wire | On Tailscale the tunnel encrypts it. On a private network plain http is not encrypted; it is off unless the owner chose it, each address the door stands at says `encrypted`, and the connecting side labels the transport | `lifecycle.rs` `status`, the registry's `lan` | choice and status **built**; the words in the windows **planned** (renderer) |
 | 17 | A broken or tampered registry file admits someone | A file that does not validate as a whole admits nobody; it is set aside and the registry starts empty | `registry.rs` `read` | **built** (`the_registry_survives_a_restart_and_a_broken_file...`) |
 | 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`); events for connect, revoke and codes **planned** |
+
+## Where the door listens
+
+- Default: this computer's Tailscale IPv4 address only, port 7431. The owner may add this computer's
+  private-network address (app-wide choice) and change the port (1024 to 65535).
+- `plan` (pure, `lifecycle.rs`) is the only code that names an address to bind, and it takes one only
+  for what `remote::address::classify` says it is. `PeerRule` asks the same function about every peer.
+- What the owner changes takes effect at once. An address that moved by itself is followed after two
+  readings that agree. When the door leaves an address, every member connection is ended.
+- A rig run binds loopback only, in a debug build, and only the address the run names. No unit test
+  reads the computer's addresses.
+- Not built yet: the Windows Firewall rule (added by Electron main with one elevation prompt, remote
+  addresses limited as for the phone door) and the engine reading it back. Until then Windows asks, or
+  blocks, by its own defaults when the door is first bound.
 
 ## Token lifecycle
 
@@ -73,6 +87,7 @@ can end any computer's access at once.**
 
 - `remote_access/mod.rs` `admit`: the whole of the door's guard, about 80 lines.
 - `remote_access/api.rs` `owner`: what every owner's route asks first.
+- `remote_access/lifecycle.rs` `plan` and `decide`: where the door stands, 40 lines.
 - `http/mod.rs` `guard` and `guarded`: where `admit` is called, and the three places a door request is
   kept from the app's own paths (the two dispatches, the relay decision, the token check).
 - `remote_access/member.rs`: the lists. `ORG` is the routes a member has; reading it top to bottom is
