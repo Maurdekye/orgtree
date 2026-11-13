@@ -4,6 +4,8 @@
 pub const CLAUDE: &str = "claude";
 pub const OPENAI: &str = "openai";
 pub const GOOGLE: &str = "google";
+/// USER 2026-11-13 m015e95fd031c: reset below agy 1.5.8's own 256k summary clamp.
+pub const AGY_SIZE_RESET_TOKENS: i32 = 230_000;
 pub const OPENROUTER: &str = "openrouter";
 /// Models on the user's own (local or self-hosted) language model servers, driven
 /// by Claude Code or Codex (`crate::langserver`).

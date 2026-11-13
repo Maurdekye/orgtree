@@ -7,8 +7,13 @@ pub const NATIVE_RETRY_MAX: i64 = 1;
 
 /// Choose the turn-boundary size threshold without changing the context window or org setting.
 #[nolog]
-pub fn size_threshold(_provider: &str, _window: Option<i32>, org_threshold: f64) -> f64 {
-    org_threshold // RED: only the org fraction applies before the AGY cap.
+pub fn size_threshold(provider: &str, window: Option<i32>, org_threshold: f64) -> f64 {
+    if provider==crate::providers::catalog::GOOGLE {
+        if let Some(window)=window.filter(|w|*w>0) {
+            return org_threshold.min(f64::from(crate::providers::catalog::AGY_SIZE_RESET_TOKENS)/f64::from(window));
+        }
+    }
+    org_threshold
 }
 
 /// Unknown/estimated measurements cannot justify dropping a session. The
