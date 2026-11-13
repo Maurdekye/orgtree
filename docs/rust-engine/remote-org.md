@@ -300,6 +300,15 @@ events and its agent-mail and user-sent records), a settled request (`answered_v
 a docket history row and an undo history entry. A record without one is sent exactly as before: the
 key is absent, never null.
 
+The desk draws a delivery from its typed rows only when every row passes `isSegments`
+(`apps/desktop/renderer/src/events/wire.ts`); one row it does not know turns the whole delivery into
+its plain text, cards, headers and names gone, and leaves the message's queued copy standing. `via`
+on a mail row is checked there as a record. A string is still read: the delivery word an older engine
+wrote under the same key. **A new or changed member of a transcript row goes into that check in the
+same landing, with a test that mounts the delivery through `Msg`** (`tests/people.test.tsx`, "a
+delivered message that names a person is still drawn as its card"); a test that mounts a card by
+itself does not pass through the check. The windowed people proof found this (below).
+
 The organization's tree says what its engine can do, in the `capabilities` its settings group already
 had: `attribution: true` from this version on. A window of an organization on an older engine sees no
 such member and shows names nowhere.
