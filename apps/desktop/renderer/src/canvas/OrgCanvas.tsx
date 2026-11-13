@@ -20,7 +20,7 @@ import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } 
 import { useAppRead } from '../appfeed'
 import { useOrgHireProviders } from '../orghire'
 import { adoptPinLayer, canvasBox, readPinSurfaces, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
-import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
+import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, savedDeskIdentities, windowLayoutKey } from '../windowlayout'
 import type { WindowRestore } from '../windowlayout'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modalkinds'
 import { placedInstance, useModalInstances } from './modalinstances'
@@ -30,7 +30,7 @@ import { registerStallCounts } from '../stallwatch'
 import { reportAttract } from '../streamrooms'
 import type { AttractPanel } from '../attract/canvas'
 import type { ReleaseVia } from '../attract/attract'
-import { detachedPanel, revealDetachedDocument, revealSurface } from '../windowlife'
+import { detachedPanel, openSurfaces, revealDetachedDocument, revealSurface } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { moveDeskMemory } from './desktabs'
@@ -40,7 +40,7 @@ import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
 import { agentFocusHistory, NavigationDeskMemory, orgNavigationTarget, type OrgDirection } from './keyboardnavigation'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
-import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
+import { deskIdentity, DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
 import { tierEffortLevels } from './staffingoptions'
 import { newHirePlacement, useNewHirePosition } from '../hireposition'
@@ -2999,6 +2999,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       // an app panel pinned to the window sits in the same pin layer, outside
       // any .overlay: its title bar and frame scroll nothing and zoom nothing
       if ((e.target as Element | null)?.closest?.('.custom-app-window')) return
+      if ((e.target as Element | null)?.closest?.('.popout-recovery')) return
       e.preventDefault()
       camIntent.current = null
       cancelAnimationFrame(animRef.current!)
@@ -3121,7 +3122,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           && performance.now() - tap.t < 600
           && !tap.target?.closest(
             'button, input, textarea, select, a, .wd-chip, .sq.orginbox, '
-            + '.desk-over, .overlay, .cbar, .hsof, .doc-chips, .pile-stack')) {
+            + '.desk-over, .overlay, .cbar, .hsof, .doc-chips, .pile-stack, .popout-recovery')) {
         const w = toWorld({ clientX: tap.x, clientY: tap.y })
         let hit: string | null = null
         for (const [id] of targetRef.current) {
@@ -5221,9 +5222,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           away with it rather than covering a presented Attention view */}
       {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
         const n = map.get(id)!
-        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
+        const deskKind = `desk:${deskIdentity(slug, n)}`
+        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}
+          onPointerDown={e => e.stopPropagation()}>
           <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
-            centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
+            openSurfaces().find(s => s.kind === deskKind)?.redock()
+            closeSavedWindow(windowLayoutKey(deskKind, slug))
+            setRestoreDesks(old => old.filter(([, other]) => other !== id))
+            centerOn(id)
           }}>Return to canvas</button></div>
           <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast}
             compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
