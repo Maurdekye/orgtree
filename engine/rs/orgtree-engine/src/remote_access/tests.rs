@@ -956,6 +956,36 @@ async fn a_switch_that_could_let_nobody_in_is_not_turned_on_and_says_why() {
     assert_eq!((status, view["on"].as_bool(), view["door"]["state"].as_str()), (200, Some(false), Some("closed")), "{view}");
 }
 
+/// Found by the rig proof of a hosting desktop (tools/rig/proofs/remote-host.mjs): the loop
+/// rests a minute at a time while nothing is shared, and a switch that went on did not wake it,
+/// so the chip and the `connected` records could be a minute late.
+#[tokio::test]
+async fn an_owners_change_wakes_the_doors_loop_out_of_its_idle_minute() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    host.org(7, "galaxy");
+    // a way in exists (an address on a private network, by the owner's choice), so the switch can go on
+    host.engine.access.registry.set_listening(None, Some(true)).unwrap();
+    host.engine.access.doors.fix(Reading { tailscale: Some(None), lan: "10.254.253.252".parse().ok(), ..Reading::default() });
+    // nothing is shared: the loop rests its idle minute
+    let engine = host.engine.clone();
+    let resting = tokio::spawn(async move { lifecycle::rest(&engine, Duration::from_secs(60)).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!resting.is_finished(), "nothing happened yet: the loop rests");
+    // the owner turns a switch on
+    let (status, view) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true }))).await;
+    assert_eq!((status, view["on"].as_bool()), (200, Some(true)), "{view}");
+    let woken = tokio::time::timeout(Duration::from_secs(5), resting).await;
+    assert!(matches!(woken, Ok(Ok(true))), "an owner's change wakes the door's loop at once, not after its idle minute: {woken:?}");
+    // a change while the loop is busy is kept for its next rest
+    assert_eq!(host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": false }))).await.0, 200);
+    let next = tokio::time::timeout(Duration::from_secs(5), lifecycle::rest(&host.engine, Duration::from_secs(60))).await;
+    assert_eq!(next.ok(), Some(true), "a wake that found the loop busy is kept");
+    // and with nothing new, the rest is as long as it was asked to be
+    let quiet = tokio::time::timeout(Duration::from_millis(300), lifecycle::rest(&host.engine, Duration::from_secs(60))).await;
+    assert!(quiet.is_err(), "nothing woke it: it rests");
+}
+
 #[tokio::test]
 async fn the_owner_is_shown_who_is_connected_now() {
     let root = Root::new();

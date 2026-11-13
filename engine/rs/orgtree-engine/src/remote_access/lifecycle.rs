@@ -178,6 +178,15 @@ impl Doors {
     }
 }
 
+/// The loop's rest between two looks: `wait` long. False when the engine stops.
+#[nolog]
+pub(super) async fn rest(engine: &Engine, wait: Duration) -> bool {
+    tokio::select! {
+        _ = engine.shutdown.cancelled() => false,
+        _ = tokio::time::sleep(wait) => true,
+    }
+}
+
 /// This computer's addresses now. In a unit test nothing of the computer is ever asked: the
 /// reading is the one the test fixed, or nothing at all. In a rig run the door goes to the
 /// loopback address the run names (`ORGTREE_RIG_REMOTE_DOOR`) or nowhere: a rig run never
@@ -412,9 +421,8 @@ pub fn start(engine: &Arc<Engine>) {
             engine.access.registry.tidy();
             let confirming = engine.access.doors.state.lock().map(|state| state.pending.is_some()).unwrap_or(false);
             let wait = if confirming { CONFIRM } else if open || standing { PRESENCE } else { IDLE };
-            tokio::select! {
-                _ = engine.shutdown.cancelled() => return,
-                _ = tokio::time::sleep(wait) => {}
+            if !rest(&engine, wait).await {
+                return;
             }
         }
     });
