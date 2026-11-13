@@ -1,17 +1,17 @@
 {
   "id": "devteam-antigravity",
   "name": "devteam (antigravity)",
-  "description": "A small development team on Antigravity: a coordinator (Argon) who plans and reviews, an implementer (Argon) who builds, a redteam reviewer (Argon) who tries to break the work, and a curator (Flash) who keeps notes and docs tidy.",
+  "description": "A small development team on Antigravity: a coordinator (Hydrogen) who plans and reviews, an implementer (Carbon) who builds, a redteam reviewer (Hydrogen) who tries to break the work, and a curator (Hydrogen) who keeps notes and docs tidy. Until Antigravity offers Gemini Hydrogen, the Hydrogen seats run on Gemini 3.8 Flash.",
   "version": 1,
-  "quick_chat": { "superior": "coordinator", "tier": "argon" },
+  "quick_chat": { "superior": "coordinator", "tier": "hydrogen" },
   "agents": [
     {
-      "name": "coordinator", "tier": "argon", "charter": { "preset": "coordinator" }, "spare": 10,
+      "name": "coordinator", "tier": "hydrogen", "fallback": ["flash"], "charter": { "preset": "coordinator" }, "spare": 10,
       "kickoff": "Introduce yourself and your team to the user, and ask what we are building first.",
       "reports": [
-        { "name": "implementer", "tier": "argon", "charter": { "preset": "implementer" }, "spare": 0 },
-        { "name": "redteam", "tier": "argon", "charter": { "preset": "redteam" }, "spare": 0 },
-        { "name": "curator", "tier": "flash", "charter": { "preset": "curator" }, "spare": 0 }
+        { "name": "implementer", "tier": "carbon", "charter": { "preset": "implementer" }, "spare": 0 },
+        { "name": "redteam", "tier": "hydrogen", "fallback": ["flash"], "charter": { "preset": "redteam" }, "spare": 0 },
+        { "name": "curator", "tier": "hydrogen", "fallback": ["flash"], "charter": { "preset": "curator" }, "spare": 0 }
       ]
     }
   ]

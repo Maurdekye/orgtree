@@ -2,7 +2,9 @@
 //! organization is created. The templates are the files in
 //! ~/.orgtree/templates and nothing else; the built-ins (docs/templates) are
 //! written into that folder once each, never over an existing file, and one
-//! the user deletes stays deleted (ruling 2026-10-10). A template carries no folders and no accounts: both
+//! the user deletes stays deleted (ruling 2026-10-10). One exception (coordinator 2026-11-13): a built-in
+//! the user never edited, still byte-identical to a text Orgtree shipped, is replaced by the current text
+//! (`SHIPPED_EARLIER`). A template carries no folders and no accounts: both
 //! are this machine's, and are resolved when the org is created.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -22,6 +24,49 @@ const BUNDLED: &[(&str, &str)] = &[
     ("devteam-antigravity.json", include_str!("../../../../docs/templates/devteam-antigravity.json")),
     ("heavy-dev-shop.json", include_str!("../../../../docs/templates/heavy-dev-shop.json")),
 ];
+/// SHA-256 of every text a built-in has shipped with BEFORE its current one, line endings normalised to LF
+/// (`text_digest`). A seeded file that still matches one was never edited and is replaced by the current text;
+/// anything else is the user's. When a built-in changes, add its previous digest here (the pin test names it).
+const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
+    ("devteam-claude.json", &[
+        "0871de52bf075812f17c9b0167332a747e4fbafb8ef98deab8cd39db8870ee4e",
+        "0e36b6ba51391368a4c7c926038d2e322ae15c6d14a97854ddbf9a03334f0ed6",
+        "9408edbfb13f3a6aae963d4c6f32689c654af77943fd423e6e1c05f1efa08097",
+    ]),
+    ("devteam-codex.json", &[
+        "f7d0277b6eeb8cc13a7aa88109ac1273481be48b95c58752732bf23ec8bc6d57",
+        "3ce9d730049c6acdcfb17995961ad4c0814e69c242569129edb94867d76ce66e",
+    ]),
+    ("devteam-antigravity.json", &[
+        "92e68a608d7e7879b94a52ece90e6d8d37f75cf0c00b11455b831150ac04fdc8",
+    ]),
+    ("heavy-dev-shop.json", &[
+        "3865d44d8aeed485f60cbb27ac5700478afea39609c7e0f1bc2c7da3d4d22fa3",
+        "c65e1780a70f88945fbdbcb2227e4d8254ffb05a1a6200c2be46026eda2e271d",
+        "6ef93b215713a287f3c50fe97c3ff5e0dba7e8982565c305e24eda4e2963a064",
+        "ce6a0e9b5814305856a8777d9eb958cfc5e935f18cd4897b357ced67d08364e4",
+        "eb187d8b7ac11afd74513fb009e55bdd3019666f43b876adbdba6420f434d1f5",
+        "8fdb201732948ff05ca612162246be45c03015cf46fb17b30c6e52e1d98c2b5a",
+        "2003ff151fef08e03b36a47f6a6418472915637887b6bbafbbd4b357fbba533f",
+    ]),
+];
+
+/// The digest `SHIPPED_EARLIER` holds: SHA-256 of the text without its carriage returns, so the file a Windows
+/// build wrote and the one a checkout holds are the same text.
+#[nolog]
+fn text_digest(text: &[u8]) -> String {
+    use sha2::Digest;
+    let lf: Vec<u8> = text.iter().copied().filter(|b| *b != b'\r').collect();
+    hex::encode(sha2::Sha256::digest(&lf))
+}
+
+/// Whether `text` is one this built-in file shipped with before its current one.
+#[nolog]
+fn shipped_earlier(file: &str, text: &[u8]) -> bool {
+    let digest = text_digest(text);
+    SHIPPED_EARLIER.iter().any(|(f, digests)| *f == file && digests.contains(&digest.as_str()))
+}
+
 pub(crate) const FILE_MAX: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -162,15 +207,33 @@ pub struct Avail {
     pub checking: bool,
     pub fast_tiers: HashSet<String>,
     pub harnesses: Vec<String>,
+    /// Gemini 3.8 Flash while this machine can still run it. Flash is legacy (no offer in `tiers` names it), and
+    /// a slot that names it, as the built-in Antigravity team's Hydrogen seats do, may still be placed on it
+    /// when none of its offered choices can run (user 2026-11-13 md16909f83245; Flash only, coordinator
+    /// mf9bb6ace1fe2).
+    pub legacy_flash: Option<Offer>,
 }
 
 impl Default for Avail {
     fn default() -> Self {
-        Avail { tiers: HashMap::new(), order: Vec::new(), default_account: None, now: chrono::Utc::now(), checking: false, fast_tiers: HashSet::new(), harnesses: Vec::new() }
+        Avail { tiers: HashMap::new(), order: Vec::new(), default_account: None, now: chrono::Utc::now(), checking: false, fast_tiers: HashSet::new(), harnesses: Vec::new(),
+                legacy_flash: None }
     }
 }
 
 impl Avail {
+    /// The offer a planned tier runs on: a listed one, else legacy Flash for the tier that is Flash.
+    #[nolog]
+    fn offer(&self, tier: &str) -> Option<&Offer> {
+        self.tiers.get(tier).or_else(|| self.legacy(tier))
+    }
+
+    /// Legacy Flash, for the tier that is Flash and nothing else.
+    #[nolog]
+    fn legacy(&self, tier: &str) -> Option<&Offer> {
+        self.legacy_flash.as_ref().filter(|_| tier == crate::domain::staffing::TEMPLATE_LEGACY_TIER)
+    }
+
     /// The offered tiers as a list is shown: the staffing options' order
     /// when it is known, then any other by the catalog's listing order, then
     /// by name, so the answer never depends on a map's iteration order.
@@ -280,6 +343,15 @@ fn seed_into(dir: &Path) -> Result<Vec<String>, String> {
     let mut created = Vec::new();
     for (f, body) in BUNDLED {
         if seeded.iter().any(|s| s == f) {
+            // written here before: the user's own from then on, unless it is still a text Orgtree shipped
+            // (never edited), which follows the app. A failed refresh keeps the old file and the listing.
+            let p = dir.join(f);
+            if std::fs::read(&p).is_ok_and(|have| shipped_earlier(f, &have)) {
+                match std::fs::write(&p, body) {
+                    Ok(()) => tracing::info!(template = %f, "an unedited built-in template was refreshed to the current text"),
+                    Err(e) => tracing::warn!(template = %f, error = %e, "an unedited built-in template could not be refreshed"),
+                }
+            }
             continue;
         }
         let p = dir.join(f);
@@ -512,9 +584,8 @@ pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
     let opts = crate::domain::staffing::options(engine, org_slug);
     let mut tiers = HashMap::new();
     let mut order = Vec::new();
-    for t in opts["tiers"].as_array().into_iter().flatten() {
-        let Some(tier) = t["tier"].as_str() else { continue };
-        order.push(tier.to_string());
+    let offer_of = |t: &Value| -> Option<(String, Offer)> {
+        let tier = t["tier"].as_str()?;
         let accounts: Vec<String> = t["accounts"].as_array().into_iter().flatten().filter_map(|a| a["id"].as_str().map(str::to_string)).collect();
         let default_ok = t["default_ok"].as_bool().unwrap_or(false);
         let view = engine.accounts.view();
@@ -527,18 +598,25 @@ pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
                 readings.insert(id.clone(), r);
             }
         }
-        tiers.insert(tier.to_string(), Offer {
+        Some((tier.to_string(), Offer {
             seat: t["seat"].as_f64().unwrap_or(0.0),
             provider: t["provider"].as_str().unwrap_or("").to_string(),
             accounts, default_ok, readings,
-        });
+        }))
+    };
+    for t in opts["tiers"].as_array().into_iter().flatten() {
+        let Some((tier, offer)) = offer_of(t) else { continue };
+        order.push(tier.clone());
+        tiers.insert(tier, offer);
     }
+    let legacy_flash = crate::domain::staffing::legacy_option(engine, org_slug, crate::domain::staffing::TEMPLATE_LEGACY_TIER)
+        .and_then(|row| offer_of(&row)).map(|(_, offer)| offer);
     let defaults = engine.settings.defaults();
     let eff = crate::feed::groups::effective_settings(&json!({}), &defaults);
     let st = engine.providers.state.load();
     let fast_tiers = tiers.keys().filter(|t| crate::providers::fast_mode::supported(&st, t, None)).cloned().collect();
     let harnesses = crate::harnesses::choices(engine, catalog::OPENROUTER).into_iter().map(|h| h.to_string()).collect();
-    Avail { tiers, order, fast_tiers, harnesses, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
+    Avail { tiers, order, fast_tiers, harnesses, legacy_flash, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
             checking: opts["loading"].as_bool().unwrap_or(false) }
 }
 
@@ -617,7 +695,9 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
                 Some(x) if av.tiers.contains_key(x) => (Some(x.to_string()), (x != s.tier).then(|| "chosen by you".to_string())),
                 Some(x) if checking(av, x) => (None, Some(checking_note(x))),
                 Some(x) => (None, Some(format!("{x} cannot run on this computer now"))),
-                None => match std::iter::once(&s.tier).chain(&s.fallback).find(|x| av.tiers.contains_key(*x)) {
+                // its tier or the first fallback on offer; with none, legacy Flash for a slot that names Flash
+                None => match std::iter::once(&s.tier).chain(&s.fallback).find(|x| av.tiers.contains_key(*x))
+                    .or_else(|| std::iter::once(&s.tier).chain(&s.fallback).find(|x| av.legacy(x).is_some())) {
                     Some(x) if *x == s.tier => (Some(x.clone()), None),
                     Some(x) => (Some(x.clone()), Some(format!("{} → {x}: {} is not available", s.tier, s.tier))),
                     None if catalog::is_langserver(&s.tier) => (None, Some(format!(
@@ -627,7 +707,7 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
                         s.tier, catalog::provider_label(catalog::provider_of(&s.tier))))),
                 },
             };
-            let offer = tier.as_ref().and_then(|x| av.tiers.get(x));
+            let offer = tier.as_ref().and_then(|x| av.offer(x));
             if offer.is_none() {
                 blocked.push(name.clone());
             }
@@ -1475,39 +1555,157 @@ mod tests {
         let tiers: Vec<_> = m.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "wonder"), ("implementer", "wonder-full"), ("redteam", "wonder"), ("curator", "spark")]);
         assert!(m.agents.iter().all(|s| catalog::is_muse(&s.tier) && s.fallback.is_empty()));
-        // user 2026-10-14 17:55Z: Argon for everything except the curator, which runs Flash
+        // user 2026-11-13 mb720ed1d4d06 (replaces 2026-10-14 "Argon ... curator Flash"): "change the implementer
+        // in the antigravity devteam to carbon, and make every other seat hydrogen". md16909f83245: a Hydrogen
+        // seat stays on Flash until Hydrogen is available, so it names Flash as its fallback; Carbon names none.
         let g = bundled("devteam-antigravity");
         assert_eq!(g.name, "devteam (antigravity)");
-        let tiers: Vec<_> = g.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
-        assert_eq!(tiers, [("coordinator", "argon"), ("implementer", "argon"), ("redteam", "argon"), ("curator", "flash")]);
-        assert!(g.agents.iter()
-            .all(|s| catalog::tier(&s.tier).is_some_and(|t| t.provider == catalog::GOOGLE) && s.fallback.is_empty()));
+        let tiers: Vec<_> = g.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str(), s.fallback.join(","))).collect();
+        assert_eq!(tiers, [("coordinator", "hydrogen", "flash".to_string()), ("implementer", "carbon", String::new()),
+                           ("redteam", "hydrogen", "flash".to_string()), ("curator", "hydrogen", "flash".to_string())]);
+        assert!(g.agents.iter().all(|s| catalog::tier(&s.tier).is_some_and(|t| t.provider == catalog::GOOGLE)));
+        assert!(validate(&g).is_empty(), "{:?}", validate(&g));
     }
 
-    /// A machine whose Antigravity lists Argon, plus Flash.
+    /// A machine whose Antigravity lists Hydrogen and Carbon. Flash is legacy: no offer names it, and the
+    /// machine can still run it (`legacy_flash`).
     fn agy_only() -> Avail {
         let mut tiers = HashMap::new();
-        tiers.insert("argon".into(), offer(2.0, "google"));
-        tiers.insert("flash".into(), offer(1.0, "google"));
-        Avail { tiers, ..Avail::default() }
+        tiers.insert("hydrogen".into(), offer(1.0, "google"));
+        tiers.insert("carbon".into(), offer(4.0, "google"));
+        Avail { tiers, legacy_flash: Some(offer(1.0, "google")), ..Avail::default() }
     }
 
     #[test]
-    fn the_antigravity_built_in_is_planned_on_argon_and_flash() {
+    fn the_antigravity_built_in_is_planned_on_hydrogen_and_carbon() {
         let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &agy_only(), &[]).unwrap();
         assert!(blocked.is_empty());
         let got: Vec<_> = p.iter().map(|x| (x.name.as_str(), x.tier.as_deref(), x.seat)).collect();
-        assert_eq!(got, [("coordinator", Some("argon"), 2.0), ("implementer", Some("argon"), 2.0),
-                         ("redteam", Some("argon"), 2.0), ("curator", Some("flash"), 1.0)]);
-        assert_eq!(p[0].grant, 10.0 + 2.0 + 2.0 + 1.0);
+        assert_eq!(got, [("coordinator", Some("hydrogen"), 1.0), ("implementer", Some("carbon"), 4.0),
+                         ("redteam", Some("hydrogen"), 1.0), ("curator", Some("hydrogen"), 1.0)]);
+        assert_eq!(p[0].grant, 10.0 + 4.0 + 1.0 + 1.0);
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator") && x.note.is_none()));
-        assert_eq!(quick_chat_for(&bundled("devteam-antigravity"), &p), Some(json!({ "superior": "coordinator", "tier": "argon" })));
-        // Argon is conditional on Antigravity listing it: unlisted, its slots block until another tier is picked
+        assert_eq!(quick_chat_for(&bundled("devteam-antigravity"), &p), Some(json!({ "superior": "coordinator", "tier": "hydrogen" })));
+    }
+
+    /// USER 2026-11-13 md16909f83245: the template never blocks on Hydrogen. With "Show legacy models" off and no
+    /// Hydrogen anywhere (every account today), its Hydrogen seats are placed on Flash; Carbon follows the
+    /// ordinary rule and blocks until it is listed.
+    #[test]
+    fn hydrogen_seats_are_placed_on_legacy_flash_until_hydrogen_is_listed() {
         let mut av = agy_only();
-        av.tiers.remove("argon");
+        av.tiers.remove("hydrogen");
+        assert!(!av.tiers.contains_key("flash"), "control: Flash is offered by no list");
         let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &av, &[]).unwrap();
-        assert_eq!(blocked, vec!["coordinator".to_string(), "implementer".to_string(), "redteam".to_string()]);
-        assert_eq!(p[3].tier.as_deref(), Some("flash"));
+        assert!(blocked.is_empty(), "{blocked:?}");
+        let got: Vec<_> = p.iter().map(|x| (x.name.as_str(), x.tier.as_deref(), x.seat, x.account.as_deref())).collect();
+        assert_eq!(got, [("coordinator", Some("flash"), 1.0, Some("primary")), ("implementer", Some("carbon"), 4.0, Some("primary")),
+                         ("redteam", Some("flash"), 1.0, Some("primary")), ("curator", Some("flash"), 1.0, Some("primary"))]);
+        assert_eq!(p[0].note.as_deref(), Some("hydrogen → flash: hydrogen is not available"));
+        assert_eq!(p[0].grant, 10.0 + 4.0 + 1.0 + 1.0);
+        // Carbon unlisted too: only the implementer blocks
+        av.tiers.remove("carbon");
+        let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(blocked, vec!["implementer".to_string()]);
+        assert_eq!(p[1].tier, None);
+        assert!(!unusable_here(&p, false));
+        // a machine that cannot run Flash either (Antigravity missing or off): every seat blocks, as before
+        av.legacy_flash = None;
+        let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(blocked.len(), 4);
+        assert!(unusable_here(&p, false));
+    }
+
+    /// The legacy rule is Flash's alone (coordinator 2026-11-13 mf9bb6ace1fe2): a saved Gemini Pro seat that
+    /// blocks today keeps blocking, as a tier or as a fallback, and nobody is moved to Flash who did not name it.
+    #[test]
+    fn only_a_slot_that_names_flash_is_placed_on_legacy_flash() {
+        let mut av = agy_only();
+        av.tiers.clear();
+        let mut t = bundled("devteam-antigravity");
+        t.agents[0].tier = "pro".into(); t.agents[0].fallback.clear();           // a saved Pro seat
+        t.agents[1].tier = "argon".into(); t.agents[1].fallback = vec!["pro".into()]; // Pro as a fallback
+        t.agents[2].tier = "flash".into(); t.agents[2].fallback.clear();         // a saved Flash seat: runs as it did
+        t.agents[3].tier = "opus".into(); t.agents[3].fallback.clear();          // names neither
+        let (p, blocked) = plan(&t, &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(blocked, vec!["coordinator".to_string(), "implementer".to_string(), "curator".to_string()]);
+        let got: Vec<_> = p.iter().map(|x| (x.name.as_str(), x.tier.as_deref())).collect();
+        assert_eq!(got, [("coordinator", None), ("implementer", None), ("redteam", Some("flash")), ("curator", None)]);
+        assert_eq!(p[2].note, None);
+        // a person's own pick is never answered with a legacy model
+        let mut choices = Choices::default();
+        choices.overrides.insert("redteam".into(), SlotChoice { tier: Some("hydrogen".into()), ..SlotChoice::default() });
+        let (p, blocked) = plan(&t, &choices, &av, &[]).unwrap();
+        assert!(blocked.contains(&"redteam".to_string()));
+        assert_eq!(p[2].tier, None);
+        // an offered model always comes before legacy Flash
+        av.tiers.insert("hydrogen".into(), offer(1.0, "google"));
+        let (p, _) = plan(&bundled("devteam-antigravity"), &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(p[0].tier.as_deref(), Some("hydrogen"));
+    }
+
+    const ANTIGRAVITY_430: &str = include_str!("../../testdata/template-devteam-antigravity-4.3.0.json");
+
+    /// Coordinator 2026-11-13 mf9bb6ace1fe2 (replaces "never over an existing file" for this one case): a
+    /// built-in the user never edited follows the app. Byte-identical to a version Orgtree shipped (line endings
+    /// aside), it is replaced by the current text; an edited, renamed or deleted one is never touched.
+    #[test]
+    fn an_unedited_earlier_built_in_is_refreshed_and_the_users_own_files_are_not() {
+        let d = scratch("refresh");
+        std::fs::create_dir_all(&d).unwrap();
+        let note = BUNDLED.iter().map(|(f, _)| format!("{f}
+")).collect::<String>();
+        std::fs::write(d.join(SEEDED), &note).unwrap();
+        let now = BUNDLED[3].1;
+        assert_ne!(ANTIGRAVITY_430.replace('\r', ""), now.replace('\r', ""), "control: the built-in changed since 4.3.0");
+        // as 4.3.0 wrote it on Windows (CRLF) and as a checkout with LF has it: both are the shipped text
+        for shipped in [ANTIGRAVITY_430.replace('\r', ""), ANTIGRAVITY_430.replace('\r', "").replace('\n', "\r\n")] {
+            std::fs::write(d.join(BUNDLED[3].0), &shipped).unwrap();
+            assert!(seed_into(&d).unwrap().is_empty(), "a refresh is not a first write");
+            assert_eq!(std::fs::read_to_string(d.join(BUNDLED[3].0)).unwrap(), now);
+        }
+        // already current: left as it is, and nothing else appeared (the others were deleted by the user)
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join(BUNDLED[3].0)).unwrap(), now);
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 2);
+        // edited by the user, even by one character: never touched
+        let edited = ANTIGRAVITY_430.replace("spare\": 10", "spare\": 11");
+        assert_ne!(edited, ANTIGRAVITY_430);
+        std::fs::write(d.join(BUNDLED[3].0), &edited).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join(BUNDLED[3].0)).unwrap(), edited);
+        // the shipped text under another name is the user's own file; a deleted built-in stays deleted
+        std::fs::remove_file(d.join(BUNDLED[3].0)).unwrap();
+        std::fs::write(d.join("my-team.json"), ANTIGRAVITY_430).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join("my-team.json")).unwrap(), ANTIGRAVITY_430);
+        assert!(!d.join(BUNDLED[3].0).exists());
+        assert_eq!(std::fs::read_to_string(d.join(SEEDED)).unwrap(), note);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Whoever changes a built-in template must move its previous digest into `SHIPPED_EARLIER`, or installs that
+    /// have the previous text keep it forever. This pins the current texts so that the change cannot be missed.
+    #[test]
+    fn every_built_in_has_its_current_digest_pinned_and_its_earlier_ones_listed() {
+        const CURRENT: &[(&str, &str)] = &[
+            ("devteam-claude.json", "0871de52bf075812f17c9b0167332a747e4fbafb8ef98deab8cd39db8870ee4e"),
+            ("devteam-codex.json", "ce1ef5b21152cd6f582ec4051d1749ce0e930b102899efc6a39de2efa3ee4908"),
+            ("devteam-muse.json", "993cec32790eee02e632500e89c9c3c701a80013d666570eb0a925315f99fba9"),
+            ("devteam-antigravity.json", "6850eb2226e4d5c7e820d4f4c7ed6b4b691a70c15c565713057cd31fd1bdb2b6"),
+            ("heavy-dev-shop.json", "3865d44d8aeed485f60cbb27ac5700478afea39609c7e0f1bc2c7da3d4d22fa3"),
+        ];
+        assert_eq!(CURRENT.len(), BUNDLED.len());
+        for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {
+            assert_eq!(f, pinned_file);
+            assert_eq!(text_digest(body.as_bytes()), *pinned,
+                "{f} changed: add its PREVIOUS digest ({pinned}) to SHIPPED_EARLIER in templates.rs, then pin the new one here");
+            assert!(!shipped_earlier(f, body.as_bytes()), "{f}: the current text must not be listed as an earlier one");
+        }
+        assert!(shipped_earlier("devteam-antigravity.json", ANTIGRAVITY_430.as_bytes()));
+        assert_eq!(text_digest(ANTIGRAVITY_430.as_bytes()), "92e68a608d7e7879b94a52ece90e6d8d37f75cf0c00b11455b831150ac04fdc8");
+        assert!(!shipped_earlier("devteam-claude.json", ANTIGRAVITY_430.as_bytes()), "a digest belongs to its own file name");
+        assert!(!shipped_earlier("my-team.json", ANTIGRAVITY_430.as_bytes()));
     }
 
     #[test]
