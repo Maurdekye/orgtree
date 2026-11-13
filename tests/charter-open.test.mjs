@@ -80,8 +80,10 @@ test('desktop preload exposes openCharterFolder without arbitrary path parameter
 test('desktop main process registers desktop:open-charter-folder IPC handler', () => {
   const mainPath = path.resolve('apps/desktop/main/index.ts')
   const mainSource = fs.readFileSync(mainPath, 'utf8')
+  // `handleHere`: the folder is on this computer, so a window of an organization on a remote engine is refused
+  // before the handler runs (tests/remote-org-native-refusal.test.mjs holds that rule for every such command).
   assert.ok(
-    mainSource.includes("handleApp('desktop:open-charter-folder'"),
+    mainSource.includes("handleHere('desktop:open-charter-folder'"),
     'main process registers desktop:open-charter-folder handler',
   )
   assert.ok(

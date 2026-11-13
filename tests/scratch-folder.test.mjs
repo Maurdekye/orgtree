@@ -16,11 +16,14 @@ test.after(() => fs.rm(temp, { recursive: true, force: true }))
 
 test('production IPC registration restricts folder opening to the caller organization', async () => {
   const source = await fs.readFile('apps/desktop/main/index.ts', 'utf8')
-  const start = source.indexOf("    handle('desktop:open-agent-scratch-folder'")
+  // Registered with `handleHere`: a window of an organization on a remote engine is refused before this handler
+  // runs (tests/remote-org-native-refusal.test.mjs). The fixture below stands in for that wrapper and receives the
+  // handler itself, so what is tested here is unchanged: the caller's own organization only.
+  const start = source.indexOf("    handleHere('desktop:open-agent-scratch-folder'")
   assert.ok(start >= 0)
   // Bound the fixture to this one registration: new adjacent handlers must
   // not become part of its mocked dependencies or authorization assertions.
-  const following = source.slice(start + 1).search(/\r?\n {4}handle(?:App)?\(/)
+  const following = source.slice(start + 1).search(/\r?\n {4}handle(?:App|Here)?\(/)
   assert.ok(following >= 0, 'the next IPC registration bounds the fixture')
   const end = start + 1 + following
   const { code } = await transform(source.slice(start, end), {
@@ -30,7 +33,7 @@ test('production IPC registration restricts folder opening to the caller organiz
   const engine = { origin: 'http://127.0.0.1:1234', token: 'fixture' }
   let callback
   const options = { dataRoot: temp }
-  const register = new Function('handle', 'engineRestartOptions', 'windows', 'engine', 'shell', 'openAgentScratchFolder', code)
+  const register = new Function('handleHere', 'engineRestartOptions', 'windows', 'engine', 'shell', 'openAgentScratchFolder', code)
   register((channel, fn) => { assert.equal(channel, 'desktop:open-agent-scratch-folder'); callback = fn },
     options, { identity: id => id === 'mine-window' ? { org: 'mine' } : { kind: 'homepage' } }, engine,
     { openPath: async directory => { calls.push(['shell', directory]); return '' } },
