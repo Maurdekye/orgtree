@@ -27,6 +27,8 @@ of cache temperature and reported status. Unknown/estimated context or an
 already-cleared session cannot trigger a second reset. Engine diagnostics name
 each skipped size-compaction gate.
 
+Antigravity seats also start a fresh session between turns once their measured context reaches 230k tokens, below Antigravity's own 256k summary point.
+
 When Claude Code compacts inside a turn and reports the size after compaction
 (`post_tokens`), Orgtree stores that size as a measured context size, replacing
 the pre-compaction figure; a model call later in the same turn replaces it with
@@ -46,6 +48,8 @@ context-full failure is terminal. A completed turn resets this failure count.
 Read the recovery wake and original mail before acting; a reset does not prove
 that a command in the failed attempt completed. Language model server seats
 retain their separate fresh-session recovery policy.
+
+Antigravity errors naming `context summarization` together with `stream idle timeout` or `context deadline exceeded` also get this one fresh-session retry; plain step timeouts do not. The context window and the cold-cache policy below remain unchanged.
 
 The known-cold policy defaults On at 25% for new orgs and fresh installations;
 explicit app defaults and template choices still win. Existing orgs keep their

@@ -2514,3 +2514,17 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     engine-held WebSocket relayed through the panel bridge by long poll: the frame's CSP, WebRTC seal and
     session proxy do not change. Permission history gains the private-network and login entries; Panel
     History gains `net.channel` rows. Contract: [custom-apps](custom-apps.md#private-sites-saved-logins-and-the-live-channel-2026-11-11).
+
+101. **Antigravity summary stalls recover once; measured context resets at 230k**
+    (USER 2026-11-13 m6af74181ac75 "Both, in alpha.2"; m015e95fd031c "All Antigravity tiers" /
+    "Cap below 256k" / "230k"). The agy 1.5.8 investigation located its own hard 256k-token
+    pre-invocation summary clamp and five-minute stream-idle timeout; resuming the same conversation
+    can repeat the failed summary. For GOOGLE-provider seats only, an error naming `context summarization`
+    plus `stream idle timeout` or `context deadline exceeded` takes the existing one-per-run native
+    fresh-session retry, with the usual carry-over note and per-turn idempotency. Plain step timeouts
+    do not qualify. Existing retry guards and `NATIVE_RETRY_MAX = 1` stay unchanged; `context_full`
+    and other providers keep their existing behavior. At admission and after a completed turn, every
+    Antigravity tier also uses the earlier of the org's size threshold and a measured 230,000 tokens,
+    with all existing size-gate stand-downs and notice text. Context windows and the cold-cache 25%
+    policy remain on the real window; the rejected 256k window-cap design is not implemented.
+    Contract and evidence limits: [context-full recovery](context-full-recovery.md).
