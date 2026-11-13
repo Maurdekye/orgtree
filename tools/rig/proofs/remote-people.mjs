@@ -8,8 +8,15 @@
 // records about who did what, and what each of the two is shown of the other.
 //
 //   node tools/rig/rig.mjs run tools/rig/proofs/remote-people.mjs
+//   node tools/rig/rig.mjs run tools/rig/proofs/remote-people.mjs --ui <renderer bundle>   (Session 0 only)
 //
-// Engines only: no window is opened, so it runs in any session.
+// Without a renderer bundle no window is opened, and it runs in any session.
+// With one, a window of this desktop opens on the far organization
+// (tools/rig/desktop/remote-people.cjs) while the proof keeps playing the
+// second computer: what the window shows of the other person (her message, her
+// answer, the mail list, the inbox, the organization's record, the History
+// tab), the refused save and its notice, the question before undoing her
+// change. 14 captures; the page script lists them.
 //
 // At the base nothing records who an action came through: every check on a
 // name fails. Before the save check exists, every save goes through and the
@@ -17,10 +24,17 @@
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 
+import { runDesktop } from '../desktop.mjs'
 import { farEngine } from '../far.mjs'
-import { touch } from '../lib.mjs'
+import { RIG_DIR, touch } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
+import { control, sessionId } from '../steps.mjs'
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+/** what the planted desktop bridge reports as the app version (the status strip shows it) */
+const VERSION = `${JSON.parse(fs.readFileSync(path.join(RIG_DIR, '..', '..', 'package.json'), 'utf8')).version}-rig`
 
 const NAME = 'Galaxy'
 /** what this desktop's user chose to be called; unusual, so a search for it in an agent's input means something */
@@ -35,7 +49,9 @@ const SCENARIO = {
   default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
 }
 
-export function setup() { return { fixture: 'basic' } }
+/** This computer has a name of its own in the story, as the other one has: an engine takes its computer's
+ *  name from the environment, and the run's engines are started after this. */
+export function setup() { process.env.COMPUTERNAME = 'PC-SAM'; return { fixture: 'basic' } }
 
 /** How a long text is named in `expect`: the first 16 hex digits of its SHA-256 (domain/expect.rs). */
 const rev = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
@@ -44,6 +60,13 @@ const nodeOf = (tree, id) => { const walk = nodes => { for (const n of nodes ?? 
 
 export default async function (rig) {
   const proof = new Proof('remote-people')
+  const ui = !!rig.run.ui
+  const session = sessionId()
+  if (ui && session !== 0) {
+    proof.check('the desktop part runs in Windows Session 0 only', false, { session, hint: 'orgtree_session use=0, or run without a renderer bundle for the engine part' })
+    return proof.summary()
+  }
+  let ctl = null
   const far = farEngine(rig, { scenario: SCENARIO, role: 'the far standalone engine of proofs/remote-people.mjs' })
   /** This computer's engine: `remote` is the window header of the connection. Never throws on a refusal. */
   const near = async (method, route, { body, remote } = {}) => {
@@ -261,9 +284,78 @@ export default async function (rig) {
       && myAnswer.json?.detail === 'that request was already answered' && settledBy?.status === 'answered' && settledBy?.answered_via?.id === dana.id
       && settledBy?.answered_via?.name === 'PC-DANA' && JSON.stringify(settledBy?.answer ?? null).includes('Green') && !!settledBy?.resolved_at,
       { hers: herAnswer.status, mine: myAnswer.status, body: myAnswer.json })
+
+    // ------------------------------------------------------------ the window (only with a renderer bundle)
+    if (ui) {
+      let staying = null
+      const HER_CHARTER = 'The charter as Dana wrote it while the window was editing.'
+      const MY_CHARTER = 'The charter as this computer wrote it in the window.'
+      const HER_TEAM = 'A team charter Dana set while the window looked on.'
+      const MY_ORGMD = '# The far lab, as this computer wrote it in the window'
+      const scout = async () => nodeOf((await asDana('GET', `/api/orgs/${org}`)).json, 'scout')
+      // each step is one thing the second computer does, when the page script asks for it
+      ctl = await control({
+        'dana-message': async () => ({ status: (await asDana('POST', `/api/orgs/${org}/nodes/lead/message`, { text: 'a message from the other computer' })).status }),
+        'dana-answers': async () => {
+          const at = farTurns()
+          await asDana('POST', `/api/orgs/${org}/nodes/lead/message`, { text: 'ask me a question' })
+          await rig.waitFor(() => farTurns() > at, { timeout: 150000, what: 'the far agent to ask for the window' })
+          const open = await rig.waitFor(async () => ((await asDana('GET', `/api/orgs/${org}`)).json?.asks ?? []).find(a => a.status === 'open' && a.node === 'lead') ?? null,
+            { timeout: 30000, every: 250, what: 'the question for the window' })
+          await sleep(1500)   // the window draws the open card first
+          const answered = await asDana('POST', `/api/orgs/${org}/asks/${open.id}/answer`, { selected: ['Green'], rev: open.rev })
+          return { id: open.id, answered: answered.status }
+        },
+        // a connection that used her token stays open while she keeps asking: she counts as connected
+        'dana-stays': async () => { staying = setInterval(() => { void asDana('GET', '/api/standalone/clients') }, 400); await asDana('GET', '/api/standalone/clients'); return { ok: true } },
+        'dana-leaves': async () => { clearInterval(staying); staying = null; return { ok: true } },
+        'dana-charter': async () => ({ status: (await asDana('POST', `/api/orgs/${org}/nodes/scout/scope`, { charter: HER_CHARTER })).status }),
+        charter: async () => { await shows(asDana, charterOf, MY_CHARTER); return { charter: (await scout())?.charter ?? null } },
+        'dana-team': async () => ({ status: (await asDana('POST', `/api/orgs/${org}/nodes/scout/scope`, { team_charter: HER_TEAM })).status }),
+        scout: async () => { await sleep(800); return { team: (await scout())?.team_charter ?? null } },
+        'dana-cap': async () => ({ status: (await asDana('POST', `/api/orgs/${org}/settings`, { max_top_grant: 800 })).status }),
+        'dana-orgmd': async () => ({ status: (await asDana('PUT', `/api/orgs/${org}/orgmd`, { content: '# The far lab, as Dana wrote it while the window was editing' })).status }),
+      })
+      const used = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-people.cjs'), { org, preset: '1000x700', timeout: 780000, out: path.join(proof.dir, 'desktop-window'),
+        args: { org, version: VERSION, control: ctl.url, her: 'PC-DANA', rename: 'Sam', mine: MY_CHARTER, myCap: 700, herCap: 800, myOrgMd: MY_ORGMD } })
+      clearInterval(staying)
+      const v = used.value ?? {}
+      // Electron warns that the rig's page has no Content-Security-Policy; the app's own window sets one
+      const logged = (used.consoleErrors ?? []).filter(e => !/Electron Security Warning/.test(e))
+      proof.note('desktop receipt (window)', { session: used.session, guards: used.guards, shots: used.shots?.map(s => path.basename(s.file)), consoleErrors: logged.slice(0, 8) })
+      proof.file('desktop.json', { value: v, session: used.session, guards: used.guards })
+      proof.check('the window ran in Session 0 and to its end', used.ok === true && used.session?.electron === 0, used.ok ? used.session : { error: used.error, output: used.electronOutput })
+      proof.check('a message the other computer sent reads "User · PC-DANA"; this desktop\'s own reads "User", and once delivered nothing stays queued',
+        v.theirs === 'User · PC-DANA' && v.mine === 'User' && v.queued === true && v.tooltip === `PC-DANA, on ${DANA_CLIENT}`, { theirs: v.theirs, mine: v.mine, queued: v.queued, tooltip: v.tooltip })
+      proof.check('the agent\'s mail list says whose mail it was', typeof v.listed === 'string' && v.listed.includes('@user · PC-DANA'), { listed: v.listed })
+      proof.check('a question the other computer answered: the answer in the transcript is hers', v.answer === 'User · PC-DANA', { asked: v.asked, answer: v.answer })
+      proof.check('the user\'s inbox says who settled the request, and when', /(^| \| )answered by PC-DANA at \d\d:\d\d($| \| )/.test(v.settled?.tag ?? ''), { settled: v.settled })
+      proof.check('the organization\'s record says "User · PC-DANA" for hers and "you" for this desktop\'s own', Array.isArray(v.record) && v.record.includes('User · PC-DANA') && v.record.includes('you')
+        && v.inboxClosed === true, { record: v.record, closed: v.inboxClosed })
+      proof.check('Connection details has the name shown to others and who else is connected', (v.rows ?? []).includes('Shown to others as') && (v.rows ?? []).includes('Also connected')
+        && v.shownAs === 'Samantha' && Array.isArray(v.people) && v.people.some(p => p.startsWith('PC-DANA')) && String(v.signedIn).includes('Orgtree desktop (PC-SAM)'),
+        { rows: v.rows, shownAs: v.shownAs, people: v.people, signedIn: v.signedIn })
+      const labels = (await far.api('GET', '/api/standalone/clients')).clients ?? []
+      proof.check('the name changed in the window is this desktop\'s label on the far engine', v.renamed === 'Sam' && labels.find(c => c.id === mine)?.label === 'Sam',
+        { renamed: v.renamed, labels: labels.map(c => c.label) })
+      proof.check('a text edited in the window says so when the other computer changes it underneath', /^This changed while you were editing\./.test(v.under ?? ''), { under: v.under, typed: v.typed })
+      proof.check('Save is refused, says who changed it and when, and keeps what was typed', /^PC-DANA changed the instructions at \d\d:\d\d\. Nothing was saved\.$/.test(v.notice ?? '')
+        && v.kept === MY_CHARTER && ['See their version', 'Save mine anyway', 'Cancel'].every(c => (v.choices ?? []).includes(c)), { notice: v.notice, kept: v.kept, choices: v.choices })
+      proof.check('her version can be looked at, and saving anyway stores this computer\'s text', v.theirVersion === HER_CHARTER && v.formClosed === true && v.stored === MY_CHARTER,
+        { theirs: v.theirVersion, label: v.theirLabel, closed: v.formClosed, stored: v.stored })
+      proof.check('undoing the other computer\'s change asks first, and Cancel undoes nothing', v.undo === "This was PC-DANA's change. Undo it?" && v.undoClosed === true && v.afterCancel === HER_TEAM,
+        { undo: v.undo, closed: v.undoClosed, team: v.afterCancel })
+      proof.check('a setting the other computer set first goes back, and a toast offers "Use mine"', /^PC-DANA set the top-level grant cap to 800 just now\. Your change was not saved\./.test(v.useMine?.text ?? '')
+        && (v.useMine?.action ?? []).includes('Use mine') && v.capShown === 800, { toast: v.useMine, shown: v.capShown })
+      proof.check('org.md the other computer saved meanwhile is not replaced, and this computer\'s text stays in the editor', /^PC-DANA changed org\.md at \d\d:\d\d\. Nothing was saved\.$/.test(v.orgmd?.what ?? '')
+        && ['See their version', 'Save mine anyway', 'Cancel'].every(c => (v.orgmd?.choices ?? []).includes(c)) && v.orgmdKept === MY_ORGMD, { orgmd: v.orgmd, kept: v.orgmdKept })
+      proof.check('the History tab says a record was by her', typeof v.history === 'string' && v.history.includes('· by PC-DANA ·'), { history: v.history })
+      proof.check('the window logged no error', logged.length === 0, logged.slice(0, 5))
+    }
   } catch (e) {
     proof.check(`the proof ran to its end (${String(e?.message ?? e).slice(0, 300)})`, false)
   } finally {
+    try { await ctl?.close() } catch { /* closing */ }
     try { if (id) await near('DELETE', `/api/remotes/${id}`) } catch { /* closing */ }
     try { await far.stop() } catch { /* the run's reap takes what is left */ }
     proof.file('far-fakecli-lead.jsonl', far.fakeLog('lead').map(l => JSON.stringify(l)).join('\n'))
