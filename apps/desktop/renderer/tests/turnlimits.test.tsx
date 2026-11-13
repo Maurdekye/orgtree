@@ -15,6 +15,26 @@ test('seconds split into a readable amount and back', () => {
   assert.equal(limitSeconds('9000', 'hours'), null)
 })
 
+test('re-enabling an empty silence limit shows the thirty-minute default', async t => {
+  const old = globalThis.fetch
+  let stored = { turn_timeout_s: 86400, turn_idle_s: 0 }
+  const bodies: Record<string, unknown>[] = []
+  globalThis.fetch = async (_url, init) => {
+    if (init?.body) {
+      const body = JSON.parse(String(init.body)) as Record<string, number>
+      bodies.push(body); stored = { ...stored, ...body }
+    }
+    return new Response(JSON.stringify(stored))
+  }
+  t.after(() => { globalThis.fetch = old })
+  const v = await mountView(<TurnLimitsSetting />, h => h); t.after(() => v.unmount()); await flush()
+  await inAct(() => { document.querySelector<HTMLInputElement>('[aria-label="Silence limit"]')!.click() }); await flush()
+  assert.deepEqual(bodies.at(-1), { turn_idle_s: 1800 })
+  assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Silence limit amount"]')!.value, '30')
+  assert.equal(document.querySelector<HTMLSelectElement>('[aria-label="Silence limit unit"]')!.value, 'minutes')
+  assert.equal(limitSeconds('30', 'minutes'), 1800)
+})
+
 test('shows stored values, writes the exact keys, and off sends 0', async t => {
   const old = globalThis.fetch
   let stored: Record<string, unknown> = { turn_timeout_s: 86400, turn_idle_s: 600 }

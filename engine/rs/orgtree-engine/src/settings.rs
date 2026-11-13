@@ -276,6 +276,25 @@ pub fn deep_merge(target: &mut Value, patch: &Value) {
 }
 
 #[cfg(test)]
+mod turn_limit_default_tests {
+    use super::*;
+
+    #[test]
+    fn turn_limit_silence_defaults_to_thirty_minutes() {
+        assert_eq!(AppSettings::new(json!({})).turn_idle_s(), 1800);
+        assert_eq!(AppSettings::new(json!({"runtime": {}})).turn_idle_s(), 1800);
+    }
+
+    #[test]
+    fn turn_limit_silence_preserves_stored_values_and_off() {
+        for seconds in [300, 600, 0] {
+            let app = AppSettings::new(json!({"runtime": {"turn_idle_s": seconds}}));
+            assert_eq!(app.turn_idle_s(), seconds);
+        }
+    }
+}
+
+#[cfg(test)]
 mod cheap_default_tests {
     use super::*;
     use crate::feed::groups::effective_settings;
