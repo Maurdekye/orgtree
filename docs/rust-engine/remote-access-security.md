@@ -48,7 +48,7 @@ can end any computer's access at once.**
 | 10 | A web page in a browser on some computer of the tailnet calls the door (cross-site request, DNS rebinding) | No cookie or ambient credential exists: a request needs `Authorization: Bearer`. A request that names an `Origin` is refused outright | `admit` | **built** (same test) |
 | 11 | A member changes who may come in: the switch, the lists, codes, the port | None of it is in an organization's settings or database: it is in `remote-access.json`, changed only by the owner's routes. Those are this computer's own (`LOCAL`, never relayed), in `REFUSED` at the door, denied to a viewer, 404 on a standalone engine, and each handler refuses any request with a token scope | `api.rs` `owner`, `member.rs`, `registry.rs` | **built** (`only_this_desktop_itself_reaches_the_owners_routes`) |
 | 12 | A member deletes the organization | `DELETE /api/orgs/{slug}` is not in its table (`READ` is `GET` only) | `member.rs` | **built** (`a_member_has_the_organization...`) |
-| 13 | A member learns other organizations' names, or the owner's e-mail addresses, from answers it may read (the app feed, accounts, providers) | Its app feed is made for it: its organizations only, two values, never a broadcast frame. An app-wide answer passes a filter that removes every address and every mention of where else an account is used; an organization's answer and socket frame lose the owner's known addresses where one is a whole text. Usage, model servers, OpenRouter and the organization list stay refused | `appfeed.rs` `Audience::Member`, `shown.rs`, `http::guarded`, `feed/socket.rs` | **built** (`a_member_is_sent_its_organizations_and_no_others...`, `an_answer_to_a_member_holds_no_address...`, `shown::tests`). Addresses are a courtesy, not a wall: see "Known and accepted" |
+| 13 | A member learns other organizations' names, or the owner's e-mail addresses, from answers it may read (the app feed, accounts, providers) | Its app feed is made for it: its organizations only, two values, never a broadcast frame. An app-wide answer passes a filter that removes every address and every mention of where else an account is used; an organization's answer and socket frame lose the owner's known addresses where one is a whole text. Usage, model servers, OpenRouter and the organization list stay refused | `appfeed.rs` `Audience::Member`, `shown.rs`, `http::guarded`, `feed/socket.rs` | **built** (`a_member_is_sent_its_organizations_and_no_others...`, `an_answer_to_a_member_holds_no_address...`, `shown::tests`). Addresses are a courtesy, not a wall: see "Known and accepted". The twelve app-wide reads are listed one by one under "Review point" below: two of them take a path on this computer |
 | 14 | A revoked computer keeps working on an open connection or socket | Revoke ends every connection the computer has open before it returns; the same lock admits tokens and commits the removal | `registry.rs` | **built** (`revoking_a_computer_or_switching...`, `a_member_reads_names_and_removes...`) |
 | 15 | The switch is turned off but a connection stays, or a code made before still works | Turning it off ends the connections of every computer that has the organization and takes back its open codes; "Stop all" does it for every organization. The door goes by what was written: a change that could not be written changes nothing | `Registry::set_open`, `stop_all`, `commit` | **built** (same test, `stopping_all_remote_access...`, `the_owner_switches_an_organization_on...`) |
 | 15a | An organization comes back shared without the owner saying so (a restored backup, a copy, a template, an organization deleted and restored) | The switch is not in the organization's data at all; deleting an organization switches it off | `registry.rs`, `remote_access::org_deleted` | **built** (the file: `a_registry_file_is_taken_as_a_whole...`; the delete hook is one line in `http/orgops.rs`, not covered by a unit test: it needs a database) |
@@ -56,6 +56,42 @@ can end any computer's access at once.**
 | 17 | A broken or tampered registry file admits someone | A file that does not validate as a whole admits nobody; it is set aside and the registry starts empty | `registry.rs` `read` | **built** (`the_registry_survives_a_restart_and_a_broken_file...`) |
 | 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`); events for connect, revoke and codes **planned** |
 | 19 | Adding the firewall rules opens more than the door needs, or something makes the desktop add a rule for another program or run other text as administrator | The elevated script is made in main from three things: a port main checked (an integer, 1024 to 65535), a boolean, and the engine's program as main itself finds it, quoted as PowerShell quotes. The page sends the port and the boolean and nothing else. Each rule is inbound TCP for that one port and that one program, with remote addresses limited to Tailscale's, or to the local subnet on Private networks. Without the engine's program nothing is added. The engine never changes the firewall: its read is a constant script of `Get-` commands that no request's text enters, run for the owner only | `apps/desktop/main/remotefirewall.ts`, `main/index.ts` (`desktop:remote-access-firewall`), `remote_access/firewall.rs` | **built** (`tests/remote-access-firewall.test.mjs`; `firewall::tests`, `the_owner_is_told_whether_windows_firewall...`) |
+
+## Review point: the app-wide reads a member has
+
+Twelve routes are in a member's `READ` list (`member.rs`) although they are not about one of its
+organizations. They were refused until the scoped feed landed, and were then allowed, `GET` only,
+because a window of a hosted organization cannot work without them: it has to offer tiers, accounts,
+skills, charters, templates and folders, and show the images in what agents write. This is the one
+place where the API itself answers a member about something app-wide, so each route is listed with
+what it answers. Every answer except the feed's passes `shown::answer` (no e-mail address, and no
+mention of where else an account is used); the feed is made for the member.
+
+| Route | What a member is answered | What to weigh |
+| --- | --- | --- |
+| `/api/app/records`, `/api/app/ws` | its own app feed: the list rows and summaries of its organizations, and the values `providers` and `accounts` | threat 13 |
+| `/api/providers` | each provider and whether it can be used on this computer | it says which AI services the owner is signed in to |
+| `/api/accounts` | the accounts by id and provider | no address; the ids are the names the owner gave them |
+| `/api/harnesses` | which agent programs this computer has, and their versions | |
+| `/api/skills` | the skills' names and where each came from; no content | names of the owner's own skills |
+| `/api/mcp-servers` | the servers' names, where each came from, the transport; no command, variable or header | names only |
+| `/api/defaults` | the owner's defaults for new organizations and agents | read only |
+| `/api/charters` | the owner's charter library: each file's path and whole text | text the owner wrote, whatever organization it was written for |
+| `/api/templates` | the owner's organization templates and their folder | the same |
+| `/api/fs?path=` | the names of the folders under any path; the drives; the home folder | it names folders anywhere on the hosting computer, among them the folders other organizations work in |
+| `/api/markdown-image?path=` | one image file by its path: 10 MB at most, and only if it is an image | it reads an image anywhere the owner's account can read, another organization's folder included |
+| `/api/markdown-image?url=` | an image the hosting computer fetches from a public address (`is_public_ip`; private, loopback and Tailscale addresses are refused) | the fetch comes from the hosting computer's address |
+
+None of these gives a member something its organization's agents could not already get for it on
+this computer (the first entry of "Known and accepted"), and a member may add any folder of this
+computer to its organization. They are listed because they are reads by the API itself, outside the
+member's organizations, and the last three rows take a path or an address the member chooses. A
+reviewer who wants the API narrower than the agents can ask for `/api/fs` and
+`/api/markdown-image?path=` to be held to the folders of the member's organizations, and for
+`/api/charters` and `/api/templates` to be refused (a hosted window would then offer no charter
+presets, and "New from template" would be empty there). Nothing else app-wide is readable: usage,
+model servers, OpenRouter keys, the organization list, Instructions for all orgs, the phone link, the
+connections to other engines and every client record but the member's own stay in `REFUSED`.
 
 ## Where the door listens
 
@@ -110,7 +146,8 @@ can end any computer's access at once.**
   file), the names of folders, what else is installed. The filter in `shown.rs` keeps addresses out
   of lists and pickers; it does not make them secret from a computer the owner trusted with an
   organization. What stays out of reach by construction is the API itself: other organizations'
-  routes and data, tokens, sign-ins and every app-wide write.
+  routes and databases, tokens, sign-ins and every app-wide write. The API's own reads outside a
+  member's organizations are the twelve of the review point above, and no others.
 - Plain http on a private network, when the owner chooses it.
 - A code is a bearer secret for 15 minutes; whoever redeems it first gets in. The owner sees the
   computer's name in the list.
