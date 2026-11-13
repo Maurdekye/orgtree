@@ -33,7 +33,7 @@ function tree(extra: Partial<TreePayload> = {}): TreePayload {
   return {
     slug: 'org', dirs: [], tiers: {
       haiku: 1, sonnet: 2, opus: 4, fable: 10,
-      'gpt-reserve': 0.2, luna: 0.1, terra: 1, sol: 2, flash: 1, pro: 2,
+      'gpt-reserve': 0.2, luna: 0.1, terra: 1, sol: 2, hydrogen: 1, pro: 2,
     }, max_top_grant: 100, default_effort: '', effort_default: 'high',
     cascade_hire: true, ...extra,
   } as TreePayload
@@ -198,7 +198,7 @@ configTest('Sonnet offers 5.5 as latest and shows a migrated agent pinned to 5',
 
 test('the header summary counts every provider family', async (t: TestContext) => {
   useFakeClock()
-  const tiers = ['opus', 'gpt-reserve', 'luna', 'terra', 'sol', 'flash', 'pro']
+  const tiers = ['opus', 'gpt-reserve', 'luna', 'terra', 'sol', 'hydrogen', 'pro']
   const roots = tiers.map((tier, i) => ({
     ...node(tier), id: tier, busy: i === tiers.length - 1,
   })) as unknown as TreeNode[]
@@ -215,7 +215,7 @@ test('the header summary counts every provider family', async (t: TestContext) =
       // every family dearest seat first (user 2026-10-13): Sol 2, Terra 1
       ['t-opus', 'O1'], ['t-sol', 'S1'], ['t-terra', 'T1'],
       ['t-gpt-reserve', 'R1'], ['t-luna', 'L1'],
-      ['t-pro', 'P1'], ['t-flash', 'F1'],
+      ['t-pro', 'P1'], ['t-hydrogen', 'H1'],
     ],
   )
 })
@@ -299,7 +299,7 @@ configTest('the switch lists every provider family with its ledger seats',
       ['astra', 'astra · seat 10'], ['sol', 'sol · seat 2'],
       ['terra', 'terra · seat 1'], ['luna', 'luna · seat 0.1'],
       // pro is an opt-in legacy tier, hidden by default (legacypro.test)
-      ['flash', 'flash · seat 1'],
+      ['hydrogen', 'hydrogen · seat 1'],
     ])
   })
 
@@ -317,7 +317,7 @@ configTest('the Agent model selector groups Antigravity Claude tiers before Gemi
     const antigravity = el.querySelector<HTMLOptGroupElement>(
       'select.model-switch optgroup[label="Antigravity"]')!
     assert.deepEqual([...antigravity.querySelectorAll('option')].map((o) => o.value),
-      ['agy-opus', 'agy-sonnet', 'argon', 'flash'])
+      ['agy-opus', 'agy-sonnet', 'argon', 'hydrogen'])
   })
 
 // D-196 (user ruling 2026-08-29): a provider-crossing switch now asks first,

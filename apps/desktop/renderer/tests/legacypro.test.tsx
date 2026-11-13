@@ -10,9 +10,9 @@
 // Gemini Pro is the Antigravity family's `pro` tier. Terra's hiding reached
 // the Codex surfaces through `codexTierOffer`, which the Antigravity rows never
 // call, so each chooser is checked here with the Antigravity family INSTALLED
-// and its sibling `flash` as the positive control.
+// and its sibling `hydrogen` as the positive control.
 //
-//   §1 the rule: `pro` is an opt-in legacy tier, `flash` is not
+//   §1 the rule: `pro` is an opt-in legacy tier, `hydrogen` is not
 //   §2 every chooser leaves Gemini Pro out by default and shows it marked
 //      legacy once the toggle is on: canvas hire chips, the canvas agent and
 //      project menus' hire submenus, hire sheet, agent settings model switch,
@@ -45,7 +45,7 @@ import type { LineageEntry, OpResult, ProviderInfo, TreePayload } from '../src/t
 const noop = () => {}
 const ON: HireState = { enabled: true, installed: true, reason: null }
 const SEATS = { haiku: 1, sonnet: 2, opus: 4, fable: 10, 'gpt-reserve': 0.2,
-  luna: 0.1, terra: 2, sol: 2, astra: 10, flash: 1, pro: 2 }
+  luna: 0.1, terra: 2, sol: 2, astra: 10, hydrogen: 1, pro: 2 }
 
 function fresh(t: TestContext) {
   localStorage.clear()
@@ -73,7 +73,7 @@ async function flip(on: boolean) {
 
 /* ── §1 the rule ─────────────────────────────────────────────────────────── */
 
-test('§1 pro is the opt-in legacy tier; terra (current again) and flash are not', (t: TestContext) => {
+test('§1 pro is the opt-in legacy tier; terra (current again) and hydrogen are not', (t: TestContext) => {
   fresh(t)
   assert.ok(OPT_IN_LEGACY_TIERS.includes('pro'))
   assert.equal(OPT_IN_LEGACY_TIERS.includes('terra'), false, 'Terra left the legacy switch')
@@ -81,9 +81,9 @@ test('§1 pro is the opt-in legacy tier; terra (current again) and flash are not
   assert.equal(legacyMark('terra'), '')
   assert.equal(optInLegacyHidden('pro'), true)
   assert.equal(tierHiddenAsLegacy('pro'), true)
-  assert.equal(optInLegacyHidden('flash'), false)
+  assert.equal(optInLegacyHidden('hydrogen'), false)
   assert.equal(legacyMark('pro'), ' · legacy')
-  assert.equal(legacyMark('flash'), '')
+  assert.equal(legacyMark('hydrogen'), '')
   setShowLegacyModelsOn(true)
   assert.equal(optInLegacyHidden('pro'), false)
   assert.equal(tierHiddenAsLegacy('pro'), false)
@@ -115,14 +115,14 @@ test('§2 canvas hire chips: no Gemini Pro chip, then a legacy one on the SAME s
     t.after(() => v.unmount())
     const chip = (tier: string) => [...v.el.querySelectorAll<HTMLButtonElement>('.hsof button')]
       .find((b) => hasClass(b, 't-' + tier))
-    assert.ok(chip('flash'), 'positive control: the Antigravity row rendered')
+    assert.ok(chip('hydrogen'), 'positive control: the Antigravity row rendered')
     assert.equal(Boolean(chip('pro')), false, 'a Gemini Pro chip rendered with the toggle off')
     await flip(true)
     const pro = chip('pro')
     assert.ok(pro, 'turning the toggle on did not bring the Gemini Pro chip back')
     assert.equal(pro!.disabled, false)
     assert.ok(hasClass(pro!, 'legacy'), 'the Gemini Pro chip is not marked legacy')
-    assert.equal(hasClass(chip('flash')!, 'legacy'), false, 'flash is not legacy')
+    assert.equal(hasClass(chip('hydrogen')!, 'legacy'), false, 'hydrogen is not legacy')
     await flip(false)
     assert.equal(Boolean(chip('pro')), false, 'turning it off again did not hide it')
   })
@@ -142,7 +142,7 @@ test('§2 canvas agent and project menus: no Gemini Pro hire item, then one labe
     }
     const pro = (node: CanvasNode) => tiers(node).find((e) => /^pro\b/.test(e.label))
     for (const node of [agent(), project]) {
-      assert.ok(tiers(node).some((e) => e.label === 'flash'),
+      assert.ok(tiers(node).some((e) => e.label === 'hydrogen'),
         `positive control: ${node.id}'s menu lists the Antigravity tiers`)
       assert.equal(pro(node), undefined, `${node.id}'s menu listed Gemini Pro with the toggle off`)
     }
@@ -152,7 +152,7 @@ test('§2 canvas agent and project menus: no Gemini Pro hire item, then one labe
       assert.ok(p, `${node.id}'s menu did not list Gemini Pro with the toggle on`)
       assert.equal(p!.label, 'pro · legacy', `${node.id}'s menu does not mark Gemini Pro legacy`)
       assert.equal(p!.disabled, false)
-      assert.ok(tiers(node).some((e) => e.label === 'flash'), `${node.id}'s menu marked flash legacy`)
+      assert.ok(tiers(node).some((e) => e.label === 'hydrogen'), `${node.id}'s menu marked hydrogen legacy`)
     }
   })
 
@@ -168,13 +168,13 @@ test('§2 hire sheet: no Gemini Pro button, then one labelled legacy',
     await flush()
     const btn = (tier: string) => [...document.querySelectorAll<HTMLButtonElement>('.hs-tier')]
       .find((b) => hasClass(b, 't-' + tier))
-    assert.ok(btn('flash'), 'positive control: the Antigravity row rendered')
+    assert.ok(btn('hydrogen'), 'positive control: the Antigravity row rendered')
     assert.equal(Boolean(btn('pro')), false, 'the sheet offered Gemini Pro with the toggle off')
     await flip(true)
     assert.ok(btn('pro'), 'the sheet did not offer Gemini Pro with the toggle on')
     // 4.2: the legacy mark rides in the tooltip, the label stays "name · seat N"
     assert.match(btn('pro')!.title, /legacy/)
-    assert.doesNotMatch(btn('flash')!.title, /legacy/)
+    assert.doesNotMatch(btn('hydrogen')!.title, /legacy/)
   })
 
 function config(node: CanvasNode) {
@@ -196,9 +196,9 @@ const switchOption = (el: HTMLElement, tier: string) =>
 test('§2 agent settings model switch: no Gemini Pro option, then one labelled legacy',
   async (t: TestContext) => {
     fresh(t)
-    const v = await config(agent('flash'))
+    const v = await config(agent('hydrogen'))
     t.after(() => v.unmount())
-    assert.ok(switchOption(v.el, 'flash'), 'positive control: the Antigravity group rendered')
+    assert.ok(switchOption(v.el, 'hydrogen'), 'positive control: the Antigravity group rendered')
     assert.equal(Boolean(switchOption(v.el, 'pro')), false,
       'the model switch listed Gemini Pro with the toggle off')
     await flip(true)
@@ -237,14 +237,14 @@ test('§2 auto-autopsy model list: no Gemini Pro, then labelled legacy; a config
     const payload = { providers: [{ id: 'google', label: 'Antigravity', cli: 'agy',
       status: { installed: true, connected: true, kind: 'google' },
       hire_enabled: true, reason: null,
-      tiers: ['flash', 'pro'].map((tier) => ({ tier, provider: 'google',
+      tiers: ['hydrogen', 'pro'].map((tier) => ({ tier, provider: 'google',
         seat: 2, model: tier, letter: tier[0].toUpperCase() })) }] as ProviderInfo[] }
     const tiers = (current: string) => availableAutopsyModels(payload, current)
       .flatMap((g) => g.models.map((m) => m.tier))
-    assert.deepEqual(tiers('flash'), ['flash'])
+    assert.deepEqual(tiers('hydrogen'), ['hydrogen'])
     assert.ok(tiers('pro').includes('pro'), 'a configured Gemini Pro autopsy model was dropped')
     setShowLegacyModelsOn(true)
-    assert.deepEqual(tiers('flash'), ['flash', 'pro'])
+    assert.deepEqual(tiers('hydrogen'), ['hydrogen', 'pro'])
   })
 
 // The engine never lists a legacy tier in /api/providers (providers::tier_rows
@@ -257,7 +257,7 @@ test('§2 App settings > Model tiers leaves Gemini Pro out; the toggle brings it
     t.after(() => clearProviderDiscovery())
     const providers = { providers: [{ id: 'google', label: 'Antigravity', cli: 'agy',
       status: { installed: true, connected: true }, hire_enabled: true, reason: null,
-      tiers: ['flash', 'pro'].map((tier) => ({ tier, provider: 'google',
+      tiers: ['hydrogen', 'pro'].map((tier) => ({ tier, provider: 'google',
         seat: SEATS[tier as keyof typeof SEATS], model: 'gemini-' + tier,
         letter: tier[0].toUpperCase(), name: tier })) }] }
     const real = globalThis.fetch
@@ -274,21 +274,21 @@ test('§2 App settings > Model tiers leaves Gemini Pro out; the toggle brings it
     await inAct(async () => { await flush(10) })
     const rows = () => [...document.querySelectorAll('[aria-label="Antigravity model tiers"] .acct-provider-tier-name')]
       .map((el) => el.textContent)
-    assert.deepEqual(rows(), ['flash'], 'the Model tiers list showed Gemini Pro with the toggle off')
+    assert.deepEqual(rows(), ['hydrogen'], 'the Model tiers list showed Gemini Pro with the toggle off')
     await inAct(() => { setShowLegacyModelsOn(true) })
-    assert.deepEqual(rows(), ['pro · legacy', 'flash'])
+    assert.deepEqual(rows(), ['pro · legacy', 'hydrogen'])
   })
 
 test('§2 Usage per-account tier rows leave Gemini Pro out unless legacy models are shown',
   async (t: TestContext) => {
     fresh(t)
-    const standings = ['flash', 'pro'].map((tier) => ({ tier, available: true, refresh_at: null }))
+    const standings = ['hydrogen', 'pro'].map((tier) => ({ tier, available: true, refresh_at: null }))
     const v = await mountView(<TierStandings tiers={standings} />, (el) => el)
     t.after(() => v.unmount())
     const rows = () => [...v.el.querySelectorAll('.acct-tier-name')].map((el) => el.textContent)
-    assert.deepEqual(rows(), ['flash'], 'the Usage tier rows showed Gemini Pro with the toggle off')
+    assert.deepEqual(rows(), ['hydrogen'], 'the Usage tier rows showed Gemini Pro with the toggle off')
     await inAct(() => { setShowLegacyModelsOn(true) })
-    assert.deepEqual(rows(), ['flash', 'pro · legacy'])
+    assert.deepEqual(rows(), ['hydrogen', 'pro · legacy'])
   })
 
 /* ── §4 the label ───────────────────────────────────────────────────────── */

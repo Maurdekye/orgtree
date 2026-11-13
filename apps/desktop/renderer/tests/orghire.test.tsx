@@ -11,7 +11,7 @@ import { bumpLive, flushLive } from '../src/livebus'
 import type { OrgAccountLane, ProviderInfo, ProvidersPayload, TreePayload } from '../src/types'
 
 const noop = () => {}
-const samples = { claude: 'opus', openai: 'sol', google: 'flash', muse: 'wonder',
+const samples = { claude: 'opus', openai: 'sol', google: 'hydrogen', muse: 'wonder',
   openrouter: 'or-fixture-model', langserver: 'ls-fixture-model' } as const
 const ids = Object.keys(samples) as (keyof typeof samples)[]
 const tree = (slug: string) => ({ slug, name: slug, roots: [], dirs: [],

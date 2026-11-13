@@ -26,12 +26,12 @@ import type { LineageEntry, OpResult, ProviderInfo, TreePayload } from '../src/t
 declare const __SRC_DIR__: string
 const noop = () => {}
 const SEATS = { haiku: 1, sonnet: 2, opus: 4, fable: 10, 'gpt-reserve': 0.2,
-  luna: 0.1, terra: 2, sol: 2, astra: 10, flash: 1, pro: 2, carbon: 4 }
+  luna: 0.1, terra: 2, sol: 2, astra: 10, hydrogen: 1, pro: 2, carbon: 4 }
 const ON: HireState = { enabled: true, installed: true, reason: null }
 /** the Antigravity hire state as `hireOf` builds it from the payload rows */
 const google = (carbon: boolean): HireState =>
-  ({ ...ON, offeredTiers: carbon ? ['flash', 'pro', 'carbon'] : ['flash', 'pro'] })
-const rows = (carbon: boolean) => (carbon ? ['flash', 'pro', 'carbon'] : ['flash', 'pro'])
+  ({ ...ON, offeredTiers: carbon ? ['hydrogen', 'pro', 'carbon'] : ['hydrogen', 'pro'] })
+const rows = (carbon: boolean) => (carbon ? ['hydrogen', 'pro', 'carbon'] : ['hydrogen', 'pro'])
   .map((tier) => ({ tier, provider: 'google', seat: SEATS[tier as keyof typeof SEATS],
     model: tier === 'carbon' ? 'gemini-4-carbon' : 'gemini-' + tier,
     letter: TIER_LETTER[tier] }))
@@ -58,7 +58,7 @@ const hasClass = (el: Element, c: string) => el.className.split(/\s+/).includes(
 
 /* ── §1 the rule ─────────────────────────────────────────────────────────── */
 
-test('§1 carbon is a conditional Antigravity tier; flash and pro are not', (t: TestContext) => {
+test('§1 carbon is a conditional Antigravity tier; hydrogen and pro are not', (t: TestContext) => {
   fresh(t)
   assert.ok(ANTIGRAVITY_TIERS.includes('carbon'))
   assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
@@ -72,8 +72,8 @@ test('§1 carbon is a conditional Antigravity tier; flash and pro are not', (t: 
   // the family verdict still applies once listed
   assert.equal(antigravityTierOffer({ ...google(true), enabled: false }, 'carbon'), 'disable')
   assert.equal(antigravityTierOffer({ ...google(true), userEnabled: false }, 'carbon'), 'hide')
-  // flash is unaffected either way; pro keeps its legacy-toggle rule
-  assert.equal(antigravityTierOffer(google(false), 'flash'), 'offer')
+  // hydrogen is unaffected either way; pro keeps its legacy-toggle rule
+  assert.equal(antigravityTierOffer(google(false), 'hydrogen'), 'offer')
   assert.equal(antigravityTierOffer(google(false), 'pro'), 'hide')
   // the store for surfaces without a HireState
   assert.equal(conditionalTierHidden('carbon'), true)
@@ -81,7 +81,7 @@ test('§1 carbon is a conditional Antigravity tier; flash and pro are not', (t: 
   assert.equal(conditionalTierHidden('carbon'), false)
   setOfferedConditionalTiers(rows(false))
   assert.equal(conditionalTierHidden('carbon'), true)
-  assert.equal(conditionalTierHidden('flash'), false)
+  assert.equal(conditionalTierHidden('hydrogen'), false)
 })
 
 /* ── §2 through each chooser ────────────────────────────────────────────── */
@@ -109,7 +109,7 @@ test('§2 canvas hire chips: no Carbon chip until the payload offers it', async 
     [...el.querySelectorAll<HTMLButtonElement>('.hsof button')].find((b) => hasClass(b, 't-' + tier))
   const off = await card(agent(), google(false))
   t.after(() => off.unmount())
-  assert.ok(chip(off.el, 'flash'), 'positive control: the Antigravity row rendered')
+  assert.ok(chip(off.el, 'hydrogen'), 'positive control: the Antigravity row rendered')
   assert.equal(Boolean(chip(off.el, 'carbon')), false, 'a Carbon chip rendered while agy does not list it')
   await off.unmount()
   const on = await card(agent(), google(true))
@@ -130,7 +130,7 @@ test('§2 hire sheet: no Carbon button until the payload offers it', async (t: T
       onHire={noop} onClose={noop} />, (el) => el)
   const off = await sheet(google(false))
   await flush()
-  assert.ok(btn('flash'), 'positive control: the Antigravity row rendered')
+  assert.ok(btn('hydrogen'), 'positive control: the Antigravity row rendered')
   assert.equal(Boolean(btn('carbon')), false, 'the sheet offered Carbon while agy does not list it')
   await off.unmount()
   const on = await sheet(google(true))
@@ -158,12 +158,12 @@ const switchOption = (el: HTMLElement, tier: string) =>
 test('§2 agent settings model switch: no Carbon option until the payload offers it',
   async (t: TestContext) => {
     fresh(t)
-    const off = await config(agent('flash'), false)
-    assert.ok(switchOption(off.el, 'flash'), 'positive control: the Antigravity group rendered')
+    const off = await config(agent('hydrogen'), false)
+    assert.ok(switchOption(off.el, 'hydrogen'), 'positive control: the Antigravity group rendered')
     assert.equal(Boolean(switchOption(off.el, 'carbon')), false,
       'the model switch listed Carbon while agy does not list it')
     await off.unmount()
-    const on = await config(agent('flash'), true)
+    const on = await config(agent('hydrogen'), true)
     t.after(() => on.unmount())
     const o = switchOption(on.el, 'carbon')
     assert.ok(o, 'the model switch did not list Carbon once listed')
@@ -173,8 +173,8 @@ test('§2 agent settings model switch: no Carbon option until the payload offers
 test('§2 lineage rehire list: no "as carbon" row until the payload offers it',
   async (t: TestContext) => {
     fresh(t)
-    const node = agent('flash', [{ id: 'agent@1', generation: 1, state: 'archived',
-      bearer_state: 'knowledge', tier: 'flash' } as LineageEntry])
+    const node = agent('hydrogen', [{ id: 'agent@1', generation: 1, state: 'archived',
+      bearer_state: 'knowledge', tier: 'hydrogen' } as LineageEntry])
     const v = await mountView(
       <LineagePanel node={node} slug="org" close={noop}
         op={() => Promise.resolve({} as OpResult)} />, (el) => el)
@@ -186,7 +186,7 @@ test('§2 lineage rehire list: no "as carbon" row until the payload offers it',
     await inAct(() => { setOfferedConditionalTiers(rows(true)) })
     await flush()
     assert.ok(opt('carbon'), 'the rehire list did not offer Carbon once listed (no re-render?)')
-    assert.equal(opt('carbon')!.disabled, false, 'a flash bearer may be rehired as carbon')
+    assert.equal(opt('carbon')!.disabled, false, 'a hydrogen bearer may be rehired as carbon')
     await inAct(() => { setOfferedConditionalTiers(rows(false)) })
     await flush()
     assert.equal(Boolean(opt('carbon')), false, 'Carbon stayed after agy stopped listing it')
@@ -216,7 +216,7 @@ test('§3 an agent already on Carbon keeps its own tier in the switch and its C 
 // User 2026-10-28 m09d1c2c45be4: "i want its model color to be a light charcoal
 // grey". Charcoal is a dark slate grey (#36454F: Lab chroma ~11); "light" lifts
 // it. Grey is the one colour this palette already crowds (--dim, --ink, luna,
-// astra, flash, the edges), so §4b measures the pick instead of trusting it.
+// astra, hydrogen, the edges), so §4b measures the pick instead of trusting it.
 const CARBON_GREY = '#6d7e8c'
 const css = () => readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 /** the --tier-carbon the stylesheet declares (the §4b tests measure this, not CARBON_GREY) */
@@ -380,7 +380,7 @@ test('§4b Carbon is legible on the surfaces it is drawn on, and its card edge s
 test('Argon, Krypton and Carbon offers are independent', (t: TestContext) => {
   fresh(t)
   for (const offered of [[], ['carbon'], ['argon', 'carbon'], ['krypton', 'carbon'], ['argon', 'krypton']]) {
-    const h = { ...ON, offeredTiers: ['flash', 'pro', ...offered] }
+    const h = { ...ON, offeredTiers: ['hydrogen', 'pro', ...offered] }
     for (const tier of ['argon', 'krypton', 'carbon']) {
       assert.equal(antigravityTierOffer(h, tier), offered.includes(tier) ? 'offer' : 'hide')
     }

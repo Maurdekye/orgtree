@@ -124,7 +124,7 @@ const CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
 // terra out of the legacy models checkbox"): offered by default, like Sol.
 const CODEX = ['luna', 'terra', 'sol']
 const ASTRA = 'astra'
-const ANTIGRAVITY = ['flash', 'pro']
+const ANTIGRAVITY = ['hydrogen', 'pro']
 
 /** every hire token rendered, keyed by tier, with its disabled state */
 function tokens(el: HTMLElement, sel: string): Record<string, boolean> {
@@ -163,7 +163,7 @@ function surfaceTest(name: string,
           dragging={false} isDrop={false}
           seats={{ haiku: 1, sonnet: 2, opus: 5, fable: 10,
                    'gpt-reserve': 0.2, luna: 0.2, terra: 2, sol: 5, astra: 10,
-                   flash: 1, pro: 2 }}
+                   hydrogen: 1, pro: 2 }}
           map={new Map()} op={() => Promise.resolve({} as never)} slug="org"
           toast={noop} pxc={1} zoom={1}
           onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}

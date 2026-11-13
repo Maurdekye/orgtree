@@ -5,7 +5,7 @@
 //
 //   Claude  fable, opus, sonnet, haiku        Muse  wonder-full, wonder, spark
 //   Codex   astra, sol, terra, luna           Antigravity  agy-opus, agy-sonnet, [carbon, pro, argon,
-//                                                          krypton,] flash
+//                                                          krypton,] [flash,] hydrogen   ([..] = conditional or legacy)
 //   OpenRouter's chosen models: output price (then input price, then name)
 //   descending, free ones after the priced, unknown prices last.
 //
@@ -35,7 +35,7 @@ import type { LineageEntry, OpResult, ProviderInfo, ProviderTier, TreePayload } 
 
 const noop = () => {}
 const SEATS = { haiku: 0.5, sonnet: 2, opus: 4, fable: 10, 'gpt-reserve': 0.2,
-  luna: 0.1, terra: 1, sol: 2, astra: 10, flash: 1, pro: 2, argon: 2, krypton: 2, carbon: 4,
+  luna: 0.1, terra: 1, sol: 2, astra: 10, flash: 1, hydrogen: 1, pro: 2, argon: 2, krypton: 2, carbon: 4,
   'agy-sonnet': 2, 'agy-opus': 4, wonder: 4, 'wonder-full': 10, spark: 2 }
 const ON: HireState = { enabled: true, installed: true, reason: null }
 const ABSENT: HireState = { enabled: false, installed: false, reason: 'not installed' }
@@ -93,7 +93,7 @@ test('§2 each provider lists its models dearest first, and the provider-neutral
   // Terra seats at 1 since GPT-6.1 Terra (2026-10-26), so it follows Sol's 2
   assert.deepEqual(CODEX_TIERS_LISTED, ['astra', 'sol', 'terra', 'gpt-reserve', 'luna'])
   // Claude-backed tiers are one group, followed by Gemini tiers; Carbon's 4 (user 2026-11-12) leads the Gemini group.
-  assert.deepEqual(ANTIGRAVITY_TIERS_LISTED, ['agy-opus', 'agy-sonnet', 'carbon', 'pro', 'argon', 'krypton', 'flash'])
+  assert.deepEqual(ANTIGRAVITY_TIERS_LISTED, ['agy-opus', 'agy-sonnet', 'carbon', 'pro', 'argon', 'krypton', 'flash', 'hydrogen'])
   assert.deepEqual(MUSE_TIERS_LISTED, ['wonder-full', 'wonder', 'spark'])
   assert.deepEqual(ALL_TIERS, [...TIERS_LISTED, ...CODEX_TIERS_LISTED, ...ANTIGRAVITY_TIERS_LISTED, ...MUSE_TIERS_LISTED])
 })
@@ -101,7 +101,7 @@ test('§2 each provider lists its models dearest first, and the provider-neutral
 test('§2 the order a DEFAULT is taken from did not move (the hire sheet and Quick chat open on the first offered)', () => {
   assert.deepEqual(TIERS, ['haiku', 'sonnet', 'opus', 'fable'])
   assert.deepEqual(CODEX_TIERS, ['gpt-reserve', 'luna', 'terra', 'sol', 'astra'])
-  assert.deepEqual(ANTIGRAVITY_TIERS, ['flash', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual(ANTIGRAVITY_TIERS, ['flash', 'hydrogen', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.deepEqual(MUSE_TIERS, ['wonder', 'wonder-full', 'spark'])
 })
 
@@ -127,8 +127,8 @@ test('§3 menus list the dearest first; Quick chat\'s "first offered" fallback k
   assert.deepEqual(within(all, TIERS), ['fable', 'opus', 'sonnet', 'haiku'])
   assert.deepEqual(within(all, CODEX_TIERS), ['astra', 'sol', 'terra', 'luna'].filter((x) => all.includes(x)))
   assert.deepEqual(within(all, MUSE_TIERS), ['wonder-full', 'wonder', 'spark'])
-  assert.ok(all.indexOf('fable') < all.indexOf('astra') && all.indexOf('astra') < all.indexOf('flash')
-    && all.indexOf('flash') < all.indexOf('wonder-full'), 'the provider order did not change')
+  assert.ok(all.indexOf('fable') < all.indexOf('astra') && all.indexOf('astra') < all.indexOf('hydrogen')
+    && all.indexOf('hydrogen') < all.indexOf('wonder-full'), 'the provider order did not change')
 })
 
 /* ── §4 the OpenRouter order ──────────────────────────────────────────────── */
@@ -171,7 +171,7 @@ function card(node: CanvasNode) {
       onDragStart={noop} onDragMove={noop} onDragEnd={noop}
       onDragCancel={noop}
       claudeHire={ON} codexHire={ON}
-      antigravityHire={{ ...ON, offeredTiers: ['flash', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'] }} onNoHarness={noop} />,
+      antigravityHire={{ ...ON, offeredTiers: ['hydrogen', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'] }} onNoHarness={noop} />,
     (el) => el)
 }
 
@@ -185,7 +185,7 @@ test('§5 canvas hire chips: each family cheapest first', async (t: TestContext)
   const seen = [...v.el.querySelectorAll<HTMLButtonElement>('.hsof:not(.side) button')].map(tierOf)
   assert.deepEqual(within(seen, TIERS), ['haiku', 'sonnet', 'opus', 'fable'])
   assert.deepEqual(within(seen, CODEX_TIERS), ['luna', 'terra', 'sol', 'astra'])
-  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['agy-sonnet', 'agy-opus', 'flash', 'argon', 'krypton', 'carbon'])
+  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['agy-sonnet', 'agy-opus', 'hydrogen', 'argon', 'krypton', 'carbon'])
   assert.deepEqual(within(seen, MUSE_TIERS), ['spark', 'wonder', 'wonder-full'])
 })
 
@@ -196,14 +196,14 @@ for (const side of [undefined, 'left', 'right', 'top'] as const) {
       luna: 6, sol: 2, astra: .5, spark: 11, wonder: 4, 'wonder-full': .75 }
     const hired: string[] = []
     const v = await mountView(<SpawnChips side={side} seats={custom} onSpawn={tier => hired.push(tier)}
-      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'carbon', 'agy-sonnet', 'agy-opus'] }} />, el => el)
+      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['hydrogen', 'carbon', 'agy-sonnet', 'agy-opus'] }} />, el => el)
     t.after(() => v.unmount())
     const rows = [...v.el.querySelectorAll('.hs-fam')].map(row => [...row.querySelectorAll('button')].map(tierOf))
     // families go outward by how many tiers each offers, ties in family order:
     // Codex offers four again now that Terra is current (GPT-6.1 Terra, 2026-10-26)
     const expected = [
       ['fable', 'sonnet', 'opus', 'haiku'], ['astra', 'terra', 'sol', 'luna'],
-      ['agy-sonnet', 'agy-opus', 'flash', 'carbon'], ['wonder-full', 'wonder', 'spark'],
+      ['agy-sonnet', 'agy-opus', 'hydrogen', 'carbon'], ['wonder-full', 'wonder', 'spark'],
     ]
     assert.deepEqual(rows, side === 'top' || side === 'left' ? [...expected].reverse() : expected)
     const sonnet = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(button => tierOf(button) === 'sonnet')!
@@ -211,7 +211,7 @@ for (const side of [undefined, 'left', 'right', 'top'] as const) {
     await inAct(() => sonnet.click()); assert.deepEqual(hired, ['sonnet'])
     // A price refresh reorders the existing strip without changing groups.
     await v.render(<SpawnChips side={side} seats={{ ...custom, haiku: .1 }} onSpawn={tier => hired.push(tier)}
-      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'carbon', 'agy-sonnet', 'agy-opus'] }} />)
+      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['hydrogen', 'carbon', 'agy-sonnet', 'agy-opus'] }} />)
     const claude = [...v.el.querySelectorAll('.hs-fam')].find(row => row.querySelector('.t-haiku'))!
     assert.deepEqual([...claude.querySelectorAll('button')].map(tierOf), ['haiku', 'fable', 'sonnet', 'opus'])
     assert.equal(v.el.querySelector('.t-pro'), null, 'legacy hidden remains hidden')
@@ -223,12 +223,12 @@ test('hire price: disabled and far-expanded rows retain ascending order and cond
   fresh(t)
   const disabled = { ...ON, enabled: false, reason: 'signed out' }
   const v = await mountView(<SpawnChips seats={SEATS} onSpawn={noop} zoom={.1} expanded
-    claudeHire={disabled} codexHire={disabled} antigravityHire={{ ...disabled, offeredTiers: ['flash', 'argon', 'krypton', 'agy-sonnet', 'agy-opus'] }} />, el => el)
+    claudeHire={disabled} codexHire={disabled} antigravityHire={{ ...disabled, offeredTiers: ['hydrogen', 'argon', 'krypton', 'agy-sonnet', 'agy-opus'] }} />, el => el)
   t.after(() => v.unmount())
   assert.ok(v.el.querySelector('.hire-compact.is-expanded'))
   const rows = [...v.el.querySelectorAll('.hs-fam')]
   const google = rows.find(row => row.querySelector('.t-argon'))!
-  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['agy-sonnet', 'agy-opus', 'flash', 'argon', 'krypton'])
+  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['agy-sonnet', 'agy-opus', 'hydrogen', 'argon', 'krypton'])
   assert.ok([...google.querySelectorAll<HTMLButtonElement>('button')].every(button => button.disabled))
   const claude = rows.find(row => row.querySelector('.t-haiku'))!
   assert.deepEqual([...claude.querySelectorAll('button')].map(tierOf), ['haiku', 'sonnet', 'opus', 'fable'])
@@ -257,7 +257,7 @@ test('§5 hire sheet: each family dearest first, and it still opens on the first
   fresh(t)
   const v = await mountView(
     <HireSheet anchor={agent()} seats={SEATS} defaultGrant={0}
-      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'] }}
+      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['hydrogen', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'] }}
       museHire={museHire} onHire={noop} onClose={noop} />, (el) => el)
   t.after(() => v.unmount())
   await flush()
@@ -265,7 +265,7 @@ test('§5 hire sheet: each family dearest first, and it still opens on the first
   const family = (tier: string) => rows.find((r) => r.includes(tier))!
   assert.deepEqual(family('haiku'), ['fable', 'opus', 'sonnet', 'haiku'])
   assert.deepEqual(family('luna'), ['astra', 'sol', 'terra', 'luna'])
-  assert.deepEqual(family('flash'), ['agy-opus', 'agy-sonnet', 'carbon', 'argon', 'krypton', 'flash'])
+  assert.deepEqual(family('hydrogen'), ['agy-opus', 'agy-sonnet', 'carbon', 'argon', 'krypton', 'hydrogen'])
   assert.deepEqual(family('spark'), ['wonder-full', 'wonder', 'spark'])
   // the pre-selected model is the first OFFERED one in the old order (haiku), not the first on screen (fable)
   const on = [...document.querySelectorAll<HTMLButtonElement>('.hs-tier.on')].map(tierOf)
@@ -276,7 +276,7 @@ function config(node: CanvasNode) {
   const tree = { slug: 'org', dirs: [], tiers: SEATS, max_top_grant: 100,
     default_effort: '', effort_default: 'high', cascade_hire: true } as unknown as TreePayload
   const google: ProviderInfo = { id: 'google', label: 'Antigravity', cli: 'agy',
-    tiers: ['flash', 'pro', 'agy-sonnet', 'agy-opus'].map((tier) => ({ tier, provider: 'google', seat: SEATS[tier as keyof typeof SEATS], model: tier, letter: 'A' })),
+    tiers: ['hydrogen', 'pro', 'agy-sonnet', 'agy-opus'].map((tier) => ({ tier, provider: 'google', seat: SEATS[tier as keyof typeof SEATS], model: tier, letter: 'A' })),
     status: { installed: true, connected: true, kind: 'google' }, hire_enabled: true, reason: null } as unknown as ProviderInfo
   return mountView(
     <NodeConfig node={node} map={new Map([[node.id, node]])} tree={tree} slug="org"
@@ -287,22 +287,22 @@ function config(node: CanvasNode) {
 
 test('§5 agent settings model switch: every group dearest first', async (t: TestContext) => {
   fresh(t)
-  const v = await config(agent('flash'))
+  const v = await config(agent('hydrogen'))
   t.after(() => v.unmount())
   const group = (label: string) => [...v.el.querySelectorAll<HTMLOptGroupElement>('.model-switch optgroup')]
     .find((g) => g.label === label)
   const values = (label: string) => [...(group(label)?.querySelectorAll<HTMLOptionElement>('option') ?? [])].map((o) => o.value)
   assert.deepEqual(values('Claude'), ['fable', 'opus', 'sonnet', 'haiku'])
-  assert.deepEqual(values('Antigravity'), ['agy-opus', 'agy-sonnet', 'flash'].filter((x) => values('Antigravity').includes(x)))
+  assert.deepEqual(values('Antigravity'), ['agy-opus', 'agy-sonnet', 'hydrogen'].filter((x) => values('Antigravity').includes(x)))
   assert.deepEqual(values('Muse'), ['wonder-full', 'wonder', 'spark'])
-  assert.ok(values('Antigravity').includes('flash') && values('Antigravity').indexOf('flash') === values('Antigravity').length - 1,
-    'flash (the cheapest Antigravity model) is last')
+  assert.ok(values('Antigravity').includes('hydrogen') && values('Antigravity').indexOf('hydrogen') === values('Antigravity').length - 1,
+    'hydrogen (the cheapest Antigravity model) is last')
 })
 
 test('§5 lineage rehire list: the provider-neutral list in listing order', async (t: TestContext) => {
   fresh(t)
-  const node = agent('flash', [{ id: 'agent@1', generation: 1, state: 'archived',
-    bearer_state: 'knowledge', tier: 'flash' } as LineageEntry])
+  const node = agent('hydrogen', [{ id: 'agent@1', generation: 1, state: 'archived',
+    bearer_state: 'knowledge', tier: 'hydrogen' } as LineageEntry])
   const v = await mountView(
     <LineagePanel node={node} slug="org" close={noop}
       op={() => Promise.resolve({} as OpResult)} />, (el) => el)

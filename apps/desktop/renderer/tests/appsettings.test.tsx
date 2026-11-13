@@ -36,7 +36,7 @@ const provider = (id: 'claude' | 'openai' | 'google', on = true,
     { tier: 'terra', provider: id, seat: 1, model: 'gpt-6.1-terra', letter: 'T', name: 'Terra' },
     { tier: 'sol', provider: id, seat: 5, model: 'gpt-5.6-sol', letter: 'S', name: 'Sol' },
   ] : [
-    { tier: 'flash', provider: id, seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
+    { tier: 'hydrogen', provider: id, seat: 1, model: 'antigravity-hydrogen', letter: 'H', name: 'Hydrogen' },
     { tier: 'pro', provider: id, seat: 2, model: 'antigravity-pro', letter: 'P', name: 'Pro' },
   ],
   status: { installed, connected: installed, source: 'path' },
@@ -298,7 +298,7 @@ test('§3 provider rows present status and model-tier detail', async () => {
       ['Claude model tiers', 'Codex model tiers', 'Antigravity model tiers'])
     assert.match(panel.textContent ?? '', /Haiku/)
     assert.match(panel.textContent ?? '', /Luna/)
-    assert.match(panel.textContent ?? '', /Flash/)
+    assert.match(panel.textContent ?? '', /Hydrogen/)
     assert.match(panel.textContent ?? '', /gpt-5\.6/)
     assert.match(panel.textContent ?? '', /seat 2/)
   } finally { await view.unmount(); delete g.fetch }
@@ -307,7 +307,7 @@ test('§3 provider rows present status and model-tier detail', async () => {
 test('§3a Antigravity settings group Claude tiers before Gemini tiers', async () => {
   localStorage.clear()
   const tiers = [
-    { tier: 'flash', provider: 'google', seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
+    { tier: 'hydrogen', provider: 'google', seat: 1, model: 'antigravity-hydrogen', letter: 'H', name: 'Hydrogen' },
     { tier: 'agy-sonnet', provider: 'google', seat: 2, model: 'antigravity-sonnet', letter: 'S', name: 'Sonnet' },
     { tier: 'argon', provider: 'google', seat: 2, model: 'antigravity-argon', letter: 'A', name: 'Argon' },
     { tier: 'agy-opus', provider: 'google', seat: 4, model: 'antigravity-opus', letter: 'O', name: 'Opus' },
@@ -324,7 +324,7 @@ test('§3a Antigravity settings group Claude tiers before Gemini tiers', async (
       '[aria-label="Antigravity model tiers"] .acct-provider-tier .tier')]
       .map(el => el.className.split(/\s+/).find(name => name.startsWith('t-'))!.slice(2))
     assert.deepEqual(rendered, [
-      'agy-opus', 'agy-sonnet', 'carbon', 'argon', 'krypton', 'flash',
+      'agy-opus', 'agy-sonnet', 'carbon', 'argon', 'krypton', 'hydrogen',
     ], 'Claude-backed tiers stay together before Gemini-backed tiers')
   } finally { await view.unmount(); delete g.fetch }
 })

@@ -101,7 +101,7 @@ panelTest('cross-provider tiers are SHOWN and disabled, each saying why',
     const { el } = await mount(withBearer('opus'))
     // (pro is an opt-in legacy tier, hidden by default — legacypro.test;
     // terra is current again — terra.test)
-    for (const t of ['gpt-reserve', 'luna', 'terra', 'sol', 'flash']) {
+    for (const t of ['gpt-reserve', 'luna', 'terra', 'sol', 'hydrogen']) {
       const o = option(el, t)
       assert.ok(o, `${t} must be listed, not omitted — a gap explains nothing`)
       assert.equal(o.disabled, true, `${t} must be disabled`)
@@ -126,14 +126,14 @@ panelTest('a codex bearer is offered ITS family, and claude is the disabled one'
     }
     // the direction that does not crash is the one worth naming: antigravity too
     // (pro is an opt-in legacy tier, hidden by default — legacypro.test)
-    for (const t of ['flash']) {
+    for (const t of ['hydrogen']) {
       assert.equal(option(el, t).disabled, true)
     }
   })
 
-panelTest('a antigravity bearer keeps flash and pro', async (mount) => {
+panelTest('a antigravity bearer keeps hydrogen and pro', async (mount) => {
   const { el } = await mount(withBearer('pro'))
-  assert.equal(option(el, 'flash').disabled, false)
+  assert.equal(option(el, 'hydrogen').disabled, false)
   assert.equal(option(el, 'opus').disabled, true)
   assert.match(option(el, 'opus').textContent ?? '',
     /transcript is a antigravity session — claude cannot resume it/)
@@ -153,7 +153,7 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     // Reserve stays 0.2; Luna is 0.1 after the September 22 repricing:
     // the panel prints the seat verbatim, so a fraction must survive the
     // round trip rather than being floored or rendered as `undefined`
-    for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['flash', 1],
+    for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['hydrogen', 1],
                              ['fable', 10]] as const) {
       assert.match(option(el, t).textContent ?? '',
         new RegExp(`^${t} · seat ${seat}\\b`))

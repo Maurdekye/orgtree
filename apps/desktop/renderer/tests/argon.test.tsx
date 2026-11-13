@@ -7,9 +7,9 @@
 // in a vacuum". The backend puts `argon` among the Antigravity tier rows of
 // /api/providers only while `agy models` lists `gemini-4-argon`; every chooser
 // here must follow that row, with the Antigravity family INSTALLED and its
-// sibling `flash` as the positive control.
+// sibling `hydrogen` as the positive control.
 //
-//   §1 the rule: argon is conditional; flash and pro are not
+//   §1 the rule: argon is conditional; hydrogen and pro are not
 //   §2 every chooser leaves Argon out until the payload offers it, then shows
 //      it: canvas hire chips, hire sheet, agent settings model switch, lineage
 //      rehire list
@@ -37,12 +37,12 @@ import type { LineageEntry, OpResult, ProviderInfo, TreePayload } from '../src/t
 declare const __SRC_DIR__: string
 const noop = () => {}
 const SEATS = { haiku: 1, sonnet: 2, opus: 4, fable: 10, 'gpt-reserve': 0.2,
-  luna: 0.1, terra: 2, sol: 2, astra: 10, flash: 1, pro: 2, argon: 2 }
+  luna: 0.1, terra: 2, sol: 2, astra: 10, hydrogen: 1, pro: 2, argon: 2 }
 const ON: HireState = { enabled: true, installed: true, reason: null }
 /** the Antigravity hire state as `hireOf` builds it from the payload rows */
 const google = (argon: boolean): HireState =>
-  ({ ...ON, offeredTiers: argon ? ['flash', 'pro', 'argon'] : ['flash', 'pro'] })
-const rows = (argon: boolean) => (argon ? ['flash', 'pro', 'argon'] : ['flash', 'pro'])
+  ({ ...ON, offeredTiers: argon ? ['hydrogen', 'pro', 'argon'] : ['hydrogen', 'pro'] })
+const rows = (argon: boolean) => (argon ? ['hydrogen', 'pro', 'argon'] : ['hydrogen', 'pro'])
   .map((tier) => ({ tier, provider: 'google', seat: SEATS[tier as keyof typeof SEATS],
     model: tier === 'argon' ? 'gemini-4-argon' : 'gemini-' + tier,
     letter: TIER_LETTER[tier] }))
@@ -69,7 +69,7 @@ const hasClass = (el: Element, c: string) => el.className.split(/\s+/).includes(
 
 /* ── §1 the rule ─────────────────────────────────────────────────────────── */
 
-test('§1 argon is a conditional Antigravity tier; flash and pro are not', (t: TestContext) => {
+test('§1 argon is a conditional Antigravity tier; hydrogen and pro are not', (t: TestContext) => {
   fresh(t)
   assert.ok(ANTIGRAVITY_TIERS.includes('argon'))
   assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
@@ -83,8 +83,8 @@ test('§1 argon is a conditional Antigravity tier; flash and pro are not', (t: T
   // the family verdict still applies once listed
   assert.equal(antigravityTierOffer({ ...google(true), enabled: false }, 'argon'), 'disable')
   assert.equal(antigravityTierOffer({ ...google(true), userEnabled: false }, 'argon'), 'hide')
-  // flash is unaffected either way; pro keeps its legacy-toggle rule
-  assert.equal(antigravityTierOffer(google(false), 'flash'), 'offer')
+  // hydrogen is unaffected either way; pro keeps its legacy-toggle rule
+  assert.equal(antigravityTierOffer(google(false), 'hydrogen'), 'offer')
   assert.equal(antigravityTierOffer(google(false), 'pro'), 'hide')
   // the store for surfaces without a HireState
   assert.equal(conditionalTierHidden('argon'), true)
@@ -92,7 +92,7 @@ test('§1 argon is a conditional Antigravity tier; flash and pro are not', (t: T
   assert.equal(conditionalTierHidden('argon'), false)
   setOfferedConditionalTiers(rows(false))
   assert.equal(conditionalTierHidden('argon'), true)
-  assert.equal(conditionalTierHidden('flash'), false)
+  assert.equal(conditionalTierHidden('hydrogen'), false)
 })
 
 /* ── §2 through each chooser ────────────────────────────────────────────── */
@@ -120,7 +120,7 @@ test('§2 canvas hire chips: no Argon chip until the payload offers it', async (
     [...el.querySelectorAll<HTMLButtonElement>('.hsof button')].find((b) => hasClass(b, 't-' + tier))
   const off = await card(agent(), google(false))
   t.after(() => off.unmount())
-  assert.ok(chip(off.el, 'flash'), 'positive control: the Antigravity row rendered')
+  assert.ok(chip(off.el, 'hydrogen'), 'positive control: the Antigravity row rendered')
   assert.equal(Boolean(chip(off.el, 'argon')), false, 'an Argon chip rendered while agy does not list it')
   await off.unmount()
   const on = await card(agent(), google(true))
@@ -141,7 +141,7 @@ test('§2 hire sheet: no Argon button until the payload offers it', async (t: Te
       onHire={noop} onClose={noop} />, (el) => el)
   const off = await sheet(google(false))
   await flush()
-  assert.ok(btn('flash'), 'positive control: the Antigravity row rendered')
+  assert.ok(btn('hydrogen'), 'positive control: the Antigravity row rendered')
   assert.equal(Boolean(btn('argon')), false, 'the sheet offered Argon while agy does not list it')
   await off.unmount()
   const on = await sheet(google(true))
@@ -169,12 +169,12 @@ const switchOption = (el: HTMLElement, tier: string) =>
 test('§2 agent settings model switch: no Argon option until the payload offers it',
   async (t: TestContext) => {
     fresh(t)
-    const off = await config(agent('flash'), false)
-    assert.ok(switchOption(off.el, 'flash'), 'positive control: the Antigravity group rendered')
+    const off = await config(agent('hydrogen'), false)
+    assert.ok(switchOption(off.el, 'hydrogen'), 'positive control: the Antigravity group rendered')
     assert.equal(Boolean(switchOption(off.el, 'argon')), false,
       'the model switch listed Argon while agy does not list it')
     await off.unmount()
-    const on = await config(agent('flash'), true)
+    const on = await config(agent('hydrogen'), true)
     t.after(() => on.unmount())
     const o = switchOption(on.el, 'argon')
     assert.ok(o, 'the model switch did not list Argon once listed')
@@ -184,8 +184,8 @@ test('§2 agent settings model switch: no Argon option until the payload offers 
 test('§2 lineage rehire list: no "as argon" row until the payload offers it',
   async (t: TestContext) => {
     fresh(t)
-    const node = agent('flash', [{ id: 'agent@1', generation: 1, state: 'archived',
-      bearer_state: 'knowledge', tier: 'flash' } as LineageEntry])
+    const node = agent('hydrogen', [{ id: 'agent@1', generation: 1, state: 'archived',
+      bearer_state: 'knowledge', tier: 'hydrogen' } as LineageEntry])
     const v = await mountView(
       <LineagePanel node={node} slug="org" close={noop}
         op={() => Promise.resolve({} as OpResult)} />, (el) => el)
@@ -197,7 +197,7 @@ test('§2 lineage rehire list: no "as argon" row until the payload offers it',
     await inAct(() => { setOfferedConditionalTiers(rows(true)) })
     await flush()
     assert.ok(opt('argon'), 'the rehire list did not offer Argon once listed (no re-render?)')
-    assert.equal(opt('argon')!.disabled, false, 'a flash bearer may be rehired as argon')
+    assert.equal(opt('argon')!.disabled, false, 'a hydrogen bearer may be rehired as argon')
     await inAct(() => { setOfferedConditionalTiers(rows(false)) })
     await flush()
     assert.equal(Boolean(opt('argon')), false, 'Argon stayed after agy stopped listing it')

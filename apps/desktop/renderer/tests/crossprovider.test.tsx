@@ -50,7 +50,7 @@ function tree(): TreePayload {
   return {
     slug: 'org', dirs: [], tiers: {
       haiku: 1, sonnet: 2, opus: 5, fable: 10,
-      'gpt-reserve': 0.2, luna: 0.2, terra: 2, sol: 5, flash: 1, pro: 2,
+      'gpt-reserve': 0.2, luna: 0.2, terra: 2, sol: 5, hydrogen: 1, pro: 2,
     }, max_top_grant: 100, default_effort: '', effort_default: 'high',
     cascade_hire: true,
   } as unknown as TreePayload
@@ -201,8 +201,8 @@ gateTest('a codex→codex switch is also one click', async (mount) => {
 gateTest('codex→antigravity asks: a crossing between two NON-claude providers',
   async (mount) => {
     const m = await mount('sol')
-    // flash: pro is an opt-in legacy tier, hidden by default (legacypro.test)
-    await m.pick('flash')
+    // hydrogen: pro is an opt-in legacy tier, hidden by default (legacypro.test)
+    await m.pick('hydrogen')
     await m.save()
     const txt = (m.dialog()?.textContent ?? '').toLowerCase()
     assert.ok(m.dialog(), 'codex→antigravity is a crossing and must ask')
