@@ -978,6 +978,86 @@ async fn the_owner_is_shown_who_is_connected_now() {
     assert!(gone, "a computer whose connections ended is not shown as connected");
 }
 
+// ------------------------------------------------------------ F-T9, the engine's side: the firewall rules, read back
+
+/// One line of the firewall read: a rule of the door's for this test program itself, which is
+/// "the engine" here.
+fn firewall_rule(kind: &str, port: u16) -> String {
+    use base64::Engine as _;
+    let program = std::env::current_exe().unwrap().to_string_lossy().to_string();
+    format!("rule\t{kind}\tTrue\tInbound\tAllow\t{port}\t{}", base64::engine::general_purpose::STANDARD.encode(program))
+}
+
+#[tokio::test]
+async fn the_owner_is_told_whether_windows_firewall_lets_the_door_in() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    host.org(7, "galaxy");
+    let port = registry::DEFAULT_PORT;
+    let firewall = |all: &Value| all["door"]["firewall"].clone();
+    // The owner looks for the first time. The answer does not wait for a reading: nothing is known yet,
+    // and nothing is claimed.
+    host.engine.access.firewall.fix(Some("read"));
+    let (status, all) = host.owner("GET", "/api/remote-access", None).await;
+    assert_eq!((status, firewall(&all)), (200, json!({ "state": "unknown", "present": false })), "{all}");
+    // The reading is made behind that answer, and a later look is answered with it: no rule of the door's.
+    let mut seen = Value::Null;
+    for _ in 0..200 {
+        seen = firewall(&host.owner("GET", "/api/remote-access", None).await.1);
+        if seen["state"] != "unknown" { break; }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(seen, json!({ "state": "missing", "present": false }));
+    // The desktop adds Tailscale's rule (one prompt). What is known is a moment old, and is not read again
+    // by every look...
+    host.engine.access.firewall.fix(Some(&format!("{}\nread", firewall_rule("tailscale", port))));
+    assert_eq!(firewall(&host.owner("GET", "/api/remote-access", None).await.1)["state"], "missing");
+    // ...so the app asks for a reading now, and its answer waits for it
+    let (status, all) = host.owner("GET", "/api/remote-access?fresh=1", None).await;
+    assert_eq!((status, firewall(&all)), (200, json!({ "state": "ok", "present": true })), "{all}");
+    // an organization's own view says the same, and can be asked the same
+    let (status, one) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert_eq!((status, firewall(&one)), (200, json!({ "state": "ok", "present": true })), "{one}");
+    // The owner chooses the private network too: its rule is wanted from that moment, with no new reading
+    let (_, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "lan": true }))).await;
+    assert_eq!(firewall(&all), json!({ "state": "missing", "present": true }), "{all}");
+    host.engine.access.firewall.fix(Some(&format!("{}\n{}\nread", firewall_rule("tailscale", port), firewall_rule("lan", port))));
+    assert_eq!(firewall(&host.owner("GET", "/api/remote-access?fresh=1", None).await.1)["state"], "ok");
+    // Another port: the rules are for the old one, and let nobody reach the new one
+    let (_, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "port": 7440 }))).await;
+    assert_eq!(firewall(&all), json!({ "state": "missing", "present": true }), "{all}");
+    // The firewall cannot be read: nothing is claimed
+    host.engine.access.firewall.fix(None);
+    assert_eq!(firewall(&host.owner("GET", "/api/remote-access?fresh=1", None).await.1), json!({ "state": "unknown", "present": false }));
+    // None of this is another computer's to ask: it is refused, and no reading is made for it
+    let open = host.shared(8, "open");
+    let (_, token) = host.let_in(&open, PC).await;
+    host.engine.access.firewall.fix(Some("read"));
+    for path in ["/api/remote-access?fresh=1", "/api/remote-access/orgs/open?fresh=1"] {
+        assert!(refused_as_not_yours(&host.door("GET", path, &token, None).await), "{path}");
+    }
+    assert_eq!(host.engine.access.firewall.shown(7440, true), json!({ "state": "unknown", "present": false }));
+}
+
+#[tokio::test]
+async fn turning_a_switch_on_asks_windows_firewall_again() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    host.org(7, "galaxy");
+    // what was known before: no rule of the door's
+    host.engine.access.firewall.fix(Some("read"));
+    let (_, one) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert_eq!(one["door"]["firewall"], json!({ "state": "missing", "present": false }), "{one}");
+    // The desktop lets the door in (one prompt) and then asks for the switch: the answer is what
+    // Windows Firewall says after it, with no "blocking" in between
+    host.engine.access.firewall.fix(Some(&format!("{}\nread", firewall_rule("tailscale", registry::DEFAULT_PORT))));
+    let (status, one) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true }))).await;
+    assert_eq!((status, one["on"].as_bool(), &one["door"]["firewall"]), (200, Some(true), &json!({ "state": "ok", "present": true })), "{one}");
+    // switched off again: the rules are still there, which the App settings page offers to take away
+    let (_, one) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": false }))).await;
+    assert_eq!((one["on"].as_bool(), one["door"]["firewall"]["present"].as_bool()), (Some(false), Some(true)), "{one}");
+}
+
 // ------------------------------------------------------------ F-T5: what a member is sent
 
 /// A socket of the engine's as another computer opens one at the door.

@@ -27,6 +27,7 @@
 
 pub mod api;
 pub mod door;
+pub mod firewall;
 pub mod lifecycle;
 pub mod limiter;
 pub mod member;
@@ -59,12 +60,15 @@ pub struct RemoteAccess {
     pub limiter: limiter::Limiter,
     /// Where the door stands now (`lifecycle.rs`).
     pub doors: lifecycle::Doors,
+    /// The door's Windows Firewall rules, as they were last read (`firewall.rs`).
+    pub firewall: firewall::Firewall,
 }
 
 #[nolog]
 impl RemoteAccess {
     pub fn open(root: &Path) -> RemoteAccess {
-        RemoteAccess { registry: Registry::open(root), limiter: limiter::Limiter::default(), doors: lifecycle::Doors::default() }
+        RemoteAccess { registry: Registry::open(root), limiter: limiter::Limiter::default(), doors: lifecycle::Doors::default(),
+                       firewall: firewall::Firewall::default() }
     }
 
     /// May other computers open this organization now?
