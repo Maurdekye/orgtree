@@ -5,6 +5,12 @@ use crate::engine::Engine;
 
 pub const NATIVE_RETRY_MAX: i64 = 1;
 
+/// Choose the turn-boundary size threshold without changing the context window or org setting.
+#[nolog]
+pub fn size_threshold(_provider: &str, _window: Option<i32>, org_threshold: f64) -> f64 {
+    org_threshold // RED: only the org fraction applies before the AGY cap.
+}
+
 /// Unknown/estimated measurements cannot justify dropping a session. The
 /// configured threshold already has the existing 50–95% clamp.
 #[nolog]
@@ -109,6 +115,40 @@ pub async fn retry(engine: &Engine, org: i64, agent: i64, turn: i64, error: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agy_size_threshold_caps_large_windows_but_preserves_smaller_org_thresholds() {
+        use crate::providers::catalog::{GOOGLE, CLAUDE};
+        assert_eq!(size_threshold(GOOGLE, Some(1_048_576), 0.8), 230_000.0 / 1_048_576.0);
+        assert_eq!(size_threshold(GOOGLE, Some(200_000), 0.8), 0.8);
+        assert_eq!(size_threshold(CLAUDE, Some(1_000_000), 0.8), 0.8);
+        for window in [None, Some(0), Some(-1)] {
+            assert_eq!(size_threshold(GOOGLE, window, 0.8), 0.8);
+        }
+    }
+
+    #[test]
+    fn agy_size_gate_resets_at_230k_and_preserves_all_stand_downs() {
+        use crate::providers::catalog::{GOOGLE, CLAUDE};
+        let threshold = size_threshold(GOOGLE, Some(1_048_576), 0.8);
+        assert_eq!(size_gate(Some(231_000), Some(1_048_576), true, threshold, true, true, false, false, false), None);
+        assert_eq!(size_gate(Some(230_000), Some(1_048_576), true, threshold, true, true, false, false, false), None);
+        assert_eq!(size_gate(Some(229_000), Some(1_048_576), true, threshold, true, true, false, false, false), Some("below_threshold"));
+        assert_eq!(size_gate(Some(231_000), Some(1_048_576), true,
+            size_threshold(CLAUDE, Some(1_048_576), 0.8), true, true, false, false, false), Some("below_threshold"));
+        for (measured, session, live, bearer, working, compacted, reason) in [
+            (false, true, true, false, false, false, "occupancy_estimated"),
+            (true, false, true, false, false, false, "no_session"),
+            (true, true, false, false, false, false, "not_live"),
+            (true, true, true, true, false, false, "bearer"),
+            (true, true, true, false, true, false, "status_working"),
+            (true, true, true, false, false, true, "cli_compaction"),
+        ] {
+            assert_eq!(size_gate(Some(231_000), Some(1_048_576), measured, threshold,
+                session, live, bearer, working, compacted), Some(reason));
+        }
+        assert_eq!(size_gate(Some(231_000), None, true, size_threshold(GOOGLE, None, 0.8), true, true, false, false, false), Some("window_unknown"));
+    }
     /// What a cold wake decides from what the turn left (threshold 25% of a 1M window).
     fn cold_wake(w: &SizeWrite) -> &'static str {
         crate::domain::tree::cold_turn_action(Some(0.25), Some(i64::from(w.occupancy)), Some(1_000_000), w.measured && !w.estimate, true, true)

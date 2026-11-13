@@ -3552,11 +3552,14 @@ impl Actor {
     async fn size_reset(&mut self, stage: &str, cli_compacted: bool) -> Result<bool> {
         let mut client=self.engine.db.get().await?;
         let tx=client.transaction().await?;
-        let r=tx.query_one("SELECT a.session_id,a.occupancy,a.context_window,a.occupancy_est OR a.compacted_unrun,a.state,a.extra->>'bearer_state',a.last_status->>'status',o.settings->'compact_at',a.halt IS NOT NULL OR a.frozen IS NOT NULL OR o.killswitch IS NOT NULL FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 FOR UPDATE OF a", &[&self.id]).await?;
+        let r=tx.query_one("SELECT a.session_id,a.occupancy,a.context_window,a.occupancy_est OR a.compacted_unrun,a.state,a.extra->>'bearer_state',a.last_status->>'status',o.settings->'compact_at',a.halt IS NOT NULL OR a.frozen IS NOT NULL OR o.killswitch IS NOT NULL,a.tier FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 FOR UPDATE OF a", &[&self.id]).await?;
         let session:Option<String>=r.get(0);
         let used:Option<i32>=r.get(1);
         let window:Option<i32>=r.get(2);
-        let threshold=crate::feed::groups::compact_frac(&r.get::<_,Option<Value>>(7).unwrap_or(Value::Null));
+        let org_threshold=crate::feed::groups::compact_frac(&r.get::<_,Option<Value>>(7).unwrap_or(Value::Null));
+        let tier:String=r.get(9);
+        let provider=catalog::tier(&tier).map(|t|t.provider).unwrap_or("");
+        let threshold=super::context_reset::size_threshold(provider,window,org_threshold);
         let state:String=r.get(4);
         let status:Option<String>=r.get(6);
         let skip=super::context_reset::size_gate(used,window,!r.get::<_,bool>(3),threshold,
@@ -8761,13 +8764,12 @@ impl Actor {
                 }
             }
         }
-        let native_full=error.as_deref().is_some_and(|e| !prompt::input_length_refusal(e) && recovery::context_full(e))
-            && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI);
+        let native_full=error.as_deref().is_some_and(|e|native_context_full(&turn.serving_provider,e));
         let native_retry=if let (Some(e),true)=(error.as_deref(),
             !langserver && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI)
             && !classified && freeze_rec.is_none() && !turn.interrupted && !turn.killed && !turn.session_ended
             && !turn.compact && !self.stopping) {
-            if !prompt::input_length_refusal(e) && recovery::context_full(e) {
+            if native_context_full(&turn.serving_provider,e) {
                 boxed(|| super::context_reset::retry(&self.engine,self.org_id,self.id,turn.id,e)).await?
             } else {false}
         } else {false};
@@ -9768,9 +9770,102 @@ pub(super) fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
     row
 }
 
+/// A native lane's terminal context error, excluding transport input refusals.
+#[nolog]
+fn native_context_full(provider: &str, error: &str) -> bool {
+    !prompt::input_length_refusal(error) && recovery::context_full(error)
+        && matches!(provider,catalog::CLAUDE|catalog::OPENAI)
+}
+
 #[cfg(test)]
 mod context_retry_transcript_tests {
     use super::*;
+
+    const SUMMARY: &str = "agent executor error: pre-invocation hook: context summarization: request failed: stream idle timeout (5m0s): context deadline exceeded";
+    const STEP: &str = "API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded";
+
+    #[test]
+    fn agy_summary_stall_is_native_retry_for_google_only() {
+        assert!(native_context_full(catalog::GOOGLE, SUMMARY));
+        for provider in [catalog::CLAUDE,catalog::OPENAI,catalog::LANGSERVER,catalog::OPENROUTER,catalog::MUSE] {
+            assert!(!native_context_full(provider,SUMMARY), "{provider}");
+        }
+        assert!(!native_context_full(catalog::GOOGLE,STEP));
+        assert!(!native_context_full(catalog::GOOGLE,"Prompt is too long"));
+        for provider in [catalog::CLAUDE,catalog::OPENAI] {
+            assert!(native_context_full(provider,"Prompt is too long"));
+            assert!(!native_context_full(provider,"input too long: Prompt is too long"));
+        }
+        assert!(!native_context_full(catalog::GOOGLE,&format!("input too long: {SUMMARY}")));
+    }
+
+    /// Actual actor predicate plus retry transaction, without a CLI or the full end_turn loop.
+    #[tokio::test]
+    #[ignore = "requires isolated agy_summary_fixture role/database and owned temp ROOT"]
+    async fn agy_summary_stall_commits_one_retry_and_plain_timeout_preserves_session() {
+        let cfg:tokio_postgres::Config=std::env::var("ORGTREE_AGY_SUMMARY_TEST_URL")
+            .expect("explicit synthetic fixture URL").parse().unwrap();
+        assert_eq!(cfg.get_dbname(),Some("agy_summary_fixture"));
+        assert_eq!(cfg.get_user(),Some("agy_summary_fixture"));
+        assert!(cfg.get_hosts().iter().all(|h|matches!(h,tokio_postgres::config::Host::Tcp(host) if host=="127.0.0.1")));
+        assert!(!cfg.get_hosts().is_empty());
+        let root=std::path::PathBuf::from(std::env::var("ORGTREE_AGY_SUMMARY_TEST_ROOT").expect("owned synthetic root"));
+        assert!(root.is_dir());
+        let (client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection=tokio::spawn(async move { connection.await.unwrap() });
+        client.batch_execute("CREATE SCHEMA ot;
+            CREATE TABLE ot.agents(id bigint PRIMARY KEY,name text,session_id text,state text DEFAULT 'live',
+                extra jsonb DEFAULT '{}',occupancy int,occupancy_est bool,compacted_unrun bool,
+                inflight_at timestamptz,row_version bigint DEFAULT 0);
+            CREATE TABLE ot.turns(id bigint PRIMARY KEY,ended_at timestamptz,error text);
+            CREATE TABLE ot.mail(id bigserial PRIMARY KEY,uid text UNIQUE,org_id bigint,sender text,
+                recipient_kind text,recipient_agent_id bigint,recipient_name text,kind text DEFAULT 'message',
+                notice bool DEFAULT false,body text,attachments jsonb DEFAULT '[]',ev jsonb DEFAULT '{}',
+                state text,extra jsonb DEFAULT '{}',turn_id bigint);
+            CREATE TABLE ot.agent_sessions(agent_id bigint,session_id text,ended_at timestamptz,end_reason text);
+            CREATE TABLE ot.opencode_mail_batches(mail_ids bigint[]);
+            INSERT INTO ot.agents(id,name,session_id,occupancy,occupancy_est,compacted_unrun)
+                VALUES(1,'summary-seat','old-summary',270000,false,false),(2,'step-seat','old-step',270000,false,false);
+            INSERT INTO ot.turns(id) VALUES(11),(12),(21);
+            INSERT INTO ot.agent_sessions(agent_id,session_id) VALUES(1,'old-summary'),(2,'old-step');
+            INSERT INTO ot.mail(uid,org_id,sender,recipient_agent_id,body,state,turn_id)
+                VALUES('original-11',1,'@user',1,'synthetic request to continue','delivered',11);").await.unwrap();
+        let mut engine=Engine::for_tests(root);
+        let manager=deadpool_postgres::Manager::new(cfg,tokio_postgres::NoTls);
+        Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(manager)
+            .max_size(1).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+        // Plain step timeout must not touch a session or allocate a recovery wake.
+        if native_context_full(catalog::GOOGLE,STEP) {
+            super::super::context_reset::retry(&engine,1,2,21,STEP).await.unwrap();
+        }
+        let step=client.query_one("SELECT session_id,extra FROM ot.agents WHERE id=2",&[]).await.unwrap();
+        assert_eq!(step.get::<_,Option<String>>(0).as_deref(),Some("old-step"));
+        assert!(step.get::<_,Value>(1).get("native_ctx_retry_run").is_none());
+        let no_wake:i64=client.query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id=2",&[]).await.unwrap().get(0);
+        assert_eq!(no_wake,0);
+        assert!(native_context_full(catalog::GOOGLE,SUMMARY),"actor must select AGY summary recovery");
+        assert!(super::super::context_reset::retry(&engine,1,1,11,SUMMARY).await.unwrap());
+        let row=client.query_one("SELECT session_id,extra,occupancy,occupancy_est,compacted_unrun FROM ot.agents WHERE id=1",&[]).await.unwrap();
+        assert!(row.get::<_,Option<String>>(0).is_none());
+        let extra:Value=row.get(1);
+        assert_eq!(extra["native_ctx_retry_run"],1);
+        assert!(extra["handoff_due"].as_str().is_some());
+        assert!(row.get::<_,Option<i32>>(2).is_none());
+        assert!(row.get::<_,bool>(3) && row.get::<_,bool>(4));
+        let ended:bool=client.query_one("SELECT ended_at IS NOT NULL FROM ot.agent_sessions WHERE agent_id=1",&[]).await.unwrap().get(0);
+        assert!(ended);
+        assert!(super::super::context_reset::retry(&engine,1,1,11,SUMMARY).await.unwrap(),"same turn is idempotent");
+        assert!(!super::super::context_reset::retry(&engine,1,1,12,SUMMARY).await.unwrap(),"second turn in this run cannot retry again");
+        let wake=client.query_one("SELECT count(*),min(body) FROM ot.mail WHERE recipient_agent_id=1 AND extra ? 'context_retry_turn'",&[]).await.unwrap();
+        assert_eq!(wake.get::<_,i64>(0),1);
+        let body:String=wake.get(1);
+        assert!(body.contains("fresh session") && body.contains("synthetic request to continue") && body.contains("original-11"));
+        let untouched:bool=client.query_one("SELECT ended_at IS NULL FROM ot.turns WHERE id=12",&[]).await.unwrap().get(0);
+        assert!(untouched);
+        drop(engine);
+        drop(client);
+        connection.await.unwrap();
+    }
     #[test]
     fn context_retry_keeps_a_receipt_without_copying_authored_mail() {
         let original=json!({"uid":"original","sender":"@user","body":"PRIVATE ORIGINAL BODY","extra":{"context_retry_original":7}});
