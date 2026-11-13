@@ -200,8 +200,10 @@ pub fn context_full(error: &str) -> bool {
 /// An AGY pre-invocation summary stall, distinct from an ordinary step timeout.
 /// USER 2026-11-13 m6af74181ac75; @item:orgtree/carbon-agy-context-summarisation-keeps-timing-ou.
 #[nolog]
-pub fn agy_summary_stalled(_error: &str) -> bool {
-    false // RED: a summary stall has no native recovery classification yet.
+pub fn agy_summary_stalled(error: &str) -> bool {
+    let e=error.to_lowercase();
+    e.contains("context summarization")
+        && (e.contains("stream idle timeout") || e.contains("context deadline exceeded"))
 }
 
 /// `4m47s` / `35s` / `0.4s` (3.x `_dur`).

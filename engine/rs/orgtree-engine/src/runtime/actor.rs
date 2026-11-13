@@ -8766,7 +8766,7 @@ impl Actor {
         }
         let native_full=error.as_deref().is_some_and(|e|native_context_full(&turn.serving_provider,e));
         let native_retry=if let (Some(e),true)=(error.as_deref(),
-            !langserver && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI)
+            !langserver && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI|catalog::GOOGLE)
             && !classified && freeze_rec.is_none() && !turn.interrupted && !turn.killed && !turn.session_ended
             && !turn.compact && !self.stopping) {
             if native_context_full(&turn.serving_provider,e) {
@@ -9773,8 +9773,9 @@ pub(super) fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
 /// A native lane's terminal context error, excluding transport input refusals.
 #[nolog]
 fn native_context_full(provider: &str, error: &str) -> bool {
-    !prompt::input_length_refusal(error) && recovery::context_full(error)
-        && matches!(provider,catalog::CLAUDE|catalog::OPENAI)
+    !prompt::input_length_refusal(error)
+        && ((matches!(provider,catalog::CLAUDE|catalog::OPENAI) && recovery::context_full(error))
+            || (provider==catalog::GOOGLE && recovery::agy_summary_stalled(error)))
 }
 
 #[cfg(test)]
