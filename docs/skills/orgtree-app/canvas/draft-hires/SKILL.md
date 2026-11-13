@@ -50,7 +50,7 @@ The dashed draft says uninitialized because no live seat exists yet. It shows th
 
 ## Draft permissions
 
-Subordinate, coworker and top-level drafts start with the parent's scope when present, otherwise organization defaults. They snapshot the proposal for editing rather than replacing the user's staged choices during a refresh. Folders can be added by path/picker, toggled RW/RO or removed. The form also offers visible-agent scope, thinking effort, account, native tools, Orgtree groups and MCP server grants.
+Subordinate, coworker and top-level drafts start with the parent's scope when present, otherwise organization defaults. They snapshot the proposal for editing rather than replacing the user's staged choices during a refresh. Folders can be added by path/picker, toggled RW/RO or removed. A folder the superiors do not hold, or hold read-only, is granted to them when the hire is created, as a folder granted after the hire is; the hire's result names who was raised. The form also offers visible-agent scope, thinking effort, account, native tools, Orgtree groups and MCP server grants.
 
 A superior draft's permissions panel identifies the existing agent it will be inserted above. Folders, tools, visible-agent scope and file access are inherited from that target at final Hire and cannot be overridden in this panel. Thinking effort and account remain editable. Opening or editing this menu preserves scope inheritance with undo history enabled or disabled; it does not submit scope overrides. Final Hire still validates current target permissions, accounts, credits and placement.
 
