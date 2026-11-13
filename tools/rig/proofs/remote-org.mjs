@@ -3,7 +3,7 @@
 //
 // The run's own engine is "this computer". The proof starts a SECOND debug
 // engine in standalone mode on a synthetic data root inside the run folder
-// (fake home, fake CLIs, offline, loopback only) and reaches it through a
+// (fake home, fake CLIs, offline, loopback only; tools/rig/far.mjs) and reaches it through a
 // small TCP forwarder, so the network between the two can be cut and brought
 // back without stopping either engine.
 //
@@ -23,7 +23,7 @@
 //
 // At the base (no /api/remotes) every check after the two engines start fails.
 
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -31,7 +31,8 @@ import net from 'node:net'
 import path from 'node:path'
 
 import { runDesktop } from '../desktop.mjs'
-import { RIG_DIR, assertSafeRoot, cleanEnv, fakeHome, freePort, killTree, rigProfileEnv, touch } from '../lib.mjs'
+import { farEngine } from '../far.mjs'
+import { RIG_DIR, killTree, touch } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -64,93 +65,10 @@ function sessionId() {
   return Number.isInteger(n) ? n : null
 }
 
-/** The far engine: `orgtree-engine standalone` on its own data root under the
- * run folder, so the run's cleanup takes it with everything else. */
-function farEngine(rig) {
-  const dir = path.join(rig.dir, 'far')
-  const data = path.join(dir, 'data')
-  assertSafeRoot(data)
-  fs.mkdirSync(path.join(dir, 'tmp'), { recursive: true })
-  fs.mkdirSync(data, { recursive: true })
-  fs.writeFileSync(path.join(data, '.orgtree-rig-root'), JSON.stringify({ rig: 1, created: new Date().toISOString(), run: rig.run.id, role: 'the far standalone engine of proofs/remote-org.mjs' }))
-  fakeHome(data)
-  fs.mkdirSync(path.join(dir, 'fakecli', 'log'), { recursive: true })
-  // `twin` lives in the far organization named like this computer's own, and names its item as that engine does
-  const scenario = { ...SCENARIO, agents: { ...SCENARIO.agents, twin: { turns: [
-    { name: 'cite', match: ['cite the plan'], steps: [{ text: `See @item:${rig.org}/${PLAN} for the plan.` }] }] } } }
-  fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify(scenario, null, 2))
-  const bin = name => path.join(rig.dir, 'bin', name)
-  const far = { dir, data, port: 0, token: '', child: null, exit: null, ready: null, stderr: '', starts: 0 }
-  far.start = async () => {
-    if (!far.port) far.port = await freePort()
-    const env = {
-      ...cleanEnv(),
-      ...rigProfileEnv(data, { tmp: path.join(dir, 'tmp') }),
-      ORGTREE_DATA: data,
-      ORGTREE_P03_PG_BIN: rig.run.pgBin,
-      ORGTREE_ENGINE_SAFE_START: '1',
-      ORGTREE_ENGINE_RIG: '1',
-      ORGTREE_NET_OFFLINE: '1',
-      ORGTREE_LOG_VERBOSE: '1',
-      ORGTREE_BIND: '127.0.0.1',
-      ORGTREE_PORT: String(far.port),
-      ORGTREE_CLAUDE_BIN: bin('claude.exe'),
-      ORGTREE_CODEX_BIN: bin('codex.exe'),
-      ORGTREE_AGY_BIN: bin('agy.exe'),
-      ORGTREE_OPENCODE_BIN: bin('opencode.exe'),
-      ORGTREE_MUSE_BIN: bin('muse-bin-9.9.9-R0.exe'),
-      ORGTREE_TAILSCALE_BIN: bin('tailscale.cmd'),
-      ORGTREE_FAKECLI_DIR: path.join(dir, 'fakecli'),
-      ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
-    }
-    far.ready = null
-    far.exit = null
-    far.stderr = ''
-    far.starts += 1
-    // the run's own copy of the engine: a process under the run folder, which the run's reap finds
-    const child = spawn(bin('orgtree-engine.exe'), ['standalone'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    far.child = child
-    let buf = ''
-    child.stdout.on('data', d => {
-      buf += d.toString()
-      for (const line of buf.split('\n')) { try { const v = JSON.parse(line); if (v.type === 'ready') far.ready = v } catch { /* not a protocol line */ } }
-      buf = buf.slice(buf.lastIndexOf('\n') + 1)
-    })
-    child.stderr.on('data', d => { far.stderr = (far.stderr + d.toString()).slice(-4000) })
-    child.on('exit', code => { if (far.child === child) far.exit = code ?? -1 })
-    const end = Date.now() + 240000
-    while (!far.ready) {
-      if (far.exit !== null) throw new Error(`the far engine exited ${far.exit} before it was ready: ${far.stderr.slice(-600)}`)
-      if (Date.now() > end) throw new Error('the far engine was not ready in 240 s')
-      touch(rig.dir)
-      await sleep(250)
-    }
-    far.token = fs.readFileSync(path.join(data, 'standalone-token'), 'utf8').trim()
-    return far.ready
-  }
-  far.api = async (method, route, body) => {
-    const res = await fetch(`http://127.0.0.1:${far.port}${route}`, { method, headers: { Authorization: `Bearer ${far.token}`, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(120000) })
-    const text = await res.text()
-    let json = null
-    try { json = JSON.parse(text) } catch { /* not JSON */ }
-    if (!res.ok) throw new Error(`far ${method} ${route} -> ${res.status}: ${json?.detail ?? text.slice(0, 300)}`)
-    return json ?? text
-  }
-  /** Stop it as its operator would (the authenticated shutdown), then make sure. */
-  far.stop = async () => {
-    if (!far.child || far.exit !== null) return
-    try { await far.api('POST', '/api/desktop/shutdown') } catch { /* already going */ }
-    const end = Date.now() + 60000
-    while (far.exit === null && Date.now() < end) await sleep(200)
-    if (far.exit === null) { killTree(far.child.pid); await sleep(500) }
-  }
-  far.fakeLog = agent => {
-    const f = path.join(dir, 'fakecli', 'log', `${agent}.jsonl`)
-    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return { kind: 'unparsed' } } }) : []
-  }
-  return far
-}
+/** What the far engine's fake CLIs do: `twin` lives in the far organization named like this
+ * computer's own, and names its item as that engine does. */
+const scenarioFor = rig => ({ ...SCENARIO, agents: { ...SCENARIO.agents, twin: { turns: [
+  { name: 'cite', match: ['cite the plan'], steps: [{ text: `See @item:${rig.org}/${PLAN} for the plan.` }] }] } } })
 
 /** The network between the two engines: a loopback port that forwards to the
  * far engine while it is open. `cut` resets every connection and stops
@@ -208,7 +126,7 @@ export default async function (rig) {
     proof.check('the desktop part runs in Windows Session 0 only', false, { session, hint: 'orgtree_session use=0, or run without a renderer bundle for the engine part' })
     return proof.summary()
   }
-  const far = farEngine(rig)
+  const far = farEngine(rig, { scenario: scenarioFor(rig), role: 'the far standalone engine of proofs/remote-org.mjs' })
   const link = forwarder(() => far.port)
   let ctl = null
   const local = rig.org
