@@ -145,6 +145,59 @@
   height: 78px;
 }
 .attn-divider:focus-visible { outline: 1px solid var(--accent, var(--line-hover)); outline-offset: -2px; }
+
+/* A PANEL HIDDEN AT THE EDGE (user 2026-11-13 m525fd3e66e99). Its slot leaves
+ * the row, so the divider stands at that edge and the other panel takes the
+ * stage, but it is NOT `display: none`: it stays laid out over the stage at
+ * full size, so the panel inside keeps a real width, its scroll position and
+ * everything it measured, and comes back without a reflow from nothing.
+ * `opacity: 0` rather than `visibility: hidden`, because a descendant can turn
+ * visibility back on (the agents drawer does) and nothing can turn opacity
+ * back. The view sets `inert` with this class, which is what takes the panel
+ * out of hit-testing, the tab order and the reading order, whatever
+ * `pointer-events` its descendants ask for. */
+.attn-slot.attn-slot-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------- the Swap panels button
+ * A zero-width item right after the divider in the row; the button is centred
+ * back over the divider's 6px. With a side hidden the divider is at the
+ * stage's edge, and the button stays whole inside the stage. */
+.attn-swap-anchor {
+  flex: 0 0 0;
+  align-self: center;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+.attn-swap {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.attn-swap:hover { color: var(--ink-strong); border-color: var(--line-hover); background: var(--panel-2); }
+.attn-swap:focus-visible { outline: 1px solid var(--accent, var(--line-hover)); outline-offset: 1px; }
+.attn-swap-at-left .attn-swap { left: -6px; transform: translate(0, -50%); }
+.attn-swap-at-right .attn-swap { left: 0; transform: translate(-100%, -50%); }
 /* a drag must not select the prose either side of it */
 .attn-dragging { user-select: none; }
 

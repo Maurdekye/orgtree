@@ -286,7 +286,7 @@ test('§4 returning to the Attention view restores both panels and the split', a
   assert.equal(s.queue, true, 'the retained pinned panel is still the pinned one')
   assert.equal(s.desk, true, 'and the embedded panel comes back')
   assert.equal(isModalPinned(QUEUE_KIND, SLUG), true, 'nothing was unpinned on the way')
-  assert.deepEqual(attentionLayout(SLUG), { split: 0.62, agent: 'scout', listOpen: false, swapped: false },
+  assert.deepEqual(attentionLayout(SLUG), { split: 0.62, agent: 'scout', listOpen: false, swapped: false, hidden: null },
     'the split and the selected agent are exactly as they were left')
   await v.unmount()
 })
@@ -318,8 +318,10 @@ test('§5 the divider resizes from the keyboard and the size is remembered', asy
     'ArrowLeft takes it back')
 
   await press('End')
-  assert.equal(attentionLayout(SLUG).split, SPLIT_MAX,
-    'End goes to the bound, and the bound is what stops a panel vanishing')
+  // user 2026-11-13 m2672b93c2df8 point 4: End hides the right panel (it was
+  // the bound before); the hidden panel waits at its minimum
+  assert.equal(attentionLayout(SLUG).split, SPLIT_MAX)
+  assert.equal(attentionLayout(SLUG).hidden, 'right', 'End takes the divider to the right edge')
   await v.unmount()
 })
 
@@ -360,7 +362,10 @@ test('§5.1 dragging the divider resizes the panels, and commits once at the end
   await v.unmount()
 })
 
-test('§5.2 a drag cannot squeeze either panel out of existence', async () => {
+// A panel is never left at a sliver: it stops at its minimum, and past the edge
+// it is HIDDEN, whole and still mounted (user 2026-11-13 m525fd3e66e99; the
+// rest of that rule is attentiondivider.test.tsx).
+test('§5.2 a drag past the edge hides the panel at its minimum rather than squeezing it', async () => {
   reset()
   setOrgView(SLUG, 'attention')
   const v = await mountView(view(), () => shape())
@@ -382,8 +387,9 @@ test('§5.2 a drag cannot squeeze either panel out of existence', async () => {
   await point('pointermove', -400)
   await point('pointerup', -400)
   assert.equal(attentionLayout(SLUG).split, SPLIT_MIN,
-    'dragged past the edge, the Needs attention panel stops at its floor')
-  assert.equal(shape().queue, true, 'and is still on screen')
+    'dragged past the edge, the Needs attention panel keeps its floor for when it comes back')
+  assert.equal(attentionLayout(SLUG).hidden, 'left', 'and is hidden at that edge')
+  assert.equal(shape().queue, true, 'still mounted')
   assert.equal(shape().desk, true)
   await v.unmount()
 })

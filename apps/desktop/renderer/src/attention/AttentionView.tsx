@@ -26,8 +26,19 @@
 // Keep the split slots when a panel is pinned or popped out: moving one panel
 // must not change the other's width. The divider remains usable while either
 // panel is embedded, and disappears when neither is in the stage.
+//
+// THE DIVIDER CAN BE TAKEN TO AN EDGE, AND THAT HIDES THE PANEL ON THAT SIDE
+// (user 2026-11-13 m525fd3e66e99, the eight points of m2672b93c2df8). What is
+// remembered is the SIDE (`layout.hidden`), so the Swap panels button on the
+// divider, which never moves the divider, brings the hidden panel into view by
+// changing only `swapped`. A hidden slot stays MOUNTED and laid out at the
+// stage's full size (see `.attn-slot-hidden`): the panel inside keeps its
+// state, its scroll position and a real width, and is taken out of sight, out
+// of the pointer's way and out of the tab order with `inert`.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
+} from 'react'
 import type {
   KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode,
 } from 'react'
@@ -40,16 +51,62 @@ import {
   restoredWindows, subscribeWindowLayout, useRestoreWindows, windowLayoutRevision,
 } from '../windowlayout'
 import { openSurfaces, subscribeWindows, windowRevision } from '../windowlife'
-import { LanIcon, NotificationsActiveIcon } from '../icons'
+import { LanIcon, NotificationsActiveIcon, SwapHorizIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
 import type { AttentionQueueProps } from './AttentionQueue'
 import { AgentDeskPanel } from './AgentDeskPanel'
 import type { DraftNodeProps } from '../canvas/cards'
 import {
-  clampSplit, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
-  startAttentionModeSync, useAttentionLayout, useOrgView,
+  dividerPlace, hiddenPanel, onAttentionAgentChosen, placeFromKey, placeFromPointer, placePatch,
+  setAttentionLayout, setOrgView, startAttentionModeSync, useAttentionLayout, useOrgView,
 } from './mode'
+import type { DividerPlace, StageSide } from './mode'
 import './attention.css'
+
+/** how long the panels take to change places on Swap panels (point 6) */
+export const SWAP_SLIDE_MS = 150
+
+const reducedMotion = (): boolean => {
+  try { return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true } catch { return false }
+}
+
+/** where the two slots were just before a swap, for the slide that follows it */
+interface SwapFrom { queue: DOMRect | null; desk: DOMRect | null }
+
+/**
+ * THE SLIDE AFTER A SWAP: each panel starts where it was and moves to where it
+ * now is. Transforms only, on the two slots, through the Web Animations API,
+ * so nothing is left behind when it ends and there is no state to clean up if
+ * the view unmounts in the middle.
+ *
+ * With a side hidden, the two panels are in the same place (one fills the
+ * stage, the other is laid out over it, out of sight), so there is no distance
+ * to measure. They trade places across the divider instead, which is at the
+ * hidden side's edge: the panel coming into view arrives from that edge and the
+ * one leaving goes to it, fading as it goes.
+ */
+function slideSwap(from: SwapFrom, queue: HTMLElement | null, desk: HTMLElement | null,
+  stageWidth: number, hidden: StageSide | null, hiddenNow: 'queue' | 'desk' | null): void {
+  const timing = { duration: SWAP_SLIDE_MS, easing: 'ease-out' }
+  const run = (el: HTMLElement | null, frames: Keyframe[]) => {
+    if (el && typeof el.animate === 'function') el.animate(frames, timing)
+  }
+  if (hidden && hiddenNow) {
+    if (stageWidth <= 0) return
+    const off = `translateX(${hidden === 'left' ? -stageWidth : stageWidth}px)`
+    const [arriving, leaving] = hiddenNow === 'queue' ? [desk, queue] : [queue, desk]
+    // the leaving slot is the positioned one, so it would paint over the
+    // arriving panel: lift the arriving one for the length of the slide
+    run(arriving, [{ transform: off, zIndex: 1 }, { transform: 'none', zIndex: 1 }])
+    run(leaving, [{ transform: 'none', opacity: 1 }, { transform: off, opacity: 0 }])
+    return
+  }
+  for (const [el, was] of [[queue, from.queue], [desk, from.desk]] as const) {
+    if (!el || !was) continue
+    const dx = was.left - el.getBoundingClientRect().left
+    if (Math.abs(dx) >= 1) run(el, [{ transform: `translateX(${dx}px)` }, { transform: 'none' }])
+  }
+}
 
 /** the two panels' storage identities — reserved for this feature
  *  (coordinator, 2026-09-21). Ordinary `PinFrame` kinds: pin, popout,
@@ -420,7 +477,13 @@ export function AttentionView(props: AttentionViewProps) {
    * A pinned or popped-out Attention panel stays ELIGIBLE while the
    * organization is on the Canvas. It is on screen; the user put it there.
    */
-  const deskEligible = active || deskPinned || deskOut
+  // …and a FIFTH arrangement that is not on screen either: embedded in the
+  // presented stage, but on the side the divider has been taken to the edge of.
+  // A desk nobody can see must not hold an agent away from a pinned window or a
+  // temporary desk where it would be seen. The STORED side, not the live one of
+  // a drag in progress: ownership does not change hands under a moving pointer.
+  const deskHiddenStored = hiddenPanel(layout) === 'desk'
+  const deskEligible = deskPinned || deskOut || (active && !deskHiddenStored)
 
   /**
    * IS THIS REGISTRATION A HUMAN REQUEST, OR THIS VIEW MOUNTING?
@@ -452,19 +515,26 @@ export function AttentionView(props: AttentionViewProps) {
   // the in-flight rect lives in component state (one render per pointer move);
   // the store is written ONCE, at pointer-up — the same rule every drag in
   // this app follows (see PinFrameInner in canvas/modalpin.tsx)
-  const [live, setLive] = useState<number | null>(null)
+  const [live, setLive] = useState<DividerPlace | null>(null)
   const [dragging, setDragging] = useState(false)
-  const split = clampSplit(live ?? layout.split)
+  // WHERE THE DIVIDER STANDS, in the stage's own terms: the left area's share,
+  // and the side whose panel is hidden. The store keeps the queue's share
+  // (`split`); attention/mode.ts owns the translation both ways.
+  const swapped = layout.swapped
+  const place = live ?? dividerPlace(layout)
+  const split = swapped ? 1 - place.left : place.left
+  const hiddenNow = hiddenPanel({ swapped, hidden: place.hidden })
+  const queueHidden = hiddenNow === 'queue'
+  const deskHidden = hiddenNow === 'desk'
 
-  const commit = useCallback((value: number) => {
-    setAttentionLayout(slug, { split: clampSplit(value) })
-  }, [slug])
+  const commit = useCallback((next: DividerPlace) => {
+    setAttentionLayout(slug, placePatch(next, swapped))
+  }, [slug, swapped])
 
-  const fromPointer = (clientX: number): number | null => {
+  const fromPointer = (clientX: number): DividerPlace | null => {
     const box = stageRef.current?.getBoundingClientRect()
     if (!box || box.width <= 0) return null
-    const x = (clientX - box.left) / box.width
-    return clampSplit(layout.swapped ? 1 - x : x)
+    return placeFromPointer((clientX - box.left) / box.width)
   }
   const onDividerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -487,27 +557,96 @@ export function AttentionView(props: AttentionViewProps) {
     if (live !== null) commit(live)
     setLive(null)
   }
+  // Left and right are the STAGE's, whichever panel is on that side: an arrow
+  // moves the divider the way it points, past a panel's minimum it hides that
+  // panel, and Home / End hide the left / right one (point 4).
   const onDividerKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    const step = e.shiftKey ? 0.1 : 0.02
-    let next: number | null = null
-    const dir = layout.swapped ? -1 : 1
-    if (e.key === 'ArrowLeft') next = split - dir * step
-    else if (e.key === 'ArrowRight') next = split + dir * step
-    else if (e.key === 'Home') next = SPLIT_MIN
-    else if (e.key === 'End') next = SPLIT_MAX
+    const next = placeFromKey(place, e.key, e.shiftKey)
     if (next === null) return
     e.preventDefault()
     commit(next)
   }
 
+  // ------------------------------------------------------------ swap panels
+  const queueSlot = useRef<HTMLDivElement>(null)
+  const deskSlot = useRef<HTMLDivElement>(null)
+  const swapFrom = useRef<SwapFrom | null>(null)
+  // ONE action behind the divider's button and its right-click entry. The
+  // divider does not move (complementing `split` keeps the left area's width),
+  // and a hidden SIDE stays hidden, so with one panel out of sight this shows
+  // it and hides the other (points 1 and 2).
+  const swapPanels = useCallback(() => {
+    swapFrom.current = reducedMotion() ? null : {
+      queue: queueSlot.current?.getBoundingClientRect() ?? null,
+      desk: deskSlot.current?.getBoundingClientRect() ?? null,
+    }
+    setAttentionLayout(slug, { swapped: !layout.swapped, split: 1 - layout.split })
+  }, [slug, layout.swapped, layout.split])
+  // The slide belongs to a swap asked for HERE: a layout that arrives from
+  // storage, or the first render, moves nothing.
+  useLayoutEffect(() => {
+    const from = swapFrom.current
+    swapFrom.current = null
+    if (!from) return
+    slideSwap(from, queueSlot.current, deskSlot.current,
+      stageRef.current?.getBoundingClientRect().width ?? 0, layout.hidden, hiddenPanel(layout))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout.swapped])
+
+  // out of sight is also out of reach: no pointer, no focus, no reading order
+  useLayoutEffect(() => {
+    queueSlot.current?.toggleAttribute('inert', queueHidden)
+    deskSlot.current?.toggleAttribute('inert', deskHidden)
+  }, [queueHidden, deskHidden, queueOn, deskOn])
+
+  // ------------------------------------------- asking for a hidden panel
+  // Hiding a panel is the user's, and so is asking for it again. Three requests
+  // name a panel that may be hidden; each brings its slot back at the minimum
+  // it was left at, exactly as dragging the divider back in would.
+  const hiddenSide = layout.hidden
+  const reveal = useCallback((panel: 'queue' | 'desk') => {
+    if (hiddenPanel({ swapped, hidden: hiddenSide }) === panel) setAttentionLayout(slug, { hidden: null })
+  }, [slug, swapped, hiddenSide])
+  // 1. an agent was chosen for the desk (an agent link, a mention row, any
+  //    focus action) while the desk is embedded here and hidden
+  useEffect(() => {
+    if (!active || !deskEmbedded) return
+    return onAttentionAgentChosen((org) => { if (org === slug) reveal('desk') })
+  }, [active, deskEmbedded, slug, reveal])
+  // 2. a pinned or popped-out panel came back to the stage: Unpin and Return
+  //    to main window must not put it somewhere it cannot be seen
+  const queueAway = queuePinned || queueOut
+  const deskAway = deskPinned || deskOut
+  const wasAway = useRef({ queue: queueAway, desk: deskAway })
+  useEffect(() => {
+    const was = wasAway.current
+    wasAway.current = { queue: queueAway, desk: deskAway }
+    if (!active) return
+    if (was.queue && !queueAway) reveal('queue')
+    if (was.desk && !deskAway) reveal('desk')
+  }, [active, queueAway, deskAway, reveal])
+  // 3. a notification opened its entry in the Needs attention list
+  const { onNotificationFocus } = props
+  const queueReveal = useRef(() => {})
+  queueReveal.current = () => { if (active && queueEmbedded) reveal('queue') }
+  const notificationFocus = useMemo<AttentionQueueProps['onNotificationFocus']>(() =>
+    onNotificationFocus && ((focus) => onNotificationFocus(focus && ((notice) => {
+      const shown = focus(notice)
+      if (shown) queueReveal.current()
+      return shown
+    }))), [onNotificationFocus])
+
   // Reverse visual order without remounting either panel. Fix the physical
   // left area's width; the right area gets the remainder after the divider.
   // Complementing split on swap then preserves the divider's exact position,
   // including its own width, instead of transferring that width between sides.
-  const swapped = layout.swapped
-  const leftFlex = `0 0 ${((swapped ? 1 - split : split) * 100).toFixed(2)}%`
-  const leftStyle = { flex: swapped ? '1 1 0' : leftFlex, order: swapped ? 3 : 1 }
-  const rightStyle = { flex: swapped ? leftFlex : '1 1 0', order: swapped ? 1 : 3 }
+  // With a side hidden its slot leaves the row (`.attn-slot-hidden`), the
+  // divider stands at that edge and the other area takes the rest.
+  // `0px`, not a bare 0: the same thing to a browser, and the form jsdom's style parser accepts
+  const fill = '1 1 0px'
+  const leftFlex = place.hidden ? fill : `0 0 ${(place.left * 100).toFixed(2)}%`
+  const leftStyle = { flex: swapped ? fill : leftFlex, order: swapped ? 3 : 1 }
+  const rightStyle = { flex: swapped ? leftFlex : fill, order: swapped ? 1 : 3 }
   const dividerStyle = { order: 2 }
   const menu = useContextMenu(props.toast)
 
@@ -524,7 +663,8 @@ export function AttentionView(props: AttentionViewProps) {
         </div>
       )}
       {queueOn && (
-        <div className="attn-slot attn-slot-queue" style={leftStyle}>
+        <div ref={queueSlot} style={leftStyle}
+          className={'attn-slot attn-slot-queue' + (queueHidden ? ' attn-slot-hidden' : '')}>
           {/* close only unpins, so only a pinned panel has an X: in its slot
               there is nothing to close (USER 2026-10-30 m743d0c8ff8fe "same
               for the needs attention list panel"); popped out, the window's × */}
@@ -535,7 +675,7 @@ export function AttentionView(props: AttentionViewProps) {
             <AttentionQueue slug={slug} tree={props.tree} toast={props.toast}
               onOpenItem={props.onOpenItem} onFocusAgent={props.onFocusAgent}
               onOpenDoc={props.onOpenDoc} onOpenMail={props.onOpenMail}
-              onNotificationFocus={props.onNotificationFocus}
+              onNotificationFocus={notificationFocus}
               treeStatus={props.treeStatus} />
           </PinFrame>
         </div>
@@ -544,22 +684,35 @@ export function AttentionView(props: AttentionViewProps) {
         <div className="attn-divider" role="separator" tabIndex={0}
           aria-orientation="vertical"
           aria-label="Resize the Needs attention panel"
-          aria-valuemin={Math.round(SPLIT_MIN * 100)}
-          aria-valuemax={Math.round(SPLIT_MAX * 100)}
-          aria-valuenow={Math.round(split * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={queueHidden ? 0 : deskHidden ? 100 : Math.round(split * 100)}
+          aria-valuetext={queueHidden ? 'Needs attention hidden' : deskHidden ? 'Agent desk hidden' : undefined}
           onPointerDown={onDividerDown} onPointerMove={onDividerMove}
           onPointerUp={endDrag} onPointerCancel={endDrag}
           style={dividerStyle}
-          onContextMenu={(e) => menu.open(e, [{
-            label: 'Swap panels',
-            onSelect: () => setAttentionLayout(slug, { swapped: !layout.swapped, split: 1 - split }),
-          }])}
+          onContextMenu={(e) => menu.open(e, [{ label: 'Swap panels', onSelect: swapPanels }])}
           onKeyDown={onDividerKey}>
           <span className="attn-divider-grip" aria-hidden="true" />
         </div>
       )}
+      {/* THE SWAP BUTTON RIDES ON THE DIVIDER WITHOUT BEING INSIDE IT. A
+          separator's children are presentational to assistive technology, so a
+          button in there would be a control nobody could be told about. This
+          zero-width item takes the divider's place in the row (the same order,
+          right after it) and the button is centred back over the divider. */}
+      {dividable && (
+        <div className={'attn-swap-anchor' + (place.hidden ? ' attn-swap-at-' + place.hidden : '')}
+          style={dividerStyle}>
+          <button type="button" className="attn-swap" aria-label="Swap panels" title="Swap panels"
+            onPointerDown={(e) => e.stopPropagation()} onClick={swapPanels}>
+            <SwapHorizIcon fontSize="inherit" />
+          </button>
+        </div>
+      )}
       {deskOn && (
-        <div className="attn-slot attn-slot-desk" style={rightStyle}>
+        <div ref={deskSlot} style={rightStyle}
+          className={'attn-slot attn-slot-desk' + (deskHidden ? ' attn-slot-hidden' : '')}>
           {/* as the queue: an X only while pinned (USER 2026-10-30
               m46997f801a3f "the dynamic agent panel should not have this x
               when not pinned or popped out") */}

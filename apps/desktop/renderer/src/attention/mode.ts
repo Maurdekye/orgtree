@@ -7,11 +7,13 @@
 // way every pinned surface is already scoped per org (`useScopedOpen` in
 // canvas/modalpin.tsx, and the comment there for what went wrong without it).
 //
-// Three things are remembered, all per org:
+// These are remembered, all per org:
 //   view      'canvas' | 'attention'
 //   split     divider fraction from the queue's side (1 - split when swapped)
 //   agent     the selected agent in the dynamic agent area
 //   listOpen  whether the agents list is rolled out rather than collapsed
+//   swapped   Needs attention is on the right
+//   hidden    the SIDE of the stage whose panel is hidden, if one is
 //
 // The store is the same shape the pin stores use: one cached read, one write
 // that notifies, and a `forget` for a `storage` event from another window or
@@ -31,6 +33,12 @@ export const ATTENTION_LAYOUT_KEY = 'orgtree-attention-layout'
 export const SPLIT_MIN = 0.2
 export const SPLIT_MAX = 0.8
 export const SPLIT_DEFAULT = 0.38
+/** A drag stops at a panel's minimum; carried on past HALF of it, the panel is
+ *  hidden instead (user 2026-11-13 m2672b93c2df8, point 4). */
+export const HIDE_SNAP = SPLIT_MIN / 2
+
+/** A side of the stage, as the user sees it. */
+export type StageSide = 'left' | 'right'
 
 export interface AttentionLayout {
   split: number
@@ -40,14 +48,77 @@ export interface AttentionLayout {
   listOpen: boolean
   /** the two panels' left/right order is reversed: Needs attention on the right */
   swapped: boolean
+  /** THE SIDE WHOSE PANEL IS HIDDEN, because the divider was taken to that
+   *  edge (user 2026-11-13 m525fd3e66e99). A side of the STAGE and not a panel:
+   *  Swap panels leaves the divider where it is, so with one side hidden it
+   *  changes only `swapped`, and the panel that was hidden is the one in view
+   *  (point 1 of m2672b93c2df8). `split` then holds that side's panel at its
+   *  minimum, which is where it comes back. */
+  hidden: StageSide | null
 }
 
 export const DEFAULT_LAYOUT: AttentionLayout = {
-  split: SPLIT_DEFAULT, agent: null, listOpen: false, swapped: false,
+  split: SPLIT_DEFAULT, agent: null, listOpen: false, swapped: false, hidden: null,
 }
 
 export const clampSplit = (v: number): number =>
   !Number.isFinite(v) ? SPLIT_DEFAULT : Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, v))
+
+// ------------------------------------------------- where the divider stands
+// The divider is dragged and keyed in the STAGE's terms (left and right as the
+// user sees them); the store keeps the queue's share. These few functions are
+// the whole translation, so the view never does the sum itself.
+
+/** Where the divider stands: the left area's share of the stage, and the side
+ *  it has been taken to the edge of, if any. */
+export interface DividerPlace { left: number; hidden: StageSide | null }
+
+export const dividerPlace = (l: Pick<AttentionLayout, 'split' | 'swapped' | 'hidden'>): DividerPlace =>
+  ({ left: clampSplit(l.swapped ? 1 - l.split : l.split), hidden: l.hidden })
+
+/** the layout fields a divider place is stored as */
+export const placePatch = (place: DividerPlace, swapped: boolean): Pick<AttentionLayout, 'split' | 'hidden'> =>
+  ({ split: clampSplit(swapped ? 1 - place.left : place.left), hidden: place.hidden })
+
+const AT_LEFT: DividerPlace = { left: SPLIT_MIN, hidden: 'left' }
+const AT_RIGHT: DividerPlace = { left: SPLIT_MAX, hidden: 'right' }
+
+/** The place a pointer at `x` (a fraction of the stage's width) asks for: a
+ *  panel stops at its minimum, and within HIDE_SNAP of an edge it is hidden. */
+export function placeFromPointer(x: number): DividerPlace {
+  if (!Number.isFinite(x)) return { left: SPLIT_DEFAULT, hidden: null }
+  if (x < HIDE_SNAP) return AT_LEFT
+  if (x > 1 - HIDE_SNAP) return AT_RIGHT
+  return { left: clampSplit(x), hidden: null }
+}
+
+/** The place a key asks for from `place`, or null for a key that is not the
+ *  divider's. An arrow steps; at a panel's minimum the next step hides it, and
+ *  the opposite arrow brings a hidden panel back at that minimum. Home and End
+ *  hide the left and the right panel. */
+export function placeFromKey(place: DividerPlace, key: string, big: boolean): DividerPlace | null {
+  const step = big ? 0.1 : 0.02
+  const eps = 1e-9
+  if (key === 'Home') return AT_LEFT
+  if (key === 'End') return AT_RIGHT
+  if (key === 'ArrowLeft') {
+    if (place.hidden === 'left') return place
+    if (place.hidden === 'right') return { left: SPLIT_MAX, hidden: null }
+    if (place.left <= SPLIT_MIN + eps) return AT_LEFT
+    return { left: clampSplit(place.left - step), hidden: null }
+  }
+  if (key === 'ArrowRight') {
+    if (place.hidden === 'right') return place
+    if (place.hidden === 'left') return { left: SPLIT_MIN, hidden: null }
+    if (place.left >= SPLIT_MAX - eps) return AT_RIGHT
+    return { left: clampSplit(place.left + step), hidden: null }
+  }
+  return null
+}
+
+/** Which panel a layout hides. */
+export const hiddenPanel = (l: Pick<AttentionLayout, 'swapped' | 'hidden'>): 'queue' | 'desk' | null =>
+  l.hidden === null ? null : (l.hidden === 'left') !== l.swapped ? 'queue' : 'desk'
 
 const subs = new Set<() => void>()
 const notify = () => { for (const fn of [...subs]) fn() }
@@ -145,6 +216,7 @@ function readLayouts(): Record<string, AttentionLayout> {
       agent: typeof o.agent === 'string' && o.agent ? o.agent : null,
       listOpen: o.listOpen === true,
       swapped: o.swapped === true,
+      hidden: o.hidden === 'left' || o.hidden === 'right' ? o.hidden : null,
     }
   }
   layoutCache = out
@@ -183,6 +255,30 @@ export function setAttentionLayout(slug: string | null, patch: Partial<Attention
   layoutCache = next
   writeJson(ATTENTION_LAYOUT_KEY, next)
   notify()
+  // AFTER the write, so a listener reads the layout the choice produced
+  if (typeof patch.agent === 'string' && patch.agent) {
+    for (const fn of [...agentChosen]) fn(slug, patch.agent)
+  }
+}
+
+/**
+ * SOMEBODY CHOSE AN AGENT FOR THE ATTENTION DESK. Every route that does ends in
+ * `setAttentionLayout(slug, { agent })` with a name: an agent link or any other
+ * focus action while the view is presented (OrgCanvas's `centerOn`), a mention
+ * row, a press in the desk's own agents list. All of them are a person asking
+ * to see that agent, which is what the view needs to know when its Agent desk
+ * has been hidden at the edge: the request would otherwise change a panel
+ * nobody can see. Clearing the selection (`agent: null`) is not a choice and is
+ * not announced.
+ *
+ * A plain callback set. The view decides what a choice means for it: only a
+ * desk EMBEDDED in the stage can be hidden there, and a pinned or popped-out
+ * one is already where the user put it.
+ */
+const agentChosen = new Set<(slug: string, agent: string) => void>()
+export function onAttentionAgentChosen(fn: (slug: string, agent: string) => void): () => void {
+  agentChosen.add(fn)
+  return () => { agentChosen.delete(fn) }
 }
 
 // ---------------------------------------------------------------- the hooks
