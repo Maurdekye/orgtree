@@ -97,7 +97,7 @@ export const agentFieldWords = (field: string): string => AGENT_FIELD_WORDS[fiel
 /** An organization's settings, as a toast names them and shows their stored value (the wire names of
  *  `POST /api/orgs/{slug}/settings` and `/defaults`). */
 export function orgSettingWords(field: string, stored: unknown): { label: string; shown: string } {
-  const labels: Record<string, string> = { org_name: 'the name', max_top_grant: 'the largest top-level grant', default_top_grant: 'the default top-level grant',
+  const labels: Record<string, string> = { org_name: 'the name', max_top_grant: 'the top-level grant cap', default_top_grant: 'the default top-level grant',
     compact_at: 'the compaction threshold', default_effort: 'the default effort', permission_mode: 'the permission mode',
     default_visibility: 'the default visibility', default_account: 'the default account' }
   const shown = field === 'compact_at' && typeof stored === 'number' ? `${Math.round(stored > 1 ? stored : stored * 100)}%`
@@ -135,7 +135,7 @@ export function ConflictNotice({ sentence, theirs, busy, onUseTheirs, onSaveMine
   return <div className="save-conflict" role="alert">
     <p className="save-conflict-what">{sentence}</p>
     {seeing && theirs?.map((t) => <div className="save-conflict-version" key={t.label}>
-      <div className="dim">{t.label}, as it is stored now:</div>
+      <div className="dim">{t.label}, as stored now:</div>
       <pre className="save-conflict-theirs" data-streamer-freeform>{t.text}</pre>
     </div>)}
     {seeing && onUseTheirs && <div className="row"><button type="button" disabled={busy} onClick={onUseTheirs}>Use theirs</button></div>}
