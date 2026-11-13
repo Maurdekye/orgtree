@@ -436,3 +436,33 @@ mod tests {
 
 #[cfg(all(test, windows))]
 mod rights_tests;
+
+#[cfg(test)]
+mod vc_runtime_hint_tests {
+    use super::vc_runtime_hint;
+
+    // user 2026-11-12: on a PC with an outdated Visual C++ runtime the bundled PostgreSQL "failed to initialize
+    // every time it tried to start up"; the database-start error names the runtime as a likely cause
+    #[test]
+    fn a_start_that_windows_ended_for_a_missing_or_broken_dll_names_the_visual_cpp_runtime() {
+        // DLL not found, entry point not found, DLL initialization failed, bad image, access violation
+        for status in [0xC000_0135u32, 0xC000_0139, 0xC000_0142, 0xC000_007B, 0xC000_0005] {
+            let hint = vc_runtime_hint(Some(status as i32));
+            assert!(hint.contains("Microsoft Visual C++ runtime"), "{status:#x}: {hint}");
+            assert!(hint.contains("https://aka.ms/vs/17/release/vc_redist.x64.exe"), "{status:#x}: {hint}");
+            assert!(hint.contains("likely cause"), "a likely cause, not a certainty: {hint}");
+            assert!(hint.starts_with(' '), "it follows the error's own words: {hint:?}");
+        }
+    }
+
+    #[test]
+    fn an_ordinary_failure_keeps_its_own_words() {
+        // initdb and postgres report their own errors with small exit codes; a signal or a clean exit says nothing
+        for code in [Some(0), Some(1), Some(2), Some(3), Some(-1), None] {
+            assert_eq!(vc_runtime_hint(code), "", "{code:?}");
+        }
+        // control-C and a stack overflow are not about a DLL
+        assert_eq!(vc_runtime_hint(Some(0xC000_013Au32 as i32)), "");
+        assert_eq!(vc_runtime_hint(Some(0xC000_00FDu32 as i32)), "");
+    }
+}
