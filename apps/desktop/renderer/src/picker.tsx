@@ -1,23 +1,50 @@
 import { createPortal } from 'react-dom'
-import { initiatingDocument } from './windowlife'
-// The in-app folder picker (user ruling): a fully custom dialog backed by the
-// backend's /api/fs listing, so it works from ANY browser that can reach the
-// UI — unlike a native dialog, which opens on the server's own desktop.
+import { desktop } from './desktop'
+import { initiatingDocument, popoutNameForDocument } from './windowlife'
+// Folder choosing across local desktop windows, remote-engine windows, and
+// browsers (USER 2026-11-13 m365cee9110b5, m98bc74e8a3c7, narrowing the v1
+// 1ec63e8 ruling):
+//   • When the organization's engine runs on THIS PC and the native Electron
+//     bridge is present, `pickFolder(defaultPath)` opens the operating system's
+//     native directory chooser (`dialog.showOpenDialog` in main, modal to the
+//     asking window, `openDirectory` + `createDirectory`, `defaultPath` seeded
+//     when an existing directory).
+//   • On a remote organization (`remoteHere() !== null`, 4.6.0 remote engine,
+//     or if main refuses a cold-start remote window) and on any surface without
+//     the Electron bridge (a plain browser / viewer), `pickFolder()` opens the
+//     custom in-app dialog backed by `/api/fs` so it lists the ENGINE's disk.
 //
-// Usage: `pickFolder()` from anywhere returns a Promise<{path: string|null}>.
-// App mounts one <FolderPickerHost /> that serves every request.
+// Usage: `pickFolder(defaultPath)` returns `Promise<{ path: string | null }>`.
+// App mounts one `<FolderPickerHost />` that serves the custom `/api/fs` path.
 import { useEffect, useRef, useState } from 'react'
 import { getFs } from './api'
 import type { FsPayload } from './types'
 import { ArrowUpIcon, FolderIcon, HomeIcon, StorageIcon } from './icons'
-import { useRemoteHere } from './remotehere'
+import { remoteHere, useRemoteHere } from './remotehere'
 
 export interface PickResult { path: string | null }
 type PickRequest = { document: Document; resolve: (r: PickResult) => void }
 
-let openFn: (() => Promise<PickResult>) | null = null
-export const pickFolder = (): Promise<PickResult> =>
-  (openFn ? openFn() : Promise.resolve({ path: null }))
+let openFn: ((doc?: Document) => Promise<PickResult>) | null = null
+
+export async function pickFolder(defaultPath?: string | null): Promise<PickResult> {
+  const doc = initiatingDocument()
+  const bridge = desktop()
+  if (!remoteHere() && typeof bridge?.pickFolder === 'function') {
+    try {
+      const picked = await bridge.pickFolder(
+        typeof defaultPath === 'string' && defaultPath ? defaultPath : null,
+        popoutNameForDocument(doc),
+      )
+      return { path: typeof picked === 'string' && picked ? picked : null }
+    } catch (err) {
+      if (!err || typeof err !== 'object' || !(err as { remote?: boolean }).remote) {
+        throw err
+      }
+    }
+  }
+  return openFn ? openFn(doc) : { path: null }
+}
 
 export function FolderPickerHost() {
   const [req, setReq] = useState<PickRequest | null>(null)  // while the dialog is up
@@ -30,7 +57,7 @@ export function FolderPickerHost() {
     .then((r) => { if (r.home) homeRef.current = r.home; setCur(r); setErr(null) })
     .catch((e: Error) => setErr(e.message))
   useEffect(() => {
-    openFn = () => new Promise((resolve) => { setReq({ resolve, document: initiatingDocument() }); nav('') })
+    openFn = (doc) => new Promise((resolve) => { setReq({ resolve, document: doc ?? initiatingDocument() }); nav('') })
     return () => { openFn = null }
   }, [])
   useEffect(() => {

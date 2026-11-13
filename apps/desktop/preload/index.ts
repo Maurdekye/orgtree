@@ -89,6 +89,17 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),
     localFileStatus: (path: string) => ipcRenderer.invoke('desktop:local-file-status', path),
     openLocalFile: (path: string) => ipcRenderer.invoke('desktop:open-local-file', path),
+    pickFolder: async (defaultPath?: string | null, popoutName?: string | null) => {
+      const res: unknown = await ipcRenderer.invoke(
+        'desktop:pick-folder',
+        typeof defaultPath === 'string' && defaultPath ? defaultPath : null,
+        typeof popoutName === 'string' && popoutName ? popoutName : null,
+      )
+      if (res && typeof res === 'object' && (res as { remote?: boolean }).remote) {
+        throw Object.assign(new Error(String((res as { error?: string }).error || 'Remote organization')), { remote: true })
+      }
+      return typeof res === 'string' && res ? res : null
+    },
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),

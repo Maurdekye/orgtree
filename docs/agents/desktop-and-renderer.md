@@ -50,6 +50,38 @@ m6ac4fe1109a2).
 [decided: user m6ac4fe1109a2; verified: `tests/attentiondeskroute.test.tsx` (7 tests), `canvas/OrgCanvas.tsx`
 `centerOn`, `src/mainwindow.ts`, `main/index.ts` `publishWindowState`]
 
+## Native OS folder picker for local organizations (2026-11-13, 4.6.0)
+
+USER 2026-11-13 22:19:37Z m365cee9110b5 and 22:21:16Z m98bc74e8a3c7 narrow the v1
+custom-picker ruling (`1ec63e8`, 2026-09-07):
+
+- Every folder field in the desktop app (`pickFolder(defaultPath)` in
+  `renderer/src/picker.tsx`: agent & project Scope > Folders, Hire draft Scope >
+  Folders, Org settings > Org folders, App settings > Charters & templates, Add
+  secondary account > Import a folder, Create organization > Advanced folders,
+  and NewOrg > DirList) opens the operating system's native directory chooser
+  when the organization's engine runs on **this PC** (`!remoteHere()`) and the
+  preload bridge exposes `pickFolder`.
+- `apps/desktop/main/folder-picker.ts` (`pickNativeFolder`) calls Electron
+  `dialog.showOpenDialog(parentWindow, { properties: ['openDirectory', 'createDirectory'], defaultPath })`,
+  modal to the asking popout `BrowserWindow` (`caller.popouts.window(popoutName)`)
+  when live or else `caller.window`, passing `defaultPath` only when the trimmed
+  path is absolute and `statSync` confirms an existing directory. Registered via
+  `handleHere('desktop:pick-folder', ...)` in `apps/desktop/main/index.ts`, so a
+  remote-engine window is refused by main too (`{ ok: false, error, remote: true }`).
+- Remote organizations (`remoteHere() !== null`, 4.6.0 remote engine, or a
+  cold-start `{ remote: true }` refusal from main) and surfaces without the
+  native desktop bridge (plain browser / viewer) keep `<FolderPickerHost />`
+  backed by `/api/fs` unchanged so they browse the **engine's** disk. Chosen
+  paths go through the same validation/mode handling as before; cancel changes
+  nothing.
+[decided: user 2026-11-13 m365cee9110b5, m98bc74e8a3c7 (narrowing `1ec63e8`);
+verified: `main/{folder-picker,index}.ts`, `preload/index.ts`,
+`renderer/src/{picker,windowlife,popout,forms}.ts*`,
+`canvas/{modals,chartersettings,accountsregistry}.tsx`,
+`tests/{native-folder-picker,remote-org-native-refusal}.test.mjs`,
+renderer `tests/nativepicker.test.tsx`]
+
 ## Pinned desk default and minimum size (2026-11-10, 4.5.11)
 
 A pinned agent or project desk has its own size rule; the generic 320x240 window

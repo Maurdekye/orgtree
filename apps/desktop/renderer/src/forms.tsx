@@ -15,7 +15,7 @@ export function DirList({ dirs, onChange }: {
           <input placeholder="E:\path\to\existing\folder" value={d}
             onChange={(e) => onChange(dirs.map((x, j) => (j === i ? e.target.value : x)))} />
           <button type="button" className="iconbtn" title="Browse for a folder"
-            onClick={() => pickFolder().then((r) => {
+            onClick={() => pickFolder(d).then((r) => {
               const p = r.path
               if (p) onChange(dirs.map((x, j) => (j === i ? p : x)))
             }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>

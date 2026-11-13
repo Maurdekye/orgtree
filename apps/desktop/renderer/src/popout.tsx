@@ -832,7 +832,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.body.appendChild(parts.overlays)
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
-      cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
+      cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, name: popoutName.current, org,
         editable, window: w, redock, reveal, borrow, identity: () => latest.current.restore,
         flush: () => { capture(w!); latest.current.flush?.() } }))
       capture(w)

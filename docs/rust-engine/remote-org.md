@@ -212,10 +212,11 @@ exist" would tell the remote engine about this computer.
 
 - **The authority is the main process.** `handleHere` in `apps/desktop/main/index.ts` registers the
   commands that open a folder (agent, team and shared scratch folders and their AGENTS.md, the
-  templates and charters folders), open, reveal or check a file, or start a provider sign-in. It
-  refuses a caller whose window is an organization of a remote engine with
-  `{ ok: false, error, remote: true }`. Whose window it is comes from the window's registered
-  identity and the alias map the request header is decided from, never from an argument.
+  templates and charters folders), choose a local folder (`desktop:pick-folder`), open, reveal or
+  check a file, or start a provider sign-in. It refuses a caller whose window is an organization of
+  a remote engine with `{ ok: false, error, remote: true }`. Whose window it is comes from the
+  window's registered identity and the alias map the request header is decided from, never from an
+  argument.
 - **The window does not ask.** `renderer/src/remotehere.ts` reads `remote_link` (the composed app
   feed gives it to a remote window only). The scratch folder entries stay in their menus and say
   "This folder is on <name>, not on this computer."; the templates and charters "Open folder"
@@ -225,9 +226,11 @@ exist" would tell the remote engine about this computer.
   path to copy.
 - Commands that belong to this app on this computer (the engine log folder, preferences, updates,
   the tray) are unchanged in a remote window.
-- **What the remote engine does is said to be there.** The folder picker lists folders through
-  `/api/fs`, an engine route, so in a remote window it browses the remote engine's disk; its title
-  reads "choose a folder on <name>" and the top of its path bar is that name, not "this computer". A language model server's address is dialed by the engine,
+- **What the remote engine does is said to be there.** On a local desktop window, folder fields open
+  the operating system's native directory chooser (`dialog.showOpenDialog`); in a remote window (and
+  in any browser without the Electron bridge), `pickFolder` uses the in-app `/api/fs` chooser so it
+  browses the remote engine's disk, its title reads "choose a folder on <name>", and the top of its
+  path bar is that name, not "this computer" (USER 2026-11-13 m365cee9110b5, m98bc74e8a3c7). A language model server's address is dialed by the engine,
   so its Address row adds "Addresses are as seen from <name>."
 - **App settings says whose settings it shows.** In a remote window the engine's settings are the
   remote engine's (its routes are relayed and its values come with the composed app feed). Under

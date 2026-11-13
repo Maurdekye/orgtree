@@ -15,7 +15,7 @@ The Scope tab's **Folders** list controls `node:add_dirs` in the selected agent'
 | revoke (×) | Remove that folder entry. |
 | grant a folder the parent/org holds | Add an unlisted folder with the holder's current mode. Top-level agents use org holdings; other agents use their superior's folders. |
 | Add a folder path + add | Trim and add a nonempty typed path as RW. Available at every tree depth. |
-| browse for a folder | Open the shared folder picker and add the returned path as RW. |
+| browse for a folder | Open the folder picker (the OS native folder dialog for orgs on this PC, or the in-app `/api/fs` chooser for remote orgs and browsers) seeded with any existing typed path, and add the returned path as RW. |
 
 These edits wait for the shared Save. Merely typing a path without adding it does not add a grant. New picker/typed entries begin RW, so choose RO before Save when read-only access is intended.
 

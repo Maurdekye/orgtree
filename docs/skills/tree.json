@@ -3300,12 +3300,13 @@
    "covers": [
     "screen:folder-picker"
    ],
-   "purpose": "The in-app folder chooser used by every folder field.",
+   "purpose": "Folder choosing across every folder field: the OS native dialog on local desktop orgs and the in-app /api/fs chooser on remote orgs and browsers.",
    "must_cover": [
     "behavior"
    ],
    "sources": [
-    "apps/desktop/renderer/src/picker.tsx:21"
+    "apps/desktop/renderer/src/picker.tsx:30",
+    "apps/desktop/main/folder-picker.ts:27"
    ],
    "see_also": [
     "agent-folders-tab"

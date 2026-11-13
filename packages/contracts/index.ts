@@ -261,6 +261,10 @@ export interface DesktopBridge {
   localFileStatus?(path: string): Promise<{ ok: boolean; exists?: boolean; error?: string }>
   /** Open a file only after an explicit user choice in its context menu. */
   openLocalFile?(path: string): Promise<{ ok: boolean; error?: string }>
+  /** Open the operating system's native directory chooser modal to the asking
+   *  local window (`popoutName` when opened from a popped-out surface). Folders
+   *  only (`openDirectory` + `createDirectory`); returns one path or `null`. */
+  pickFolder?(defaultPath?: string | null, popoutName?: string | null): Promise<string | null>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
   getRunAsAdministrator?(): Promise<RunAsAdministratorState>

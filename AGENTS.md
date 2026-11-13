@@ -398,6 +398,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - Job route: a job's holder may reply to its sender (user too) and back (`orginbox_jobs::job_route`, rechecked at send). Relay: `fair_queue` requeues P's jobs in Q (`projects/relay.rs`; claim `by_project`; chain<=8). Take back: tool `take_back` = desk op `mail_take_back`. [decided: user mff00b3454f55, m8bb8c9368e2d, m2bc14aa1e045]
 
 - **"Org inbox" is now "org mailbox"** in visible text and docs; internal ids keep the old name. [decided: user 2026-11-07 mb0175e053ee5; DECISIONS 97]
+- **Folder pickers use the OS native dialog on local desktop windows** (`dialog.showOpenDialog` via `handleHere('desktop:pick-folder')`, `openDirectory` + `createDirectory`, modal to the asking window, seeded from an existing field directory), narrowing v1 `1ec63e8`; remote-engine orgs (`remoteHere()`) and browser surfaces without the preload bridge keep the `/api/fs` picker. See [native folder picker](docs/agents/desktop-and-renderer.md#native-os-folder-picker-for-local-organizations-2026-11-13-460). [decided: user 2026-11-13 m365cee9110b5, m98bc74e8a3c7]
 
 ## Find the detailed rule
 

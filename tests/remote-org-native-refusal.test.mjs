@@ -24,6 +24,7 @@ const HERE = [
   'desktop:local-file-status',
   'desktop:open-local-file',
   'desktop:reveal-file',
+  'desktop:pick-folder',
   'desktop:provider-login-start',
 ]
 

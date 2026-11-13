@@ -392,7 +392,7 @@ export function AddAccountDialog({ provider, onAdded, close }: {
   const browse = async () => {
     if (lock.current) return
     lock.current = true; setBusy(true)
-    try { const folder = await pickFolder(); if (folder.path) setPath(folder.path) }
+    try { const folder = await pickFolder(path); if (folder.path) setPath(folder.path) }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not open folder picker') }
     finally { lock.current = false; setBusy(false) }
   }

@@ -3,6 +3,7 @@ import { installShiftAltSpace } from './shift-alt-space'
 import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
+import { pickNativeFolder } from './folder-picker'
 import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
@@ -2389,6 +2390,16 @@ else {
       shell.showItemInFolder(target)
       return { ok: true }
     })
+    // Native OS folder chooser for local desktop windows (USER 2026-11-13
+    // m365cee9110b5, m98bc74e8a3c7): guarded by handleHere so remote-engine
+    // windows are refused here too and use /api/fs instead.
+    handleHere('desktop:pick-folder', (caller, defaultPath, popoutName) =>
+      pickNativeFolder(
+        dialog,
+        caller.window,
+        typeof popoutName === 'string' && popoutName ? caller.popouts.window(popoutName) : undefined,
+        defaultPath,
+      ))
     handleApp('desktop:update-status', () => updater.current())
     handleApp('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
     handleApp('desktop:check-for-updates', () => checkForUpdates())

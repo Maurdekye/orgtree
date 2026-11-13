@@ -13,6 +13,8 @@ export interface BorrowedSurface {
 export interface WindowSurface {
   id: string
   kind: string
+  /** Native frame name when this surface owns a popped-out BrowserWindow. */
+  name?: string
   org: string | null
   editable: boolean
   window: Window
@@ -176,6 +178,19 @@ export function initiatingDocument(): Document {
   return document
 }
 export function resetActionDocument() { actionDocument = document }
+/** Native popout frame name for `doc` when the action originated inside a live
+ *  popped-out child window, or `null` for the main window. */
+export function popoutNameForDocument(doc: Document): string | null {
+  let win: Window | null = null
+  try { win = doc.defaultView } catch { win = null }
+  for (const s of openSurfaces()) {
+    if (!s.name || !windowLives(s)) continue
+    try {
+      if ((win && s.window === win) || s.window.document === doc) return s.name
+    } catch { /* cross-frame or closed */ }
+  }
+  return null
+}
 
 if (typeof window !== 'undefined') {
   window.addEventListener('orgtree:before-exit', () => {

@@ -601,7 +601,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
                 aria-label="Add a folder path"
                 value={newPath} onChange={(e) => setNewPath(e.target.value)} />
               <button type="button" className="iconbtn" title="Browse for a folder"
-                onClick={() => pickFolder().then((r) => {
+                onClick={() => pickFolder(newPath).then((r) => {
                   if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
                 }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
               <button type="button" className="addrow" onClick={() => {
@@ -929,7 +929,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             <input data-streamer-field="path" placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
             <button type="button" className="iconbtn" title="Browse for a folder"
-              onClick={() => pickFolder().then((r) => {
+              onClick={() => pickFolder(newPath).then((r) => {
                 if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
               }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
             <button type="button" className="addrow" onClick={() => {
@@ -2064,7 +2064,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               <input type="text" data-streamer-field="path" placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
             <button type="button" className="iconbtn" title="Browse for a folder"
-              onClick={() => pickFolder().then((r) => {
+              onClick={() => pickFolder(newPath).then((r) => {
                 if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
               }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
             <button type="button" className="addrow" onClick={() => {

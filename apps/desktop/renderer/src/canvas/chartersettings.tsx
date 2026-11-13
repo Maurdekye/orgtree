@@ -166,7 +166,7 @@ export function CharterTemplateDirsSetting() {
             onKeyDown={e => { if (e.key === 'Enter') add(newPath) }} />
           <button type="button" className="iconbtn" title="Browse for a folder"
             aria-label="Browse for a charter template folder" disabled={busy || data === null}
-            onClick={() => { void pickFolder().then(r => { if (r.path) add(r.path) }).catch(() => {}) }}>
+            onClick={() => { void pickFolder(newPath).then(r => { if (r.path) add(r.path) }).catch(() => {}) }}>
             <FolderIcon fontSize="inherit" /></button>
           <button type="button" className="addrow" disabled={busy || data === null || !newPath.trim()}
             onClick={() => add(newPath)}>Add</button>
