@@ -490,11 +490,11 @@ dialog, list and windows as for a standalone engine; what differs is on the host
 it is in `remote_access/`. The security notes an independent reader needs are in
 [remote-access-security](remote-access-security.md).
 
-Built so far: the door's listener and guard, the registry of computers and one-time codes, and the
-member route table. Not built yet: the switch in an organization's settings and the owner's routes,
-where the door binds and when (`remote_access::RemoteAccess::set_open` is called by tests only), what a
-member is sent of the app feed and of the organization list, the connecting side's part, the firewall
-rule and the windows. Until those land nothing opens a door in a running app.
+Built so far: the door's listener and guard, the registry (the switch of each organization, the
+port, the computers and the one-time codes), the member route table, the owner's routes and the limit
+on refused tokens. Not built yet: where the door binds and when (nothing starts a door in a running
+app; tests serve one on loopback), what a member is sent of the app feed and of the organization
+list, the connecting side's part, the firewall rule and the windows.
 
 ### The door
 
@@ -509,18 +509,27 @@ The two share the router and nothing else.
   connection that is not taken is dropped unread. Loopback peers exist only for tests and the rig
   (`PeerRule::with_loopback`, not compiled into a release build).
 
-### Tokens
+### The registry
 
-`<data>/remote-access.json` (`remote_access/registry.rs`), version 1:
+`<data>/remote-access.json` (`remote_access/registry.rs`), version 1. Everything the owner decided
+about remote access is in this one file and none of it is in a database:
 
 ```json
-{ "version": 1,
+{ "version": 1, "port": 7431, "lan": false,
+  "open": ["<organization uuid>"],
   "clients": [{ "id": "<uuid>", "name": "Orgtree desktop (PC2)", "label": "Sam", "orgs": ["<organization uuid>"],
                 "hash": "<sha-256 of its token>", "created_at": "...", "last_seen_at": "..." }],
   "invitations": [{ "id": "<uuid>", "hash": "<sha-256 of the code>", "org": "<organization uuid>",
                     "created_at": "...", "expires_at": "..." }] }
 ```
 
+- `open` is the switch: the organizations other computers may open. `port` is the door's (7431
+  unless the owner chose another, never below 1024); `lan` says whether the door also listens on this
+  private network (Tailscale always).
+- Why a file and not the organization's settings in its database (decision 101 says "a per-org
+  setting", and to the owner it is one): the door must know what is shared before any database is
+  read, and an organization that is restored from a backup, copied, or made from a template must
+  never come up shared. A deleted organization's switch goes off (`remote_access::org_deleted`).
 - A **computer** holds its own token (64 hex digits) for the organizations it was given. An
   **invitation** is a one-time code (26 characters of Crockford base 32, 130 random bits) for one
   organization, valid 15 minutes. Both are stored as hashes only and shown once.
@@ -531,8 +540,11 @@ The two share the router and nothing else.
   code up in the same write. The answer carries the computer's token.
 - `give` adds an organization to a computer that is already known (no code). `revoke` removes the
   record and ends every connection the computer has open, the asking one too. Switching an
-  organization off (`RemoteAccess::set_open(uuid, false)`) ends the connections of every computer that
-  has it and keeps their records. `forget_org` is for a deleted organization.
+  organization off (`Registry::set_open(uuid, false)`) ends the connections of every computer that
+  has it, takes back the codes that are open for it and keeps the computers' records; `stop_all`
+  does that for every organization at once.
+- Every change is one write of the whole file, and what the door goes by changes only when that
+  write succeeded (`commit`).
 - One lock admits a token and commits every change, so a connection is never registered after its
   record was removed.
 - A file that cannot be read as a registry lets nobody in: it is renamed
@@ -543,6 +555,9 @@ The two share the router and nothing else.
 `remote_access::admit`, called by `http::guard` for a connection that is the door's, before any
 handler or dispatch. In order:
 
+0. An address that was refused too often is answered 429 and nothing else (`limiter.rs`): after 10
+   requests within a minute that showed no token the door knows, for a minute, a good token
+   included. What a known computer is refused (step 7) is never counted.
 1. The desktop token header and `X-Orgtree-Remote` are removed from the request. Neither is read.
 2. A path outside `/api/` is 404. The door serves no page, and the language-server proxy and the
    credential bridge are never dispatched for it.
@@ -587,6 +602,36 @@ of its lists, and `every_route_is_classified_for_members` fails for a route that
 `GET /api/host` gains `mode` (`standalone`, `host` at the door, `desktop` on a desktop's own
 listener) and `computer`.
 
+### The owner's routes
+
+`remote_access/api.rs`, for the desktop's own app alone. They are below `/api/remote-access`, which
+is this computer's (`remote/routes.rs` `LOCAL`: a window of a remote organization is never served
+another engine's); at the door they are in `member::REFUSED`; a viewer token is denied them; and each
+handler refuses a request that carries any token scope. A standalone engine answers 404 (it has client
+tokens for this). `{slug}` must be an organization of this computer: a remote organization cannot be
+shared on.
+
+| Route | Does |
+| --- | --- |
+| `GET /api/remote-access` | `computer`, `port`, `default_port`, `lan`, and per organization `slug`, `name`, `on`, `computers`, `connected` |
+| `PUT /api/remote-access {"port"?, "lan"?}` | the door's port (1024 to 65535) and the private-network choice |
+| `POST /api/remote-access/stop` | every switch off, every connection ended, every open code taken back; the computers' records stay |
+| `GET /api/remote-access/orgs/{slug}` | `on`, `computers` (that have it), `known` (computers of other organizations, which can be given this one), `invitations` (id and times, never a code), `limits` |
+| `PUT /api/remote-access/orgs/{slug} {"on"}` | the switch |
+| `POST /api/remote-access/orgs/{slug}/invitations` | a one-time code: `id`, `code`, `created_at`, `expires_at`, `minutes`. 409 while the switch is off |
+| `DELETE /api/remote-access/orgs/{slug}/invitations/{id}` | take a code back |
+| `PUT /api/remote-access/orgs/{slug}/computers/{id}` | give a known computer this organization (no code). 409 while the switch is off |
+| `DELETE /api/remote-access/computers/{id}` | revoke: every organization it had, connections ended at once |
+
+The bodies of these routes are never in the wire log (`http::quiet_body`): an answer can carry a code.
+
+Each change is written into the organization's history as an event `remote_access` whose `detail.what`
+is `on`, `off`, `code`, `code_withdrawn`, `computer_added`, `computer_given` or `computer_revoked`
+(with `detail.computer`), and whose `via` is who did it: this desktop, or the computer itself when it
+came in with a code or removed its own record. The event is written beside the change, not with it
+(`remote_access::record`): a database that is away must not keep the owner from switching remote
+access off.
+
 ## Tests
 
 `cargo test --bin orgtree-engine remote::` (no database, loopback only): the address rule, the sealed
@@ -603,7 +648,10 @@ its own listener and the door beside it, through the real router. The two listen
 tokens; the door serves the API and nothing else; a code makes exactly one computer, runs out, and
 opens no organization; a member has its organization and is refused everything else, another
 organization and a missing one alike; its own record only; revoke and the switch end connections; the
-registry's file; the route table by itself, every route classified.
+registry's file; the route table by itself, every route classified. The owner's routes: the whole
+round from switching on to revoking, that only the desktop itself reaches them (not a member, a code,
+nobody, a door token on the app's listener, or a standalone engine), stop all, the port, and the limit
+on refused tokens through the door.
 
 ## Desktop
 

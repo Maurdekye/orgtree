@@ -2534,7 +2534,9 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     request, client labels and who is connected; what is recorded and what a window is sent; the
     save check (`expect`, `domain/expect.rs`). Contract:
     [remote-org](remote-org.md#several-people-on-one-organization). Of the host (phase F), landed so
-    far: the door's listener and guard, the registry of computers and one-time codes and the member
-    route table (`remote_access/`); nothing opens a door in a running app yet. Contract:
+    far: the door's listener and guard, the registry (each organization's switch, the port, the
+    computers and one-time codes, all in `remote-access.json` and none of it in a database), the
+    member route table, the owner's routes and the limit on refused tokens (`remote_access/`);
+    nothing opens a door in a running app yet. Contract:
     [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
     [remote-access-security](remote-access-security.md).
