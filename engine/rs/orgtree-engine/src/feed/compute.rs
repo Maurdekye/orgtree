@@ -498,6 +498,51 @@ pub async fn asks(client: &Client, org_id: i64) -> Result<Vec<Value>> {
     Ok(rows.into_iter().map(|r| ask_card(&r.get::<_, Value>(0), &r.get::<_, String>(1))).collect())
 }
 
+/// Decision 101 (several people on one organization): a record of a user
+/// action says which computer it came through; a record without one reads
+/// exactly as it did before.
+#[cfg(test)]
+mod via_tests {
+    use super::*;
+
+    fn sam() -> Value {
+        json!({ "id": "c-1", "name": "Sam", "on": "Orgtree desktop (PC2)" })
+    }
+
+    #[test]
+    fn a_mail_row_says_which_computer_it_came_through_only_when_its_record_does() {
+        let mail = json!({ "uid": "m1", "sender": "@user", "kind": "message", "body": "hi", "recipient_kind": "agent", "state": "pending", "extra": {} });
+        let plain = mail_entry(&mail);
+        assert!(plain.get("via").is_none(), "{plain}");
+        let mut null = mail.clone();
+        null["via"] = Value::Null;
+        assert_eq!(mail_entry(&null), plain, "a row from before reads exactly as it did");
+        let mut named = mail.clone();
+        named["via"] = sam();
+        let mut shown = mail_entry(&named);
+        assert_eq!(shown["via"], sam());
+        assert_eq!(shown["from"], "@user", "the sender stays the user");
+        shown.as_object_mut().unwrap().remove("via");
+        assert_eq!(shown, plain, "nothing else about the row changes");
+    }
+
+    #[test]
+    fn an_event_says_which_computer_it_came_through_only_when_its_record_does() {
+        let event = json!({ "id": 7, "org_id": 1, "at": "2026-11-13T12:00:00Z", "op": "hire", "actor": "@user", "subject_agent_id": 3, "detail": { "node": "scout" }, "via": null });
+        let plain = event_entry(&event);
+        let mut keys: Vec<&str> = plain.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["actor", "at", "detail", "op"], "an event from before reads exactly as it did");
+        let mut named = event.clone();
+        named["via"] = sam();
+        let mut shown = event_entry(&named);
+        assert_eq!(shown["via"], sam());
+        assert_eq!(shown["actor"], "@user", "the actor stays the user");
+        shown.as_object_mut().unwrap().remove("via");
+        assert_eq!(shown, plain);
+    }
+}
+
 #[cfg(test)]
 mod follow_up_tests {
     use super::*;

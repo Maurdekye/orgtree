@@ -169,6 +169,20 @@ mod tests {
         assert_eq!(actual["foreground"]["present"].as_array().unwrap().len(), 4);
     }
 
+    /// Decision 101: a window reads from the tree what the engine that runs
+    /// the organization can do. The first read announces record changes
+    /// whatever the settings group says, and keeps what else that group says.
+    #[test]
+    fn the_tree_keeps_what_the_settings_group_says_the_engine_can_do() {
+        let with = json!({"cursor":{"rev":1},"records":[
+            {"entity":"org","id":"settings","body":{"name":"test","capabilities":{"record_changes_v1":true,"attribution":true}}}]});
+        let actual: Value = serde_json::from_slice(&project(&with)).unwrap();
+        assert_eq!(actual["capabilities"], json!({"record_changes_v1":true,"attribution":true}));
+        let without = json!({"cursor":{"rev":1},"records":[{"entity":"org","id":"settings","body":{"name":"test"}}]});
+        let actual: Value = serde_json::from_slice(&project(&without)).unwrap();
+        assert_eq!(actual["capabilities"], json!({"record_changes_v1":true}), "an older record says nothing more");
+    }
+
     #[test]
     fn deep_tree_bytes_do_not_build_serialize_or_drop_recursive_values() {
         let records: Vec<Value> = (0..=2049).map(|i| record(&i.to_string(), json!({
