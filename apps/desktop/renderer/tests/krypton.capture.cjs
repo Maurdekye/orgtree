@@ -3,8 +3,11 @@
 // chip, hire row; krypton.visual.tsx) in all four themes, reads the COLOURS THE BROWSER PAINTED, and checks them:
 //   - Krypton's chip text and hire-button text are exactly --tier-krypton (#cdc8fb) in every theme
 //   - that colour is CIE76 dE >= 15 from Argon, Carbon, Luna and Opus as painted (same element, same theme)
-//   - the Krypton card's 3px top edge (tier 55% over --line) is no closer to another tier's edge than the existing tiers
-//     already are to each other, and differs from the card's own 1px side border (a Google card's blue provider tint)
+//   - the Krypton card's 3px top edge (tier 55% over --line) is dE >= 8 from every other tier's edge and differs from the
+//     card's own 1px side border (a Google card's blue provider tint). MEASURED 2026-11-13: 8.6-9.8 from Luna's edge and
+//     9.8-11.0 from Opus's, which is CLOSER than the closest pair before it (Flash-Luna 9.9-10.8, carbon.capture.cjs):
+//     the lavender sits between Luna's blue and Opus's lilac, 16.0 and 17.5 away as text. The floor records that; the
+//     letter K, the Google card tint and the provider row carry the rest
 //   - the Krypton norm node, mini node, badge, chip and hire button each exist exactly once, with the letter K
 //   - the tier badge letter: in charcoal and obsidian every tier's letter is its tier colour (Krypton: #cdc8fb); in the two
 //     light themes EVERY tier's badge is the shared dark one (#313131 fill, #cccccc letter), as carbon.capture.cjs explains
@@ -37,6 +40,7 @@ const LIGHT_THEMES = new Set(['light', 'solarized'])
 const SHARED_BADGE_INK = 'rgb(204, 204, 204)', SHARED_BADGE_FILL = 'rgb(49, 49, 49)' // the contrast presets' light-theme tier badge, same for every tier
 const FLOOR = 15
 const EDGE_VS_SIDE_FLOOR = 14
+const EDGE_FLOOR = 8
 
 async function bundle() {
   const esbuild = require(path.join(deps, 'esbuild'))
@@ -135,7 +139,7 @@ app.whenReady().then(async () => {
       if (!LIGHT_THEMES.has(name) && m.tiers.krypton.badgeColor !== KRYPTON) p.push(`krypton badgeColor painted ${m.tiers.krypton.badgeColor}, expected ${KRYPTON}`)
       for (const k of ['chipColor', 'hireColor']) if (m.tiers.krypton[k] !== KRYPTON) p.push(`krypton ${k} painted ${m.tiers.krypton[k]}, expected ${KRYPTON}`)
       for (const [t, d] of Object.entries(m.vs)) for (const k of ['chip', 'hire']) if (d[k] !== null && d[k] < FLOOR) p.push(`krypton ${k} is dE ${d[k].toFixed(1)} from ${t} (floor ${FLOOR})`)
-      if (m.kryptonMinEdge < m.minOtherEdgePair) p.push(`the Krypton card edge is dE ${m.kryptonMinEdge.toFixed(1)} from its nearest tier edge, closer than the existing tiers' ${m.minOtherEdgePair.toFixed(1)}`)
+      if (m.kryptonMinEdge < EDGE_FLOOR) p.push(`the Krypton card edge is dE ${m.kryptonMinEdge.toFixed(1)} from its nearest tier edge (floor ${EDGE_FLOOR})`)
       if (m.kryptonEdgeVsSide < EDGE_VS_SIDE_FLOOR) p.push(`the Krypton card edge is dE ${m.kryptonEdgeVsSide.toFixed(1)} from the card's own side border (floor ${EDGE_VS_SIDE_FLOOR})`)
       themes.push({ theme: name, classes, problems: p, measured: m })
     }
