@@ -2729,6 +2729,8 @@ export interface ScopeRequest {
 
 // api.py Settings — shared by /api/defaults and /api/orgs/{slug}/settings
 export interface SettingsRequest {
+  /** for each setting this save changes, the value its edit started from (saveconflict.tsx) */
+  expect?: Record<string, unknown>
   /** the org's DISPLAY name (Org settings > Basic > Name); the slug never changes */
   org_name?: string
   default_fast_mode?: Record<string,boolean>
@@ -2779,6 +2781,8 @@ export interface OrgNetReveal {
 
 // api.py HireDefaults (POST /api/orgs/{slug}/defaults)
 export interface HireDefaultsRequest {
+  /** for each default this save changes, the value its edit started from (saveconflict.tsx) */
+  expect?: Record<string, unknown>
   default_tools?: Partial<ToolGrant> | null
   default_visibility?: string | null
   default_effort?: string | null

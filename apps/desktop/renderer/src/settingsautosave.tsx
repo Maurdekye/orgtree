@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ToastFn } from './types'
+import { saveConflictOf, valueSentence } from './saveconflict'
 
 type Fields = Record<string, unknown>
+/** What a form writes with: the edited fields; what each was based on (the server's value when its
+ *  unsaved edit began, under the form's own keys); and, after "Use mine", the stored values a refusal
+ *  reported, under the engine's names. A writer that sends no expectation ignores the last two. */
+type Write = (fields: Fields, bases: Fields, over: Fields) => Promise<{ warnings?: string[] }>
+/** How a toast names a refused setting: the engine's field name and stored value, as the form says them. */
+type Words = (field: string, stored: unknown) => { label: string; shown: string }
+const plainWords: Words = (field, stored) => ({ label: field.replace(/_/g, ' '), shown: typeof stored === 'string' ? stored || 'nothing' : JSON.stringify(stored) })
 type Entry = { value: unknown; due: number }
 type Save = (fields: Fields) => Promise<{ warnings?: string[] }>
 type Status = { pending: boolean; error: string | null; warnings: string[] }
@@ -72,15 +80,46 @@ export class SettingsSaveQueue {
 
 /** Untouched fields follow server props. Acknowledged edits bridge the gap
  * until the tree feed catches up; a later server change replaces that bridge. */
-export function useSettingsAutosave(scope: string, server: Fields, write: Save, toast: ToastFn) {
+export function useSettingsAutosave(scope: string, server: Fields, write: Write, toast: ToastFn, words: Words = plainWords) {
   type Cell = { value: unknown; saved: boolean; base: unknown }
   const [buffer, setBuffer] = useState<{ scope: string; fields: Record<string, Cell> }>({ scope, fields: {} })
   const current = useRef({ scope, server })
   current.current = { scope, server }
+  // What each unsaved edit is based on: the server's value when the field's first unsaved edit began
+  // (a later keystroke of the same edit does not move it), and what "Use mine" bases the next save on.
+  const bases = useRef<Fields>({})
+  const over = useRef<Record<string, Fields>>({})
   const queue = useMemo(() => new SettingsSaveQueue(async () => ({})), [scope])
   queue.report = error => toast([`error: ${error}`])
   queue.save = async fields => {
-    const result = await write(fields)
+    const keys = Object.keys(fields)
+    const based = Object.fromEntries(keys.filter(key => key in bases.current).map(key => [key, bases.current[key]]))
+    const stored: Fields = Object.assign({}, ...keys.map(key => over.current[key] ?? {}))
+    let result: { warnings?: string[] }
+    try { result = await write(fields, based, stored) } catch (error) {
+      const conflict = saveConflictOf(error)
+      if (!conflict) throw error
+      // Someone set it first (saveconflict.tsx). The cell takes what is stored, which the feed brings,
+      // and the person may still put their own value over it: a new save, based on what is stored now.
+      keys.forEach(key => { delete bases.current[key]; delete over.current[key] })
+      if (current.current.scope === scope) setBuffer(b => b.scope !== scope ? b
+        : { scope, fields: Object.fromEntries(Object.entries(b.fields).filter(([key]) => !keys.includes(key))) })
+      const first = conflict.fields[0]!
+      const said = words(first.field, first.stored)
+      toast([valueSentence(first, said.label, said.shown)], { label: 'Use mine', fn: () => {
+        if (current.current.scope !== scope) return
+        const reported = Object.fromEntries(conflict.fields.map(field => [field.field, field.stored]))
+        keys.forEach(key => {
+          over.current[key] = reported
+          bases.current[key] = current.current.server[key]
+          setBuffer(b => ({ scope, fields: { ...(b.scope === scope ? b.fields : {}),
+            [key]: { value: fields[key], saved: false, base: current.current.server[key] } } }))
+          queue.enqueue(key, fields[key])
+        })
+      } })
+      return {}
+    }
+    keys.forEach(key => { delete bases.current[key]; delete over.current[key] })
     if (current.current.scope === scope) setBuffer(b => {
       if (b.scope !== scope) return b
       const next = { ...b.fields }
@@ -108,6 +147,7 @@ export function useSettingsAutosave(scope: string, server: Fields, write: Save, 
   const set = <T,>(key: string, previous: T, delay = 0) => (update: T | ((old: T) => T)) => {
     const next = typeof update === 'function' ? (update as (v: T) => T)(previous) : update
     if (equal(next, previous)) return
+    if (!(key in bases.current)) bases.current[key] = server[key]
     setBuffer(b => ({ scope, fields: { ...(b.scope === scope ? b.fields : {}),
       [key]: { value: next, saved: false, base: server[key] } } }))
     queue.enqueue(key, next, delay)

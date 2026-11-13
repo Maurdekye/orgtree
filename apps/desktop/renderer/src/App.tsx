@@ -2,6 +2,8 @@ import { setStreamerOrgs, useStreamerMode } from './streamer'
 import { setStallContext } from './stallwatch'
 import { useAttractMode } from './attract/pref'
 import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
+import { ConflictNotice, conflictSentence, orgSettingWords, saveConflictOf } from './saveconflict'
+import type { SaveConflict } from './saveconflict'
 import type { HireDefaultsRequest, SettingsRequest } from './types'
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
 import { useHireAutoFocus } from './hirefocus'
@@ -3430,36 +3432,48 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
     'hire.vis': tree.default_visibility ?? 'full', 'hire.pm': tree.permission_mode ?? 'acceptEdits',
     'hire.account': tree.default_account ?? '', 'hire.fast': tree.default_fast_mode ?? {},
   }
-  const autosave = useSettingsAutosave(tree.slug, server, async fields => {
+  const autosave = useSettingsAutosave(tree.slug, server, async (fields, bases, over) => {
     const admin: SettingsRequest = {}, defaults: HireDefaultsRequest = {}
+    // What each edit started from (saveconflict.tsx), for an engine that checks, and only for the
+    // settings a window is shown the way it saves them: folders, tools, the fast-mode table, the
+    // cold-turn reset and the mailbox switches are shown in another shape and stay unchecked.
+    const checks = tree.capabilities?.expect === true
+    const expect: Record<string, unknown> = {}
+    const based = (key: string, field: string) => { if (checks && key in bases) expect[field] = bases[key] }
     for (const [key, value] of Object.entries(fields)) {
       switch (key) {
         case 'orgName':
           if (String(value).trim() === '') throw new Error('Enter a name for the organization')
-          admin.org_name = String(value); break
-        case 'maxTop': admin.max_top_grant = settingNumber(value, 1); break
-        case 'defTop': admin.default_top_grant = settingNumber(value, 0); break
-        case 'compactAt': admin.compact_at = settingNumber(value, 50, 95); break
-        case 'defEffort': admin.default_effort = value as string; break
+          admin.org_name = String(value); based(key, 'org_name'); break
+        case 'maxTop': admin.max_top_grant = settingNumber(value, 1); based(key, 'max_top_grant'); break
+        case 'defTop': admin.default_top_grant = settingNumber(value, 0); based(key, 'default_top_grant'); break
+        case 'compactAt': admin.compact_at = settingNumber(value, 50, 95); based(key, 'compact_at'); break
+        case 'defEffort': admin.default_effort = value as string; based(key, 'default_effort'); break
         case 'orgInboxMode': admin.org_inbox_mode = value as OrgInboxMode; break
         case 'multiHolder': admin.org_inbox_multi_holder = value as boolean; break
         case 'accOn': admin.auto_cheap_compact = { ...admin.auto_cheap_compact, enabled: value as boolean }; break
         case 'accOcc': admin.auto_cheap_compact = { ...admin.auto_cheap_compact, occ: settingNumber(value, 5, 95) / 100 }; break
         case 'hire.dirs': admin.org_dirs = value as DirGrant[]; break
-        case 'hire.pm': admin.permission_mode = value as string; break
+        case 'hire.pm': admin.permission_mode = value as string; based(key, 'permission_mode'); break
         case 'hire.fast': admin.default_fast_mode = value as Record<string, boolean>; break
         case 'hire.tools': defaults.default_tools = value as ToolGrant; break
-        case 'hire.vis': defaults.default_visibility = value as string; break
-        case 'hire.account': defaults.default_account = value as string; break
+        case 'hire.vis': defaults.default_visibility = value as string; based(key, 'default_visibility'); break
+        case 'hire.account': defaults.default_account = value as string; based(key, 'default_account'); break
       }
+    }
+    // "Use mine" bases the save on what the refusal said is stored; each endpoint is told only about
+    // the settings it is sent
+    const expecting = <T extends object>(body: T): T => {
+      const mine = Object.fromEntries(Object.entries({ ...expect, ...(checks ? over : {}) }).filter(([field]) => field in body))
+      return Object.keys(mine).length ? { ...body, expect: mine } : body
     }
     const warnings: string[] = []
     // Keep the existing admin/open endpoint split, and never resend untouched
     // org_dirs: that field sweeps existing grants even when its value is equal.
-    if (Object.keys(admin).length) warnings.push(...((await saveSettings(tree.slug, admin)).warnings ?? []))
-    if (Object.keys(defaults).length) warnings.push(...((await saveHireDefaults(tree.slug, defaults)).warnings ?? []))
+    if (Object.keys(admin).length) warnings.push(...((await saveSettings(tree.slug, expecting(admin))).warnings ?? []))
+    if (Object.keys(defaults).length) warnings.push(...((await saveHireDefaults(tree.slug, expecting(defaults))).warnings ?? []))
     return { warnings }
-  }, toast)
+  }, toast, orgSettingWords)
   const val = autosave.value
   const set = <T,>(key: string, previous: T) => autosave.set(key, previous,
     ['orgName', 'maxTop', 'defTop', 'compactAt', 'accOcc'].includes(key) ? 750 : 0)
@@ -3586,17 +3600,25 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const charterScope = useRef(tree.slug)
   charterScope.current = tree.slug
   useEffect(() => { setCharterBusy(false); setCharterError(null); setCharterWarnings([]) }, [tree.slug])
-  const saveCharter = async () => {
-    if (charterFlight.current || orgMd == null || orgMd === orgMdMeta?.content) return
+  // someone saved a newer org.md: the notice stands where the Save button was (saveconflict.tsx)
+  const [charterConflict, setCharterConflict] = useState<SaveConflict | null>(null)
+  useEffect(() => { setCharterConflict(null) }, [tree.slug])
+  const saveCharter = async (anyway = false) => {
+    if (charterFlight.current || orgMd == null || (orgMd === orgMdMeta?.content && !anyway)) return
     const slug = tree.slug, content = orgMd
     charterFlight.current = true; setCharterBusy(true); setCharterError(null)
     try {
-      const result = await putOrgMd(slug, content, orgMdMeta?.rev)
+      // "Save mine anyway" is a new save, based on the text that is stored now
+      const base = anyway ? (await getOrgMd(slug)).rev : orgMdMeta?.rev
+      const result = await putOrgMd(slug, content, base)
       if (charterScope.current !== slug) return
+      setCharterConflict(null)
       setOrgMdMeta(m => m ? { ...m, ...result, content } : m)
       setCharterWarnings(result.warnings ?? [])
       toast(result.warnings?.length ? result.warnings : ['settings saved'])
     } catch (error) {
+      const refused = saveConflictOf(error)
+      if (refused) { if (charterScope.current === slug) setCharterConflict(refused); return }
       const message = error instanceof Error ? error.message : 'Unable to save org.md'
       if (charterScope.current === slug) setCharterError(message)
       toast([`error: ${message}`])
@@ -3604,6 +3626,15 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
       charterFlight.current = false
       if (charterScope.current === slug) setCharterBusy(false)
     }
+  }
+  /** "Use theirs": the stored org.md becomes the editor's text. */
+  const takeTheirCharter = async () => {
+    const slug = tree.slug
+    try {
+      const fresh = await getOrgMd(slug)
+      if (charterScope.current !== slug) return
+      setOrgMdMeta(fresh); setOrgMd(fresh.content); setCharterConflict(null)
+    } catch (error) { setCharterError(error instanceof Error ? error.message : 'Unable to load org.md') }
   }
   const orgTitle = <><OrgHeaderLogo slug={tree.slug} revision={tree.net?.picture_revision} />{tree.name} - Org settings</>
   return (
@@ -3728,9 +3759,12 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                 {' '}the delivery is what is cut.
               </div>
             )}
-            <button type="button" className="primary" aria-label="Save organization charter"
-              disabled={charterBusy || orgMd == null || orgMd === orgMdMeta?.content}
-              onClick={() => { void saveCharter() }}>Save</button>
+            {charterConflict ? <ConflictNotice sentence={conflictSentence(charterConflict, () => 'org.md')} busy={charterBusy}
+              theirs={[{ label: 'org.md', text: typeof charterConflict.fields[0]?.stored === 'string' ? charterConflict.fields[0].stored : '' }]}
+              onUseTheirs={() => { void takeTheirCharter() }} onSaveMine={() => { void saveCharter(true) }} onCancel={() => setCharterConflict(null)} />
+              : <button type="button" className="primary" aria-label="Save organization charter"
+                disabled={charterBusy || orgMd == null || orgMd === orgMdMeta?.content}
+                onClick={() => { void saveCharter() }}>Save</button>}
             {charterBusy && <div role="status">Saving org.md…</div>}
             {charterError && <div role="alert">Unable to save org.md: {charterError}</div>}
             {charterWarnings.map((warning, i) => <div role="status" key={i}>{warning}</div>)}

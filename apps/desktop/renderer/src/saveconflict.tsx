@@ -94,6 +94,17 @@ const AGENT_FIELD_WORDS: Record<string, string> = {
 }
 export const agentFieldWords = (field: string): string => AGENT_FIELD_WORDS[field] ?? field
 
+/** An organization's settings, as a toast names them and shows their stored value (the wire names of
+ *  `POST /api/orgs/{slug}/settings` and `/defaults`). */
+export function orgSettingWords(field: string, stored: unknown): { label: string; shown: string } {
+  const labels: Record<string, string> = { org_name: 'the name', max_top_grant: 'the largest top-level grant', default_top_grant: 'the default top-level grant',
+    compact_at: 'the compaction threshold', default_effort: 'the default effort', permission_mode: 'the permission mode',
+    default_visibility: 'the default visibility', default_account: 'the default account' }
+  const shown = field === 'compact_at' && typeof stored === 'number' ? `${Math.round(stored > 1 ? stored : stored * 100)}%`
+    : typeof stored === 'string' ? stored || 'none' : stored == null ? 'none' : JSON.stringify(stored)
+  return { label: labels[field] ?? field.replace(/_/g, ' '), shown }
+}
+
 /** C5: under a field the person has edited, when its stored value changes underneath. */
 export const CHANGED_WHILE_EDITING = 'This changed while you were editing.'
 

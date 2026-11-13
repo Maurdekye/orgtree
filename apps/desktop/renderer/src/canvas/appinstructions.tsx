@@ -9,6 +9,8 @@ import { useEffect, useRef, useState } from 'react'
 import { getAppInstructions, putAppInstructions } from '../api'
 import type { AppInstructionsPayload, ToastFn } from '../types'
 import { SetBlock, SetGroup } from './settingskit'
+import { ConflictNotice, conflictSentence, saveConflictOf } from '../saveconflict'
+import type { SaveConflict } from '../saveconflict'
 import { formatCount, unicodeLength } from './shared'
 
 const HINT = 'Every agent in every organization receives this in its managed system prompt, on every provider, '
@@ -47,18 +49,25 @@ export function AppInstructionsSetting({ toast }: { toast: ToastFn }) {
     })
     return () => { current = false }
   }, [retry])
-  const save = async () => {
-    if (flight.current || text == null || text === meta?.content) return
+  // someone saved a newer text: the notice stands where the Save button was (saveconflict.tsx)
+  const [conflict, setConflict] = useState<SaveConflict | null>(null)
+  const save = async (anyway = false) => {
+    if (flight.current || text == null || (text === meta?.content && !anyway)) return
     const content = text
     flight.current = true
     setBusy(true)
     setSaveError(null)
     try {
-      const result = await putAppInstructions(content, meta?.rev)
+      // "Save mine anyway" is a new save, based on the text that is stored now
+      const base = anyway ? (await getAppInstructions()).rev : meta?.rev
+      const result = await putAppInstructions(content, base)
+      setConflict(null)
       setMeta(m => m ? { ...m, content, rev: result.rev ?? m.rev } : m)
       setWarnings(result.warnings ?? [])
       toast(result.warnings?.length ? result.warnings : ['settings saved'])
     } catch (error) {
+      const refused = saveConflictOf(error)
+      if (refused) { setConflict(refused); return }
       const message = error instanceof Error ? error.message : 'request failed'
       setSaveError(message)
       toast([`error: ${message}`])
@@ -66,6 +75,13 @@ export function AppInstructionsSetting({ toast }: { toast: ToastFn }) {
       flight.current = false
       setBusy(false)
     }
+  }
+  /** "Use theirs": the stored text becomes the editor's text. */
+  const takeTheirs = async () => {
+    try {
+      const fresh = await getAppInstructions()
+      setMeta(fresh); setText(fresh.read_truncated ? null : fresh.content); setConflict(null)
+    } catch (error) { setSaveError(error instanceof Error ? error.message : 'request failed') }
   }
   const delivered = text == null ? 0 : unicodeLength(text)
   const max = meta?.prompt_max
@@ -95,8 +111,11 @@ export function AppInstructionsSetting({ toast }: { toast: ToastFn }) {
             {' '}The text saves whole; the delivery is what is cut.
           </div>
         )}
-        <button type="button" className="primary" aria-label="Save instructions for all orgs"
-          disabled={busy || text == null || text === meta?.content} onClick={() => { void save() }}>Save</button>
+        {conflict ? <ConflictNotice sentence={conflictSentence(conflict, () => 'the instructions for all orgs')} busy={busy}
+          theirs={[{ label: 'Instructions for all orgs', text: typeof conflict.fields[0]?.stored === 'string' ? conflict.fields[0].stored : '' }]}
+          onUseTheirs={() => { void takeTheirs() }} onSaveMine={() => { void save(true) }} onCancel={() => setConflict(null)} />
+          : <button type="button" className="primary" aria-label="Save instructions for all orgs"
+            disabled={busy || text == null || text === meta?.content} onClick={() => { void save() }}>Save</button>}
         {busy && <div role="status">Saving the instructions for all orgs…</div>}
         {saveError && <div role="alert">Unable to save the instructions for all orgs: {saveError}</div>}
         {warnings.map((warning, i) => <div role="status" key={i}>{warning}</div>)}
