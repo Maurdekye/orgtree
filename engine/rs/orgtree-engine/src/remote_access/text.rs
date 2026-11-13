@@ -38,6 +38,15 @@ pub const NOT_A_DESKTOP: &str = "remote access is a desktop's; a standalone engi
 /// The owner's routes are the hosting desktop's own.
 pub const OWNER_ONLY: &str = "only this desktop itself changes its remote access";
 pub const TURN_ON_FIRST: &str = "Turn remote access on for this organization first.";
+/// Why the switch cannot be turned on: there is nowhere for the door to stand.
+pub const NO_WAY_IN: &str = "Tailscale is not running on this computer, so no other computer could reach it. Start Tailscale, or let remote access also use this private network (App settings, Remote access).";
+pub const NO_WAY_IN_LAN: &str = "This computer has no Tailscale address and no private network address, so no other computer could reach it.";
+
+/// The door could not be bound: something else has the port.
+#[nolog]
+pub fn port_taken(port: u16) -> String {
+    format!("Port {port} is in use on this computer. Choose another port in App settings, Remote access.")
+}
 pub const PORT_RANGE: &str = "The port is a number from 1024 to 65535.";
 /// A code that was used, has run out, or never was one.
 pub const CODE_USED: &str = "That code was already used or has run out. Ask for a new one.";

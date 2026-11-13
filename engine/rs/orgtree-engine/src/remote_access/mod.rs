@@ -7,6 +7,7 @@
 //!   in and the one-time codes.
 //! - `member`: the route table of a computer that was let in.
 //! - `limiter`: refused tokens, counted per address.
+//! - `lifecycle`: where the door stands and when.
 //! - `api`: the owner's routes, for this desktop's own app alone.
 //! - `admit` (here): the door's guard. Every request that came in through the
 //!   door passes it before anything else of the engine sees the request.
@@ -26,6 +27,7 @@
 
 pub mod api;
 pub mod door;
+pub mod lifecycle;
 pub mod limiter;
 pub mod member;
 pub mod registry;
@@ -54,12 +56,14 @@ pub struct RemoteAccess {
     pub registry: Registry,
     /// Refused tokens, counted per address (`limiter.rs`).
     pub limiter: limiter::Limiter,
+    /// Where the door stands now (`lifecycle.rs`).
+    pub doors: lifecycle::Doors,
 }
 
 #[nolog]
 impl RemoteAccess {
     pub fn open(root: &Path) -> RemoteAccess {
-        RemoteAccess { registry: Registry::open(root), limiter: limiter::Limiter::default() }
+        RemoteAccess { registry: Registry::open(root), limiter: limiter::Limiter::default(), doors: lifecycle::Doors::default() }
     }
 
     /// May other computers open this organization now?

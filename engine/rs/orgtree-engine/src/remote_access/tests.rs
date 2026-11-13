@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use super::door::{self, PeerRule};
+use super::lifecycle::{self, Reading};
 use super::limiter::Limits;
 use super::member::{self, Standing, Verdict};
 use super::registry::{self, Admitted, Registry};
@@ -45,6 +46,9 @@ impl Host {
         let (feed, inbox) = crate::appfeed::AppFeed::new();
         e.app = feed;
         crate::appfeed::start(&engine, inbox);
+        // This computer is taken to have a Tailscale address, one that is not really its own: the owner's
+        // routes then find a way in, and nothing is ever bound outside loopback by a test.
+        engine.access.doors.fix(Reading { tailscale: Some("100.64.0.1".parse().ok()), ..Reading::default() });
         // these tests refuse on purpose, many times from one address: only the limiter's own test counts
         engine.access.limiter.set(Limits { strikes: usize::MAX, window: Duration::from_secs(60), block: Duration::from_secs(60) });
         // the app's own listener, served as `main` serves a desktop's
@@ -600,9 +604,10 @@ async fn the_owner_switches_an_organization_on_lets_a_computer_in_and_takes_it_o
     let (status, all) = host.owner("GET", "/api/remote-access", None).await;
     assert_eq!((status, all["port"].as_u64(), all["lan"].as_bool()), (200, Some(7431), Some(false)), "{all}");
     assert!(all["computer"].as_str().is_some_and(|name| !name.is_empty()), "{all}");
-    let orgs: Vec<(String, bool, u64, u64)> = all["orgs"].as_array().unwrap().iter()
-        .map(|org| (org["slug"].as_str().unwrap().to_string(), org["on"].as_bool().unwrap(), org["computers"].as_u64().unwrap(), org["connected"].as_u64().unwrap())).collect();
-    assert_eq!(orgs, vec![("galaxy".to_string(), true, 1, 0), ("other".to_string(), true, 1, 0)], "{all}");
+    // (who is connected at this instant is its own test: a connection that just answered may not be gone yet)
+    let orgs: Vec<(String, bool, u64)> = all["orgs"].as_array().unwrap().iter()
+        .map(|org| (org["slug"].as_str().unwrap().to_string(), org["on"].as_bool().unwrap(), org["computers"].as_u64().unwrap())).collect();
+    assert_eq!(orgs, vec![("galaxy".to_string(), true, 1), ("other".to_string(), true, 1)], "{all}");
 
     // a code can be taken back, through its own organization's route only
     let (_, made) = host.owner("POST", "/api/remote-access/orgs/other/invitations", None).await;
@@ -804,6 +809,173 @@ async fn a_registry_file_is_taken_as_a_whole_with_its_switches_and_its_port() {
     reopened.set_open(&org, true).unwrap();
     reopened.forget_org(&org).unwrap();
     assert!(reopened.is_empty() && !reopened.is_open(&org));
+}
+
+// ------------------------------------------------------------ F-T1: where the door stands, and when
+
+/// A port nothing listens on now.
+async fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port()
+}
+
+async fn listens(port: u16) -> bool {
+    TcpStream::connect(("127.0.0.1", port)).await.is_ok()
+}
+
+/// Wait until something does, or does no longer, listen at a port.
+async fn until_listening(port: u16, wanted: bool) -> bool {
+    for _ in 0..100 {
+        if listens(port).await == wanted {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn the_door_stands_only_while_something_is_shared_and_follows_what_the_owner_changes() {
+    let root = Root::new();
+    let engine = Engine::for_tests(root.0.clone());
+    let access = &engine.access;
+    let (first, second, taken) = (free_port().await, free_port().await, free_port().await);
+    let here: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+    // this computer itself stands in for its Tailscale address (the rig's rule; `plan` never names loopback)
+    access.doors.fix(Reading { rig: Some(here), ..Reading::default() });
+    access.registry.set_listening(Some(first), None).unwrap();
+    let org = org_id();
+    let standing = || access.doors.standing().iter().map(|want| want.at.port()).collect::<Vec<_>>();
+
+    // nothing is shared: there is no door
+    lifecycle::refresh(&engine).await;
+    assert!(standing().is_empty() && !listens(first).await);
+    assert_eq!(lifecycle::status(&engine)["state"], "closed");
+
+    // an organization is shared: the door stands at once, and takes a code
+    access.registry.set_open(&org, true).unwrap();
+    lifecycle::refresh(&engine).await;
+    assert_eq!(standing(), vec![first]);
+    let status = lifecycle::status(&engine);
+    assert_eq!((status["state"].as_str(), status["addresses"][0]["port"].as_u64(), status["addresses"][0]["kind"].as_str()), (Some("open"), Some(first as u64), Some("rig")), "{status}");
+    let code = access.registry.invite(&org).unwrap()["code"].as_str().unwrap().to_string();
+    let http = reqwest::Client::builder().no_proxy().pool_max_idle_per_host(0).build().unwrap();
+    let alive = |port: u16, token: String| { let http = http.clone(); async move {
+        http.get(format!("http://127.0.0.1:{port}/api/desktop/alive")).bearer_auth(token).send().await.map(|answer| answer.status().as_u16()).ok()
+    } };
+    assert_eq!(alive(first, code.clone()).await, Some(200), "it is the door: a code is a token there");
+    assert_eq!(alive(first, "the desktop's own token is not".into()).await, Some(403));
+    // the same step again changes nothing
+    lifecycle::refresh(&engine).await;
+    assert_eq!(standing(), vec![first]);
+
+    // the owner changes the port: the door moves at once
+    access.registry.set_listening(Some(second), None).unwrap();
+    lifecycle::refresh(&engine).await;
+    assert_eq!(standing(), vec![second]);
+    assert!(until_listening(first, false).await, "nothing listens at the old port any more");
+    assert_eq!(alive(second, code.clone()).await, Some(200));
+
+    // a port something else has: the door says so, and stands there as soon as the port is free
+    let holder = TcpListener::bind(("127.0.0.1", taken)).await.unwrap();
+    access.registry.set_listening(Some(taken), None).unwrap();
+    lifecycle::refresh(&engine).await;
+    assert!(standing().is_empty());
+    let status = lifecycle::status(&engine);
+    assert_eq!((status["state"].as_str(), status["reason"].as_str()), (Some("blocked"), Some(text::port_taken(taken).as_str())), "{status}");
+    drop(holder);
+    lifecycle::refresh(&engine).await;
+    assert_eq!(standing(), vec![taken]);
+    assert_eq!(lifecycle::status(&engine)["state"], "open");
+
+    // everything is switched off: the door is gone
+    access.registry.stop_all().unwrap();
+    lifecycle::refresh(&engine).await;
+    assert!(standing().is_empty());
+    assert!(until_listening(taken, false).await);
+    assert_eq!(lifecycle::status(&engine)["state"], "closed");
+    engine.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn a_door_with_nowhere_to_stand_waits_and_says_why() {
+    let root = Root::new();
+    let engine = Engine::for_tests(root.0.clone());
+    let org = org_id();
+    engine.access.registry.set_open(&org, true).unwrap();
+    // no Tailscale address and the private network not chosen
+    engine.access.doors.fix(Reading { tailscale: Some(None), lan: "192.168.1.20".parse().ok(), ..Reading::default() });
+    lifecycle::refresh(&engine).await;
+    let status = lifecycle::status(&engine);
+    assert_eq!((status["state"].as_str(), status["reason"].as_str()), (Some("waiting"), Some(text::NO_WAY_IN)), "{status}");
+    assert!(engine.access.doors.standing().is_empty());
+    // an address that is public is never one the door stands at, chosen or not
+    engine.access.registry.set_listening(None, Some(true)).unwrap();
+    engine.access.doors.fix(Reading { tailscale: Some("8.8.8.8".parse().ok()), lan: "8.8.4.4".parse().ok(), ..Reading::default() });
+    lifecycle::refresh(&engine).await;
+    let status = lifecycle::status(&engine);
+    assert_eq!((status["state"].as_str(), status["reason"].as_str()), (Some("waiting"), Some(text::NO_WAY_IN_LAN)), "{status}");
+    assert!(engine.access.doors.standing().is_empty());
+}
+
+#[tokio::test]
+async fn a_switch_that_could_let_nobody_in_is_not_turned_on_and_says_why() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.org(7, "galaxy");
+    let on = || host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true })));
+
+    // Tailscale is not running and the private network was not chosen
+    host.engine.access.doors.fix(Reading { tailscale: Some(None), lan: "192.168.1.20".parse().ok(), ..Reading::default() });
+    let refused = on().await;
+    assert_eq!((refused.0, refused.1["detail"].as_str()), (409, Some(text::NO_WAY_IN)), "{refused:?}");
+    assert!(!host.engine.access.is_open(&galaxy));
+    // Tailscale did not answer: nothing is known, so nothing is promised
+    host.engine.access.doors.fix(Reading { tailscale: None, ..Reading::default() });
+    assert_eq!(on().await.0, 409);
+    // the private network is chosen, and this computer has an address on one: now it can be
+    assert_eq!(host.owner("PUT", "/api/remote-access", Some(json!({ "lan": true }))).await.0, 200);
+    host.engine.access.doors.fix(Reading { tailscale: Some(None), ..Reading::default() });
+    let refused = on().await;
+    assert_eq!((refused.0, refused.1["detail"].as_str()), (409, Some(text::NO_WAY_IN_LAN)), "{refused:?}");
+    host.engine.access.doors.fix(Reading { tailscale: Some(None), lan: "10.254.253.252".parse().ok(), ..Reading::default() });
+    let (status, view) = on().await;
+    assert_eq!((status, view["on"].as_bool()), (200, Some(true)), "{view}");
+    // the answer says where the door stands: here it cannot be bound (the address is not this computer's)
+    assert!(matches!(view["door"]["state"].as_str(), Some("blocked" | "open")), "{view}");
+    // switching off is never refused
+    host.engine.access.doors.fix(Reading::default());
+    let (status, view) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": false }))).await;
+    assert_eq!((status, view["on"].as_bool(), view["door"]["state"].as_str()), (200, Some(false), Some("closed")), "{view}");
+}
+
+#[tokio::test]
+async fn the_owner_is_shown_who_is_connected_now() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    host.org(8, "other");
+    let (id, token) = host.let_in(&galaxy, PC).await;
+    let stream = kept(host.door, &token).await;
+    let (status, all) = host.owner("GET", "/api/remote-access", None).await;
+    assert_eq!(status, 200, "{all}");
+    let org = |all: &Value, slug: &str| all["orgs"].as_array().unwrap().iter().find(|org| org["slug"] == slug).cloned().unwrap();
+    let shown = org(&all, "galaxy");
+    assert_eq!((shown["connected"].as_u64(), shown["computers"].as_u64()), (Some(1), Some(1)), "{all}");
+    let who = &shown["connected_now"][0];
+    assert_eq!((who["id"].as_str(), who["label"].as_str(), who["name"].as_str()), (Some(id.as_str()), Some("PC-DANA"), Some(PC)), "{all}");
+    assert!(who["since"].is_string(), "{all}");
+    assert_eq!(org(&all, "other")["connected"], 0, "{all}");
+    assert!(all["door"]["state"].is_string(), "{all}");
+    // it disconnects: nobody is connected any more
+    drop(stream);
+    let mut gone = false;
+    for _ in 0..100 {
+        let (_, all) = host.owner("GET", "/api/remote-access", None).await;
+        gone = org(&all, "galaxy")["connected"] == 0;
+        if gone { break; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(gone, "a computer whose connections ended is not shown as connected");
 }
 
 // ------------------------------------------------------------ the registry's file
