@@ -1074,6 +1074,7 @@ button.badge.audience-fold.alert {
 .chip.agents b.t-pro { color: var(--tier-pro); }
 .chip.agents b.t-argon { color: var(--tier-argon); }
 .chip.agents b.t-krypton { color: var(--tier-krypton); }
+.chip.agents b.t-hydrogen { color: var(--tier-hydrogen); }
 .chip.agents b.t-carbon { color: var(--tier-carbon); }
 /* credit requests (inbox panel): old → new (+Δ), reason, one-click verdict */
 .credreq {
@@ -1330,6 +1331,7 @@ button.badge.audience-fold.alert {
 .sq.tier-pro { --tier-accent: var(--tier-pro); border-top-color: color-mix(in srgb, var(--tier-pro) 55%, var(--line)); }
 .sq.tier-argon { --tier-accent: var(--tier-argon); border-top-color: color-mix(in srgb, var(--tier-argon) 55%, var(--line)); }
 .sq.tier-krypton { --tier-accent: var(--tier-krypton); border-top-color: color-mix(in srgb, var(--tier-krypton) 55%, var(--line)); }
+.sq.tier-hydrogen { --tier-accent: var(--tier-hydrogen); border-top-color: color-mix(in srgb, var(--tier-hydrogen) 55%, var(--line)); }
 .sq.tier-carbon { --tier-accent: var(--tier-carbon); border-top-color: color-mix(in srgb, var(--tier-carbon) 55%, var(--line)); }
 .sq.mini.tier-luna { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-gpt-6-luna { --mini-tier: var(--tier-luna); }
@@ -1342,6 +1344,7 @@ button.badge.audience-fold.alert {
 .sq.mini.tier-pro { --mini-tier: var(--tier-pro); }
 .sq.mini.tier-argon { --mini-tier: var(--tier-argon); }
 .sq.mini.tier-krypton { --mini-tier: var(--tier-krypton); }
+.sq.mini.tier-hydrogen { --mini-tier: var(--tier-hydrogen); }
 .sq.mini.tier-carbon { --mini-tier: var(--tier-carbon); }
 /* At map zoom the old provider signal collapsed to a sub-pixel busy border,
    so provider could only be inferred from the tier token. Give the mini card
@@ -1439,6 +1442,7 @@ button.badge.audience-fold.alert {
 .sq.prov-google.desk.tier-pro { border-top-color: var(--tier-pro); }
 .sq.prov-google.desk.tier-argon { border-top-color: var(--tier-argon); }
 .sq.prov-google.desk.tier-krypton { border-top-color: var(--tier-krypton); }
+.sq.prov-google.desk.tier-hydrogen { border-top-color: var(--tier-hydrogen); }
 .sq.prov-google.desk.tier-carbon { border-top-color: var(--tier-carbon); }
 /* the OpenRouter family's card dressing (2026-09-02) — same inherited-chrome
    contract; the per-tier top-edge reassertion is GENERATED per favorite
@@ -2706,6 +2710,14 @@ button.cc-name:focus-visible {
      light themes' panel contrast is 1.6-1.7 and the dark ones 8-11, so the K letter stays the redundant glyph
      on light surfaces like flash and astra. Conditional like Argon. */
   --tier-krypton: #cdc8fb;
+  /* Hydrogen (Gemini 4 Hydrogen, user 2026-11-12 m7941d5c20ccc "Near-white / pale silver"). NEAR-WHITE with the
+     faintest green cast, because the neutral near-whites are taken: astra is the near-white that leans violet, and
+     a true silver is the text itself (--ink #ccc / #d6d6d6). MEASURED (CIE76 dE, D65; sweep kept in the hand-in): a
+     neutral #f5f7f9 is 8.4 from astra and #e9edf0 7.9, #dfe6e2 6.0 from obsidian --ink; this one, L* 99 chroma 8 on
+     the side away from astra's violet, is 15.7 from its nearest (obsidian --ink), then astra, above this file's
+     ~15 floor. Too pale to be text on the light themes' white panels, like flash and astra: its hire button and
+     tier token take the dark backing there (below, as Wonder Full's do), so the H stays legible. */
+  --tier-hydrogen: #f7fff0;
   /* carbon (speculative Gemini 4 Carbon, conditional like Argon and Krypton):
      LIGHT CHARCOAL GREY, to the user's spec (2026-10-28 m09d1c2c45be4: "i want
      its model color to be a light charcoal grey"). It was electric chartreuse
@@ -2794,6 +2806,7 @@ button.cc-name:focus-visible {
 .tier.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .tier.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .tier.t-krypton { color: var(--tier-krypton); border-color: color-mix(in srgb, var(--tier-krypton) 45%, var(--line)); }
+.tier.t-hydrogen { color: var(--tier-hydrogen); border-color: color-mix(in srgb, var(--tier-hydrogen) 45%, var(--line)); }
 .tier.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 /* lifecycle fills: archived fades (existing); knowledge bearers wash grey.
 
@@ -4433,6 +4446,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .hsof button.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .hsof button.t-krypton { color: var(--tier-krypton); border-color: color-mix(in srgb, var(--tier-krypton) 45%, var(--line)); }
+.hsof button.t-hydrogen { color: var(--tier-hydrogen); border-color: color-mix(in srgb, var(--tier-hydrogen) 45%, var(--line)); }
 .hsof button.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 .hsof button.codex-preview:disabled, .hs-tier.codex-preview:disabled { opacity: .45; border-style: dashed; }
 /* an opt-in LEGACY tier (Gemini Pro), shown only with "show legacy models" on */
@@ -10050,6 +10064,11 @@ main:has(> .orgbar.native-header) > .error {
 .hsof button.t-wonder { color: var(--tier-wonder); border-color: color-mix(in srgb, var(--tier-wonder) 45%, var(--line)); }
 .hsof button.t-wonder-full { color: var(--tier-wonder-full); border-color: color-mix(in srgb, var(--tier-wonder-full) 45%, var(--line)); }
 .hsof button.t-spark { color: var(--tier-spark); border-color: color-mix(in srgb, var(--tier-spark) 45%, var(--line)); }
+/* Hydrogen is near-white: on the light themes' white surfaces its hire button takes the same dark backing as the
+   tier chips, the pattern Wonder Full set below. */
+:root:is(.contrast-light, .contrast-solarized-light) .hsof button.t-hydrogen {
+  color: var(--tier-hydrogen); background: #313131;
+}
 /* Preserve Wonder Full's blue identity on light surfaces without painting
    pale blue text on their white inputs. Same dark backing as tier chips. */
 :root:is(.contrast-light, .contrast-solarized-light) :is(.tier.t-wonder-full, .hsof button.t-wonder-full) {

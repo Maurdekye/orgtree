@@ -190,7 +190,7 @@ test('§2 lineage rehire list: no "as krypton" row until the payload offers it',
 
 /* ── §3 an agent already on Krypton ───────────────────────────────────────── */
 
-test('§3 an agent already on Krypton keeps its own tier in the switch and its B token',
+test('§3 an agent already on Krypton keeps its own tier in the switch and its K token',
   async (t: TestContext) => {
     fresh(t)
     const cfg = await config(agent('krypton'), false)
