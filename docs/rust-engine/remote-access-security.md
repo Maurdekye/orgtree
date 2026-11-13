@@ -35,7 +35,7 @@ can end any computer's access at once.**
 
 | # | Threat | Answer | Where | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Someone on the internet reaches the door | It is bound to the Tailscale address and by choice the private-network address, each only when `classify` calls it that; never a public one, loopback or `0.0.0.0`. A peer at a public address is dropped unread. The door does not exist while nothing is shared | `lifecycle.rs` `plan`, `door.rs` `PeerRule` | **built** (`the_door_is_planned_at_the_tailscale_address...`, `the_door_stands_only_while_something_is_shared...`, `a_door_with_nowhere_to_stand...`, `the_door_takes_tailscale_peers...`, `a_peer_the_door_does_not_take...`). Windows Firewall rule: **planned** (Electron main) |
+| 1 | Someone on the internet reaches the door | It is bound to the Tailscale address and by choice the private-network address, each only when `classify` calls it that; never a public one, loopback or `0.0.0.0`. A peer at a public address is dropped unread. The door does not exist while nothing is shared | `lifecycle.rs` `plan`, `door.rs` `PeerRule` | **built** (`the_door_is_planned_at_the_tailscale_address...`, `the_door_stands_only_while_something_is_shared...`, `a_door_with_nowhere_to_stand...`, `the_door_takes_tailscale_peers...`, `a_peer_the_door_does_not_take...`). The Windows Firewall rules are no wider: Tailscale's addresses, and the local subnet on Private networks by the same choice (row 19) |
 | 2 | Someone on the tailnet or LAN guesses a token or code | Tokens are 256 random bits, codes 130; compared by hash in constant time; requests that show no known token are counted per address: 10 within a minute close the door to that address for a minute (429 to everything, a good token included) | `registry.rs`, `limiter.rs`, `admit` | **built** (`an_address_that_is_refused_too_often...`, `limiter::tests`) |
 | 3 | A code leaks (chat, screen share) | One use, 15 minutes, one organization; used up in the same write that makes the computer; the owner sees the new computer in the list and can revoke it; a code for an organization switched off opens nothing | `registry.rs` `redeem`, `admit` | **built** (`a_code_makes_exactly_one_computer...`, `a_code_runs_out...`, `a_code_for_an_organization_that_was_switched_off...`) |
 | 3a | A token (not a code) is pasted into another computer's Add dialog, so two computers would share one token | The connecting side never keeps what was pasted at a hosting desktop: it must be given a token of its own, and a member token can make none (`POST /api/standalone/clients` is a code's alone). Nothing is saved | `remote/mod.rs` `add` and `update`, `member.rs` | **built** (`a_desktop_adds_a_hosting_desktop_with_a_code...`) |
@@ -55,6 +55,7 @@ can end any computer's access at once.**
 | 16 | The traffic is read on the wire | On Tailscale the tunnel encrypts it. On a private network plain http is not encrypted; it is off unless the owner chose it, each address the door stands at says `encrypted`, and the connecting side labels the transport | `lifecycle.rs` `status`, the registry's `lan` | choice and status **built**; the words in the windows **planned** (renderer) |
 | 17 | A broken or tampered registry file admits someone | A file that does not validate as a whole admits nobody; it is set aside and the registry starts empty | `registry.rs` `read` | **built** (`the_registry_survives_a_restart_and_a_broken_file...`) |
 | 18 | A member's requests are attributed to the owner | Every member request runs with the member's origin (phase E), so what it does is recorded as its own | `admit` returns the origin | **built** for the origin (`a_member_reads_names...` reads `you`); events for connect, revoke and codes **planned** |
+| 19 | Adding the firewall rules opens more than the door needs, or something makes the desktop add a rule for another program or run other text as administrator | The elevated script is made in main from three things: a port main checked (an integer, 1024 to 65535), a boolean, and the engine's program as main itself finds it, quoted as PowerShell quotes. The page sends the port and the boolean and nothing else. Each rule is inbound TCP for that one port and that one program, with remote addresses limited to Tailscale's, or to the local subnet on Private networks. Without the engine's program nothing is added. The engine never changes the firewall: its read is a constant script of `Get-` commands that no request's text enters, run for the owner only | `apps/desktop/main/remotefirewall.ts`, `main/index.ts` (`desktop:remote-access-firewall`), `remote_access/firewall.rs` | **built** (`tests/remote-access-firewall.test.mjs`; `firewall::tests`, `the_owner_is_told_whether_windows_firewall...`) |
 
 ## Where the door listens
 
@@ -66,9 +67,12 @@ can end any computer's access at once.**
   readings that agree. When the door leaves an address, every member connection is ended.
 - A rig run binds loopback only, in a debug build, and only the address the run names. No unit test
   reads the computer's addresses.
-- Not built yet: the Windows Firewall rule (added by Electron main with one elevation prompt, remote
-  addresses limited as for the phone door) and the engine reading it back. Until then Windows asks, or
-  blocks, by its own defaults when the door is first bound.
+- Windows Firewall: two rules, added by the desktop behind one administrator prompt and only read by
+  the engine ([remote-org](remote-org.md#the-firewall-rules)). `Orgtree remote access` lets
+  Tailscale's addresses reach the door's port; `Orgtree remote access (private network)`, only with
+  that choice, lets the local subnet reach it on networks Windows calls Private. Both are for the
+  engine's program alone. The windows are to add the rules before the first switch goes on (not
+  built yet), so the door is never bound first and left to Windows' own "allow this app?" question.
 
 ## Token lifecycle
 
@@ -95,6 +99,8 @@ can end any computer's access at once.**
 - `remote_access/member.rs`: the lists. `ORG` is the routes a member has; reading it top to bottom is
   the fastest way to see what "the whole organization" means.
 - `client_tokens/transport.rs` `Connection::door`: set in `door.rs` `accept` and nowhere else.
+- `apps/desktop/main/remotefirewall.ts` `remoteFirewallScript`: the only text of this feature that
+  runs as administrator, 15 lines. `remote_access/firewall.rs` `script`: the engine's read.
 
 ## Known and accepted
 
@@ -110,3 +116,8 @@ can end any computer's access at once.**
   computer's name in the list.
 - The door answers `403` to a wrong token and `404` outside `/api/`, so a port scan can tell an
   Orgtree door from nothing.
+- What the engine says about the firewall is a help, not a guard. It judges the two rules by name,
+  port, program and whether they are on. It does not see a rule changed by hand to other addresses,
+  a blocking rule (which Windows puts before any allowing one), Windows Firewall switched off, or
+  another firewall product. The door's own rules (where it is bound, which peers it takes, the
+  tokens) do not depend on any of it.

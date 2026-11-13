@@ -492,9 +492,10 @@ it is in `remote_access/`. The security notes an independent reader needs are in
 
 Built so far: the door's listener and guard, the registry (the switch of each organization, the
 port, the computers and the one-time codes), the member route table, the owner's routes and the limit
-on refused tokens, where the door stands and when, what a member is sent, and the connecting side
-(a desktop adds a hosting desktop with a code). Not built yet: the firewall rule and the windows.
-Nothing in the app can turn a switch on yet, so a running app still opens no door.
+on refused tokens, where the door stands and when, what a member is sent, the connecting side
+(a desktop adds a hosting desktop with a code), and the Windows Firewall rules (added by the desktop,
+read back by the engine). Not built yet: the windows. Nothing in the app can turn a switch on yet, so
+a running app still opens no door and asks for no rule.
 
 ### The door
 
@@ -561,6 +562,47 @@ engine says about itself: `GET /api/host` answers `mode: "host"` at a door.
 - A rig run never listens beyond this computer: the door goes to the loopback address
   `ORGTREE_RIG_REMOTE_DOOR` names, in a debug build, or nowhere. A unit test never asks the computer
   for its addresses at all: it goes by the reading it fixed (`Doors::fix`).
+
+### The firewall rules
+
+Windows Firewall lets nobody reach a new listener by itself, so the door needs rules. There are two,
+both inbound, TCP, for the door's port and for the engine's program only:
+
+| Rule | Remote addresses | Profile | When |
+| --- | --- | --- | --- |
+| `Orgtree remote access` | Tailscale's (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) | any | always |
+| `Orgtree remote access (private network)` | `LocalSubnet` | Private | only with the private-network choice |
+
+They are two because one rule has one profile: the private network's rule must not hold on a network
+Windows calls Public, and Tailscale's must hold whatever Windows calls its adapter. They are separate
+from the phone door's rule (`Orgtree phone access`), so turning one off never takes the other's.
+
+- **Adding and removing is the desktop's**, behind one administrator prompt
+  (`apps/desktop/main/remotefirewall.ts`, as `phonefirewall.ts` does for the phone door): the engine
+  may run where there is no desktop to show a prompt on. The page says the port and the choice
+  (`desktop:remote-access-firewall {port, lan}`; the bridge's `addRemoteAccessFirewallRule`); main
+  checks them (an integer from 1024 to 65535, a boolean) and finds the engine's program itself, the way
+  the launch does. Without that program nothing is added: there is never a rule for every program. The
+  script removes the door's earlier rules first, so a changed port or choice leaves nothing of the old
+  one. `removeRemoteAccessFirewallRule` removes both.
+- **The engine only reads** (`remote_access/firewall.rs`): one PowerShell whose every command is a
+  `Get-`, for the two names. `door.firewall` in the owner's answers is `{state, present}`. `state` is
+  `none` (not Windows), `unknown` (not read yet, or it could not be read: nothing is claimed), `ok`,
+  or `missing`: the door, as the owner chose it, is not let in, which the windows show as "Windows
+  Firewall is blocking this" with **Allow**. A rule lets the door in when it is enabled, inbound,
+  allowing, for exactly the door's port and for this engine's own program (two ways of writing one
+  file's path are one program); Tailscale's rule is always wanted, the private network's when that was
+  chosen. The rule's addresses and profile are not judged: a rule changed by hand is its owner's.
+  `present` says a rule of the door's is there at all, so it can be offered for removal once nothing is
+  shared.
+- **When it is read.** Never on a timer: a reading starts a process. `GET /api/remote-access` and
+  `GET .../orgs/{slug}` answer what is known and, when that is older than 30 s, read again behind the
+  answer and push `remote_access` if it changed. With `?fresh=1` the answer waits for a reading: the
+  app asks so right after it added or removed a rule. Turning a switch on reads before it answers,
+  because the desktop adds the rules just before it asks for the switch. A changed port or choice
+  needs no reading: what is known is judged against what the door needs now.
+- A unit test reads nothing of the computer (`Firewall::fix`), and a rig run reads the file
+  `rig-home\rig-firewall\remote-access.txt` (what the read would print) instead of the firewall.
 
 ### The registry
 
@@ -698,6 +740,7 @@ shared on.
 | `PUT /api/remote-access {"port"?, "lan"?}` | the door's port (1024 to 65535) and the private-network choice |
 | `POST /api/remote-access/stop` | every switch off, every connection ended, every open code taken back; the computers' records stay |
 | `GET /api/remote-access/orgs/{slug}` | `on`, `door`, `computers` (that have it), `known` (computers of other organizations, which can be given this one), `invitations` (id and times, never a code), `limits` |
+| either `GET` with `?fresh=1` | the same, after Windows Firewall was read again ("The firewall rules" above) |
 | `PUT /api/remote-access/orgs/{slug} {"on"}` | the switch. Turning it on is 409 with the reason while the door would have nowhere to stand |
 | `POST /api/remote-access/orgs/{slug}/invitations` | a one-time code: `id`, `code`, `created_at`, `expires_at`, `minutes`. 409 while the switch is off |
 | `DELETE /api/remote-access/orgs/{slug}/invitations/{id}` | take a code back |
@@ -744,6 +787,18 @@ connecting side, with two engines: what is not a code makes nothing and is not k
 another computer's token E18), a code makes this desktop's own member token and is used up, the link
 lists what was given, a relayed request reaches the hosting desktop, a second organization arrives, a
 switched-off one answers E16 through the relay, and removing the connection removes the record there.
+The firewall rules: the read as PowerShell prints it, which rules let the door in, that the read only
+reads, the engine's own program however its path is written (`firewall::tests`), and through the
+owner's routes: nothing claimed before a reading, the reading behind the answer, `?fresh=1`, the
+private-network choice and a changed port judged at once, an unreadable firewall, a member refused
+without a reading, and the switch reading before it answers.
+
+`node tests/run.mjs tests/remote-access-firewall.test.mjs` (the desktop's side): the exact script for
+each choice (port, program, remote addresses, profile, the old rules removed first), that no rule is
+for every address or every program, the quoting of a program's path, a port the door may not have,
+removal, one prompt and what it came to (allowed, declined, failed, no engine program) with a recorder
+in place of the prompt, that PowerShell parses both scripts, that the engine knows the rules by the
+same names, and what main takes from the page. It never changes this computer's firewall.
 
 ## Desktop
 
@@ -783,6 +838,10 @@ The renderer (`src/remotes.ts`, `src/shell/remotes.tsx`) reads the same `remotes
 
 Tests: `tests/remote-org-window-header.test.mjs` (main), `apps/desktop/renderer/tests/remoteorg.test.tsx`
 and `remotedraft.test.tsx`.
+
+For a hosting desktop, main adds and removes the door's Windows Firewall rules
+(`main/remotefirewall.ts`, "The firewall rules" above; `tests/remote-access-firewall.test.mjs`). The
+windows that use it are not built yet.
 
 ## Rig proof
 

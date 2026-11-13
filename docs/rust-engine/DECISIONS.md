@@ -2539,7 +2539,9 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     member route table, the owner's routes, the limit on refused tokens, where the door stands and
     when (Tailscale's address, the private network's by choice, never a public one), and what a
     member is sent (an app feed of its organizations only; no e-mail address of the owner in a
-    list; `remote_access/`), and the connecting side (a hosting desktop is added with a one-time
-    code; what was pasted is never kept). Nothing in the app turns a switch on yet. Contract:
+    list; `remote_access/`), the connecting side (a hosting desktop is added with a one-time
+    code; what was pasted is never kept), and the door's Windows Firewall rules (added by the
+    desktop behind one prompt, for the engine's program, Tailscale's addresses and by choice the
+    private network; the engine only reads them). Nothing in the app turns a switch on yet. Contract:
     [remote-org](remote-org.md#a-desktop-as-host); what a reviewer needs:
     [remote-access-security](remote-access-security.md).
