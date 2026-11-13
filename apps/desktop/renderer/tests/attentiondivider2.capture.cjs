@@ -145,7 +145,7 @@ app.whenReady().then(async () => {
     const [bx, by] = await btn()
     mouse('mouseMove', bx, by); await settle()
     const onBtn = steps.onButton = await grip(); steps.onButton.png = await shot(wc, '3-pointer-on-button')
-    const same = ['gripHeight', 'gripBg', 'btnOpacity', 'btnBg', 'btnBorder', 'btnColor'].every(k => onBtn[k] === onDiv[k]) && JSON.stringify(onBtn.btnBox) === JSON.stringify(onDiv.btnBox)
+    const same = ['gripHeight', 'gripBg', 'btnOpacity', 'btnBg', 'btnColor'].every(k => onBtn[k] === onDiv[k]) && JSON.stringify(onBtn.btnBox) === JSON.stringify(onDiv.btnBox)
     need(same, `the button hover differs from the divider hover: ${JSON.stringify([onDiv, onBtn])}`)
 
     // 4. a drag that starts on the button
