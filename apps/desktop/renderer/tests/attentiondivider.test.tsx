@@ -111,8 +111,8 @@ async function mounted(t: { after: (fn: () => void | Promise<void>) => void }) {
     left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800, x: 0, y: 0,
     toJSON: () => ({}),
   }) as DOMRect
-  const point = (type: string, clientX: number) => inAct(() => {
-    const divider = q('.attn-divider')!
+  const point = (type: string, clientX: number, selector = '.attn-divider') => inAct(() => {
+    const divider = q(selector)!
     divider.setPointerCapture = () => {}
     divider.releasePointerCapture = () => {}
     const e = new window.MouseEvent(type, { bubbles: true, clientX, button: 0 })
@@ -190,6 +190,43 @@ test('a press on the divider without a move changes nothing', async (t) => {
   await point('pointerdown', 3)
   await point('pointerup', 3)
   assert.equal(seen().hidden, 'left')
+})
+
+// USER 2026-11-13 mb445dc041229: a drag starting on Swap panels resizes.
+test('dragging from the Swap panels button moves the divider without swapping', async (t) => {
+  reset()
+  const { point, swap } = await mounted(t)
+  await point('pointerdown', 380, '.attn-swap')
+  await point('pointermove', 300, '.attn-swap')
+  await point('pointerup', 300, '.attn-swap')
+  await swap() // the browser's click following pointerup must be suppressed
+  assert.equal(Number(q('.attn-divider')!.getAttribute('aria-valuenow')), 30)
+  assert.ok(near(seen().split, 0.3))
+  assert.equal(seen().swapped, false)
+})
+
+test('dragging from the Swap panels button within 10% of the edge hides the left panel', async (t) => {
+  reset()
+  const { point, swap } = await mounted(t)
+  await point('pointerdown', 380, '.attn-swap')
+  await point('pointermove', 60, '.attn-swap')
+  await point('pointerup', 60, '.attn-swap')
+  await swap()
+  assert.deepEqual([seen().hidden, seen().queue, seen().desk], ['left', false, true])
+  assert.equal(Number(q('.attn-divider')!.getAttribute('aria-valuenow')), 0)
+  assert.equal(seen().swapped, false)
+})
+
+test('a 2px move on the Swap panels button still clicks without moving the divider', async (t) => {
+  reset()
+  const { point, swap } = await mounted(t)
+  await point('pointerdown', 380, '.attn-swap')
+  await point('pointermove', 382, '.attn-swap')
+  await point('pointerup', 382, '.attn-swap')
+  await swap()
+  assert.equal(seen().swapped, true)
+  assert.equal(Number(q('.attn-divider')!.getAttribute('aria-valuenow')), 62)
+  assert.ok(near(seen().split, 0.62), 'swap preserves the physical divider position')
 })
 
 // --------------------------------------------------------------- 4: keyboard
