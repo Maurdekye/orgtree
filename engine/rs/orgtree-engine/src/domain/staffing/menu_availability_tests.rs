@@ -2,7 +2,7 @@ use super::*;
 use crate::accounts::{AccountInfo, Accounts};
 use crate::providers::{CliStatus, State, MuseDiscovery, muse_models::{MuseProbe, MuseCatalog, MuseModel}};
 
-const SAMPLES: [(&str, &str); 6] = [("claude", "opus"), ("openai", "sol"), ("google", "flash"),
+const SAMPLES: [(&str, &str); 6] = [("claude", "opus"), ("openai", "sol"), ("google", "argon"),
     ("muse", "wonder"), ("openrouter", "or-fixture"), ("langserver", "ls-fixture-model")];
 
 fn account(provider: &str, id: &str) -> AccountInfo {
@@ -32,6 +32,8 @@ fn fixture() -> (Arc<Engine>, String) {
             id: catalog::model_for("wonder", None), is_default: true, variants: vec!["high".into()],
             default_effort: None, context: None, output: None, account_row: true }] }), ..Default::default() } });
     e.providers.state.store(Arc::new(st));
+    // every Gemini tier is conditional or legacy since Flash went legacy (2026-11-13): the fixture's agy lists Argon
+    crate::providers::list_agy_models_for_tests(&e, &["gemini-4-argon"]);
     (e, format!("menu-{}", uuid::Uuid::new_v4()))
 }
 fn offers(e: &Engine, org: &str, tier: &str) -> bool {
@@ -53,7 +55,7 @@ macro_rules! off_case { ($name:ident, $provider:literal, $tier:literal) => {
 }; }
 off_case!(claude_org_off, "claude", "opus");
 off_case!(codex_org_off, "openai", "sol");
-off_case!(agy_org_off, "google", "flash");
+off_case!(agy_org_off, "google", "argon");
 off_case!(muse_org_off, "muse", "wonder");
 off_case!(openrouter_org_off, "openrouter", "or-fixture");
 off_case!(langserver_org_off, "langserver", "ls-fixture-model");
@@ -70,6 +72,22 @@ off_case!(langserver_org_off, "langserver", "ls-fixture-model");
         crate::org_accounts::set(&org, Default::default());
         assert!(hidden, "org allowance cannot override an app-disabled account: {provider}");
     }
+}
+
+/// Flash is legacy (user 2026-11-13 "Now"): staffing offers it to nobody, while a template that names it as a
+/// fallback can still place it (`legacy_option`), and nothing else comes back that way.
+#[test] fn legacy_flash_is_not_offered_but_stays_placeable_for_templates() {
+    let (e, org) = fixture();
+    assert!(!offers(&e, &org, "flash"), "Flash left the staffing options");
+    assert!(!options(&e, &org)["tiers"].as_array().unwrap().iter().any(|t| t["tier"] == "flash" || t["tier"] == "pro"));
+    let flash = legacy_option(&e, &org, "flash").expect("an installed, enabled Antigravity can still run Flash");
+    assert_eq!((flash["tier"].as_str(), flash["seat"].as_f64(), flash["provider"].as_str()), (Some("flash"), Some(1.0), Some("google")));
+    for never in ["pro", "gpt-reserve", "argon", "opus", "hydrogen", "nonsense"] {
+        assert!(legacy_option(&e, &org, never).is_none(), "{never}");
+    }
+    let mut st = (*e.providers.state.load_full()).clone(); st.agy.installed = false;
+    e.providers.state.store(Arc::new(st));
+    assert!(legacy_option(&e, &org, "flash").is_none(), "no Antigravity, no Flash");
 }
 
 #[test] fn absent_native_harnesses_are_not_offered() {

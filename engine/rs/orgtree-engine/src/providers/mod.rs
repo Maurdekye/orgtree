@@ -1627,6 +1627,27 @@ mod conditional_tests {
 }
 
 #[cfg(test)]
+mod hydrogen_tests {
+    use super::*;
+
+    #[test]
+    fn hydrogen_is_offered_only_while_agy_lists_it_and_flash_leaves_the_payload_rows() {
+        let other: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon-high"].map(String::from).to_vec();
+        assert!(!agy_offers("hydrogen", &other) && !agy_offers("hydrogen", &[]));
+        for listed in ["gemini-4-hydrogen", "gemini-4-hydrogen-high", "gemini-4-hydrogen-low"] {
+            assert!(agy_offers("hydrogen", &[listed.to_string()]), "{listed}");
+        }
+        assert!(!agy_offers("hydrogen", &["gemini-4-hydrogenated".to_string()]));
+        // the rows the desktop lists: Hydrogen is a current row, Flash only with legacy asked for
+        let current = tier_rows(catalog::GOOGLE, false);
+        assert!(current.iter().any(|r| r["tier"] == "hydrogen" && r["seat"] == 1.0 && r["letter"] == "H"
+            && r["model"] == "gemini-4-hydrogen" && r["display_name"] == "Gemini Hydrogen 4"));
+        assert!(!current.iter().any(|r| r["tier"] == "flash"), "Flash is behind Show legacy models");
+        assert!(tier_rows(catalog::GOOGLE, true).iter().any(|r| r["tier"] == "flash"));
+    }
+}
+
+#[cfg(test)]
 mod muse_offer_tests {
     use super::*;
 

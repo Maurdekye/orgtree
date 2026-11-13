@@ -724,6 +724,27 @@ pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
 }
 
 #[cfg(test)]
+mod hydrogen_cost_tests {
+    use super::request_cost;
+
+    /// Hydrogen's price is an ESTIMATE until Google publishes it (user 2026-11-13 md16909f83245 "Estimate"):
+    /// $1.50 per million input as the user gave it, cached at the usual tenth, output guessed at Flash's 5x ratio.
+    #[test]
+    fn hydrogen_turns_are_priced_at_the_estimate() {
+        let million = 1_000_000;
+        assert!((request_cost("gemini-4-hydrogen", million, 0, 0) - 1.50).abs() < 1e-9);
+        assert!((request_cost("gemini-4-hydrogen", 0, million, 0) - 0.15).abs() < 1e-9);
+        assert!((request_cost("gemini-4-hydrogen", 0, 0, million) - 7.50).abs() < 1e-9);
+        assert!((request_cost("gemini-4-hydrogen-high", million, 0, 0) - 1.50).abs() < 1e-9, "an effort-suffixed id is the same model");
+        // no long-context surcharge is known for it, and the others are unchanged
+        assert!((request_cost("gemini-4-hydrogen", 300_000, 0, 0) - 0.45).abs() < 1e-9);
+        assert!((request_cost("gemini-3.8-flash", million, 0, 0) - 0.75).abs() < 1e-9);
+        assert!((request_cost("gemini-4-carbon", million, 0, 0) - 4.00).abs() < 1e-9);
+        assert!((request_cost("gemini-4-carbon", 100_000, 0, 0) - 0.20).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
 mod workspace_notes_tests {
     use super::*;
 

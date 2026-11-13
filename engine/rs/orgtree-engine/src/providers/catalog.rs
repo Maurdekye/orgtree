@@ -482,7 +482,7 @@ mod effort_tests {
         // `gemini-4-carbon-medium` id and the "Gemini 4 Carbon (Medium)" label (static inspection, see argon-effort.md)
         assert_eq!(crate::providers::effort_names(&state, "carbon"), Some(v(&["low", "medium", "high"])));
         assert_eq!(antigravity_effort("carbon", "medium"), "medium");
-        for tier in ["pro", "krypton"] {
+        for tier in ["pro", "krypton", "hydrogen"] {
             assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "high"])), "{tier}");
         }
         for tier in ["flash", "agy-sonnet", "agy-opus"] {
@@ -509,6 +509,26 @@ mod effort_tests {
         }
         for unchanged in ["argon", "krypton", "pro"] {
             assert_eq!(seat_price(unchanged), 2.0, "{unchanged}");
+        }
+    }
+
+    /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
+    /// real turn): a conditional Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces.
+    /// Flash (user 2026-11-13 md16909f83245 "Now") is legacy: known, placed by name, offered by no list.
+    #[test]
+    fn hydrogen_is_a_conditional_gemini_tier_and_flash_is_legacy() {
+        let h = tier("hydrogen").expect("hydrogen");
+        assert_eq!((h.provider, h.model, h.letter, h.seat, h.conditional, h.legacy), (GOOGLE, "gemini-4-hydrogen", "H", 1.0, true, false));
+        assert_eq!(h.seat, crate::openrouter::seat_for(1.5), "the standing input-price seat rule");
+        assert_eq!(display_name(h, None).as_deref(), Some("Gemini Hydrogen 4"));
+        assert_eq!((antigravity_pool("hydrogen"), antigravity_own_bucket("hydrogen")), ("gemini", Some("hydrogen")));
+        assert_eq!(antigravity_effort("hydrogen", "medium"), "high", "medium waits for a -medium id in agy's list");
+        let f = tier("flash").expect("flash stays a known tier: seats on it keep their letter, colour and price");
+        assert!(f.legacy && !f.conditional);
+        assert_eq!((f.seat, f.model), (1.0, "gemini-3.8-flash"));
+        assert!(cost_is_estimate("hydrogen"));
+        for measured in ["flash", "argon", "carbon", "krypton", "pro", "opus", "sol"] {
+            assert!(!cost_is_estimate(measured), "{measured}");
         }
     }
 
@@ -572,14 +592,16 @@ mod effort_tests {
         assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
         // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads
-        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "agy-sonnet", "flash"]);
+        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "agy-sonnet", "flash", "hydrogen"]);
         assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
         // what a person sees: legacy and not-yet-listed models are hidden
         let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {
             listed().iter().filter(|t| t.provider == p && !t.legacy && (!t.conditional || conditional.contains(&t.tier)))
                 .map(|t| t.tier).collect()
         };
-        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "flash"]);
+        // Flash is legacy since Hydrogen (user 2026-11-13): no Gemini model is listed until agy offers one
+        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet"]);
+        assert_eq!(seen(GOOGLE, &["hydrogen"]), ["hydrogen"]);
         assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "terra", "luna"]);
         // the rule itself, so a tier added later orders itself
         for p in [CLAUDE, OPENAI, GOOGLE, MUSE] {
