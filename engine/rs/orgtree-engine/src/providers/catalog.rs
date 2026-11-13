@@ -542,10 +542,16 @@ mod effort_tests {
     /// nothing was run): it carries the id `gemini-4-hydrogen-xhigh` and the label "Gemini 4 Hydrogen (XHigh)",
     /// the only `-xhigh` model id in it, and its `--effort` help reads "(low|medium|high|xhigh|max)". So xhigh is
     /// asked for as every Gemini effort is: `--model gemini-4-hydrogen --effort xhigh`.
+    /// Medium (user m293bedc7db68 "add medium, and add it for carbon"): the same CLI names
+    /// `gemini-4-hydrogen-medium` and "Gemini 4 Hydrogen (Medium)". Carbon's medium is pinned in
+    /// `argon_effort_picker_offers_medium_without_widening_other_tiers`.
     #[test]
     fn hydrogen_offers_xhigh_and_the_launch_asks_for_it_by_name() {
         let state = crate::providers::State::default();
-        assert_eq!(crate::providers::effort_names(&state, "hydrogen"), Some(v(&["low", "high", "xhigh"])));
+        assert_eq!(crate::providers::effort_names(&state, "hydrogen"), Some(v(&["low", "medium", "high", "xhigh"])));
+        assert_eq!(crate::providers::effort_names(&state, "carbon"), Some(v(&["low", "medium", "high"])));
+        assert_eq!(antigravity_effort("hydrogen", "medium"), "medium");
+        assert_eq!(antigravity_model("hydrogen", "gemini-4-hydrogen", "medium"), "gemini-4-hydrogen");
         assert_eq!(antigravity_effort("hydrogen", "xhigh"), "xhigh");
         assert_eq!(antigravity_model("hydrogen", "gemini-4-hydrogen", "xhigh"), "gemini-4-hydrogen", "the effort is a flag, not an id suffix");
         // a level above its highest becomes its highest, which is xhigh here and high everywhere else
@@ -553,6 +559,8 @@ mod effort_tests {
         for (saved, sent) in [("low", "low"), ("high", "high"), ("none", "low"), ("minimal", "low")] {
             assert_eq!(antigravity_effort("hydrogen", saved), sent, "{saved}");
         }
+        // medium stays off the two models the CLI names no -medium id for
+        for tier in ["pro", "krypton"] { assert_eq!(antigravity_effort(tier, "medium"), "high", "{tier}"); }
         // no other Antigravity model gains it: the CLI names no other -xhigh id
         for tier in ["flash", "argon", "carbon", "krypton", "pro", "agy-opus", "agy-sonnet"] {
             assert_eq!(antigravity_effort(tier, "xhigh"), "high", "{tier}");
@@ -569,7 +577,6 @@ mod effort_tests {
         assert_eq!(h.seat, crate::openrouter::seat_for(1.5), "the standing input-price seat rule");
         assert_eq!(display_name(h, None).as_deref(), Some("Gemini Hydrogen 4"));
         assert_eq!((antigravity_pool("hydrogen"), antigravity_own_bucket("hydrogen")), ("gemini", None));
-        assert_eq!(antigravity_effort("hydrogen", "medium"), "high", "medium is not offered: the user named low, high and xhigh");
         let f = tier("flash").expect("flash stays a known tier: seats on it keep their letter, colour and price");
         assert!(f.legacy && !f.conditional);
         assert_eq!((f.seat, f.model), (1.0, "gemini-3.8-flash"));
