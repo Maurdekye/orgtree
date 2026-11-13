@@ -17,7 +17,7 @@ assert.equal(sid(process.pid), 0, 'Session 0 required before creating a window')
 fs.mkdirSync(out, { recursive: true })
 for (const stale of ['failure.json', 'results.json']) fs.rmSync(path.join(out, stale), { force: true })
 app.setPath('userData', path.join(out, 'profile-' + process.pid)); app.setPath('sessionData', path.join(out, 'session-' + process.pid))
-app.disableHardwareAcceleration(); app.commandLine.appendSwitch('mute-audio')
+app.disableHardwareAcceleration(); app.commandLine.appendSwitch('mute-audio'); app.commandLine.appendSwitch('blink-settings', 'primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4')
 let clipboardCalls = 0
 for (const k of Object.keys(clipboard)) if (typeof clipboard[k] === 'function') clipboard[k] = () => { clipboardCalls++; return k === 'availableFormats' ? [] : k === 'has' ? false : '' }
 const within = async (p, ms, what) => { let t; try { return await Promise.race([p, new Promise((_r, j) => { t = setTimeout(() => j(Error('Deadline: ' + what)), ms) })]) } finally { clearTimeout(t) } }
@@ -118,6 +118,9 @@ app.whenReady().then(async () => {
     await until(() => js("!!document.querySelector('.attn-divider') && !!document.querySelector('.attn-panel-desk')"), 'the Attention view')
     await settle()
     const problems = [], steps = {}
+    // a hidden off-screen Chromium may report (hover: none), which would pin the button visible: ask for a hovering device
+    try { wc.debugger.attach('1.3'); await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'hover', value: 'hover' }, { name: 'pointer', value: 'fine' }] }) } catch (e) { errors.push('emulate: ' + e) }
+    steps.hoverNone = await js("matchMedia('(hover: none)').matches")
     W = await js('innerWidth')          // an off-screen window is the size Chromium gives it
     const need = (ok, what) => { if (!ok) problems.push(what) }
     const vis = s => !!s && !s.hiddenClass && !s.inert && Number(s.opacity) > 0.99

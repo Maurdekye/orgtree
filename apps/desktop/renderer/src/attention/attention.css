@@ -205,6 +205,12 @@
 .attn-swap:focus-visible,
 .attn-dragging .attn-swap { opacity: 1; }
 @media (hover: none) { .attn-swap { opacity: 1; } }
+/* ONE look, hovered or not: the app-wide `button:hover` (background, accent
+ * border) must not give the button its own hover. The id-in-:not() only wins
+ * the specificity contest against that rule's long :not() chain. */
+button.attn-swap:not(#attn-swap-one-look):hover {
+  background: var(--panel); border-color: var(--line); color: var(--dim);
+}
 .attn-divider:has(+ .attn-swap-anchor:hover) .attn-divider-grip {
   background: var(--accent, var(--line-hover));
   height: 78px;
