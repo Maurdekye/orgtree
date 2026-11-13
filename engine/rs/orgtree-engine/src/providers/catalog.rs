@@ -78,9 +78,10 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "krypton", provider: GOOGLE, seat: 2.0, model: "gemini-4-krypton",
         versions: &[("4", "gemini-4-krypton")], letter: "K",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    // speculative Gemini 4 Carbon (user 2026-10-10): a copy of Krypton, offered
-    // only while the account's `agy models` lists it
-    Tier { tier: "carbon", provider: GOOGLE, seat: 2.0, model: "gemini-4-carbon",
+    // Gemini 4 Carbon (speculative 2026-10-10, confirmed on a real turn 2026-11-11): offered only while the
+    // account's `agy models` lists it. Seat 4 by the user's ruling (2026-11-12 m18bc0505e597 "change carbon's
+    // credit cost to 4"), no longer the placeholder 2 copied from Pro; seats hired at 2 keep it until rehired.
+    Tier { tier: "carbon", provider: GOOGLE, seat: 4.0, model: "gemini-4-carbon",
         versions: &[("4", "gemini-4-carbon")], letter: "C",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
     Tier { tier: "agy-sonnet", provider: GOOGLE, seat: 2.0, model: "claude-sonnet-5-5-high",
