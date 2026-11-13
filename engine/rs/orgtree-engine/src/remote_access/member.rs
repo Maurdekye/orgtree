@@ -129,11 +129,27 @@ pub const ORG: &[&str] = &[
 ];
 
 /// Read only: `GET` (and `HEAD`), no other method. The organization itself is
-/// here because deleting it is its owner's alone.
+/// here because deleting it is its owner's alone. The app feed is the one made
+/// for a member (`appfeed::Audience::Member`). The app-wide reads are what a
+/// window of an organization needs to offer tiers, accounts, skills, charters,
+/// templates and folders; each answer passes `shown::answer`, which takes the
+/// owner's e-mail addresses and every mention of another organization out.
 pub const READ: &[&str] = &[
     "/api/orgs/{slug}",
     "/api/desktop/alive",
     "/api/host",
+    "/api/app/records",
+    "/api/app/ws",
+    "/api/providers",
+    "/api/accounts",
+    "/api/harnesses",
+    "/api/skills",
+    "/api/charters",
+    "/api/templates",
+    "/api/defaults",
+    "/api/mcp-servers",
+    "/api/fs",
+    "/api/markdown-image",
 ];
 
 /// The member's own client record: read it, set its label, delete it. `{id}`
@@ -181,8 +197,6 @@ pub const REFUSED: &[&str] = &[
     "/api/diagnostics/ui-open",
     "/api/crash-reports",
     "/api/diagnostics/engine-stats",
-    "/api/app/records",
-    "/api/app/ws",
     "/api/mcp",
     "/api/orgs/{slug}/mcp",
     "/api/remotes",
@@ -198,15 +212,12 @@ pub const REFUSED: &[&str] = &[
     "/api/remote-access/orgs/{slug}/computers/{id}",
     "/api/remote-access/computers/{id}",
     "/api/orgs",
-    "/api/defaults",
     "/api/app-settings/runtime",
     "/api/app-settings/live-feed/agents",
     "/api/app-settings/live-feed/tokens",
     "/api/app-settings/live-feed/tokens/{id}",
     "/api/app-settings/instructions",
     "/api/app-settings/charter-template-dirs",
-    "/api/providers",
-    "/api/accounts",
     "/api/accounts/readout",
     "/api/accounts/keys",
     "/api/accounts/keys/{id}",
@@ -239,7 +250,6 @@ pub const REFUSED: &[&str] = &[
     "/api/openrouter/keys/{id}",
     "/api/openrouter/models",
     "/api/openrouter/favorites",
-    "/api/harnesses",
     "/api/langservers",
     "/api/langservers/usage",
     "/api/langservers/probe",
@@ -250,22 +260,16 @@ pub const REFUSED: &[&str] = &[
     "/api/providers/{provider}/enabled",
     "/api/providers/{provider}/apikey-fallback",
     "/api/providers/{provider}/subscription-inference",
-    "/api/mcp-servers",
     "/api/mcp-servers/refresh",
     "/api/global-instructions/refresh",
-    "/api/skills",
     "/api/skills/refresh",
-    "/api/charters",
     "/api/charters/populate",
     "/api/charters/open",
     "/api/charters/{name}",
-    "/api/templates",
     "/api/templates/populate",
     "/api/templates/open",
     "/api/templates/resolve",
     "/api/orgs/{slug}/template",
-    "/api/fs",
-    "/api/markdown-image",
     "/api/rig/tool",
     "/api/rig/hub-mail",
 ];

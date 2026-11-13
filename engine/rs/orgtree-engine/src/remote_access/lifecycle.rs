@@ -376,6 +376,8 @@ fn presence(engine: &Arc<Engine>) -> bool {
 #[nolog]
 pub fn publish(engine: &Engine) {
     engine.app.set_value("remote_access", super::api::overview_of(engine));
+    // and each computer that is connected is sent what it may open now
+    engine.app.members_changed();
 }
 
 /// The loop. A desktop only: a standalone engine has no door of this kind.

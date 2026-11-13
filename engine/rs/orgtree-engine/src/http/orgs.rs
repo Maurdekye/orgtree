@@ -120,10 +120,11 @@ pub async fn compatibility() -> ApiError {
 
 // App snapshots include private notification previews.
 #[nolog]
-pub async fn app_records(State(e): State<Arc<Engine>>, headers: axum::http::HeaderMap) -> ApiResult<Json<Value>> {
-    // a window of a remote engine gets the composed snapshot (appfeed.rs)
-    let remote = crate::remote::relay::window(&e, &headers).map(|remote| remote.id.clone());
-    Ok(Json(e.app.snapshot_for(remote).await.ok_or_else(|| ApiError::unavailable("app feed unavailable"))?))
+pub async fn app_records(State(e): State<Arc<Engine>>, headers: axum::http::HeaderMap,
+                         scope: Option<axum::Extension<crate::client_tokens::Scope>>) -> ApiResult<Json<Value>> {
+    // a window of a remote engine gets the composed snapshot, a computer that was let in the one made for it (appfeed.rs)
+    let audience = crate::appfeed::Audience::of(&e, &headers, scope.as_ref().map(|scope| &scope.0));
+    Ok(Json(e.app.snapshot_for(audience).await.ok_or_else(|| ApiError::unavailable("app feed unavailable"))?))
 }
 
 /// A pending updater maintenance request, if any (see `/api/desktop/maintenance/*`).

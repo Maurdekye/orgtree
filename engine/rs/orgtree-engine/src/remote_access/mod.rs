@@ -31,6 +31,7 @@ pub mod lifecycle;
 pub mod limiter;
 pub mod member;
 pub mod registry;
+pub mod shown;
 pub mod text;
 #[cfg(test)]
 mod tests;
@@ -117,6 +118,15 @@ pub fn org_deleted(engine: &Engine, org_uuid: &str) {
     if let Err(error) = engine.access.registry.set_open(org_uuid, false) {
         tracing::warn!(error = %error.detail, "remote access of a deleted organization could not be switched off");
     }
+}
+
+/// The organizations a computer that was let in may open now: the ones it was given whose
+/// switch is on. Nothing for a computer that is not known (any more).
+#[nolog]
+pub fn visible(engine: &Engine, client_id: &str) -> Vec<Arc<crate::orgs::OrgHandle>> {
+    let Some(row) = engine.access.registry.row(client_id) else { return Vec::new() };
+    let given: Vec<&str> = row["orgs"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    engine.orgs.all().into_iter().filter(|org| given.contains(&org.uuid.as_str()) && engine.access.is_open(&org.uuid)).collect()
 }
 
 /// The name a hosting desktop is called by in what it says to others: the computer's.

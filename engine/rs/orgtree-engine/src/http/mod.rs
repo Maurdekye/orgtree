@@ -534,6 +534,8 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     // A request that came in through the remote door (`remote_access/door.rs`): `guard` let it
     // through by the door's own rules, and it is served here and nowhere else.
     let door = req.extensions().get::<ConnectInfo<crate::client_tokens::transport::ClientInfo>>().is_some_and(|c| c.0.0.door);
+    // A computer that was let in: every JSON answer to it passes `remote_access::shown` (below).
+    let member = door && matches!(req.extensions().get::<crate::client_tokens::Scope>(), Some(crate::client_tokens::Scope::Member { .. }));
     // Where the request belongs (remote/relay.rs). A request for a remote engine is carried
     // there with its body streamed and never logged: only its REQUEST/RESPONSE/RELAY lines are.
     // Nothing that came in through the door is carried on: a hosting desktop is no way into the
@@ -610,6 +612,11 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
             }
         }
     };
+    // The owner's e-mail addresses, and in an app-wide answer where else an account is used, are
+    // not shown to another computer.
+    if member && !denied {
+        res = crate::remote_access::shown::answer(&engine, &path, res).await;
+    }
     // A remote organization's window is stamped with both processes: it reloads when this engine
     // or the remote one was replaced, and not while the remote is merely unreachable.
     let instance = match remote_window.as_ref().filter(|_| !denied) {

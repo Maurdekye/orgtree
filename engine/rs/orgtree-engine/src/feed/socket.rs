@@ -28,11 +28,13 @@ pub async fn org_ws(
         return ApiError::not_found(format!("no organization {slug}")).into_response();
     };
     let viewer = matches!(scope, Some(axum::Extension(crate::client_tokens::Scope::Viewer { .. })));
-    ws.on_upgrade(move |socket| run(engine, org, socket, viewer))
+    // a computer a hosting desktop let in: every frame passes `remote_access::shown` first
+    let member = matches!(scope, Some(axum::Extension(crate::client_tokens::Scope::Member { .. })));
+    ws.on_upgrade(move |socket| run(engine, org, socket, viewer, member))
 }
 
 #[logged]
-async fn run(engine: Arc<Engine>, org: Arc<OrgHandle>, socket: WebSocket, viewer: bool) {
+async fn run(engine: Arc<Engine>, org: Arc<OrgHandle>, socket: WebSocket, viewer: bool, let_in: bool) {
     let mut gate = viewer.then(super::viewer_gate::ViewerGate::default);
     let id = next_socket_id();
     let (out_tx, mut out_rx) = mpsc::channel::<Arc<str>>(8192);
@@ -50,7 +52,10 @@ async fn run(engine: Arc<Engine>, org: Arc<OrgHandle>, socket: WebSocket, viewer
                         crate::rig::stream_probe("socket", frame["node"].as_str().unwrap_or(""), &frame);
                     }
                 }
-                if sink.send(Message::Text(text.to_string().into())).await.is_err() {
+                // the owner's e-mail addresses are not shown to another computer (a frame that holds none goes as it is)
+                let shown = if let_in { crate::remote_access::shown::hide_text(&text, &crate::remote_access::shown::Owner::of(&engine), false) } else { None };
+                let text = shown.unwrap_or_else(|| text.to_string());
+                if sink.send(Message::Text(text.into())).await.is_err() {
                     break;
                 }
             }
