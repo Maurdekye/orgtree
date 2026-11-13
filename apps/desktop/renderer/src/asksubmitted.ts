@@ -92,7 +92,11 @@ export function submitAsk(entry: Omit<SubmittedAsk, 'state' | 'at' | 'error' | '
   return send().then(() => undefined, (e: unknown) => {
     // a later submit of the same card owns the entry now
     if (entries.get(k) === mine) {
-      entries.set(k, { ...mine, state: 'failed',
+      // Someone else settled the request first (the engine's `request_settled`): nothing of this
+      // answer was sent and there is nothing to submit again. The entry goes, and the card shows how
+      // the request was settled. Any other failure brings the card back with its drafts.
+      if ((e as { code?: unknown } | null)?.code === 'request_settled') entries.delete(k)
+      else entries.set(k, { ...mine, state: 'failed',
         error: e instanceof Error ? e.message : String(e) })
       emit()
     }

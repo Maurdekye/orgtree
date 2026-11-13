@@ -10709,6 +10709,14 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 /* who else is connected to a remote engine (Connection details) */
 .remote-people { list-style: none; margin: 0; padding: 0; }
 .remote-people li { overflow-wrap: anywhere; }
+/* a refused save: the notice in place of a Save row, and the line under an edited field (saveconflict.tsx) */
+.save-conflict { margin: 8px 0 2px; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid #e5c07b; border-radius: 4px; }
+.save-conflict-what { margin: 0 0 6px; color: #e5c07b; }
+.save-conflict-version { margin: 6px 0; }
+.save-conflict-theirs { max-height: 240px; overflow: auto; margin: 4px 0; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere;
+  border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+.save-conflict-under { font-size: 11px; margin: 4px 0 2px; color: #e5c07b; }
+.save-conflict-under .linklike { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
 /* " · Sam" after the user's label on someone else's action (people.tsx) */
 .user-via { white-space: nowrap; }
 .chip.remote-chip.warn { color: var(--warn, #e5c07b); border-color: var(--warn, #e5c07b); }

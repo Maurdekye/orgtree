@@ -36,6 +36,8 @@ import type {
 import {
   assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, refreshMcpServers, refreshSkills, refreshGlobalInstructions, getOrgAccounts,
   req, saveScope, watchdogAction, getRuntimeSettings } from '../api'
+import { CHANGED_WHILE_EDITING, ChangedUnder, ConflictNotice, agentFieldWords, conflictSentence, saveConflictOf, textBase } from '../saveconflict'
+import type { SaveConflict } from '../saveconflict'
 import { pickFolder } from '../picker'
 import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
@@ -1449,10 +1451,18 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   // drift from the agent it is configuring. The shadowing pairs below keep
   // every use site below unchanged.
   const [edit, setEdit] = useState<Record<string, unknown>>({})
+  // What each edited field was based on: its stored value, as the tree showed it, when its edit began.
+  // A save sends these as `expect`, and the engine refuses it once a field has changed since
+  // (saveconflict.tsx). `shown` is filled below, once the stored values are read.
+  const bases = useRef<Record<string, unknown>>({})
+  const shown = useRef<Record<string, unknown>>({})
+  const [conflict, setConflict] = useState<SaveConflict | null>(null)
   const val = <T,>(k: string, server: T): T => (k in edit ? edit[k] as T : server)
-  const set = <T,>(k: string, cur: T) => (v: T | ((prev: T) => T)) =>
+  const set = <T,>(k: string, cur: T) => (v: T | ((prev: T) => T)) => {
+    if (!(k in bases.current)) bases.current[k] = shown.current[k]
     setEdit((e) => ({ ...e,
       [k]: typeof v === 'function' ? (v as (p: T) => T)(cur) : v }))
+  }
   const srvDirs = useMemo(
     () => scope.add_dirs.map((d) => ({ ...d })), [scope.add_dirs])
   const srvTools = useMemo<ToolGrant>(() => ({
@@ -1519,6 +1529,17 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const supportsFastMode = useFastMode(model, versions.includes(modelVersion) ? modelVersion : model === node.tier ? seatVersion(model) : undefined)
   const fastMode = val('fastMode', scope.fast_mode === true)
   const setFastMode = set<boolean>('fastMode', fastMode)
+  // each field's stored value as the tree shows it now: what an edit that starts now is based on
+  shown.current = {
+    charter: node.charter ?? '', teamCharter: node.team_charter ?? '',
+    peerMail: node.peer_mail ?? node.configured_scope?.peer_mail ?? scope.peer_mail ?? true,
+    dirs: scope.add_dirs, tools: scope.tools ?? null, vis: scope.org_visibility ?? null, pm: scope.permission_mode ?? null,
+    sess: scope.session ?? null, effort: scope.effort ?? null, fastMode: scope.fast_mode ?? null,
+    accMode: srvAcc ?? null, accOcc: srvAcc ?? null, modelVersion: scope.model_version ?? null,
+  }
+  // C5: fields being edited whose stored value has changed underneath since their edit began
+  const staleKeys = Object.keys(edit).filter((k) => k in bases.current && k in shown.current
+    && JSON.stringify(bases.current[k] ?? null) !== JSON.stringify(shown.current[k] ?? null))
   // a Muse seat's levels and model are the login it runs on, the pinned
   // version's row there (the engine checks the same at the door)
   const museModel = MUSE_TIERS.includes(model)
@@ -1599,19 +1620,45 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     ...('vis' in edit ? { org_visibility: vis } : {}),
     ...('pm' in edit ? { permission_mode: pm } : {}),
     ...('sess' in edit ? { session: sess.includes(',') ? sess.split(',') : sess } : {}),
-    charter, team_charter: teamCharter, effort,
-    auto_cheap_compact: accMode === '' ? {}
+    // the instructions, the effort and the cold-turn reset ride only when EDITED too (decision 101): a
+    // field this save does not send is a field it cannot replace under someone else's newer change
+    ...('charter' in edit ? { charter } : {}),
+    ...('teamCharter' in edit ? { team_charter: teamCharter } : {}),
+    ...('effort' in edit ? { effort } : {}),
+    ...('accMode' in edit || 'accOcc' in edit ? { auto_cheap_compact: accMode === '' ? {}
       : { enabled: accMode === 'on',
-          occ: (+accOcc || 25) / 100 },
+          occ: (+accOcc || 25) / 100 } } : {}),
     ...versionScopePayload({ tier: model, switching: modelRequested && model !== node.tier, edited: 'modelVersion' in edit, version: modelVersion }),
     ...fallbackPayload }
-  const runSave = () => {
+  /** What each field this save sends was based on, for an engine that checks it (saveconflict.tsx).
+   *  `over` holds stored values a refusal reported: "Save mine anyway" is a new save based on those. */
+  const expectOf = async (over: Record<string, unknown> = {}): Promise<{ expect?: Record<string, unknown> }> => {
+    if (!tree.capabilities?.expect) return {}
+    const wire: Record<string, string> = { charter: 'charter', teamCharter: 'team_charter', peerMail: 'peer_mail', dirs: 'add_dirs', tools: 'tools',
+      vis: 'org_visibility', pm: 'permission_mode', sess: 'session', effort: 'effort', fastMode: 'fast_mode', accMode: 'auto_cheap_compact',
+      accOcc: 'auto_cheap_compact', modelVersion: 'model_version' }
+    const expect: Record<string, unknown> = {}
+    for (const key of Object.keys(edit)) {
+      const field = wire[key]
+      if (!field || !Object.prototype.hasOwnProperty.call(scopeBody, field) || field in expect) continue
+      const base = field in over ? over[field] : bases.current[key]
+      expect[field] = typeof base === 'string' && (field === 'charter' || field === 'team_charter') ? await textBase(base) : base ?? null
+    }
+    return Object.keys(expect).length ? { expect } : {}
+  }
+  /** A refused save shows the notice in place of the Save row; the form and what was typed stay. */
+  const refused = (e: Error) => {
+    const found = saveConflictOf(e)
+    if (found) setConflict(found)
+    else toast([`error: ${e.message}`])
+  }
+  const runSave = (over?: Record<string, unknown>) => expectOf(over).then((based) => {
     if (tree.undo_history) {
       const steps: Record<string, unknown>[] = []
       if (modelRequested) steps.push({ op: 'switch_model', node: node.id, tier: model, ...(acct ? { account: acct } : {}) })
       if (model === node.tier && acctChanged && acct) steps.push({ op: 'account', node: node.id, account: acct })
       if (harnessChanged) steps.push({ op: 'harness', node: node.id, harness: harnessOp(harness) })
-      steps.push({ op: 'scope', node: node.id, ...scopeBody })
+      steps.push({ op: 'scope', node: node.id, ...scopeBody, ...based })
       return userGesture(slug, steps, `Settings: ${node.id}`)
         .then(r => {
           const results = r.results ?? []
@@ -1631,7 +1678,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           }
           toast(lines.length ? lines : [`Saved settings for ${node.id}`], historyUndo(slug, r))
           close()
-        }).catch((e: Error) => toast([`error: ${e.message}`]))
+        }).catch(refused)
     }
     return (
     (modelRequested
@@ -1664,20 +1711,35 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         : Promise.resolve())
       .then(() => harnessChanged ? op({ op: 'harness', node: node.id, harness: harnessOp(harness) }) : undefined)
       .then(() => saveScope(slug, node.id,
-        scopeBody))
+        { ...scopeBody, ...based }))
       .then((r) => {
         const lines = savePopups(r)
         if (cancelModel) lines.push(`${node.id}: model change cancelled`)
         toast(lines)
         close()
       })
-      .catch((e: Error) => toast([`error: ${e.message}`])))
-  }
-  const doSave = () => {
+      .catch(refused))
+  })
+  const doSave = (over?: Record<string, unknown>) => {
     if (savingNow.current) return
     savingNow.current = true
     setSaving(true)
-    void Promise.resolve(runSave()).finally(() => { savingNow.current = false; setSaving(false) })
+    void Promise.resolve(runSave(over)).finally(() => { savingNow.current = false; setSaving(false) })
+  }
+  // the refused texts, for "See their version"; "Use theirs" takes them into the form, based on themselves
+  const TEXT_KEYS: Record<string, [string, string]> = { charter: ['charter', 'Instructions'], team_charter: ['teamCharter', 'Team instructions'] }
+  const theirTexts = (conflict?.fields ?? []).filter((f) => f.field in TEXT_KEYS)
+    .map((f) => ({ label: TEXT_KEYS[f.field]![1], text: typeof f.stored === 'string' ? f.stored : '' }))
+  const useTheirs = () => {
+    const taken: Record<string, unknown> = {}
+    for (const f of conflict?.fields ?? []) {
+      const key = TEXT_KEYS[f.field]?.[0]
+      if (!key) continue
+      taken[key] = typeof f.stored === 'string' ? f.stored : ''
+      bases.current[key] = taken[key]
+    }
+    setEdit((e) => ({ ...e, ...taken }))
+    setConflict(null)
   }
   const parentNode = agentSuperior(node, map)
   const parentTools = parentNode?.scope?.tools ?? null   // null = the user: everything
@@ -1844,7 +1906,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             them, and the org-wide ones are the expensive ones to miss. */}
         <p className="set-hint">Some changes restart the agent, as noted below.</p>
         <AgentCharterFields charter={charter} setCharter={setCharter} teamCharter={teamCharter}
-          setTeamCharter={setTeamCharter} peerMail={peerMail} setPeerMail={setPeerMail} />
+          setTeamCharter={setTeamCharter} peerMail={peerMail} setPeerMail={setPeerMail}
+          under={{ charter: staleKeys.includes('charter') ? <ChangedUnder value={node.charter ?? ''} /> : undefined,
+            teamCharter: staleKeys.includes('teamCharter') ? <ChangedUnder value={node.team_charter ?? ''} /> : undefined }} />
         </SettingsTabPanel>
         <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
         <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="Model tier" title={modelChoiceTitle(model, unavailable(model))}
@@ -2064,6 +2128,15 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             ⚠ Save also raises <b>{cascade.map((c) => c.id).join(', ')}</b> (see Scope / Tools).
           </div>
         )}
+        {/* C5: what changed underneath while it was being edited here. The two texts say so under
+            themselves (AgentCharterFields); the other settings are named in one line. */}
+        {!conflict && staleKeys.some((k) => k !== 'charter' && k !== 'teamCharter') && (
+          <div className="save-conflict-under" role="status">{CHANGED_WHILE_EDITING} Save will say what is stored now.</div>
+        )}
+        {conflict ? <ConflictNotice sentence={conflictSentence(conflict, agentFieldWords)} busy={saving}
+          theirs={theirTexts} onUseTheirs={theirTexts.length ? useTheirs : undefined}
+          onSaveMine={() => { const over = Object.fromEntries(conflict.fields.map((f) => [f.field, f.stored])); setConflict(null); doSave(over) }}
+          onCancel={() => setConflict(null)} /> : (
         <div className="row">
           <button className="primary" disabled={saving} onClick={() =>
             // D-196 (user ruling 2026-08-29, "ask me to confirm first"): a
@@ -2074,7 +2147,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             // A within-provider switch stays a plain one-click save.
             (asksFirst ? setAsking('crossprovider') : doSave())}>{saving ? 'Saving...' : 'Save'}</button>
           <button onClick={close}>Cancel</button>
-        </div>
+        </div>)}
       {/* every confirmation this panel raises is portaled out of it: nested in
           a pinned panel they would be trapped in its stacking context — see
           ModalOverPins */}
@@ -2099,7 +2172,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           confirmLabel={midTurn
             ? `Queue the switch to ${tierLabel(model)}`
             : `Switch to ${tierLabel(model)} and reset the conversation`}
-          onConfirm={doSave}
+          onConfirm={() => doSave()}
           close={() => setAsking(null)} />
       )}
       {asking === 'retire' && (
@@ -2337,14 +2410,16 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
   )
 }
 
-function AgentCharterFields({ charter, setCharter, teamCharter, setTeamCharter, peerMail, setPeerMail }: {
+function AgentCharterFields({ charter, setCharter, teamCharter, setTeamCharter, peerMail, setPeerMail, under }: {
   charter: string; setCharter?: (value: string) => void; teamCharter: string; setTeamCharter: (value: string) => void
   peerMail: boolean; setPeerMail: (value: boolean) => void
+  /** what a text shows under itself (the line that says it changed while it was being edited) */
+  under?: { charter?: ReactNode; teamCharter?: ReactNode }
 }) { return <>
         <SetBlock label="Instructions" hint="What this agent should do; changes restart its process."><textarea rows={10} className="charterbox" value={charter}
-          disabled={!setCharter} onChange={(e) => setCharter?.(e.target.value)} /></SetBlock>
+          disabled={!setCharter} onChange={(e) => setCharter?.(e.target.value)} />{under?.charter}</SetBlock>
         <SetBlock label="Team instructions" hint="Shared instructions for this agent and its team; changes restart their processes."><textarea rows={10} className="charterbox" value={teamCharter}
-          onChange={(e) => setTeamCharter(e.target.value)} /></SetBlock>
+          onChange={(e) => setTeamCharter(e.target.value)} />{under?.teamCharter}</SetBlock>
         <SetToggle label="Subordinates may message each other"
           checked={peerMail} onChange={setPeerMail}
           hint="Off requires an audience between this manager's direct agents and hides their peer connector lines. Changes apply immediately." />

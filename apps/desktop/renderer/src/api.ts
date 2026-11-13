@@ -177,6 +177,12 @@ const failure = async (r: Response): Promise<Error> => {
   // the relay names its connection when it answers for a remote engine
   const remote = parsed && typeof parsed === 'object' ? (parsed as { remote?: unknown }).remote : undefined
   if (remote && typeof remote === 'object') Object.assign(e, { remote })
+  // a refusal with a code keeps it, and what else it says: a refused save's `conflict`, a settled
+  // request's `settled` (saveconflict.tsx reads them)
+  const coded = parsed && typeof parsed === 'object' ? parsed as { code?: unknown; conflict?: unknown; settled?: unknown } : null
+  if (coded && typeof coded.code === 'string') {
+    Object.assign(e, { code: coded.code }, coded.conflict ? { conflict: coded.conflict } : {}, coded.settled ? { settled: coded.settled } : {})
+  }
   return e
 }
 

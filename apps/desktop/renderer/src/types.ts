@@ -952,8 +952,10 @@ export type ToastFn = (
 ) => void
 
 export interface TreePayload {
-  /** Transitional engine capability: normalized entity frames on the org socket. */
-  capabilities?: { record_changes_v1?: boolean }
+  /** What the engine that runs this organization can do. `record_changes_v1`: normalized entity frames
+   *  on the org socket. `attribution`: it records which computer a user action came through.
+   *  `expect`: a save may say what it was based on and is refused once that changed (saveconflict.tsx). */
+  capabilities?: { record_changes_v1?: boolean; attribution?: boolean; expect?: boolean }
   /** Client projection boundary. Omission from roots is unknown, not deletion.
    * Includes identities on the separate lineage axis as well as org rows. */
   foreground?: { catalog_revision: string; present: string[]; missing: string[];
@@ -2703,6 +2705,8 @@ export interface OpRequest {
 
 // api.py Scope (POST .../nodes/{nid}/scope)
 export interface ScopeRequest {
+  /** for each field this save changes, the value its edit started from (saveconflict.tsx) */
+  expect?: Record<string, unknown>
   fast_mode?: boolean
   peer_mail?: boolean
   add_dirs?: DirGrant[] | null

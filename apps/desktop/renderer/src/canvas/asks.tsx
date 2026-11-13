@@ -38,6 +38,7 @@ import { RefChip, resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
 import { inlineMd, md, orgPxc } from './shared'
 import { useOtherPerson } from '../people'
+import { settledOf, settledSentence } from '../saveconflict'
 import { fmtHm } from '../timefmt'
 
 /** Each card owns its inputs, so a deterministic id keeps the visible label
@@ -416,8 +417,9 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         : cd.mode === 'deny' ? { deny: true } : { skip: true } } : {}),
       ...(scope.length ? { scope } : {}),
     }))
-      // the card is already gone (submitAsk hid it); a failure brings it back
-      .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
+      // the card is already gone (submitAsk hid it); a failure brings it back, except when someone
+      // else settled the request first: then it shows how it was settled
+      .catch((e: Error) => { const settled = settledOf(e); toast([settled ? settledSentence(settled) : `error: ${e.message}`]); setBusy(false) })
   }
   const opts = (t.options ?? []) as { label: string; description?: string }[]
   const otherOn = d.q.sel.includes(OTHER)
@@ -775,7 +777,7 @@ function QuestionAsk({ ask, slug, toast, refs }: {
       drafts: { signature: JSON.stringify(qKeys), drafts }, sections: null,
       answer: askAnswer(ask, qs, body) },
       () => answerAsk(slug, ask.id, body))
-      .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
+      .catch((e: Error) => { const settled = settledOf(e); toast([settled ? settledSentence(settled) : `error: ${e.message}`]); setBusy(false) })
   }
   const submit = () => {
     if (!ready) return
