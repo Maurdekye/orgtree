@@ -492,9 +492,9 @@ it is in `remote_access/`. The security notes an independent reader needs are in
 
 Built so far: the door's listener and guard, the registry (the switch of each organization, the
 port, the computers and the one-time codes), the member route table, the owner's routes and the limit
-on refused tokens, where the door stands and when, and what a member is sent. Not built yet: the
-connecting side's part (a desktop cannot yet add a hosting desktop with a code), the firewall rule and
-the windows. Nothing in the app can turn a switch on yet, so a running app still opens no door.
+on refused tokens, where the door stands and when, what a member is sent, and the connecting side
+(a desktop adds a hosting desktop with a code). Not built yet: the firewall rule and the windows.
+Nothing in the app can turn a switch on yet, so a running app still opens no door.
 
 ### The door
 
@@ -508,6 +508,27 @@ The two share the router and nothing else.
   Tailscale's addresses always, private ones only by the app-wide choice, a public one never. A
   connection that is not taken is dropped unread. Loopback peers exist only for tests and the rig
   (`PeerRule::with_loopback`, not compiled into a release build).
+
+### The connecting side
+
+A desktop adds a hosting desktop in the same dialog and by the same steps as a standalone engine
+("Adding a remote engine" above), with these differences. All of them follow from one fact the
+engine says about itself: `GET /api/host` answers `mode: "host"` at a door.
+
+- What is pasted is a one-time code. The scope check (step 4) is not made: a code may read no list.
+- Step 5 must succeed. `POST /api/standalone/clients` with the code makes this desktop's own token,
+  which is a member's. When the hosting desktop makes none, nothing is saved and the dialog says
+  E18, "That code was already used or has run out. Ask for a new one." What was pasted is never
+  kept: a code is nothing after its use, and pasting the token of a computer that is already in must
+  not make two computers one. The same holds for Replace token.
+- The connection is called by the hosting computer's name (`computer`) unless the user typed one.
+- The saved record has `mode: "host"`, and the connection's view says `mode` (`host` or
+  `standalone`) and `scope` (`member` or `full`).
+- Everything after that is the link as it is: it reads the feed made for a member, so its list
+  holds the organizations this desktop was given and no other; one that is given later arrives on
+  the open connection. A request to an organization whose switch went off is answered by the
+  hosting desktop with 403 and code `E16`, and that answer reaches the window as it is. Removing
+  the connection removes this desktop's own record there.
 
 ### Where the door listens
 
@@ -718,7 +739,11 @@ off; a door with nowhere to stand waits and says why; a switch that could let no
 is connected now. What a member is sent: the two rules by themselves (`shown::tests`), and through the
 door: its app feed holds its organizations and two values and nothing else (no address, no other
 organization, no connection of this computer), a second organization that is given arrives on the open
-socket, a change in an organization it may not open does not, and every answer passes the filter.
+socket, a change in an organization it may not open does not, and every answer passes the filter. The
+connecting side, with two engines: what is not a code makes nothing and is not kept (a guess is E4,
+another computer's token E18), a code makes this desktop's own member token and is used up, the link
+lists what was given, a relayed request reaches the hosting desktop, a second organization arrives, a
+switched-off one answers E16 through the relay, and removing the connection removes the record there.
 
 ## Desktop
 

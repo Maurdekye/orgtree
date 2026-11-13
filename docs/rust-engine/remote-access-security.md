@@ -38,6 +38,7 @@ can end any computer's access at once.**
 | 1 | Someone on the internet reaches the door | It is bound to the Tailscale address and by choice the private-network address, each only when `classify` calls it that; never a public one, loopback or `0.0.0.0`. A peer at a public address is dropped unread. The door does not exist while nothing is shared | `lifecycle.rs` `plan`, `door.rs` `PeerRule` | **built** (`the_door_is_planned_at_the_tailscale_address...`, `the_door_stands_only_while_something_is_shared...`, `a_door_with_nowhere_to_stand...`, `the_door_takes_tailscale_peers...`, `a_peer_the_door_does_not_take...`). Windows Firewall rule: **planned** (Electron main) |
 | 2 | Someone on the tailnet or LAN guesses a token or code | Tokens are 256 random bits, codes 130; compared by hash in constant time; requests that show no known token are counted per address: 10 within a minute close the door to that address for a minute (429 to everything, a good token included) | `registry.rs`, `limiter.rs`, `admit` | **built** (`an_address_that_is_refused_too_often...`, `limiter::tests`) |
 | 3 | A code leaks (chat, screen share) | One use, 15 minutes, one organization; used up in the same write that makes the computer; the owner sees the new computer in the list and can revoke it; a code for an organization switched off opens nothing | `registry.rs` `redeem`, `admit` | **built** (`a_code_makes_exactly_one_computer...`, `a_code_runs_out...`, `a_code_for_an_organization_that_was_switched_off...`) |
+| 3a | A token (not a code) is pasted into another computer's Add dialog, so two computers would share one token | The connecting side never keeps what was pasted at a hosting desktop: it must be given a token of its own, and a member token can make none (`POST /api/standalone/clients` is a code's alone). Nothing is saved | `remote/mod.rs` `add` and `update`, `member.rs` | **built** (`a_desktop_adds_a_hosting_desktop_with_a_code...`) |
 | 4 | The registry file is read (backup, another local user) | It holds SHA-256 hashes only; the token and the code are shown once | `registry.rs` | **built** (`a_code_makes_exactly_one_computer...` reads the file) |
 | 5 | A member reaches another organization | The route table asks, for the organization a path names, whether this computer was given it and its switch is on; anything else is refused the same way as an organization that does not exist | `member.rs` `verdict`, `admit` | **built** (`a_member_has_the_organization...`, `the_table_gives_a_member...`) |
 | 6 | A member reaches something app-wide: accounts, sign-ins, defaults, instructions for all orgs, model servers, updates, the phone link, other computers' records | Fail-closed table: every route of the router is in exactly one list, and a test fails for one that is in none | `member.rs` | **built** (`every_route_is_classified_for_members`) |
@@ -74,9 +75,10 @@ can end any computer's access at once.**
 1. The owner makes a code for one organization whose switch is on (owner's route, desktop token,
    loopback). Stored: its hash, the organization's uuid, the expiry.
 2. The other computer pastes address and code. Its engine checks the address rule, reads
-   `/api/desktop/alive` and `/api/host` with the code, then `POST /api/standalone/clients`. The host
-   makes the computer's record and its token in one write that also removes the code. The connecting
-   side seals the token (machine key) and never stores the code.
+   `/api/desktop/alive` and `/api/host` with the code (`mode: "host"` tells it what was pasted is a
+   code), then `POST /api/standalone/clients`. The host makes the computer's record and its token in
+   one write that also removes the code. The connecting side seals the token (machine key) and never
+   stores what was pasted; when no token is made, it saves nothing (`remote/mod.rs` `add`).
 3. Every request: `Authorization: Bearer <token>`; the registry finds the record by hash and remembers
    the connection.
 4. The owner may give the computer another organization (no code), revoke it, or switch an
