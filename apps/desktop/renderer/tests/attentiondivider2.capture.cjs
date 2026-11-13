@@ -129,9 +129,6 @@ app.whenReady().then(async () => {
         btnBorder: bs.borderColor, btnColor: bs.color, btnBox: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
         dividerLeft: Math.round(d.left), layout: window.attnLayout() } })()`
     const grip = () => js(GRIP)
-    const problems = [], steps = {}
-    W = await js('innerWidth')
-    const need = (ok, what) => { if (!ok) problems.push(what) }
     const btn = async () => { const b = (await grip()).btnBox; return [b[0] + b[2] / 2, b[1] + b[3] / 2] }
 
     mouse('mouseMove', 40, 40); await settle()
