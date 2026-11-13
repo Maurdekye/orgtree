@@ -164,6 +164,22 @@ app.whenReady().then(async () => {
     const clicked = steps.clickDivider = await grip(); steps.clickDivider.png = await shot(wc, '5-after-click-on-divider')
     need(clicked.layout.swapped === true && clicked.dividerLeft === before.dividerLeft, `a click on the divider did not swap in place: ${JSON.stringify([before.dividerLeft, clicked.dividerLeft, clicked.layout])}`)
 
+    // 6. a REAL right-click on the button area (USER 2026-11-13 m5ae27bfba121): the divider's menu opens
+    const menuNow = () => js("[...document.querySelectorAll('.ctxmenu button')].map(b => b.textContent.trim())")
+    await js("document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+    const [rx, ry] = await btn()
+    mouse('mouseMove', rx, ry); await settle()
+    mouse('mouseDown', rx, ry, { button: 'right' }); mouse('mouseUp', rx, ry, { button: 'right' }); await settle()
+    steps.rightClickButton = { entries: await menuNow() }
+    steps.rightClickButton.png = await shot(wc, '6-right-click-on-button')
+    need(JSON.stringify(steps.rightClickButton.entries) === JSON.stringify(['Swap panels', 'Reset to center']), `right-clicking the button did not open the divider menu: ${JSON.stringify(steps.rightClickButton.entries)}`)
+    mouse('mouseDown', 10, 10); mouse('mouseUp', 10, 10); await settle()
+    const gd = (await look()).divider.box
+    mouse('mouseMove', gd[0] + gd[2] / 2, gd[1] + gd[3] * 0.25); await pause(100)
+    mouse('mouseDown', gd[0] + gd[2] / 2, gd[1] + gd[3] * 0.25, { button: 'right' }); mouse('mouseUp', gd[0] + gd[2] / 2, gd[1] + gd[3] * 0.25, { button: 'right' }); await settle()
+    steps.rightClickDivider = { entries: await menuNow() }
+    need(JSON.stringify(steps.rightClickDivider.entries) === JSON.stringify(['Swap panels', 'Reset to center']), `right-clicking the divider did not open its menu: ${JSON.stringify(steps.rightClickDivider.entries)}`)
+
     const result = { label, status: problems.length ? 'FAIL' : 'PASS', problems, steps, sessionId: sid(process.pid), rendererSessionId: sid(wc.getOSProcessId()),
       muted: wc.isAudioMuted(), clipboardCalls, errors }
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(result, null, 2))
