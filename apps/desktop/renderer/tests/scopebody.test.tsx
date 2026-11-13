@@ -152,8 +152,8 @@ test('§1 an effort-only save sends no capability field', async (t: TestContext)
   await save(el)
   assert.equal(sent.length, 1, 'the save must reach the backend')
   assert.equal(sent[0]!.effort, 'high')
-  assert.equal(sent[0]!.charter, 'the role')
-  for (const k of CAPS) assert.equal(k in sent[0]!, false, `${k} was re-sent untouched`)
+  // the instructions and the cold-turn reset ride only when edited, like the capability fields (decision 101)
+  for (const k of ['charter', 'team_charter', 'auto_cheap_compact', ...CAPS]) assert.equal(k in sent[0]!, false, `${k} was re-sent untouched`)
 })
 
 test('§2 CONTROL: an edited visibility is sent, and only it', async (t: TestContext) => {

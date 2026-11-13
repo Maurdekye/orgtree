@@ -174,13 +174,23 @@ test('§1 saving an agent with a long charter pops nothing, and the charter goes
     assert.ok(box, 'no charter textarea in the agent settings')
     assert.equal(box!.value, LONG_CHARTER, 'the panel must open on the stored charter')
 
+    // The instructions ride only when they were edited (decision 101: a field a save does not send
+    // is a field it cannot replace under someone else's newer change). So this save edits them: one
+    // more character at the end of the long text.
+    const edited = LONG_CHARTER + '.'
+    {
+      const { act } = await import('react')
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box!), 'value')!.set!
+      await act(async () => { setter.call(box!, edited); box!.dispatchEvent(new Event('input', { bubbles: true })) })
+    }
+
     await clickSave(m)
 
     assert.equal(sent.length, 1, `the save must reach the backend: ${sent.length} posts`)
-    // ACCEPTANCE 2: the charter is sent exactly as it was, not truncated,
-    // rewritten or cleared on its way through the panel.
-    assert.equal(sent[0]!.charter, LONG_CHARTER,
-      'the saved charter must be byte-for-byte the stored text')
+    // ACCEPTANCE 2: the charter is sent exactly as it stands in the panel, not truncated,
+    // rewritten or cleared on its way through it.
+    assert.equal(sent[0]!.charter, edited,
+      'the saved charter must be byte-for-byte the text in the panel')
     // ACCEPTANCE 1: the save completed through the normal flow...
     assert.equal(m.closed(), 1, 'the save must close the panel rather than stop for a popup')
     // ...and raised no popup at all. The panel may still CALL toast with an
