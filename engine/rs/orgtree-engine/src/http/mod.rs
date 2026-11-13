@@ -96,6 +96,14 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/remotes/{id}", axum::routing::patch(crate::remote::api::update).delete(crate::remote::api::remove))
         .route("/api/remotes/{id}/retry", post(crate::remote::api::retry))
         .route("/api/remotes/{id}/people", get(crate::remote::api::people))
+        // what this desktop lets other computers open (remote_access/api.rs; the owner's own, 404 on a standalone engine)
+        .route("/api/remote-access", get(crate::remote_access::api::overview).put(crate::remote_access::api::listening))
+        .route("/api/remote-access/stop", post(crate::remote_access::api::stop))
+        .route("/api/remote-access/orgs/{slug}", get(crate::remote_access::api::org).put(crate::remote_access::api::switch))
+        .route("/api/remote-access/orgs/{slug}/invitations", post(crate::remote_access::api::invite))
+        .route("/api/remote-access/orgs/{slug}/invitations/{id}", delete(crate::remote_access::api::withdraw))
+        .route("/api/remote-access/orgs/{slug}/computers/{id}", axum::routing::put(crate::remote_access::api::give))
+        .route("/api/remote-access/computers/{id}", delete(crate::remote_access::api::revoke))
         .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
         .route("/api/orgs/{slug}/apps/bridge", post(apps::bridge).layer(axum::extract::DefaultBodyLimit::max(crate::domain::apps::net::BRIDGE_INPUT_MAX)))
         .route("/api/orgs/{slug}/apps/runtime", post(apps::runtime).layer(axum::extract::DefaultBodyLimit::max(1024*1024)))
@@ -420,6 +428,9 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // A remote engine's token is typed into these bodies; omit them before
         // auth and on rejected/unrecognized descendants too.
         || path == "/api/remotes" || path.starts_with("/api/remotes/")
+        // A one-time code is shown once, in an answer of these routes; omit their bodies
+        // before auth and on rejected/unrecognized descendants too.
+        || path == "/api/remote-access" || path.starts_with("/api/remote-access/")
         // Template downloads contain copied private AGENTS.md text inside a
         // JSON string. Omit entire request/response bodies before auth and
         // extraction, including malformed requests and unknown child routes.

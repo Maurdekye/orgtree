@@ -329,6 +329,8 @@ pub async fn delete(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> A
         }
     }
     e.orgs.remove(&slug);
+    // a deleted organization is shared with nobody (remote_access/mod.rs)
+    crate::remote_access::org_deleted(&e, &o.uuid);
     // the folders go last, with nothing left running in them; one still
     // held open stays, reported, and the next org of the name sweeps it
     let trash = trash_dir(&e, &slug, at, &o.id.to_string());

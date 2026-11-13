@@ -2,9 +2,12 @@
 //! (docs/rust-engine/remote-org.md, "A desktop as host").
 //!
 //! - `door`: the second listener, apart from the loopback one the app uses.
-//! - `registry`: the computers that were let in and the one-time codes,
-//!   `<data>/remote-access.json`.
+//! - `registry`: `<data>/remote-access.json`, everything the owner decided:
+//!   the switch of each organization, the port, the computers that were let
+//!   in and the one-time codes.
 //! - `member`: the route table of a computer that was let in.
+//! - `limiter`: refused tokens, counted per address.
+//! - `api`: the owner's routes, for this desktop's own app alone.
 //! - `admit` (here): the door's guard. Every request that came in through the
 //!   door passes it before anything else of the engine sees the request.
 //!
@@ -21,6 +24,7 @@
 //!   (`http::guarded` asks the relay for nothing when the connection is the
 //!   door's): a hosting desktop is no way into the engines it is connected to.
 
+pub mod api;
 pub mod door;
 pub mod limiter;
 pub mod member;
@@ -29,9 +33,8 @@ pub mod text;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use axum::extract::Request;
 use axum::http::{header, HeaderMap, StatusCode};
@@ -49,9 +52,6 @@ use registry::{Admitted, Registry};
 /// What a hosting desktop knows about who may come in.
 pub struct RemoteAccess {
     pub registry: Registry,
-    /// The organizations whose switch is on, by uuid: the setting itself is the organization's
-    /// (`remote_access`), and this is what the door asks on every request.
-    open: RwLock<HashSet<String>>,
     /// Refused tokens, counted per address (`limiter.rs`).
     pub limiter: limiter::Limiter,
 }
@@ -59,31 +59,59 @@ pub struct RemoteAccess {
 #[nolog]
 impl RemoteAccess {
     pub fn open(root: &Path) -> RemoteAccess {
-        RemoteAccess { registry: Registry::open(root), open: RwLock::new(HashSet::new()), limiter: limiter::Limiter::default() }
+        RemoteAccess { registry: Registry::open(root), limiter: limiter::Limiter::default() }
     }
 
     /// May other computers open this organization now?
     pub fn is_open(&self, org_uuid: &str) -> bool {
-        self.open.read().map(|open| open.contains(org_uuid)).unwrap_or(false)
+        self.registry.is_open(org_uuid)
     }
 
     /// Is any organization's switch on?
     pub fn any_open(&self) -> bool {
-        self.open.read().map(|open| !open.is_empty()).unwrap_or(false)
+        !self.registry.open_orgs().is_empty()
     }
 
-    /// The switch of one organization. Turning it off ends every connection of the computers
-    /// that have it, at once; their records stay.
+    /// The switch of one organization (`Registry::set_open`). Turning it off ends every
+    /// connection of the computers that have it, at once; their records stay.
     pub fn set_open(&self, org_uuid: &str, on: bool) -> ApiResult<()> {
-        let changed = match self.open.write() {
-            Ok(mut open) => if on { open.insert(org_uuid.to_string()) } else { open.remove(org_uuid) },
-            Err(_) => false,
-        };
-        if changed && !on {
-            let closed = self.registry.close_org(org_uuid);
-            tracing::info!(computers = closed, "remote access: an organization was closed to other computers");
+        self.registry.set_open(org_uuid, on).map(|_| ())
+    }
+}
+
+/// Write down, in an organization's own history, something that happened to who may open it
+/// from another computer: `what` is `on`, `off`, `code`, `code_withdrawn`, `computer_added`,
+/// `computer_given` or `computer_revoked`. `via` is who did it (the owner's own desktop, or the
+/// computer itself). The record is written beside the change, not with it: the registry is a
+/// file, and a database that is away for a moment must not keep the owner from switching
+/// remote access off.
+#[nolog]
+pub fn record(engine: &Arc<Engine>, org_uuid: &str, what: &str, computer: Option<&Value>, via: Option<Value>) {
+    let Some(org) = engine.orgs.all().into_iter().find(|org| org.uuid == org_uuid) else { return };
+    let mut detail = json!({ "what": what });
+    if let Some(computer) = computer {
+        detail["computer"] = json!({ "id": computer["id"], "name": computer["name"], "label": computer["label"] });
+    }
+    let (engine, what) = (engine.clone(), what.to_string());
+    tokio::spawn(async move {
+        let written = async {
+            let client = engine.db.get().await?;
+            client.execute("INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'remote_access', '@user', $2, $3)", &[&org.id, &detail, &via]).await?;
+            anyhow::Ok(())
+        }.await;
+        if let Err(error) = written {
+            tracing::warn!(org = %org.slug, what = %what, error = %format!("{error:#}"), "a remote access change could not be written into the organization's history");
         }
-        Ok(())
+    });
+}
+
+/// An organization was deleted: it is shared with nobody from now on. The computers' records
+/// stay as they are, so an organization that is restored is not shared until its owner says so
+/// again.
+#[nolog]
+pub fn org_deleted(engine: &Engine, org_uuid: &str) {
+    if let Err(error) = engine.access.registry.set_open(org_uuid, false) {
+        tracing::warn!(error = %error.detail, "remote access of a deleted organization could not be switched off");
     }
 }
 
@@ -125,6 +153,18 @@ fn token_required() -> Response {
 pub fn admit(engine: &Engine, req: &mut Request, connection: &Arc<Connection>) -> Result<Option<Origin>, Response> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    // An address that was refused too often is answered nothing else for a minute.
+    let peer = connection.peer.ip();
+    if engine.access.limiter.blocked(peer) {
+        return Err(refusal(StatusCode::TOO_MANY_REQUESTS, json!({ "detail": text::TOO_MANY_TRIES })));
+    }
+    // A request that shows no token the door knows is counted by its address (`limiter.rs`).
+    let token_required = || {
+        if engine.access.limiter.strike(peer) {
+            tracing::warn!(peer = %peer, "remote access: too many refused requests from one address; it is answered 429 for a while");
+        }
+        token_required()
+    };
     // The app's own token and its windows' remote-engine header mean nothing here: neither is
     // read, and neither travels on to a handler.
     req.headers_mut().remove(crate::http::TOKEN_HEADER);
@@ -223,10 +263,17 @@ fn shown_to_member(engine: &Engine, mut row: Value) -> Value {
 /// `POST /api/standalone/clients` with a one-time code: the one computer the code is for.
 /// The answer carries the computer's own token, shown once.
 #[nolog]
-pub fn redeem(engine: &Engine, headers: &HeaderMap, name: &str) -> ApiResult<Value> {
+pub fn redeem(engine: &Arc<Engine>, headers: &HeaderMap, name: &str) -> ApiResult<Value> {
     let code = bearer(headers).ok_or_else(|| ApiError::forbidden(text::TOKEN_REQUIRED))?;
     match engine.access.registry.redeem(code, name)? {
-        Some(row) => Ok(shown_to_member(engine, row)),
+        Some(row) => {
+            // the organization's history says who came in: the new computer itself
+            let came = Origin::client(row["id"].as_str().unwrap_or_default(), row["name"].as_str().unwrap_or_default(), None);
+            if let Some(org) = row["orgs"][0].as_str() {
+                record(engine, org, "computer_added", Some(&row), Some(came.json()));
+            }
+            Ok(shown_to_member(engine, row))
+        }
         // used a moment ago by another request, or run out since the guard looked
         None => Err(ApiError::forbidden(text::CODE_USED)),
     }
@@ -242,7 +289,10 @@ pub fn set_own_label(engine: &Engine, client_id: &str, label: Option<&str>) -> A
 /// `DELETE /api/standalone/clients/{id}` by the member itself: its record goes and its
 /// connections end, this one too.
 #[nolog]
-pub fn remove_own(engine: &Engine, client_id: &str) -> ApiResult<Value> {
-    engine.access.registry.revoke(client_id)?;
+pub fn remove_own(engine: &Arc<Engine>, client_id: &str) -> ApiResult<Value> {
+    let row = engine.access.registry.revoke(client_id)?;
+    for org in row["orgs"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        record(engine, org, "computer_revoked", Some(&row), crate::caller::via());
+    }
     Ok(json!({ "revoked": client_id }))
 }
