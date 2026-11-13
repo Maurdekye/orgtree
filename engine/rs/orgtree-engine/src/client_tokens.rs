@@ -287,7 +287,9 @@ impl Registry {
             file.write_all(&bytes)?;
             file.sync_all()?;
             drop(file);
-            replace_retrying(|| replace(&tmp, &self.path))?;
+            // `replace` asks again by itself. No second round here: the caller holds the
+            // clients lock, and `authenticate` takes it for every request with a client token.
+            replace(&tmp, &self.path)?;
             #[cfg(unix)]
             if let Some(parent) = self.path.parent() {
                 if std::fs::File::open(parent).and_then(|file| file.sync_all()).is_err() {
@@ -328,7 +330,8 @@ pub(crate) fn constant_eq(a: &[u8], b: &[u8]) -> bool {
 /// moment, and the replace is refused while it does. That passes, so the replace is asked again a
 /// few times (about a quarter of a second in all) before the change is given up. Every registry
 /// kept in a file goes through here (`client_tokens`, `live_feed/tokens`, `remote/store`,
-/// `remote_access/registry`).
+/// `remote_access/registry`), each while it holds its own lock. So this is the one place that
+/// asks again: a caller that asked again around it would hold that lock for round after round.
 #[cfg(windows)]
 #[nolog]
 pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -359,31 +362,6 @@ const REPLACE_TRIES: u64 = 5;
 #[cfg(not(windows))]
 #[nolog]
 pub(crate) fn replace(from: &Path, to: &Path) -> std::io::Result<()> { std::fs::rename(from, to) }
-
-/// Windows sometimes refuses the registry's temp-file replace for a moment (an antivirus scan or the
-/// indexer holds the file: sharing or lock violation, or access denied). Retry a few times with a
-/// short growing wait on exactly those errors; any other error, and the last attempt, is returned.
-const REPLACE_ATTEMPTS: u32 = 6;
-
-#[nolog]
-fn transient_replace_error(error: &std::io::Error) -> bool {
-    // ERROR_ACCESS_DENIED 5, ERROR_SHARING_VIOLATION 32, ERROR_LOCK_VIOLATION 33
-    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
-}
-
-#[nolog]
-fn replace_retrying(mut attempt: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
-    let mut tries = 0;
-    loop {
-        match attempt() {
-            Err(error) if tries + 1 < REPLACE_ATTEMPTS && transient_replace_error(&error) => {
-                tries += 1;
-                std::thread::sleep(std::time::Duration::from_millis(15 * u64::from(tries)));
-            }
-            other => return other,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests;

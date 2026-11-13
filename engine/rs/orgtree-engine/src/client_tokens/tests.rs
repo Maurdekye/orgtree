@@ -140,6 +140,76 @@ fn a_file_that_stays_held_is_given_up_and_both_files_are_kept() {
     assert_eq!(std::fs::read(&next).unwrap(), b"new");
 }
 
+/// A save that stays refused is given up after one round of asking, and the registry's lock is
+/// free again by then. `authenticate` takes that lock for every request that carries a client
+/// token, so such a request waits for as long as a refused save keeps asking.
+///
+/// 4.5.12 and 4.6.0 each made a refused replace ask again: one around the call in `persist`,
+/// one inside `replace`. Together they asked 36 times and kept the lock for seven rounds of
+/// waits, 1.6 s.
+#[cfg(windows)]
+#[tokio::test(flavor = "current_thread")]
+async fn a_refused_save_gives_up_after_one_round_and_frees_the_lock() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+    let root = Root::new();
+    let registry = Arc::new(Registry::open(&root.0).unwrap());
+    let kept = registry.manage(&json!({"action":"create","name":"kept"})).unwrap();
+    let token = kept["token"].as_str().unwrap().to_string();
+    // a connection as the engine accepts one, and the far end that keeps it open
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let _far = TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+    let (stream, peer) = listener.accept().await.unwrap();
+    let connection = Connection::accept(stream, peer, false).unwrap().connection().clone();
+    let file = root.0.join(FILE);
+    let saved = std::fs::read(&file).unwrap();
+    let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).unwrap();
+    // one round: the waits after every refusal but the last (15, 30, 45, 60 and 75 ms)
+    let round = Duration::from_millis((1..=REPLACE_TRIES).map(|tried| 15 * tried).sum());
+    // only the refused save is in the log: an earlier save may have been asked again for real
+    let capture = crate::trace::LogCapture::start().await;
+    // a request with the kept client's token, made once the save has the lock
+    let over = Arc::new(AtomicBool::new(false));
+    let (ready, go) = std::sync::mpsc::channel();
+    let request = std::thread::spawn({
+        let (registry, over) = (registry.clone(), over.clone());
+        move || {
+            ready.send(()).unwrap();
+            let mut behind = true;
+            while registry.clients.try_lock().is_ok() {
+                if over.load(Ordering::Acquire) { behind = false; break; }
+                std::thread::yield_now();
+            }
+            let asked = Instant::now();
+            let admitted = registry.authenticate(&token, &connection).is_some();
+            (behind, admitted, asked.elapsed())
+        }
+    });
+    go.recv().unwrap();
+    let started = Instant::now();
+    let refused = registry.manage(&json!({"action":"create","name":"refused"}));
+    let took = started.elapsed();
+    over.store(true, Ordering::Release);
+    let (behind, admitted, waited) = request.join().unwrap();
+    let free = registry.clients.try_lock().is_ok();
+    drop(held);
+    let log = capture.finish().await;
+    let asked_again = log.lines().filter(|line| line.contains("a file could not be replaced yet")).count();
+    eprintln!("REFUSED_SAVE asked_again={asked_again} took_ms={} waited_ms={}", took.as_millis(), waited.as_millis());
+    assert_eq!(refused.map_err(|error| error.status).unwrap_err(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(asked_again as u64, REPLACE_TRIES, "one round asks again {REPLACE_TRIES} times; this save took {took:?}");
+    assert!(took >= round && took < 4 * round, "one round waits {round:?}; this save took {took:?}");
+    assert!(behind, "the request was not made while the save had the lock");
+    assert!(admitted && waited < 4 * round, "a request behind the save: admitted {admitted}, after {waited:?}");
+    assert!(free, "the lock is still taken after the save was given up");
+    // nothing is lost, and the next save goes through
+    assert_eq!(std::fs::read(&file).unwrap(), saved);
+    assert_eq!(registry.manage(&json!({"action":"list"})).unwrap()["clients"].as_array().unwrap().len(), 1);
+    registry.manage(&json!({"action":"create","name":"after"})).unwrap();
+    assert_eq!(Registry::open(&root.0).unwrap().manage(&json!({"action":"list"})).unwrap()["clients"].as_array().unwrap().len(), 2);
+}
+
 #[tokio::test]
 async fn revoke_drops_idle_http_websocket_inflight_mcp_and_shared_socket_only() {
     let root = Root::new();
@@ -274,18 +344,3 @@ async fn standalone_peer_extension_preserves_separately_authenticated_local_brid
 }
 
 mod viewer;
-
-// Windows may refuse the registry's temp-file replace for a moment (antivirus/indexer hold).
-#[cfg(windows)]
-#[test]
-fn registry_replace_retries_sharing_errors_only() {
-    let mut calls = 0;
-    let result = replace_retrying(|| { calls += 1; if calls < 3 { Err(std::io::Error::from_raw_os_error(32)) } else { Ok(()) } });
-    assert!(result.is_ok() && calls == 3, "two sharing violations are retried, the third attempt succeeds");
-    let mut calls = 0;
-    let result = replace_retrying(|| { calls += 1; Err(std::io::Error::from_raw_os_error(32)) });
-    assert!(result.is_err() && calls == 6, "a hold that never clears gives up after six attempts, calls={calls}");
-    let mut calls = 0;
-    let result = replace_retrying(|| { calls += 1; Err(std::io::Error::from_raw_os_error(2)) });
-    assert!(result.is_err() && calls == 1, "any other error is returned at once");
-}
