@@ -279,14 +279,17 @@ after a rename or a revocation. Nothing is backfilled, and nothing is decided fr
 | a settled request | `ot.asks.answered_via` | `asks::settle` |
 | docket changes by the user | `ot.work_events.via` | `docket::history`, attach, detach |
 | the user's undo history | `ot.undo_entries.via` | `undo::gesture` |
+| a saved org.md | a `notes_saved` event (`ot.events.via`), detail `{"what": "org.md", "rev", "chars"}` | `put_orgmd`, before the file is replaced |
+| the saved instructions for all organizations | `saved` (`{"rev", "via", "at"}`) in their `ot.kv` row: they belong to no organization, so no organization's events hold them | `put_app_instructions` |
+| an app-wide default | `defaults_changed` in the app settings document: per key the pair `[via, at]` of its last save | `save_defaults` |
 
 The identities stay what they were (`@user`, `"user"`): agents, queries and the wire depend on them.
 `caller::via_of(who)` gives the origin only when `who` is the user, so a record of an agent, of the
 engine or of an outside party never carries one. A user action that reaches the engine outside a
 request (an answer from the phone, through the mail hub) has none either: unknown.
 
-Not recorded yet: the job a project hands on to a member (the copy does not carry who sent the job),
-mail to an outside party, and a saved org.md (it comes with the save check).
+Not recorded yet: the job a project hands on to a member (the copy does not carry who sent the job)
+and mail to an outside party.
 
 ### What a window is sent
 
@@ -303,6 +306,64 @@ such member and shows names nowhere.
 Agents read the user as "user" as before (question 2 of the amendment). The one agent tool that
 returns mail rows built by `mail_entry` (`orgtree_project`'s mailbox reads) drops `via`; transcripts
 read by `orgtree_read_transcript` never carried the rows.
+
+### The save that would replace a newer change
+
+`domain/expect.rs`. Rule: **a save says what it was based on, and the engine refuses it when that is
+no longer what is stored.** With the fields it changes, a save may send `expect`: for each of them the
+value the edit started from, as the window was shown it. The engine compares under the lock it writes
+under. When any differs it writes nothing and answers 409:
+
+```json
+{"detail": "Sam changed charter since you opened it. Nothing was saved.", "code": "save_conflict",
+ "conflict": {"target": "agent:lead", "fields": [
+   {"field": "charter", "stored": "...", "actor": "@user", "changed_by": {"id": "...", "name": "Sam"}, "changed_at": "..."}]}}
+```
+
+`stored` is the value now. `actor` is who changed it (`@user` or an agent's name), `changed_by` the
+origin of a user's change, `changed_at` when: null where the engine cannot tell.
+
+- A long text may be named instead of sent back: `{"rev": "<first 16 hex digits of the SHA-256 of its
+  UTF-8 bytes>"}`.
+- Values compare as values: 80 is 80.0, the order of members does not matter, and nothing is nothing
+  however it is spelled (null, "", [], {} and a member that is not there). A list's order is part of it.
+- There is no force flag. "Save mine anyway" is a new save whose `expect` is what `stored` said, so a
+  third change in between is refused again.
+- A save without `expect` is not checked: an older window, an agent's tool, the user MCP.
+- `expect` naming a field the save does not have is a mistake: 400.
+- The organization's tree announces the check: `capabilities.expect: true`. A window sends `expect`
+  only to an engine that does (an older one refuses the unknown key in organization settings).
+
+| Save | Route | `target` | Fields | Who changed it is read from |
+| --- | --- | --- | --- | --- |
+| an agent's settings | `POST /nodes/{nid}/scope`, a `scope` step of `POST /gesture` | `agent:<name>` | `charter`, `team_charter`, `peer_mail`; and `add_dirs`, `tools`, `org_visibility`, `permission_mode`, `effort`, `model_version`, `fast_mode`, `account_fallback`, `auto_cheap_compact`, `session` as `configured_scope` shows them | the newest `scope` or `retool` event of the agent that changed the field |
+| organization settings, hire defaults | `POST /api/orgs/{slug}/settings`, `/defaults` | `org` | `org_name`, `org_dirs` and the settings keys as the settings group shows them (`compact_at` as a fraction or a percentage) | the newest `settings` event that names the key (`org_renamed` for the name) |
+| app-wide defaults | `POST /api/defaults` | `defaults` | the same keys, as `GET /api/defaults` shows them | `defaults_changed` |
+| org.md | `PUT /orgmd` with `base_rev`, as before | `orgmd` | `org.md`: `stored` is the whole text | the `notes_saved` event of the stored text's revision |
+| the instructions for all organizations | `PUT /api/app-settings/instructions` with `base_rev`, as before | `instructions` | `instructions`: `stored` is the whole text | `saved` in the stored row, while the text is still the one that was saved |
+
+- A user's `scope` event lists what the save really changed (`detail.changed`), because an older
+  window sends its whole form, the unchanged instructions included, and `detail.change` is what was
+  sent. An event without the list counts for a field its `change` names.
+- A gesture records before and after, never the step it was sent, so `expect` is not replayed by
+  redo. The refused save leaves no entry in the undo history.
+- The sentence of an agent's, an organization's and the app-wide settings is "<name> changed <field>
+  since you opened it. Nothing was saved.", or "<field> changed since you opened it. Nothing was
+  saved." when nobody is known. For org.md and the instructions, `detail` names who saved the newer
+  text when a window did ("<name> changed org.md since you opened it. Reload it and make your edit
+  again."), and is otherwise the sentence these two refusals always had (Connect your phone changes
+  both without a record).
+- **A request someone else settled first.** Answering, dismissing or deciding a request that is no
+  longer open answers 409 with the sentence it always had, `code: "request_settled"` and `settled`:
+  `{"id", "status", "answer", "answered_via", "resolved_at"}`, so a window can show the settled card.
+- A refusal with a code (`domain::undo::Coded`) keeps its status, its code and what else it says on
+  every route (`http/error.rs`), and the trace counts it as a refusal, not an engine error.
+
+Not covered, on purpose: rename, move, hire and retire (they act on a named agent and fail by
+themselves when it changed), single switches of the runtime and watchdogs (the later one wins; the
+record says who), templates saved with Replace, the docket and the canvas layout. Custom apps keep
+their own revision check; their refusal does not name who changed the app yet (the apps store keeps
+no author of a change).
 
 ### Labels and who is connected (the engine that is connected to)
 
@@ -433,6 +494,13 @@ as the client's label, who is connected, and that a message, a hire, a settings 
 docket change and an undo entry each carry the name of the computer they came through in the OTHER
 one's reads; that the startup token's actions say so; that an agent's own records carry nothing and
 the agent still reads "user"; and that a renamed person's earlier records keep the earlier name.
+Then the save check: a save based on what is stored goes through; one based on an older charter is
+refused through a gesture, names who changed it and when, and leaves no undo entry; saving anyway by
+revision goes through, and a second "anyway" whose base changed in between is refused again; a save
+that names no base is not checked; the same refusal for an organization setting, an app-wide default,
+org.md and the instructions for all organizations; and a question two people answer, where the second
+is told who answered it and what. A tree read follows a save by a moment (it is built from the feed),
+so the proof waits for the tree where it reads one after a write. 33 checks.
 `tools/rig/far.mjs` starts the far engine for both proofs.
 
 ## Not yet

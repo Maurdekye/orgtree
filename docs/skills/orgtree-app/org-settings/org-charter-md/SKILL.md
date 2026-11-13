@@ -42,7 +42,10 @@ delivered instructions change the cached prefix. A Claude agent does not restart
 Save includes the revision read when the editor opened. If another writer,
 including Connect your phone, changed the file meanwhile, it refuses with
 **org.md changed since you opened it ... Reload it and make your edit again.**
-Reload and reconcile the current file rather than overwriting the newer note.
+When another person saved it from their window (several people on one
+organization, from 4.6.0), the sentence names them: **<name> changed org.md
+since you opened it. Reload it and make your edit again.** Reload and
+reconcile the current file rather than overwriting the newer text.
 
 ## Trust notes
 

@@ -2530,6 +2530,7 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     organizations, off by default and switched on per organization, on Tailscale and by choice the
     private network, never a public address; each computer gets in with a one-time code and holds
     a member token that reaches only the organizations it was given and nothing app-wide. Phase F
-    ships only after an independent security review. First part (2026-11-13): the origin of a
-    request, client labels and who is connected. Contract:
+    ships only after an independent security review. Landed so far (2026-11-13): the origin of a
+    request, client labels and who is connected; what is recorded and what a window is sent; the
+    save check (`expect`, `domain/expect.rs`). Contract:
     [remote-org](remote-org.md#several-people-on-one-organization).

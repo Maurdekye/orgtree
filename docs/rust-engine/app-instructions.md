@@ -27,7 +27,9 @@ below. Docket `app-wide-instructions-one-instructions-for-all-o`.
   the GET returns the whole block as `content`, the Connect your phone note
   included, with `rev`, `chars`, `prompt_chars`, `edit_max` 200,000 and
   `prompt_max` 16,000. A PUT carries the whole block and the loaded
-  `base_rev`, and is stored as sent; a stale revision is refused (409). A
+  `base_rev`, and is stored as sent; a stale revision is refused (409, with
+  the stored text and who saved it when the editor did:
+  [remote-org](remote-org.md#the-save-that-would-replace-a-newer-change)). A
   change sends `Reconfigured` to every live agent of every org.
 
 ## In the prompt
