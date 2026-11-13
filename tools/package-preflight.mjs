@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { assertMailhubSubmodule, assertNoUpdateFixture, assertPackageInputsPresent, assertReleaseProvenance } from './preflight-lib.mjs'
 import { assertRuntimeLayout } from './runtime-layout.mjs'
-import { assertPostgresRuntime } from './postgres-layout.mjs'
+import { assertPostgresRuntime, assertVcRuntimeMinimum } from './postgres-layout.mjs'
 
 assertPackageInputsPresent()
 // Orgtree 4: the Rust engine ships as resources/engine/orgtree-engine.exe. A
@@ -36,6 +36,8 @@ assertPackageInputsPresent()
 // interpreter's ._pth looks, and shipped an app that could not start.
 assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' })
 assertPostgresRuntime('engine', { sourceRoot: process.cwd() })
+// Setup's Visual C++ runtime minimum (tools/vc-runtime.ps1) must cover the toolset that built this payload.
+console.log('PostgreSQL payload within Setup\'s Visual C++ runtime minimum:', JSON.stringify(assertVcRuntimeMinimum('engine')))
 console.log('Standalone engine/runtime/UI inputs present; runtime package layout verified')
 
 const info = JSON.parse(fs.readFileSync('dist/build-info.json', 'utf8'))

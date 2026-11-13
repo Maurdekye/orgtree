@@ -6,6 +6,44 @@ Boot, shutdown, placement, installers, native integration, updates and release e
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Setup checks the Microsoft Visual C++ runtime the database needs (2026-11-13, 4.5.13)
+
+On a PC with an outdated Visual C++ runtime, Setup succeeded and the bundled PostgreSQL then failed at every
+start (user report 2026-11-12; the PC's exact versions were not measured).
+
+- **What the database needs, measured on the pinned archive (18.6-4):** the payload ships no runtime DLL of its
+  own. `postgres.exe`, `initdb.exe` and `pg_ctl.exe` import `vcruntime140.dll`, and the ICU libraries they load
+  import `msvcp140.dll` and `vcruntime140_1.dll` (which a Visual Studio 2015/2017 runtime does not have at all).
+  All 158 MSVC binaries in it are linked by toolset 14.44. Microsoft supports a runtime only when it is at least
+  as new as the toolset that built the program, so Setup's minimum is **14.44**, one number in
+  `tools/vc-runtime.ps1`. The engine's own programs import only `vcruntime140.dll`'s basic functions.
+- **Setup** (`build/installer.nsh`, `VcRuntimeRun` / `VcRuntimeResult`, at the end of `customInstall`, every
+  build): reads the three files' versions in the real System32 (Setup is 32-bit; the registry record is not the
+  evidence). Recent enough: nothing happens. Otherwise it downloads Microsoft's redistributable from
+  `https://aka.ms/vs/17/release/vc_redist.x64.exe` (nothing is bundled), runs it only if its signature is valid,
+  signed by Microsoft Corporation and under a Microsoft root, with `/install /quiet /norestart`, and measures
+  the files again; the exit code alone is never believed.
+- **It never stops the installation.** Any other outcome (offline, signature refused, install failed or
+  declined, restart needed) is a warning that says Orgtree's database will not start until the runtime is
+  installed, with the link, and a `[vc-runtime]` / `[vc-runtime-warning]` line in `orgtree-installer.log`.
+- **A silent run only checks** (`-CheckOnly`): Microsoft's installer asks for administrator approval by itself,
+  and a background update must not raise an approval prompt. The result is logged.
+- **The app** (`pg.rs`, `vc_runtime_hint`): when `initdb` or `postgres.exe` is ended by Windows with a
+  DLL-loading or crash status (0xC0000135, 0xC0000139, 0xC0000142, 0xC000007B, 0xC0000005), the database-start
+  error adds that a missing or outdated Visual C++ runtime is a likely cause, with the same link. Ordinary
+  failures keep their own words.
+- **Package gate** (`tools/postgres-layout.mjs`, `assertVcRuntimeMinimum`, run by `tools/package-preflight.mjs`):
+  a PostgreSQL payload linked by a newer toolset than Setup's minimum refuses the package, naming the file.
+  Raise `$script:VcRuntimeMinimum` when the pin moves to a newer build.
+- **Not measured:** a real download, a real redistributable install, the approval prompt, and Setup on a PC with
+  an old runtime. The tests replace every system read, download and process start
+  (`tests/vc-runtime.test.ps1`, 26 checks), run the real result handling in an inert NSIS control and the gate
+  on synthetic PE headers (`tests/vc-runtime.test.mjs`).
+
+[decided: user 2026-11-12 16:30:59Z maaa95c2d73df, 16:31:52Z m4c2ffc04cb31 (download, do not bundle); the 14.44
+minimum and check-only silent runs are the implementer's choices, flagged on the docket item; verified:
+`tools/vc-runtime.ps1`, `build/installer.nsh`, `engine/rs/orgtree-engine/src/pg.rs`, `tools/postgres-layout.mjs`]
+
 <a id="e-1df71884f6ecc434"></a>
 
 ## The tray left-click popup shows at most ten whole org rows, with native

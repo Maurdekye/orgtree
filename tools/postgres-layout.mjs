@@ -68,3 +68,43 @@ export function assertPostgresRuntime(engineDirectory, { sourceRoot } = {}) {
   }
   return { files: actual.length, bytes, manifestSha256: hash(fs.readFileSync(manifestFile)) }
 }
+
+/** The MSVC toolset that linked a Windows binary, as [major, minor], read from
+ * its PE optional header; null for anything else (a non-PE file, or a binary
+ * linked by another toolchain such as MinGW's 2.x). */
+export function msvcLinkerVersion(bytes) {
+  if (bytes.length < 0x40 || bytes.readUInt16LE(0) !== 0x5a4d) return null
+  const pe = bytes.readUInt32LE(0x3c)
+  if (pe + 26 > bytes.length || bytes.readUInt32LE(pe) !== 0x4550) return null
+  const major = bytes[pe + 26], minor = bytes[pe + 27]
+  return major === 14 ? [major, minor] : null
+}
+
+/** The oldest Microsoft Visual C++ runtime Setup accepts, as [major, minor]:
+ * the one number tools/vc-runtime.ps1 holds. */
+export function vcRuntimeMinimum(source = fs.readFileSync(new URL('./vc-runtime.ps1', import.meta.url), 'utf8')) {
+  const found = source.match(/^\$script:VcRuntimeMinimum=\[version\]'(\d+)\.(\d+)\.0\.0'\r?$/m)
+  if (!found) throw new Error('tools/vc-runtime.ps1 no longer states $script:VcRuntimeMinimum')
+  return [Number(found[1]), Number(found[2])]
+}
+
+/** Read-only package gate: Microsoft supports a runtime only when it is at
+ * least as new as the toolset that built the program, and the PostgreSQL
+ * payload ships no runtime of its own. A payload built by a newer toolset than
+ * Setup's minimum would install on a PC where the database cannot start, which
+ * is the reported failure, so the package is refused until the minimum in
+ * tools/vc-runtime.ps1 is raised. No executable is run. */
+export function assertVcRuntimeMinimum(engineDirectory, minimum = vcRuntimeMinimum()) {
+  let newest = null, from = null, binaries = 0
+  for (const file of walk(path.join(engineDirectory, 'postgresql'), 'postgresql/')) {
+    if (!/\.(exe|dll)$/i.test(file)) continue
+    const version = msvcLinkerVersion(fs.readFileSync(path.join(engineDirectory, file)))
+    if (!version) continue
+    binaries++
+    if (!newest || version[0] > newest[0] || (version[0] === newest[0] && version[1] > newest[1])) { newest = version; from = file }
+  }
+  if (newest && (newest[0] > minimum[0] || (newest[0] === minimum[0] && newest[1] > minimum[1]))) {
+    throw new Error(`PostgreSQL payload needs Visual C++ runtime ${newest.join('.')} (${from}), newer than Setup's minimum ${minimum.join('.')}; raise $script:VcRuntimeMinimum in tools/vc-runtime.ps1`)
+  }
+  return { binaries, newest: newest ? newest.join('.') : null, minimum: minimum.join('.') }
+}

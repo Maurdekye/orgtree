@@ -158,8 +158,9 @@ impl Cluster {
             if let Some(child) = self.child.as_mut() {
                 if let Ok(Some(status)) = child.try_wait() {
                     bail!(
-                        "postgres.exe exited during startup ({status}); see {}",
-                        self.cluster_dir.join("log").join("postgres.log").display()
+                        "postgres.exe exited during startup ({status}); see {}.{}",
+                        self.cluster_dir.join("log").join("postgres.log").display(),
+                        vc_runtime_hint(status.code())
                     );
                 }
             }
@@ -361,6 +362,21 @@ fn is_postgres(_pid: u32) -> bool {
     true
 }
 
+/// Windows ends a program that cannot load a DLL it needs (not found, entry point not found, failed to
+/// initialize, bad image), or that crashes inside one, with one of these statuses. The bundled PostgreSQL ships
+/// no Microsoft Visual C++ runtime of its own, so on a PC where that runtime is missing or too old its programs
+/// end this way before they can say anything (user 2026-11-12). Setup checks the runtime
+/// (tools/vc-runtime.ps1), but a silent update only reports it, and the runtime can be removed later. The text
+/// follows the error's own words; "" for every other exit.
+pub(crate) fn vc_runtime_hint(code: Option<i32>) -> &'static str {
+    match code.map(|c| c as u32) {
+        Some(0xC000_0135 | 0xC000_0139 | 0xC000_0142 | 0xC000_007B | 0xC000_0005) => {
+            " A likely cause is a missing or outdated Microsoft Visual C++ runtime on this PC: install the latest from https://aka.ms/vs/17/release/vc_redist.x64.exe, then start Orgtree again."
+        }
+        _ => "",
+    }
+}
+
 #[logged]
 async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Path, cancelled: &tokio_util::sync::CancellationToken) -> Result<()> {
     use rand::RngCore;
@@ -389,7 +405,7 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
     std::fs::remove_file(&pwfile).ok();
     let out = out?;
     if !out.status.success() {
-        bail!("initdb failed: {}", String::from_utf8_lossy(&out.stderr));
+        bail!("initdb failed ({}): {}{}", out.status, String::from_utf8_lossy(&out.stderr).trim_end(), vc_runtime_hint(out.status.code()));
     }
     let creds = json!({ ADMIN_ROLE: admin_pw, "orgtree_runtime": runtime_pw });
     std::fs::write(creds_file, serde_json::to_vec_pretty(&creds)?)?;
