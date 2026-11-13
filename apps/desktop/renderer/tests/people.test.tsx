@@ -11,9 +11,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { AskCard } from '../src/canvas/asks'
+import { Msg } from '../src/canvas/desk'
 import { OrgRecord } from '../src/canvas/mail'
 import { EventCard } from '../src/events/card'
-import { MailMessage } from '../src/events/segments'
+import { MailMessage, isSegments } from '../src/events/segments'
 import { HistoryController } from '../src/historycontroller'
 import type { HistoryAnswer, UserHistory } from '../src/historyapi'
 import { HistorySurface } from '../src/historyui'
@@ -111,6 +112,28 @@ test('a plain mail row and the organization record carry the name too', async (t
   assert.equal(actor(view.el.querySelector('#mine')!).textContent, 'User')
   // newest first: the agent, Sam's hire, one's own settings change
   assert.deepEqual([...view.el.querySelectorAll('#record .rec-actor')].map((el) => el.textContent), ['lead', 'User · Sam', 'you'])
+})
+
+test('a delivered message that names a person is still drawn as its card', async (t) => {
+  // The desk draws a delivery from its typed rows only when every row is one it knows; otherwise the whole
+  // delivery falls back to its plain text, headers and names gone (events/wire.ts).
+  const delivery = (via?: unknown) => [{ kind: 'mail', rows: [{ id: 'm1', from: '@user', kind: 'message', body: 'hello from the other computer',
+    at: '2026-11-13T14:02:00Z', ...(via === undefined ? {} : { via }) }] }]
+  const text = 'FROM @user\nhello from the other computer'
+  assert.ok(isSegments(delivery(), 'operator'), 'a row that names no computer')
+  assert.ok(isSegments(delivery(SAM), 'operator'), 'who the mail came through is part of the row')
+  assert.ok(isSegments(delivery({ id: 'local', name: 'PC1' }), 'operator'), 'the same for the own record of this computer')
+  assert.ok(isSegments(delivery('turn'), 'operator'), 'the delivery word an older engine wrote there')
+  for (const broken of [7, true, ['Sam']]) assert.equal(isSegments(delivery(broken), 'operator'), false, JSON.stringify(broken))
+  await localWindow(t)
+  const view = await mountView(<div>
+    <div id="theirs"><Msg slug="org" nid="lead" m={{ role: 'user', text, segments: delivery(SAM) }} /></div>
+    <div id="mine"><Msg slug="org" nid="lead" m={{ role: 'user', text, segments: delivery({ id: 'local', name: 'PC1' }) }} /></div>
+  </div>, (el) => el)
+  t.after(() => view.unmount())
+  for (const id of ['theirs', 'mine']) assert.ok(view.el.querySelector(`#${id} .turn-mail`), `${id}: the delivery is a card, not its plain text`)
+  assert.equal(actor(view.el.querySelector('#theirs')!).textContent, 'User · Sam')
+  assert.equal(actor(view.el.querySelector('#mine')!).textContent, 'User')
 })
 
 test('a request someone else settled says who and when', async (t) => {
