@@ -82,7 +82,9 @@ export function phoneFirewallArgs(scope: PhoneScope, program: string): string[] 
 /** What the prompt came to: `declined` is the user's No (nothing changed). */
 export type PhoneFirewallResult = { ok: true } | { ok: false; declined: boolean; error: string }
 
-async function elevated(script: string, what: string, runner: Runner): Promise<PhoneFirewallResult> {
+/** Run `script` elevated, behind one UAC prompt (the remote door's rules go
+ *  the same way: remotefirewall.ts). */
+export async function elevated(script: string, what: string, runner: Runner): Promise<PhoneFirewallResult> {
   if (process.platform !== 'win32') return { ok: false, declined: false, error: 'Only Windows has this firewall.' }
   // the user may take a while at the UAC prompt
   const result = await runner(POWERSHELL, elevatedArgs(script), 5 * 60_000)

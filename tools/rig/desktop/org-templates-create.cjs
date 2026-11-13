@@ -9,14 +9,14 @@ const BRIDGE = `
     // Promise-returning DesktopBridge/NativeWindowBridge methods. Keep this
     // allowlist explicit: a future synchronous method needs its own stub.
     const asyncNoops = new Set([
-      'addPhoneFirewallRule', 'agentScratchAgentsFileExists', 'cancelCreation', 'cancelProviderLogin',
+      'addPhoneFirewallRule', 'addRemoteAccessFirewallRule', 'agentScratchAgentsFileExists', 'cancelCreation', 'cancelProviderLogin',
       'checkForUpdates', 'closePopout', 'closeWindow', 'focusPopout', 'getAppVersion', 'getHarnesses',
       'getMaintenanceStatus', 'getPopoutState', 'getPreferences', 'getProviderLoginStatus',
       'getRunAsAdministrator', 'getStartupKind', 'getStatus', 'getUpdateCapability', 'getUpdateStatus',
       'getWindowControlsState', 'getWindowState', 'installUpdate', 'localFileStatus', 'minimizePopout',
       'minimizeWindow', 'notify', 'openAgentScratchAgentsFile', 'openAgentScratchFolder', 'openCharterFolder',
       'openCreateOrgWindow', 'openHarnessLink', 'openHomepageWindow', 'openLocalFile', 'openLogsFolder',
-      'openOrgs', 'openTemplatesFolder', 'quit', 'removePhoneFirewallRule', 'revealFile', 'setEffectiveTheme',
+      'openOrgs', 'openTemplatesFolder', 'quit', 'removePhoneFirewallRule', 'removeRemoteAccessFirewallRule', 'revealFile', 'setEffectiveTheme',
       'setPendingAttention', 'setPreferences', 'setRunAsAdministrator', 'setUnsavedCreation', 'showMainWindow',
       'startProviderLogin', 'submitProviderLoginCode', 'syncNotifications', 'takePendingWindowEvents',
       'toggleMaximizePopout', 'toggleMaximizeWindow',

@@ -74,6 +74,7 @@ import { readStartupTasks, startEngineTask, startupOn, writeRunOnStartup } from 
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
 import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
+import { addRemoteFirewallRule, removeRemoteFirewallRule, validDoorPort } from './remotefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
@@ -2638,6 +2639,16 @@ else {
         return addPhoneFirewallRule(scope)
       })
       handleApp('desktop:phone-firewall-remove', () => removePhoneFirewallRule())
+      // Remote access: the remote door's firewall rules, behind the same one
+      // prompt. The page says the port and the choice and nothing else: the
+      // program is main's own finding (remotefirewall.ts).
+      handleApp('desktop:remote-access-firewall', (setting: unknown) => {
+        const { port, lan } = (setting ?? {}) as { port?: unknown; lan?: unknown }
+        if (!validDoorPort(port)) throw new Error('Invalid port')
+        if (typeof lan !== 'boolean') throw new Error('Invalid setting')
+        return addRemoteFirewallRule(port, lan)
+      })
+      handleApp('desktop:remote-access-firewall-remove', () => removeRemoteFirewallRule())
       changeRunAsAdministrator = async (enabled: unknown) => {
         if (typeof enabled !== 'boolean') throw new Error('Invalid setting')
         if (adminChanging) throw new Error('Orgtree is still changing administrator rights. Try again once that has finished.')

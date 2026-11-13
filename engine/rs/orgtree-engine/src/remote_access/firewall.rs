@@ -1,67 +1,245 @@
 //! The door's Windows Firewall rules, read back
 //! (docs/rust-engine/remote-org.md, "Where the door listens").
 //!
-//! Not built yet: this is the shape the tests are written against.
+//! The engine never adds or removes a rule: that needs administrator rights
+//! and a prompt, which only the desktop can show
+//! (apps/desktop/main/remotefirewall.ts). Here the rules are only read, so the
+//! owner's windows can say "Windows Firewall is blocking this" when the door
+//! stands where no rule lets another computer reach it.
+//!
+//! A reading starts a PowerShell, so there is one when the owner looks or
+//! changes something and never on a timer. A unit test reads nothing of the
+//! computer, and a rig run reads a file the run wrote
+//! (`rig-home\rig-firewall\remote-access.txt`) instead of the firewall.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 use crate::engine::Engine;
 
-pub const RULE: &str = "";
-pub const RULE_LAN: &str = "";
+/// The rule that lets Tailscale's addresses reach the door. The desktop adds it under this
+/// name (`REMOTE_RULE` in apps/desktop/main/remotefirewall.ts; tests/remote-access-firewall.test.mjs
+/// holds the two together).
+pub const RULE: &str = "Orgtree remote access";
+/// The rule that lets this private network reach it, when the owner chose that.
+pub const RULE_LAN: &str = "Orgtree remote access (private network)";
+/// How long a reading is taken to be true while the owner looks.
+const FRESH: Duration = Duration::from_secs(30);
+/// How long a reading may take.
+#[cfg(not(test))]
+const PATIENCE: Duration = Duration::from_secs(15);
 
 /// One rule as Windows has it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
+    /// The private network's rule (`RULE_LAN`), not Tailscale's (`RULE`).
     pub lan: bool,
+    /// Enabled, inbound and allowing.
     pub lets_in: bool,
+    /// The local port, as Windows writes it.
     pub port: String,
+    /// The rule is for this engine's own program.
     pub mine: bool,
 }
 
+/// What PowerShell is asked: the two rules, one line each, and `read` when it got to the end.
+/// It changes nothing (every command in it is a `Get-`). A program's path is sent as base64, so
+/// no code page can spoil it.
 #[nolog]
 pub fn script() -> String {
-    String::new()
+    [
+        "$ErrorActionPreference = 'Stop'".to_string(),
+        format!("foreach ($pair in @(@('tailscale', '{RULE}'), @('lan', '{RULE_LAN}'))) {{"),
+        "  foreach ($r in @(Get-NetFirewallRule -DisplayName $pair[1] -ErrorAction SilentlyContinue)) {".to_string(),
+        "    $port = @(($r | Get-NetFirewallPortFilter).LocalPort) -join ','".to_string(),
+        "    $program = [string]($r | Get-NetFirewallApplicationFilter).Program".to_string(),
+        "    $coded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($program))".to_string(),
+        "    \"rule`t$($pair[0])`t$($r.Enabled)`t$($r.Direction)`t$($r.Action)`t$port`t$coded\"".to_string(),
+        "  }".to_string(),
+        "}".to_string(),
+        "'read'".to_string(),
+    ]
+    .join("\n")
 }
 
+/// What the read printed. `None`: it did not get to its end, so nothing is known. `mine` says
+/// whether a program's path is this engine's.
 #[nolog]
-pub fn parse(_text: &str, _mine: &dyn Fn(&str) -> bool) -> Option<Vec<Rule>> {
-    None
+pub fn parse(text: &str, mine: &dyn Fn(&str) -> bool) -> Option<Vec<Rule>> {
+    use base64::Engine as _;
+    let mut rules = Vec::new();
+    let mut ended = false;
+    for line in text.lines().map(|line| line.trim_end_matches(['\r', ' '])) {
+        if line == "read" {
+            ended = true;
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [tag, kind, enabled, direction, action, port, program] = fields.as_slice() else { continue };
+        let lan = match (*tag, *kind) {
+            ("rule", "tailscale") => false,
+            ("rule", "lan") => true,
+            _ => continue,
+        };
+        let program = base64::engine::general_purpose::STANDARD.decode(program).ok().and_then(|bytes| String::from_utf8(bytes).ok()).unwrap_or_default();
+        rules.push(Rule {
+            lan,
+            lets_in: *enabled == "True" && *direction == "Inbound" && *action == "Allow",
+            port: port.to_string(),
+            mine: !program.is_empty() && mine(&program),
+        });
+    }
+    ended.then_some(rules)
 }
 
+/// Do the rules let the door in, as the owner chose it? Tailscale's rule always, and the
+/// private network's too when that was chosen: each enabled, inbound, allowing, for the door's
+/// own port and for this engine's own program. A rule for another port or another program lets
+/// nobody reach this door.
 #[nolog]
-pub fn lets_in(_rules: &[Rule], _port: u16, _lan: bool) -> bool {
-    false
+pub fn lets_in(rules: &[Rule], port: u16, lan: bool) -> bool {
+    let port = port.to_string();
+    let fits = |wanted: bool| rules.iter().any(|rule| rule.lan == wanted && rule.lets_in && rule.mine && rule.port == port);
+    fits(false) && (!lan || fits(true))
 }
 
+/// Is this the engine's own program? Two ways of writing one file's path are one program
+/// (another case, a shortened name, a drive letter that is a folder elsewhere).
 #[nolog]
-pub fn mine(_program: &str) -> bool {
-    false
+pub fn mine(program: &str) -> bool {
+    let Ok(own) = std::env::current_exe() else { return false };
+    let same = |a: &std::path::Path, b: &std::path::Path| a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy());
+    if same(std::path::Path::new(program), &own) {
+        return true;
+    }
+    match (std::fs::canonicalize(program), std::fs::canonicalize(&own)) {
+        (Ok(theirs), Ok(own)) => same(&theirs, &own),
+        _ => false,
+    }
+}
+
+#[derive(Default)]
+struct Held {
+    /// The rules as they were last read. `None`: not read yet, or the reading failed.
+    rules: Option<Vec<Rule>>,
+    read_at: Option<Instant>,
+    /// Tests only: what a reading finds (the read's output), instead of asking the computer.
+    #[cfg(test)]
+    fixed: Option<String>,
 }
 
 /// What is known of the door's firewall rules.
 #[derive(Default)]
-pub struct Firewall;
+pub struct Firewall {
+    held: Mutex<Held>,
+    /// One reading at a time.
+    one: tokio::sync::Mutex<()>,
+}
+
+/// Has this computer a Windows Firewall to read? (A unit test plays one on any system.)
+#[nolog]
+fn applies() -> bool {
+    cfg!(any(windows, test))
+}
 
 #[nolog]
 impl Firewall {
-    pub fn shown(&self, _port: u16, _lan: bool) -> Value {
-        json!({ "state": "none", "present": false })
+    /// What the owner's app is shown. `state`: `none` (this computer has no Windows Firewall),
+    /// `unknown` (not read yet, or it could not be read), `ok`, or `missing` (the door, as the
+    /// owner chose it, is not let in: "Windows Firewall is blocking this"). `present`: a rule
+    /// of the door's is there at all, so it can be offered for removal once nothing is shared.
+    pub fn shown(&self, port: u16, lan: bool) -> Value {
+        if !applies() {
+            return json!({ "state": "none", "present": false });
+        }
+        match self.held.lock().ok().and_then(|held| held.rules.clone()) {
+            None => json!({ "state": "unknown", "present": false }),
+            Some(rules) => json!({ "state": if lets_in(&rules, port, lan) { "ok" } else { "missing" }, "present": !rules.is_empty() }),
+        }
     }
 
+    /// Tests only: what the next readings find (the read's output); `None`, that it cannot be read.
     #[cfg(test)]
-    pub fn fix(&self, _text: Option<&str>) {}
+    pub fn fix(&self, text: Option<&str>) {
+        if let Ok(mut held) = self.held.lock() {
+            held.fixed = text.map(str::to_string);
+        }
+    }
+
+    fn fresh(&self) -> bool {
+        self.held.lock().map(|held| held.read_at.is_some_and(|at| at.elapsed() < FRESH)).unwrap_or(true)
+    }
+
+    /// Keep a reading. True when what is known changed.
+    fn keep(&self, rules: Option<Vec<Rule>>) -> bool {
+        let Ok(mut held) = self.held.lock() else { return false };
+        let changed = held.rules != rules;
+        held.rules = rules;
+        held.read_at = Some(Instant::now());
+        changed
+    }
 }
 
+/// The read's output, or `None` when the firewall could not be read.
+#[cfg(test)]
 #[nolog]
-pub async fn read_now(_engine: &Engine) -> bool {
-    false
+async fn read(engine: &Engine) -> Option<String> {
+    engine.access.firewall.held.lock().ok().and_then(|held| held.fixed.clone())
 }
 
+/// The read's output, or `None` when the firewall could not be read.
+#[cfg(not(test))]
 #[nolog]
-pub fn look(_engine: &Arc<Engine>) {}
+async fn read(_engine: &Engine) -> Option<String> {
+    if crate::rig::active() {
+        // a rig run never reads this computer's firewall: its rules are a file the run writes
+        let file = crate::rig::home_dir()?.join("rig-firewall").join("remote-access.txt");
+        return Some(std::fs::read_to_string(file).unwrap_or_else(|_| "read".to_string()));
+    }
+    let powershell = format!("{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()));
+    let mut cmd = tokio::process::Command::new(powershell);
+    cmd.args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &crate::phone::encode_ps(&script())]).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    crate::winproc::no_window(&mut cmd);
+    let out = tokio::time::timeout(PATIENCE, cmd.output()).await.ok()?.ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Read the rules now, and wait for it: the owner is about to turn a switch on, or has just
+/// let the door in. True when what is known changed.
+#[nolog]
+pub async fn read_now(engine: &Engine) -> bool {
+    if !applies() {
+        return false;
+    }
+    let firewall = &engine.access.firewall;
+    let _one = firewall.one.lock().await;
+    let rules = read(engine).await.and_then(|text| parse(&text, &mine));
+    firewall.keep(rules)
+}
+
+/// The owner is looking: when what is known is old, read again behind the answer, and tell
+/// this desktop's windows if it changed. Nobody waits for it.
+#[nolog]
+pub fn look(engine: &Arc<Engine>) {
+    if !applies() || engine.access.firewall.fresh() {
+        return;
+    }
+    let engine = engine.clone();
+    tokio::spawn(async move {
+        let firewall = &engine.access.firewall;
+        // somebody is reading already: that reading is the news
+        let Ok(_one) = firewall.one.try_lock() else { return };
+        if firewall.fresh() {
+            return;
+        }
+        let rules = read(&engine).await.and_then(|text| parse(&text, &mine));
+        if firewall.keep(rules) {
+            super::lifecycle::publish(&engine);
+        }
+    });
+}
 
 #[cfg(test)]
 mod tests {

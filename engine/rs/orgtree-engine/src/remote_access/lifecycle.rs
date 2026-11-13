@@ -316,7 +316,8 @@ async fn step(engine: &Arc<Engine>, reading: Reading) {
 /// The door as the owner's app is shown it: `state` is `closed` (nothing is shared), `open`,
 /// `waiting` (something is shared but this computer has no address the door may stand at) or
 /// `blocked` (the port is taken); `addresses` are where it stands, each as the other computer
-/// types it.
+/// types it; `firewall` is what is known of the Windows Firewall rules the door needs
+/// (`firewall::Firewall::shown`).
 #[nolog]
 pub fn status(engine: &Engine) -> Value {
     let (port, lan) = engine.access.registry.listening();
@@ -340,7 +341,8 @@ pub fn status(engine: &Engine) -> Value {
     } else {
         ("waiting", way_in(&state.reading, lan).err().map(str::to_string))
     };
-    json!({ "state": name, "reason": reason, "addresses": addresses, "port": port, "lan": lan })
+    json!({ "state": name, "reason": reason, "addresses": addresses, "port": port, "lan": lan,
+            "firewall": engine.access.firewall.shown(port, lan) })
 }
 
 /// Who is connected now, by organization: looked at from the loop, and written into each

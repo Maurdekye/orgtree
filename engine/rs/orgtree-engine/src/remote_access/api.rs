@@ -13,12 +13,12 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{lifecycle, record, registry, text};
+use super::{firewall, lifecycle, record, registry, text};
 use crate::client_tokens::Scope;
 use crate::engine::Engine;
 use crate::http::error::{ApiError, ApiResult};
@@ -100,9 +100,30 @@ fn org_view(engine: &Engine, org: &OrgHandle) -> Value {
     })
 }
 
+/// `?fresh=1` on the two reads: the owner's app has just let the door in (or taken its rules
+/// away) and asks what Windows Firewall says now.
+#[derive(Deserialize)]
+pub struct Look {
+    fresh: Option<String>,
+}
+
+/// The owner is looking. What is known of the firewall is read again: now, with the answer
+/// waiting for it, when the app asks for that; else behind the answer, when it is old.
 #[nolog]
-pub async fn overview(State(engine): State<Arc<Engine>>, scope: Option<Extension<Scope>>) -> ApiResult<Json<Value>> {
+async fn looked(engine: &Arc<Engine>, look: &Look) {
+    if look.fresh.as_deref() == Some("1") {
+        if firewall::read_now(engine).await {
+            lifecycle::publish(engine);
+        }
+    } else {
+        firewall::look(engine);
+    }
+}
+
+#[nolog]
+pub async fn overview(State(engine): State<Arc<Engine>>, scope: Option<Extension<Scope>>, Query(look): Query<Look>) -> ApiResult<Json<Value>> {
     owner(&engine, &scope)?;
+    looked(&engine, &look).await;
     Ok(Json(overview_of(&engine)))
 }
 
@@ -141,9 +162,11 @@ pub async fn stop(State(engine): State<Arc<Engine>>, scope: Option<Extension<Sco
 }
 
 #[nolog]
-pub async fn org(State(engine): State<Arc<Engine>>, Path(slug): Path<String>, scope: Option<Extension<Scope>>) -> ApiResult<Json<Value>> {
+pub async fn org(State(engine): State<Arc<Engine>>, Path(slug): Path<String>, scope: Option<Extension<Scope>>, Query(look): Query<Look>) -> ApiResult<Json<Value>> {
     owner(&engine, &scope)?;
-    Ok(Json(org_view(&engine, &*local_org(&engine, &slug)?)))
+    let org = local_org(&engine, &slug)?;
+    looked(&engine, &look).await;
+    Ok(Json(org_view(&engine, &org)))
 }
 
 #[derive(Deserialize)]
@@ -165,6 +188,11 @@ pub async fn switch(State(engine): State<Arc<Engine>>, Path(slug): Path<String>,
     }
     if engine.access.registry.set_open(&org.uuid, body.on)? {
         record(&engine, &org.uuid, if body.on { "on" } else { "off" }, None, crate::caller::via());
+        if body.on {
+            // the desktop lets the door in just before it asks for this (one prompt): what the
+            // windows are told now is what Windows Firewall says after it
+            firewall::read_now(&engine).await;
+        }
         settled(&engine).await;
     }
     Ok(Json(org_view(&engine, &org)))

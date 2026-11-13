@@ -474,7 +474,7 @@ pub async fn firewall_rule(engine: &Engine) -> Option<String> {
 
 /// PowerShell's -EncodedCommand form (UTF-16LE, base64): no quoting at all.
 #[nolog]
-fn encode_ps(script: &str) -> String {
+pub(crate) fn encode_ps(script: &str) -> String {
     use base64::Engine as _;
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     base64::engine::general_purpose::STANDARD.encode(bytes)
