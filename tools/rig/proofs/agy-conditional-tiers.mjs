@@ -65,7 +65,7 @@ export default async function (rig) {
   await sleep(8000)
   p.check('the engine read the list once at start and not again with no model choice opened', atStart === 1 && calls().length === 1, calls().length)
   const g = await google()
-  p.check('control: Antigravity is installed in this rig (its fake CLI) and offers flash', g?.status?.installed !== false && (await offered()).includes('flash'), g?.status)
+  p.check('control: Antigravity is installed in this rig (its fake CLI) and offers Hydrogen, its always-offered model (Flash is legacy)', g?.status?.installed !== false && (await offered()).includes('hydrogen') && !(await offered()).includes('flash'), g?.status)
   p.check('without Argon in the registry no conditional tier is offered', !(await offered()).some((t) => CONDITIONAL.includes(t)), await offered())
   p.check('staffing offers no conditional tier either', !(await staffed()).some((t) => CONDITIONAL.includes(t)), await staffed())
 
@@ -108,7 +108,7 @@ export default async function (rig) {
   registry([])
   await openFresh()
   p.check('signed out (no rows): Argon disappears, with no restart', !(await offered()).includes('argon') && !(await staffed()).includes('argon'))
-  p.check('control: Antigravity is still listed and still offers flash', (await offered()).includes('flash'))
+  p.check('control: Antigravity is still listed and still offers Hydrogen', (await offered()).includes('hydrogen'))
   p.check('the seat already on Argon is untouched: still live, still Argon', seat('arg1')?.state === 'live' && seat('arg1')?.tier === 'argon', seat('arg1'))
   r = await refusal(rig.op({ op: 'hire', name: 'arg3', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
   p.check('signed out: a hire naming Argon is refused again', r?.status === 409 && NOT_LISTED.test(r.message), r)
