@@ -733,7 +733,7 @@ User 2026-11-13 m525fd3e66e99, eight points approved in m2672b93c2df8.
   does not move, `live` is discarded); 4 px or more drags exactly as before and never swaps. The button keeps
   `stopPropagation` and pointer capture, and the click after a drag is suppressed (ref reset at each press);
   pointercancel never swaps. The button swaps through its own click, the divider on pointerup. Enter/Space on the
-  divider swap. The divider menu is [Swap panels, Reset to center]; reset is `commit({ left: 0.5, hidden: null })`
+  divider swap. The divider menu is [Swap panels, Reset to center], and the button opens the SAME menu (it sits on the divider's middle, where a right-click lands; USER 2026-11-13 m5ae27bfba121); reset is `commit({ left: 0.5, hidden: null })`
   (`swapped` unchanged). `aria-valuenow` keeps meaning the queue's share. The divider and button are ONE hover
   target: the button has one look, `opacity` 0 until the divider (or the button) is hovered, either has keyboard
   focus, a drag runs, or `(hover: none)`; it fades at the grip's 120 ms ease, none under reduced motion, and is
