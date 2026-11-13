@@ -34,6 +34,7 @@ const { OrgPlacement, orgOfKey } = await import('../apps/desktop/main/org-placem
 const { planRestore } = await import('../apps/desktop/main/org-windows.ts')
 const { performClose } = await import('../apps/desktop/main/window-close.ts')
 const { taskbarTarget } = await import('../apps/desktop/main/jumplist.ts')
+const { remoteAliases } = await import('../apps/desktop/main/remotes.ts')
 const main = fs.readFileSync(path.join(root, 'apps/desktop/main/index.ts'), 'utf8').replaceAll('\r\n', '\n')
 const section = (start, end) => {
   const a = main.indexOf(start), b = main.indexOf(end, a)
@@ -126,11 +127,16 @@ async function fixture() {
   }
 }
 async function startup(file, { background = false, mode = 'restore', unavailableOrg } = {}) {
-  const placement = new OrgPlacement(file), records = new Map()
+  const placement = new OrgPlacement(file), records = new Map(), order = []
   const context = vm.createContext({ console, placement, records, planRestore, orgOfKey, taskbarTarget,
     quitting: false, installerUpgradeShutdown: false,
+    // Main asks its engine which organizations are remote before it opens the first window (remotes.ts):
+    // the production map-maker, an engine with no remote engine, and a map left over from before the ask.
+    engine: { origin: 'http://127.0.0.1:1', token: 'synthetic' }, remoteAliases,
+    remoteByAlias: new Map([['left-over', 'r0']]), async readRemotes() { order.push('remotes'); return [] },
     preferences: { get: () => ({ startupMode: mode }) }, process: { argv: background ? ['--background'] : [] },
     sendTo() {}, async openWindow({ kind, org }) {
+      order.push('window')
       const key = org ? `org:${org}` : 'homepage'
       const record = { id: key, org, kind, placementKey: key,
         window: new Window(placement.restoreWindow(key, screens) || placements[0], false) }
@@ -143,7 +149,8 @@ async function startup(file, { background = false, mode = 'restore', unavailable
   // with no taskbar request, rather than omitting their enclosing bindings.
   run(context, taskbarQueueCode)
   await run(context, `(async () => { ${startupCode} ${revealCode} })()`)
-  return { placement, records, visible: [...records.values()].filter(record => record.window.isVisible()) }
+  return { placement, records, visible: [...records.values()].filter(record => record.window.isVisible()),
+    order, remoteByAlias: context.remoteByAlias }
 }
 async function expectThree(file) {
   const restored = await startup(file)
@@ -154,6 +161,11 @@ async function expectThree(file) {
 }
 for (const route of ['tray Quit', 'app menu Quit']) test(`${route}: all three windows reopen visibly at saved placements`, async () => {
   const f = await fixture(); await f.quit(); await expectThree(f.file)
+})
+test('startup asks which organizations are remote once, before it opens the first window', async () => {
+  const f = await fixture(); await f.quit(); const restored = await startup(f.file)
+  assert.deepEqual(restored.order, ['remotes', 'window', 'window', 'window'], 'the ask comes first, and once')
+  assert.equal(restored.remoteByAlias.size, 0, 'the answer replaces the map: an engine with no remote engine marks no window remote')
 })
 test('installer control shutdown: all three windows reopen visibly at saved placements', async () => {
   const f = await fixture(); await f.install(); await expectThree(f.file)
