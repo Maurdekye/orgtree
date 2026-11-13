@@ -728,6 +728,17 @@ User 2026-11-13 m525fd3e66e99, eight points approved in m2672b93c2df8.
   embedded reveals its slot; a notification that opens its entry reveals the queue. Each only clears
   `hidden`.
 
+- Follow-ups (USER 2026-11-13 mb445dc041229, m80a0aa581880, mfc2dce66b9f3, me8b3377fe2b4): one press handler
+  serves the divider and its button. A press under `SWAP_DRAG_THRESHOLD_PX` (4) is a click and swaps (the divider
+  does not move, `live` is discarded); 4 px or more drags exactly as before and never swaps. The button keeps
+  `stopPropagation` and pointer capture, and the click after a drag is suppressed (ref reset at each press);
+  pointercancel never swaps. The button swaps through its own click, the divider on pointerup. Enter/Space on the
+  divider swap. The divider menu is [Swap panels, Reset to center]; reset is `commit({ left: 0.5, hidden: null })`
+  (`swapped` unchanged). `aria-valuenow` keeps meaning the queue's share. The divider and button are ONE hover
+  target: the button has one look, `opacity` 0 until the divider (or the button) is hovered, either has keyboard
+  focus, a drag runs, or `(hover: none)`; it fades at the grip's 120 ms ease, none under reduced motion, and is
+  always in the DOM, focusable and clickable.
+
 [verified: `attention/mode.ts`, `attention/AttentionView.tsx`, `attention/attention.css`,
 `tests/attentiondivider.test.tsx` (17), `tests/attentionnotification.test.tsx`,
 `tests/attentiondivider.capture.cjs` + `.visual.tsx` (Session 0, real mouse and keys, real pop-out window)]
