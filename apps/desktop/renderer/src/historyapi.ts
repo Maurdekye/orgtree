@@ -5,7 +5,9 @@ import type { HistoryDirection } from './undokeys'
 export type HistoryKind = 'move' | 'hire' | 'retire' | 'retool' | 'logo'
 export interface HistoryEntryRef { id: number; kind: HistoryKind; label: string }
 export interface HistoryTarget extends HistoryEntryRef { at: string; confirm_required?: boolean }
-export interface HistoryRow extends HistoryEntryRef { at: string; state: 'done' | 'undone' | 'refused'; reason?: string }
+export interface HistoryRow extends HistoryEntryRef { at: string; state: 'done' | 'undone' | 'refused'; reason?: string
+  /** whose action it was: the computer it came through (people.tsx); absent on an older entry */
+  via?: unknown }
 export interface UserHistory { bound: number; undo: HistoryTarget | null; redo: HistoryTarget | null; entries: HistoryRow[] }
 export interface HistoryRecorded { history_entry?: HistoryEntryRef; duplicate?: boolean }
 export interface HistoryApplied { status: 'undone' | 'redone'; id: number; label: string; history: UserHistory }

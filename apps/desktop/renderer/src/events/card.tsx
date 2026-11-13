@@ -22,6 +22,7 @@ import { StructuredJson } from '../canvas/structuredjson'
 import { useEventHeadline } from './cardheadline'
 import { EXTERNAL_NOTE, EXTERNAL_TAG, appEventParts, fireActionParts, fireLineParts } from './firelines'
 import type { FirePart } from './firelines'
+import { ViaName } from '../people'
 import { IdleDocketCards } from './idledocket'
 import { HubContactChip, isHubAddress } from '../canvas/agentmentions'
 import { changeParts } from './change'
@@ -251,7 +252,9 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
           // surface, whatever the surface's agent renderer would draw (USER
           // 2026-10-29 m14ad537c5eb8: header addresses are links too)
           : event.actor.kind === 'external' && isHubAddress(event.actor.id) ? <HubContactChip address={event.actor.id} />
-          : event.actor.kind === 'system' ? 'System' : event.actor.kind === 'user' ? 'User' : event.actor.id}
+          : event.actor.kind === 'system' ? 'System'
+          // someone else's action carries their name; one's own reads "User" as before (people.tsx)
+          : event.actor.kind === 'user' ? <>User<ViaName via={record(row) ? row.via : undefined} /></> : event.actor.id}
       </span>
       {!selfStatus && !selfDog && <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />}
       {header.map(f => <div className="event-head-field" key={f.key} data-event-field={f.key}>

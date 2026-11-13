@@ -8,8 +8,9 @@ import { onLiveBump } from './livebus'
 import { SurfaceDocumentOwner } from './popout'
 import { ConfirmModal } from './canvas/modals'
 import type { ToastFn } from './types'
+import { ownOrigin } from './people'
 
-const empty: HistoryView = { history: null, pending: false, confirmation: null }
+const empty: HistoryView = { history: null, pending: false, confirmation: null, other: null }
 const emptySnapshot = () => empty
 const noSubscribe = () => () => {}
 
@@ -19,6 +20,7 @@ export function useUserHistory(slug: string | null, enabled: boolean, revision: 
   const controller = useMemo(() => slug && enabled ? new HistoryController({
     read: () => getUserHistory(slug), apply: (dir, id, token) => applyUserHistory(slug, dir, id, token),
     report: lines => callbacks.current.toast(lines), changed: () => callbacks.current.changed(),
+    own: ownOrigin,
   }) : null, [slug, enabled])
   // The owning App also redraws toast availability when the journal changes.
   useSyncExternalStore(controller?.subscribe ?? noSubscribe, controller?.getSnapshot ?? emptySnapshot, emptySnapshot)
@@ -50,7 +52,7 @@ export function HistorySurface({ controller }: { controller: HistoryController |
       // During a command or a confirmation, a repeated shortcut must not
       // fall through to an older transient toast's unrelated inverse.
       const current = controller.getSnapshot()
-      if (current.pending || current.confirmation) { event.preventDefault(); return }
+      if (current.pending || current.confirmation || current.other) { event.preventDefault(); return }
       if (!controller.can(direction)) return
       event.preventDefault(); void controller.run(direction)
     }
@@ -62,8 +64,16 @@ export function HistorySurface({ controller }: { controller: HistoryController |
     return () => win.removeEventListener('keydown', key, true)
   }, [owner, controller])
   const confirm = view.confirmation
+  const other = view.other
+  const again = other?.direction === 'redo' ? 'Redo' : 'Undo'
   return <>
     <span hidden ref={el => { if (el) setOwner(el.ownerDocument) }} />
+    {owner && controller && other && <SurfaceDocumentOwner owner={owner}>
+      <ConfirmModal title={`${again}: ${other.label}`}
+        body={<p>This was <span data-streamer-field="external">{other.name}</span>'s change. {again} it?</p>}
+        confirmLabel={again} close={() => controller.cancelOther()}
+        onConfirm={() => { void controller.confirmOther() }} />
+    </SurfaceDocumentOwner>}
     {owner && controller && confirm && <SurfaceDocumentOwner owner={owner}>
       <ConfirmModal title={`Undo hire of ${confirm.agent}?`}
         body={`${confirm.agent} has started ${confirm.turns} turn${confirm.turns === 1 ? '' : 's'}. Undoing this hire retires the agent; its work and context remain archived.`}

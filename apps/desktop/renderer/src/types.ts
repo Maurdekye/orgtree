@@ -182,6 +182,9 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
+  /** Which computer a mail from the user came through (people.tsx). Absent on
+   *  an older record, on mail that is not the user's, and from an older engine. */
+  via?: unknown
   /** Same mailbox attention as urgent; does not change the urgent marking. */
   mailbox_attention?: boolean
   dnd_held?: boolean
@@ -727,6 +730,8 @@ export interface AskInfo {
   work_items?: string[]
   resolved_at?: string
   reason?: string
+  /** which computer the request was settled through (people.tsx); absent when unknown */
+  answered_via?: unknown
   /** message-visibility invariant (user 2026-09-10): the id of the mail the
    *  answer/decision travelled as, stamped at resolution. The desk keeps the
    *  resolved panel pinned — as the answer's ONE representation — until this
@@ -1519,6 +1524,8 @@ export interface HistoryItem {
   ev?: unknown
   ev_raw?: unknown
   ev_error?: unknown
+  /** which computer a user action came through (people.tsx) */
+  via?: unknown
   at: string
   kind: string
   actor: string

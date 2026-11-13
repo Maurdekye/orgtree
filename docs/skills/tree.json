@@ -3037,6 +3037,14 @@
     },
     {
      "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Shown to others as"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
+     "label": "Also connected"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/remotes.tsx",
      "label": "Last error"
     },
     {

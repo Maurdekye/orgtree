@@ -37,6 +37,8 @@ import { RefMdBody } from './refmd'
 import { RefChip, resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
 import { inlineMd, md, orgPxc } from './shared'
+import { useOtherPerson } from '../people'
+import { fmtHm } from '../timefmt'
 
 /** Each card owns its inputs, so a deterministic id keeps the visible label
  * associated with the active tab without depending on payload text. */
@@ -1023,6 +1025,8 @@ function NulledAsk({ ask, credit, slug, refs }: {
   ask: AskInfo; credit: boolean; slug: string; refs?: AskRefs
 }) {
   const fold = useCardFold(slug, ask)
+  // settled by someone else: the tag says who and when ("answered by Sam at 14:02")
+  const settledBy = useOtherPerson(ask.answered_via)
   const interrupted = ask.status === 'interrupted'
   const scope = ask.kind === 'scope'
   const label = interrupted ? 'interrupted'
@@ -1049,7 +1053,9 @@ function NulledAsk({ ask, credit, slug, refs }: {
           : scope ? <>requested scope</> : <>asked</>}</span>
         {fold.folded && foldText && <FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />}
         {fold.folded && fold.changed && <FoldChanged />}
-        <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}</span>
+        <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}{settledBy && <>
+          {' by '}<span data-streamer-field="external" title={settledBy.title}>{settledBy.name}</span>
+          {ask.resolved_at ? ` at ${fmtHm(ask.resolved_at)}` : ''}</>}</span>
       </div>
       <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
         {/* the same cards the transcript draws (events/answered.tsx): a resolved

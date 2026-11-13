@@ -10706,6 +10706,11 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 }
 .org-remote-add:hover, .org-remote-add:focus-visible { color: var(--ink); border-color: var(--dim); }
 .ls-add.remote-add, .ls-add.remote-details { border-color: var(--line); }
+/* who else is connected to a remote engine (Connection details) */
+.remote-people { list-style: none; margin: 0; padding: 0; }
+.remote-people li { overflow-wrap: anywhere; }
+/* " · Sam" after the user's label on someone else's action (people.tsx) */
+.user-via { white-space: nowrap; }
 .chip.remote-chip.warn { color: var(--warn, #e5c07b); border-color: var(--warn, #e5c07b); }
 .remote-banner {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px;

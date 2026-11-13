@@ -13,8 +13,8 @@ import { SetRow } from '../canvas/settingskit'
 import { useContextMenu } from '../canvas/contextmenu'
 import { ageTitle } from '../canvas/listage'
 import { RemoteIcon } from '../icons'
-import { addRemote, patchRemote, remoteBanner, remoteOfOrg, removeRemote, retryRemote, stateWord, transportLabel, useRemotes,
-  type RemoteView } from '../remotes'
+import { addRemote, getPeople, getShownAs, patchRemote, remoteBanner, remoteOfOrg, removeRemote, retryRemote, setShownAs, stateWord,
+  transportLabel, useRemotes, type PeopleView, type RemoteView } from '../remotes'
 
 const clock = (iso: string): string => {
   const at = new Date(iso)
@@ -150,6 +150,60 @@ export function RemoteGroupHead({ remote }: { remote: RemoteView }) {
   </>
 }
 
+/** Several people on one engine (docs/rust-engine/remote-org.md): the name
+ *  this desktop shows to the others, and who else is connected there now. The
+ *  name is one for every engine this desktop connects to. */
+function RemotePeople({ remote, busy }: { remote: RemoteView; busy: boolean }) {
+  const [mine, setMine] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [error, setError] = useState('')
+  const [people, setPeople] = useState<PeopleView | null>(null)
+  const [saving, setSaving] = useState(false)
+  const there = remote.me?.name ?? null
+  useEffect(() => {
+    let alive = true
+    getShownAs().then((v) => { if (alive) { setMine(v); setName(v) } }).catch(() => { if (alive) setMine('') })
+    return () => { alive = false }
+  }, [])
+  useEffect(() => {
+    let alive = true
+    setPeople(null)
+    if (remote.state !== 'connected') return
+    getPeople(remote.id).then((v) => { if (alive) setPeople(v) }).catch(() => { if (alive) setPeople({ supported: false, people: [] }) })
+    return () => { alive = false }
+  }, [remote.id, remote.state, there])
+  const save = () => {
+    const next = name.trim()
+    if (mine === null || next === mine) { setName(mine ?? ''); return }
+    setError(''); setSaving(true)
+    setShownAs(next).then((v) => { setMine(v); setName(v) })
+      .catch((e) => { setError(message(e)); setName(mine) })
+      .finally(() => setSaving(false))
+  }
+  const others = (people?.people ?? []).filter((p) => !p.you && p.connected)
+  return <>
+    <SetRow label="Shown to others as"
+      hint={'Others see this name beside what you do, on every remote engine this computer connects to.'
+        + (there && mine !== null && there !== mine ? ` On ${remote.name} they see ${there}.` : '')}>
+      <input type="text" aria-label="Name shown to others" maxLength={40} value={name} data-streamer-field="external"
+        disabled={busy || saving || mine === null} onChange={(e) => setName(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+    </SetRow>
+    {error && <p className="ask-warn" role="alert">{error}</p>}
+    <SetRow label="Also connected">
+      {remote.state !== 'connected' ? <span className="dim">Not connected.</span>
+        : !people ? <span className="dim">Loading…</span>
+          : !people.supported ? <span className="dim">That engine does not say who is connected.</span>
+            : others.length === 0 ? <span className="dim">Nobody else.</span>
+              : <ul className="remote-people">{others.map((p) => <li key={p.id}>
+                <span data-streamer-field="external">{p.label}</span>
+                {p.name !== p.label && <span className="dim"> · <span data-streamer-field="ip">{p.name}</span></span>}
+                {p.since && <span className="dim" title={ageTitle(p.since)}> · since {clock(p.since)}</span>}
+              </li>)}</ul>}
+    </SetRow>
+  </>
+}
+
 /** Connection details: what the connection is, where it stands, and its
  *  actions. Opened from the window's chip and from a list heading. */
 export function RemoteDetails({ remote, actions, close }: { remote: RemoteView; actions: RemoteActions; close: () => void }) {
@@ -182,6 +236,7 @@ export function RemoteDetails({ remote, actions, close }: { remote: RemoteView; 
           {/* "Orgtree desktop (<computer>)": this computer's name is a host field, masked like the address */}
           {remote.client_name ? <span data-streamer-field="ip">{remote.client_name}</span> : <span>the pasted token</span>}
         </SetRow>
+        <RemotePeople remote={remote} busy={actions.busy} />
         {remote.last_error && <SetRow label="Last error"><span className="ask-warn" role="status">{remote.last_error}</span></SetRow>}
         <SetRow label="Organizations">
           <span>{live.length ? live.map((o) => o.name).join(', ') : 'none yet'}</span>

@@ -16,6 +16,8 @@ import { appValueNow, useAppValue } from './appfeed'
 
 /** What this module needs of the connection (`RemoteView` in remotes.ts). */
 export interface RemoteHere { id: string; name: string; state: string
+  /** who this desktop is on that engine: the origin its actions carry there (people.tsx) */
+  me?: { id: string; name: string | null } | null
   /** that engine's organizations: the name each has here (`alias`) and there (`remote_slug`) */
   orgs?: readonly { alias: string; remote_slug: string; gone?: boolean }[] }
 

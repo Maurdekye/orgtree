@@ -68,6 +68,7 @@ import type { MenuEntry } from './contextmenu'
 import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { fmtFull, fmtShort } from '../timefmt'
+import { ViaName, useOtherPerson } from '../people'
 import { decodeEventRow } from '../events/decode'
 import { projectEvent } from '../events/project'
 import { noticeSummary } from '../events/change'
@@ -427,8 +428,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   const paging = useRef(false)
   useEffect(() => { paging.current = false }, [vis])
   const isAgentId = (id: string) => Boolean(id && !id.startsWith('@') && id !== USER && id !== 'system' && id !== 'SYSTEM')
-  const defaultIdentity = (id: string) => {
-    if (id === USER) return <span>@user</span>
+  const defaultIdentity = (id: string, m?: MailRow) => {
+    // the user as the SENDER of this row: someone else's mail carries their name (people.tsx)
+    if (id === USER) return <span>@user{m && (m.from === USER || m.from === 'user') && <ViaName via={m.via} />}</span>
     if (id.startsWith('@net:') || id.startsWith('@org:')) return <HubContactChip address={id} />
     if (!isAgentId(id)) return <span>{id}</span>
     // …and neither is a name this tree does not hold: a since-retired agent or
@@ -1944,6 +1946,11 @@ export interface OrgRecordProps {
   onQuery?: (q: string) => void
 }
 
+/** The user in the organization's record: "you", and someone else by "User" and their name. */
+function RecordUser({ via }: { via?: unknown }) {
+  return useOtherPerson(via) ? <>User<ViaName via={via} /></> : <>you</>
+}
+
 export function OrgRecord({ events, query, onQuery }: OrgRecordProps) {
   const [qLocal, setQLocal] = useState('')
   const q = query ?? qLocal
@@ -1970,7 +1977,7 @@ export function OrgRecord({ events, query, onQuery }: OrgRecordProps) {
         <div className="rec-row" key={i}>
           <span className="mtime">{when(ev.at)}</span>
           <b className="rec-kind">{ev.op}</b>
-          <span className="rec-actor">{ev.actor === USER ? 'you' : ev.actor}</span>
+          <span className="rec-actor">{ev.actor === USER ? <RecordUser via={ev.via} /> : ev.actor}</span>
           <span className="dim">{gist(ev)}</span>
           {(ev.warnings ?? []).map((w, k) => (
             <div className="rec-warn" key={k}>⚠ {w}</div>

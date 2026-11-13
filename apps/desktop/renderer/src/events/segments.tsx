@@ -20,6 +20,7 @@ import { AttachThumb, fmtBytes, isImg } from '../canvas/img'
 import { MediaCard, mediaFormat } from '../canvas/media'
 import { DownloadIcon } from '../icons'
 import { fmtFull } from '../timefmt'
+import { ViaName } from '../people'
 import { MessageTokens } from '../canvas/tokencount'
 import type { OwnTokens, RowTokens } from '../types'
 import type { ReplyContext } from '../eventReply'
@@ -147,6 +148,8 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     urgent?: boolean; urgent_reason?: string;
     reply_to?: unknown; replies?: unknown[]; ev?: unknown; ev_raw?: unknown; ev_error?: unknown;
     client_op?: string | null; ghost_id?: number | string | null; message_id?: string | null;
+    /** which computer the user's mail came through (people.tsx) */
+    via?: unknown;
   } }) {
   // Unenveloped mail shares the visual card without inventing a typed event
   // or an actor kind. Sender names remain the recorded envelope metadata.
@@ -162,7 +165,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     ordinaryLegacy ? (part === 'header' ? <>
       <span className="event-family" aria-label="Message" title="Message">{'·'}</span>
       <strong title={`Recorded mail kind: ${row.kind || 'message'}`}>Message</strong>
-      <span className="event-actor">{row.from === '@user' || row.from === 'user' ? 'User'
+      <span className="event-actor">{row.from === '@user' || row.from === 'user' ? <>User<ViaName via={row.via} /></>
         : row.from === '@system' || row.from === 'system' ? 'System'
           : actor ? actor(row.from) : row.from}</span>
     </> : <ReceivedMailBody foldKey={keys}><div className="event-body"><div className="event-field" data-event-field="body">

@@ -7,6 +7,7 @@ import { AgentName, useAgentDirectory } from './identity'
 import { HubContactChip } from './agentmentions'
 import { tierLabel } from './shared'
 import type { RefRoutes } from './reflinks'
+import { ViaName } from '../people'
 
 export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
   // The agent can keep acting while this panel is open; keep the history view
@@ -41,7 +42,7 @@ export function AgentHistoryView({ slug, nid, refs, history }: {
             : <header className="event-head"><span className="dim">{fmtFull(it.at)}</span>
               <EventCard part="header" row={row} profile={profile} org={slug}
                 world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id}/>} /></header>}
-          {decoded.kind === 'legacy' ? <><b>{it.kind}</b><span className="dim hist-actor"><MailFrom from={it.actor}/></span><span>{text}</span></>
+          {decoded.kind === 'legacy' ? <><b>{it.kind}</b><span className="dim hist-actor"><MailFrom from={it.actor}/>{(it.actor === '@user' || it.actor === 'user') && <ViaName via={it.via} />}</span><span>{text}</span></>
             : <EventCard part="body" row={row} profile={profile} org={slug} world={refs?.world} onOpen={refs?.onOpen}
                 actor={id => <MailFrom from={id}/>} imgBase={fileBase(slug,nid)}/>}
         </div>

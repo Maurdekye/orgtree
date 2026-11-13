@@ -95,6 +95,7 @@ pub async fn page(
         ),
         "node-mail" => (
             "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'from', sender, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
+                        || CASE WHEN via IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('via', via) END
                FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND (recipient_agent_id = $1 OR sender_agent_id = $1) AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND (recipient_agent_id = $1 OR sender_agent_id = $1)",
             agent,
@@ -107,6 +108,7 @@ pub async fn page(
         ),
         "user-sent" => (
             "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
+                        || CASE WHEN via IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('via', via) END
                FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user' AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user'",
             o.id,

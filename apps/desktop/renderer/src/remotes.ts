@@ -44,6 +44,11 @@ export interface RemoteView {
   /** the client token this desktop made there ("Orgtree desktop (<computer>)") */
   client_name: string | null
   own_token: boolean
+  /** who this desktop is there: the origin its actions carry on that engine,
+   *  and the name others see. `name` is null until the engine has said so; the
+   *  whole value is null for a pasted token this desktop only borrowed, and
+   *  absent from an engine that never says. */
+  me?: { id: string; name: string | null } | null
   last_error: string | null
   error_code: string | null
   /** the sentence a change gets while this engine is not connected; null
@@ -93,6 +98,35 @@ export const removeRemote = (id: string): Promise<{ removed: string; revoked: bo
 
 export const retryRemote = (id: string): Promise<RemoteView> =>
   req(`/api/remotes/${encodeURIComponent(id)}/retry`, { method: 'POST' }, 30000, [], false)
+
+/** Someone on a remote engine, as its client list says. */
+export interface PersonView {
+  id: string
+  /** the name others see */
+  label: string
+  /** the client's own name ("Orgtree desktop (<computer>)") */
+  name: string
+  connected: boolean
+  since: string | null
+  last_seen_at: string | null
+  scope: string
+  /** this desktop itself */
+  you: boolean
+}
+/** `supported` is false for an engine that does not say who is connected. */
+export interface PeopleView { supported: boolean; people: PersonView[] }
+
+/** Who is connected to a remote engine (Connection details). Refused while the link is not connected. */
+export const getPeople = (id: string): Promise<PeopleView> =>
+  req(`/api/remotes/${encodeURIComponent(id)}/people`, undefined, 30000, [], false)
+
+/** The name this desktop shows to others: one for every engine it connects to. */
+export const getShownAs = (): Promise<string> =>
+  req<{ me?: { name?: string } }>('/api/remotes', undefined, 30000, [], false).then((v) => v.me?.name ?? '')
+
+/** Set it; blank goes back to the computer's name. The engine answers the name now in effect. */
+export const setShownAs = (label: string): Promise<string> =>
+  req<{ me: { name: string } }>('/api/remotes/shown-as', json('PUT', { label: label.trim() || null }), 30000, [], false).then((v) => v.me.name)
 
 /** The word a list heading and a chip add when a connection is not connected. */
 export function stateWord(state: RemoteState): string | null {
