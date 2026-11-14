@@ -32,7 +32,7 @@ import { onLiveBump } from '../livebus'
 import { fmtFull, fmtWhen, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
 import type {
-  ActivityInfo, AskInfo, CacheForecast, CodexRouteInfo, DirGrant, MailEntry, NodeState,
+  AccountRegistryRow, ActivityInfo, AskInfo, CacheForecast, CodexRouteInfo, DirGrant, MailEntry, NodeState,
   MuseLoginDoc, MuseModelLevels, NodeStatus, OpRequest, OpResult, PendingSwitch, ProviderInfo, ProviderTier, ReserveInfo,
   ServingAccount, ToolGrant, TreeNode, TreePayload, Watchdog,
 } from '../types'
@@ -760,6 +760,28 @@ export const hireDisabledReason = (h: HireState | null | undefined, label: strin
   signedOutHire(h)
     ? `${label} isn't signed in. Sign in to hire agents from it.${h?.reason ? ' ' + h.reason : ''}`
     : h?.reason ?? 'hiring is not enabled yet'
+
+/** The provider entries as the hire surfaces read them: Claude and Codex are
+ *  hirable when a registered account of theirs is switched on and signed in,
+ *  although the engine's own default sign-in is signed out.
+ *
+ *  An engine through 4.6.0-alpha.1 (and every 4.5.x one a window can be
+ *  connected to) marked them by its own sign-in alone. A headless engine is
+ *  signed in to account folders, with its default profile empty, so each tile
+ *  was greyed with "isn't signed in" while its agents ran on those accounts
+ *  (user report 2026-11-14). The engine counts accounts itself from 4.6.0 on
+ *  (`providers::payload`); this is the same rule for an engine that does not.
+ *  Only an entry the engine classed `signed_out` is touched; an entry that is
+ *  already hirable, hidden or turned off is returned as it came. Muse and
+ *  OpenRouter count their logins and keys in the engine. */
+export function providersWithAccounts(providers: ProviderInfo[], accounts: readonly AccountRegistryRow[] | null | undefined): ProviderInfo[] {
+  if (!accounts?.length) return providers
+  const signedIn = (provider: string) => accounts.some((a) => a.provider === provider && a.enabled !== false && !a.ambient
+    && (a.auth === 'authenticated' || a.mode === 'apikey'))
+  return providers.map((p) => (p.id === 'claude' || p.id === 'openai') && !p.hire_enabled && p.hire_reason === 'signed_out'
+    && p.status?.installed && p.user_enabled !== false && signedIn(p.id)
+    ? { ...p, hire_enabled: true, hire_reason: null, reason: null } : p)
+}
 
 /** The `/api/providers` entry narrowed to what any presence question needs.
  *  Lived inline in OrgCanvas until D-202 gave a second and third surface the

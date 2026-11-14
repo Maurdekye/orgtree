@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getProviders, saveScope } from '../api'
+import { getAccountRegistry, getProviders, saveScope } from '../api'
 import { userGesture } from '../historyapi'
 import { primaryAccount } from '../accountidentity'
 import { useAppFeed, useAppRead } from '../appfeed'
@@ -12,7 +12,7 @@ import { ConfirmModal } from './modals'
 import { PickerPopover } from './pickerpopover'
 import { staffingOptions, type StaffingOptions, type StaffingTier } from './staffingoptions'
 import { ALL_TIER_SEAT, hireOf, providerOf, TIER_LETTER, tierLabel,
-  type CanvasNode, type OpFn } from './shared'
+  providersWithAccounts, type CanvasNode, type OpFn } from './shared'
 
 /** Staffing supplies eligible managed accounts separately from the native login.
  * Prefer native when usable; a spent native reading cannot hide a usable tier. */
@@ -29,6 +29,7 @@ export function DeskModelButton({node, slug, op, toast}: {
   node: CanvasNode; slug: string; op: OpFn; toast: ToastFn
 }) {
   const providers = useAppRead('providers', getProviders)
+  const accounts = useAppRead('accounts', getAccountRegistry)
   const orgProviders = useOrgHireProviders(slug)
   const {version: feedVersion} = useAppFeed()
   const [availability,setAvailability] = useState<{slug:string;value:StaffingOptions}|null>(null)
@@ -39,11 +40,12 @@ export function DeskModelButton({node, slug, op, toast}: {
     return()=>{active=false}
   },[slug,providers,feedVersion])
   const hires=useMemo(()=>{
-    const of=(id:string)=>hireOf(providers?.providers.find(p=>p.id===id),
+    const entries=providersWithAccounts(providers?.providers??[],accounts?.accounts)
+    const of=(id:string)=>hireOf(entries.find(p=>p.id===id),
       providers?.checking===false&&['claude','openai','google'].includes(id),orgProviders?.has(id))
     return{claudeHire:of('claude'),codexHire:of('openai'),antigravityHire:of('google'),
       museHire:of('muse'),openrouterHire:of('openrouter'),langserverHire:of('langserver')}
-  },[providers,orgProviders])
+  },[providers,orgProviders,accounts])
   const [anchor,setAnchor]=useState<HTMLElement|null>(null)
   const [confirmTier,setConfirmTier]=useState<string|null>(null)
   const [saving,setSaving]=useState(false)
