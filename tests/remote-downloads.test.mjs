@@ -144,3 +144,17 @@ test('the main process watches the app session and the bridge can ask it to stop
   assert.match(main, /handle\('desktop:remote-file-download-cancel', \(caller, id\) =>\s*\(\{ ok: typeof id === 'string' && fileDownloads\.cancel\(id, caller\.window\.webContents\.id\) \}\)\)/)
   assert.match(preload, /cancelRemoteFileDownload: \(id: string\) => ipcRenderer\.invoke\('desktop:remote-file-download-cancel', id\)/)
 })
+
+test('the name a download is saved under is a name, whatever path the answer named', () => {
+  // review F-5 (2026-11-14): the name comes from the other computer's answer; only its last part is used
+  const { window, item, start } = rig()
+  for (const [given, name] of [['..\\..\\Start Menu\\evil.lnk', 'evil.lnk'], ['../../.ssh/authorized_keys', 'authorized_keys'],
+    ['C:\\Windows\\win.ini', 'win.ini'], ['logs/run.log', 'run.log'], ['', 'download'], ['..', 'download'], ['.', 'download']]) {
+    const contents = window(9), it = item(FILE, given, 10)
+    start(it, contents)
+    assert.deepEqual(it.dialog, { title: `Save ${name}`, defaultPath: path.join(DOWNLOADS, name) }, JSON.stringify(given))
+    it.savePath = path.join(DOWNLOADS, name)
+    it.done('completed')
+    assert.equal(news(contents).at(-1)?.name, name, JSON.stringify(given))
+  }
+})
