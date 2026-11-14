@@ -123,6 +123,8 @@ import { onAppValue, useAppRead, useAppReadout } from './appfeed'
 import { groupByProvider } from './usagegroups'
 import { UsageHistoryModal } from './usagehistory'
 import { ChangelogModal, changelogAfterUpdateOn } from './changelog'
+import { DataLocationMoveResultModal } from './canvas/desktopsettings'
+import type { DataLocationLastMoveReport } from '../../../../packages/contracts'
 import { bumpLive, onLiveBump } from './livebus'
 import { applyPrimedAsks, onPrimeAsk, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
@@ -833,6 +835,15 @@ export default function App() {
     setChangelogAfterUpdate(false)
     openChangelog()
   }, [changelogAfterUpdate, openChangelog])
+  const [moveResultReport, setMoveResultReport] = useState<DataLocationLastMoveReport | null>(null)
+  const moveResultAsked = useRef(false)
+  useEffect(() => {
+    if (moveResultAsked.current || (slug !== null && restoredOrg.current !== slug)) return
+    moveResultAsked.current = true
+    desktop()?.takeDataLocationMoveResult?.()
+      .then(report => { if (changelogLive.current && report) setMoveResultReport(report) })
+      .catch(() => { /* older shell or browser: nothing to show */ })
+  }, [slug, tree])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
     if (nativeTarget.focusDesk && nativeTarget.agent) {
@@ -2268,6 +2279,9 @@ export default function App() {
       )}
       {showChangelog && (
         <ChangelogModal opening={changelogOpening} close={() => setShowChangelog(false)} />
+      )}
+      {moveResultReport && (
+        <DataLocationMoveResultModal report={moveResultReport} close={() => setMoveResultReport(null)} />
       )}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}

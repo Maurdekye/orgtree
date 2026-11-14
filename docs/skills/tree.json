@@ -4136,7 +4136,8 @@
    "writer": "skills-docs-sol",
    "status": "fixed",
    "components": [
-    "apps/desktop/renderer/src/canvas/accounts.tsx#AccountsPanel"
+    "apps/desktop/renderer/src/canvas/accounts.tsx#AccountsPanel",
+    "apps/desktop/renderer/src/canvas/desktopsettings.tsx#DataLocationMoveResultModal"
    ],
    "ui_labels": [
     {

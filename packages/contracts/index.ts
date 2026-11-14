@@ -164,6 +164,29 @@ export interface UpdateCapability { unattendedInstall: boolean; installDirectory
  *  permission once. `available` is false where there is no background engine
  *  for it to apply to. */
 export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string }
+export interface DataLocationUnreadableEntry {
+  path: string
+  relativePath: string
+  kind: 'directory' | 'file' | 'entry'
+  code?: string
+  error: string
+}
+export interface DataLocationLastMoveReport {
+  movedAt: string
+  fromRoot: string
+  toRoot: string
+  deletePreviousRequested: boolean
+  oldFolderDeleted: boolean
+  skippedEntries: DataLocationUnreadableEntry[]
+  remainingPaths: string[]
+  pendingRestartNotice?: boolean
+}
+export interface DataLocationDeletePreviousResult {
+  ok: boolean
+  deletedAll?: boolean
+  remainingPaths?: string[]
+  error?: string
+}
 export interface DataLocationState {
   currentRoot: string
   defaultRoot: string
@@ -174,6 +197,8 @@ export interface DataLocationState {
   previousBytes: number | null
   movedAt: string | null
   moving: boolean
+  lastMoveReport?: DataLocationLastMoveReport | null
+  moveLogExists?: boolean
 }
 export interface DataLocationSizes {
   currentRoot: string
@@ -191,6 +216,7 @@ export interface DataLocationPreflight {
   requiredBytes: number
   freeBytes: number
   activeAgents: number
+  unreadableEntries?: DataLocationUnreadableEntry[]
   error?: string
 }
 export interface DataLocationProgress {
@@ -205,6 +231,7 @@ export interface DataLocationProgress {
 export interface DataLocationMoveOptions {
   targetPath: string
   deletePrevious: boolean
+  skipUnreadablePaths?: string[]
 }
 export interface DataLocationMoveResult {
   ok: boolean
@@ -332,8 +359,10 @@ export interface DesktopBridge {
   cancelDataLocationPreflight?(): Promise<{ ok: boolean }>
   moveDataLocation?(options: DataLocationMoveOptions): Promise<DataLocationMoveResult>
   cancelDataLocationMove?(): Promise<{ ok: boolean }>
-  deletePreviousDataLocation?(): Promise<{ ok: boolean; error?: string }>
+  deletePreviousDataLocation?(): Promise<DataLocationDeletePreviousResult>
   openDataLocationFolder?(which: 'current' | 'previous'): Promise<{ ok: boolean; error?: string }>
+  openDataLocationMoveLog?(): Promise<{ ok: boolean; error?: string }>
+  takeDataLocationMoveResult?(): Promise<DataLocationLastMoveReport | null>
   /** What the startup switch is called here: "run on boot" or "run on sign-in". */
   getStartupKind?(): Promise<StartupKind>
   /** "Chat from your phone" › Turn on phone access: add the Windows Firewall

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
 import type {
-  DataLocationPreflight, DataLocationProgress, DataLocationState,
+  DataLocationLastMoveReport, DataLocationPreflight, DataLocationProgress,
+  DataLocationState, DataLocationUnreadableEntry,
   RunAsAdministratorState, StartupKind, UpdateCapability,
 } from '../../../../../packages/contracts'
 import { initiatingDocument, popoutNameForDocument } from '../windowlife'
@@ -162,13 +163,83 @@ export function formatDataBytes(bytes: number | null | undefined): string {
   return `${(bytes / 1024 ** 4).toFixed(2)} TB`
 }
 
+function unreadableCountLabel(entries: readonly DataLocationUnreadableEntry[] | readonly string[]): string {
+  const count = entries.length
+  const anyFile = entries.some(e => typeof e !== 'string' && e.kind === 'file')
+  if (anyFile) return count === 1 ? '1 file' : `${count} folders or files`
+  return count === 1 ? '1 folder' : `${count} folders`
+}
+
+export function DataLocationMoveResultModal({ report, close }: {
+  report: DataLocationLastMoveReport
+  close: () => void
+}) {
+  const bridge = desktop()
+  const [openingLog, setOpeningLog] = useState(false)
+  const [logError, setLogError] = useState('')
+  const pathsToShow = report.remainingPaths.length > 0
+    ? report.remainingPaths
+    : report.skippedEntries.map(e => e.path)
+  const countLabel = unreadableCountLabel(
+    report.remainingPaths.length > 0 ? report.remainingPaths : report.skippedEntries,
+  )
+
+  const handleOpenLog = async () => {
+    if (!bridge?.openDataLocationMoveLog || openingLog) return
+    setOpeningLog(true)
+    setLogError('')
+    try {
+      const res = await bridge.openDataLocationMoveLog()
+      if (!res.ok) setLogError(res.error || 'Could not open the data move log.')
+    } catch (e) {
+      setLogError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setOpeningLog(false)
+    }
+  }
+
+  return (
+    <PinFrame kind="data-location-move-result" title="Data folder moved"
+      panel="settings move-data-dialog"
+      close={close} onEsc={close} closable pinnable={false}
+      dialogLabel="Data folder moved">
+      <h3>Data folder moved</h3>
+      <div className="dataloc-report">
+        <p>
+          Moved; {countLabel} could not be read and stayed in{' '}
+          <code data-streamer-field="path">{report.fromRoot}</code>
+          {report.deletePreviousRequested && !report.oldFolderDeleted
+            ? ' (everything else in the previous folder was deleted; parent folders holding these stayed):'
+            : ':'}
+        </p>
+        {pathsToShow.length > 0 && (
+          <ul className="dataloc-unreadable-list">
+            {pathsToShow.map(p => (
+              <li key={p}><code data-streamer-field="path">{p}</code></li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {logError && <p className="ask-warn" role="alert">{logError}</p>}
+      <div className="dataloc-actions">
+        {bridge?.openDataLocationMoveLog && (
+          <button type="button" disabled={openingLog} onClick={() => { void handleOpenLog() }}>
+            {openingLog ? 'Opening…' : 'Open move log'}
+          </button>
+        )}
+        <button type="button" className="primary" onClick={close}>OK</button>
+      </div>
+    </PinFrame>
+  )
+}
+
 /** "Data location" — where Orgtree keeps its organizations, PostgreSQL cluster,
  *  transcripts, diagnostics and managed CLI profiles on this computer (4.6.0,
  *  docket settings-choose-where-orgtree-keeps-its-data-dat). The pointer file
  *  itself stays in `<userData>/data-location.json`; moving copies and verifies
- *  every file before switching over, keeps the old folder read-only unless the
- *  user ticks the unticked-by-default delete box or clicks "Delete previous
- *  folder (<size>)", and rolls back cleanly on Cancel or any startup failure. */
+ *  every readable file before switching over, keeps the old folder read-only
+ *  unless the user ticks the unticked-by-default delete box or clicks "Delete
+ *  previous folder (<size>)", and rolls back cleanly on Cancel or any startup failure. */
 export function DataLocationSetting({ onDialogChange }: {
   onDialogChange?: (open: boolean) => void
 } = {}) {
@@ -179,6 +250,7 @@ export function DataLocationSetting({ onDialogChange }: {
   const [choosing, setChoosing] = useState(false)
   const [checking, setChecking] = useState(false)
   const [opening, setOpening] = useState<'current' | 'previous' | null>(null)
+  const [openingLog, setOpeningLog] = useState(false)
   const [preflight, setPreflight] = useState<DataLocationPreflight | null>(null)
   const [deletePrevious, setDeletePrevious] = useState(false)
   const [moving, setMoving] = useState(false)
@@ -270,6 +342,20 @@ export function DataLocationSetting({ onDialogChange }: {
     }
   }
 
+  const openMoveLog = async () => {
+    if (!bridge.openDataLocationMoveLog || openingLog) return
+    setOpeningLog(true)
+    setError('')
+    try {
+      const res = await bridge.openDataLocationMoveLog()
+      if (!res.ok) setError(`Could not open move log: ${res.error || 'unknown error'}`)
+    } catch (e) {
+      setError(`Could not open move log: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setOpeningLog(false)
+    }
+  }
+
   const cancelPreflight = async () => {
     preflightSeqRef.current += 1
     setChecking(false)
@@ -345,9 +431,11 @@ export function DataLocationSetting({ onDialogChange }: {
     setMoving(true)
     setDialogError('')
     try {
+      const skipPaths = (preflight.unreadableEntries ?? []).map(e => e.path)
       const res = await bridge.moveDataLocation({
         targetPath: preflight.pickedPath,
         deletePrevious,
+        ...(skipPaths.length > 0 ? { skipUnreadablePaths: skipPaths } : {}),
       })
       if (!res.ok) {
         if (res.cancelled) {
@@ -383,7 +471,15 @@ export function DataLocationSetting({ onDialogChange }: {
         return
       }
       setConfirmDeletePrevious(false)
-      setNotice('Previous data folder deleted.')
+      if (res.deletedAll === false) {
+        const rem = res.remainingPaths ?? []
+        const remLabel = unreadableCountLabel(rem)
+        setNotice(
+          `Deleted everything readable in the previous data folder; ${remLabel} could not be removed and stayed in place.`,
+        )
+      } else {
+        setNotice('Previous data folder deleted.')
+      }
       await refreshState()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -416,11 +512,46 @@ export function DataLocationSetting({ onDialogChange }: {
       : 'Checking folder and measuring current data size…'
     : ''
 
+  const activeReport = state?.lastMoveReport ?? null
+  const reportPaths = activeReport
+    ? activeReport.remainingPaths.length > 0
+      ? activeReport.remainingPaths
+      : activeReport.skippedEntries.map(e => e.path)
+    : []
+  const showMoveReport = activeReport !== null && reportPaths.length > 0
+  const preflightUnreadable = preflight?.unreadableEntries ?? []
+  const preflightUnreadableCount = preflightUnreadable.length
+
   return <>
     <SetGroup title="Data location">
       {error && <p className="ask-warn" role="alert">{error}</p>}
       {checkingDetail && <p className="dim" role="status">{checkingDetail}</p>}
       {notice && !error && !checkingDetail && <p className="dim" role="status">{notice}</p>}
+      {showMoveReport && activeReport && (
+        <div className="dataloc-report" role="status">
+          <p>
+            Moved; {unreadableCountLabel(activeReport.remainingPaths.length > 0 ? activeReport.remainingPaths : activeReport.skippedEntries)}{' '}
+            could not be read and stayed in{' '}
+            <code data-streamer-field="path">{activeReport.fromRoot}</code>
+            {activeReport.deletePreviousRequested && !activeReport.oldFolderDeleted
+              ? ' (everything else in the previous folder was deleted; parent folders holding these stayed):'
+              : ':'}
+          </p>
+          <ul className="dataloc-unreadable-list">
+            {reportPaths.map(p => (
+              <li key={p}><code data-streamer-field="path">{p}</code></li>
+            ))}
+          </ul>
+          {bridge.openDataLocationMoveLog && (
+            <div className="dataloc-report-actions">
+              <button type="button" disabled={openingLog || moving}
+                onClick={() => { void openMoveLog() }}>
+                {openingLog ? 'Opening…' : 'Open move log'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <SetRow label="Current folder" field="data-location"
         hint={state
           ? <><span className="mono" data-streamer-field="path">{state.currentRoot}</span>{statusText}{statusText.endsWith('…') ? ' ·' : '.'} Stores organizations, the PostgreSQL database, transcripts, diagnostics and managed CLI profiles on this computer.</>
@@ -446,10 +577,18 @@ export function DataLocationSetting({ onDialogChange }: {
             Use default location…
           </button>
         )}
+        {!showMoveReport && state?.moveLogExists && bridge.openDataLocationMoveLog && (
+          <button type="button" disabled={openingLog || moving}
+            onClick={() => { void openMoveLog() }}>
+            {openingLog ? 'Opening…' : 'Open move log'}
+          </button>
+        )}
       </SetRow>
       {state?.previousRoot && (
         <SetRow label="Previous folder" field="data-location-previous"
-          hint={<><span className="mono" data-streamer-field="path">{state.previousRoot}</span>{prevSizeHint} · Kept untouched from your last move until you delete it.</>}>
+          hint={<><span className="mono" data-streamer-field="path">{state.previousRoot}</span>{prevSizeHint} · {activeReport?.deletePreviousRequested && !activeReport.oldFolderDeleted
+            ? 'Holds the unreadable entries that stayed behind (and their parent folders); delete it once those entries are unlocked or removed.'
+            : 'Kept untouched from your last move until you delete it.'}</>}>
           <button type="button" disabled={opening !== null || busy}
             onClick={() => { void openFolder('previous') }}>
             {opening === 'previous' ? 'Opening…' : 'Open folder'}
@@ -490,8 +629,26 @@ export function DataLocationSetting({ onDialogChange }: {
             <span>{formatDataBytes(preflight.freeBytes) || 'Unknown'}</span>
           </div>
         </div>
+        {preflightUnreadableCount > 0 && (
+          <div className="dataloc-unreadable" role="region" aria-label="Unreadable entries">
+            <p className="ask-warn">
+              {unreadableCountLabel(preflightUnreadable)} in the current data folder could not be read and will stay in{' '}
+              <code data-streamer-field="path">{state.currentRoot}</code> if you continue:
+            </p>
+            <ul className="dataloc-unreadable-list">
+              {preflightUnreadable.map(entry => (
+                <li key={entry.path}>
+                  <code data-streamer-field="path">{entry.path}</code>
+                  {entry.code ? <span className="dim"> ({entry.code})</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <p className="dim">
-          Orgtree will close its windows, stop the background engine, copy and verify every file into the new folder, start the engine there, and reopen your windows. If copying is cancelled or the new folder fails to start, Orgtree leaves your current folder untouched and reopens there.
+          {preflightUnreadableCount > 0
+            ? 'Orgtree will close its windows, stop the background engine, copy and verify every readable file into the new folder while leaving the unreadable entries above in your original folder, start the engine at the new location, and reopen your windows.'
+            : 'Orgtree will close its windows, stop the background engine, copy and verify every file into the new folder, start the engine there, and reopen your windows. If copying is cancelled or the new folder fails to start, Orgtree leaves your current folder untouched and reopens there.'}
         </p>
         {preflight.activeAgents > 0 && (
           <p className="ask-warn" role="alert">
@@ -505,6 +662,11 @@ export function DataLocationSetting({ onDialogChange }: {
             onChange={e => setDeletePrevious(e.target.checked)} />
           <span>Delete the old folder once the new location starts cleanly</span>
         </label>
+        {preflightUnreadableCount > 0 && (
+          <p className="dim dataloc-check-hint">
+            Deletes everything readable in the old folder once the new location starts cleanly; the unreadable entries above and the parent folders holding them stay in place.
+          </p>
+        )}
         {moving && progress && (
           <p className="dim" role="status">{progress.detail}</p>
         )}
@@ -515,9 +677,11 @@ export function DataLocationSetting({ onDialogChange }: {
             onClick={() => { void confirmMove() }}>
             {moving
               ? 'Moving…'
-              : preflight.activeAgents > 0
-                ? 'Stop turns and move'
-                : 'Move data'}
+              : preflightUnreadableCount > 0
+                ? 'Move without them'
+                : preflight.activeAgents > 0
+                  ? 'Stop turns and move'
+                  : 'Move data'}
           </button>
         </div>
       </PinFrame>
@@ -536,6 +700,9 @@ export function DataLocationSetting({ onDialogChange }: {
           <span className="mono" data-streamer-field="path">{state.previousRoot}</span>
           {prevSize ? ` (${prevSize})` : ''}? Orgtree is currently running from{' '}
           <span className="mono" data-streamer-field="path">{state.currentRoot}</span>.
+          {reportPaths.length > 0
+            ? ' Any entries that are still unreadable (and the parent folders holding them) will stay in place while everything else is deleted.'
+            : ''}
         </p>
         <div className="dataloc-actions">
           <button type="button" disabled={deletingPrevious}

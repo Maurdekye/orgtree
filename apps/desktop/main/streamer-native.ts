@@ -14,7 +14,7 @@ export function setNativeStreamer(on: boolean) {
   enabled = on; for (const fn of changed) fn()
 }
 
-const safeActions = /^(?:OK|Cancel|Yes|No|Retry|Close|Back|Next|Continue|Open|Save|Discard|Quit|Restart|Undo|Redo|Cut|Copy|Paste|Paste as plain text|Delete|Select All|Add to dictionary|Check for updates|Automatic updates|Exit on close|Notifications|Harness setup|Quit Orgtree|Crash reports\.\.\.|Connect your phone…|Run as admin(?: \(changing…\))?|Run on (?:boot|sign-in)(?: \(changing…\))?|Restart engine)$/i
+const safeActions = /^(?:OK|Cancel|Yes|No|Retry|Close|Back|Next|Continue|Open|Open move log|Save|Discard|Quit|Restart|Undo|Redo|Cut|Copy|Paste|Paste as plain text|Delete|Select All|Add to dictionary|Check for updates|Automatic updates|Exit on close|Notifications|Harness setup|Quit Orgtree|Crash reports\.\.\.|Connect your phone…|Run as admin(?: \(changing…\))?|Run on (?:boot|sign-in)(?: \(changing…\))?|Restart engine)$/i
 export function nativeMenuLabel(value: string): string { return enabled && !safeActions.test(value) ? nativeScreenText(value, true) : value }
 export function nativeDialogOptions<T extends Record<string, unknown>>(value: T): T {
   if (!enabled) return value

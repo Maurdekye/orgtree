@@ -32,12 +32,14 @@ import { ConversionWindow } from './conversion-window'
 import { DataMoveWindow } from './data-move-window'
 import {
   clearMoveInProgressMarker,
+  consumePendingMoveRestartNotice,
   DATA_LOCATION_MOVED_STAMP,
   deletePreviousDataLocationFolder,
   findReparseAncestor,
   formatBytes,
   interactiveRelaunchArgs,
   measureDataLocationSizes,
+  openDataLocationMoveLogFile,
   orchestrateDesktopDataMove,
   preflightDataLocation,
   readDataLocationState,
@@ -2881,6 +2883,25 @@ else {
         dataMoveAbort?.abort()
         return { ok: true }
       })
+      const openMoveLogWithFallback = async (file: string): Promise<string> => {
+        const associationError = await shell.openPath(file)
+        if (!associationError) return ''
+        if (process.platform !== 'win32') return associationError
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const child = spawnProcess('notepad.exe', [file], { detached: true, stdio: 'ignore' })
+            child.once('error', reject)
+            child.once('spawn', () => { child.unref(); resolve() })
+          })
+          return ''
+        } catch (error) {
+          return error instanceof Error ? error.message : associationError
+        }
+      }
+      handleApp('desktop:data-location-open-log', () =>
+        openDataLocationMoveLogFile(app.getPath('userData'), openMoveLogWithFallback))
+      handleApp('desktop:data-location-take-result', () =>
+        consumePendingMoveRestartNotice(app.getPath('userData'), engineOptions.dataRoot))
       handleApp('desktop:data-location-delete-previous', () =>
         deletePreviousDataLocationFolder({
           userData: app.getPath('userData'),
@@ -2927,9 +2948,20 @@ else {
         const opts = (rawOptions && typeof rawOptions === 'object' ? rawOptions : {}) as {
           targetPath?: unknown
           deletePrevious?: unknown
+          skipUnreadablePaths?: unknown
         }
         if (typeof opts.targetPath !== 'string' || !opts.targetPath.trim() || typeof opts.deletePrevious !== 'boolean') {
           return { ok: false, error: 'Invalid data location move options.' }
+        }
+        let skipUnreadablePaths: string[] | undefined
+        if (opts.skipUnreadablePaths !== undefined) {
+          if (
+            !Array.isArray(opts.skipUnreadablePaths) ||
+            opts.skipUnreadablePaths.some(p => typeof p !== 'string' || !p.trim())
+          ) {
+            return { ok: false, error: 'Invalid unreadable skip list.' }
+          }
+          skipUnreadablePaths = opts.skipUnreadablePaths
         }
         if (dataMoveInFlight || backgroundEngineRestart || engineRestartBlocked()) {
           return { ok: false, error: 'Orgtree is busy restarting, updating, or moving data; try again in a moment.' }
@@ -2948,7 +2980,11 @@ else {
         }> = []
         try {
           return await orchestrateDesktopDataMove({
-            options: { targetPath: opts.targetPath, deletePrevious: opts.deletePrevious },
+            options: {
+              targetPath: opts.targetPath,
+              deletePrevious: opts.deletePrevious,
+              ...(skipUnreadablePaths ? { skipUnreadablePaths } : {}),
+            },
             currentRoot: engineOptions.dataRoot,
             userData: app.getPath('userData'),
             forbiddenRoot: engineOptions.forbiddenRoot,
@@ -3076,8 +3112,15 @@ else {
               if (!outcome.cancelled && outcome.error) {
                 void dialog.showMessageBox({
                   type: 'error',
+                  buttons: ['OK', 'Open move log'],
+                  defaultId: 0,
+                  cancelId: 0,
                   message: 'Orgtree could not move its data folder.',
                   detail: `${outcome.error}\n\nYour original data folder was not changed.`,
+                }).then(res => {
+                  if (res.response === 1) {
+                    void openDataLocationMoveLogFile(app.getPath('userData'), openMoveLogWithFallback).catch(() => {})
+                  }
                 }).catch(() => {})
               }
             },

@@ -119,6 +119,8 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     cancelDataLocationMove: () => ipcRenderer.invoke('desktop:data-location-cancel'),
     deletePreviousDataLocation: () => ipcRenderer.invoke('desktop:data-location-delete-previous'),
     openDataLocationFolder: (which: 'current' | 'previous') => ipcRenderer.invoke('desktop:data-location-open', which),
+    openDataLocationMoveLog: () => ipcRenderer.invoke('desktop:data-location-open-log'),
+    takeDataLocationMoveResult: () => ipcRenderer.invoke('desktop:data-location-take-result'),
     getStartupKind: () => ipcRenderer.invoke('desktop:startup-kind'),
     addPhoneFirewallRule: (scope: 'tailnet' | 'lan') => ipcRenderer.invoke('desktop:phone-firewall', scope),
     removePhoneFirewallRule: () => ipcRenderer.invoke('desktop:phone-firewall-remove'),
