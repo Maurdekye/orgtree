@@ -56,6 +56,7 @@ pub struct DbRelocationStats {
     pub watchdogs: usize,
     pub custom_app_file_grants: usize,
     pub custom_app_file_refs: usize,
+    pub undo_entries: usize,
 }
 
 #[nolog]
@@ -77,6 +78,7 @@ impl DbRelocationStats {
             + self.watchdogs
             + self.custom_app_file_grants
             + self.custom_app_file_refs
+            + self.undo_entries
     }
 }
 
@@ -191,9 +193,8 @@ pub fn rewrite_path_str(value: &str, from_variants: &[String], to_clean: &str) -
     None
 }
 
-fn rewrite_dir_entries_field(doc: &Value, key: &str, from_variants: &[String], to_clean: &str) -> Option<Value> {
-    let obj = doc.as_object()?;
-    let items = obj.get(key)?.as_array()?;
+fn rewrite_dir_entries_array(arr: &Value, from_variants: &[String], to_clean: &str) -> Option<Value> {
+    let items = arr.as_array()?;
     let mut changed = false;
     let mut next_items = Vec::with_capacity(items.len());
     for item in items {
@@ -221,12 +222,121 @@ fn rewrite_dir_entries_field(doc: &Value, key: &str, from_variants: &[String], t
             _ => next_items.push(item.clone()),
         }
     }
-    if !changed {
-        return None;
-    }
+    changed.then_some(Value::Array(next_items))
+}
+
+fn rewrite_dir_entries_field(doc: &Value, key: &str, from_variants: &[String], to_clean: &str) -> Option<Value> {
+    let obj = doc.as_object()?;
+    let arr = obj.get(key)?;
+    let next_arr = rewrite_dir_entries_array(arr, from_variants, to_clean)?;
     let mut next_obj = obj.clone();
-    next_obj.insert(key.into(), Value::Array(next_items));
+    next_obj.insert(key.into(), next_arr);
     Some(Value::Object(next_obj))
+}
+
+fn rewrite_undo_entry_data(doc: &Value, from_variants: &[String], to_clean: &str) -> Option<Value> {
+    let obj = doc.as_object()?;
+    let mut changed = false;
+    let mut next_root = obj.clone();
+
+    if let Some(agents) = obj.get("agents").and_then(Value::as_array) {
+        let mut agents_changed = false;
+        let mut next_agents = Vec::with_capacity(agents.len());
+        for a in agents {
+            if let Some(a_obj) = a.as_object() {
+                if let Some(fields) = a_obj.get("fields").and_then(Value::as_object) {
+                    if let Some(add_dirs) = fields.get("add_dirs").and_then(Value::as_object) {
+                        let mut ad_changed = false;
+                        let mut next_ad = add_dirs.clone();
+                        for side_key in ["before", "after"] {
+                            if let Some(side_val) = add_dirs.get(side_key) {
+                                if let Some(re) = rewrite_dir_entries_array(side_val, from_variants, to_clean) {
+                                    next_ad.insert(side_key.into(), re);
+                                    ad_changed = true;
+                                }
+                            }
+                        }
+                        if ad_changed {
+                            let mut next_fields = fields.clone();
+                            next_fields.insert("add_dirs".into(), Value::Object(next_ad));
+                            let mut next_a = a_obj.clone();
+                            next_a.insert("fields".into(), Value::Object(next_fields));
+                            next_agents.push(Value::Object(next_a));
+                            agents_changed = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+            next_agents.push(a.clone());
+        }
+        if agents_changed {
+            next_root.insert("agents".into(), Value::Array(next_agents));
+            changed = true;
+        }
+    }
+
+    if let Some(side) = obj.get("side").and_then(Value::as_object) {
+        let mut side_changed = false;
+        let mut next_side = side.clone();
+
+        if let Some(scopes) = side.get("scopes").and_then(Value::as_array) {
+            let mut scopes_changed = false;
+            let mut next_scopes = Vec::with_capacity(scopes.len());
+            for s in scopes {
+                if let Some(s_obj) = s.as_object() {
+                    let mut entry_changed = false;
+                    let mut next_s = s_obj.clone();
+                    for side_key in ["before", "after"] {
+                        if let Some(sc_val) = s_obj.get(side_key) {
+                            if let Some(re) = rewrite_dir_entries_field(sc_val, "add_dirs", from_variants, to_clean) {
+                                next_s.insert(side_key.into(), re);
+                                entry_changed = true;
+                            }
+                        }
+                    }
+                    if entry_changed {
+                        next_scopes.push(Value::Object(next_s));
+                        scopes_changed = true;
+                        continue;
+                    }
+                }
+                next_scopes.push(s.clone());
+            }
+            if scopes_changed {
+                next_side.insert("scopes".into(), Value::Array(next_scopes));
+                side_changed = true;
+            }
+        }
+
+        if let Some(org) = side.get("org").and_then(Value::as_object) {
+            if let Some(dirs) = org.get("dirs").and_then(Value::as_object) {
+                let mut dirs_changed = false;
+                let mut next_dirs = dirs.clone();
+                for side_key in ["before", "after"] {
+                    if let Some(d_val) = dirs.get(side_key) {
+                        if let Some(re) = rewrite_dir_entries_array(d_val, from_variants, to_clean) {
+                            next_dirs.insert(side_key.into(), re);
+                            dirs_changed = true;
+                        }
+                    }
+                }
+                if dirs_changed {
+                    let mut next_org = org.clone();
+                    next_org.insert("dirs".into(), Value::Object(next_dirs));
+                    next_side.insert("org".into(), Value::Object(next_org));
+                    side_changed = true;
+                }
+            }
+        }
+
+        if side_changed {
+            next_root.insert("side".into(), Value::Object(next_side));
+            changed = true;
+        }
+    }
+
+    changed.then_some(Value::Object(next_root))
 }
 
 fn rewrite_attachments_array(doc: &Value, from_variants: &[String], to_clean: &str) -> Option<Value> {
@@ -293,11 +403,39 @@ fn rewrite_work_evidence(doc: &Value, from_variants: &[String], to_clean: &str) 
     changed.then_some(Value::Array(next_items))
 }
 
+#[nolog]
+fn is_reparse_or_symlink(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if meta.file_attributes() & 0x400 != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+#[nolog]
+fn unlink_reparse_or_symlink(path: &Path) {
+    if std::fs::remove_file(path).is_err() {
+        let _ = std::fs::remove_dir(path);
+    }
+}
+
 #[logged]
 pub fn read_marker(data_root: &Path) -> Result<Option<MoveMarker>> {
     let marker_path = data_root.join(MOVED_MARKER_FILE);
-    if !marker_path.exists() {
+    if std::fs::symlink_metadata(&marker_path).is_err() {
         return Ok(None);
+    }
+    if is_reparse_or_symlink(&marker_path) {
+        bail!("refusing symlink or reparse-point marker {}", marker_path.display());
     }
     let raw = std::fs::read_to_string(&marker_path)
         .with_context(|| format!("could not read {}", marker_path.display()))?;
@@ -639,6 +777,20 @@ pub async fn relocate_database<'a>(
         }
     }
 
+    // 17. ot.undo_entries -> data (retool add_dirs / side.scopes / side.org.dirs)
+    for row in tx
+        .query("SELECT id, data FROM ot.undo_entries WHERE kind = 'retool'", &[])
+        .await?
+    {
+        let id: i64 = row.get(0);
+        let data: Value = row.get(1);
+        if let Some(next) = rewrite_undo_entry_data(&data, from_variants, to_clean) {
+            tx.execute("UPDATE ot.undo_entries SET data = $2 WHERE id = $1", &[&id, &next])
+                .await?;
+            stats.undo_entries += 1;
+        }
+    }
+
     Ok(stats)
 }
 
@@ -680,15 +832,21 @@ fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> Result<()> {
         target.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
         std::process::id()
     ));
-    let mut f = std::fs::File::create(&tmp)
-        .with_context(|| format!("could not create {}", tmp.display()))?;
-    f.write_all(bytes)
-        .with_context(|| format!("could not write {}", tmp.display()))?;
-    let _ = f.sync_all();
-    drop(f);
-    std::fs::rename(&tmp, target)
-        .with_context(|| format!("could not rename {} -> {}", tmp.display(), target.display()))?;
-    Ok(())
+    let res = (|| -> Result<()> {
+        let mut f = std::fs::File::create(&tmp)
+            .with_context(|| format!("could not create {}", tmp.display()))?;
+        f.write_all(bytes)
+            .with_context(|| format!("could not write {}", tmp.display()))?;
+        let _ = f.sync_all();
+        drop(f);
+        std::fs::rename(&tmp, target)
+            .with_context(|| format!("could not rename {} -> {}", tmp.display(), target.display()))?;
+        Ok(())
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
 }
 
 /// Crash-resumable move of `src` directory into `dst`. When `dst` does not yet
@@ -696,6 +854,9 @@ fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> Result<()> {
 /// `src` and `dst` present, merges every file from `src` into `dst` and removes
 /// `src` once empty.
 fn merge_or_move_dir(src: &Path, dst: &Path, pause_after_first_file: bool) -> Result<()> {
+    if is_reparse_or_symlink(src) || is_reparse_or_symlink(dst) {
+        return Ok(());
+    }
     if comparable_path(src) == comparable_path(dst) {
         return Ok(());
     }
@@ -712,9 +873,9 @@ fn merge_or_move_dir(src: &Path, dst: &Path, pause_after_first_file: bool) -> Re
         let file_type = entry.file_type()?;
         let src_child = entry.path();
         let dst_child = dst.join(entry.file_name());
-        if file_type.is_symlink() {
-            // Never traverse links inside profile dirs; drop stale link entry.
-            let _ = std::fs::remove_file(&src_child);
+        if file_type.is_symlink() || is_reparse_or_symlink(&src_child) {
+            // Never traverse links or NTFS junctions inside profile dirs; unlink the reparse entry only.
+            unlink_reparse_or_symlink(&src_child);
             continue;
         }
         if file_type.is_dir() {
@@ -737,11 +898,7 @@ fn merge_or_move_dir(src: &Path, dst: &Path, pause_after_first_file: bool) -> Re
 }
 
 fn rewrite_claude_json(path: &Path, from_variants: &[String], to_clean: &str) -> Result<bool> {
-    if !path.is_file() {
-        return Ok(false);
-    }
-    let meta = std::fs::symlink_metadata(path)?;
-    if meta.file_type().is_symlink() {
+    if is_reparse_or_symlink(path) || !path.is_file() {
         return Ok(false);
     }
     let raw = std::fs::read_to_string(path)
@@ -800,7 +957,7 @@ pub fn relocate_claude_profiles(
 ) -> Result<ProfileRelocationStats> {
     let mut stats = ProfileRelocationStats::default();
     let profiles_dir = data_root.join("profiles");
-    if !profiles_dir.is_dir() {
+    if is_reparse_or_symlink(&profiles_dir) || !profiles_dir.is_dir() {
         return Ok(stats);
     }
 
@@ -838,7 +995,9 @@ pub fn relocate_claude_profiles(
     let mut profile_dirs: Vec<PathBuf> = std::fs::read_dir(&profiles_dir)?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_type().map(|t| t.is_dir() && !t.is_symlink()).unwrap_or(false)
+            let p = e.path();
+            !is_reparse_or_symlink(&p)
+                && e.file_type().map(|t| t.is_dir() && !t.is_symlink()).unwrap_or(false)
                 && e.file_name()
                     .to_str()
                     .map(|n| n.starts_with("claude-") || n == "claude")
@@ -853,12 +1012,16 @@ pub fn relocate_claude_profiles(
             stats.configs_updated += 1;
         }
         let projects_dir = profile.join("projects");
-        if !projects_dir.is_dir() {
+        if is_reparse_or_symlink(&projects_dir) || !projects_dir.is_dir() {
             continue;
         }
         let mut proj_entries: Vec<PathBuf> = std::fs::read_dir(&projects_dir)?
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|t| t.is_dir() && !t.is_symlink()).unwrap_or(false))
+            .filter(|e| {
+                let p = e.path();
+                !is_reparse_or_symlink(&p)
+                    && e.file_type().map(|t| t.is_dir() && !t.is_symlink()).unwrap_or(false)
+            })
             .map(|e| e.path())
             .collect();
         proj_entries.sort();
@@ -962,6 +1125,7 @@ pub fn write_receipt_and_clear_marker(
             "watchdogs": db_stats.watchdogs,
             "custom_app_file_grants": db_stats.custom_app_file_grants,
             "custom_app_file_refs": db_stats.custom_app_file_refs,
+            "undo_entries": db_stats.undo_entries,
         },
         "claudeConfigsUpdated": profile_stats.configs_updated,
         "claudeProjectDirsMoved": profile_stats.project_dirs_moved,

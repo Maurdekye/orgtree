@@ -842,7 +842,7 @@ mod win {
     #[cfg(test)]
     mod tests {
         use super::{instance_name, leaves_on, registration};
-        use std::path::Path;
+        use std::path::{Path, PathBuf};
 
         // The broker never asks about a path as it is typed: `attach` resolves the data folder
         // first, and on Windows that answers the verbatim form (`\\?\S:\...`). The rule read
@@ -995,19 +995,78 @@ mod win {
         fn data_location_precedence_missing_folder_and_move_markers_behave_safely() {
             use crate::data_location::{
                 broker_should_exit_from, comparable_path, resolve_for_broker_from,
-                resolve_for_host_from, resolve_from, HostDataRoot, APP_DIR_NAME, CONFIG_FILE,
-                MOVE_IN_PROGRESS_FILE,
+                resolve_for_host_from, resolve_from, verify_directory_trust, HostDataRoot,
+                APP_DIR_NAME, CONFIG_FILE, MOVE_IN_PROGRESS_FILE,
             };
             use serde_json::json;
+            use std::process::{Command, Stdio};
 
-            let scratch = std::env::temp_dir().join(format!(
-                "orgtree-broker-dataloc-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0)
-            ));
+            let whoami_out = Command::new(r"C:\Windows\System32\whoami.exe")
+                .args(["/user", "/fo", "csv", "/nh"])
+                .output()
+                .expect("run whoami /user");
+            let my_sid = String::from_utf8_lossy(&whoami_out.stdout)
+                .trim()
+                .rsplit(',')
+                .next()
+                .unwrap_or("")
+                .trim_matches('"')
+                .to_string();
+            assert!(my_sid.starts_with("S-1-"), "unexpected SID from whoami: {my_sid}");
+
+            let lock_dir = |p: &Path| {
+                let st = Command::new(r"C:\Windows\System32\icacls.exe")
+                    .arg(p)
+                    .args([
+                        "/inheritance:r",
+                        "/grant:r",
+                        "*S-1-5-18:(OI)(CI)F",
+                        "*S-1-5-32-544:(OI)(CI)F",
+                        &format!("*{my_sid}:(OI)(CI)F"),
+                    ])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .expect("icacls owner-only");
+                assert!(st.success());
+            };
+
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let mut bases = Vec::new();
+            if let Some(p) = std::env::var_os("ORGTREE_TEST_ACL_BASE") {
+                bases.push(PathBuf::from(p));
+            }
+            bases.push(std::env::temp_dir());
+            if let Some(p) = std::env::var_os("CARGO_TARGET_DIR") {
+                bases.push(PathBuf::from(p));
+            }
+            if let Some(p) = std::env::var_os("LOCALAPPDATA") {
+                bases.push(PathBuf::from(p).join("orgtree-test-acl"));
+            }
+            let mut scratch = None;
+            for base in bases {
+                if std::fs::create_dir_all(&base).is_err() {
+                    continue;
+                }
+                let candidate = base.join(format!(
+                    "orgtree-broker-dataloc-{}-{stamp}",
+                    std::process::id()
+                ));
+                if std::fs::create_dir_all(&candidate).is_err() {
+                    continue;
+                }
+                lock_dir(&candidate);
+                if verify_directory_trust(&candidate).is_ok() {
+                    scratch = Some(candidate);
+                    break;
+                }
+                let _ = std::fs::remove_dir_all(&candidate);
+            }
+            let scratch = scratch.expect("trusted scratch base for credential_broker test");
+
             let roaming = scratch.join("Roaming");
             let user_data = roaming.join(APP_DIR_NAME);
             let old_root = user_data.join("data");
@@ -1015,6 +1074,7 @@ mod win {
             let env_dir = scratch.join("EnvOverride");
             std::fs::create_dir_all(&old_root).unwrap();
             std::fs::create_dir_all(&custom).unwrap();
+            lock_dir(&custom);
 
             // 1. Default & S4U USERPROFILE fallback
             let def = resolve_from(None, Some(roaming.as_os_str()), None, true).unwrap();
