@@ -84,6 +84,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     stallwatch,
     scratchFolderScopes: ['team', 'shared'],
     openAgentScratchFolder: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:open-agent-scratch-folder', org, node, scope),
+    cancelRemoteFileDownload: (id: string) => ipcRenderer.invoke('desktop:remote-file-download-cancel', id),
     agentScratchAgentsFileExists: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:agent-scratch-agents-file-exists', org, node, scope),
     openAgentScratchAgentsFile: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:open-agent-scratch-agents-file', org, node, scope),
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),

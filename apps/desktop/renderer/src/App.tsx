@@ -20,6 +20,7 @@ import { restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import { activeAgentsOnlyForOrg, activeAgentsPreferencePatch, mergeActiveAgentsPreference } from './activeagentprefs'
 import { scratchFolderAction } from './scratch-folder'
+import { RemoteFilesPanel } from './canvas/remotefiles'
 import type { NativeDesktop } from './desktop'
 import { WindowControls } from './window-controls'
 import { UpdateNotice } from './update-notice'
@@ -2325,6 +2326,8 @@ export default function App() {
       )}
 
       <HistorySurface controller={userHistory} />
+      {/* a remote organization's scratch folder, opened by its scratch-folder entries */}
+      <RemoteFilesPanel toast={toast} />
       <ToastStack toasts={toasts} />
       <WindowMirrors>
         <HistorySurface controller={userHistory} />

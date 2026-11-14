@@ -1,5 +1,6 @@
 import { desktop } from './desktop'
-import { remoteFolderText, remoteHere } from './remotehere'
+import { remoteHere } from './remotehere'
+import { openRemoteFiles } from './remotefiles'
 import type { ToastFn } from './types'
 
 export type ScratchFolderAction = (() => void) & {
@@ -12,11 +13,13 @@ export function scratchFolderAction(org: string, node: string, toast: ToastFn,
   const bridge = desktop()
   if (!bridge?.openAgentScratchFolder) return undefined
   if (scope && !bridge.scratchFolderScopes?.includes(scope)) return undefined
-  // An organization on a remote engine keeps its folders on that engine's computer. The entry
-  // stays and says so; nothing of this computer is opened, and no AGENTS.md here is offered.
-  if (remoteHere()) return () => { const remote = remoteHere(); if (remote) toast([remoteFolderText(remote.name)]) }
   const description = scope === 'shared' ? 'the shared scratch folder'
     : scope === 'team' ? `${node}'s team scratch folder` : `${node}'s scratch folder`
+  // An organization on a remote engine keeps its folders on that engine's computer, where this
+  // computer's file manager cannot go. The entry opens the Files panel instead (remotefiles.ts):
+  // the folder is listed there, with download and upload. No AGENTS.md here is offered. An
+  // engine too old to list a folder gets the sentence that says where the folder is (the panel).
+  if (remoteHere()) return () => openRemoteFiles({ org, node, ...(scope ? { scope } : {}), title: description })
   const action: ScratchFolderAction = () => {
     // Preserve the two-argument personal action for old-shell compatibility.
     const request = scope ? bridge.openAgentScratchFolder!(org, node, scope)

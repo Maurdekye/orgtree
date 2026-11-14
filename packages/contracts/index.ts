@@ -118,7 +118,7 @@ export interface DesktopWindowState { visible: boolean; restoreWindows: boolean 
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
 
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'taskbar-attention' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel' | 'open-reference'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'taskbar-attention' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel' | 'open-reference' | 'remote-file-download'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is
@@ -248,6 +248,9 @@ export interface DesktopBridge {
   /** Personal/team identity, or an empty node for the org-wide shared folder.
    * Paths are resolved by the authenticated local engine, never the renderer. */
   openAgentScratchFolder?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; error?: string }>
+  /** Stop a download of the Files panel (a scratch folder of a remote organization) that
+   *  this window began. Its progress arrives as `remote-file-download` events. */
+  cancelRemoteFileDownload?(id: string): Promise<{ ok: boolean }>
   /** Query/open the exact scratch folder's root AGENTS.md. Only identities and
    *  scopes cross IPC; the native process resolves and validates the path. */
   agentScratchAgentsFileExists?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; exists?: boolean; error?: string }>

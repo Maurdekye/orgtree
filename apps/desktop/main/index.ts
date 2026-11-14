@@ -4,6 +4,7 @@ import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
 import { pickNativeFolder } from './folder-picker'
+import { watchRemoteFileDownloads, type SessionLike as DownloadSession } from './remote-downloads'
 import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
@@ -2709,6 +2710,12 @@ else {
           ?? (window.getParentWindow() ? windows.bySender(window.getParentWindow()!.webContents.id) : undefined)
         return entry?.kind === 'org' && entry.org ? remoteByAlias.get(entry.org) : undefined
       })
+      // The Files panel of a remote organization's window: its downloads start their Save dialog in
+      // Downloads, tell their window how far they are, and can be stopped by it. Not `handleHere`:
+      // the caller IS a remote window. No other download is touched.
+      const fileDownloads = watchRemoteFileDownloads(browserSession as unknown as DownloadSession, () => engine.origin, () => app.getPath('downloads'))
+      handle('desktop:remote-file-download-cancel', (caller, id) =>
+        ({ ok: typeof id === 'string' && fileDownloads.cancel(id, caller.window.webContents.id) }))
       // the app's own origin gets the Document-Policy that lets the ping watchdog read the renderer's JS stack (stall tooling)
       if (stallOn) browserSession.webRequest.onHeadersReceived((details, callback) =>
         callback({ responseHeaders: withStackPolicy((details.responseHeaders ?? {}) as Record<string, string[]>, details.url, engine.origin, process.env) }))
