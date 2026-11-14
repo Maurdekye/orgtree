@@ -105,6 +105,18 @@ const FAKE_GET_ACL = 'function Get-Acl{[CmdletBinding()]param([Parameter(Mandato
   '$security=New-Object System.Security.AccessControl.DirectorySecurity;' +
   "$security.SetSecurityDescriptorSddlForm(([string]$orgtreeFakeAcls[$LiteralPath]).Replace('{ME}',$me));" +
   'return $security};'
+// The window's case reads its table from a file named in the environment, and
+// the text put in front of the window's command is the same for every case.
+// The table used to be written into the command line itself. Windows Defender
+// then took one of those command lines (the data drive's root on an unused
+// letter) for "Trojan:Win32/Commando.C!ml" and refused to start PowerShell:
+// the case ended in a bare "spawn EPERM", the same with and without the
+// change under test, and every run raised an alert on the computer (measured
+// 2026-11-14). Keep security descriptors out of a command line.
+const FAKE_ACLS_VARIABLE = 'ORGTREE_TEST_FAKE_ACLS'
+const FAKE_ACLS_FROM_FILE = '$orgtreeFakeAcls=@{};' +
+  `(Get-Content -Raw -LiteralPath $env:${FAKE_ACLS_VARIABLE}|ConvertFrom-Json).PSObject.Properties|` +
+  'ForEach-Object{$orgtreeFakeAcls[$_.Name]=[string]$_.Value};'
 
 /** What a copy answered, in one shape: null when trusted. */
 function mismatches(answers) {
@@ -125,16 +137,25 @@ test('the window: DELETE on a real drive root is not distrust, and nothing else 
   // The window's own function runs, with its own script and its own
   // PowerShell: only Get-Acl is put in front of it.
   const real = childProcess.execFile
-  let table = ''
-  childProcess.execFile = (file, args, ...rest) => {
+  const tableFile = path.join(temp, 'window-acls.json')
+  const added = new Set()
+  let armed = false
+  childProcess.execFile = (file, args, options, ...rest) => {
     const at = Array.isArray(args) ? args.indexOf('-Command') : -1
-    if (table && at >= 0) args = [...args.slice(0, at + 1), `$orgtreeFakeAcls=${table};${FAKE_GET_ACL}${args[at + 1]}`, ...args.slice(at + 2)]
-    return real(file, args, ...rest)
+    if (armed && at >= 0 && options && typeof options === 'object') {
+      const before = FAKE_ACLS_FROM_FILE + FAKE_GET_ACL
+      added.add(before)
+      args = [...args.slice(0, at + 1), before + args[at + 1], ...args.slice(at + 2)]
+      // the window gives its PowerShell an environment of its own
+      options = { ...options, env: { ...(options.env ?? process.env), [FAKE_ACLS_VARIABLE]: tableFile } }
+    }
+    return real(file, args, options, ...rest)
   }
   const answers = []
   try {
     for (const entry of CASES) {
-      table = tableOf(entry.acls)
+      fs.writeFileSync(tableFile, JSON.stringify(entry.acls))
+      armed = true
       const verdict = await policy.verifyDescriptorTrust(entry.file)
       if (verdict.ok) { answers.push(null); continue }
       const aboveIt = /^path replaceable via ancestor (.*?)=(S-1-[0-9-]+)(?:[,;]|$)/.exec(verdict.detail)
@@ -143,6 +164,9 @@ test('the window: DELETE on a real drive root is not distrust, and nothing else 
       answers.push(aboveIt ? { folder: aboveIt[1], by: aboveIt[2], how: 'above' } : { folder: path.dirname(entry.file), by: folder[1], how: 'folder' })
     }
   } finally { childProcess.execFile = real }
+  // no case's folders or security descriptors went into a command line
+  assert.equal(added.size, 1, 'the text put in front of the window\'s command differs between cases')
+  for (const entry of CASES) for (const text of [entry.file, ...Object.values(entry.acls)]) assert.ok(![...added][0].includes(text), `${entry.name}: ${text} is in the command line`)
   assert.deepEqual(mismatches(answers), [])
 })
 
