@@ -582,4 +582,40 @@ test('the other computer: one pasted line fills both fields, the details say "th
   await type(field('Engine token'), 'typed-by-hand')
   await type(field('Engine address'), `${URL} ${code}`)
   assert.equal(field('Engine token').value, 'typed-by-hand')
+  // an address without a port gets the standalone engine's, in the field, when the field is left:
+  // the user sees what will be tried (user 2026-11-14). A typed port is kept.
+  const leave = (input: HTMLInputElement) => inAct(() => { input.dispatchEvent(new (doc.defaultView!.FocusEvent)('focusout', { bubbles: true })) })
+  await type(field('Engine address'), 'star-system')
+  await leave(field('Engine address'))
+  assert.equal(field('Engine address').value, 'star-system:7430')
+  await type(field('Engine address'), 'star-system:7360')
+  await leave(field('Engine address'))
+  assert.equal(field('Engine address').value, 'star-system:7360')
+  assert.match(doc.body.textContent!, /Without a port, 7430 is filled in\./)
+})
+
+// User 2026-11-14: "would prefer it auto-fill in the port". An address typed
+// without one went to port 80, where something else may answer.
+test('Add a remote engine: an address without a port gets the standalone engine\'s port, in the field; a typed port is kept', async () => {
+  const { addressWithPort, STANDALONE_PORT } = await import('../src/remotes')
+  assert.equal(STANDALONE_PORT, 7430)
+  for (const [typed, filled] of [
+    ['star-system', 'star-system:7430'],
+    ['  star-system  ', 'star-system:7430'],
+    ['http://star-system', 'http://star-system:7430'],
+    ['HTTP://100.73.28.42', 'HTTP://100.73.28.42:7430'],
+    ['http://star-system/', 'http://star-system:7430/'],
+    ['star-system/engine', 'star-system:7430/engine'],
+    ['[fd7a:115c:a1e0::1]', '[fd7a:115c:a1e0::1]:7430'],
+    // a typed port is kept, whatever it is
+    ['star-system:7360', 'star-system:7360'],
+    ['http://127.0.0.1:7431', 'http://127.0.0.1:7431'],
+    ['[fd7a:115c:a1e0::1]:7000', '[fd7a:115c:a1e0::1]:7000'],
+    ['http://star-system:80/x', 'http://star-system:80/x'],
+    // https has its own port, which a proxy answers on
+    ['https://orgtree.example.com', 'https://orgtree.example.com'],
+    ['https://orgtree.example.com/engine', 'https://orgtree.example.com/engine'],
+    // nothing to fill, or not an address this can read: left as typed
+    ['', ''], ['http://', 'http://'], ['two words', 'two words'],
+  ] as const) assert.equal(addressWithPort(typed), filled, JSON.stringify(typed))
 })
