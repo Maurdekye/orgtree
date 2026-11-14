@@ -108,3 +108,40 @@ test('nothing is greyed before an answer, while the engine still checks sign-ins
   assert.deepEqual(spentHireTiers(), [])
   assert.equal(hireTierOffer('claude', signedIn, 'opus'), 'offer')
 })
+
+test('an answer that comes late, after its organization was left or asked again, changes nothing', async (t) => {
+  // rig-sol-b's finding on 4cf1e16: the list was set by whichever answer arrived last, also one nobody waits for any more
+  const answer = (spent: string[]) => new Response(JSON.stringify({ tiers: [], spent, at: 1, stale: false, errors: [], loading: false, generation: 1 }),
+    { headers: { 'Content-Type': 'application/json' } })
+  const waiting: ((r: Response) => void)[] = []
+  globalThis.fetch = (() => new Promise<Response>((resolve) => { waiting.push(resolve) })) as typeof fetch
+  t.after(() => { globalThis.fetch = realFetch; resetStaffingOptionsForTests() })
+  const asked = async (org: string) => {
+    const index = waiting.length
+    const promise = prefetchStaffingOptions(org)
+    for (let i = 0; i < 20 && waiting.length === index; i++) await new Promise((r) => setTimeout(r, 0))
+    assert.equal(waiting.length, index + 1, 'the request went out')
+    return { promise, give: (spent: string[]) => waiting[index](answer(spent)) }
+  }
+  // another organization opens while the first one's answer is still on its way
+  const left = await asked('acme')
+  invalidateStaffingOptions()
+  const here = await asked('other')
+  here.give([]); await here.promise
+  left.give(['opus']); await left.promise
+  assert.deepEqual(spentHireTiers(), [], 'the organization that was left says nothing about this one')
+  assert.equal(hireTierOffer('claude', signedIn, 'opus'), 'offer')
+  // the same organization is asked again because availability moved; the older answer arrives last
+  invalidateStaffingOptions('other')
+  const older = await asked('other')
+  invalidateStaffingOptions('other')
+  const newer = await asked('other')
+  newer.give([]); await newer.promise
+  older.give(['opus']); await older.promise
+  assert.deepEqual(spentHireTiers(), [], 'the answer nobody holds any more does not undo the newer one')
+  // and the newest answer still counts
+  invalidateStaffingOptions('other')
+  const last = await asked('other')
+  last.give(['opus']); await last.promise
+  assert.deepEqual(spentHireTiers(), ['opus'])
+})
