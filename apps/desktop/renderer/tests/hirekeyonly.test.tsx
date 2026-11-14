@@ -132,3 +132,54 @@ test('the hire form says "Choose an account" and holds nothing until the user pi
   assert.equal([...select().querySelectorAll('option')].some((o) => o.textContent === 'Choose an account'), false)
   assert.notEqual(select().value, '')
 })
+
+test('the draft card does not hire while the account is to be chosen: its button opens the settings at the Account row', async (t) => {
+  const { DraftNode } = await import('../src/canvas/cards')
+  const { inAct } = await import('./harness')
+  const answer = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (path.endsWith('/staffing-options')) return answer(full(ROWS))
+    if (path === '/api/accounts') return answer({ accounts: [{ id: 'claude-key', provider: 'claude', label: 'Metered key', mode: 'apikey', standing: { state: 'ready' } }] })
+    if (path === '/api/charters') return answer({ charters: [] })
+    return answer({})
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = realFetch; resetStaffingOptionsForTests() })
+  await prefetchStaffingOptions('acme')
+  const tree = { slug: 'acme', name: 'acme', dirs: [], tiers: { opus: 5, haiku: 1 }, max_top_grant: 100, default_effort: '', effort_default: 'high',
+    cascade_hire: true, cascade_alloc: true, default_account: 'claude-9' } as unknown as TreePayload
+  const hired: unknown[] = []
+  const card = (tier: string) => <DraftNode pos={{ x: 0, y: 0 }} draft={{ parent: null, tier }} map={new Map()} seats={{ opus: 5, haiku: 1 }} maxTop={100} defaultTop={0}
+    tree={tree} zoom={1} pxc={1} onConfirm={(name, _grant, _charter, scope) => { hired.push({ name, account: scope?.account }) }} onCancel={() => {}} />
+  const view = await mountView(card('opus'), (el) => el)
+  t.after(async () => { await view.unmount() })
+  const settle = () => inAct(async () => { await flush(10) })
+  await settle()
+  const primary = () => view.el.querySelector<HTMLButtonElement>('.df-foot button.primary')!
+  const name = view.el.querySelector<HTMLInputElement>('.df-name')!
+  await inAct(async () => {
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(name), 'value')!.set!.call(name, 'worker')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush(4)
+  })
+  assert.equal(primary().textContent?.trim(), 'choose an account')
+  assert.equal(primary().disabled, false, 'it can be clicked: it opens the settings')
+  assert.match(primary().title, /Only a metered API key can run opus here/)
+  await inAct(async () => { primary().click(); await flush(10) })
+  assert.deepEqual(hired, [], 'no hire went out')
+  const account = () => document.body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')
+  assert.ok(account(), 'the settings are open')
+  assert.equal(document.body.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim(), 'Model', 'on the tab that has the Account row')
+  assert.equal(account()!.value, '')
+  assert.equal(account()!.options[0].textContent, 'Choose an account')
+  // the user picks the key: the button is "hire" again, and the hire names the key
+  await inAct(async () => {
+    account()!.value = 'claude-key'
+    account()!.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush(10)
+  })
+  await settle()
+  assert.equal(primary().textContent?.trim(), 'hire')
+  await inAct(async () => { primary().click(); await flush(6) })
+  assert.deepEqual(hired, [{ name: 'worker', account: 'claude-key' }])
+})

@@ -1253,7 +1253,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   const awaitsAccount = hireAwaitsAccount(tree?.slug ?? '', draft.tier, tree?.default_account, scope?.account)
   const hire = () => {
     if (!ok) return
-    if (awaitsAccount) { setPermsOpen(true); return }
+    if (awaitsAccount) { setSettingsTab('model'); setPermsOpen(true); return }
     onConfirm(normalizeUserEnteredName(name), grant, finalCharter(), scope)
   }
   // a hire on its way (user 2026-10-20 16:45Z): the placeholder stays, greyed,
