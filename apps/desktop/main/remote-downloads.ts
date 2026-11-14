@@ -59,7 +59,9 @@ export function watchRemoteFileDownloads(session: SessionLike, origin: () => str
   session.on('will-download', (_event, item, contents) => {
     if (!isFilesDownload(item.getURL(), origin())) return
     const id = `dl-${++serial}`
-    const name = item.getFilename()
+    // a name and nothing of a path, whatever the answer's header said (review F-5)
+    const last = path.win32.basename(path.posix.basename(item.getFilename()))
+    const name = last && last !== '.' && last !== '..' ? last : 'download'
     item.setSaveDialogOptions({ title: `Save ${name}`, defaultPath: path.join(downloads(), name) })
     let announced = false, told = 0
     const tell = (state: DownloadNews['state']) => {
