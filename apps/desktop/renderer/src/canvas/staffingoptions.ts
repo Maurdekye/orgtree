@@ -148,7 +148,9 @@ function load<T>(path: string): Promise<T> {
     // (a surface can say so) but never reused: the next reader asks again
     const checking = (value as { loading?: boolean } | null)?.loading === true
     next.value = value; next.error = undefined; next.at = checking ? 0 : Date.now()
-    if (path.endsWith('/staffing-options') && !checking) setSpent(spentOf(value as Partial<StaffingOptions> | null))
+    // only the answer that is still the one held: one that arrives after its
+    // organization was left, or after the same one was asked again, is nobody's
+    if (path.endsWith('/staffing-options') && !checking && held.get(path) === next) setSpent(spentOf(value as Partial<StaffingOptions> | null))
     return value
   }).catch((e: Error) => {
     // A failure does NOT erase a previous good answer — a menu with a recent
