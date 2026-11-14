@@ -238,14 +238,27 @@ exist" would tell the remote engine about this computer.
     200 by default and 500 at most), `GET .../file` sends a file as it is with its length or a
     folder as a zip written as a stream (deflate, ZIP64, no length known before it ends), `PUT
     .../upload?name=&conflict=ask|replace|keep_both` takes one file as the request body.
+  - The folder itself is one of the organization's own (`unlinked_root`): as it is written it lies
+    in the organization's scratch folders under the data folder, and neither it nor any folder
+    above it down from the data folder is a link. That holds for an agent's folder (a path stored
+    with the agent) as for the team's and the shared one. It is never made here: a personal folder
+    that does not exist yet answers 404.
   - A path never leaves the folder: every name is one plain name (no `..`, no separator, no drive,
     no stream), each step is looked at without following it, a symbolic link or a junction is
     refused (in a listing it is shown as a link and can be neither opened nor downloaded; a zip
-    leaves it out), and the resolved target must lie inside the resolved folder.
-  - An upload is written to `.<id>.orgtree-part` beside its target and renamed when the last byte
-    is in; one that ends early leaves nothing. A name that is taken is refused with 409 before the
-    body is read unless the window sent Replace or Keep both ("name (2).ext"). 2 GiB a file at
-    most, by the declared length and by count. Unfinished uploads are in no listing and no zip.
+    leaves it out), and the resolved target must lie inside the resolved folder. A zip also
+    leaves out an entry whose path is longer than a zip can name (65535 bytes) and says so in
+    `_not-included.txt`.
+  - An upload is written to `.<id>.orgtree-part` beside its target and given its name when the
+    last byte is in; one that ends early leaves nothing. A name that is taken is refused with 409
+    before the body is read unless the window sent Replace or Keep both. Only Replace ever takes
+    the place of a file. Asked, a name taken since the upload began is refused too. Keep both
+    takes the first name nothing has ("name (2).ext", past files, folders and links alike), and
+    uploads of one name that end at the same moment each get a name of their own (`put_new`: a
+    second name for the part, which the system refuses when the name is taken). 2 GiB a file at
+    most, by the declared length and by count. Unfinished uploads are in no listing and no zip;
+    one left by an engine that was stopped hard is removed at the engine's start once it is a
+    day old (`sweep_stale_parts`, scratch folders only, no link followed).
   - A member may use the three routes; a read-only viewer gets none; they are organization routes,
     so the local engine relays them to the remote one as a stream in both directions. Their
     bodies are not logged.
@@ -253,7 +266,14 @@ exist" would tell the remote engine about this computer.
     Keep both or Skip for a name that is there (once for all on request), says the size of a file
     of 100 MB or more before sending it, and shows bytes and percent with Cancel. A download is a
     plain link: Electron's Save dialog asks where, and `main/remote-downloads.ts` tells the window
-    how far it is and stops it on Cancel. It touches only downloads of these routes.
+    how far it is and stops it on Cancel. It touches only downloads of these routes, and the name
+    it proposes is the last part of the name the answer gave, never a path.
+  - Reviewed by @remote-sec-carbon at c56e8f6 (2026-11-14): no critical or high finding; the
+    folder's own link check, the placing that never replaces, the sweep, the zip name length and
+    the download name came from it. Accepted as they are: a check and the use that follows it are
+    two steps (somebody who can change the folder on the remote computer at that moment already
+    has that computer), a zip's directory is held in memory until its end, a sparse file is sent
+    by its length, and a member reaches every agent's folder of the organizations it was given.
 - **What the remote engine does is said to be there.** On a local desktop window, folder fields open
   the operating system's native directory chooser (`dialog.showOpenDialog`); in a remote window (and
   in any browser without the Electron bridge), `pickFolder` uses the in-app `/api/fs` chooser so it
