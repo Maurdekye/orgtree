@@ -1726,3 +1726,60 @@ mod muse_offer_tests {
         assert!(matches!(out.offer(None, wonder), MuseOffer::NotOffered(_)), "the own login signed out offers nothing");
     }
 }
+
+// A headless engine is signed in the way the guide says: into account folders, with its own
+// default profile empty. Its organizations hire and run on those accounts, and a window's hire
+// tiles were greyed with "isn't signed in" all the same (user report 2026-11-14, on a 4.5.11
+// engine; the v4.5.11 payload has the same fields as this one).
+#[cfg(test)]
+mod hire_by_account_tests {
+    use super::*;
+
+    fn account(id: &str, provider: &str, kind: &str, auth: &str, enabled: bool) -> crate::accounts::AccountInfo {
+        crate::accounts::AccountInfo {
+            id: id.into(), provider: provider.into(), kind: kind.into(), label: String::new(), email: None,
+            tint_ordinal: 0, auth: auth.into(), config_dir: None, enabled, origin_org: None,
+            marks: Default::default(), ord: 0, ambient: false, credential: 0, harness: None,
+        }
+    }
+
+    /// The payload of an engine whose own Claude and Codex sign-ins are signed out, with these
+    /// registered accounts: `(hire_enabled, reason, hire_reason)` of one provider.
+    fn hire(rows: Vec<crate::accounts::AccountInfo>, provider: &str) -> (bool, Value, Value) {
+        let mut engine = Engine::for_tests(std::path::PathBuf::new());
+        Arc::get_mut(&mut engine).unwrap().accounts = crate::accounts::Accounts::for_tests(rows);
+        let mut st = State::clone(&engine.providers.state.load());
+        st.probed = true;
+        st.claude = CliStatus { installed: true, connected: false, ..Default::default() };
+        st.codex = CliStatus { installed: true, connected: false, ..Default::default() };
+        engine.providers.state.store(Arc::new(st));
+        let all = payload(&engine);
+        let entry = all["providers"].as_array().unwrap().iter().find(|p| p["id"] == provider).unwrap_or_else(|| panic!("no {provider} in {all}")).clone();
+        (entry["hire_enabled"].as_bool().unwrap(), entry["reason"].clone(), entry["hire_reason"].clone())
+    }
+
+    #[tokio::test]
+    async fn a_signed_in_registered_account_makes_claude_and_codex_hirable_while_the_engines_own_sign_in_is_signed_out() {
+        // nothing registered: signed out, as before
+        let (enabled, reason, why) = hire(vec![], catalog::CLAUDE);
+        assert!(!enabled);
+        assert_eq!(reason, json!("Claude is installed but not signed in"));
+        assert_eq!(why, json!("signed_out"));
+
+        // an account folder that is signed in, or an API key: hirable, with no reason left to show
+        for (provider, row) in [
+            (catalog::CLAUDE, account("claude-2", catalog::CLAUDE, "subscription", "authenticated", true)),
+            (catalog::CLAUDE, account("claude-key", catalog::CLAUDE, "apikey", "", true)),
+            (catalog::OPENAI, account("openai-1", catalog::OPENAI, "chatgpt", "authenticated", true)),
+        ] {
+            let id = row.id.clone();
+            assert_eq!(hire(vec![row], provider), (true, Value::Null, Value::Null), "{id}");
+        }
+        // each provider by its own accounts
+        assert!(!hire(vec![account("openai-1", catalog::OPENAI, "chatgpt", "authenticated", true)], catalog::CLAUDE).0);
+        assert!(!hire(vec![account("claude-2", catalog::CLAUDE, "subscription", "authenticated", true)], catalog::OPENAI).0);
+        // an account that is switched off or not signed in changes nothing
+        assert!(!hire(vec![account("claude-2", catalog::CLAUDE, "subscription", "authenticated", false)], catalog::CLAUDE).0);
+        assert!(!hire(vec![account("claude-2", catalog::CLAUDE, "subscription", "unauthenticated", true)], catalog::CLAUDE).0);
+    }
+}
