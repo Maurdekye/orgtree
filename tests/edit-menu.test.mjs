@@ -31,8 +31,12 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-editmenu-'))
 // below carries its own copy of the stub, and windows.ts pops through its own
 // copy of editmenu.ts. Recording centrally is what lets a test watch the menu
 // the app's real wiring popped, rather than one a test injected a seam to see.
+//
+// A menu has `on` because editmenu.ts builds its menus through the wrapper of
+// main/streamer-native.ts, which listens for menu-will-show and
+// menu-will-close on every menu it builds. The stand-in never fires them.
 const STUB = `globalThis.__orgtreePopups = globalThis.__orgtreePopups || []
-module.exports = { BrowserWindow: {}, shell: {}, Menu: { buildFromTemplate: template => ({ template,
+module.exports = { BrowserWindow: {}, shell: {}, Menu: { buildFromTemplate: template => ({ template, on() {},
   popup: options => globalThis.__orgtreePopups.push({ template, ...options }) }) } }`
 const stubElectron = {
   name: 'stub-electron',
