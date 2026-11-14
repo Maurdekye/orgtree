@@ -742,7 +742,7 @@ async fn the_doors_port_and_the_private_network_choice_are_the_owners_and_are_ke
 }
 
 #[tokio::test]
-async fn an_address_that_is_refused_too_often_is_answered_nothing_else_for_a_while() {
+async fn an_address_that_is_refused_too_often_is_shut_to_guesses_and_never_to_a_token_the_door_knows() {
     let root = Root::new();
     let host = Host::start(&root).await;
     let galaxy = host.shared(7, "galaxy");
@@ -760,10 +760,21 @@ async fn an_address_that_is_refused_too_often_is_answered_nothing_else_for_a_whi
         let got = host.door("GET", "/api/desktop/alive", "a-guess", None).await;
         assert!(refused_for_its_token(&got), "refusal {n}: {got:?}");
     }
-    for (path, bearer) in [("/api/desktop/alive", token.as_str()), ("/api/orgs/galaxy/records", token.as_str()), ("/api/desktop/alive", "another-guess"), ("/", token.as_str())] {
-        let got = host.door("GET", path, bearer, None).await;
-        assert_eq!((got.0, got.1["detail"].as_str()), (429, Some(text::TOO_MANY_TRIES)), "{path}: {got:?}");
-    }
+    // every further guess is answered 429, and so is a request with no token and a page's
+    let closed = |got: &(u16, Value)| (got.0, got.1["detail"].as_str()) == (429, Some(text::TOO_MANY_TRIES));
+    assert!(closed(&host.door("GET", "/api/desktop/alive", "another-guess", None).await));
+    assert!(closed(&host.call(host.door, "GET", "/api/desktop/alive", &[], None).await));
+    let page = [("authorization", format!("Bearer {token}")), ("origin", "https://example.com".to_string())];
+    let page: Vec<(&str, &str)> = page.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    assert!(closed(&host.call(host.door, "GET", "/api/desktop/alive", &page, None).await));
+    // A computer that was let in is not shut out by somebody else's guessing: behind an SSH
+    // tunnel, a local https proxy or a shared router every caller has this one address.
+    assert_eq!(host.door("GET", "/api/desktop/alive", &token, None).await.0, 200, "a known token is heard while the address is closed");
+    assert!(refused_as_not_yours(&host.door("GET", "/api/remotes", &token, None).await), "and is held to what is its own, as ever");
+    // a one-time code too: the next computer can still be let in
+    assert_eq!(host.door("GET", "/api/desktop/alive", &host.code(&galaxy), None).await.0, 200);
+    // and the address is still closed to guesses after that
+    assert!(closed(&host.door("GET", "/api/desktop/alive", "a-third-guess", None).await));
     // the app's own listener is not the door
     assert_eq!(host.owner("GET", "/api/desktop/alive", None).await.0, 200);
     // and after its while the address is heard again
@@ -1573,4 +1584,79 @@ async fn a_peer_the_door_does_not_take_is_dropped_before_anything_is_read() {
     assert!(ended(&mut stream).await, "the connection is ended unread");
     engine.shutdown.cancel();
     task.abort();
+}
+
+/// The address the owner's app is shown for the door, by kind.
+fn door_addresses(shown: &Value) -> Vec<(String, String)> {
+    shown["door"]["addresses"].as_array().map(|all| all.iter()
+        .map(|a| (a["kind"].as_str().unwrap_or_default().to_string(), a["url"].as_str().unwrap_or_default().to_string())).collect()).unwrap_or_default()
+}
+
+// User ruling 2026-11-14: remote access is not limited to Tailscale. The door can listen on
+// this computer itself, where an SSH tunnel or a local https proxy hands connections on.
+#[tokio::test]
+async fn the_door_listens_on_this_computer_itself_when_the_owner_chose_that() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    // a computer with no Tailscale and no network at all
+    host.engine.access.doors.fix(Reading { tailscale: Some(None), ..Reading::default() });
+    let galaxy = host.org(7, "galaxy");
+    let port = free_port().await;
+
+    // as it was: with Tailscale as the only place there is no way in
+    let (status, refused) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true }))).await;
+    assert_eq!(status, 409, "{refused}");
+
+    let (status, shown) = host.owner("PUT", "/api/remote-access", Some(json!({ "port": port, "tailscale": false, "local": true }))).await;
+    assert_eq!(status, 200, "{shown}");
+    assert_eq!((&shown["tailscale"], &shown["lan"], &shown["local"]), (&json!(false), &json!(false), &json!(true)));
+    let (status, on) = host.owner("PUT", "/api/remote-access/orgs/galaxy", Some(json!({ "on": true }))).await;
+    assert_eq!(status, 200, "{on}");
+    let (_, shown) = host.owner("GET", "/api/remote-access", None).await;
+    assert_eq!(shown["door"]["state"], "open", "{shown}");
+    assert_eq!(door_addresses(&shown), vec![("local".to_string(), format!("http://127.0.0.1:{port}"))]);
+    assert_eq!(shown["door"]["addresses"][0]["encrypted"], false);
+
+    // a computer that was let in comes in there, and nobody without a token
+    let (_, token) = host.let_in(&galaxy, PC).await;
+    let at: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let bearer = format!("Bearer {token}");
+    assert_eq!(host.call(at, "GET", "/api/desktop/alive", &[("authorization", &bearer)], None).await.0, 200);
+    assert!(refused_for_its_token(&host.call(at, "GET", "/api/desktop/alive", &[], None).await));
+    // the app's own token means nothing there: it is the door, not the app's listener
+    assert!(refused_for_its_token(&host.call(at, "GET", "/api/desktop/alive", &[(crate::http::TOKEN_HEADER, DESKTOP_TOKEN)], None).await));
+
+    // a choice of nowhere is refused, and the door stays
+    let (status, refused) = host.owner("PUT", "/api/remote-access", Some(json!({ "local": false }))).await;
+    assert_eq!((status, refused["detail"].as_str()), (400, Some("Choose at least one place for remote access to listen.")));
+    assert!(listens(port).await);
+    // the choice is kept in the file
+    assert_eq!(RemoteAccess::open(&root.0).registry.listening(), (port, false));
+    let (_, again) = host.owner("GET", "/api/remote-access", None).await;
+    assert_eq!((&again["tailscale"], &again["local"]), (&json!(false), &json!(true)));
+}
+
+// The private network is a place of its own: it needs no Tailscale.
+#[tokio::test]
+async fn the_private_network_is_chosen_without_tailscale() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    host.org(7, "galaxy");
+    host.engine.access.doors.fix(Reading { tailscale: Some(None), lan: "192.168.1.20".parse().ok(), ..Reading::default() });
+    let refusal = |view: &Value| view["refusal"].as_str().map(str::to_string);
+
+    // Tailscale is the place chosen and it is not running: the switch says so
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert!(refusal(&view).is_some_and(|why| why.starts_with("Tailscale is not running on this computer")), "{view}");
+
+    let (status, shown) = host.owner("PUT", "/api/remote-access", Some(json!({ "tailscale": false, "lan": true }))).await;
+    assert_eq!(status, 200, "{shown}");
+    assert_eq!((&shown["tailscale"], &shown["lan"], &shown["local"]), (&json!(false), &json!(true), &json!(false)));
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert_eq!(refusal(&view), None, "the private network is a way in by itself");
+
+    // and without a network the sentence is about the network, not about Tailscale
+    host.engine.access.doors.fix(Reading { tailscale: Some("100.64.0.1".parse().ok()), ..Reading::default() });
+    let (_, view) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
+    assert!(refusal(&view).is_some_and(|why| why.starts_with("This computer has no private network address")), "{view}");
 }
