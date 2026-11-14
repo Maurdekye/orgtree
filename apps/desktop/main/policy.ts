@@ -302,12 +302,25 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
   // Inherit-only ACEs are skipped everywhere — they apply to future
   // children, not to the object itself (the stock C:\ Authenticated Users
   // ACE is exactly that shape).
+  // A DRIVE'S ROOT is judged without DELETE (user ruling 2026-11-14): nobody
+  // can delete or rename a volume's root folder, and Windows gives the root
+  // of a formatted data drive "Authenticated Users: Modify", which carries
+  // it. Every other replacement right still counts there. A root is `X:\`
+  // that the mount manager names a volume for: a SUBST letter or a mapped
+  // share has that shape too, but is a folder somebody can rename. Anything
+  // but the one volume line keeps the full mask. The installer's copy of
+  // this rule (Get-DescriptorDistrust, tools/installer-upgrade.ps1) is the
+  // same; tests/descriptor-trust-drive-root.test.mjs holds both to one table.
   const script =
     `$ErrorActionPreference='Stop';` +
     `$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;` +
     `$allowed=@($me,'S-1-5-18','S-1-5-32-544','S-1-3-0');` +
     `$writeMask=0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000;` +
     `$replaceMask=0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;` +
+    `$rootMask=0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;` +
+    `function DriveRoot($p){if($p -notmatch '^[A-Za-z]:\\\\$'){return $false};` +
+    `try{$o=@(& (Join-Path ([Environment]::SystemDirectory) 'mountvol.exe') $p '/L' 2>&1);` +
+    `return ($LASTEXITCODE -eq 0 -and $o.Count -eq 1 -and ([string]$o[0]).Trim() -match '^\\\\\\\\\\?\\\\Volume\\{[0-9A-Fa-f-]+\\}\\\\$')}catch{return $false}};` +
     `function BadWriters($p,$mask){$acl=Get-Acl -LiteralPath $p;$bad=@();` +
     `foreach($r in $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])){` +
     `if($r.AccessControlType -ne 'Allow'){continue};` +
@@ -319,7 +332,7 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
     `$owner=(Get-Acl -LiteralPath '${escaped}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value;` +
     `$fileBad=BadWriters '${escaped}' $writeMask;$dirBad=BadWriters '${directory}' $writeMask;` +
     `$ancestorBad=@();$a=Split-Path '${directory}';` +
-    `while($a){$hits=BadWriters $a $replaceMask;` +
+    `while($a){$mask=$replaceMask;if(DriveRoot $a){$mask=$rootMask};$hits=BadWriters $a $mask;` +
     `if($hits.Count -gt 0){$ancestorBad+=($a+'='+($hits -join ','))};` +
     `$next=Split-Path $a;if($next -eq $a){break};$a=$next};` +
     `Write-Output ($me+'|'+$owner+'|'+($fileBad -join ',')+'|'+($dirBad -join ',')+'|'+($ancestorBad -join ';'))`
