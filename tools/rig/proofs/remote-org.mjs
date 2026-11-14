@@ -253,7 +253,11 @@ export default async function (rig) {
     proof.note('files round trip (measured)', measured)
     proof.file('files-round-trip.json', measured)
     // one upload stays for the window's picture; the large ones go
-    fs.rmSync(path.join(where, name), { force: true })
+    // unlinkSync: with node 24, rmSync({ force }) left this non-ASCII name in place and said nothing (measured 2026-11-14)
+    fs.unlinkSync(path.join(where, name))
+    const after = await raw('GET', `${base}${q({})}`)
+    proof.check('the large file can be removed there afterwards: nothing holds it open', !fs.existsSync(path.join(where, name)) && after.status === 200
+      && !after.json?.entries?.some(e => e.name === name), { exists: fs.existsSync(path.join(where, name)), listed: after.json?.entries?.map(e => e.name) })
   }
   let id = null
   /** the instance stamp a window of the remote organization last got */
