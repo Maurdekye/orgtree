@@ -359,6 +359,17 @@ async fn run_with_cluster(
         }
     });
     runtime::warm_all(&engine);
+    // parts of uploads into scratch folders that a hard stop left behind, a day old or more: in the
+    // background, since it walks every scratch folder (http/scratch_files.rs, review F-5)
+    {
+        let scratch = engine.cfg.data_root.join("scratch");
+        tokio::task::spawn_blocking(move || {
+            let gone = http::scratch_files::sweep_stale_parts(&scratch, http::scratch_files::STALE_PART, std::time::SystemTime::now());
+            if gone > 0 {
+                tracing::info!(gone, "unfinished uploads left in scratch folders were removed");
+            }
+        });
+    }
     // the user's own registrations left on retired, dissolved or deleted projects go before the watchdog runtime starts
     domain::user_regs::startup_sweep(&engine).await;
     runtime::watchdogs::start(&engine).await;

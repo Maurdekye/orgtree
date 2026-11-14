@@ -161,32 +161,89 @@ fn confine_folder(root: &FsPath, path: &str) -> Refused<PathBuf> {
     Ok(folder)
 }
 
-/// Not built yet (the red state of review F-1): the folder, resolved, as before.
+/// `folder`, resolved, when it is a folder of the organization's own: it lies in `within` (the
+/// organization's scratch folders, themselves in `data_root`) as it is written, and neither it
+/// nor anything above it down from the data folder is a link. Nothing is made: a folder that is
+/// not there is not there. (Review F-1, 2026-11-14: an agent's folder is a path stored with the
+/// agent; resolving it alone would have followed a junction standing in its place. The team's
+/// and the shared folder had this walk from `shared_notes::ensure` already.)
 #[nolog]
-fn unlinked_root(_data_root: &FsPath, _within: &FsPath, folder: &FsPath) -> Refused<PathBuf> {
-    std::fs::canonicalize(folder).ok().filter(|folder| folder.is_dir()).ok_or((StatusCode::NOT_FOUND, NO_FOLDER))
+fn unlinked_root(data_root: &FsPath, within: &FsPath, folder: &FsPath) -> Refused<PathBuf> {
+    use std::path::Component;
+    let (data, within, folder) = (crate::config::strip_verbatim(data_root), crate::config::strip_verbatim(within), crate::config::strip_verbatim(folder));
+    let inside = |child: &FsPath, parent: &FsPath| crate::domain::scope::path_within(&child.to_string_lossy(), &parent.to_string_lossy());
+    let stepping = folder.components().any(|part| matches!(part, Component::ParentDir | Component::CurDir));
+    if stepping || !inside(&within, &data) || !inside(&folder, &within) {
+        return Err((StatusCode::FORBIDDEN, OUTSIDE));
+    }
+    let mut at = std::fs::canonicalize(&data).map_err(|_| (StatusCode::NOT_FOUND, NO_FOLDER))?;
+    for part in folder.components().skip(data.components().count()) {
+        let Component::Normal(name) = part else { return Err((StatusCode::FORBIDDEN, OUTSIDE)) };
+        at.push(name);
+        let metadata = std::fs::symlink_metadata(&at).map_err(|_| (StatusCode::NOT_FOUND, NO_FOLDER))?;
+        if is_link(&metadata) {
+            return Err((StatusCode::FORBIDDEN, LINK));
+        }
+        if !metadata.is_dir() {
+            return Err((StatusCode::NOT_FOUND, NO_FOLDER));
+        }
+    }
+    // no link on the way, so this is the same place, written as the system writes it
+    std::fs::canonicalize(&at).map_err(|_| (StatusCode::NOT_FOUND, NO_FOLDER))
 }
 
-/// Not built yet (the red state of review F-5).
+/// Remove the parts of uploads that never ended, under `scratch` (every organization's scratch
+/// folders), when they are older than `older_than`: an engine stopped hard in the middle of an
+/// upload cannot remove its own (review F-5, 2026-11-14). Only a file named as an upload names
+/// its part goes; no link is followed. The answer is how many went.
 #[nolog]
-pub fn sweep_stale_parts(_scratch: &FsPath, _older_than: std::time::Duration, _now: std::time::SystemTime) -> usize {
-    0
+pub fn sweep_stale_parts(scratch: &FsPath, older_than: std::time::Duration, now: std::time::SystemTime) -> usize {
+    let mut gone = 0;
+    let mut todo = vec![scratch.to_path_buf()];
+    while let Some(folder) = todo.pop() {
+        let Ok(read) = std::fs::read_dir(&folder) else { continue };
+        for entry in read.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else { continue };
+            if is_link(&metadata) {
+                continue;
+            }
+            if metadata.is_dir() {
+                todo.push(path);
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let old = metadata.modified().ok().and_then(|at| now.duration_since(at).ok()).is_some_and(|age| age > older_than);
+            if name.starts_with(".up") && name.ends_with(PART) && old && std::fs::remove_file(&path).is_ok() {
+                gone += 1;
+            }
+        }
+    }
+    gone
 }
 
-/// Not built yet (the red state of review F-4).
+/// How old a part must be to be swept at the engine's start.
+pub const STALE_PART: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Whether a zip can name an entry `name`: its header counts the name's bytes in 16 bits, and
+/// a folder is named with a slash after it (review F-4, 2026-11-14).
 #[nolog]
-fn zip_name_fits(_name: &str, _folder: bool) -> bool {
-    true
+fn zip_name_fits(name: &str, folder: bool) -> bool {
+    name.len() + usize::from(folder) <= u16::MAX as usize
 }
 
 const OUTSIDE: &str = "That folder is not among this organization's scratch folders.";
+const UNREADABLE: &str = "That folder could not be read just now.";
 
 /// The scratch folder the request is about, resolved. A personal scratch folder that was
-/// never made is not made here (as `nodes::scratch_folder` makes none).
+/// never made is not made here (as `nodes::scratch_folder` makes none). Whatever the scope,
+/// the folder is one of the organization's own and no link stands in its place or above it
+/// (`unlinked_root`).
 #[nolog]
 async fn root(engine: &Arc<Engine>, slug: &str, nid: &str, scope: ScratchFolderScope) -> ApiResult<PathBuf> {
     let folder = super::nodes::scratch_root(engine, slug, nid, scope).await?;
-    std::fs::canonicalize(&folder).ok().filter(|folder| folder.is_dir()).ok_or_else(|| ApiError::not_found(NO_FOLDER))
+    let within = engine.cfg.scratch_root(&crate::http::orgs::org(engine, slug)?.slug);
+    unlinked_root(&engine.cfg.data_root, &within, &folder).map_err(api)
 }
 
 // ------------------------------------------------------------------ a folder's entries
@@ -430,6 +487,12 @@ fn zip_tree(folder: &FsPath, prefix: &str, sink: &mut dyn FnMut(Vec<u8>) -> bool
         for (name, path, metadata) in entries {
             let named = if named.is_empty() { name } else { format!("{named}/{name}") };
             let modified = metadata.modified().ok();
+            if !zip_name_fits(&named, metadata.is_dir()) {
+                // nothing below a folder of such a name could be named either
+                let shown: String = named.chars().take(200).collect();
+                left_out.push(format!("{shown}... (its path is too long for a zip)"));
+                continue;
+            }
             if metadata.is_dir() {
                 if !zip.folder(&named, modified) {
                     return Ok(());
@@ -546,9 +609,18 @@ fn numbered(name: &str, n: u32) -> String {
 }
 
 /// What is in the way of a file named `name` in `folder`: nothing, or why it cannot go there.
+/// Keep both is never in anybody's way: it takes another name (`place`). A folder that cannot
+/// be looked at is not taken for an empty one.
 #[nolog]
 fn in_the_way(folder: &FsPath, name: &str, conflict: Conflict) -> Refused<()> {
-    let Ok(metadata) = std::fs::symlink_metadata(folder.join(name)) else { return Ok(()) };
+    if conflict == Conflict::KeepBoth {
+        return Ok(());
+    }
+    let metadata = match std::fs::symlink_metadata(folder.join(name)) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err((StatusCode::CONFLICT, UNREADABLE)),
+    };
     if is_link(&metadata) {
         return Err((StatusCode::FORBIDDEN, LINK));
     }
@@ -561,23 +633,71 @@ fn in_the_way(folder: &FsPath, name: &str, conflict: Conflict) -> Refused<()> {
     }
 }
 
-/// Give the finished upload `part` its name in `folder`, and say which name that was.
+/// Whether `dest` could not be taken because something has that name.
 #[nolog]
-fn place(folder: &FsPath, part: &FsPath, name: &str, conflict: Conflict) -> Refused<String> {
-    in_the_way(folder, name, conflict)?;
-    let mut named = name.to_string();
-    if conflict == Conflict::KeepBoth {
-        let mut n = 2;
-        while std::fs::symlink_metadata(folder.join(&named)).is_ok() {
-            if n > 9999 {
-                return Err((StatusCode::CONFLICT, EXISTS));
-            }
-            named = numbered(name, n);
-            n += 1;
+fn taken(error: &std::io::Error, dest: &FsPath) -> bool {
+    error.kind() == std::io::ErrorKind::AlreadyExists || std::fs::symlink_metadata(dest).is_ok()
+}
+
+/// Give `part` the name `dest` only if nothing has that name: never in the place of a file,
+/// also when another upload takes the name at the same moment. A second name for the same
+/// file is made, which the system refuses when the name is taken, and the part's own name is
+/// removed. Where the disk knows no second names, the name is first taken with an empty file
+/// (made only if it is not there), and the part then moves onto its own placeholder.
+#[nolog]
+fn put_new(part: &FsPath, dest: &FsPath) -> std::io::Result<()> {
+    match std::fs::hard_link(part, dest) {
+        Ok(()) => {
+            // the caller's guard removes the part if this does not
+            let _ = std::fs::remove_file(part);
+            Ok(())
+        }
+        Err(error) if taken(&error, dest) => Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, error)),
+        Err(_) => {
+            std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+            std::fs::rename(part, dest).inspect_err(|_| {
+                let _ = std::fs::remove_file(dest);
+            })
         }
     }
-    std::fs::rename(part, folder.join(&named)).map_err(|_| (StatusCode::CONFLICT, "The file that is there is in use and could not be replaced."))?;
-    Ok(named)
+}
+
+/// Give the finished upload `part` its name in `folder`, and say which name that was. Only
+/// Replace takes the place of a file. Asked, a name that is taken is refused, also one taken
+/// since the upload began. Keep both takes the first name nothing has: `name`, then `name (2)`
+/// and so on, past files, folders and links alike (review F-2, 2026-11-14).
+#[nolog]
+fn place(folder: &FsPath, part: &FsPath, name: &str, conflict: Conflict) -> Refused<String> {
+    const FAILED: (StatusCode, &str) = (StatusCode::INTERNAL_SERVER_ERROR, "The file could not be given its name.");
+    match conflict {
+        Conflict::Replace => {
+            in_the_way(folder, name, conflict)?;
+            std::fs::rename(part, folder.join(name)).map_err(|_| (StatusCode::CONFLICT, "The file that is there is in use and could not be replaced."))?;
+            Ok(name.to_string())
+        }
+        Conflict::Ask => {
+            in_the_way(folder, name, conflict)?;
+            let dest = folder.join(name);
+            match put_new(part, &dest) {
+                Ok(()) => Ok(name.to_string()),
+                // taken between the look and the move
+                Err(error) if taken(&error, &dest) => Err(in_the_way(folder, name, conflict).err().unwrap_or((StatusCode::CONFLICT, EXISTS))),
+                Err(_) => Err(FAILED),
+            }
+        }
+        Conflict::KeepBoth => {
+            for n in 1..=9999u32 {
+                let named = if n == 1 { name.to_string() } else { numbered(name, n) };
+                let dest = folder.join(&named);
+                match put_new(part, &dest) {
+                    Ok(()) => return Ok(named),
+                    Err(error) if taken(&error, &dest) => continue,
+                    Err(_) => return Err(FAILED),
+                }
+            }
+            Err((StatusCode::CONFLICT, EXISTS))
+        }
+    }
 }
 
 /// `PUT /api/orgs/{slug}/nodes/{nid}/scratch-files/upload?scope=&path=&name=&conflict=`: the
