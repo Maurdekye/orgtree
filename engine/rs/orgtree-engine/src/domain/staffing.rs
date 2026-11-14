@@ -222,7 +222,25 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
         })
         .collect();
     out.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-    out
+    // The order is the order of room, by the balancing rule (`templates::balance`): a reset that
+    // is soon first, then lower usage; an account with no reading after those that have one,
+    // never ahead of them. A hire form names the first one when the login a plain hire lands on
+    // cannot run the model (user ruling 2026-11-14, "Pre-select an account").
+    let readings: std::collections::HashMap<String, crate::domain::templates::Reading> = out.iter()
+        .filter_map(|row| row["id"].as_str())
+        .filter_map(|id| view.get(id).and_then(|a| crate::usage::balance_reading(engine, Some(a), tier)).map(|reading| (id.to_string(), reading)))
+        .collect();
+    by_room(out, &readings, now)
+}
+
+/// `rows` (each with an `id`) in the order of room: see `eligible_accounts`.
+#[nolog]
+fn by_room(rows: Vec<Value>, readings: &std::collections::HashMap<String, crate::domain::templates::Reading>, now: chrono::DateTime<Utc>) -> Vec<Value> {
+    let ids: Vec<String> = rows.iter().map(|row| row["id"].as_str().unwrap_or_default().to_string()).collect();
+    let order = crate::domain::templates::balance(&ids, readings, now);
+    let mut rows = rows;
+    rows.sort_by_key(|row| order.iter().position(|id| Some(id.as_str()) == row["id"].as_str()).unwrap_or(usize::MAX));
+    rows
 }
 
 /// Where Quick staff will put the seat for this ticket, and what it says.
@@ -580,4 +598,32 @@ fn availability(engine: &Engine) -> Value {
     // before the first sign-in check lands, a lane missing from the tiers has
     // not been checked yet: the surfaces say so instead of "not signed in"
     json!({ "at": at, "stale": !errors.is_empty(), "errors": errors, "loading": !state.probed })
+}
+
+// User ruling 2026-11-14, "Pre-select an account": the accounts that can run a model are listed
+// in the order of room, and a hire form names the first.
+#[cfg(test)]
+mod room_order_tests {
+    use super::*;
+    use crate::domain::templates::Reading;
+
+    #[test]
+    fn the_accounts_that_can_run_a_model_are_listed_in_the_order_of_room() {
+        let now = Utc::now();
+        let rows = |ids: &[&str]| ids.iter().map(|id| json!({ "id": id, "value": id })).collect::<Vec<Value>>();
+        let ids = |rows: Vec<Value>| rows.iter().map(|row| row["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let reading = |hours: Option<i64>, used: Option<f64>| Reading { reset: hours.map(|h| now + chrono::Duration::hours(h)), used };
+        let mut readings = std::collections::HashMap::new();
+        // by name: claude-2, claude-5, claude-7, claude-9
+        readings.insert("claude-2".to_string(), reading(Some(100), Some(60.0)));
+        readings.insert("claude-5".to_string(), reading(Some(100), Some(20.0)));
+        readings.insert("claude-7".to_string(), reading(Some(3), Some(90.0)));
+        // claude-9 has no reading: never ahead of one that has
+        assert_eq!(ids(by_room(rows(&["claude-2", "claude-5", "claude-7", "claude-9"]), &readings, now)), ["claude-7", "claude-5", "claude-2", "claude-9"],
+            "a reset that is soon first, then lower usage, then the one nobody has read");
+        // nothing read at all: the order they came in, which is by name
+        assert_eq!(ids(by_room(rows(&["claude-2", "claude-5"]), &std::collections::HashMap::new(), now)), ["claude-2", "claude-5"]);
+        // every row is kept, whatever is read of it
+        assert_eq!(by_room(rows(&["claude-9", "claude-7"]), &readings, now).len(), 2);
+    }
 }
