@@ -184,8 +184,8 @@ fn a_folder_is_zipped_as_a_stream_that_reads_back_whole() {
     link_folder(&dir.0.join("pack").join("away"), &outside.0);
     let entries = unzip(&zipped(&dir.0.join("pack"), "pack"));
     let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(names, ["pack/", "pack/big.bin", "pack/empty.txt", "pack/nothing-in-here/", "pack/notes/", "pack/notes/ünïcode name.txt"],
-        "by name, a folder before what is in it; no link, no upload in progress");
+    assert_eq!(names, ["pack/", "pack/big.bin", "pack/empty.txt", "pack/notes/", "pack/nothing-in-here/", "pack/notes/ünïcode name.txt"],
+        "a folder's own entries by name, then what its folders hold; no link, no upload in progress");
     let content = |name: &str| entries.iter().find(|(n, _)| n == name).and_then(|(_, content)| content.clone()).unwrap();
     assert!(content("pack/big.bin") == big);
     assert_eq!(content("pack/notes/ünïcode name.txt"), "héllo".as_bytes());
