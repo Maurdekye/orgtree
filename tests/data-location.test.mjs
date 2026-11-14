@@ -1195,3 +1195,271 @@ test('F-5: .data-move-in-progress.json records created + startedAtMs, expires ol
     assert.equal(psOut, 'PS_OK')
   }
 })
+
+test('readDataLocationState returns paths immediately without walking directories, while measureDataLocationSizes deduplicates in-flight walks, caches per session, skips junctions, and supports preflight cancellation', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const { dir, userData, defaultData, forbidden, installDir } = makeSandbox()
+
+  const customRoot = path.join(dir, 'LargeCustomRoot')
+  fs.mkdirSync(customRoot, { recursive: true })
+  fs.writeFileSync(path.join(customRoot, 'a.bin'), Buffer.alloc(4096, 1))
+  fs.writeFileSync(path.join(defaultData, 'b.bin'), Buffer.alloc(8192, 2))
+
+  await datalocation.writeDataLocationConfig(userData, {
+    version: 1,
+    dataRoot: customRoot,
+    previousRoot: defaultData,
+    movedAt: '2026-11-14T17:00:00Z',
+  })
+
+  // 1. Even if fs.promises.readdir and measureDirectory never resolve, readDataLocationState
+  //    MUST return currentRoot/defaultRoot/previousRoot immediately with null byte counts.
+  const origReaddir = fs.promises.readdir
+  const blockedRoots = new Set([path.resolve(customRoot), path.resolve(defaultData)])
+  let readdirWalkAttempts = 0
+  fs.promises.readdir = async (targetDir, ...rest) => {
+    if (blockedRoots.has(path.resolve(String(targetDir)))) {
+      readdirWalkAttempts += 1
+      return new Promise(() => {})
+    }
+    return origReaddir.call(fs.promises, targetDir, ...rest)
+  }
+  let stubMeasureAttempts = 0
+  const freshCache =
+    typeof datalocation.DataLocationSizeCache === 'function'
+      ? new datalocation.DataLocationSizeCache()
+      : undefined
+  let timer = null
+  try {
+    const stateOrTimeout = await Promise.race([
+      datalocation.readDataLocationState({
+        currentRoot: customRoot,
+        userData,
+        envOverride: false,
+        moving: false,
+        forbiddenRoot: forbidden,
+        installDirectory: installDir,
+        sizeCache: freshCache,
+        measureDirectory: () => {
+          stubMeasureAttempts += 1
+          return new Promise(() => {})
+        },
+      }),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve('TIMED_OUT'), 200)
+      }),
+    ])
+    assert.notEqual(
+      stateOrTimeout,
+      'TIMED_OUT',
+      'readDataLocationState blocked on a directory walk instead of returning paths immediately',
+    )
+    assert.equal(readdirWalkAttempts, 0, 'readDataLocationState must not call readdir on data roots')
+    assert.equal(stubMeasureAttempts, 0, 'readDataLocationState must not invoke measureDirectory')
+    assert.equal(stateOrTimeout.currentRoot, path.resolve(customRoot))
+    assert.equal(stateOrTimeout.defaultRoot, path.resolve(defaultData))
+    assert.equal(stateOrTimeout.previousRoot, customRoot === defaultData ? null : defaultData)
+    assert.equal(stateOrTimeout.isCustom, true)
+    assert.equal(stateOrTimeout.currentBytes, null)
+    assert.equal(stateOrTimeout.previousBytes, null)
+  } finally {
+    if (timer) clearTimeout(timer)
+    fs.promises.readdir = origReaddir
+  }
+
+  // 2. Separate background size measurement deduplicates concurrent walks (at most 1 in flight per root),
+  //    caches results for the session, and invalidates deleted previous folders.
+  assert.equal(typeof datalocation.DataLocationSizeCache, 'function')
+  assert.equal(typeof datalocation.measureDataLocationSizes, 'function')
+  const cache = new datalocation.DataLocationSizeCache()
+  const walkCalls = []
+  const resolvers = new Map()
+  const controlledMeasurer = targetRoot => {
+    const norm = path.resolve(targetRoot)
+    walkCalls.push(norm)
+    return new Promise(resolve => {
+      resolvers.set(norm, resolve)
+    })
+  }
+
+  const p1 = datalocation.measureDataLocationSizes({
+    currentRoot: customRoot,
+    userData,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    sizeCache: cache,
+    measureDirectory: controlledMeasurer,
+  })
+  const p2 = datalocation.measureDataLocationSizes({
+    currentRoot: customRoot,
+    userData,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    sizeCache: cache,
+    measureDirectory: controlledMeasurer,
+  })
+
+  // Flush microtasks so both calls reach sizeCache.measure.
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(
+    walkCalls.filter(r => r === path.resolve(customRoot)).length,
+    1,
+    'at most one directory walk may be in flight for currentRoot',
+  )
+  assert.equal(
+    walkCalls.filter(r => r === path.resolve(defaultData)).length,
+    1,
+    'at most one directory walk may be in flight for previousRoot',
+  )
+
+  // State remains immediate (null bytes) while background walk is still running.
+  const midState = await datalocation.readDataLocationState({
+    currentRoot: customRoot,
+    userData,
+    envOverride: false,
+    moving: false,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    sizeCache: cache,
+  })
+  assert.equal(midState.currentBytes, null)
+  assert.equal(midState.previousBytes, null)
+
+  resolvers.get(path.resolve(customRoot))({ totalBytes: 4096, totalFiles: 1 })
+  resolvers.get(path.resolve(defaultData))({ totalBytes: 8192, totalFiles: 1 })
+  const [m1, m2] = await Promise.all([p1, p2])
+  assert.equal(m1.currentBytes, 4096)
+  assert.equal(m1.previousBytes, 8192)
+  assert.deepEqual(m2, m1)
+
+  // Subsequent state & measure calls read the session cache with zero extra walks.
+  const cachedState = await datalocation.readDataLocationState({
+    currentRoot: customRoot,
+    userData,
+    envOverride: false,
+    moving: false,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    sizeCache: cache,
+  })
+  assert.equal(cachedState.currentBytes, 4096)
+  assert.equal(cachedState.previousBytes, 8192)
+  const m3 = await datalocation.measureDataLocationSizes({
+    currentRoot: customRoot,
+    userData,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    sizeCache: cache,
+    measureDirectory: controlledMeasurer,
+  })
+  assert.equal(m3.currentBytes, 4096)
+  assert.equal(walkCalls.length, 2, 'cached roots must not be re-walked in the same session')
+
+  // Deleting previousRoot invalidates its session cache entry.
+  const delPrev = await datalocation.deletePreviousDataLocationFolder({
+    userData,
+    currentRoot: customRoot,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    sizeCache: cache,
+  })
+  assert.equal(delPrev.ok, true, delPrev.error)
+  assert.equal(cache.getCachedBytes(defaultData), null)
+
+  // 3. Real measureDirectoryBytes skips NTFS junctions / symlinks and ephemerals, and supports AbortSignal + progress.
+  const scanRoot = path.join(dir, 'ScanWithJunction')
+  const extDir = path.join(dir, 'ExternalHugeTarget')
+  fs.mkdirSync(path.join(scanRoot, 'nested'), { recursive: true })
+  fs.mkdirSync(extDir, { recursive: true })
+  fs.writeFileSync(path.join(scanRoot, 'nested', 'keep.dat'), Buffer.alloc(5000, 3))
+  fs.writeFileSync(path.join(scanRoot, 'engine-attach.json'), '{"ephemeral":true}')
+  fs.writeFileSync(path.join(extDir, 'outside.bin'), Buffer.alloc(100000, 9))
+  const juncInside = path.join(scanRoot, 'nested', 'junction-out')
+  if (windows) {
+    execFileSync('cmd.exe', ['/c', 'mklink', '/J', juncInside, extDir], { stdio: 'ignore' })
+  } else {
+    fs.symlinkSync(extDir, juncInside, 'dir')
+  }
+  const realMeasured = await datalocation.measureDirectoryBytes(scanRoot)
+  assert.equal(realMeasured.totalBytes, 5000, 'junction target and ephemerals must be excluded from byte count')
+  assert.equal(realMeasured.totalFiles, 1)
+
+  // 4. Preflight reports scan progress and aborts promptly when its AbortSignal cancels.
+  const preflightCache = new datalocation.DataLocationSizeCache()
+  const preflightAbort = new AbortController()
+  const progressSeen = []
+  const preflightTarget = path.join(dir, 'CancelablePreflightTarget')
+  const pfPromise = datalocation.preflightDataLocation({
+    pickedPath: preflightTarget,
+    currentRoot: scanRoot,
+    userData,
+    forbiddenRoot: forbidden,
+    installDirectory: installDir,
+    trustCheck: async () => ({ ok: true, detail: 'trusted' }),
+    sizeCache: preflightCache,
+    signal: preflightAbort.signal,
+    onScanProgress: info => {
+      progressSeen.push(info)
+      preflightAbort.abort()
+    },
+    measureDirectory: (_root, opts) =>
+      new Promise((_resolve, reject) => {
+        opts?.onProgress?.({ totalBytes: 1024 * 1024, totalFiles: 42 })
+        opts?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      }),
+  })
+  const pfCancelled = await pfPromise
+  assert.equal(pfCancelled.ok, false)
+  assert.equal(pfCancelled.cancelled, true)
+  assert.equal(progressSeen.length, 1)
+  assert.equal(progressSeen[0].totalFiles, 42)
+
+  // 5. Preload exposes measureDataLocationSizes and cancelDataLocationPreflight on orgtreeDesktop.
+  const { build } = loadEsbuild()
+  const preloadBuild = await build({
+    entryPoints: ['apps/desktop/preload/index.ts'],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    external: ['electron'],
+  })
+  let exposedBridge = null
+  const invoked = []
+  vm.runInNewContext(preloadBuild.outputFiles[0].text, {
+    module: { exports: {} },
+    exports: {},
+    process: {
+      argv: ['--orgtree-ui-origin=http://127.0.0.1:47829', '--orgtree-stallwatch=0'],
+      isMainFrame: true,
+    },
+    location: {
+      origin: 'http://127.0.0.1:47829',
+      pathname: '/o/local-org',
+      protocol: 'http:',
+    },
+    require(specifier) {
+      if (specifier === 'electron') {
+        return {
+          contextBridge: { exposeInMainWorld(_n, api) { exposedBridge = api } },
+          ipcRenderer: {
+            sendSync: () => ({ token: 'tok' }),
+            invoke: async (ch, ...args) => { invoked.push([ch, args]); return { ok: true } },
+            send() {},
+            on() {},
+            removeListener() {},
+          },
+        }
+      }
+      throw new Error(`Unexpected require: ${specifier}`)
+    },
+  })
+  assert.equal(typeof exposedBridge?.measureDataLocationSizes, 'function')
+  assert.equal(typeof exposedBridge?.cancelDataLocationPreflight, 'function')
+  await exposedBridge.measureDataLocationSizes()
+  assert.deepEqual(invoked.at(-1), ['desktop:data-location-measure', []])
+  await exposedBridge.cancelDataLocationPreflight()
+  assert.deepEqual(invoked.at(-1), ['desktop:data-location-preflight-cancel', []])
+})
+

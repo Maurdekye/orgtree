@@ -20,13 +20,14 @@ interface MockState {
   envOverride: boolean
   previousRoot: string | null
   movedAt: string | null
-  currentBytes: number
+  currentBytes: number | null
   previousBytes: number | null
   moving: boolean
 }
 
 interface MockPreflight {
   ok: boolean
+  cancelled?: boolean
   pickedPath: string
   resolvedRoot: string
   usedSubfolder: boolean
@@ -88,6 +89,13 @@ function installDesktopBridge(
   handlers: {
     choose?: (defaultPath?: string | null, popoutName?: string | null) => Promise<string | null>
     preflight?: (candidatePath: string) => Promise<MockPreflight>
+    cancelPreflight?: () => Promise<{ ok: boolean }>
+    measureSizes?: () => Promise<{
+      currentRoot: string
+      currentBytes: number | null
+      previousRoot: string | null
+      previousBytes: number | null
+    }>
     move?: (opts: { targetPath: string; deletePrevious: boolean }) => Promise<{
       ok: boolean
       cancelled?: boolean
@@ -101,10 +109,13 @@ function installDesktopBridge(
   const win = window as unknown as { orgtreeDesktop?: unknown }
   const prev = win.orgtreeDesktop
   let currentState = { ...initialState }
+  const listeners = new Set<(event: { type: string; data: unknown }) => void>()
   const calls = {
     openFolder: [] as ('current' | 'previous')[],
     choose: [] as [string | null | undefined, string | null | undefined][],
     preflight: [] as string[],
+    cancelPreflight: 0,
+    measureSizes: 0,
     move: [] as { targetPath: string; deletePrevious: boolean }[],
     deletePrevious: 0,
   }
@@ -122,8 +133,21 @@ function installDesktopBridge(
     getUpdateCapability: async () => ({ unattendedInstall: true, installDirectory: 'C:\\Program Files\\Orgtree' }),
     getRunAsAdministrator: async () => ({ enabled: false, available: true }),
     setRunAsAdministrator: async (enabled: boolean) => ({ enabled, available: true }),
-    onEvent: () => () => {},
+    onEvent: (listener: (event: { type: string; data: unknown }) => void) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
     getDataLocationState: async () => ({ ...currentState }),
+    measureDataLocationSizes: async () => {
+      calls.measureSizes += 1
+      if (handlers.measureSizes) return handlers.measureSizes()
+      return {
+        currentRoot: currentState.currentRoot,
+        currentBytes: currentState.currentBytes,
+        previousRoot: currentState.previousRoot,
+        previousBytes: currentState.previousBytes,
+      }
+    },
     openDataLocationFolder: async (which: 'current' | 'previous') => {
       calls.openFolder.push(which)
       return handlers.openFolder ? handlers.openFolder(which) : { ok: true }
@@ -144,6 +168,10 @@ function installDesktopBridge(
         freeBytes: 80 * 1024 ** 3,
         activeAgents: 0,
       }
+    },
+    cancelDataLocationPreflight: async () => {
+      calls.cancelPreflight += 1
+      return handlers.cancelPreflight ? handlers.cancelPreflight() : { ok: true }
     },
     moveDataLocation: async (opts: { targetPath: string; deletePrevious: boolean }) => {
       calls.move.push(opts)
@@ -168,6 +196,9 @@ function installDesktopBridge(
 
   return {
     calls,
+    emitEvent(event: { type: string; data: unknown }) {
+      for (const listener of listeners) listener(event)
+    },
     setState(patch: Partial<MockState>) {
       currentState = { ...currentState, ...patch }
     },
@@ -400,3 +431,143 @@ test('Custom location offers "Use default location…", shows "Delete previous f
   )
   assert.match(document.body.textContent ?? '', /ORGTREE_V2_DATA/)
 })
+
+test('DataLocationSetting renders paths and enables buttons immediately with "Measuring size…" while measurement is pending, updates when resolved, and lets the user cancel a slow preflight', async t => {
+  const DataLocationSetting = getDataLocationComponent()
+  let resolveMeasure!: (res: {
+    currentRoot: string
+    currentBytes: number | null
+    previousRoot: string | null
+    previousBytes: number | null
+  }) => void
+  let resolvePreflight!: (pf: MockPreflight) => void
+
+  const mock = installDesktopBridge(
+    t,
+    {
+      currentRoot: 'S:\\Orgtree data',
+      defaultRoot: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+      isCustom: true,
+      envOverride: false,
+      previousRoot: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+      movedAt: '2026-11-14T09:00:00Z',
+      currentBytes: null,
+      previousBytes: null,
+      moving: false,
+    },
+    {
+      measureSizes: () =>
+        new Promise(resolve => {
+          resolveMeasure = resolve
+        }),
+      preflight: () =>
+        new Promise(resolve => {
+          resolvePreflight = resolve
+        }),
+      cancelPreflight: async () => {
+        resolvePreflight?.({
+          ok: false,
+          cancelled: true,
+          pickedPath: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+          resolvedRoot: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+          usedSubfolder: false,
+          sourceBytes: 0,
+          freeBytes: null,
+          activeAgents: 0,
+        })
+        return { ok: true }
+      },
+    },
+  )
+
+  const view = await mountView(<DataLocationSetting />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(5) })
+
+  // 1. Paths and "Measuring size…" appear immediately while background measurement is still unresolved.
+  const currentRow = document.querySelector<HTMLElement>('[data-settings-field="data-location"]')
+  const prevRow = document.querySelector<HTMLElement>('[data-settings-field="data-location-previous"]')
+  assert.ok(currentRow, 'Current folder row rendered immediately')
+  assert.ok(prevRow, 'Previous folder row rendered immediately')
+  assert.equal(currentRow.querySelector('[data-streamer-field="path"]')?.textContent, 'S:\\Orgtree data')
+  assert.equal(
+    prevRow.querySelector('[data-streamer-field="path"]')?.textContent,
+    'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+  )
+  assert.match(currentRow.textContent ?? '', /Custom location · Measuring size…/)
+  assert.match(prevRow.textContent ?? '', /Measuring size…/)
+  assert.equal(mock.calls.measureSizes, 1, 'Background size measurement kicked off once on mount')
+
+  // 2. Every action button is enabled immediately — none waits on directory size measurement.
+  const openCurrentBtn = [...currentRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Open folder')
+  const changeBtn = [...currentRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Change location…')
+  const useDefaultBtn = [...currentRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Use default location…')
+  const openPrevBtn = [...prevRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Open folder')
+  const delPrevBtn = [...prevRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Delete previous folder')
+
+  assert.ok(openCurrentBtn && !openCurrentBtn.disabled, 'Open folder (current) enabled while size pending')
+  assert.ok(changeBtn && !changeBtn.disabled, 'Change location… enabled while size pending')
+  assert.ok(useDefaultBtn && !useDefaultBtn.disabled, 'Use default location… enabled while size pending')
+  assert.ok(openPrevBtn && !openPrevBtn.disabled, 'Open folder (previous) enabled while size pending')
+  assert.ok(delPrevBtn && !delPrevBtn.disabled, 'Delete previous folder enabled while size pending')
+
+  await click(openCurrentBtn)
+  assert.deepEqual(mock.calls.openFolder, ['current'])
+
+  // 3. Resolving background measurement replaces "Measuring size…" with formatted sizes.
+  await inAct(async () => {
+    resolveMeasure({
+      currentRoot: 'S:\\Orgtree data',
+      currentBytes: 3.5 * 1024 ** 3,
+      previousRoot: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+      previousBytes: 1.25 * 1024 ** 3,
+    })
+    await flush(5)
+  })
+  assert.doesNotMatch(currentRow.textContent ?? '', /Measuring size…/)
+  assert.match(currentRow.textContent ?? '', /Custom location · 3\.50 GB/)
+  assert.ok(
+    [...prevRow.querySelectorAll<HTMLButtonElement>('button')]
+      .some(b => b.textContent === 'Delete previous folder (1.25 GB)'),
+  )
+
+  // 4. Starting a slow preflight shows live scan progress and an enabled Cancel button that aborts immediately.
+  await inAct(async () => {
+    useDefaultBtn.click()
+    await flush(3)
+  })
+  assert.ok(
+    [...currentRow.querySelectorAll<HTMLButtonElement>('button')].some(b => b.textContent === 'Checking…' && b.disabled),
+  )
+  await inAct(async () => {
+    mock.emitEvent({
+      type: 'data-location-progress',
+      data: {
+        phase: 'checking',
+        filesCopied: 250000,
+        totalFiles: 250000,
+        bytesCopied: 4 * 1024 ** 3,
+        totalBytes: 0,
+        cancellable: true,
+        detail: 'Measuring current data folder… (250,000 files · 4.00 GB)',
+      },
+    })
+    await flush(3)
+  })
+  assert.match(document.body.textContent ?? '', /250,000 files/)
+  const cancelCheckBtn = [...currentRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Cancel')
+  assert.ok(cancelCheckBtn && !cancelCheckBtn.disabled, 'Cancel button enabled while preflight scan is running')
+  await click(cancelCheckBtn)
+  assert.equal(mock.calls.cancelPreflight, 1)
+  assert.equal(document.querySelector('.move-data-dialog'), null)
+  const restoredChangeBtn = [...currentRow.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Change location…')
+  assert.ok(restoredChangeBtn && !restoredChangeBtn.disabled, 'Change location… re-enabled after preflight cancel')
+})
+
