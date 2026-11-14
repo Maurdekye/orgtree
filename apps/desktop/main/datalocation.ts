@@ -7,6 +7,7 @@ import type {
   DataLocationMoveResult,
   DataLocationPreflight,
   DataLocationProgress,
+  DataLocationSizes,
   DataLocationState,
 } from '../../../packages/contracts/index'
 import {
@@ -357,46 +358,320 @@ export function isRootLockHeld(root: string): boolean {
   }
 }
 
-export async function measureDirectoryBytes(root: string): Promise<{ totalBytes: number; totalFiles: number }> {
+const DIR_WALK_CONCURRENCY = 8
+const FILE_STAT_CONCURRENCY = 32
+const SCAN_PROGRESS_INTERVAL_MS = 150
+
+function createScanAbortError(): Error {
+  const err = new Error('Data size measurement cancelled')
+  err.name = 'AbortError'
+  return err
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.message === 'Data size measurement cancelled')
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  signal: AbortSignal | undefined,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return
+  let nextIdx = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIdx < items.length) {
+      if (signal?.aborted) throw createScanAbortError()
+      const idx = nextIdx
+      nextIdx += 1
+      await worker(items[idx]!)
+    }
+  })
+  await Promise.all(runners)
+}
+
+export interface MeasureDirectoryOptions {
+  signal?: AbortSignal
+  onProgress?: (info: { totalBytes: number; totalFiles: number }) => void
+}
+
+export type MeasureDirectoryFn = (
+  root: string,
+  options?: MeasureDirectoryOptions,
+) => Promise<{ totalBytes: number; totalFiles: number }>
+
+export async function measureDirectoryBytes(
+  root: string,
+  options: MeasureDirectoryOptions = {},
+): Promise<{ totalBytes: number; totalFiles: number }> {
+  const { signal, onProgress } = options
+  if (signal?.aborted) throw createScanAbortError()
   if (!root || !fs.existsSync(root)) return { totalBytes: 0, totalFiles: 0 }
+
   let totalBytes = 0
   let totalFiles = 0
+  let lastProgressMs = 0
+
+  const maybeEmitProgress = (force = false) => {
+    if (!onProgress) return
+    const now = Date.now()
+    if (!force && now - lastProgressMs < SCAN_PROGRESS_INTERVAL_MS) return
+    lastProgressMs = now
+    onProgress({ totalBytes, totalFiles })
+  }
+
   const walk = async (dir: string, relPrefix: string): Promise<void> => {
+    if (signal?.aborted) throw createScanAbortError()
     let entries: fs.Dirent[]
     try {
       entries = await fs.promises.readdir(dir, { withFileTypes: true })
     } catch {
       return
     }
+    if (signal?.aborted) throw createScanAbortError()
+
+    const regularFiles: string[] = []
+    const subdirs: { full: string; relPosix: string }[] = []
+    const unknownEntries: { full: string; relPosix: string }[] = []
+
     for (const entry of entries) {
       const relPosix = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
       if (isEphemeralEntry(relPosix, entry.name)) continue
+      // On Windows NTFS and POSIX, libuv sets UV_DIRENT_LINK (`entry.isSymbolicLink()`)
+      // for both symbolic links and NTFS directory junctions right from FindFirstFileW /
+      // getdents without opening each entry or blocking the main thread with readlinkSync.
+      if (entry.isSymbolicLink()) continue
       const full = path.join(dir, entry.name)
-      let st: fs.Stats
-      try {
-        st = await fs.promises.lstat(full)
-      } catch {
-        continue
-      }
-      if (st.isSymbolicLink()) continue
-      if (st.isDirectory()) {
-        // Also skip NTFS junctions!
-        try {
-          fs.readlinkSync(full)
-          continue
-        } catch {
-          // Normal directory.
-        }
-        await walk(full, relPosix)
-      } else if (st.isFile()) {
-        totalBytes += st.size
-        totalFiles += 1
+      if (entry.isFile()) {
+        regularFiles.push(full)
+      } else if (entry.isDirectory()) {
+        subdirs.push({ full, relPosix })
+      } else {
+        unknownEntries.push({ full, relPosix })
       }
     }
+
+    if (regularFiles.length > 0) {
+      await runWithConcurrency(regularFiles, FILE_STAT_CONCURRENCY, signal, async full => {
+        try {
+          const st = await fs.promises.lstat(full)
+          if (!st.isSymbolicLink() && st.isFile()) {
+            totalBytes += st.size
+            totalFiles += 1
+            maybeEmitProgress(false)
+          }
+        } catch {
+          // Entry disappeared during scan.
+        }
+      })
+    }
+
+    if (unknownEntries.length > 0) {
+      await runWithConcurrency(unknownEntries, FILE_STAT_CONCURRENCY, signal, async item => {
+        try {
+          const st = await fs.promises.lstat(item.full)
+          if (isEntryReparsePoint(item.full, st)) return
+          if (st.isDirectory()) {
+            subdirs.push(item)
+          } else if (st.isFile()) {
+            totalBytes += st.size
+            totalFiles += 1
+            maybeEmitProgress(false)
+          }
+        } catch {
+          // Entry disappeared during scan.
+        }
+      })
+    }
+
+    if (subdirs.length > 0) {
+      await runWithConcurrency(subdirs, DIR_WALK_CONCURRENCY, signal, async sub => {
+        await walk(sub.full, sub.relPosix)
+      })
+    }
   }
+
   await walk(root, '')
+  maybeEmitProgress(true)
   return { totalBytes, totalFiles }
 }
+
+function canonicalCacheKey(root: string): string {
+  const resolved = path.resolve(root)
+  try {
+    return canonicalPath(resolveExisting(resolved))
+  } catch {
+    return canonicalPath(resolved)
+  }
+}
+
+/** Single-flight, session-scoped directory size cache:
+ *  - `getCachedBytes(root)` never walks the filesystem and returns `null` until measured;
+ *  - `measure(root)` runs at most ONE walk in flight per canonical root and caches settled totals;
+ *  - individual callers with an `AbortSignal` detach immediately on abort without killing a
+ *    concurrent background waiter, while aborting the underlying walk if no waiters remain. */
+export class DataLocationSizeCache {
+  private readonly settled = new Map<string, { totalBytes: number; totalFiles: number }>()
+  private readonly inFlight = new Map<
+    string,
+    {
+      promise: Promise<{ totalBytes: number; totalFiles: number }>
+      abortController: AbortController
+      waiters: number
+      latestBytes: number
+      latestFiles: number
+      listeners: Set<(info: { totalBytes: number; totalFiles: number }) => void>
+    }
+  >()
+
+  getCachedBytes(root: string): number | null {
+    if (!root || this.settled.size === 0) return null
+    const hit = this.settled.get(canonicalCacheKey(root))
+    return hit ? hit.totalBytes : null
+  }
+
+  invalidate(root: string): void {
+    if (!root) return
+    const key = canonicalCacheKey(root)
+    this.settled.delete(key)
+    const running = this.inFlight.get(key)
+    if (running) {
+      this.inFlight.delete(key)
+      running.abortController.abort()
+    }
+  }
+
+  clear(): void {
+    this.settled.clear()
+    for (const running of this.inFlight.values()) {
+      running.abortController.abort()
+    }
+    this.inFlight.clear()
+  }
+
+  async measure(
+    root: string,
+    options: {
+      signal?: AbortSignal
+      onProgress?: (info: { totalBytes: number; totalFiles: number }) => void
+      measureDirectory?: MeasureDirectoryFn
+    } = {},
+  ): Promise<{ totalBytes: number; totalFiles: number }> {
+    const { signal, onProgress, measureDirectory = measureDirectoryBytes } = options
+    if (signal?.aborted) throw createScanAbortError()
+    const resolvedRoot = path.resolve(root)
+    const key = canonicalCacheKey(resolvedRoot)
+
+    const cached = this.settled.get(key)
+    if (cached) {
+      onProgress?.(cached)
+      return cached
+    }
+
+    let entry = this.inFlight.get(key)
+    if (!entry) {
+      const abortController = new AbortController()
+      const listeners = new Set<(info: { totalBytes: number; totalFiles: number }) => void>()
+      const created = {
+        promise: Promise.resolve({ totalBytes: 0, totalFiles: 0 }),
+        abortController,
+        waiters: 0,
+        latestBytes: 0,
+        latestFiles: 0,
+        listeners,
+      }
+      created.promise = measureDirectory(resolvedRoot, {
+        signal: abortController.signal,
+        onProgress: info => {
+          created.latestBytes = info.totalBytes
+          created.latestFiles = info.totalFiles
+          for (const listener of listeners) {
+            try { listener(info) } catch { /* ignore listener failure */ }
+          }
+        },
+      }).then(
+        res => {
+          if (this.inFlight.get(key) === created) {
+            this.inFlight.delete(key)
+            if (!abortController.signal.aborted) {
+              this.settled.set(key, res)
+            }
+          }
+          return res
+        },
+        err => {
+          if (this.inFlight.get(key) === created) {
+            this.inFlight.delete(key)
+          }
+          throw err
+        },
+      )
+      // Prevent unhandled rejection when all waiters detach via AbortSignal.
+      created.promise.catch(() => {})
+      this.inFlight.set(key, created)
+      entry = created
+    }
+
+    const activeEntry = entry
+    activeEntry.waiters += 1
+    if (onProgress && (activeEntry.latestFiles > 0 || activeEntry.latestBytes > 0)) {
+      onProgress({ totalBytes: activeEntry.latestBytes, totalFiles: activeEntry.latestFiles })
+    }
+    if (onProgress) activeEntry.listeners.add(onProgress)
+
+    if (!signal) {
+      try {
+        return await activeEntry.promise
+      } finally {
+        if (onProgress) activeEntry.listeners.delete(onProgress)
+        activeEntry.waiters = Math.max(0, activeEntry.waiters - 1)
+      }
+    }
+
+    return new Promise<{ totalBytes: number; totalFiles: number }>((resolve, reject) => {
+      let settledWaiter = false
+      const cleanup = () => {
+        if (onProgress) activeEntry.listeners.delete(onProgress)
+        signal.removeEventListener('abort', onAbort)
+      }
+      const onAbort = () => {
+        if (settledWaiter) return
+        settledWaiter = true
+        cleanup()
+        activeEntry.waiters = Math.max(0, activeEntry.waiters - 1)
+        if (activeEntry.waiters === 0 && this.inFlight.get(key) === activeEntry) {
+          this.inFlight.delete(key)
+          activeEntry.abortController.abort()
+        }
+        reject(createScanAbortError())
+      }
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      activeEntry.promise.then(
+        res => {
+          if (settledWaiter) return
+          settledWaiter = true
+          cleanup()
+          activeEntry.waiters = Math.max(0, activeEntry.waiters - 1)
+          resolve(res)
+        },
+        err => {
+          if (settledWaiter) return
+          settledWaiter = true
+          cleanup()
+          activeEntry.waiters = Math.max(0, activeEntry.waiters - 1)
+          reject(err)
+        },
+      )
+    })
+  }
+}
+
+export const defaultDataLocationSizeCache = new DataLocationSizeCache()
 
 function existingAncestor(p: string): string {
   let cur = path.resolve(p)
@@ -567,6 +842,43 @@ export function removeDirectoryTreeNoFollow(targetDir: string): void {
   removeNode(resolved)
 }
 
+function resolveValidPreviousFolder(params: {
+  cfg: DataLocationConfig | null
+  currentRoot: string
+  userData: string
+  forbiddenRoot?: string
+  installDirectory?: string
+}): { previousRoot: string; resolvedPrev: string } | null {
+  const { cfg, currentRoot, userData, forbiddenRoot, installDirectory } = params
+  if (
+    !cfg?.previousRoot ||
+    canonicalPath(cfg.previousRoot) === canonicalPath(currentRoot) ||
+    !fs.existsSync(cfg.previousRoot)
+  ) {
+    return null
+  }
+  const check = validateDeletablePreviousFolder({
+    previousRoot: cfg.previousRoot,
+    currentRoot,
+    userData,
+    forbiddenRoot,
+    installDirectory,
+  })
+  if (!check.ok) return null
+  try {
+    const st = fs.lstatSync(check.resolvedPrev)
+    if (!isEntryReparsePoint(check.resolvedPrev, st) && st.isDirectory()) {
+      return { previousRoot: cfg.previousRoot, resolvedPrev: check.resolvedPrev }
+    }
+  } catch {
+    // Ignore unreadable previousRoot.
+  }
+  return null
+}
+
+/** Return configured Data location paths and flags immediately with NO directory walk.
+ *  `currentBytes` and `previousBytes` are `null` ("not measured yet") until populated in
+ *  the session's `DataLocationSizeCache` by `measureDataLocationSizes` or `preflightDataLocation`. */
 export async function readDataLocationState(params: {
   currentRoot: string
   userData: string
@@ -574,51 +886,75 @@ export async function readDataLocationState(params: {
   moving: boolean
   forbiddenRoot?: string
   installDirectory?: string
+  sizeCache?: DataLocationSizeCache
+  measureDirectory?: MeasureDirectoryFn
 }): Promise<DataLocationState> {
+  const cache = params.sizeCache ?? defaultDataLocationSizeCache
   const defaultRoot = path.join(params.userData, 'data')
   const currentRoot = path.resolve(params.currentRoot)
   const cfg = readDataLocationConfig(params.userData)
   const isCustom = !params.envOverride && canonicalPath(currentRoot) !== canonicalPath(defaultRoot)
-  const { totalBytes: currentBytes } = await measureDirectoryBytes(currentRoot)
-
-  let previousRoot: string | null = null
-  let previousBytes: number | null = null
-  if (
-    cfg?.previousRoot &&
-    canonicalPath(cfg.previousRoot) !== canonicalPath(currentRoot) &&
-    fs.existsSync(cfg.previousRoot)
-  ) {
-    const check = validateDeletablePreviousFolder({
-      previousRoot: cfg.previousRoot,
-      currentRoot,
-      userData: params.userData,
-      forbiddenRoot: params.forbiddenRoot,
-      installDirectory: params.installDirectory,
-    })
-    if (check.ok) {
-      try {
-        const st = fs.lstatSync(check.resolvedPrev)
-        if (!isEntryReparsePoint(check.resolvedPrev, st) && st.isDirectory()) {
-          previousRoot = cfg.previousRoot
-          previousBytes = (await measureDirectoryBytes(check.resolvedPrev)).totalBytes
-        }
-      } catch {
-        previousRoot = null
-        previousBytes = null
-      }
-    }
-  }
+  const prev = resolveValidPreviousFolder({
+    cfg,
+    currentRoot,
+    userData: params.userData,
+    forbiddenRoot: params.forbiddenRoot,
+    installDirectory: params.installDirectory,
+  })
 
   return {
     currentRoot,
     defaultRoot,
     isCustom,
     envOverride: params.envOverride,
-    currentBytes,
-    previousRoot,
-    previousBytes,
+    currentBytes: cache.getCachedBytes(currentRoot),
+    previousRoot: prev?.previousRoot ?? null,
+    previousBytes: prev ? cache.getCachedBytes(prev.resolvedPrev) : null,
     movedAt: cfg?.movedAt ?? null,
     moving: params.moving,
+  }
+}
+
+/** Measure `currentRoot` (and any valid `previousRoot`) in the background with single-flight
+ *  deduplication per root and session-wide caching. */
+export async function measureDataLocationSizes(params: {
+  currentRoot: string
+  userData: string
+  forbiddenRoot?: string
+  installDirectory?: string
+  sizeCache?: DataLocationSizeCache
+  measureDirectory?: MeasureDirectoryFn
+  signal?: AbortSignal
+}): Promise<DataLocationSizes> {
+  const cache = params.sizeCache ?? defaultDataLocationSizeCache
+  const currentRoot = path.resolve(params.currentRoot)
+  const cfg = readDataLocationConfig(params.userData)
+  const prev = resolveValidPreviousFolder({
+    cfg,
+    currentRoot,
+    userData: params.userData,
+    forbiddenRoot: params.forbiddenRoot,
+    installDirectory: params.installDirectory,
+  })
+
+  const [curRes, prevRes] = await Promise.all([
+    cache.measure(currentRoot, {
+      signal: params.signal,
+      measureDirectory: params.measureDirectory,
+    }),
+    prev
+      ? cache.measure(prev.resolvedPrev, {
+          signal: params.signal,
+          measureDirectory: params.measureDirectory,
+        })
+      : Promise.resolve(null),
+  ])
+
+  return {
+    currentRoot,
+    currentBytes: curRes.totalBytes,
+    previousRoot: prev?.previousRoot ?? null,
+    previousBytes: prevRes ? prevRes.totalBytes : null,
   }
 }
 
@@ -643,6 +979,10 @@ export async function preflightDataLocation(params: {
   envOverride?: boolean
   activeAgents?: number
   trustCheck?: (file: string) => Promise<DescriptorOwner>
+  sizeCache?: DataLocationSizeCache
+  measureDirectory?: MeasureDirectoryFn
+  signal?: AbortSignal
+  onScanProgress?: (info: { totalBytes: number; totalFiles: number }) => void
 }): Promise<DataLocationPreflight> {
   const activeAgents = params.activeAgents ?? 0
   const baseFail = (pickedPath: string, resolvedRoot: string, usedSubfolder: boolean, error: string): DataLocationPreflight => ({
@@ -821,7 +1161,36 @@ export async function preflightDataLocation(params: {
     }
   }
 
-  const { totalBytes: sourceBytes } = await measureDirectoryBytes(currentRoot)
+  let sourceBytes = 0
+  try {
+    const cache = params.sizeCache ?? defaultDataLocationSizeCache
+    const measured = await cache.measure(currentRoot, {
+      signal: params.signal,
+      onProgress: params.onScanProgress,
+      measureDirectory: params.measureDirectory,
+    })
+    sourceBytes = measured.totalBytes
+  } catch (err) {
+    if (params.signal?.aborted || isAbortError(err)) {
+      return {
+        ok: false,
+        cancelled: true,
+        pickedPath,
+        resolvedRoot,
+        usedSubfolder,
+        sourceBytes: 0,
+        requiredBytes: 0,
+        freeBytes: 0,
+        activeAgents,
+      }
+    }
+    return baseFail(
+      pickedPath,
+      resolvedRoot,
+      usedSubfolder,
+      `Could not measure current data folder (${currentRoot}): ${(err as Error).message}`,
+    )
+  }
   const requiredBytes = requiredTargetBytes(sourceBytes)
   let freeBytes = 0
   try {
@@ -1022,39 +1391,96 @@ export async function copyDataRootWithVerify(
   let totalBytes = 0
 
   if (fs.existsSync(sourceRoot)) {
+    let lastScanEmitMs = Date.now()
+    const maybeEmitScan = () => {
+      if (!onProgress) return
+      const now = Date.now()
+      if (now - lastScanEmitMs < SCAN_PROGRESS_INTERVAL_MS) return
+      lastScanEmitMs = now
+      onProgress({
+        phase: 'copying',
+        filesCopied: 0,
+        totalFiles: files.length,
+        bytesCopied: 0,
+        totalBytes,
+        cancellable: true,
+        detail: `Scanning files to copy… (${files.length.toLocaleString('en-US')} files, ${formatBytes(totalBytes)})`,
+      })
+    }
     const collect = async (dir: string, relPrefix: string): Promise<void> => {
       if (signal?.aborted) throw new Error('Data move cancelled')
       const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+      const fileEntries: { fullSrc: string; fullDst: string; relPosix: string }[] = []
+      const subdirs: { fullSrc: string; fullDst: string; relPosix: string }[] = []
+      const unknownEntries: { fullSrc: string; fullDst: string; relPosix: string }[] = []
+
       for (const entry of entries) {
         const relPosix = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
         if (isEphemeralEntry(relPosix, entry.name)) continue
+        if (entry.isSymbolicLink()) continue
         const fullSrc = path.join(dir, entry.name)
-        const st = await fs.promises.lstat(fullSrc)
-        if (st.isSymbolicLink()) continue
         const fullDst = path.join(targetRoot, ...relPosix.split('/'))
-        if (st.isDirectory()) {
-          try {
-            fs.readlinkSync(fullSrc)
-            continue
-          } catch {
-            // Normal directory.
-          }
+        if (entry.isFile()) {
+          fileEntries.push({ fullSrc, fullDst, relPosix })
+        } else if (entry.isDirectory()) {
           dirsToCreate.push(fullDst)
-          await collect(fullSrc, relPosix)
-        } else if (st.isFile()) {
-          files.push({
-            relPosix,
-            sourcePath: fullSrc,
-            targetPath: fullDst,
-            size: st.size,
-            mode: st.mode,
-            mtimeMs: st.mtimeMs,
-          })
-          totalBytes += st.size
+          subdirs.push({ fullSrc, fullDst, relPosix })
+        } else {
+          unknownEntries.push({ fullSrc, fullDst, relPosix })
         }
       }
+
+      if (fileEntries.length > 0) {
+        await runWithConcurrency(fileEntries, FILE_STAT_CONCURRENCY, signal, async item => {
+          const st = await fs.promises.lstat(item.fullSrc)
+          if (!st.isSymbolicLink() && st.isFile()) {
+            files.push({
+              relPosix: item.relPosix,
+              sourcePath: item.fullSrc,
+              targetPath: item.fullDst,
+              size: st.size,
+              mode: st.mode,
+              mtimeMs: st.mtimeMs,
+            })
+            totalBytes += st.size
+            maybeEmitScan()
+          }
+        })
+      }
+
+      if (unknownEntries.length > 0) {
+        await runWithConcurrency(unknownEntries, FILE_STAT_CONCURRENCY, signal, async item => {
+          const st = await fs.promises.lstat(item.fullSrc)
+          if (isEntryReparsePoint(item.fullSrc, st)) return
+          if (st.isDirectory()) {
+            dirsToCreate.push(item.fullDst)
+            subdirs.push(item)
+          } else if (st.isFile()) {
+            files.push({
+              relPosix: item.relPosix,
+              sourcePath: item.fullSrc,
+              targetPath: item.fullDst,
+              size: st.size,
+              mode: st.mode,
+              mtimeMs: st.mtimeMs,
+            })
+            totalBytes += st.size
+            maybeEmitScan()
+          }
+        })
+      }
+
+      for (const sub of subdirs) {
+        if (signal?.aborted) throw new Error('Data move cancelled')
+        await collect(sub.fullSrc, sub.relPosix)
+      }
     }
-    await collect(sourceRoot, '')
+    try {
+      await collect(sourceRoot, '')
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err)) throw new Error('Data move cancelled')
+      throw err
+    }
   }
 
   fs.mkdirSync(targetRoot, { recursive: true })
@@ -1301,6 +1727,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
         }
       }
       if (!fs.existsSync(oldRoot)) {
+        defaultDataLocationSizeCache.invalidate(oldRoot)
         await writeDataLocationConfig(userData, {
           version: 1,
           dataRoot: newRoot,
@@ -1308,6 +1735,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
         })
       }
     }
+    defaultDataLocationSizeCache.invalidate(newRoot)
 
     emit('done', false, 'Move complete. Reopening Orgtree…', {
       filesCopied: copied.filesCopied,
@@ -1373,6 +1801,7 @@ export async function deletePreviousDataLocationFolder(params: {
   currentRoot: string
   forbiddenRoot?: string
   installDirectory?: string
+  sizeCache?: DataLocationSizeCache
 }): Promise<{ ok: boolean; error?: string }> {
   const cfg = readDataLocationConfig(params.userData)
   const previousRoot = cfg?.previousRoot
@@ -1403,6 +1832,7 @@ export async function deletePreviousDataLocationFolder(params: {
   if (fs.existsSync(resolvedPrev)) {
     return { ok: false, error: `Some files in ${resolvedPrev} could not be removed.` }
   }
+  ;(params.sizeCache ?? defaultDataLocationSizeCache).invalidate(resolvedPrev)
   await writeDataLocationConfig(
     params.userData,
     cfg
@@ -1725,6 +2155,7 @@ const escapeHtml = (text: string) =>
 export const DATA_MOVE_CANCEL_URL = 'https://cancel.orgtree.invalid/'
 
 const PHASE_TITLES: Record<DataLocationProgress['phase'], string> = {
+  checking: 'Checking folder and measuring data size…',
   stopping: 'Stopping local engine…',
   copying: 'Copying Orgtree data…',
   verifying: 'Verifying copied files…',

@@ -169,14 +169,21 @@ export interface DataLocationState {
   defaultRoot: string
   isCustom: boolean
   envOverride: boolean
-  currentBytes: number
+  currentBytes: number | null
   previousRoot: string | null
   previousBytes: number | null
   movedAt: string | null
   moving: boolean
 }
+export interface DataLocationSizes {
+  currentRoot: string
+  currentBytes: number | null
+  previousRoot: string | null
+  previousBytes: number | null
+}
 export interface DataLocationPreflight {
   ok: boolean
+  cancelled?: boolean
   pickedPath: string
   resolvedRoot: string
   usedSubfolder: boolean
@@ -187,7 +194,7 @@ export interface DataLocationPreflight {
   error?: string
 }
 export interface DataLocationProgress {
-  phase: 'stopping' | 'copying' | 'verifying' | 'switching' | 'starting' | 'cleaning' | 'rolling-back' | 'done' | 'error'
+  phase: 'checking' | 'stopping' | 'copying' | 'verifying' | 'switching' | 'starting' | 'cleaning' | 'rolling-back' | 'done' | 'error'
   filesCopied: number
   totalFiles: number
   bytesCopied: number
@@ -319,8 +326,10 @@ export interface DesktopBridge {
    *  folder state, choose/preflight a target folder, move data safely with rollback,
    *  open current/previous folder, or delete the previous backup folder. */
   getDataLocationState?(): Promise<DataLocationState>
+  measureDataLocationSizes?(): Promise<DataLocationSizes>
   chooseDataLocation?(defaultPath?: string | null, popoutName?: string | null): Promise<string | null>
   preflightDataLocation?(targetPath: string): Promise<DataLocationPreflight>
+  cancelDataLocationPreflight?(): Promise<{ ok: boolean }>
   moveDataLocation?(options: DataLocationMoveOptions): Promise<DataLocationMoveResult>
   cancelDataLocationMove?(): Promise<{ ok: boolean }>
   deletePreviousDataLocation?(): Promise<{ ok: boolean; error?: string }>

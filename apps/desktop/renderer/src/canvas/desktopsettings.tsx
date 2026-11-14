@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
 import type {
@@ -176,6 +176,7 @@ export function DataLocationSetting({ onDialogChange }: {
   const [state, setState] = useState<DataLocationState | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [choosing, setChoosing] = useState(false)
   const [checking, setChecking] = useState(false)
   const [opening, setOpening] = useState<'current' | 'previous' | null>(null)
   const [preflight, setPreflight] = useState<DataLocationPreflight | null>(null)
@@ -185,6 +186,7 @@ export function DataLocationSetting({ onDialogChange }: {
   const [dialogError, setDialogError] = useState('')
   const [confirmDeletePrevious, setConfirmDeletePrevious] = useState(false)
   const [deletingPrevious, setDeletingPrevious] = useState(false)
+  const preflightSeqRef = useRef(0)
 
   const dialogOpen = preflight !== null || confirmDeletePrevious
   useEffect(() => {
@@ -203,8 +205,30 @@ export function DataLocationSetting({ onDialogChange }: {
           }
         })
       : () => {}
+    const triggerBackgroundMeasure = (s: DataLocationState) => {
+      const needsMeasure = s.currentBytes === null || (s.previousRoot !== null && s.previousBytes === null)
+      if (!needsMeasure || !bridge.measureDataLocationSizes) return
+      void bridge.measureDataLocationSizes()
+        .then(measured => {
+          if (!alive) return
+          setState(prev => {
+            if (!prev || prev.currentRoot !== measured.currentRoot) return prev
+            return {
+              ...prev,
+              currentBytes: measured.currentBytes,
+              previousBytes: prev.previousRoot === measured.previousRoot ? measured.previousBytes : prev.previousBytes,
+            }
+          })
+        })
+        .catch(() => {})
+    }
     bridge.getDataLocationState()
-      .then(s => { if (alive) { setState(s); setError('') } })
+      .then(s => {
+        if (!alive) return
+        setState(s)
+        setError('')
+        triggerBackgroundMeasure(s)
+      })
       .catch((e: Error) => { if (alive) setError(e.message) })
     return () => { alive = false; unsubscribe() }
   }, [bridge])
@@ -215,6 +239,21 @@ export function DataLocationSetting({ onDialogChange }: {
     if (!bridge.getDataLocationState) return
     const next = await bridge.getDataLocationState()
     setState(next)
+    const needsMeasure = next.currentBytes === null || (next.previousRoot !== null && next.previousBytes === null)
+    if (needsMeasure && bridge.measureDataLocationSizes) {
+      void bridge.measureDataLocationSizes()
+        .then(measured => {
+          setState(prev => {
+            if (!prev || prev.currentRoot !== measured.currentRoot) return prev
+            return {
+              ...prev,
+              currentBytes: measured.currentBytes,
+              previousBytes: prev.previousRoot === measured.previousRoot ? measured.previousBytes : prev.previousBytes,
+            }
+          })
+        })
+        .catch(() => {})
+    }
   }
 
   const openFolder = async (which: 'current' | 'previous') => {
@@ -231,14 +270,33 @@ export function DataLocationSetting({ onDialogChange }: {
     }
   }
 
+  const cancelPreflight = async () => {
+    preflightSeqRef.current += 1
+    setChecking(false)
+    setProgress(prev => (prev?.phase === 'checking' ? null : prev))
+    setNotice('Folder check cancelled.')
+    try {
+      await bridge.cancelDataLocationPreflight?.()
+    } catch {
+      // Best-effort cancellation.
+    }
+  }
+
   const inspectCandidate = async (candidatePath: string) => {
     if (!bridge.preflightDataLocation) return
+    const seq = ++preflightSeqRef.current
     setChecking(true)
     setError('')
     setNotice('')
+    setProgress(null)
     try {
       const pf = await bridge.preflightDataLocation(candidatePath)
+      if (preflightSeqRef.current !== seq) return
       if (!pf.ok) {
+        if (pf.cancelled) {
+          setNotice('Folder check cancelled.')
+          return
+        }
         setError(pf.error || 'That folder cannot be used as the Orgtree data location.')
         return
       }
@@ -248,27 +306,29 @@ export function DataLocationSetting({ onDialogChange }: {
       setProgress(null)
       setPreflight(pf)
     } catch (e) {
+      if (preflightSeqRef.current !== seq) return
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setChecking(false)
+      if (preflightSeqRef.current === seq) {
+        setChecking(false)
+        setProgress(prev => (prev?.phase === 'checking' ? null : prev))
+      }
     }
   }
 
   const chooseFolder = async () => {
     if (!bridge.chooseDataLocation || !state) return
-    setChecking(true)
+    setChoosing(true)
     setError('')
     setNotice('')
     try {
       const doc = initiatingDocument()
       const picked = await bridge.chooseDataLocation(state.currentRoot, popoutNameForDocument(doc))
-      if (!picked) {
-        setChecking(false)
-        return
-      }
+      setChoosing(false)
+      if (!picked) return
       await inspectCandidate(picked)
     } catch (e) {
-      setChecking(false)
+      setChoosing(false)
       setError(e instanceof Error ? e.message : String(e))
     }
   }
@@ -332,24 +392,38 @@ export function DataLocationSetting({ onDialogChange }: {
     }
   }
 
-  const busy = checking || moving || deletingPrevious || Boolean(state?.moving)
+  const busy = choosing || checking || moving || deletingPrevious || Boolean(state?.moving)
   const currentSize = formatDataBytes(state?.currentBytes)
+  const currentSizeLabel = state ? (state.currentBytes === null ? 'Measuring size…' : currentSize) : ''
   const prevSize = formatDataBytes(state?.previousBytes)
+  const prevSizeHint = state?.previousRoot
+    ? state.previousBytes === null
+      ? ' · Measuring size…'
+      : prevSize
+        ? ` · ${prevSize}`
+        : ''
+    : ''
   const statusText = !state
     ? ''
     : state.envOverride
-      ? ` · Controlled by the ORGTREE_V2_DATA environment variable for this session${currentSize ? ` · ${currentSize}` : ''}`
+      ? ` · Controlled by the ORGTREE_V2_DATA environment variable for this session${currentSizeLabel ? ` · ${currentSizeLabel}` : ''}`
       : state.isCustom
-        ? ` · Custom location${currentSize ? ` · ${currentSize}` : ''}`
-        : ` · Default location${currentSize ? ` · ${currentSize}` : ''}`
+        ? ` · Custom location${currentSizeLabel ? ` · ${currentSizeLabel}` : ''}`
+        : ` · Default location${currentSizeLabel ? ` · ${currentSizeLabel}` : ''}`
+  const checkingDetail = checking
+    ? progress?.phase === 'checking' && progress.detail
+      ? progress.detail
+      : 'Checking folder and measuring current data size…'
+    : ''
 
   return <>
     <SetGroup title="Data location">
       {error && <p className="ask-warn" role="alert">{error}</p>}
-      {notice && !error && <p className="dim" role="status">{notice}</p>}
+      {checkingDetail && <p className="dim" role="status">{checkingDetail}</p>}
+      {notice && !error && !checkingDetail && <p className="dim" role="status">{notice}</p>}
       <SetRow label="Current folder" field="data-location"
         hint={state
-          ? <><span className="mono" data-streamer-field="path">{state.currentRoot}</span>{statusText}. Stores organizations, the PostgreSQL database, transcripts, diagnostics and managed CLI profiles on this computer.</>
+          ? <><span className="mono" data-streamer-field="path">{state.currentRoot}</span>{statusText}{statusText.endsWith('…') ? ' ·' : '.'} Stores organizations, the PostgreSQL database, transcripts, diagnostics and managed CLI profiles on this computer.</>
           : 'Loading current data folder…'}>
         <button type="button" disabled={!state || opening !== null || moving}
           onClick={() => { void openFolder('current') }}>
@@ -361,6 +435,11 @@ export function DataLocationSetting({ onDialogChange }: {
           onClick={() => { void chooseFolder() }}>
           {checking ? 'Checking…' : 'Change location…'}
         </button>
+        {checking && (
+          <button type="button" onClick={() => { void cancelPreflight() }}>
+            Cancel
+          </button>
+        )}
         {state?.isCustom && !state.envOverride && (
           <button type="button" disabled={busy}
             onClick={() => { void inspectCandidate(state.defaultRoot) }}>
@@ -370,7 +449,7 @@ export function DataLocationSetting({ onDialogChange }: {
       </SetRow>
       {state?.previousRoot && (
         <SetRow label="Previous folder" field="data-location-previous"
-          hint={<><span className="mono" data-streamer-field="path">{state.previousRoot}</span> · Kept untouched from your last move until you delete it.</>}>
+          hint={<><span className="mono" data-streamer-field="path">{state.previousRoot}</span>{prevSizeHint} · Kept untouched from your last move until you delete it.</>}>
           <button type="button" disabled={opening !== null || busy}
             onClick={() => { void openFolder('previous') }}>
             {opening === 'previous' ? 'Opening…' : 'Open folder'}

@@ -106,6 +106,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),
     setRunAsAdministrator: (enabled: boolean) => ipcRenderer.invoke('desktop:set-run-as-admin', enabled),
     getDataLocationState: () => ipcRenderer.invoke('desktop:data-location-state'),
+    measureDataLocationSizes: () => ipcRenderer.invoke('desktop:data-location-measure'),
     chooseDataLocation: (defaultPath?: string | null, popoutName?: string | null) =>
       ipcRenderer.invoke(
         'desktop:data-location-choose',
@@ -113,6 +114,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
         typeof popoutName === 'string' && popoutName ? popoutName : null,
       ),
     preflightDataLocation: (targetPath: string) => ipcRenderer.invoke('desktop:data-location-preflight', targetPath),
+    cancelDataLocationPreflight: () => ipcRenderer.invoke('desktop:data-location-preflight-cancel'),
     moveDataLocation: (options: DataLocationMoveOptions) => ipcRenderer.invoke('desktop:data-location-move', options),
     cancelDataLocationMove: () => ipcRenderer.invoke('desktop:data-location-cancel'),
     deletePreviousDataLocation: () => ipcRenderer.invoke('desktop:data-location-delete-previous'),

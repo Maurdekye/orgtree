@@ -35,7 +35,9 @@ import {
   DATA_LOCATION_MOVED_STAMP,
   deletePreviousDataLocationFolder,
   findReparseAncestor,
+  formatBytes,
   interactiveRelaunchArgs,
+  measureDataLocationSizes,
   orchestrateDesktopDataMove,
   preflightDataLocation,
   readDataLocationState,
@@ -2812,12 +2814,20 @@ else {
       })
       // Data location (App settings › Runtime, this computer): app-wide local-PC
       // handlers, available in remote-org windows too under <ThisComputer>.
+      let dataPreflightAbort: AbortController | undefined
       handleApp('desktop:data-location-state', () =>
         readDataLocationState({
           currentRoot: engineOptions.dataRoot,
           userData: app.getPath('userData'),
           envOverride: isDataRootFromEnv(),
           moving: dataMoveInFlight,
+          forbiddenRoot: engineOptions.forbiddenRoot,
+          installDirectory: app.isPackaged ? installDirectory() : undefined,
+        }))
+      handleApp('desktop:data-location-measure', () =>
+        measureDataLocationSizes({
+          currentRoot: engineOptions.dataRoot,
+          userData: app.getPath('userData'),
           forbiddenRoot: engineOptions.forbiddenRoot,
           installDirectory: app.isPackaged ? installDirectory() : undefined,
         }))
@@ -2829,18 +2839,45 @@ else {
           defaultPath,
         ))
       handleApp('desktop:data-location-preflight', async (targetPath: unknown) => {
-        const liveStats = await engine.stats().catch(() => null)
-        return preflightDataLocation({
-          pickedPath: typeof targetPath === 'string' ? targetPath : '',
-          currentRoot: engineOptions.dataRoot,
-          userData: app.getPath('userData'),
-          forbiddenRoot: engineOptions.forbiddenRoot,
-          installDirectory: app.isPackaged ? installDirectory() : undefined,
-          envOverride: isDataRootFromEnv(),
-          activeAgents: liveStats?.activeAgents ?? 0,
-        })
+        dataPreflightAbort?.abort()
+        const ctrl = new AbortController()
+        dataPreflightAbort = ctrl
+        try {
+          const liveStats = await engine.stats().catch(() => null)
+          return await preflightDataLocation({
+            pickedPath: typeof targetPath === 'string' ? targetPath : '',
+            currentRoot: engineOptions.dataRoot,
+            userData: app.getPath('userData'),
+            forbiddenRoot: engineOptions.forbiddenRoot,
+            installDirectory: app.isPackaged ? installDirectory() : undefined,
+            envOverride: isDataRootFromEnv(),
+            activeAgents: liveStats?.activeAgents ?? 0,
+            signal: ctrl.signal,
+            onScanProgress: ({ totalFiles, totalBytes }) => {
+              broadcastAll({
+                type: 'data-location-progress',
+                data: {
+                  phase: 'checking',
+                  filesCopied: totalFiles,
+                  totalFiles,
+                  bytesCopied: totalBytes,
+                  totalBytes: 0,
+                  cancellable: true,
+                  detail: `Measuring current data folder… (${totalFiles.toLocaleString('en-US')} files · ${formatBytes(totalBytes)})`,
+                },
+              })
+            },
+          })
+        } finally {
+          if (dataPreflightAbort === ctrl) dataPreflightAbort = undefined
+        }
+      })
+      handleApp('desktop:data-location-preflight-cancel', () => {
+        dataPreflightAbort?.abort()
+        return { ok: true }
       })
       handleApp('desktop:data-location-cancel', () => {
+        dataPreflightAbort?.abort()
         dataMoveAbort?.abort()
         return { ok: true }
       })
