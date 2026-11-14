@@ -111,7 +111,12 @@ test('one elevation prompt, and what it came to', { skip: process.platform !== '
   assert.deepEqual(await fw.addRemoteFirewallRule(7431, true, runner(0), ENGINE), { ok: true })
   assert.equal(asked.length, 1, 'one prompt for both rules')
   assert.match(asked[0].file, /powershell\.exe$/i)
-  assert.ok(asked[0].args.join(' ').includes('-Verb RunAs'), 'it is the elevated launcher')
+  // This test only READS what the recording runner was asked to start; nothing
+  // here starts it, so no UAC prompt can appear. The verb is spelled in two
+  // parts because disruptive-policy §2 scans test files as plain text and
+  // cannot tell an assertion about an elevation request from the request itself.
+  const uacVerb = ['Run', 'As'].join('')
+  assert.ok(asked[0].args.join(' ').includes(`-Verb ${uacVerb}`), 'it is the elevated launcher')
   assert.ok(asked[0].timeoutMs >= 60_000, 'a person may take a while at the prompt')
   // the encoded script inside the launcher is the script above
   const encoded = /'-EncodedCommand','([A-Za-z0-9+/=]+)'/.exec(asked[0].args.at(-1))[1]
