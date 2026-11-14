@@ -920,12 +920,27 @@ pub fn payload(engine: &Engine) -> Value {
             "hire_reason": hire_reason(s.installed, enabled, signed_out),
         })
     };
+    // A registered account that is switched on and signed in makes Claude or Codex hirable
+    // while the engine's own sign-in is signed out, as a registered Muse login does below. A
+    // headless engine is signed in exactly so (docs/standalone-engine.md: into account folders),
+    // and its hire tiles were greyed with "isn't signed in" while its agents ran (user report
+    // 2026-11-14). The flag only decides what a window offers: a hire is placed by
+    // `domain::staffing`, which asks each account itself.
+    let accounts = engine.accounts.view();
+    let by_account = |mut e: Value, id: &str, s: &CliStatus| {
+        if s.installed && !s.connected && engine.settings.provider_enabled(id) && account_signed_in(accounts.all().into_iter(), id) {
+            e["hire_enabled"] = json!(true);
+            e["reason"] = Value::Null;
+            e["hire_reason"] = Value::Null;
+        }
+        e
+    };
     let mut providers = vec![];
     if st.claude.installed {
-        providers.push(entry(catalog::CLAUDE, "Claude", "claude", &st.claude, tier_rows(catalog::CLAUDE, false)));
+        providers.push(by_account(entry(catalog::CLAUDE, "Claude", "claude", &st.claude, tier_rows(catalog::CLAUDE, false)), catalog::CLAUDE, &st.claude));
     }
     if st.codex.installed {
-        providers.push(entry(catalog::OPENAI, "Codex", "codex", &st.codex, tier_rows(catalog::OPENAI, false)));
+        providers.push(by_account(entry(catalog::OPENAI, "Codex", "codex", &st.codex, tier_rows(catalog::OPENAI, false)), catalog::OPENAI, &st.codex));
     }
     if st.agy.installed {
         let mut tiers = tier_rows(catalog::GOOGLE, false);
@@ -1089,6 +1104,13 @@ fn native_signed_out(provider: &str, st: &State, connected: bool) -> Option<bool
         catalog::MUSE => st.muse_probe.as_ref()?.probe.account_state.as_deref().map(|s| s == "loggedOut"),
         _ => Some(true),
     }
+}
+
+/// Is a registered account of `provider` switched on and signed in (or an API key)? The
+/// provider's own sign-in is not a registered account and is not asked here.
+#[nolog]
+fn account_signed_in<'a>(mut accounts: impl Iterator<Item = &'a crate::accounts::AccountInfo>, provider: &str) -> bool {
+    accounts.any(|a| a.provider == provider && a.enabled && !a.ambient && (a.is_apikey() || a.auth == "authenticated"))
 }
 
 #[nolog]
