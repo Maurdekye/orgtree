@@ -834,6 +834,30 @@ mod win {
         use super::{instance_name, leaves_on, registration};
         use std::path::Path;
 
+        // The broker never asks about a path as it is typed: `attach` resolves the data folder
+        // first, and on Windows that answers the verbatim form (`\\?\S:\...`). The rule read
+        // only the plain form, so the broker still refused every data folder on a formatted data
+        // drive (found by restored-desk-carbon, 2026-11-14). This walks a real resolved path the
+        // way `trusted` does.
+        #[test]
+        #[nolog]
+        fn the_root_of_a_resolved_path_is_a_drive_letters_root() {
+            use super::{ancestor_mask, REPLACE_MASK, ROOT_MASK};
+            let real = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+            assert!(real.to_string_lossy().starts_with("\\\\?\\"), "a resolved path is in the verbatim form: {}", real.display());
+            let mut above = Vec::new();
+            let mut up = real.parent();
+            while let Some(a) = up {
+                above.push(a);
+                up = a.parent();
+            }
+            let root = above.pop().expect("the temp folder is not a drive's root");
+            assert_eq!(ancestor_mask(root), ROOT_MASK, "{}", root.display());
+            for folder in above {
+                assert_eq!(ancestor_mask(folder), REPLACE_MASK, "{}", folder.display());
+            }
+        }
+
         // The third copy of the attach trust rule (the window's and the installer helper's are
         // held to one table by tests/descriptor-trust-drive-root.test.mjs). Without the root's
         // own mask a data folder on a formatted data drive is refused here too.
@@ -845,10 +869,11 @@ mod win {
             use windows_sys::Win32::Security::{GetSecurityDescriptorDacl, ACL, PSECURITY_DESCRIPTOR, PSID};
 
             // which folder is a drive letter's root: any letter, and nothing else
-            for root in ["S:\\", "c:\\", "Z:\\"] {
+            for root in ["S:\\", "c:\\", "Z:\\", "\\\\?\\S:\\", "\\\\?\\c:\\"] {
                 assert_eq!(ancestor_mask(Path::new(root)), ROOT_MASK, "{root}");
             }
-            for other in ["S:\\orgtree", "S:", "S:/", "\\\\server\\share", "\\\\server\\share\\", "\\\\?\\S:\\", "1:\\", ""] {
+            for other in ["S:\\orgtree", "S:", "S:/", "\\\\server\\share", "\\\\server\\share\\", "\\\\?\\S:\\orgtree", "\\\\?\\S:",
+                "\\\\?\\UNC\\server\\share", "\\\\?\\UNC\\server\\share\\", "\\\\?\\UNC\\", "\\\\.\\S:\\", "1:\\", "\\\\?\\1:\\", ""] {
                 assert_eq!(ancestor_mask(Path::new(other)), REPLACE_MASK, "{other}");
             }
 
