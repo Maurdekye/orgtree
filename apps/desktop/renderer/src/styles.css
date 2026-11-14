@@ -4678,6 +4678,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
   height: 22px; box-sizing: border-box;
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 9.5px; padding: 0 9px; border-radius: 4px;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------ welcome + org drawer */

@@ -162,7 +162,7 @@ test('the draft card does not hire while the account is to be chosen: its button
     name.dispatchEvent(new Event('input', { bubbles: true }))
     await flush(4)
   })
-  assert.equal(primary().textContent?.trim(), 'choose an account')
+  assert.equal(primary().textContent?.trim(), 'choose account')
   assert.equal(primary().disabled, false, 'it can be clicked: it opens the settings')
   assert.match(primary().title, /Only a metered API key can run opus here/)
   await inAct(async () => { primary().click(); await flush(10) })

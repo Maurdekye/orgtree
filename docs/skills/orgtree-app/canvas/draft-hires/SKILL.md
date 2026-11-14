@@ -72,7 +72,7 @@ The hire tiles of a provider are offered when any of this applies: its own sign-
 
 One model's tile is greyed by itself when nothing can take a hire of it: every signed-in account and the engine's own sign-in are at 100% in a window that model spends. Its tooltip says "Every signed-in account is at its limit for" and the model's name, and the same entry is greyed in the hire menus and in the form's model chooser. An account whose usage has not been read counts as usable here, so an engine that reports no usage still offers its signed-in accounts. The tile comes back when a window resets or another account is signed in.
 
-When only a metered API key can run the model (and that key is not the organization's default), the tile stays offered but nothing is chosen for you. The draft's button reads **choose an account** and opens its settings, where the Account row reads "Choose an account"; the hire is made once you pick the key there. Quick chat has no such form, so it does not list that model.
+When only a metered API key can run the model (and that key is not the organization's default), the tile stays offered but nothing is chosen for you. The draft's button reads **choose account** and opens its settings, where the Account row reads "Choose an account"; the hire is made once you pick the key there. Quick chat has no such form, so it does not list that model.
 
 An engine older than 4.6.0 does not rank by room. In a window connected to one, the own sign-in comes first when it can run the model, else the first registered account by name.
 

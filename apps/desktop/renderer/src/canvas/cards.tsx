@@ -1383,7 +1383,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
             <button className="primary" disabled={!ok} onClick={hire}
               title={pending ? 'hiring: the new agent takes this place when it appears'
                 : !ok ? 'give the agent a name first' : awaitsAccount ? chooseAccountText(draft.tier) : undefined}>
-              {awaitsAccount ? <><SettingsIcon fontSize="inherit" /> choose an account</> : <><CheckIcon fontSize="inherit" /> hire</>}</button>
+              {awaitsAccount ? <><SettingsIcon fontSize="inherit" /> choose account</> : <><CheckIcon fontSize="inherit" /> hire</>}</button>
           </div>
         </div>
       </div>
