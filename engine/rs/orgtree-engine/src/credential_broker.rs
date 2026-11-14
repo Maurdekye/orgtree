@@ -39,6 +39,9 @@ mod core_process;
 #[allow(dead_code)] // journal mutations also used by the engine/native desktop probe
 mod core_state;
 #[cfg(windows)]
+#[allow(dead_code)] // shared data-location.json reader
+mod data_location;
+#[cfg(windows)]
 #[allow(dead_code)] // names() is the engine's; this helper takes PREFIX, its tests both
 mod hosted_pipes;
 #[cfg(windows)]
@@ -159,18 +162,12 @@ mod win {
         crate::token_rights::own_elevated()
     }
 
-    /// The desktop's and the boot host's data root: ORGTREE_V2_DATA, else
-    /// %APPDATA%\Orgtree v2\data.
+    /// The desktop's and the boot host's data root: `ORGTREE_V2_DATA`, else
+    /// `data-location.json` in `%APPDATA%\Orgtree v2`, else
+    /// `%APPDATA%\Orgtree v2\data`.
     #[nolog]
     fn data_root() -> Option<PathBuf> {
-        if let Some(v) = std::env::var_os("ORGTREE_V2_DATA").filter(|v| !v.is_empty()) {
-            return Some(PathBuf::from(v));
-        }
-        std::env::var_os("APPDATA")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()).map(|p| PathBuf::from(p).join("AppData").join("Roaming")))
-            .map(|a| a.join("Orgtree v2").join("data"))
+        crate::data_location::resolve_for_broker()
     }
 
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -244,6 +241,11 @@ mod win {
                     tokio::time::sleep(TICK).await;
                     continue;
                 }
+            }
+            if engine.is_none() && crate::codex_host::sweep() == 0 && crate::data_location::broker_should_exit(&root) {
+                write_events();
+                note(&root, "configured data folder changed; exiting");
+                return ExitCode::SUCCESS;
             }
             if engine.is_none() {
                 match attach(&root).await {
@@ -986,6 +988,100 @@ mod win {
             assert_ne!(instance_name(root, Some(7)), instance_name(root, None));
             assert_ne!(instance_name(root, Some(7)), instance_name(root, Some(8)));
             assert_eq!(instance_name(root, Some(7)), instance_name(root, Some(7)));
+        }
+
+        #[test]
+        #[nolog]
+        fn data_location_precedence_missing_folder_and_move_markers_behave_safely() {
+            use crate::data_location::{
+                broker_should_exit_from, comparable_path, resolve_for_broker_from,
+                resolve_for_host_from, resolve_from, HostDataRoot, APP_DIR_NAME, CONFIG_FILE,
+                MOVE_IN_PROGRESS_FILE,
+            };
+            use serde_json::json;
+
+            let scratch = std::env::temp_dir().join(format!(
+                "orgtree-broker-dataloc-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            ));
+            let roaming = scratch.join("Roaming");
+            let user_data = roaming.join(APP_DIR_NAME);
+            let old_root = user_data.join("data");
+            let custom = scratch.join("Custom Orgtree Data");
+            let env_dir = scratch.join("EnvOverride");
+            std::fs::create_dir_all(&old_root).unwrap();
+            std::fs::create_dir_all(&custom).unwrap();
+
+            // 1. Default & S4U USERPROFILE fallback
+            let def = resolve_from(None, Some(roaming.as_os_str()), None, true).unwrap();
+            assert_eq!(def.path, old_root);
+            let profile = scratch.join("Profile");
+            let s4u = resolve_from(None, None, Some(profile.as_os_str()), true).unwrap();
+            assert_eq!(
+                s4u.path,
+                profile.join("AppData").join("Roaming").join(APP_DIR_NAME).join("data")
+            );
+
+            // 2. Canonical verbatim custom path in data-location.json + ORGTREE_V2_DATA override
+            let custom_canon = std::fs::canonicalize(&custom).unwrap();
+            std::fs::write(
+                user_data.join(CONFIG_FILE),
+                serde_json::to_vec(&json!({
+                    "version": 1,
+                    "dataRoot": custom_canon.to_string_lossy()
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let resolved_broker = resolve_for_broker_from(None, Some(roaming.as_os_str()), None).unwrap();
+            assert_eq!(comparable_path(&resolved_broker), comparable_path(&custom));
+            let env_res =
+                resolve_from(Some(env_dir.as_os_str()), Some(roaming.as_os_str()), None, true).unwrap();
+            assert_eq!(env_res.path, env_dir);
+
+            // 3. Missing custom folder returns None for broker without creating directory
+            let missing = scratch.join("OfflineDrive").join("Orgtree data");
+            std::fs::write(
+                user_data.join(CONFIG_FILE),
+                serde_json::to_vec(&json!({ "version": 1, "dataRoot": missing.to_string_lossy() })).unwrap(),
+            )
+            .unwrap();
+            assert!(resolve_for_broker_from(None, Some(roaming.as_os_str()), None).is_none());
+            assert!(!missing.exists());
+
+            // 4. Active vs stale .data-move-in-progress.json & broker_should_exit_from
+            std::fs::write(
+                user_data.join(CONFIG_FILE),
+                serde_json::to_vec(&json!({ "version": 1, "dataRoot": custom.to_string_lossy() })).unwrap(),
+            )
+            .unwrap();
+            let me = std::process::id();
+            std::fs::write(
+                user_data.join(MOVE_IN_PROGRESS_FILE),
+                serde_json::to_vec(&json!({ "version": 1, "pid": me })).unwrap(),
+            )
+            .unwrap();
+            assert!(matches!(
+                resolve_for_host_from(None, Some(roaming.as_os_str()), None, true),
+                HostDataRoot::MoveInProgress
+            ));
+            assert!(resolve_for_broker_from(None, Some(roaming.as_os_str()), None).is_none());
+            assert!(broker_should_exit_from(&custom, None, Some(roaming.as_os_str()), None));
+
+            std::fs::write(
+                user_data.join(MOVE_IN_PROGRESS_FILE),
+                serde_json::to_vec(&json!({ "version": 1, "pid": me, "created": "1" })).unwrap(),
+            )
+            .unwrap();
+            assert!(resolve_for_broker_from(None, Some(roaming.as_os_str()), None).is_some());
+            assert!(broker_should_exit_from(&old_root, None, Some(roaming.as_os_str()), None));
+            assert!(!broker_should_exit_from(&custom, None, Some(roaming.as_os_str()), None));
+
+            let _ = std::fs::remove_dir_all(&scratch);
         }
     }
 }

@@ -34,6 +34,8 @@ mod core_recovery;
 mod credential_context;
 mod credential_bridge;
 mod credential_deadlines;
+mod data_location;
+mod data_relocate;
 mod domain;
 mod engine;
 mod events;
@@ -226,6 +228,7 @@ async fn run_with_cluster(
     }
     let pool = cluster.pool(pg::ENGINE_DB, 48)?;
 
+    data_relocate::run_if_needed(&cfg, &pool, progress).await?;
     importer::run_if_needed(&cfg, cluster, &pool, progress).await?;
     // before any watchdog starts, so an imported passive dog never wakes its owner
     import_dogmemo::run_once(&cfg, cluster, &pool).await;

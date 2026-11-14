@@ -80,22 +80,17 @@ pub(crate) fn say(root: Option<&Path>, msg: &str) {
     }
 }
 
-/// The same default the desktop resolves, without Electron present.
+/// The same data-folder precedence the desktop resolves (`ORGTREE_V2_DATA`,
+/// then `data-location.json`, then `<userData>/data`), without Electron present.
 #[logged]
 pub(crate) fn data_root() -> Result<PathBuf, String> {
-    if let Some(v) = std::env::var_os("ORGTREE_V2_DATA").filter(|v| !v.is_empty()) {
-        return Ok(PathBuf::from(v));
+    match crate::data_location::resolve_for_host() {
+        crate::data_location::HostDataRoot::Ready(path) => Ok(path),
+        crate::data_location::HostDataRoot::MoveInProgress => {
+            Err("a data-location move is in progress".into())
+        }
+        crate::data_location::HostDataRoot::Err(e) => Err(e),
     }
-    // macOS and Linux: the desktop writes the folder it uses into the
-    // LaunchAgent / user unit (Electron's userData differs per platform)
-    if cfg!(not(windows)) {
-        return Err("ORGTREE_V2_DATA is not set (the desktop's registration names the data folder)".into());
-    }
-    let appdata = std::env::var_os("APPDATA").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| {
-        // an S4U logon may start without profile variables
-        std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()).map(|p| PathBuf::from(p).join("AppData").join("Roaming"))
-    });
-    appdata.map(|a| a.join("Orgtree v2").join("data")).ok_or_else(|| "neither ORGTREE_V2_DATA, APPDATA nor USERPROFILE is set".into())
 }
 
 pub(crate) fn exe_dir() -> PathBuf {
@@ -334,9 +329,13 @@ pub(crate) fn run_as_administrator() -> bool {
 
 /// Run ONE engine until it exits, is stopped, or hangs.
 fn once() -> u8 {
-    let root = match data_root() {
-        Ok(r) => r,
-        Err(e) => {
+    let root = match crate::data_location::resolve_for_host() {
+        crate::data_location::HostDataRoot::Ready(r) => r,
+        crate::data_location::HostDataRoot::MoveInProgress => {
+            eprintln!("boot host: data-location move in progress; waiting for desktop");
+            return 0;
+        }
+        crate::data_location::HostDataRoot::Err(e) => {
             say(None, &e);
             return 1;
         }
@@ -434,7 +433,7 @@ fn once() -> u8 {
                 let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
                 match v["type"].as_str() {
                     Some("startup-progress") => {
-                        let long = v["phase"].as_str().map(|p| p.starts_with("database-convert") || p.contains("import")).unwrap_or(false);
+                        let long = v["phase"].as_str().map(|p| p.starts_with("database-convert") || p.contains("import") || p == "relocating-data").unwrap_or(false);
                         state.long.store(long, Ordering::SeqCst);
                         state.touch();
                     }
