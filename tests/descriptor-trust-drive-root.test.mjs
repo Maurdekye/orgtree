@@ -9,15 +9,15 @@
 // it, so a data folder on such a drive was refused although nobody can delete
 // or rename a drive's root folder (user ruling 2026-11-14, docket
 // data-folder-on-a-second-drive-drive-root-delete-r). This file pins the rule
-// both copies must keep: DELETE on a real drive's root is not distrust; every
-// other right there, and every right on every other folder, is judged as
-// before.
+// both copies must keep: DELETE on a drive letter's root is not distrust;
+// every other right there, and every right on every other folder, is judged
+// as before. "Any drive letter" (user ruling 2026-11-14 08:00Z): a letter made
+// with SUBST and a mapped network drive are roots for this rule too.
 //
 // Nothing here reads or changes a real permission. Get-Acl is replaced, in the
 // PowerShell process each copy runs in, by a function that answers from a
 // table of security descriptors (a function is found before a cmdlet). The
-// folders named are never made. The one real thing asked is whether the system
-// drive's root is a volume's root, which it always is.
+// folders named are never made, and no drive is asked anything.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -46,7 +46,9 @@ const rootWith = entry => 'O:SYG:SYD:(A;;FA;;;SY)(A;;FA;;;BA)' + entry
 const DELETE = '0x10000', DELETE_CHILD = '0x40', WRITE_DAC = '0x40000', WRITE_OWNER = '0x80000', GENERIC_ALL = '0x10000000'
 
 const systemRoot = (process.env.SystemDrive || 'C:') + '\\'
-// A drive letter nothing is mounted at: its "root" is no volume's root.
+// A drive letter nothing is mounted at. To the mount manager it is no volume,
+// which is also what a SUBST letter and a mapped network drive are (measured
+// 2026-11-14: `mountvol X:\ /L` refuses all three alike).
 const unused = [...'ZYXWVUTRQPON'].map(letter => letter + ':\\').find(root => !fs.existsSync(root))
 
 /** One case: the folder chain from the drive's root down to the descriptor,
@@ -80,8 +82,13 @@ const CASES = [
     [['orgtree-fake-9', 'O:{ME}G:SYD:(A;OICIID;0x1301bf;;;AU)(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)'], ['data', OWN_FOLDER]],
     above(systemRoot + 'orgtree-fake-9', AUTHENTICATED_USERS)),
   chain('the data folder is the root itself', systemRoot, DATA_DRIVE_ROOT, [], { folder: systemRoot, by: AUTHENTICATED_USERS, how: 'folder' }),
-  // a root that is not a volume's root keeps the old rule
-  ...(unused ? [chain('a drive letter that is no volume', unused, rootWith(`(A;;${DELETE};;;AU)`), own('orgtree-fake-10', 'data'), above(unused, AUTHENTICATED_USERS))] : []),
+  // any drive letter: one that is no volume (SUBST, a mapped network drive) is a root too
+  ...(unused ? [
+    chain('a drive letter that is no volume, DELETE alone', unused, rootWith(`(A;;${DELETE};;;AU)`), own('orgtree-fake-10', 'data'), null),
+    chain('a drive letter that is no volume, as a data drive is formatted', unused, DATA_DRIVE_ROOT, own('orgtree-fake-13', 'data'), null),
+    chain('a drive letter that is no volume, "delete subfolders and files"', unused, rootWith(`(A;;${DELETE_CHILD};;;AU)`), own('orgtree-fake-14', 'data'), above(unused, AUTHENTICATED_USERS)),
+  ] : []),
+  // a path without a drive letter keeps the old rule
   chain('a network share', '\\\\orgtree-fake\\share', rootWith(`(A;;${DELETE};;;AU)`), own('data'), above('\\\\orgtree-fake\\share', AUTHENTICATED_USERS)),
   // unchanged acceptances
   chain('a system drive as Windows installs it', systemRoot, SYSTEM_DRIVE_ROOT, own('orgtree-fake-11', 'data'), null),
