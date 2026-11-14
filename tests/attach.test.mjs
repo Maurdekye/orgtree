@@ -717,3 +717,52 @@ test('a folder others can write blocks the attach at once, names the folder and 
     assert.ok(checks > 3)
   } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
 })
+
+// Windows (user ruling 2026-11-14, docket data-folder-on-a-second-drive-drive-root-delete-r):
+// the window waited its whole 150 s budget on a descriptor it would never
+// trust, then said only that no verified attachment was published.
+test('Windows: a folder another account can change ends the wait at once, and the error names the folder, the accounts and the cause', async () => {
+  const me = 'S-1-5-21-1-2-3-1002'
+  const data = String.raw`S:\Shared\Orgtree\data`
+  const aboveIt = policy.judgeDescriptorTrust(me, me, '', '', String.raw`S:\Shared=S-1-5-11,S-1-1-0;S:\=S-1-1-0`, data)
+  assert.equal(aboveIt.ok, false)
+  assert.match(aboveIt.detail, /^path replaceable via ancestor /)
+  assert.deepEqual([aboveIt.unsafeFolder, aboveIt.unsafeBy, aboveIt.unsafeAbove], [String.raw`S:\Shared`, 'S-1-5-11,S-1-1-0', true])
+  const itself = policy.judgeDescriptorTrust(me, me, '', 'S-1-5-32-545', '', data)
+  assert.deepEqual([itself.unsafeFolder, itself.unsafeBy, itself.unsafeAbove], [data, 'S-1-5-32-545', false])
+  // a refusal about the file can end when a new engine replaces the file: no folder, the ordinary wait
+  assert.equal(policy.judgeDescriptorTrust(me, 'S-1-5-21-9-9-9-1003', '', '', '', data).unsafeFolder, undefined)
+  assert.equal(policy.judgeDescriptorTrust(me, me, 'S-1-1-0', '', '', data).unsafeFolder, undefined)
+
+  const message = policy.unsafeDescriptorMessage(aboveIt)
+  assert.ok(message.includes(String.raw`can change the folder S:\Shared, which is above Orgtree's data folder`), message)
+  assert.ok(message.includes('Authenticated Users (S-1-5-11), Everyone (S-1-1-0)'), message)
+  assert.match(message, /Security/)
+  const own = policy.unsafeDescriptorMessage(itself)
+  assert.ok(own.includes(String.raw`can change Orgtree's data folder S:\Shared\Orgtree\data`), own)
+  assert.ok(own.includes('Users (S-1-5-32-545)'), own)
+  // macOS and Linux keep their sentence and their chmod
+  assert.equal(policy.unsafeDescriptorMessage({ ok: false, detail: 'x', unsafeFolder: '/h/.config' }), policy.unsafeFolderMessage('/h/.config'))
+
+  writeDescriptor(descriptor())
+  try {
+    const engine = trusting(new Engine())
+    let checks = 0
+    engine.trustCheck = async () => { checks++; return aboveIt }
+    const began = Date.now()
+    assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 60000, 10), false)
+    assert.ok(Date.now() - began < 5000, 'no waiting for something only the user can change')
+    assert.equal(checks, 1)
+    assert.equal(engine.attachUnsafeMessage, message)
+    // the all-users start: the boot task runs the engine and the window attaches
+    const waiting = trusting(new Engine())
+    waiting.trustCheck = async () => aboveIt
+    const started = waiting.start({ binary: process.execPath, python: '', directory: temp, uiDirectory: temp, dataRoot, forbiddenRoot: forbidden,
+      launchBackground: async () => 'boot' }).then(() => 'started', error => error.message)
+    let timer
+    const outcome = await Promise.race([started, new Promise(resolve => { timer = setTimeout(() => resolve('still waiting after 5 s'), 5000) })])
+    clearTimeout(timer)
+    if (outcome === 'still waiting after 5 s') { waiting.cancelLaunches(); await started }
+    assert.equal(outcome, message)
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+})
