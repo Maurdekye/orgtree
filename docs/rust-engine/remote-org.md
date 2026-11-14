@@ -218,14 +218,42 @@ exist" would tell the remote engine about this computer.
   window's registered identity and the alias map the request header is decided from, never from an
   argument.
 - **The window does not ask.** `renderer/src/remotehere.ts` reads `remote_link` (the composed app
-  feed gives it to a remote window only). The scratch folder entries stay in their menus and say
-  "This folder is on <name>, not on this computer."; the templates and charters "Open folder"
-  buttons say the same; a file link's menu has one disabled entry "On <name>" and keeps Copy path
+  feed gives it to a remote window only). The scratch folder entries stay in their menus and open
+  the Files panel on the remote engine's folder (below); with an engine that has no such routes
+  they say "This folder is on <name>, not on this computer."; the templates and charters "Open
+  folder" buttons say that sentence; a file link's menu has one disabled entry "On <name>" and keeps Copy path
   and Copy file name; a tool row's file is in state `remote` and its path is not checked; the
   provider sign-in control says to sign in on the remote engine itself and offers the profile's
   path to copy.
 - Commands that belong to this app on this computer (the engine log folder, preferences, updates,
   the tray) are unchanged in a remote window.
+- **The Files panel** (USER 2026-11-14 m8e827b770276, approved mda676963aed1). In a remote window
+  the three scratch-folder entries (an agent's, its team's, the shared one) open a panel that
+  shows that folder on the remote engine, a folder at a time: a folder opens, a file downloads, a
+  folder downloads as a zip, and files upload into the open folder. There is no delete and no
+  rename. Local organizations still open the operating system's file manager.
+  - Engine, `http/scratch_files.rs`, three routes under
+    `/api/orgs/{slug}/nodes/{nid}/scratch-files` with `scope=agent|team|shared` and `path` (plain
+    names joined by `/`): `GET` lists (folders first, then files by name, `offset` and `limit`,
+    200 by default and 500 at most), `GET .../file` sends a file as it is with its length or a
+    folder as a zip written as a stream (deflate, ZIP64, no length known before it ends), `PUT
+    .../upload?name=&conflict=ask|replace|keep_both` takes one file as the request body.
+  - A path never leaves the folder: every name is one plain name (no `..`, no separator, no drive,
+    no stream), each step is looked at without following it, a symbolic link or a junction is
+    refused (in a listing it is shown as a link and can be neither opened nor downloaded; a zip
+    leaves it out), and the resolved target must lie inside the resolved folder.
+  - An upload is written to `.<id>.orgtree-part` beside its target and renamed when the last byte
+    is in; one that ends early leaves nothing. A name that is taken is refused with 409 before the
+    body is read unless the window sent Replace or Keep both ("name (2).ext"). 2 GiB a file at
+    most, by the declared length and by count. Unfinished uploads are in no listing and no zip.
+  - A member may use the three routes; a read-only viewer gets none; they are organization routes,
+    so the local engine relays them to the remote one as a stream in both directions. Their
+    bodies are not logged.
+  - Window, `renderer/src/remotefiles.ts` and `canvas/remotefiles.tsx`: the panel asks Replace,
+    Keep both or Skip for a name that is there (once for all on request), says the size of a file
+    of 100 MB or more before sending it, and shows bytes and percent with Cancel. A download is a
+    plain link: Electron's Save dialog asks where, and `main/remote-downloads.ts` tells the window
+    how far it is and stops it on Cancel. It touches only downloads of these routes.
 - **What the remote engine does is said to be there.** On a local desktop window, folder fields open
   the operating system's native directory chooser (`dialog.showOpenDialog`); in a remote window (and
   in any browser without the Electron bridge), `pickFolder` uses the in-app `/api/fs` chooser so it
