@@ -10,7 +10,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
+use std::sync::{mpsc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
@@ -59,6 +59,120 @@ fn owned_scratch_dir(label: &str) -> PathBuf {
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).expect("create isolated scratch dir");
+    dir
+}
+
+#[cfg(windows)]
+fn current_windows_sid() -> &'static str {
+    static SID: OnceLock<String> = OnceLock::new();
+    SID.get_or_init(|| {
+        let out = Command::new(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+            ])
+            .output()
+            .expect("query current Windows user SID");
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert!(s.starts_with("S-1-"), "unexpected Windows user SID: {s}");
+        s
+    })
+}
+
+#[cfg(windows)]
+fn lock_owner_only_dir(dir: &Path) {
+    let me = current_windows_sid();
+    let status = Command::new(r"C:\Windows\System32\icacls.exe")
+        .arg(dir)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F",
+            &format!("*{me}:(OI)(CI)F"),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("run icacls owner-only");
+    assert!(status.success(), "icacls failed on {}", dir.display());
+}
+
+#[cfg(windows)]
+fn ancestors_pass_trust(dir: &Path) -> bool {
+    let escaped = dir.to_string_lossy().replace('\'', "''");
+    let script = format!(
+        "$ErrorActionPreference='Stop';\
+         $me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;\
+         $allowed=@($me,'S-1-5-18','S-1-5-32-544','S-1-3-0');\
+         $replaceMask=0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;\
+         $rootMask=0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;\
+         $a='{escaped}';\
+         while($a){{\
+           $item=Get-Item -LiteralPath $a -Force;\
+           if(($a -notmatch '^[A-Za-z]:\\\\$') -and (([int]$item.Attributes -band 0x400) -ne 0)){{Write-Output 'BAD';exit 0}};\
+           $mask=$replaceMask;if($a -match '^[A-Za-z]:\\\\$'){{$mask=$rootMask}};\
+           $acl=Get-Acl -LiteralPath $a;\
+           foreach($r in $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])){{\
+             if($r.AccessControlType -ne 'Allow'){{continue}};\
+             if(($r.PropagationFlags.ToString()) -match 'InheritOnly'){{continue}};\
+             $sid=$r.IdentityReference.Value;\
+             if($allowed -contains $sid){{continue}};\
+             if(([int]$r.FileSystemRights -band $mask) -ne 0){{Write-Output 'BAD';exit 0}}\
+           }};\
+           $next=Split-Path $a;if((-not $next) -or ($next -eq $a)){{break}};$a=$next\
+         }};\
+         Write-Output 'OK'"
+    );
+    let Ok(out) = Command::new(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+    else {
+        return false;
+    };
+    String::from_utf8_lossy(&out.stdout).trim() == "OK"
+}
+
+#[cfg(windows)]
+fn trusted_scratch_dir(label: &str) -> PathBuf {
+    static TRUSTED_BASE: OnceLock<PathBuf> = OnceLock::new();
+    let base = TRUSTED_BASE.get_or_init(|| {
+        let mut candidates = Vec::new();
+        if let Some(p) = std::env::var_os("ORGTREE_TEST_ACL_BASE") {
+            candidates.push(PathBuf::from(p));
+        }
+        candidates.push(std::env::temp_dir());
+        if let Some(p) = std::env::var_os("CARGO_TARGET_DIR") {
+            candidates.push(PathBuf::from(p));
+        }
+        if let Some(p) = std::env::var_os("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(p).join("orgtree-test-acl"));
+        }
+        for cand in candidates {
+            if std::fs::create_dir_all(&cand).is_err() {
+                continue;
+            }
+            let canon = std::fs::canonicalize(&cand).unwrap_or(cand);
+            let plain = strip_verbatim_path(&canon);
+            if ancestors_pass_trust(&plain) {
+                return plain;
+            }
+        }
+        panic!("could not locate a scratch base directory with trusted ancestor ACLs");
+    });
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = base.join(format!(
+        "orgtree-dataloc-acl-{label}-{}-{stamp:x}-{seq}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("create trusted scratch dir");
+    lock_owner_only_dir(&dir);
     dir
 }
 
@@ -240,7 +354,7 @@ fn run_host_probe(
 #[cfg(windows)]
 #[test]
 fn host_data_root_honors_data_location_json_env_override_and_active_move_guard() {
-    let scratch = owned_scratch_dir("host-root");
+    let scratch = trusted_scratch_dir("host-root");
     let appdata = scratch.join("Roaming");
     let user_data = appdata.join("Orgtree v2");
     let default_root = user_data.join("data");
@@ -248,6 +362,7 @@ fn host_data_root_honors_data_location_json_env_override_and_active_move_guard()
     let env_root = scratch.join("Explicit Env Data");
     std::fs::create_dir_all(&user_data).unwrap();
     std::fs::create_dir_all(&custom_root).unwrap();
+    lock_owner_only_dir(&custom_root);
     std::fs::create_dir_all(&env_root).unwrap();
 
     // 1. Default when neither ORGTREE_V2_DATA nor data-location.json is present:
@@ -1134,4 +1249,445 @@ async fn real_pg_engine_boot_relocates_all_tables_and_profiles_across_mid_reloca
     assert!(claude_cfg["projects"].get(&ext_cwd).is_some());
 
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[cfg(windows)]
+#[test]
+fn host_refuses_unc_device_junction_and_foreign_writable_custom_roots_and_expires_old_move_markers() {
+    let scratch = trusted_scratch_dir("host-trust");
+    let appdata = scratch.join("Roaming");
+    let user_data = appdata.join("Orgtree v2");
+    let trusted_custom = scratch.join("Trusted Custom Data");
+    std::fs::create_dir_all(&user_data).unwrap();
+    std::fs::create_dir_all(&trusted_custom).unwrap();
+    lock_owner_only_dir(&trusted_custom);
+
+    // 1. F-2 (Rust): UNC (`\\server\share`), verbatim UNC (`\\?\UNC\...`), and device (`\\.\...`) paths
+    //    are rejected immediately without probing network shares or starting inside a device-prefixed dir.
+    let device_existing = format!(r"\\.\{}", trusted_custom.display());
+    for bad_path in [
+        r"\\127.0.0.1\share\Orgtree data".to_string(),
+        r"\\?\UNC\127.0.0.1\share\Orgtree data".to_string(),
+        device_existing,
+    ] {
+        std::fs::write(
+            user_data.join("data-location.json"),
+            serde_json::to_vec(&json!({ "version": 1, "dataRoot": bad_path })).unwrap(),
+        )
+        .unwrap();
+        let res = run_host_probe(&scratch, &appdata, None);
+        assert_eq!(res.code, 1, "expected non-local/device path refusal for {bad_path}");
+        assert!(
+            res.stderr.contains("local drive-letter"),
+            "expected local drive-letter refusal message for {bad_path}, got: {}",
+            res.stderr
+        );
+        assert!(
+            !trusted_custom.join("diagnostics").join("boot-host.log").exists(),
+            "host must not write inside device-prefixed path {bad_path}"
+        );
+    }
+
+    // 2. F-2 (Rust): NTFS directory junction on custom_root OR on an ancestor above custom_root is refused
+    //    before spawning orgtree-engine or writing boot-host.log inside the target.
+    let real_target = scratch.join("RealTarget");
+    let real_child = real_target.join("SubData");
+    std::fs::create_dir_all(&real_child).unwrap();
+    lock_owner_only_dir(&real_target);
+    lock_owner_only_dir(&real_child);
+
+    let junction_root = scratch.join("JunctionRoot");
+    let mklink = Command::new("cmd.exe")
+        .args([
+            "/c",
+            "mklink",
+            "/J",
+            &junction_root.to_string_lossy(),
+            &real_target.to_string_lossy(),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("create NTFS directory junction");
+    assert!(mklink.success(), "mklink /J failed");
+
+    for junc_candidate in [junction_root.clone(), junction_root.join("SubData")] {
+        std::fs::write(
+            user_data.join("data-location.json"),
+            serde_json::to_vec(&json!({
+                "version": 1,
+                "dataRoot": junc_candidate.to_string_lossy()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let res = run_host_probe(&scratch, &appdata, None);
+        assert_eq!(
+            res.code, 1,
+            "host must refuse junctioned custom root {}",
+            junc_candidate.display()
+        );
+        assert!(
+            !real_target.join("diagnostics").join("boot-host.log").exists()
+                && !real_child.join("diagnostics").join("boot-host.log").exists(),
+            "host must not touch junction target when refusing {}; stderr={}",
+            junc_candidate.display(),
+            res.stderr
+        );
+    }
+    let _ = std::fs::remove_dir(&junction_root);
+
+    // 3. F-2 (Rust): Foreign-writable custom_root AND foreign-replaceable ancestor above custom_root
+    //    are refused before spawning orgtree-engine.
+    let foreign_dir = scratch.join("ForeignWritableCustom");
+    std::fs::create_dir_all(&foreign_dir).unwrap();
+    lock_owner_only_dir(&foreign_dir);
+    let grant_dir = Command::new(r"C:\Windows\System32\icacls.exe")
+        .arg(&foreign_dir)
+        .args(["/grant", "*S-1-1-0:(WD)"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(grant_dir.success());
+
+    std::fs::write(
+        user_data.join("data-location.json"),
+        serde_json::to_vec(&json!({ "version": 1, "dataRoot": foreign_dir.to_string_lossy() }))
+            .unwrap(),
+    )
+    .unwrap();
+    let foreign_res = run_host_probe(&scratch, &appdata, None);
+    assert_eq!(foreign_res.code, 1);
+    assert!(
+        !foreign_dir.join("diagnostics").join("boot-host.log").exists(),
+        "host must refuse foreign-writable custom root before writing diagnostics; stderr={}",
+        foreign_res.stderr
+    );
+
+    let unsafe_ancestor = scratch.join("UnsafeAncestor");
+    let child_under_unsafe = unsafe_ancestor.join("OwnerOnlyChild");
+    std::fs::create_dir_all(&child_under_unsafe).unwrap();
+    lock_owner_only_dir(&unsafe_ancestor);
+    let grant_anc = Command::new(r"C:\Windows\System32\icacls.exe")
+        .arg(&unsafe_ancestor)
+        .args(["/grant", "*S-1-1-0:(DE)"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(grant_anc.success());
+    lock_owner_only_dir(&child_under_unsafe);
+
+    std::fs::write(
+        user_data.join("data-location.json"),
+        serde_json::to_vec(&json!({
+            "version": 1,
+            "dataRoot": child_under_unsafe.to_string_lossy()
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let anc_res = run_host_probe(&scratch, &appdata, None);
+    assert_eq!(anc_res.code, 1);
+    assert!(
+        !child_under_unsafe.join("diagnostics").join("boot-host.log").exists(),
+        "host must refuse custom root under foreign-replaceable ancestor; stderr={}",
+        anc_res.stderr
+    );
+
+    // 4. F-5 (Rust): Expired `.data-move-in-progress.json` (`startedAtMs` > 6h old) does NOT wedge `host`.
+    std::fs::write(
+        user_data.join("data-location.json"),
+        serde_json::to_vec(&json!({
+            "version": 1,
+            "dataRoot": trusted_custom.to_string_lossy()
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        user_data.join(".data-move-in-progress.json"),
+        serde_json::to_vec(&json!({
+            "version": 1,
+            "pid": std::process::id(),
+            "startedAtMs": 1000
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let expired_res = run_host_probe(&scratch, &appdata, None);
+    assert_eq!(
+        expired_res.code, 1,
+        "expired .data-move-in-progress.json must not hold host at exit 0; stderr={}",
+        expired_res.stderr
+    );
+    assert!(
+        trusted_custom.join("diagnostics").join("boot-host.log").is_file(),
+        "trusted custom root must run normally once expired move marker is ignored; stderr={}",
+        expired_res.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn relocation_skips_ntfs_junctions_in_claude_profiles_and_cleans_tmp_on_atomic_write_failure() {
+    let pg_bin = find_bundled_pg_bin();
+    let scratch = owned_scratch_dir("reloc-junc");
+    let old_dir = scratch.join("OldRoot");
+    let new_dir = scratch.join("NewRoot");
+    let outside_proj = scratch.join("OutsideProjectTarget");
+    let outside_sub = scratch.join("OutsideSubdirTarget");
+    std::fs::create_dir_all(new_dir.join("scratch").join("orgtree")).unwrap();
+    std::fs::write(new_dir.join(".orgtree-rig-root"), "1\n").unwrap();
+    let new_canon = strip_verbatim_path(&std::fs::canonicalize(&new_dir).unwrap());
+    let old_plain = strip_plain(&old_dir.to_string_lossy());
+    let new_plain = strip_plain(&new_canon.to_string_lossy());
+    let outside_jsonl_expected = format!("{{\"cwd\":{old_plain:?}}}\n");
+    std::fs::create_dir_all(&outside_proj).unwrap();
+    std::fs::create_dir_all(&outside_sub).unwrap();
+    std::fs::write(outside_proj.join("do-not-move.jsonl"), &outside_jsonl_expected).unwrap();
+    std::fs::write(outside_sub.join("keep-me.txt"), "precious external file\n").unwrap();
+    let token = "eeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100ff";
+
+    // Bootstrap scratch PostgreSQL cluster on `new_canon` and seed a pre-move `ot.undo_entries` row (F-6).
+    {
+        let (mut boot_child, rx) = spawn_serve_child(&scratch, &new_canon, &pg_bin, token, None);
+        let port = wait_for_ready_port(&mut boot_child, &rx, &pg_bin, &new_canon, &scratch, "junc-boot").await;
+        let seed_res = {
+            let client = connect_live_scratch_pg(&new_canon).await;
+            let org_id: i64 = client
+                .query_one(
+                    "INSERT INTO ot.orgs (uuid, slug, name, settings) VALUES ($1, 'undo-org', 'Undo Org', '{}'::jsonb) RETURNING id",
+                    &[&uuid::Uuid::new_v4()],
+                )
+                .await
+                .unwrap()
+                .get(0);
+            client
+                .execute(
+                    "INSERT INTO ot.undo_entries (org_id, kind, label, data, via) VALUES ($1, 'retool', 'Grant scratch folder', $2, '{\"id\":\"c1\",\"name\":\"Local\"}'::jsonb)",
+                    &[
+                        &org_id,
+                        &json!({
+                            "steps": [1],
+                            "agents": [{
+                                "agent": 1,
+                                "fields": {
+                                    "add_dirs": {
+                                        "before": { "absent": true },
+                                        "after": [
+                                            { "path": format!(r"{old_plain}\scratch\orgtree\_teams\601"), "mode": "rw" },
+                                            { "path": r"S:\orgtree", "mode": "rw" }
+                                        ]
+                                    }
+                                }
+                            }],
+                            "side": {
+                                "scopes": [{
+                                    "agent": 2,
+                                    "before": { "add_dirs": [{ "path": format!(r"{old_plain}\scratch\orgtree\_shared"), "mode": "ro" }] },
+                                    "after": { "add_dirs": [{ "path": format!(r"{old_plain}\scratch\orgtree\_shared"), "mode": "rw" }] }
+                                }],
+                                "org": {
+                                    "dirs": {
+                                        "before": { "absent": true },
+                                        "after": [{ "path": format!(r"{old_plain}\scratch\orgtree\_shared"), "mode": "rw" }]
+                                    }
+                                }
+                            }
+                        }),
+                    ],
+                )
+                .await
+        };
+        let (st, _) = http_request(port, "POST", "/api/desktop/shutdown", token);
+        assert_eq!(st, 200);
+        let _ = boot_child.wait();
+        ensure_scratch_postmaster_stopped(&pg_bin, &new_canon);
+        seed_res.unwrap();
+    }
+
+    // F-6: Populate `profiles/claude-1/projects` with:
+    //   (a) a top-level NTFS junction `<old_junc_enc>` -> `outside_proj`, and
+    //   (b) an interrupted crash-merge pair `<old_merge_enc>` + `<new_merge_enc>` where
+    //       `<old_merge_enc>/linked-sub` is an NTFS junction -> `outside_sub` and
+    //       `<new_merge_enc>/linked-sub` already exists (forcing `merge_or_move_dir` merge path).
+    let projects_dir = new_canon.join("profiles").join("claude-1").join("projects");
+    std::fs::create_dir_all(&projects_dir).unwrap();
+
+    let old_junc_enc = encode_claude_dir(&format!(r"{old_plain}\scratch\orgtree\junc-proj"));
+    let new_junc_enc = encode_claude_dir(&format!(r"{new_plain}\scratch\orgtree\junc-proj"));
+    let junc_proj_path = projects_dir.join(&old_junc_enc);
+    assert!(
+        Command::new("cmd.exe")
+            .args([
+                "/c",
+                "mklink",
+                "/J",
+                &junc_proj_path.to_string_lossy(),
+                &outside_proj.to_string_lossy(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let old_merge_enc = encode_claude_dir(&format!(r"{old_plain}\scratch\orgtree\merge-proj"));
+    let new_merge_enc = encode_claude_dir(&format!(r"{new_plain}\scratch\orgtree\merge-proj"));
+    let old_merge_dir = projects_dir.join(&old_merge_enc);
+    let new_merge_dir = projects_dir.join(&new_merge_enc);
+    std::fs::create_dir_all(&old_merge_dir).unwrap();
+    std::fs::create_dir_all(new_merge_dir.join("linked-sub")).unwrap();
+    std::fs::write(old_merge_dir.join("session.jsonl"), "{\"ok\":1}\n").unwrap();
+    let inner_junc = old_merge_dir.join("linked-sub");
+    assert!(
+        Command::new("cmd.exe")
+            .args([
+                "/c",
+                "mklink",
+                "/J",
+                &inner_junc.to_string_lossy(),
+                &outside_sub.to_string_lossy(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let moved_marker = new_canon.join(".data-location-moved.json");
+    std::fs::write(
+        &moved_marker,
+        serde_json::to_vec_pretty(&json!({
+            "version": 1,
+            "fromRoot": old_plain,
+            "fromRootVariants": [old_plain],
+            "toRoot": new_canon.to_string_lossy(),
+            "movedAt": "2026-11-14T13:00:00Z"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let undo_data: Value = {
+        let (mut child, rx) = spawn_serve_child(&scratch, &new_canon, &pg_bin, token, None);
+        let port = wait_for_ready_port(&mut child, &rx, &pg_bin, &new_canon, &scratch, "junc-reloc").await;
+        let data = {
+            let client = connect_live_scratch_pg(&new_canon).await;
+            client
+                .query_one(
+                    "SELECT data FROM ot.undo_entries WHERE label = 'Grant scratch folder'",
+                    &[],
+                )
+                .await
+                .unwrap()
+                .get(0)
+        };
+        let (st, _) = http_request(port, "POST", "/api/desktop/shutdown", token);
+        assert_eq!(st, 200);
+        let _ = child.wait();
+        ensure_scratch_postmaster_stopped(&pg_bin, &new_canon);
+        data
+    };
+    let _ = std::fs::remove_dir(&junc_proj_path);
+    let _ = std::fs::remove_dir(projects_dir.join(&new_junc_enc));
+    let _ = std::fs::remove_dir(&inner_junc);
+
+    assert!(
+        outside_sub.join("keep-me.txt").is_file(),
+        "F-6: inner NTFS junction target inside merge_or_move_dir must never be traversed or deleted"
+    );
+    assert_eq!(
+        std::fs::read_to_string(outside_proj.join("do-not-move.jsonl")).unwrap(),
+        outside_jsonl_expected,
+        "F-6: top-level NTFS junction target must remain untouched"
+    );
+    assert_eq!(
+        undo_data["agents"][0]["fields"]["add_dirs"]["after"][0]["path"],
+        format!(r"{new_plain}\scratch\orgtree\_teams\601")
+    );
+    assert_eq!(
+        undo_data["agents"][0]["fields"]["add_dirs"]["after"][1]["path"],
+        r"S:\orgtree"
+    );
+    assert_eq!(
+        undo_data["side"]["scopes"][0]["before"]["add_dirs"][0]["path"],
+        format!(r"{new_plain}\scratch\orgtree\_shared")
+    );
+    assert_eq!(
+        undo_data["side"]["scopes"][0]["after"]["add_dirs"][0]["path"],
+        format!(r"{new_plain}\scratch\orgtree\_shared")
+    );
+    assert_eq!(
+        undo_data["side"]["org"]["dirs"]["after"][0]["path"],
+        format!(r"{new_plain}\scratch\orgtree\_shared")
+    );
+    assert_eq!(
+        std::fs::read_to_string(new_merge_dir.join("session.jsonl")).unwrap(),
+        "{\"ok\":1}\n"
+    );
+
+    // F-7: Force `atomic_write_bytes` rename failure (`dst_child` is a non-empty directory while
+    // `src_child` is a regular file) and verify `.relocate-<pid>.tmp` is cleaned up on error!
+    let old_err_enc = encode_claude_dir(&format!(r"{old_plain}\scratch\orgtree\err-proj"));
+    let new_err_enc = encode_claude_dir(&format!(r"{new_plain}\scratch\orgtree\err-proj"));
+    let old_err_dir = projects_dir.join(&old_err_enc);
+    let new_err_dir = projects_dir.join(&new_err_enc);
+    std::fs::create_dir_all(&old_err_dir).unwrap();
+    std::fs::create_dir_all(new_err_dir.join("collision.jsonl")).unwrap();
+    std::fs::write(new_err_dir.join("collision.jsonl").join("guard.txt"), "dir").unwrap();
+    std::fs::write(old_err_dir.join("collision.jsonl"), "file-bytes").unwrap();
+
+    std::fs::write(
+        &moved_marker,
+        serde_json::to_vec_pretty(&json!({
+            "version": 1,
+            "fromRoot": old_plain,
+            "fromRootVariants": [old_plain],
+            "toRoot": new_canon.to_string_lossy(),
+            "movedAt": "2026-11-14T13:05:00Z"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    {
+        let (mut err_child, _rx) = spawn_serve_child(&scratch, &new_canon, &pg_bin, token, None);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut exited = false;
+        while Instant::now() < deadline {
+            if let Ok(Some(status)) = err_child.try_wait() {
+                assert!(!status.success(), "expected relocation collision to fail serve startup");
+                exited = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        if !exited {
+            let _ = err_child.kill();
+            let _ = err_child.wait();
+            ensure_scratch_postmaster_stopped(&pg_bin, &new_canon);
+            let _ = std::fs::remove_dir_all(&scratch);
+            panic!("timed out waiting for collision serve child to exit");
+        }
+        ensure_scratch_postmaster_stopped(&pg_bin, &new_canon);
+    }
+
+    let lingering_tmps: Vec<String> = std::fs::read_dir(&new_err_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|name| name.contains(".relocate-") && name.ends_with(".tmp"))
+        .collect();
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert!(
+        lingering_tmps.is_empty(),
+        "F-7: atomic_write_bytes must unlink temporary files on rename error; found {lingering_tmps:?}"
+    );
 }
