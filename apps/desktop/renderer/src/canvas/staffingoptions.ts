@@ -28,6 +28,7 @@
 // org-level request. Everything here is keyed by the REQUEST PATH and returns
 // the same promise while it is in flight, so "prefetch, then open" and "open
 // cold" converge on one network call rather than two.
+import { useSyncExternalStore } from 'react'
 import { req } from '../api'
 
 export interface StaffingAccount {
@@ -69,6 +70,11 @@ export interface StaffingTier {
 }
 export interface StaffingOptions {
   tiers: StaffingTier[]
+  /** The tiers nobody can take a hire of because every signed-in candidate
+   *  (the engine's own sign-in, the registered accounts) is at its limit for
+   *  the model. Such a tier may also be missing from `tiers`. Absent on an
+   *  engine from before 4.6.0 (`spentOf`). */
+  spent?: string[]
   at: number
   stale: boolean
   /** non-empty means COULD NOT FIND OUT, which is not the same as "nothing is
@@ -87,6 +93,39 @@ export const staffingOptionsPath = (org: string) =>
 export const REUSE_MS = 20_000
 
 interface Entry { value?: unknown; error?: Error; inflight?: Promise<unknown>; at: number }
+
+// THE TIERS EVERY SIGNED-IN ACCOUNT IS AT ITS LIMIT FOR (coordinator's ruling
+// 2026-11-14 on "nothing usable"). A hire tile of such a tier is greyed and
+// says so (`hireTierOffer`, `hireTierDisabledReason` in shared.ts), so a hire
+// cannot fall through to a default account that cannot run the model. Kept
+// from the window's latest staffing answer: a window shows one organization,
+// and everything held is dropped when another opens. Nothing is concluded
+// before an answer, or from one given while the engine still checks sign-ins:
+// usage nobody has read is usable.
+let spent: string[] = []
+const spentSubs = new Set<() => void>()
+const setSpent = (next: string[]): void => {
+  if (next.join(',') === spent.join(',')) return
+  spent = next
+  for (const fn of [...spentSubs]) fn()
+}
+/** The engine's list; an engine from before it keeps such a tier in `tiers`
+ *  with nothing that can run it, when its own sign-in is the one at its limit
+ *  (`native_ok` false and no account; the row that stands for the own sign-in
+ *  is not an account). */
+const spentOf = (answer: Partial<StaffingOptions> | null | undefined): string[] =>
+  Array.isArray(answer?.spent) ? answer.spent.filter((t): t is string => typeof t === 'string')
+    : (answer?.tiers ?? []).filter((row) => row?.native_ok === false && !(row.accounts ?? []).some((a) => !a.ambient))
+        .map((row) => row.tier)
+export const spentHireTiers = (): readonly string[] => spent
+export const hireTierSpent = (tier: string): boolean => spent.includes(tier)
+const subscribeSpent = (fn: () => void): (() => void) => {
+  spentSubs.add(fn)
+  return () => { spentSubs.delete(fn) }
+}
+const spentKey = (): string => spent.join(',')
+/** Re-render when the list changes (the hire strips and the hire sheet). */
+export const useSpentHireTiers = (): string => useSyncExternalStore(subscribeSpent, spentKey)
 const held = new Map<string, Entry>()
 /** how many network requests each path has actually caused. The pack's
  *  "opening the menu starts no second request" is only checkable if something
@@ -109,6 +148,7 @@ function load<T>(path: string): Promise<T> {
     // (a surface can say so) but never reused: the next reader asks again
     const checking = (value as { loading?: boolean } | null)?.loading === true
     next.value = value; next.error = undefined; next.at = checking ? 0 : Date.now()
+    if (path.endsWith('/staffing-options') && !checking) setSpent(spentOf(value as Partial<StaffingOptions> | null))
     return value
   }).catch((e: Error) => {
     // A failure does NOT erase a previous good answer — a menu with a recent
@@ -212,7 +252,7 @@ export function retryStaffingOptions(org: string): Promise<StaffingOptions> {
  *  learns availability moved — an account added or removed, a sign-in, a
  *  provider toggle — so the next read gets the backend's fresh answer. */
 export function invalidateStaffingOptions(org?: string): void {
-  if (org === undefined) { held.clear(); return }
+  if (org === undefined) { held.clear(); setSpent([]); return }
   const prefix = `/api/orgs/${encodeURIComponent(org)}/`
   for (const key of [...held.keys()]) {
     if (key.startsWith(prefix)) held.delete(key)
@@ -239,5 +279,5 @@ export function requestCount(path: string): number {
 }
 
 export function resetStaffingOptionsForTests(): void {
-  held.clear(); requests.clear(); pendingWarm.length = 0; warming = 0
+  held.clear(); requests.clear(); pendingWarm.length = 0; warming = 0; setSpent([])
 }

@@ -5,7 +5,7 @@ import type { FoldInfo } from './subtreefold'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { DndBadge } from './dnd'
-import { hireDisabledReason, signedOutHire } from './shared'
+import { hireTierDisabledReason, hireTierOffer, signedOutHire } from './shared'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { creditSegments } from './creditsegments'
 import { toggleAgentHalt } from './haltcontrol'
@@ -35,7 +35,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon, FolderIcon, TeamIcon,
 } from '../icons'
 import {
-  effectiveReports, isTopLevel, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  effectiveReports, isTopLevel, anyTierSeat, draftOpeningGrant,MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX, Z_MINI,
 } from './shared'
 import type {
@@ -68,7 +68,7 @@ import { FarZoomName, useFarZoomReveal } from './farzoomname'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
 import { firstUseName, useFirstUse } from './firstuse'
-import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
+import { peekStaffingOptions, tierEffortLevels, useSpentHireTiers } from './staffingoptions'
 import { EFFORT_LEVELS } from './effortlevels'
 import { normalizeUserEnteredName } from './nameinput'
 import type { SlotLease } from './slots'
@@ -711,6 +711,8 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
   expanded = false, onToggleExpanded, selected, tokenTitle, allowedTiers, onProject }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
+  // and when the tiers every signed-in account is at its limit for change
+  useSpentHireTiers()
   // the Muse family's state, adopted from the canvas's providers poll
   const adoptedMuseHire = useMuseHire()
   const museHire = museHireProp ?? adoptedMuseHire
@@ -764,7 +766,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
                    hire: HireState | null | undefined, seat: number) => (
     <button key={t} disabled className={'letter-chip t-' + t + ' codex-preview'}
       title={`${tierLabel(t)} — ${label}; `
-        + hireDisabledReason(hire, label) + ` ${costBadge(seat)}`}>
+        + hireTierDisabledReason(t, hire, label) + ` ${costBadge(seat)}`}>
       {letter}
     </button>
   )
@@ -801,14 +803,12 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // hidden tier leaves the row completely rather than sitting in it
     // disabled (user ruling 2026-09-02 — "dont just grey out the reserve
     // token. remove it entirely").
-    const offerOf = (t: string) =>
-      (key === 'codex' ? codexTierOffer(hire, t)
-        // Gemini Pro (legacy toggle) and Argon/Krypton (only once agy lists it)
-        : key === 'antigravity' ? antigravityTierOffer(hire, t)
-        // a Muse tier only while the account's own catalog lists it
-        : key === 'muse' ? museTierOffer(hire, t)
-        // an opt-in legacy tier of another family, toggle off
-        : optInLegacyHidden(t) ? 'hide' : offer)
+    // the one per-tier verdict every hire surface reads (`hireTierOffer`): a
+    // Codex legacy token, Gemini Pro (legacy toggle) and Argon/Krypton (only
+    // once agy lists it), a Muse tier only while the account's own catalog
+    // lists it, an opt-in legacy tier of another family, and a tier every
+    // signed-in account is at its limit for (greyed, with its own reason)
+    const offerOf = (t: string) => hireTierOffer(key, hire, t)
     // ⚠ FILTERED BEFORE `tiers` IS STORED, because the inward-first sort below
     // orders families by "number of available model tiers" — a hidden chip
     // that still counted would push Codex inward for a row it does not render.

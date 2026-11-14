@@ -26,6 +26,7 @@ import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
 import { newHireIndex, type NewHirePosition } from '../hireposition'
 import { refreshAgyModels } from '../api'
+import { hireTierSpent } from './staffingoptions'
 import { ringArcCentres } from './ringarcs'
 import { settleRingSprings, type SpringRing } from './ringsprings'
 import { onLiveBump } from '../livebus'
@@ -761,6 +762,20 @@ export const hireDisabledReason = (h: HireState | null | undefined, label: strin
     ? `${label} isn't signed in. Sign in to hire agents from it.${h?.reason ? ' ' + h.reason : ''}`
     : h?.reason ?? 'hiring is not enabled yet'
 
+/** A tier every signed-in account is at its limit for is greyed, whatever its
+ *  family says (coordinator's ruling 2026-11-14; the list is the engine's,
+ *  `staffingoptions.ts`). Only an offer is touched: hidden stays hidden, and a
+ *  family that is signed out keeps its own sentence. */
+const spentGate = (tier: string, verdict: FamilyOffer): FamilyOffer =>
+  verdict === 'offer' && hireTierSpent(tier) ? 'disable' : verdict
+
+/** Why one tier's tile is greyed: its own reason when every signed-in account
+ *  is at its limit for the model, else the family's. */
+export const hireTierDisabledReason = (tier: string, h: HireState | null | undefined, label: string): string =>
+  familyOffer(h) === 'offer' && hireTierSpent(tier)
+    ? `Every signed-in account is at its limit for ${tierLabel(tier)}.`
+    : hireDisabledReason(h, label)
+
 /** The provider entries as the hire surfaces read them: Claude and Codex are
  *  hirable when a registered account of theirs is switched on and signed in,
  *  although the engine's own default sign-in is signed out.
@@ -811,8 +826,8 @@ export const codexTierOffer = (
   if (tierHiddenAsLegacy(tier)) return 'hide'
   const base = familyOffer(h)
   if (signedOutHire(h)) return h?.previewTiers && !h.previewTiers.includes(tier) ? 'hide' : 'disable'
-  return !CODEX_ALWAYS_TIERS.includes(tier)
-    && !h?.offeredTiers?.includes(tier) ? 'hide' : base
+  return spentGate(tier, !CODEX_ALWAYS_TIERS.includes(tier)
+    && !h?.offeredTiers?.includes(tier) ? 'hide' : base)
 }
 
 /** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
@@ -826,7 +841,7 @@ export const antigravityTierOffer = (
   if (signedOutHire(h)) return h?.previewTiers && !h.previewTiers.includes(tier) ? 'hide' : 'disable'
   if (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier)) return 'hide'
-  return familyOffer(h)
+  return spentGate(tier, familyOffer(h))
 }
 
 /** Offer verdict for one Muse tier: every Muse tier is conditional — no
@@ -834,7 +849,7 @@ export const antigravityTierOffer = (
 export const museTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => (signedOutHire(h) ? 'disable'
-  : !h?.offeredTiers?.includes(tier) ? 'hide' : familyOffer(h))
+  : !h?.offeredTiers?.includes(tier) ? 'hide' : spentGate(tier, familyOffer(h)))
 
 /** Shared hire-sheet and context-menu eligibility, including per-tier rollout gates. */
 export const hireTierOffer = (provider: string, hire: HireState | null | undefined,
@@ -842,7 +857,7 @@ export const hireTierOffer = (provider: string, hire: HireState | null | undefin
   provider === 'codex' ? codexTierOffer(hire, tier)
     : provider === 'antigravity' ? antigravityTierOffer(hire, tier)
     : provider === 'muse' ? museTierOffer(hire, tier)
-    : optInLegacyHidden(tier) ? 'hide' : familyOffer(hire)
+    : optInLegacyHidden(tier) ? 'hide' : spentGate(tier, familyOffer(hire))
 
 export interface HireProviders {
   claudeHire?: HireState | null
@@ -867,7 +882,8 @@ export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 
   { provider: 'langserver', tiers: langserverTierIds(), hire: h.langserverHire },
 ].flatMap(({ provider, tiers, hire }) => tiers.map(tier => ({
   tier, offer: hireTierOffer(provider, hire, tier),
-  reason: hire?.reason ?? 'hiring is not enabled yet',
+  reason: familyOffer(hire) === 'offer' && hireTierSpent(tier)
+    ? hireTierDisabledReason(tier, hire, provider) : hire?.reason ?? 'hiring is not enabled yet',
 }))).filter(choice => choice.offer !== 'hide')
 
 /* ---------------- conditional tiers the payload currently offers (Argon and Krypton)

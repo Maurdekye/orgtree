@@ -42,7 +42,7 @@ import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { deskIdentity, DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
-import { tierEffortLevels } from './staffingoptions'
+import { tierEffortLevels, useSpentHireTiers } from './staffingoptions'
 import { newHirePlacement, useNewHirePosition } from '../hireposition'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
@@ -58,7 +58,7 @@ import { audienceAction, getAccountRegistry, getProviders, orgInboxRead, reorder
 import { useAgyModelsRefresh, museEffortLevels } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
-import { hireDisabledReason } from './shared'
+import { hireDisabledReason, hireTierDisabledReason } from './shared'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
@@ -5664,6 +5664,10 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   // ITSELF offerable.
   const tierOffer = (f: (typeof famRows)[number], t: string): FamilyOffer =>
     hireTierOffer(f.key, f.hire, t)
+  // a tier every signed-in account is at its limit for says so itself
+  useSpentHireTiers()
+  const tierReason = (f: (typeof famRows)[number], t: string): string =>
+    hireTierDisabledReason(t, f.hire, f.key === 'claude' ? 'Claude' : f.label)
   const firstOfferable = famRows
     .flatMap((f) => f.tiers.filter((t) => tierOffer(f, t) === 'offer'))[0] ?? ''
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire]
@@ -5714,10 +5718,10 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
                   <button key={t}
                     className={'hs-tier t-' + t + (tier === t ? ' on' : '') + (tOffer === 'disable' ? ' codex-preview' : '')}
                     disabled={tOffer !== 'offer'}
-                    title={modelChoiceTitle(t, tOffer === 'offer' ? undefined : f.reason)}
+                    title={modelChoiceTitle(t, tOffer === 'offer' ? undefined : tierReason(f, t))}
                     onClick={() => pickTier(t)}>
                     <span className={'tier letter-chip t-' + t}>{f.letters[t]}</span>
-                    {modelChoiceLabel(t, f.seatOf(t), tOffer === 'offer' ? undefined : f.reason)}
+                    {modelChoiceLabel(t, f.seatOf(t), tOffer === 'offer' ? undefined : tierReason(f, t))}
                   </button>
                 )
               })}

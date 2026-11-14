@@ -24,14 +24,14 @@ type Row = { value: string; kind?: 'subscription' | 'apikey'; ambient?: boolean 
 type Tier = { tier: string; provider: string; default_ok: boolean; native_ok?: boolean; by_room?: string[]; accounts: Row[] }
 
 /** the organization's warm staffing answer, as the engine gives it */
+const realFetch = globalThis.fetch
 function staffing(t: { after: (fn: () => void) => void }, tiers: Tier[], more: Record<string, unknown> = {}) {
-  const old = globalThis.fetch
   globalThis.fetch = async () => new Response(JSON.stringify({
     tiers: tiers.map((tier) => ({ seat: 10, efforts: ['low', 'high'], ...tier,
       accounts: tier.accounts.map((a) => ({ kind: 'subscription', ambient: false, ...a, id: a.value, provider: tier.provider })) })),
     at: 1, stale: false, errors: [], loading: false, generation: 1, ...more,
   }), { headers: { 'Content-Type': 'application/json' } })
-  t.after(() => { globalThis.fetch = old; resetStaffingOptionsForTests() })
+  t.after(() => { globalThis.fetch = realFetch; resetStaffingOptionsForTests() })
   return prefetchStaffingOptions('acme')
 }
 
@@ -52,7 +52,7 @@ test('every signed-in account is at its limit for the model: the tile is greyed 
   assert.equal(hireTierOffer('claude', signedIn, 'haiku'), 'disable')
   assert.equal(hireTierOffer('claude', signedIn, 'sonnet'), 'offer')
   assert.match(hireTierDisabledReason('opus', signedIn, 'Claude'), LIMIT)
-  assert.equal(hireTierDisabledReason('opus', signedIn, 'Claude'), 'Every signed-in account is at its limit for Opus.')
+  assert.equal(hireTierDisabledReason('opus', signedIn, 'Claude'), 'Every signed-in account is at its limit for opus.')
   // the menus and the form's model chooser read the same verdict and the same sentence
   const choices = hireTierChoices({ claudeHire: signedIn })
   assert.equal(choices.find((c) => c.tier === 'opus')?.offer, 'disable')
