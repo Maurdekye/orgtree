@@ -61,6 +61,11 @@ export interface StaffingTier {
   default_ok: boolean
   /** Native login's model-spent usage gate, separate from managed eligible accounts. */
   native_ok?: boolean
+  /** Who a hire of this tier should name, the one with the most room first:
+   *  the engine's own sign-in (`<provider>/primary`) and the accounts that can
+   *  run it, ranked together; never a metered key (`canvas/hireaccount.ts`).
+   *  Absent on an engine from before 4.6.0. */
+  by_room?: string[]
 }
 export interface StaffingOptions {
   tiers: StaffingTier[]
