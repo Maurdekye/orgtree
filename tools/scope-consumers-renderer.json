@@ -15,6 +15,13 @@
       "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
     },
     {
+      "path": "apps/desktop/renderer/src/canvas/accounts.tsx",
+      "expression": "remote.scope",
+      "line": 949,
+      "classification": "unrelated",
+      "reason": "Remote engine sign-in level of this computer (full control, or member of somebody's own computer), not agent capability scope."
+    },
+    {
       "path": "apps/desktop/renderer/src/canvas/asks.tsx",
       "expression": "dd.scope",
       "line": 202,
@@ -183,6 +190,13 @@
       "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
     },
     {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "node.configured_scope",
+      "line": 1535,
+      "classification": "configured",
+      "reason": "Stored peer-mail switch as the tree shows it, kept as the base of an edit for the save-conflict check; a configured value, no capability decision."
+    },
+    {
       "path": "apps/desktop/renderer/src/canvas/openasks.ts",
       "expression": "revs.scope",
       "line": 130,
@@ -230,6 +244,48 @@
       "line": 125,
       "classification": "unrelated",
       "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/settingsautosave.tsx",
+      "expression": "current.current.scope",
+      "line": 105,
+      "classification": "unrelated",
+      "reason": "Autosave buffer owner key (which settings object the unsaved fields belong to), not agent capability scope."
+    },
+    {
+      "path": "apps/desktop/renderer/src/settingsautosave.tsx",
+      "expression": "b.scope",
+      "line": 105,
+      "classification": "unrelated",
+      "reason": "Autosave buffer owner key (which settings object the unsaved fields belong to), not agent capability scope."
+    },
+    {
+      "path": "apps/desktop/renderer/src/settingsautosave.tsx",
+      "expression": "current.current.scope",
+      "line": 110,
+      "classification": "unrelated",
+      "reason": "Autosave buffer owner key (which settings object the unsaved fields belong to), not agent capability scope."
+    },
+    {
+      "path": "apps/desktop/renderer/src/settingsautosave.tsx",
+      "expression": "b.scope",
+      "line": 115,
+      "classification": "unrelated",
+      "reason": "Autosave buffer owner key (which settings object the unsaved fields belong to), not agent capability scope."
+    },
+    {
+      "path": "apps/desktop/renderer/src/shell/remotes.tsx",
+      "expression": "remote.scope",
+      "line": 238,
+      "classification": "unrelated",
+      "reason": "Remote engine sign-in level of this computer (full control, or member of somebody's own computer), not agent capability scope."
+    },
+    {
+      "path": "apps/desktop/renderer/src/shell/remotes.tsx",
+      "expression": "remote.scope",
+      "line": 244,
+      "classification": "unrelated",
+      "reason": "Remote engine sign-in level of this computer (full control, or member of somebody's own computer), not agent capability scope."
     }
   ]
 }
