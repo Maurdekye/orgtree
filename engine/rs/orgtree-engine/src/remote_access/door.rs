@@ -35,7 +35,7 @@ pub struct PeerRule {
 #[nolog]
 impl PeerRule {
     /// Tailscale's addresses always; this private network's too when `lan`
-    /// (the app-wide choice "Tailscale and this private network").
+    /// (what the one app-wide choice was before each place was chosen by itself; tests).
     pub fn new(lan: bool) -> PeerRule {
         PeerRule { tailscale: true, lan, loopback: false }
     }
