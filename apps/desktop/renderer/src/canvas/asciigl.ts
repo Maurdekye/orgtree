@@ -525,19 +525,19 @@ function makeTexture(gl: WebGL2RenderingContext, unit: number): WebGLTexture | n
   return tex
 }
 
-/** Create the renderer. Null when WebGL2 or a real GPU pipeline is
- *  unavailable (software-GL renderer strings), mirroring the reference's
- *  capability gate — the caller simply keeps the plain background. */
-export function createAsciiRenderer(
-  doc: Document, visit: AsciiVisit, fontFamily: string,
-): AsciiRenderer | null {
-  const { wind, surface, glow: glowCfg } = ASCII_CONFIG
+const SOFTWARE_RENDERER_RE = /swiftshader|llvmpipe|softpipe|software|warp|basic render/i
+
+function acquireHardwareGl(doc: Document, powerPreference: 'low-power' | 'default'): {
+  canvas: HTMLCanvasElement
+  gl: WebGL2RenderingContext
+  loseContextExt: { loseContext(): void; restoreContext(): void } | null
+} | null {
   const canvas = doc.createElement('canvas')
   canvas.setAttribute('aria-hidden', 'true')
   canvas.style.cssText = 'position:absolute;pointer-events:none;'
   const gl = canvas.getContext('webgl2', {
     alpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false,
-    premultipliedAlpha: true, powerPreference: 'low-power', failIfMajorPerformanceCaveat: true,
+    premultipliedAlpha: true, powerPreference, failIfMajorPerformanceCaveat: true,
   })
   if (!gl) return null
   const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
@@ -545,10 +545,23 @@ export function createAsciiRenderer(
     ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '')
     : String(gl.getParameter(gl.RENDERER) ?? '')
   const loseContextExt = gl.getExtension('WEBGL_lose_context')
-  if (/swiftshader|llvmpipe|softpipe|software|warp|basic render/i.test(rendererName)) {
+  if (SOFTWARE_RENDERER_RE.test(rendererName)) {
     loseContextExt?.loseContext()
     return null
   }
+  return { canvas, gl, loseContextExt }
+}
+
+/** Create the renderer. Null when WebGL2 or a real GPU pipeline is
+ *  unavailable (software-GL renderer strings), mirroring the reference's
+ *  capability gate — the caller simply keeps the plain background. */
+export function createAsciiRenderer(
+  doc: Document, visit: AsciiVisit, fontFamily: string,
+): AsciiRenderer | null {
+  const { wind, surface, glow: glowCfg } = ASCII_CONFIG
+  const acquired = acquireHardwareGl(doc, 'low-power') ?? acquireHardwareGl(doc, 'default')
+  if (!acquired) return null
+  const { canvas, gl, loseContextExt } = acquired
   let fences: WebGLSync[] = []
   let fenceMisses = 0
   let drawCount = 0

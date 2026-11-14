@@ -1368,3 +1368,87 @@ test('Claude Waves Part B: tolerates normal VSync rAF jitter up to 100ms, escala
     restoreClock()
   }
 })
+
+test('Claude Waves Part C: falls back from low-power to default WebGL2 context while rejecting software renderers', (t) => {
+  const ctrl = installAsciiGlEnv(t, 1)
+  const baseGetContext = window.HTMLCanvasElement.prototype.getContext as (this: HTMLCanvasElement, kind: string, opts?: WebGLContextAttributes) => unknown
+  t.after(() => { window.HTMLCanvasElement.prototype.getContext = baseGetContext as typeof window.HTMLCanvasElement.prototype.getContext })
+
+  const visit = visitFromSeed(42, 'mixed')
+  const grid = gridFor(800, 600, 1)!
+  const layout = {
+    grid, originX: 0, originY: 0, sampleX: 7, sampleY: 7,
+    canvasSizeX: 800, canvasSizeY: 600, calmRadiiX: 200, calmRadiiY: 140,
+    cellOriginX: 0, cellOriginY: 0, cellCentreX: 3.5, cellCentreY: 7,
+    cellWorldW: 7, cellWorldH: 14, cssLeft: 0, cssTop: 0, cssW: 800, cssH: 600,
+  }
+
+  // 1. low-power returns null (e.g. dual-GPU caveat on low-power adapter); default hardware GL succeeds
+  const prefs1: string[] = []
+  const caveats1: boolean[] = []
+  window.HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, opts?: WebGLContextAttributes): unknown {
+    if (kind === 'webgl2') {
+      prefs1.push(String(opts?.powerPreference ?? ''))
+      caveats1.push(opts?.failIfMajorPerformanceCaveat === true)
+      if (opts?.powerPreference === 'low-power') return null
+    }
+    return baseGetContext.call(this, kind, opts)
+  } as typeof window.HTMLCanvasElement.prototype.getContext
+
+  const r1 = createAsciiRenderer(document, visit, 'monospace')
+  assert.equal(r1 === null, false, 'falls back to default powerPreference when low-power returns null')
+  assert.deepEqual(prefs1, ['low-power', 'default'])
+  assert.deepEqual(caveats1, [true, true], 'keeps failIfMajorPerformanceCaveat on both attempts')
+  assert.equal(r1!.resize(layout), true)
+  r1!.draw(1, 1, null, { originX: 0, originY: 0, calmCx: 400, calmCy: 300 })
+  assert.equal(r1!.readWind() === null, false)
+  r1!.destroy()
+  ctrl.contextLost = false
+
+  // 2. low-power resolves to WARP/Basic Render Driver; loses that context and acquires default hardware GL on a fresh canvas
+  let swLostCount = 0
+  window.HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, opts?: WebGLContextAttributes): unknown {
+    const ctx = baseGetContext.call(this, kind, opts) as Record<string, unknown> | null
+    if (kind !== 'webgl2' || !ctx) return ctx
+    if (opts?.powerPreference === 'low-power') {
+      const origGetParam = ctx.getParameter as (p: number) => unknown
+      const origGetExt = ctx.getExtension as (n: string) => unknown
+      return {
+        ...ctx,
+        getParameter: (p: number) => p === 0x8B86 ? origGetParam(p) : 'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11)',
+        getExtension: (n: string) => n === 'WEBGL_lose_context'
+          ? { loseContext() { swLostCount += 1 }, restoreContext() {} }
+          : origGetExt(n),
+      }
+    }
+    return ctx
+  } as typeof window.HTMLCanvasElement.prototype.getContext
+
+  const r2 = createAsciiRenderer(document, visit, 'monospace')
+  assert.equal(swLostCount, 1, 'software low-power context is explicitly released via WEBGL_lose_context')
+  assert.equal(r2 === null, false, 'default hardware context succeeds on a fresh canvas')
+  assert.equal(r2!.isContextLost(), false)
+  r2!.destroy()
+  ctrl.contextLost = false
+
+  // 3. When both low-power and default resolve to software renderers, both are rejected cleanly
+  let bothLost = 0
+  window.HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, opts?: WebGLContextAttributes): unknown {
+    const ctx = baseGetContext.call(this, kind, opts) as Record<string, unknown> | null
+    if (kind !== 'webgl2' || !ctx) return ctx
+    const origGetParam = ctx.getParameter as (p: number) => unknown
+    const origGetExt = ctx.getExtension as (n: string) => unknown
+    const swName = opts?.powerPreference === 'low-power' ? 'Google SwiftShader' : 'llvmpipe (LLVM 17.0)'
+    return {
+      ...ctx,
+      getParameter: (p: number) => p === 0x8B86 ? origGetParam(p) : swName,
+      getExtension: (n: string) => n === 'WEBGL_lose_context'
+        ? { loseContext() { bothLost += 1 }, restoreContext() {} }
+        : origGetExt(n),
+    }
+  } as typeof window.HTMLCanvasElement.prototype.getContext
+
+  const r3 = createAsciiRenderer(document, visit, 'monospace')
+  assert.equal(r3 === null, true, 'rejects renderer when both low-power and default are software')
+  assert.equal(bothLost, 2, 'releases both rejected software contexts')
+})
