@@ -323,6 +323,8 @@ test(
     )
     const enginePid = Number.parseInt((started.stdout || '').trim(), 10)
     assert.ok(Number.isInteger(enginePid) && enginePid > 0, `could not start the fixture engine: ${started.stderr}`)
+    const fixtureEngineProcess = ownedProcess(enginePid, { suffix: '\\resources\\engine\\runtime\\python.exe' })
+    assert.ok(fixtureEngineProcess, 'the fixture engine could not be identified after its start')
 
     try {
       const blocked = runHelper()
@@ -337,9 +339,9 @@ test(
       assert.match(blocked.stderr, /python\.exe/)
       assert.doesNotMatch(blocked.stdout || '', /already closed/)
     } finally {
-      // Only ever this fixture's own process, by the id we started.
-      spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
-        `Stop-Process -Id ${enginePid} -Force -ErrorAction SilentlyContinue`], { windowsHide: true })
+      // Only ever this fixture's own process: stopped only while the id we
+      // started still names it.
+      stopOwned(fixtureEngineProcess, 'the fixture engine')
     }
 
     // And once the tree is genuinely quiet it reports success — so the check
@@ -366,6 +368,131 @@ const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
 const shell = path.join(system32, 'WindowsPowerShell/v1.0/powershell.exe')
 const pingExe = path.join(system32, 'PING.EXE')
 const helperPath = path.join(root, 'tools/installer-upgrade.ps1')
+
+// ---------------------------------------------------------------------------
+// THE CLEANUP STOPS ONLY WHAT THIS FILE STARTED (coordinator 2026-11-14; the
+// team's process rule: stop only processes you started, by exact id, verified
+// by image, start time and parent).
+//
+// A process id is not an identity. Windows hands the id of a process that has
+// exited to the next one that starts, and a fixture process can be gone by the
+// time its cleanup runs: the helper under test may just have asked it to stop.
+// `Stop-Process` by that id alone would then end whatever holds the number
+// now, on a computer where a real Orgtree and its agents start processes all
+// the time.
+//
+// So every process a fixture starts is recorded as Windows describes it at
+// that moment (image, parent, creation time), after a check that it is what
+// was started. The cleanup takes a handle first, which pins the process so
+// that its id cannot pass to another, reads the three again, and stops the
+// process through that handle only when all three still agree. The helper
+// under test ends its one process the same way (Stop-ClosedDesktopObserver).
+// Anything else is left alone, and the test's output says so.
+// ---------------------------------------------------------------------------
+
+/** What Windows says about one process now, `{ pid, image, parent, created }`,
+ *  or null when no process has the id. */
+function identityOf(pid) {
+  const read = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
+    `$p = @(Get-CimInstance Win32_Process -Filter "ProcessId = ${Number(pid)}")
+if ($p.Count -eq 1 -and $null -ne $p[0].CreationDate) {
+  [Console]::Out.Write((@{ pid = [int]$p[0].ProcessId; image = [string]$p[0].ExecutablePath; parent = [int]$p[0].ParentProcessId
+    created = $p[0].CreationDate.ToUniversalTime().Ticks.ToString() } | ConvertTo-Json -Compress))
+}`], { encoding: 'utf8', windowsHide: true })
+  try { return JSON.parse(read.stdout) } catch { return null }
+}
+
+/** The identity of a process a fixture has just started, or null when the id
+ *  does not name what was started. `leaf` is the image's file name, `suffix`
+ *  the end of its path, `parent` the id of the process that started it. */
+function ownedProcess(pid, { leaf, suffix, parent } = {}) {
+  const now = identityOf(pid)
+  if (!now) return null
+  const image = String(now.image).toUpperCase()
+  if (leaf && path.win32.basename(image) !== leaf.toUpperCase()) return null
+  if (suffix && !image.endsWith(suffix.toUpperCase())) return null
+  if (parent !== undefined && now.parent !== parent) return null
+  return now
+}
+
+/** Stops the process `identity` names, only while its id still names that very
+ *  process. Returns what it did: 'stopped', 'gone', or 'not stopped: <why>'. */
+function stopOwned(identity, what = 'a fixture process') {
+  if (!identity) {
+    console.error(`[installer-elevation] ${what}: no identity was recorded at its start, so nothing is stopped`)
+    return 'not stopped: no identity was recorded'
+  }
+  const run = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
+    `$want = $env:ORGTREE_TEST_OWNED_PROCESS | ConvertFrom-Json
+$process = Get-Process -Id ([int]$want.pid) -ErrorAction SilentlyContinue
+if ($null -eq $process) { [Console]::Out.Write('gone'); exit 0 }
+try {
+  $null = $process.Handle
+  $now = @(Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$want.pid)")
+  $same = $now.Count -eq 1 -and $null -ne $now[0].CreationDate -and
+    $now[0].CreationDate.ToUniversalTime().Ticks.ToString() -eq [string]$want.created -and
+    [string]$now[0].ExecutablePath -eq [string]$want.image -and [int]$now[0].ParentProcessId -eq [int]$want.parent
+  if (-not $same) { [Console]::Out.Write('not stopped: the id names another process now'); exit 0 }
+  Stop-Process -InputObject $process -Force -ErrorAction Stop
+  [Console]::Out.Write('stopped')
+} catch { [Console]::Out.Write('not stopped: ' + $_.Exception.Message) }
+finally { try { $process.Dispose() } catch { } }`],
+    { encoding: 'utf8', windowsHide: true, env: { ...process.env, ORGTREE_TEST_OWNED_PROCESS: JSON.stringify(identity) } })
+  const outcome = (run.stdout || '').trim() || `not stopped: the check itself failed (${(run.stderr || '').trim().slice(0, 200)})`
+  if (outcome.startsWith('not stopped')) console.error(`[installer-elevation] ${what} (pid ${identity.pid}) was left alone: ${outcome}`)
+  return outcome
+}
+
+test(
+  'the cleanup stops a process only while its id still names the process this file started',
+  { skip: !windows ? 'Windows only' : false, timeout: 120000 },
+  async () => {
+    // Two synthetic processes of this test's own. Node holds a handle to each,
+    // so the `kill()` at the end is by handle and cannot reach anything else.
+    const start = () => spawn(pingExe, ['-n', '60', '127.0.0.1'], { stdio: 'ignore', windowsHide: true })
+    const first = start(), second = start()
+    try {
+      const a = ownedProcess(first.pid, { leaf: 'PING.EXE', parent: process.pid })
+      const b = ownedProcess(second.pid, { leaf: 'PING.EXE', parent: process.pid })
+      assert.ok(a && b, 'both synthetic processes are identified as started here')
+      assert.notEqual(a.created, b.created, 'two processes do not share a creation time')
+      // What is recorded is checked against what was started.
+      assert.equal(ownedProcess(second.pid, { leaf: 'python.exe' }), null, 'another image is not what was started')
+      assert.equal(ownedProcess(second.pid, { leaf: 'PING.EXE', parent: process.pid + 4 }), null, 'another parent is not what was started')
+
+      // A MISMATCHED ID: the second process's id with one thing recorded
+      // differently. That is how a reused id looks to the cleanup: the id is
+      // alive, and it is not the process that was started.
+      const forged = [
+        ['another creation time', { ...b, created: a.created }],
+        ['another parent', { ...b, parent: b.parent + 4 }],
+        ['another image', { ...b, image: b.image + '.other' }],
+      ]
+      for (const [why, identity] of forged) {
+        assert.equal(stopOwned(identity, `a process with ${why}`), 'not stopped: the id names another process now', why)
+        assert.equal(alive(second.pid), true, `a process with ${why} was stopped`)
+      }
+      assert.match(stopOwned(null, 'a process nobody identified'), /^not stopped/)
+
+      // The process that was started is stopped, and only that one.
+      assert.equal(stopOwned(b, 'the second synthetic process'), 'stopped')
+      await until(() => !alive(second.pid), 'the stopped process to be gone')
+      assert.equal(alive(first.pid), true, 'the other process was not touched')
+      // An id that names nothing any more: nothing happens. (Should Windows have
+      // given the id to a new process already, that one is left alone too.)
+      assert.match(stopOwned(b, 'the second synthetic process, again'), /^(gone|not stopped: the id names another process now)$/)
+    } finally {
+      first.kill()
+      second.kill()
+    }
+  },
+)
+
+test('no cleanup in this file stops a process by its id alone', () => {
+  // Built from two pieces so that this line is not itself a match.
+  const byIdAlone = new RegExp('Stop-Process ' + '-Id')
+  assert.doesNotMatch(fs.readFileSync(import.meta.filename, 'utf8'), byIdAlone)
+})
 
 function fixtureInstall() {
   const dir = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TEMP || '.'), 'orgtree-tree-'))
@@ -410,6 +537,8 @@ test(
     )
     const enginePid = Number.parseInt((started.stdout || '').trim(), 10)
     assert.ok(Number.isInteger(enginePid) && enginePid > 0, `could not start the fixture engine: ${started.stderr}`)
+    const fixtureEngineProcess = ownedProcess(enginePid, { suffix: '\\resources\\engine\\runtime\\python.exe' })
+    assert.ok(fixtureEngineProcess, 'the fixture engine could not be identified after its start')
 
     try {
       const blocked = runHelper(dir, { prelude: BREAK_CIM })
@@ -420,8 +549,7 @@ test(
       // one: the whole point is that descendants stay answerable.
       assert.match(blocked.log, /WMI answered; descendants remain answerable/)
     } finally {
-      spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
-        `Stop-Process -Id ${enginePid} -Force -ErrorAction SilentlyContinue`], { windowsHide: true })
+      stopOwned(fixtureEngineProcess, 'the fixture engine')
     }
 
     // And WMI can still report quiet, so this is a working reading rather than
@@ -506,11 +634,6 @@ function alive(pid) {
   return (probe.stdout || '').trim() === 'yes'
 }
 
-function stop(pid) {
-  spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
-    `Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue`], { windowsHide: true })
-}
-
 // Starts the helper against a fixture install and returns a handle. Its log is
 // NOT read until `exit` has resolved.
 function startHelper(dir, log, timeoutSeconds) {
@@ -590,13 +713,15 @@ test(
       assert.ok(Number.isInteger(parentPid) && parentPid > 0, `could not start the fixture engine: ${started.stderr}`)
 
       let orphan = 0
+      let orphanProcess = null
       let helper = { done: false, exit: null }
       try {
         await until(() => {
           const candidates = childrenOf(parentPid, 'PING.EXE')
           if (!candidates.length) return false
           orphan = candidates[0]
-          return true
+          orphanProcess = ownedProcess(orphan, { leaf: 'PING.EXE', parent: parentPid })
+          return orphanProcess !== null
         }, 'the fixture child to start')
 
         const log = path.join(dir, 'orphan.log')
@@ -618,7 +743,7 @@ test(
         }
         return { premise: true, dir, orphan, status, stdout: helper.stdout, stderr: helper.stderr }
       } finally {
-        if (orphan) stop(orphan)
+        if (orphan) stopOwned(orphanProcess, 'the fixture child')
         if (!fs.existsSync(release)) fs.writeFileSync(release, '')
         if (helper.exit) await helper.exit
       }
@@ -695,6 +820,7 @@ test(
       assert.ok(Number.isInteger(parentPid) && parentPid > 0, `could not start the fixture engine: ${started.stderr}`)
 
       let child = 0
+      let childProcess = null
       let helper = { done: false, exit: null }
       try {
         const log = path.join(dir, 'late-child.log')
@@ -707,7 +833,8 @@ test(
           const candidates = childrenOf(parentPid, 'PING.EXE')
           if (!candidates.length) return false
           child = candidates[0]
-          return true
+          childProcess = ownedProcess(child, { leaf: 'PING.EXE', parent: parentPid })
+          return childProcess !== null
         }, 'the late child to start')
         await until(() => !alive(parentPid), 'the fixture parent to exit')
         const status = await helper.exit
@@ -725,7 +852,7 @@ test(
         }
         return { premise: true, dir, child, status, stdout: helper.stdout, stderr: helper.stderr }
       } finally {
-        if (child) stop(child)
+        if (child) stopOwned(childProcess, 'the late child')
         if (!fs.existsSync(spawnFlag)) fs.writeFileSync(spawnFlag, '')
         if (helper.exit) await helper.exit
       }
@@ -1059,11 +1186,13 @@ async function fixtureEngine(mode = 'normal') {
     engine.once('exit', (code) => reject(new Error(`the fixture engine exited with ${code}`)))
   })
   const agentPid = Number(line.split(' ')[2])
+  // Recorded now, while both are known to be this fixture's: the engine by its
+  // image in the fixture folder, the agent as that engine's child.
+  const engineProcess = ownedProcess(engine.pid, { suffix: '\\resources\\engine\\orgtree-engine.exe' })
+  const agentProcess = ownedProcess(agentPid, { leaf: 'PING.EXE', parent: engine.pid })
   const stop = () => {
-    for (const pid of [engine.pid, agentPid]) {
-      spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
-        `Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue`], { windowsHide: true })
-    }
+    stopOwned(engineProcess, 'the fixture engine')
+    stopOwned(agentProcess, "the fixture engine's agent")
     fs.rmSync(script, { force: true })
   }
   return { dir, data, engine, agentPid, stop }
