@@ -220,7 +220,16 @@ exist" would tell the remote engine about this computer.
 - **The window does not ask.** `renderer/src/remotehere.ts` reads `remote_link` (the composed app
   feed gives it to a remote window only). The scratch folder entries stay in their menus and open
   the Files panel on the remote engine's folder (below); with an engine that has no such routes
-  they say "This folder is on <name>, not on this computer."; the templates and charters "Open
+  they say "Orgtree on <name> needs updating to use the file browser: it runs <version>, and the
+  file browser needs 4.6.0 or later. This folder is on <name>, not on this computer." Two things
+  tell (USER 2026-11-14 mb1f74cf38dff, after a panel on an engine at 4.5.11 showed "404: no UI
+  bundle configured"). First the version the engine gave when this computer connected (`version`
+  of `remote_link`): below 4.6.0 by its three numbers, the entry says the sentence and nothing is
+  sent (`filesNeedUpdate`). Then, for a version that does not say (none yet, or an alpha of 4.6.0
+  from before the routes), the answer to the first listing: a 404 "no route ...", or the plain
+  text "no UI bundle configured", which is what an engine started without a UI folder answered an
+  unknown `/api/` path until 4.6.0 (`olderEngine`); the panel closes with the sentence. From
+  4.6.0 such an engine answers "no route" as the other does (`http/mod.rs` `ui`); the templates and charters "Open
   folder" buttons say that sentence; a file link's menu has one disabled entry "On <name>" and keeps Copy path
   and Copy file name; a tool row's file is in state `remote` and its path is not checked; the
   provider sign-in control says to sign in on the remote engine itself and offers the profile's
