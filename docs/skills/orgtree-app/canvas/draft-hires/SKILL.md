@@ -70,6 +70,8 @@ When the default account cannot run the model, the hire names another sign-in it
 
 The hire tiles of a provider are offered when any of this applies: its own sign-in is signed in, or a registered account of it is switched on and signed in. A standalone engine is usually signed in to account folders only, with no sign-in of its own; its Claude and Codex tiles are offered all the same. With no sign-in at all the tiles stay greyed, with the reason.
 
+One model's tile is greyed by itself when nothing can take a hire of it: every signed-in account and the engine's own sign-in are at 100% in a window that model spends. Its tooltip says "Every signed-in account is at its limit for" and the model's name, and the same entry is greyed in the hire menus and in the form's model chooser. An account whose usage has not been read counts as usable here, so an engine that reports no usage still offers its signed-in accounts. The tile comes back when a window resets or another account is signed in.
+
 An engine older than 4.6.0 does not rank by room. In a window connected to one, the own sign-in comes first when it can run the model, else the first registered account by name.
 
 Changing the model keeps staged folders, tools and visibility; a harness chosen for the old model is dropped, and the new one starts by following its key or server. An account belonging to another provider, or excluded by the target model's known staffing offers, returns to automatic placement. A known unsupported effort maps to the highest supported level at or below it, otherwise the lowest; models with no effort setting inherit. Open Draft settings to choose again. Final Hire still validates current accounts, model support and credits.
