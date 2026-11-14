@@ -740,16 +740,34 @@ try {
     return @($found | Select-Object -Unique)
   }
 
+  # Whether $Folder is the root folder of a real volume: `X:\` that the mount
+  # manager names a volume for. A SUBST letter or a mapped share has the same
+  # shape, but is a folder somebody can rename, and mountvol refuses it.
+  # Anything but the one volume line is "no".
+  function Test-DriveRoot([string] $Folder) {
+    if ($Folder -notmatch '^[A-Za-z]:\\$') { return $false }
+    try {
+      $answer = @(& (Join-Path -Path ([Environment]::SystemDirectory) -ChildPath 'mountvol.exe') $Folder '/L' 2>&1)
+      return ($LASTEXITCODE -eq 0 -and $answer.Count -eq 1 -and ([string]$answer[0]).Trim() -match '^\\\\\?\\Volume\{[0-9A-Fa-f-]+\}\\$')
+    } catch {
+      return $false
+    }
+  }
+
   # The window's rule, unchanged: the descriptor is owned by this user (or by
   # SYSTEM or Administrators), nobody else may write it or its folder, and
-  # nobody else may replace a folder above it. Returns what is wrong, or an
-  # empty string.
+  # nobody else may replace a folder above it. A drive's root is judged
+  # without DELETE (user ruling 2026-11-14): nobody can delete or rename a
+  # volume's root folder, and Windows gives the root of a formatted data drive
+  # "Authenticated Users: Modify", which carries it. Returns what is wrong, or
+  # an empty string.
   function Get-DescriptorDistrust([string] $File) {
     $me = [string][Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $owners = @($me, 'S-1-5-18', 'S-1-5-32-544')
     $allowed = @($me, 'S-1-5-18', 'S-1-5-32-544', 'S-1-3-0')
     $writeMask = 0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
     $replaceMask = 0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000
+    $rootMask = 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000
     $owner = [string](Get-Acl -LiteralPath $File -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier]).Value
     if ($owners -notcontains $owner) { return "it is owned by $owner, not by this user" }
     $bad = @(Get-ForeignWriters $File $writeMask $allowed)
@@ -759,7 +777,9 @@ try {
     if ($bad.Count -gt 0) { return "its folder can be written by $($bad -join ', ')" }
     $ancestor = Split-Path -Path $directory -Parent
     while (-not (Test-Blank $ancestor)) {
-      $bad = @(Get-ForeignWriters $ancestor $replaceMask $allowed)
+      $mask = $replaceMask
+      if (Test-DriveRoot $ancestor) { $mask = $rootMask }
+      $bad = @(Get-ForeignWriters $ancestor $mask $allowed)
       if ($bad.Count -gt 0) { return "a folder above it ($ancestor) can be replaced by $($bad -join ', ')" }
       $next = Split-Path -Path $ancestor -Parent
       if ((Test-Blank $next) -or (Test-SamePath $next $ancestor)) { break }
