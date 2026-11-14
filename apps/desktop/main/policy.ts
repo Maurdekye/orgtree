@@ -115,6 +115,7 @@ const canonicalRoot = (p: string) => process.platform === 'win32' ? p.toLowerCas
 
 export const DATA_LOCATION_FILE = 'data-location.json'
 export const DATA_MOVE_MARKER_FILE = '.data-move-in-progress.json'
+export const DATA_LOCATION_MAX_BYTES = 16 * 1024
 
 export interface DataLocationConfig {
   version: 1
@@ -123,22 +124,67 @@ export interface DataLocationConfig {
   movedAt?: string
 }
 
-/** `<userData>\data-location.json` when present and valid; null when absent or malformed. */
-export function readDataLocationConfig(userData: string, io: Pick<typeof fs, 'readFileSync'> = fs): DataLocationConfig | null {
+/** Normalize a local absolute data-folder path, rejecting UNC (`\\server\share`),
+ *  verbatim UNC (`\\?\UNC\...`), Win32 device (`\\.\...`), relative, and `..` paths. */
+export function normalizeLocalDataPath(raw: string, platform: NodeJS.Platform = process.platform): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (platform === 'win32' || trimmed.startsWith('\\\\')) {
+    let plain = trimmed
+    if (trimmed.startsWith('\\\\?\\')) {
+      const rest = trimmed.slice(4)
+      if (!/^[A-Za-z]:[\\/]/.test(rest)) return null
+      plain = rest
+    } else if (trimmed.startsWith('\\\\')) {
+      return null
+    }
+    if (platform === 'win32') {
+      if (!/^[A-Za-z]:[\\/]/.test(plain)) return null
+      if (plain.split(/[\\/]+/).includes('..')) return null
+      return path.win32.normalize(plain)
+    }
+    return null
+  }
+  if (!path.posix.isAbsolute(trimmed)) return null
+  if (trimmed.split('/').includes('..')) return null
+  return path.normalize(trimmed)
+}
+
+export function isLocalAbsoluteDataPath(raw: string, platform: NodeJS.Platform = process.platform): boolean {
+  return normalizeLocalDataPath(raw, platform) !== null
+}
+
+/** `<userData>\data-location.json` when present, non-reparse, <=16 KiB, and valid; null otherwise. */
+export function readDataLocationConfig(
+  userData: string,
+  io: Pick<typeof fs, 'readFileSync'> & Partial<Pick<typeof fs, 'lstatSync' | 'readlinkSync'>> = fs,
+): DataLocationConfig | null {
+  const file = path.join(userData, DATA_LOCATION_FILE)
+  if (typeof io.lstatSync === 'function') {
+    let st: fs.Stats
+    try { st = io.lstatSync(file) } catch { return null }
+    if (st.isSymbolicLink() || !st.isFile() || st.size > DATA_LOCATION_MAX_BYTES) return null
+    if (process.platform === 'win32' && typeof io.readlinkSync === 'function') {
+      try { io.readlinkSync(file); return null } catch { /* regular file */ }
+    }
+  }
+  let text: string
+  try { text = io.readFileSync(file, 'utf8') } catch { return null }
+  if (Buffer.byteLength(text, 'utf8') > DATA_LOCATION_MAX_BYTES) return null
   let value: unknown
-  try { value = JSON.parse(io.readFileSync(path.join(userData, DATA_LOCATION_FILE), 'utf8')) } catch { return null }
+  try { value = JSON.parse(text) } catch { return null }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Record<string, unknown>
   if (raw.version !== 1 || typeof raw.dataRoot !== 'string') return null
-  const trimmed = raw.dataRoot.trim()
-  if (!trimmed || !path.isAbsolute(trimmed)) return null
-  const previousRoot = typeof raw.previousRoot === 'string' && raw.previousRoot.trim() && path.isAbsolute(raw.previousRoot.trim())
-    ? path.normalize(raw.previousRoot.trim())
+  const dataRoot = normalizeLocalDataPath(raw.dataRoot)
+  if (!dataRoot) return null
+  const previousRoot = typeof raw.previousRoot === 'string'
+    ? (normalizeLocalDataPath(raw.previousRoot) ?? undefined)
     : undefined
   const movedAt = typeof raw.movedAt === 'string' && raw.movedAt.trim() ? raw.movedAt.trim().slice(0, 64) : undefined
   return {
     version: 1,
-    dataRoot: path.normalize(trimmed),
+    dataRoot,
     ...(previousRoot ? { previousRoot } : {}),
     ...(movedAt ? { movedAt } : {}),
   }
@@ -416,6 +462,65 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
           if (parts.length !== 5 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
           const [current, owner, fileBad, dirBad, ancestorBad] = parts
           resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad, path.dirname(file)))
+        })
+    }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
+  })
+}
+
+export function judgePosixDirectoryTrust(uid: number, dirs: Array<[string, PosixStat]>): DescriptorOwner {
+  for (const [i, [name, s]] of dirs.entries()) {
+    if (!s.isDirectory()) return { ok: false, detail: `${name} is not a directory` }
+    if (s.uid !== uid && s.uid !== 0) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory owned by'} ${name} (owner ${s.uid})` }
+    const othersWrite = (s.mode & 0o022) !== 0
+    if (othersWrite && (i === 0 || !(s.mode & 0o1000))) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory writable by others:'} ${name}`, unsafeFolder: name }
+  }
+  return { ok: true, detail: `owner ${uid}, exclusive write boundary` }
+}
+
+/** Read-only directory + ancestor DACL trust check (same write/replace/drive-root
+ *  boundary as `verifyDescriptorTrust`, evaluated directly on `dir` before any
+ *  engine or PostgreSQL process is started on a custom data folder). */
+export function verifyDataFolderTrust(dir: string): Promise<DescriptorOwner> {
+  if (process.platform !== 'win32') {
+    try {
+      const uid = process.getuid?.()
+      if (uid === undefined) return Promise.resolve({ ok: false, detail: 'no user id on this platform' })
+      return Promise.resolve(judgePosixDirectoryTrust(uid, ancestorStats(path.resolve(dir))))
+    } catch (error) { return Promise.resolve({ ok: false, detail: `directory stat failed: ${(error as Error).message}` }) }
+  }
+  const resolvedDir = path.resolve(dir)
+  const directory = resolvedDir.replace(/'/g, "''")
+  const script =
+    `$ErrorActionPreference='Stop';` +
+    `$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;` +
+    `$allowed=@($me,'S-1-5-18','S-1-5-32-544','S-1-3-0');` +
+    `$writeMask=0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000;` +
+    `$replaceMask=0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;` +
+    `$rootMask=0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;` +
+    `function BadWriters($p,$mask){$acl=Get-Acl -LiteralPath $p;$bad=@();` +
+    `foreach($r in $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])){` +
+    `if($r.AccessControlType -ne 'Allow'){continue};` +
+    `if(($r.PropagationFlags.ToString()) -match 'InheritOnly'){continue};` +
+    `$sid=$r.IdentityReference.Value;` +
+    `if($allowed -contains $sid){continue};` +
+    `if(([int]$r.FileSystemRights -band $mask) -ne 0){$bad+=$sid}};` +
+    `,@($bad | Select-Object -Unique)};` +
+    `$owner=(Get-Acl -LiteralPath '${directory}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value;` +
+    `$dirBad=BadWriters '${directory}' $writeMask;` +
+    `$ancestorBad=@();$a=Split-Path '${directory}';` +
+    `while($a){$mask=$replaceMask;if($a -match '^[A-Za-z]:\\\\$'){$mask=$rootMask};$hits=BadWriters $a $mask;` +
+    `if($hits.Count -gt 0){$ancestorBad+=($a+'='+($hits -join ','))};` +
+    `$next=Split-Path $a;if($next -eq $a){break};$a=$next};` +
+    `Write-Output ($me+'|'+$owner+'||'+($dirBad -join ',')+'|'+($ancestorBad -join ';'))`
+  return new Promise(resolve => {
+    import('node:child_process').then(({ execFile }) => {
+      execFile(WINDOWS_POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true, env: windowsPowerShellEnv() },
+        (error, stdout) => {
+          if (error) return resolve({ ok: false, detail: `trust query failed: ${error.message.slice(0, 200)}` })
+          const parts = stdout.trim().split('|')
+          if (parts.length !== 5 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
+          const [current, owner, fileBad, dirBad, ancestorBad] = parts
+          resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad, resolvedDir))
         })
     }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
   })

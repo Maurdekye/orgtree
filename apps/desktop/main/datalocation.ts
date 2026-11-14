@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,12 +12,15 @@ import type {
 import {
   canonicalPath,
   DATA_LOCATION_FILE,
+  DATA_LOCATION_MAX_BYTES,
   DATA_MOVE_MARKER_FILE,
+  normalizeLocalDataPath,
   processExists,
   readDataLocationConfig,
   resolveExisting,
   unsafeDescriptorMessage,
   validateDataRoot,
+  verifyDataFolderTrust,
   verifyDescriptorTrust,
   WINDOWS_POWERSHELL,
   windowsPowerShellEnv,
@@ -29,24 +32,42 @@ export const DATA_LOCATION_SUBFOLDER = 'Orgtree data'
 export const DATA_LOCATION_MOVED_STAMP = '.data-location-moved.json'
 export const MIN_FREE_MARGIN_BYTES = 2 * 1024 * 1024 * 1024 // 2 GiB
 export const MIN_USER_DATA_FREE_BYTES = 64 * 1024 * 1024 // 64 MiB
+export const MAX_MOVE_MARKER_AGE_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 const EPHEMERAL_ROOT_FILES = new Set([
   'engine-attach.json',
   '.desktop-engine.lock',
   '.port',
   'core-lifecycle.json',
+  'core-manual-quit.json',
   DATA_LOCATION_MOVED_STAMP,
 ])
 
 function isEphemeralEntry(relPosix: string, fileName: string): boolean {
   if (!relPosix.includes('/')) {
     if (EPHEMERAL_ROOT_FILES.has(fileName)) return true
+    if (fileName.startsWith('core-stop-') && fileName.endsWith('.json')) return true
+    if (fileName.startsWith('core-recovery-')) return true
+    if (fileName.startsWith('.core-') && fileName.endsWith('.tmp')) return true
     if (fileName.startsWith('.engine-attach-') && fileName.endsWith('.tmp')) return true
     if (fileName.startsWith('.orgtree-trust-probe-')) return true
   }
   if (relPosix === 'pg/cluster/data/postmaster.pid' || relPosix === 'pg/cluster/data/postmaster.opts') return true
   if (fileName.startsWith('.s.PGSQL.')) return true
   return false
+}
+
+export function interactiveRelaunchArgs(
+  argv: string[],
+  isLinkArg: (arg: string) => boolean = () => false,
+): string[] {
+  return argv.filter(
+    arg =>
+      !arg.startsWith('--orgtree-taskbar=') &&
+      arg !== '--background' &&
+      arg !== '--core-recovered' &&
+      !isLinkArg(arg),
+  )
 }
 
 function overlapsPath(parent: string, child: string): boolean {
@@ -233,16 +254,44 @@ export async function writeDataLocationConfig(userData: string, config: DataLoca
   }
 }
 
+let cachedSelfCreatedStamp: string | null | undefined
+
+function queryWindowsProcessCreatedStamp(pid: number): string | null {
+  if (process.platform !== 'win32') return null
+  if (pid === process.pid && cachedSelfCreatedStamp !== undefined) return cachedSelfCreatedStamp
+  try {
+    const out = execFileSync(
+      WINDOWS_POWERSHELL,
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($null -ne $p) { $p.StartTime.ToFileTimeUtc().ToString() }`,
+      ],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true, env: windowsPowerShellEnv() },
+    ).trim()
+    const stamp = /^\d+$/.test(out) ? out : null
+    if (pid === process.pid) cachedSelfCreatedStamp = stamp
+    return stamp
+  } catch {
+    return null
+  }
+}
+
 export function writeMoveInProgressMarker(userData: string, sourceRoot: string, targetRoot: string): void {
   fs.mkdirSync(userData, { recursive: true })
   const file = path.join(userData, DATA_MOVE_MARKER_FILE)
+  const nowMs = Date.now()
+  const created = process.platform === 'win32' ? queryWindowsProcessCreatedStamp(process.pid) : null
   const payload = JSON.stringify(
     {
       version: 1,
       pid: process.pid,
+      ...(created ? { created } : {}),
       sourceRoot: path.resolve(sourceRoot),
       targetRoot: path.resolve(targetRoot),
-      startedAt: new Date().toISOString(),
+      startedAt: new Date(nowMs).toISOString(),
+      startedAtMs: nowMs,
     },
     null,
     2,
@@ -254,14 +303,32 @@ export function clearMoveInProgressMarker(userData: string): void {
   try { fs.unlinkSync(path.join(userData, DATA_MOVE_MARKER_FILE)) } catch { /* already absent */ }
 }
 
-export function hasActiveMoveInProgressMarker(userData: string): boolean {
+export function hasActiveMoveInProgressMarker(userData: string, nowMs: number = Date.now()): boolean {
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(userData, DATA_MOVE_MARKER_FILE), 'utf8')) as {
+    const file = path.join(userData, DATA_MOVE_MARKER_FILE)
+    const st = fs.lstatSync(file)
+    if (st.isSymbolicLink() || !st.isFile() || st.size > DATA_LOCATION_MAX_BYTES) return false
+    if (process.platform === 'win32') {
+      try { fs.readlinkSync(file); return false } catch { /* regular file */ }
+    }
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as {
       version?: unknown
       pid?: unknown
+      created?: unknown
+      startedAtMs?: unknown
     }
     if (raw.version !== 1 || typeof raw.pid !== 'number' || !Number.isSafeInteger(raw.pid) || raw.pid <= 0) return false
-    return processExists(raw.pid)
+    if (typeof raw.startedAtMs === 'number' && Number.isFinite(raw.startedAtMs)) {
+      if (nowMs - raw.startedAtMs > MAX_MOVE_MARKER_AGE_MS) return false
+    } else if (nowMs - st.mtimeMs > MAX_MOVE_MARKER_AGE_MS) {
+      return false
+    }
+    if (!processExists(raw.pid)) return false
+    if (process.platform === 'win32' && typeof raw.created === 'string' && raw.created.length > 0) {
+      const actual = queryWindowsProcessCreatedStamp(raw.pid)
+      if (!actual || actual !== raw.created) return false
+    }
+    return true
   } catch {
     return false
   }
@@ -351,11 +418,162 @@ export function requiredTargetBytes(sourceBytes: number): number {
   return sourceBytes + Math.max(MIN_FREE_MARGIN_BYTES, Math.ceil(sourceBytes * 0.1))
 }
 
+export function validateDeletablePreviousFolder(params: {
+  previousRoot: string
+  currentRoot: string
+  userData: string
+  forbiddenRoot?: string
+  installDirectory?: string
+}): { ok: true; resolvedPrev: string; realPrev: string } | { ok: false; error: string } {
+  const normalized = normalizeLocalDataPath(params.previousRoot)
+  if (!normalized) {
+    return { ok: false, error: 'Previous data folder path is not a valid local drive path.' }
+  }
+  const resolvedPrev = path.resolve(normalized)
+  if (path.dirname(resolvedPrev) === resolvedPrev) {
+    return { ok: false, error: 'Refusing to delete a bare drive or filesystem root.' }
+  }
+  const reparseTyped = findReparseAncestor(resolvedPrev)
+  if (reparseTyped) {
+    return { ok: false, error: `Refusing to delete through a symbolic link or junction (${reparseTyped}).` }
+  }
+  let realPrev: string
+  try {
+    realPrev = resolveExisting(resolvedPrev)
+  } catch (err) {
+    return { ok: false, error: `Could not resolve previous data folder: ${(err as Error).message}` }
+  }
+  if (path.dirname(realPrev) === realPrev) {
+    return { ok: false, error: 'Refusing to delete a bare drive or filesystem root.' }
+  }
+  const reparseReal = findReparseAncestor(realPrev)
+  if (reparseReal) {
+    return { ok: false, error: `Refusing to delete through a symbolic link or junction (${reparseReal}).` }
+  }
+
+  let realCurr: string
+  let realUserData: string
+  let realDefaultData: string
+  try {
+    realCurr = resolveExisting(path.resolve(params.currentRoot))
+    realUserData = resolveExisting(path.resolve(params.userData))
+    realDefaultData = resolveExisting(path.join(params.userData, 'data'))
+  } catch (err) {
+    return { ok: false, error: `Could not resolve active paths: ${(err as Error).message}` }
+  }
+
+  if (
+    overlapsPath(resolvedPrev, path.resolve(params.currentRoot)) ||
+    overlapsPath(path.resolve(params.currentRoot), resolvedPrev) ||
+    overlapsPath(realPrev, realCurr) ||
+    overlapsPath(realCurr, realPrev)
+  ) {
+    return { ok: false, error: 'Refusing to delete a folder that overlaps the active data folder.' }
+  }
+
+  const isDefaultData = canonicalPath(realPrev) === canonicalPath(realDefaultData)
+  if (!isDefaultData && (overlapsPath(realPrev, realUserData) || overlapsPath(realUserData, realPrev))) {
+    return { ok: false, error: `Refusing to delete Orgtree's settings folder (${params.userData}) or its contents.` }
+  }
+
+  if (params.forbiddenRoot) {
+    try {
+      const realForbidden = resolveExisting(path.resolve(params.forbiddenRoot))
+      if (overlapsPath(realPrev, realForbidden) || overlapsPath(realForbidden, realPrev)) {
+        return { ok: false, error: 'Refusing to delete a folder that overlaps the v1 data folder.' }
+      }
+    } catch {
+      // Ignore unreadable forbiddenRoot fallback.
+    }
+  }
+
+  if (params.installDirectory) {
+    try {
+      const realInstall = resolveExisting(path.resolve(params.installDirectory))
+      if (overlapsPath(realPrev, realInstall) || overlapsPath(realInstall, realPrev)) {
+        return { ok: false, error: "Refusing to delete a folder that overlaps Orgtree's installation folder." }
+      }
+    } catch {
+      // Ignore unreadable installDirectory fallback.
+    }
+  }
+
+  return { ok: true, resolvedPrev, realPrev }
+}
+
+function isEntryReparsePoint(fullPath: string, st: fs.Stats): boolean {
+  if (st.isSymbolicLink()) return true
+  if (process.platform === 'win32' && path.dirname(fullPath) !== fullPath) {
+    try {
+      fs.readlinkSync(fullPath)
+      return true
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+function unlinkReparseEntry(fullPath: string): void {
+  if (process.platform === 'win32') {
+    try {
+      fs.rmdirSync(fullPath)
+      return
+    } catch {
+      // Fall back to unlinkSync for file symlinks.
+    }
+  }
+  fs.unlinkSync(fullPath)
+}
+
+/** Delete a directory tree bottom-up without ever recursing through symlinks or NTFS junctions. */
+export function removeDirectoryTreeNoFollow(targetDir: string): void {
+  const resolved = path.resolve(targetDir)
+  if (!fs.existsSync(resolved)) return
+  if (path.dirname(resolved) === resolved) {
+    throw new Error(`Refusing to remove filesystem root ${resolved}`)
+  }
+  const reparse = findReparseAncestor(resolved)
+  if (reparse) {
+    throw new Error(`Refusing to remove directory through symbolic link or junction (${reparse})`)
+  }
+
+  const removeNode = (cur: string): void => {
+    const st = fs.lstatSync(cur)
+    if (isEntryReparsePoint(cur, st)) {
+      unlinkReparseEntry(cur)
+      return
+    }
+    if (st.isDirectory()) {
+      for (const name of fs.readdirSync(cur)) {
+        removeNode(path.join(cur, name))
+      }
+      try {
+        fs.rmdirSync(cur)
+      } catch {
+        try { fs.chmodSync(cur, 0o700) } catch { /* best effort */ }
+        fs.rmdirSync(cur)
+      }
+      return
+    }
+    try {
+      fs.unlinkSync(cur)
+    } catch {
+      try { fs.chmodSync(cur, 0o600) } catch { /* best effort */ }
+      fs.unlinkSync(cur)
+    }
+  }
+
+  removeNode(resolved)
+}
+
 export async function readDataLocationState(params: {
   currentRoot: string
   userData: string
   envOverride: boolean
   moving: boolean
+  forbiddenRoot?: string
+  installDirectory?: string
 }): Promise<DataLocationState> {
   const defaultRoot = path.join(params.userData, 'data')
   const currentRoot = path.resolve(params.currentRoot)
@@ -370,14 +588,24 @@ export async function readDataLocationState(params: {
     canonicalPath(cfg.previousRoot) !== canonicalPath(currentRoot) &&
     fs.existsSync(cfg.previousRoot)
   ) {
-    try {
-      if (fs.statSync(cfg.previousRoot).isDirectory()) {
-        previousRoot = cfg.previousRoot
-        previousBytes = (await measureDirectoryBytes(cfg.previousRoot)).totalBytes
+    const check = validateDeletablePreviousFolder({
+      previousRoot: cfg.previousRoot,
+      currentRoot,
+      userData: params.userData,
+      forbiddenRoot: params.forbiddenRoot,
+      installDirectory: params.installDirectory,
+    })
+    if (check.ok) {
+      try {
+        const st = fs.lstatSync(check.resolvedPrev)
+        if (!isEntryReparsePoint(check.resolvedPrev, st) && st.isDirectory()) {
+          previousRoot = cfg.previousRoot
+          previousBytes = (await measureDirectoryBytes(check.resolvedPrev)).totalBytes
+        }
+      } catch {
+        previousRoot = null
+        previousBytes = null
       }
-    } catch {
-      previousRoot = null
-      previousBytes = null
     }
   }
 
@@ -439,11 +667,17 @@ export async function preflightDataLocation(params: {
   }
 
   const rawPick = typeof params.pickedPath === 'string' ? params.pickedPath.trim() : ''
-  if (!rawPick || !path.isAbsolute(rawPick)) {
-    return baseFail(rawPick, rawPick, false, 'Choose an absolute local folder path.')
+  const normalizedPick = normalizeLocalDataPath(rawPick)
+  if (!rawPick || !normalizedPick) {
+    return baseFail(
+      rawPick,
+      rawPick,
+      false,
+      'Choose an absolute local drive-letter folder path (network UNC and device paths are not supported).',
+    )
   }
 
-  const pickedPath = path.resolve(rawPick)
+  const pickedPath = path.resolve(normalizedPick)
   const currentRoot = path.resolve(params.currentRoot)
   const defaultRoot = path.resolve(path.join(params.userData, 'data'))
   const userData = path.resolve(params.userData)
@@ -951,6 +1185,7 @@ export interface ExecuteDataLocationMoveParams {
   signal?: AbortSignal
   onProgress?: (progress: DataLocationProgress) => void
   trustCheck?: (file: string) => Promise<DescriptorOwner>
+  prevalidatedPreflight?: DataLocationPreflight
   stopOldEngine: () => Promise<boolean>
   startAndVerifyNewEngine: (newRoot: string) => Promise<void>
   restartOldEngineOnRollback: (oldRoot: string) => Promise<void>
@@ -962,15 +1197,17 @@ export interface ExecuteDataLocationMoveParams {
  *  start & verify new engine -> optional old-folder cleanup (or full rollback on any error/cancel). */
 export async function executeDataLocationMove(params: ExecuteDataLocationMoveParams): Promise<DataLocationMoveResult> {
   const { options, currentRoot, userData, signal, onProgress } = params
-  const preflight = await preflightDataLocation({
-    pickedPath: options.targetPath,
-    currentRoot,
-    userData,
-    forbiddenRoot: params.forbiddenRoot,
-    installDirectory: params.installDirectory,
-    envOverride: params.envOverride,
-    trustCheck: params.trustCheck,
-  })
+  const preflight =
+    params.prevalidatedPreflight ??
+    (await preflightDataLocation({
+      pickedPath: options.targetPath,
+      currentRoot,
+      userData,
+      forbiddenRoot: params.forbiddenRoot,
+      installDirectory: params.installDirectory,
+      envOverride: params.envOverride,
+      trustCheck: params.trustCheck,
+    }))
   if (!preflight.ok) {
     return { ok: false, error: preflight.error ?? 'Target folder failed preflight validation.' }
   }
@@ -1049,9 +1286,16 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
         bytesCopied: copied.bytesCopied,
         totalBytes: copied.bytesCopied,
       })
-      if (!isRootLockHeld(oldRoot)) {
+      const validOld = validateDeletablePreviousFolder({
+        previousRoot: oldRoot,
+        currentRoot: newRoot,
+        userData,
+        forbiddenRoot: params.forbiddenRoot,
+        installDirectory: params.installDirectory,
+      })
+      if (validOld.ok && !isRootLockHeld(validOld.resolvedPrev)) {
         try {
-          fs.rmSync(oldRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
+          removeDirectoryTreeNoFollow(validOld.resolvedPrev)
         } catch {
           // If an external handle kept a file open, keep previousRoot in data-location.json so Settings offers Delete previous folder.
         }
@@ -1075,7 +1319,11 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
   } catch (err) {
     const cancelled = !!signal?.aborted || (err instanceof Error && err.message === 'Data move cancelled')
     if (!verifiedNew) {
-      emit('rolling-back', false, cancelled ? 'Move cancelled. Restoring previous data folder…' : 'Move did not complete. Restoring previous data folder…')
+      try {
+        emit('rolling-back', false, cancelled ? 'Move cancelled. Restoring previous data folder…' : 'Move did not complete. Restoring previous data folder…')
+      } catch {
+        // Never allow a progress listener failure to skip rollback cleanup or engine restart.
+      }
       if (switchedConfig) {
         try {
           await writeDataLocationConfig(userData, priorConfig)
@@ -1084,13 +1332,23 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
         }
       }
       clearMoveInProgressMarker(userData)
-      // Clean partial target folder; never touch oldRoot!
+      // Clean partial target folder without traversing symlinks/junctions; never touch oldRoot!
       try {
-        if (!newExistedBefore) {
-          fs.rmSync(newRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
-        } else if (fs.existsSync(newRoot)) {
-          for (const entry of fs.readdirSync(newRoot)) {
-            fs.rmSync(path.join(newRoot, entry), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
+        if (!findReparseAncestor(newRoot)) {
+          if (!newExistedBefore) {
+            removeDirectoryTreeNoFollow(newRoot)
+          } else if (fs.existsSync(newRoot)) {
+            for (const entry of fs.readdirSync(newRoot)) {
+              const child = path.join(newRoot, entry)
+              const st = fs.lstatSync(child)
+              if (isEntryReparsePoint(child, st)) {
+                unlinkReparseEntry(child)
+              } else if (st.isDirectory()) {
+                removeDirectoryTreeNoFollow(child)
+              } else {
+                fs.unlinkSync(child)
+              }
+            }
           }
         }
       } catch {
@@ -1113,23 +1371,31 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
 export async function deletePreviousDataLocationFolder(params: {
   userData: string
   currentRoot: string
+  forbiddenRoot?: string
+  installDirectory?: string
 }): Promise<{ ok: boolean; error?: string }> {
   const cfg = readDataLocationConfig(params.userData)
   const previousRoot = cfg?.previousRoot
   if (!previousRoot) {
     return { ok: false, error: 'No previous data folder is recorded.' }
   }
-  const resolvedPrev = path.resolve(previousRoot)
-  const resolvedCurr = path.resolve(params.currentRoot)
-  if (overlapsPath(resolvedPrev, resolvedCurr) || overlapsPath(resolvedCurr, resolvedPrev)) {
-    return { ok: false, error: 'Refusing to delete a folder that overlaps the active data folder.' }
+  const valid = validateDeletablePreviousFolder({
+    previousRoot,
+    currentRoot: params.currentRoot,
+    userData: params.userData,
+    forbiddenRoot: params.forbiddenRoot,
+    installDirectory: params.installDirectory,
+  })
+  if (!valid.ok) {
+    return { ok: false, error: valid.error }
   }
+  const { resolvedPrev } = valid
   if (isRootLockHeld(resolvedPrev)) {
     return { ok: false, error: 'Another process is still holding a lock inside the previous data folder.' }
   }
   if (fs.existsSync(resolvedPrev)) {
     try {
-      fs.rmSync(resolvedPrev, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
+      removeDirectoryTreeNoFollow(resolvedPrev)
     } catch (err) {
       return { ok: false, error: `Could not delete ${resolvedPrev}: ${(err as Error).message}` }
     }
@@ -1148,6 +1414,309 @@ export async function deletePreviousDataLocationFolder(params: {
       : null,
   )
   return { ok: true }
+}
+
+export interface ResolveMissingDataLocationParams {
+  action: 'choose' | 'default'
+  pickedPath?: string
+  configuredRoot: string
+  defaultDataFolder: string
+  userData: string
+  forbiddenRoot: string
+  installDirectory?: string
+  trustCheck?: (fileOrDir: string) => Promise<DescriptorOwner>
+  confirmBlankFolder: (folder: string) => Promise<boolean>
+}
+
+export type ResolveMissingDataLocationResult =
+  | { ok: true; dataRoot: string; stampedRelocation: boolean }
+  | { ok: false; cancelled?: boolean; error?: string }
+
+/** Validate and persist a recovery choice from the startup missing-data-folder dialog. */
+export async function resolveMissingDataLocationChoice(
+  params: ResolveMissingDataLocationParams,
+): Promise<ResolveMissingDataLocationResult> {
+  const defaultRoot = path.resolve(params.defaultDataFolder)
+  const userData = path.resolve(params.userData)
+
+  if (params.action === 'default') {
+    const hasCluster = fs.existsSync(path.join(defaultRoot, 'pg', 'cluster', 'data', 'PG_VERSION'))
+    if (!hasCluster) {
+      const proceed = await params.confirmBlankFolder(defaultRoot)
+      if (!proceed) return { ok: false, cancelled: true }
+    }
+    const currentCfg = readDataLocationConfig(userData)
+    const previousRoot =
+      currentCfg?.previousRoot && canonicalPath(currentCfg.previousRoot) !== canonicalPath(defaultRoot)
+        ? currentCfg.previousRoot
+        : undefined
+    await writeDataLocationConfig(
+      userData,
+      previousRoot
+        ? {
+            version: 1,
+            dataRoot: defaultRoot,
+            previousRoot,
+            ...(currentCfg?.movedAt ? { movedAt: currentCfg.movedAt } : {}),
+          }
+        : null,
+    )
+    return { ok: true, dataRoot: defaultRoot, stampedRelocation: false }
+  }
+
+  const normalizedPick = normalizeLocalDataPath(params.pickedPath ?? '')
+  if (!normalizedPick) {
+    return {
+      ok: false,
+      error: 'Choose an absolute local drive-letter folder path (network UNC and device paths are not supported).',
+    }
+  }
+  const picked = path.resolve(normalizedPick)
+  const reparsePicked = findReparseAncestor(picked)
+  if (reparsePicked) {
+    return {
+      ok: false,
+      error: `Orgtree cannot store its data inside a symbolic link or junction (${reparsePicked}). Choose a real local folder.`,
+    }
+  }
+  if (!fs.existsSync(picked)) {
+    return { ok: false, error: `${picked} does not exist.` }
+  }
+  let pickedStat: fs.Stats
+  try {
+    pickedStat = fs.lstatSync(picked)
+  } catch (err) {
+    return { ok: false, error: `Could not inspect ${picked}: ${(err as Error).message}` }
+  }
+  if (isEntryReparsePoint(picked, pickedStat) || !pickedStat.isDirectory()) {
+    return { ok: false, error: `${picked} is not a real local directory.` }
+  }
+
+  let chosenRoot = picked
+  const directCluster = path.join(picked, 'pg', 'cluster', 'data', 'PG_VERSION')
+  if (!fs.existsSync(directCluster)) {
+    const candidateSub = path.join(picked, DATA_LOCATION_SUBFOLDER)
+    if (
+      !findReparseAncestor(candidateSub) &&
+      fs.existsSync(path.join(candidateSub, 'pg', 'cluster', 'data', 'PG_VERSION'))
+    ) {
+      chosenRoot = candidateSub
+    }
+  }
+
+  const reparseChosen = findReparseAncestor(chosenRoot)
+  if (reparseChosen) {
+    return {
+      ok: false,
+      error: `Orgtree cannot store its data inside a symbolic link or junction (${reparseChosen}). Choose a real local folder.`,
+    }
+  }
+
+  try {
+    validateDataRoot(chosenRoot, params.forbiddenRoot)
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+
+  let canonChosen: string
+  let canonUserData: string
+  let canonDefault: string
+  let realChosen: string
+  try {
+    canonChosen = resolveExisting(chosenRoot)
+    canonUserData = resolveExisting(userData)
+    canonDefault = resolveExisting(defaultRoot)
+    realChosen = fs.realpathSync.native(chosenRoot)
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+
+  if (
+    (overlapsPath(canonUserData, canonChosen) || overlapsPath(canonChosen, canonUserData)) &&
+    canonicalPath(canonChosen) !== canonicalPath(canonDefault)
+  ) {
+    return {
+      ok: false,
+      error: `Choose a folder outside Orgtree's settings folder (${userData}), or click "Use default location".`,
+    }
+  }
+
+  if (params.installDirectory) {
+    try {
+      const canonInstall = resolveExisting(path.resolve(params.installDirectory))
+      if (overlapsPath(canonInstall, canonChosen) || overlapsPath(canonChosen, canonInstall)) {
+        return {
+          ok: false,
+          error: `The data folder cannot overlap Orgtree's installation folder (${params.installDirectory}).`,
+        }
+      }
+    } catch {
+      // Ignore unreadable installDirectory fallback.
+    }
+  }
+
+  const reparseReal = findReparseAncestor(realChosen)
+  if (reparseReal) {
+    return {
+      ok: false,
+      error: `Orgtree cannot store its data inside a symbolic link or junction (${reparseReal}). Choose a real local folder.`,
+    }
+  }
+
+  const checkDir = async (dir: string): Promise<DescriptorOwner> =>
+    params.trustCheck ? params.trustCheck(path.join(dir, 'engine-attach.json')) : verifyDataFolderTrust(dir)
+
+  for (const candidateDir of new Set([chosenRoot, realChosen])) {
+    const trust = await checkDir(candidateDir)
+    if (!trust.ok) {
+      return {
+        ok: false,
+        error: trust.unsafeFolder
+          ? unsafeDescriptorMessage(trust)
+          : `Folder permissions failed security verification: ${trust.detail}`,
+      }
+    }
+  }
+
+  const hasCluster = fs.existsSync(path.join(chosenRoot, 'pg', 'cluster', 'data', 'PG_VERSION'))
+  if (!hasCluster) {
+    const proceed = await params.confirmBlankFolder(chosenRoot)
+    if (!proceed) return { ok: false, cancelled: true }
+  }
+
+  const currentCfg = readDataLocationConfig(userData)
+  const movedAt = new Date().toISOString()
+  const stampedRelocation = hasCluster && canonicalPath(chosenRoot) !== canonicalPath(params.configuredRoot)
+  if (stampedRelocation) {
+    stampDataLocationMoved(params.configuredRoot, chosenRoot, movedAt)
+  }
+  const previousRoot =
+    currentCfg?.previousRoot && canonicalPath(currentCfg.previousRoot) !== canonicalPath(chosenRoot)
+      ? currentCfg.previousRoot
+      : undefined
+
+  await writeDataLocationConfig(
+    userData,
+    canonicalPath(chosenRoot) === canonicalPath(defaultRoot) && !previousRoot
+      ? null
+      : {
+          version: 1,
+          dataRoot: chosenRoot,
+          ...(previousRoot ? { previousRoot } : {}),
+          movedAt,
+        },
+  )
+  return { ok: true, dataRoot: chosenRoot, stampedRelocation }
+}
+
+export interface DesktopMoveCoreLifecycle {
+  transition: (planned: boolean) => Promise<unknown>
+  complete: () => Promise<unknown>
+  start: () => void
+  stop: () => void
+}
+
+export interface OrchestrateDesktopDataMoveParams {
+  options: DataLocationMoveOptions
+  currentRoot: string
+  userData: string
+  forbiddenRoot: string
+  installDirectory?: string
+  envOverride?: boolean
+  signal?: AbortSignal
+  trustCheck?: (file: string) => Promise<DescriptorOwner>
+  resolveMoveTopology: () => Promise<'boot' | 'managed' | 'unknown'>
+  unreadableTasksMessage?: string
+  coreLifecycle?: DesktopMoveCoreLifecycle
+  prepareUiForMove: () => Promise<{
+    closeMoveWindow: () => void
+    onProgress?: (progress: DataLocationProgress) => void
+  }>
+  stopEngineForMove: (topology: 'boot' | 'managed') => Promise<boolean>
+  startAndVerifyNewEngine: (newRoot: string, topology: 'boot' | 'managed') => Promise<void>
+  restartOldEngineOnRollback: (oldRoot: string, topology: 'boot' | 'managed') => Promise<void>
+  finishSuccessfulMove: () => void
+  restoreAfterFailedOrCancelledMove: (outcome: DataLocationMoveResult) => Promise<void>
+}
+
+/** High-level desktop move coordinator:
+ *  validates preflight and Windows scheduled-task topology BEFORE tearing down windows,
+ *  uses `CoreLifecycle.transition(true)` (never `cancelRecovery()`), and guarantees
+ *  window restoration on any rollback or unexpected exception. */
+export async function orchestrateDesktopDataMove(
+  params: OrchestrateDesktopDataMoveParams,
+): Promise<DataLocationMoveResult> {
+  const preflight = await preflightDataLocation({
+    pickedPath: params.options.targetPath,
+    currentRoot: params.currentRoot,
+    userData: params.userData,
+    forbiddenRoot: params.forbiddenRoot,
+    installDirectory: params.installDirectory,
+    envOverride: params.envOverride,
+    trustCheck: params.trustCheck,
+  })
+  if (!preflight.ok) {
+    return { ok: false, error: preflight.error ?? 'Target folder failed preflight validation.' }
+  }
+
+  const topology = await params.resolveMoveTopology()
+  if (topology === 'unknown') {
+    return {
+      ok: false,
+      error: params.unreadableTasksMessage ?? 'Scheduled tasks could not be verified.',
+    }
+  }
+
+  const ui = await params.prepareUiForMove()
+  try {
+    const outcome = await executeDataLocationMove({
+      options: params.options,
+      currentRoot: params.currentRoot,
+      userData: params.userData,
+      forbiddenRoot: params.forbiddenRoot,
+      installDirectory: params.installDirectory,
+      envOverride: params.envOverride,
+      signal: params.signal,
+      trustCheck: params.trustCheck,
+      prevalidatedPreflight: preflight,
+      onProgress: ui.onProgress,
+      stopOldEngine: async () => {
+        if (params.coreLifecycle) {
+          if (topology === 'boot') {
+            await params.coreLifecycle.transition(true)
+          }
+          params.coreLifecycle.stop()
+        }
+        return params.stopEngineForMove(topology)
+      },
+      startAndVerifyNewEngine: newRoot => params.startAndVerifyNewEngine(newRoot, topology),
+      restartOldEngineOnRollback: oldRoot => params.restartOldEngineOnRollback(oldRoot, topology),
+    })
+    ui.closeMoveWindow()
+    if (outcome.ok) {
+      params.coreLifecycle?.stop()
+      params.finishSuccessfulMove()
+      return outcome
+    }
+    if (topology === 'boot' && params.coreLifecycle) {
+      await params.coreLifecycle.complete().catch(() => {})
+    }
+    params.coreLifecycle?.start()
+    await params.restoreAfterFailedOrCancelledMove(outcome)
+    return outcome
+  } catch (err) {
+    ui.closeMoveWindow()
+    if (topology === 'boot' && params.coreLifecycle) {
+      await params.coreLifecycle.complete().catch(() => {})
+    }
+    params.coreLifecycle?.start()
+    const failOutcome: DataLocationMoveResult = {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+    await params.restoreAfterFailedOrCancelledMove(failOutcome)
+    return failOutcome
+  }
 }
 
 const escapeHtml = (text: string) =>

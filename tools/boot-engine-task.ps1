@@ -115,14 +115,20 @@ function Get-OperatorDataRoot([string]$Sid) {
 function Read-DataLocationChoice([string]$File) {
     try {
         if (-not [IO.File]::Exists($File)) { return $null }
-        $attr = [IO.File]::GetAttributes($File)
-        if (([int]$attr -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) { return $null }
+        $item = Get-Item -LiteralPath $File -Force -ErrorAction Stop
+        if (([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) { return $null }
+        if ($item.Length -gt 16384) { return $null }
         $parsed = [IO.File]::ReadAllText($File) | ConvertFrom-Json
-        if ($null -eq $parsed -or [int]$parsed.version -ne 1) { return $null }
-        $raw = ([string]$parsed.dataRoot).Trim()
+        if ($null -eq $parsed) { return $null }
+        $verProp = $parsed.PSObject.Properties['version']
+        $rootProp = $parsed.PSObject.Properties['dataRoot']
+        if ($null -eq $verProp -or [int]$verProp.Value -ne 1 -or $null -eq $rootProp -or $null -eq $rootProp.Value) { return $null }
+        $raw = ([string]$rootProp.Value).Trim()
         if (-not $raw) { return $null }
+        if ($raw.StartsWith('\\') -and $raw -notmatch '^\\\\\?\\[A-Za-z]:[\\/]') { return $null }
         if ($raw.StartsWith('\\?\')) { $raw = $raw.Substring(4) }
-        if (-not [IO.Path]::IsPathRooted($raw)) { return $null }
+        if ($raw -notmatch '^[A-Za-z]:[\\/]') { return $null }
+        if (($raw -split '[\\/]+') -contains '..') { return $null }
         return [IO.Path]::GetFullPath($raw)
     } catch { return $null }
 }

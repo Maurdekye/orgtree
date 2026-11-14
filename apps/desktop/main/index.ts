@@ -30,7 +30,18 @@ import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_
 import { canonicalPath, closeAction, CONVERSION_FAILED, HARNESS_LINKS, isDataRootFromEnv, readDataLocationConfig, resolveDataRoot, shellQuote, TOKEN_HEADER, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
 import { DataMoveWindow } from './data-move-window'
-import { deletePreviousDataLocationFolder, executeDataLocationMove, preflightDataLocation, readDataLocationState, writeDataLocationConfig } from './datalocation'
+import {
+  clearMoveInProgressMarker,
+  DATA_LOCATION_MOVED_STAMP,
+  deletePreviousDataLocationFolder,
+  findReparseAncestor,
+  interactiveRelaunchArgs,
+  orchestrateDesktopDataMove,
+  preflightDataLocation,
+  readDataLocationState,
+  resolveMissingDataLocationChoice,
+  validateDeletablePreviousFolder,
+} from './datalocation'
 import { configureArtifactSession, configureEngineSession, configureWindow, forgetSealedSession, popoutRegistry, resealSandboxedSessions, revealPopout, sandboxSealed, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
 import { artifactThemeKeeper } from './frametheme'
 import { panelCount, samplePanels } from './panel-runtime'
@@ -115,8 +126,14 @@ const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refus
 /** app.relaunch(), except from an AppImage, where it would re-run a file
  *  inside this run's mount (see appImageRelaunch). Called before app.quit()
  *  or app.exit(), like app.relaunch(). `args` are for the AppImage only. */
-const relaunchApp = (args: string[] = []) => {
-  if (!linuxAppImage) return app.relaunch({ args: process.argv.slice(1).filter(arg => !arg.startsWith('--orgtree-taskbar=') && !isOrgtreeLinkArg(arg)) })
+const relaunchApp = (args: string[] = [], options?: { interactive?: boolean }) => {
+  if (!linuxAppImage) {
+    return app.relaunch({
+      args: options?.interactive
+        ? interactiveRelaunchArgs(process.argv.slice(1), isOrgtreeLinkArg)
+        : process.argv.slice(1).filter(arg => !arg.startsWith('--orgtree-taskbar=') && !isOrgtreeLinkArg(arg)),
+    })
+  }
   const command = appImageRelaunch(linuxAppImage, process.pid, args)
   const child = spawnProcess(command.file, command.args, { detached: true, stdio: 'ignore', cwd: os.homedir(), env: appImageRelaunchEnv(process.env) })
   child.on('error', error => console.warn('The AppImage could not be relaunched', error))
@@ -179,6 +196,7 @@ else if (installerUpgradeRequested) {
   })
 }
 else {
+  clearMoveInProgressMarker(app.getPath('userData'))
   let tray: Tray | undefined, preferences: Preferences
   let attentionTotal = 0   // everything waiting on the user, over all orgs (the org list's badges, summed)
   // ------------------------------------------------------- the main windows
@@ -2459,25 +2477,40 @@ else {
       // the UI) or a development run names it with ORGTREE_ENGINE_BIN.
       const rustEngine = process.env.ORGTREE_ENGINE_BIN
         || (app.isPackaged ? path.join(directory, exeName('orgtree-engine')) : '')
+      const defaultDataFolder = path.join(app.getPath('userData'), 'data')
+      const isCustomRoot = (candidateRoot: string) =>
+        !isDataRootFromEnv() &&
+        readDataLocationConfig(app.getPath('userData')) !== null &&
+        canonicalPath(candidateRoot) !== canonicalPath(defaultDataFolder)
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
         binary: rustEngine && fs.existsSync(rustEngine) ? rustEngine : undefined,
         python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
+        customDataRoot: false,
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer'),
         launchBackground: undefined as EngineOptions['launchBackground'] }
+      engineOptions.customDataRoot = isCustomRoot(engineOptions.dataRoot)
       // Never create a blank database when a configured custom data location is
       // unmounted or missing at startup (Q6): let the user reconnect the drive,
       // pick another folder, switch back to default, or quit.
-      const defaultDataFolder = path.join(app.getPath('userData'), 'data')
+      const confirmBlankDataFolder = async (folder: string): Promise<boolean> => {
+        const { response: blankChoice } = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Start fresh in this folder', 'Back'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+          message: 'No existing Orgtree database was found in that folder.',
+          detail: `${folder} does not contain an Orgtree PostgreSQL cluster yet.\n\nContinuing will start with a blank database there instead of your existing organizations.`,
+        })
+        return blankChoice === 0
+      }
       while (
-        !isDataRootFromEnv() &&
-        readDataLocationConfig(app.getPath('userData')) !== null &&
-        canonicalPath(engineOptions.dataRoot) !== canonicalPath(defaultDataFolder) &&
+        isCustomRoot(engineOptions.dataRoot) &&
         !fs.existsSync(engineOptions.dataRoot)
       ) {
-        const currentCfg = readDataLocationConfig(app.getPath('userData'))
         const { response } = await dialog.showMessageBox({
           type: 'warning',
           buttons: ['Retry', 'Choose folder…', 'Use default location', 'Quit'],
@@ -2490,22 +2523,47 @@ else {
         if (response === 0) continue
         if (response === 1) {
           const picked = await pickNativeFolder(dialog, undefined, undefined, path.dirname(engineOptions.dataRoot))
-          if (picked && fs.existsSync(picked)) {
-            await writeDataLocationConfig(app.getPath('userData'), { version: 1, dataRoot: picked, ...(currentCfg?.previousRoot ? { previousRoot: currentCfg.previousRoot } : {}), movedAt: new Date().toISOString() })
-            engineOptions.dataRoot = picked
+          if (!picked) continue
+          const choice = await resolveMissingDataLocationChoice({
+            action: 'choose',
+            pickedPath: picked,
+            configuredRoot: engineOptions.dataRoot,
+            defaultDataFolder,
+            userData: app.getPath('userData'),
+            forbiddenRoot: engineOptions.forbiddenRoot,
+            installDirectory: app.isPackaged ? installDirectory() : undefined,
+            confirmBlankFolder: confirmBlankDataFolder,
+          })
+          if (choice.ok) {
+            engineOptions.dataRoot = choice.dataRoot
+            engineOptions.customDataRoot = isCustomRoot(choice.dataRoot)
             break
+          }
+          if (!choice.cancelled && choice.error) {
+            await dialog.showMessageBox({
+              type: 'error',
+              message: 'That folder cannot be used as Orgtree’s data location.',
+              detail: choice.error,
+            })
           }
           continue
         }
         if (response === 2) {
-          await writeDataLocationConfig(
-            app.getPath('userData'),
-            currentCfg?.previousRoot
-              ? { version: 1, dataRoot: defaultDataFolder, previousRoot: currentCfg.previousRoot }
-              : null,
-          )
-          engineOptions.dataRoot = defaultDataFolder
-          break
+          const choice = await resolveMissingDataLocationChoice({
+            action: 'default',
+            configuredRoot: engineOptions.dataRoot,
+            defaultDataFolder,
+            userData: app.getPath('userData'),
+            forbiddenRoot: engineOptions.forbiddenRoot,
+            installDirectory: app.isPackaged ? installDirectory() : undefined,
+            confirmBlankFolder: confirmBlankDataFolder,
+          })
+          if (choice.ok) {
+            engineOptions.dataRoot = choice.dataRoot
+            engineOptions.customDataRoot = false
+            break
+          }
+          continue
         }
         quitConfirmed = true
         quitComplete = true
@@ -2760,6 +2818,8 @@ else {
           userData: app.getPath('userData'),
           envOverride: isDataRootFromEnv(),
           moving: dataMoveInFlight,
+          forbiddenRoot: engineOptions.forbiddenRoot,
+          installDirectory: app.isPackaged ? installDirectory() : undefined,
         }))
       handle('desktop:data-location-choose', (caller, defaultPath, popoutName) =>
         pickNativeFolder(
@@ -2788,17 +2848,36 @@ else {
         deletePreviousDataLocationFolder({
           userData: app.getPath('userData'),
           currentRoot: engineOptions.dataRoot,
+          forbiddenRoot: engineOptions.forbiddenRoot,
+          installDirectory: app.isPackaged ? installDirectory() : undefined,
         }))
       handleApp('desktop:data-location-open', async (which: unknown) => {
         if (which !== 'current' && which !== 'previous') {
           return { ok: false, error: 'Invalid folder target.' }
         }
-        const dir = which === 'current'
-          ? engineOptions.dataRoot
-          : readDataLocationConfig(app.getPath('userData'))?.previousRoot
-        if (!dir) return { ok: false, error: 'No folder is recorded for that selection.' }
+        let dir: string | undefined
+        if (which === 'current') {
+          dir = engineOptions.dataRoot
+          if (!dir) return { ok: false, error: 'No folder is recorded for that selection.' }
+          if (findReparseAncestor(dir)) {
+            return { ok: false, error: 'Refusing to open a symbolic link or junction.' }
+          }
+        } else {
+          const prev = readDataLocationConfig(app.getPath('userData'))?.previousRoot
+          if (!prev) return { ok: false, error: 'No folder is recorded for that selection.' }
+          const valid = validateDeletablePreviousFolder({
+            previousRoot: prev,
+            currentRoot: engineOptions.dataRoot,
+            userData: app.getPath('userData'),
+            forbiddenRoot: engineOptions.forbiddenRoot,
+            installDirectory: app.isPackaged ? installDirectory() : undefined,
+          })
+          if (!valid.ok) return { ok: false, error: valid.error }
+          dir = valid.resolvedPrev
+        }
         try {
-          if (!(await fs.promises.stat(dir)).isDirectory()) {
+          const lst = await fs.promises.lstat(dir)
+          if (lst.isSymbolicLink() || !lst.isDirectory()) {
             return { ok: false, error: `${dir} is not a directory.` }
           }
           const error = await shell.openPath(dir)
@@ -2821,30 +2900,17 @@ else {
         if (!await confirmDiscardBeforeQuit()) {
           return { ok: false, cancelled: true }
         }
-        await bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
-        const savedWindows = [...records.values()]
-          .filter(record => !record.window.isDestroyed())
-          .map(record => ({
-            kind: windows.get(record.id)?.kind ?? ('homepage' as OrgWindowKind),
-            org: windows.get(record.id)?.org,
-            bounds: record.window.getBounds(),
-            visible: record.window.isVisible(),
-          }))
-        captureOpenWindowsForShutdown()
         dataMoveInFlight = true
         dataMoveAbort = new AbortController()
         rebuildTray()
-        if (poll) { clearInterval(poll); poll = undefined }
-        trayPopupSeq++; closeTrayPopup()
-        const moveWindow = new DataMoveWindow(iconPath, () => dataMoveAbort?.abort())
-        for (const record of [...records.values()]) {
-          record.tearingDown = true
-          for (const child of record.owned) if (!child.isDestroyed()) child.destroy()
-          if (!record.window.isDestroyed()) record.window.destroy()
-        }
-        let moveTopology: 'boot' | 'managed' | 'unknown' = 'managed'
+        let savedWindows: Array<{
+          kind: OrgWindowKind
+          org: string | undefined
+          bounds: Electron.Rectangle
+          visible: boolean
+        }> = []
         try {
-          const outcome = await executeDataLocationMove({
+          return await orchestrateDesktopDataMove({
             options: { targetPath: opts.targetPath, deletePrevious: opts.deletePrevious },
             currentRoot: engineOptions.dataRoot,
             userData: app.getPath('userData'),
@@ -2852,32 +2918,55 @@ else {
             installDirectory: app.isPackaged ? installDirectory() : undefined,
             envOverride: isDataRootFromEnv(),
             signal: dataMoveAbort.signal,
-            onProgress: progress => {
-              moveWindow.update(progress)
-              broadcastAll({ type: 'data-location-progress', data: progress })
-            },
-            stopOldEngine: async () => {
-              if (process.platform === 'win32' && engineOptions.binary) {
-                moveTopology = route(await readStartupTasks().catch(() => null), app.isPackaged)
-                if (moveTopology === 'unknown') throw new Error(UNREADABLE_TASKS)
+            resolveMoveTopology: async () =>
+              process.platform === 'win32' && engineOptions.binary
+                ? route(await readStartupTasks().catch(() => null), app.isPackaged)
+                : 'managed',
+            unreadableTasksMessage: UNREADABLE_TASKS,
+            coreLifecycle,
+            prepareUiForMove: async () => {
+              await bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
+              savedWindows = [...records.values()]
+                .filter(record => !record.window.isDestroyed())
+                .map(record => ({
+                  kind: windows.get(record.id)?.kind ?? ('homepage' as OrgWindowKind),
+                  org: windows.get(record.id)?.org,
+                  bounds: record.window.getBounds(),
+                  visible: record.window.isVisible(),
+                }))
+              captureOpenWindowsForShutdown()
+              if (poll) { clearInterval(poll); poll = undefined }
+              trayPopupSeq++; closeTrayPopup()
+              const moveWindow = new DataMoveWindow(iconPath, () => dataMoveAbort?.abort())
+              for (const record of [...records.values()]) {
+                record.tearingDown = true
+                for (const child of record.owned) if (!child.isDestroyed()) child.destroy()
+                if (!record.window.isDestroyed()) record.window.destroy()
               }
-              if (coreLifecycle) {
-                await coreLifecycle.cancelRecovery()
-                coreLifecycle.stop()
+              return {
+                closeMoveWindow: () => moveWindow.close(),
+                onProgress: progress => {
+                  moveWindow.update(progress)
+                  broadcastAll({ type: 'data-location-progress', data: progress })
+                },
               }
-              return engine.stopGracefullyForInstaller(90000)
             },
-            startAndVerifyNewEngine: async newRoot => {
+            stopEngineForMove: async () => engine.stopGracefullyForInstaller(90000),
+            startAndVerifyNewEngine: async (newRoot, moveTopology) => {
+              const newRootIsCustom = !isDataRootFromEnv() && canonicalPath(newRoot) !== canonicalPath(defaultDataFolder)
               if (moveTopology === 'boot') {
                 await startEngineTask()
                 const verifier = new Engine()
-                const bootOpts = { ...engineOptions, dataRoot: newRoot }
+                const bootOpts = { ...engineOptions, dataRoot: newRoot, customDataRoot: newRootIsCustom }
                 if (!await verifier.attachWithRetry(bootOpts, 180000)) {
                   throw new Error(
                     verifier.attachUnsafeMessage ||
                     verifier.attachDiagnostic ||
                     'The background engine did not publish a verified attachment at the new data folder in time.',
                   )
+                }
+                if (fs.existsSync(path.join(newRoot, DATA_LOCATION_MOVED_STAMP))) {
+                  throw new Error('The background engine started without completing data-location path relocation.')
                 }
                 return
               }
@@ -2887,7 +2976,7 @@ else {
                 await enableBootEngine(updatedBoot)
               }
               const verifier = new Engine()
-              const verifyOpts = { ...engineOptions, dataRoot: newRoot, timeoutMs: 180000, launchBackground: undefined }
+              const verifyOpts = { ...engineOptions, dataRoot: newRoot, customDataRoot: newRootIsCustom, timeoutMs: 180000, launchBackground: undefined }
               await verifier.start(verifyOpts)
               try {
                 const realNew = fs.realpathSync.native(newRoot)
@@ -2901,64 +2990,67 @@ else {
                 if (body.protocol !== 1 || typeof body.dataRootId !== 'string' || canonicalPath(body.dataRootId) !== canonicalPath(realNew)) {
                   throw new Error('New engine reported a mismatched data folder identity.')
                 }
+                if (fs.existsSync(path.join(newRoot, DATA_LOCATION_MOVED_STAMP))) {
+                  throw new Error('New engine started without completing data-location path relocation.')
+                }
               } finally {
                 await verifier.stopForQuit().catch(() => {})
               }
             },
-            restartOldEngineOnRollback: async oldRoot => {
-              const oldOpts = { ...engineOptions, dataRoot: oldRoot }
+            restartOldEngineOnRollback: async (oldRoot, moveTopology) => {
+              const oldOpts = { ...engineOptions, dataRoot: oldRoot, customDataRoot: isCustomRoot(oldRoot) }
               if (moveTopology === 'boot') {
                 await startEngineTask()
                 await engine.reattachBackground(oldOpts, 120000)
               } else {
+                if (unixBootInputs && preferences.get().startAtLogin) {
+                  const restoredBoot = { ...unixBootInputs, dataRoot: oldRoot }
+                  unixBootInputs = restoredBoot
+                  await enableBootEngine(restoredBoot).catch(() => {})
+                }
                 await engine.restart(oldOpts)
               }
             },
-          })
-          moveWindow.close()
-          if (outcome.ok) {
-            quitConfirmed = true
-            quitComplete = true
-            quitting = true
-            tray?.destroy()
-            relaunchApp()
-            app.quit()
-            return outcome
-          }
-          dataMoveInFlight = false
-          dataMoveAbort = null
-          coreLifecycle?.start()
-          restartPoll?.()
-          rebuildTray()
-          const toReopen = savedWindows.length ? savedWindows : [{ kind: 'homepage' as OrgWindowKind, org: undefined, bounds: undefined, visible: true }]
-          for (const win of toReopen) {
-            try {
-              const reopened = await createMainWindow?.({ kind: win.kind, org: win.org })
-              if (reopened) {
-                if (win.bounds) reopened.window.setBounds(win.bounds)
-                if (win.visible) revealWindow(reopened)
+            finishSuccessfulMove: () => {
+              quitConfirmed = true
+              quitComplete = true
+              quitting = true
+              tray?.destroy()
+              relaunchApp([], { interactive: true })
+              app.quit()
+            },
+            restoreAfterFailedOrCancelledMove: async outcome => {
+              dataMoveInFlight = false
+              dataMoveAbort = null
+              restartPoll?.()
+              rebuildTray()
+              const toReopen = savedWindows.length ? savedWindows : [{ kind: 'homepage' as OrgWindowKind, org: undefined, bounds: undefined, visible: true }]
+              for (const win of toReopen) {
+                try {
+                  const reopened = await createMainWindow?.({ kind: win.kind, org: win.org })
+                  if (reopened) {
+                    if (win.bounds) reopened.window.setBounds(win.bounds)
+                    if (win.visible) revealWindow(reopened)
+                  }
+                } catch (err) {
+                  console.warn('Could not reopen window after cancelled/failed data move', err)
+                }
               }
-            } catch (err) {
-              console.warn('Could not reopen window after cancelled/failed data move', err)
-            }
+              if (!outcome.cancelled && outcome.error) {
+                void dialog.showMessageBox({
+                  type: 'error',
+                  message: 'Orgtree could not move its data folder.',
+                  detail: `${outcome.error}\n\nYour original data folder was not changed.`,
+                }).catch(() => {})
+              }
+            },
+          })
+        } finally {
+          if (!quitting) {
+            dataMoveInFlight = false
+            dataMoveAbort = null
+            rebuildTray()
           }
-          if (!outcome.cancelled && outcome.error) {
-            void dialog.showMessageBox({
-              type: 'error',
-              message: 'Orgtree could not move its data folder.',
-              detail: `${outcome.error}\n\nYour original data folder was not changed.`,
-            }).catch(() => {})
-          }
-          return outcome
-        } catch (err) {
-          moveWindow.close()
-          dataMoveInFlight = false
-          dataMoveAbort = null
-          coreLifecycle?.start()
-          restartPoll?.()
-          rebuildTray()
-          const message = err instanceof Error ? err.message : String(err)
-          return { ok: false, error: message }
         }
       })
       // A window bound to an organization of a remote engine (`remoteByAlias`, above) carries

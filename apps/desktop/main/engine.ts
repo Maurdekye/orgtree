@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {recordManagedExit} from './core-exit-log'
 import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
-import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, unsafeDescriptorMessage, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
+import { canonicalPath, isLocalAbsoluteDataPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, unsafeDescriptorMessage, validateDataRoot, verifyDataFolderTrust, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
@@ -64,6 +64,8 @@ import { orgActivityRows, type OrgActivityRow } from './traylist'
 import { readHarnessRegistry } from './harnesses'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
+  /** True when `dataRoot` comes from a custom `data-location.json` folder (enforces pre-spawn reparse + DACL trust). */
+  customDataRoot?: boolean
   /** Orgtree 4: the Rust engine executable. When set it is started instead of
    *  the Python engine, with the same environment and launch handshake. */
   binary?: string
@@ -72,6 +74,29 @@ export interface EngineOptions { python: string; directory: string; dataRoot: st
    *  or 'managed' when this desktop starts its own. Tests and legacy runtimes
    *  may omit it; descriptor validation and root ownership remain in Engine. */
   launchBackground?: () => Promise<'boot' | 'managed'> }
+
+function findReparseInChain(targetPath: string, fullChain: boolean): string | null {
+  let cur = path.resolve(targetPath)
+  for (;;) {
+    if (fs.existsSync(cur)) {
+      try {
+        if (fs.lstatSync(cur).isSymbolicLink()) return cur
+      } catch { /* fall through */ }
+      const parent = path.dirname(cur)
+      if (parent !== cur) {
+        try {
+          fs.readlinkSync(cur)
+          return cur
+        } catch { /* ordinary directory */ }
+      }
+    }
+    if (!fullChain) break
+    const next = path.dirname(cur)
+    if (next === cur) break
+    cur = next
+  }
+  return null
+}
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -319,6 +344,13 @@ export class Engine extends EventEmitter {
     if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
     if (this.child) throw new Error('Engine already started')
     this.lastOptions = options
+    if (options.customDataRoot && !isLocalAbsoluteDataPath(options.dataRoot)) {
+      throw new Error(`${ENGINE_REFUSED}custom data folder must be a local drive-letter path: ${options.dataRoot}`)
+    }
+    const reparseHit = findReparseInChain(options.dataRoot, options.customDataRoot === true)
+    if (reparseHit) {
+      throw new Error(`${ENGINE_REFUSED}Orgtree cannot start on a symbolic link or junction (${reparseHit}).`)
+    }
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     const binary = options.binary
     if (binary) {
@@ -330,6 +362,26 @@ export class Engine extends EventEmitter {
     fs.mkdirSync(root, { recursive: true })
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
+    if (options.customDataRoot) {
+      const realReparse = findReparseInChain(realRoot, true)
+      if (realReparse) {
+        throw new Error(`${ENGINE_REFUSED}Orgtree cannot start on a symbolic link or junction (${realReparse}).`)
+      }
+      const checkDirTrust = async (dir: string): Promise<DescriptorOwner> =>
+        this.trustCheck !== verifyDescriptorTrust
+          ? this.trustCheck(path.join(dir, 'engine-attach.json'))
+          : verifyDataFolderTrust(dir)
+      for (const dirToVerify of new Set([path.resolve(options.dataRoot), realRoot])) {
+        const trust = await checkDirTrust(dirToVerify)
+        if (!trust.ok) {
+          this.attachUnsafeFolder = trust.unsafeFolder ?? ''
+          this.attachUnsafeMessage = trust.unsafeFolder ? unsafeDescriptorMessage(trust) : ''
+          const msg = this.attachUnsafeMessage || `${ENGINE_REFUSED}data folder trust rejected: ${trust.detail}`
+          this.state({ state: 'unavailable', message: msg })
+          throw new Error(msg)
+        }
+      }
+    }
     this.state({ state: 'starting' })
     // An installed build that cannot read its tasks refuses (sessionlaunch.ts
     // UNREADABLE_TASKS): no engine of this desktop's own, the reason shown,

@@ -723,6 +723,7 @@ try {
     try {
       $item = Get-Item -LiteralPath $configFile -Force -ErrorAction Stop
       if (([int]$item.Attributes -band 0x400) -ne 0) { return $null }
+      if ($item.Length -gt 16384) { return $null }
       $parsed = (Get-Content -LiteralPath $configFile -Raw -ErrorAction Stop) | ConvertFrom-Json
       if ($null -eq $parsed) { return $null }
       $ver = 0
@@ -731,9 +732,11 @@ try {
       $rawRoot = ''
       try { $rawRoot = ([string]$parsed.dataRoot).Trim() } catch { $rawRoot = '' }
       if (Test-Blank $rawRoot) { return $null }
+      if ($rawRoot.StartsWith('\\') -and $rawRoot -notmatch '^\\\\\?\\[A-Za-z]:[\\/]') { return $null }
       $plain = $rawRoot
       if ($plain.StartsWith('\\?\')) { $plain = $plain.Substring(4) }
-      if (-not (Split-Path -Path $plain -IsAbsolute)) { return $null }
+      if ($plain -notmatch '^[A-Za-z]:[\\/]') { return $null }
+      if (($plain -split '[\\/]+') -contains '..') { return $null }
       return (Get-CanonicalPath $plain)
     } catch {
       return $null
@@ -747,12 +750,35 @@ try {
     $marker = Join-Path -Path $env:APPDATA -ChildPath 'Orgtree v2\.data-move-in-progress.json'
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { return }
     $movePid = 0
+    $maxAgeMs = 6.0 * 3600.0 * 1000.0
     try {
       $item = Get-Item -LiteralPath $marker -Force -ErrorAction Stop
       if (([int]$item.Attributes -band 0x400) -ne 0) { return }
+      if ($item.Length -gt 16384) { return }
       $parsed = (Get-Content -LiteralPath $marker -Raw -ErrorAction Stop) | ConvertFrom-Json
-      if ($null -ne $parsed -and [int]$parsed.version -eq 1) {
-        $movePid = [int]$parsed.pid
+      if ($null -eq $parsed) { return }
+      $verProp = $parsed.PSObject.Properties['version']
+      if ($null -eq $verProp -or [int]$verProp.Value -ne 1) { return }
+      $nowMs = [double][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      $startedProp = $parsed.PSObject.Properties['startedAtMs']
+      if ($null -ne $startedProp -and $null -ne $startedProp.Value) {
+        if (($nowMs - [double]$startedProp.Value) -gt $maxAgeMs) { return }
+      } else {
+        if (([DateTime]::UtcNow - $item.LastWriteTimeUtc).TotalMilliseconds -gt $maxAgeMs) { return }
+      }
+      $pidProp = $parsed.PSObject.Properties['pid']
+      if ($null -eq $pidProp -or $null -eq $pidProp.Value) { return }
+      $movePid = [int]$pidProp.Value
+      if ($movePid -le 0) { return }
+      $expectedCreated = ''
+      $createdProp = $parsed.PSObject.Properties['created']
+      if ($null -ne $createdProp -and $null -ne $createdProp.Value) { $expectedCreated = ([string]$createdProp.Value).Trim() }
+      if (-not (Test-Blank $expectedCreated)) {
+        $proc = Get-Process -Id $movePid -ErrorAction SilentlyContinue
+        if ($null -eq $proc) { return }
+        $actualCreated = ''
+        try { $actualCreated = $proc.StartTime.ToFileTimeUtc().ToString() } catch { $actualCreated = '' }
+        if ((Test-Blank $actualCreated) -or ($actualCreated -ne $expectedCreated)) { return }
       }
     } catch {
       $movePid = 0
