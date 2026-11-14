@@ -5,7 +5,7 @@ import type { FoldInfo } from './subtreefold'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { DndBadge } from './dnd'
-import { hireTierDisabledReason, hireTierOffer, signedOutHire } from './shared'
+import { hireTierDisabledReason, hireTierOffer, modelTierOffer, signedOutHire } from './shared'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { creditSegments } from './creditsegments'
 import { toggleAgentHalt } from './haltcontrol'
@@ -807,8 +807,10 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // Codex legacy token, Gemini Pro (legacy toggle) and Argon/Krypton (only
     // once agy lists it), a Muse tier only while the account's own catalog
     // lists it, an opt-in legacy tier of another family, and a tier every
-    // signed-in account is at its limit for (greyed, with its own reason)
-    const offerOf = (t: string) => hireTierOffer(key, hire, t)
+    // signed-in account is at its limit for (greyed, with its own reason).
+    // A caller with its own list of what can run (`allowedTiers`, the desk's
+    // model picker) is not a hire: it goes by the family and its list alone.
+    const offerOf = (t: string) => (allowedTiers ? modelTierOffer(key, hire, t) : hireTierOffer(key, hire, t))
     // ⚠ FILTERED BEFORE `tiers` IS STORED, because the inward-first sort below
     // orders families by "number of available model tiers" — a hidden chip
     // that still counted would push Codex inward for a row it does not render.

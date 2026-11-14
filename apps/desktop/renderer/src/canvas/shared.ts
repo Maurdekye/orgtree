@@ -826,8 +826,8 @@ export const codexTierOffer = (
   if (tierHiddenAsLegacy(tier)) return 'hide'
   const base = familyOffer(h)
   if (signedOutHire(h)) return h?.previewTiers && !h.previewTiers.includes(tier) ? 'hide' : 'disable'
-  return spentGate(tier, !CODEX_ALWAYS_TIERS.includes(tier)
-    && !h?.offeredTiers?.includes(tier) ? 'hide' : base)
+  return !CODEX_ALWAYS_TIERS.includes(tier)
+    && !h?.offeredTiers?.includes(tier) ? 'hide' : base
 }
 
 /** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
@@ -841,7 +841,7 @@ export const antigravityTierOffer = (
   if (signedOutHire(h)) return h?.previewTiers && !h.previewTiers.includes(tier) ? 'hide' : 'disable'
   if (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier)) return 'hide'
-  return spentGate(tier, familyOffer(h))
+  return familyOffer(h)
 }
 
 /** Offer verdict for one Muse tier: every Muse tier is conditional — no
@@ -849,15 +849,23 @@ export const antigravityTierOffer = (
 export const museTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => (signedOutHire(h) ? 'disable'
-  : !h?.offeredTiers?.includes(tier) ? 'hide' : spentGate(tier, familyOffer(h)))
+  : !h?.offeredTiers?.includes(tier) ? 'hide' : familyOffer(h))
 
-/** Shared hire-sheet and context-menu eligibility, including per-tier rollout gates. */
-export const hireTierOffer = (provider: string, hire: HireState | null | undefined,
+/** One tier's verdict by its family and the per-tier rollout gates alone. A
+ *  chooser with its own list of what can run reads this one (the desk's model
+ *  picker: the running model must stay clickable there, to cancel a queued
+ *  change, whatever its accounts' limits). */
+export const modelTierOffer = (provider: string, hire: HireState | null | undefined,
   tier: string): FamilyOffer =>
   provider === 'codex' ? codexTierOffer(hire, tier)
     : provider === 'antigravity' ? antigravityTierOffer(hire, tier)
     : provider === 'muse' ? museTierOffer(hire, tier)
-    : optInLegacyHidden(tier) ? 'hide' : spentGate(tier, familyOffer(hire))
+    : optInLegacyHidden(tier) ? 'hide' : familyOffer(hire)
+
+/** Shared hire-sheet and context-menu eligibility: `modelTierOffer`, and a
+ *  tier every signed-in account is at its limit for is greyed. */
+export const hireTierOffer = (provider: string, hire: HireState | null | undefined,
+  tier: string): FamilyOffer => spentGate(tier, modelTierOffer(provider, hire, tier))
 
 export interface HireProviders {
   claudeHire?: HireState | null
