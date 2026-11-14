@@ -14,9 +14,9 @@ import { ProviderDialog } from './providerdialog'
 import { ageTitle } from './listage'
 import { RemoteIcon } from '../icons'
 import { remoteOfOrg, useRemotes } from '../remotes'
-import { addressAndCode, addressNote, allowDoor, changeListening, computerSeen, computersWord, connectedChip, doorTrouble, doorWord,
+import { addressAndCode, addressNote, allowDoor, changeListening, listenOf, computerSeen, computersWord, connectedChip, doorTrouble, doorWord,
   getOrgAccess, getRemoteAccess, giveComputer, makeCode, removeDoorRules, revokeComputer, stopAllAccess, switchOrgAccess,
-  turnOnOrgAccess, useRemoteAccess, validPort, type CodeView, type ComputerView, type DoorView, type OrgAccessView } from '../remoteaccess'
+  turnOnOrgAccess, useRemoteAccess, validPort, type CodeView, type ComputerView, type DoorView, type ListenPatch, type OrgAccessView } from '../remoteaccess'
 import type { ToastFn } from '../types'
 
 const message = (e: unknown): string => e instanceof Error ? e.message : String(e)
@@ -231,7 +231,7 @@ export function RemoteAccessSettings({ toast }: { toast: ToastFn }) {
     setBusy(true); setNote('')
     try { await what() } catch (e) { setNote(message(e)) } finally { setBusy(false) }
   }
-  const change = (patch: { port?: number; lan?: boolean }) => act(async () => {
+  const change = (patch: ListenPatch) => act(async () => {
     const result = await changeListening(overview, patch)
     if ('refused' in result) { setNote(result.refused); setPort(String(overview.port)); return }
     toast(['Remote access changed'])
@@ -257,17 +257,21 @@ export function RemoteAccessSettings({ toast }: { toast: ToastFn }) {
   })
   const wanted = Number(port)
   const trouble = doorTrouble(door)
+  const listen = listenOf(overview)
   return <>
     <SetGroup title="Remote access"
       subtitle={<>Other computers open the organizations you switch on, one by one, in each organization's settings under Connections.
         This is where <span data-streamer-field="ip">{overview.computer}</span> listens for them.</>}>
-      <SetRow label="Where it listens" hint="Tailscale encrypts what travels. On a private network it is plain http, which is not encrypted.">
-        <select aria-label="Where remote access listens" disabled={busy} value={overview.lan ? 'lan' : 'tailscale'}
-          onChange={(e) => { void change({ lan: e.target.value === 'lan' }) }}>
-          <option value="tailscale">Tailscale only</option>
-          <option value="lan">Tailscale and this private network</option>
-        </select>
-      </SetRow>
+      <SetBlock label="Where it listens" hint="Choose one or more. Each is switched by itself." />
+      <SetToggle label="Tailscale" checked={listen.tailscale} disabled={busy}
+        onChange={(next) => { void change({ tailscale: next }) }}
+        hint="Tailscale encrypts what travels. Both computers are signed in to the same tailnet." />
+      <SetToggle label="This private network" checked={listen.lan} disabled={busy}
+        onChange={(next) => { void change({ lan: next }) }}
+        hint="Plain http, which is not encrypted: anyone on the network can read what travels, the token included. For a home network or a VPN you trust." />
+      <SetToggle label="This computer only" checked={listen.local} disabled={busy}
+        onChange={(next) => { void change({ local: next }) }}
+        hint="For an SSH tunnel or a local https proxy (Caddy, cloudflared, ngrok) that hands connections on to 127.0.0.1. Nothing else can reach it, and it needs no firewall rule." />
       <SetRow label="Port" hint={`A number from 1024 to 65535. It is ${overview.default_port} unless another program has that one.`}>
         <input type="number" aria-label="Remote access port" min={1024} max={65535} value={port} disabled={busy}
           onChange={(e) => setPort(e.target.value)} />

@@ -15,7 +15,7 @@ export type FirewallState = 'none' | 'unknown' | 'ok' | 'missing'
 
 /** One address the door stands at, as the other computer types it. */
 export interface DoorAddress {
-  kind: 'tailscale' | 'lan' | 'rig'
+  kind: 'tailscale' | 'lan' | 'local' | 'rig'
   ip: string
   port: number
   url: string
@@ -29,7 +29,11 @@ export interface DoorView {
   reason: string | null
   addresses: DoorAddress[]
   port: number
+  /** where the owner lets it listen; `tailscale` and `local` are absent from an engine before
+   *  the three were choices of their own, where Tailscale was always one */
+  tailscale?: boolean
   lan: boolean
+  local?: boolean
   /** what the engine read of the door's Windows Firewall rules (absent from an engine before it) */
   firewall?: { state: FirewallState; present: boolean }
 }
@@ -50,7 +54,9 @@ export interface RemoteAccessView {
   computer: string
   port: number
   default_port: number
+  tailscale?: boolean
   lan: boolean
+  local?: boolean
   orgs: SharedOrgView[]
   door: DoorView
 }
@@ -110,7 +116,14 @@ export const giveComputer = (slug: string, id: string): Promise<OrgAccessView> =
 export const revokeComputer = (id: string): Promise<{ revoked: string }> =>
   req(`/api/remote-access/computers/${encodeURIComponent(id)}`, { method: 'DELETE' }, 30000, [], false)
 
-export const setListening = (patch: { port?: number; lan?: boolean }): Promise<RemoteAccessView> =>
+/** Where the door listens: each place is chosen by itself. */
+export interface ListenPatch { port?: number; tailscale?: boolean; lan?: boolean; local?: boolean }
+
+/** The choices as they stand, with what an older engine leaves unsaid. */
+export const listenOf = (view: { tailscale?: boolean; lan: boolean; local?: boolean }): { tailscale: boolean; lan: boolean; local: boolean } =>
+  ({ tailscale: view.tailscale ?? true, lan: view.lan, local: view.local ?? false })
+
+export const setListening = (patch: ListenPatch): Promise<RemoteAccessView> =>
   req('/api/remote-access', json('PUT', patch), 30000, [], false)
 export const stopAllAccess = (): Promise<RemoteAccessView> =>
   req('/api/remote-access/stop', { method: 'POST' }, 30000, [], false)
@@ -139,7 +152,7 @@ Promise<{ view: OrgAccessView } | { refused: string }> {
   const now = await getOrgAccess(slug, true)
   if (now.refusal) return { refused: now.refusal }
   if (wantsFirewallRule(now.door, bridge)) {
-    const result = await bridge!.addRemoteAccessFirewallRule!(now.door.port, now.door.lan)
+    const result = await bridge!.addRemoteAccessFirewallRule!(now.door.port, now.door.lan, listenOf(now.door).tailscale)
     if (!result.ok) return { refused: result.error }
   }
   return { view: await switchOrgAccess(slug, true) }
@@ -149,7 +162,7 @@ Promise<{ view: OrgAccessView } | { refused: string }> {
  *  the engine what Windows says now. Answers the sentence to show, or null. */
 export async function allowDoor(door: DoorView, bridge: FirewallBridge | undefined = desktop()): Promise<string | null> {
   if (!bridge?.addRemoteAccessFirewallRule) return 'Windows Firewall can only be changed from the Orgtree app on this computer.'
-  const result = await bridge.addRemoteAccessFirewallRule(door.port, door.lan)
+  const result = await bridge.addRemoteAccessFirewallRule(door.port, door.lan, listenOf(door).tailscale)
   return result.ok ? null : result.error
 }
 
@@ -166,7 +179,8 @@ export function doorTrouble(door: DoorView): string | null {
 
 /** How the bytes travel to one of the door's addresses, named as the other computer's Connection details names it. */
 export const addressNote = (address: Pick<DoorAddress, 'kind'>): string =>
-  address.kind === 'tailscale' ? 'Tailscale' : address.kind === 'lan' ? 'Private network, not encrypted (http)' : 'This computer'
+  address.kind === 'tailscale' ? 'Tailscale' : address.kind === 'lan' ? 'Private network, not encrypted (http)'
+    : address.kind === 'local' ? 'This computer only: for an SSH tunnel or a local https proxy' : 'This computer'
 
 /** When a computer was last here, in words. */
 export function computerSeen(computer: Pick<ComputerView, 'connected' | 'connected_since' | 'last_seen_at'>,
@@ -191,11 +205,16 @@ export function connectedChip(org: Pick<SharedOrgView, 'connected' | 'connected_
  *  Windows Firewall rules have to follow, and Windows is asked first: a No
  *  leaves the door where it is, with the rules it has. While nothing is shared
  *  nothing listens, and the rules are asked for when a switch is next turned on. */
-export async function changeListening(now: RemoteAccessView, patch: { port?: number; lan?: boolean },
+export async function changeListening(now: RemoteAccessView, patch: ListenPatch,
   bridge: FirewallBridge | undefined = desktop()): Promise<{ view: RemoteAccessView } | { refused: string }> {
   const state = now.door.firewall?.state
-  if (now.orgs.some((org) => org.on) && bridge?.addRemoteAccessFirewallRule && state !== undefined && state !== 'none') {
-    const result = await bridge.addRemoteAccessFirewallRule(patch.port ?? now.port, patch.lan ?? now.lan)
+  const next = { ...listenOf(now), ...(patch.tailscale === undefined ? {} : { tailscale: patch.tailscale }),
+    ...(patch.lan === undefined ? {} : { lan: patch.lan }), ...(patch.local === undefined ? {} : { local: patch.local }) }
+  if (!next.tailscale && !next.lan && !next.local) return { refused: 'Choose at least one place for remote access to listen.' }
+  // this computer itself needs no rule: Windows is asked only for Tailscale or the private network
+  if (now.orgs.some((org) => org.on) && (next.tailscale || next.lan)
+    && bridge?.addRemoteAccessFirewallRule && state !== undefined && state !== 'none') {
+    const result = await bridge.addRemoteAccessFirewallRule(patch.port ?? now.port, next.lan, next.tailscale)
     if (!result.ok) return { refused: result.error }
   }
   return { view: await setListening(patch) }
