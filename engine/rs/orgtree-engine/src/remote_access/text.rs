@@ -39,8 +39,11 @@ pub const NOT_A_DESKTOP: &str = "remote access is a desktop's; a standalone engi
 pub const OWNER_ONLY: &str = "only this desktop itself changes its remote access";
 pub const TURN_ON_FIRST: &str = "Turn remote access on for this organization first.";
 /// Why the switch cannot be turned on: there is nowhere for the door to stand.
-pub const NO_WAY_IN: &str = "Tailscale is not running on this computer, so no other computer could reach it. Start Tailscale, or let remote access also use this private network (App settings, Remote access).";
+pub const NO_WAY_IN: &str = "Tailscale is not running on this computer, so no other computer could reach it. Start Tailscale, or choose another place for remote access to listen (App settings, Remote access).";
 pub const NO_WAY_IN_LAN: &str = "This computer has no Tailscale address and no private network address, so no other computer could reach it.";
+pub const NO_WAY_IN_LAN_ONLY: &str = "This computer has no private network address, so no other computer could reach it. Connect it to a network, or choose another place for remote access to listen (App settings, Remote access).";
+/// A save that would leave the door nowhere to listen.
+pub const NOWHERE_CHOSEN: &str = "Choose at least one place for remote access to listen.";
 
 /// The door could not be bound: something else has the port.
 #[nolog]

@@ -1,12 +1,13 @@
 //! Where the door stands, and when
 //! (docs/rust-engine/remote-org.md, "Where the door listens").
 //!
-//! The door exists only while at least one organization is shared. It is
-//! bound to this computer's Tailscale address and, by the owner's choice, to
-//! its address on the private network. It is never bound to a public address,
-//! to every address (`0.0.0.0`) or, outside the test rig, to loopback:
-//! `plan` is the one place that decides, and it takes an address only for what
-//! `remote::address::classify` says it is.
+//! The door exists only while at least one organization is shared. The owner
+//! chooses where it listens, each place by itself (`Listen`): this computer's
+//! Tailscale address, its address on the private network, and this computer
+//! itself (127.0.0.1), which is where an SSH tunnel or a local https proxy
+//! hands connections on. It is never bound to a public address or to every
+//! address (`0.0.0.0`): `plan` is the one place that decides, and it takes a
+//! network address only for what `remote::address::classify` says it is.
 //!
 //! What the owner changes (a switch, the port, the private-network choice)
 //! takes effect at once. An address that moved by itself (Tailscale signed
@@ -39,8 +40,28 @@ const IDLE: Duration = Duration::from_secs(60);
 pub enum Kind {
     Tailscale,
     Lan,
+    /// This computer itself, by the owner's choice: an SSH tunnel or a local https proxy
+    /// connects here and carries what came from elsewhere.
+    Local,
     /// This computer itself: the test rig and unit tests only (`PeerRule::with_loopback`).
     Rig,
+}
+
+/// Where the owner lets the door listen. Each place is chosen by itself (user ruling
+/// 2026-11-14: remote access is not limited to Tailscale).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Listen {
+    pub tailscale: bool,
+    /// This private network (plain http, not encrypted).
+    pub lan: bool,
+    /// This computer only (127.0.0.1).
+    pub local: bool,
+}
+
+impl Default for Listen {
+    fn default() -> Listen {
+        Listen { tailscale: true, lan: false, local: false }
+    }
 }
 
 #[nolog]
@@ -49,6 +70,7 @@ impl Kind {
         match self {
             Kind::Tailscale => "tailscale",
             Kind::Lan => "lan",
+            Kind::Local => "local",
             Kind::Rig => "rig",
         }
     }
@@ -78,19 +100,25 @@ pub struct Reading {
 /// Where the door should listen. This is the whole rule:
 ///
 /// - nothing while no organization is shared;
-/// - the Tailscale address, when it is one of Tailscale's;
-/// - the private-network address too, when the owner chose that and it is a private one;
-/// - nothing else, ever: no public address, no loopback, no `0.0.0.0`.
+/// - the Tailscale address, when the owner chose Tailscale and it is one of Tailscale's;
+/// - the private-network address, when the owner chose that and it is a private one;
+/// - this computer itself (127.0.0.1), when the owner chose that;
+/// - nothing else, ever: no public address, no `0.0.0.0`.
 #[nolog]
-pub fn plan(open: bool, lan: bool, port: u16, tailscale: Option<Ipv4Addr>, lan_ip: Option<Ipv4Addr>) -> Vec<Want> {
+pub fn plan(open: bool, listen: Listen, port: u16, tailscale: Option<Ipv4Addr>, lan_ip: Option<Ipv4Addr>) -> Vec<Want> {
     let mut wants = Vec::new();
     if !open || port < 1024 {
         return wants;
     }
-    if let Some(ip) = tailscale.filter(|ip| classify(IpAddr::V4(*ip)) == Net::Tailscale) {
-        wants.push(Want { kind: Kind::Tailscale, at: SocketAddr::new(IpAddr::V4(ip), port) });
+    if listen.tailscale {
+        if let Some(ip) = tailscale.filter(|ip| classify(IpAddr::V4(*ip)) == Net::Tailscale) {
+            wants.push(Want { kind: Kind::Tailscale, at: SocketAddr::new(IpAddr::V4(ip), port) });
+        }
     }
-    if lan {
+    if listen.local {
+        wants.push(Want { kind: Kind::Local, at: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port) });
+    }
+    if listen.lan {
         if let Some(ip) = lan_ip.filter(|ip| classify(IpAddr::V4(*ip)) == Net::Private) {
             wants.push(Want { kind: Kind::Lan, at: SocketAddr::new(IpAddr::V4(ip), port) });
         }
@@ -103,7 +131,7 @@ pub fn plan(open: bool, lan: bool, port: u16, tailscale: Option<Ipv4Addr>, lan_i
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Owner {
     pub open: bool,
-    pub lan: bool,
+    pub listen: Listen,
     pub port: u16,
 }
 
@@ -227,11 +255,13 @@ pub async fn read(engine: &Engine) -> Reading {
 
 /// May the door stand anywhere with this reading and this choice? The sentence says why not.
 #[nolog]
-pub fn way_in(reading: &Reading, lan: bool) -> Result<(), &'static str> {
-    if reading.rig.is_some() || !plan(true, lan, 1024, reading.tailscale.flatten(), reading.lan).is_empty() {
+pub fn way_in(reading: &Reading, listen: Listen) -> Result<(), &'static str> {
+    if reading.rig.is_some() || !plan(true, listen, 1024, reading.tailscale.flatten(), reading.lan).is_empty() {
         Ok(())
-    } else if lan {
+    } else if listen.tailscale && listen.lan {
         Err(text::NO_WAY_IN_LAN)
+    } else if listen.lan {
+        Err(text::NO_WAY_IN_LAN_ONLY)
     } else {
         Err(text::NO_WAY_IN)
     }
@@ -251,8 +281,8 @@ pub async fn refresh(engine: &Arc<Engine>) {
 #[nolog]
 async fn step(engine: &Arc<Engine>, reading: Reading) {
     let doors = &engine.access.doors;
-    let (port, lan) = engine.access.registry.listening();
-    let owner = Owner { open: engine.access.any_open(), lan, port };
+    let (port, _) = engine.access.registry.listening();
+    let owner = Owner { open: engine.access.any_open(), listen: engine.access.registry.listen(), port };
     let (decision, want, standing) = {
         let Ok(mut state) = doors.state.lock() else { return };
         let standing: Vec<Want> = state.bound.iter().map(|bound| bound.want).collect();
@@ -264,7 +294,7 @@ async fn step(engine: &Arc<Engine>, reading: Reading) {
                     Some(known) => known,
                     None => standing.iter().find(|w| w.kind == Kind::Tailscale).and_then(|w| match w.at.ip() { IpAddr::V4(ip) => Some(ip), IpAddr::V6(_) => None }),
                 };
-                plan(owner.open, owner.lan, owner.port, tailscale, reading.lan)
+                plan(owner.open, owner.listen, owner.port, tailscale, reading.lan)
             }
         };
         // an address the door could not be bound to is tried again at every step, without waiting
@@ -308,8 +338,8 @@ async fn step(engine: &Arc<Engine>, reading: Reading) {
                 let stop = CancellationToken::new();
                 let rule = match wanted.kind {
                     #[cfg(any(test, debug_assertions))]
-                    Kind::Rig => PeerRule::with_loopback(owner.lan),
-                    _ => PeerRule::new(owner.lan),
+                    Kind::Rig => PeerRule::with_loopback(owner.listen.lan),
+                    kind => PeerRule::of(owner.listen, kind == Kind::Local),
                 };
                 let (ending, stopping) = (engine.shutdown.clone(), stop.clone());
                 let both = CancellationToken::new();
@@ -341,7 +371,8 @@ async fn step(engine: &Arc<Engine>, reading: Reading) {
 /// (`firewall::Firewall::shown`).
 #[nolog]
 pub fn status(engine: &Engine) -> Value {
-    let (port, lan) = engine.access.registry.listening();
+    let (port, _) = engine.access.registry.listening();
+    let listen = engine.access.registry.listen();
     let open = engine.access.any_open();
     let Ok(state) = engine.access.doors.state.lock() else { return json!({ "state": "closed", "addresses": [] }) };
     let addresses: Vec<Value> = state.bound.iter().map(|bound| {
@@ -360,10 +391,11 @@ pub fn status(engine: &Engine) -> Value {
     } else if let Some((want, _)) = state.failed.first() {
         ("blocked", Some(text::port_taken(want.at.port())))
     } else {
-        ("waiting", way_in(&state.reading, lan).err().map(str::to_string))
+        ("waiting", way_in(&state.reading, listen).err().map(str::to_string))
     };
-    json!({ "state": name, "reason": reason, "addresses": addresses, "port": port, "lan": lan,
-            "firewall": engine.access.firewall.shown(port, lan) })
+    json!({ "state": name, "reason": reason, "addresses": addresses, "port": port,
+            "tailscale": listen.tailscale, "lan": listen.lan, "local": listen.local,
+            "firewall": engine.access.firewall.shown(port, listen) })
 }
 
 /// Who is connected now, by organization: looked at from the loop, and written into each
@@ -444,6 +476,11 @@ pub fn start(engine: &Arc<Engine>) {
 mod tests {
     use super::*;
 
+    /// Tailscale, and this private network or not: what the one old choice was.
+    fn ts(lan: bool) -> Listen {
+        Listen { tailscale: true, lan, local: false }
+    }
+
     fn v4(text: &str) -> Option<Ipv4Addr> {
         Some(text.parse().unwrap())
     }
@@ -455,32 +492,32 @@ mod tests {
     #[test]
     fn the_door_is_planned_at_the_tailscale_address_and_the_private_one_by_choice_and_nowhere_else() {
         // nothing is shared: no door, whatever the addresses
-        assert!(plan(false, true, 7431, v4("100.64.0.1"), v4("192.168.1.20")).is_empty());
+        assert!(plan(false, ts(true), 7431, v4("100.64.0.1"), v4("192.168.1.20")).is_empty());
         // Tailscale only (the default): the private address is not used
-        assert_eq!(plan(true, false, 7431, v4("100.64.0.1"), v4("192.168.1.20")), vec![at(Kind::Tailscale, "100.64.0.1:7431")]);
+        assert_eq!(plan(true, ts(false), 7431, v4("100.64.0.1"), v4("192.168.1.20")), vec![at(Kind::Tailscale, "100.64.0.1:7431")]);
         // and this private network, by choice
-        assert_eq!(plan(true, true, 7431, v4("100.64.0.1"), v4("192.168.1.20")),
+        assert_eq!(plan(true, ts(true), 7431, v4("100.64.0.1"), v4("192.168.1.20")),
             vec![at(Kind::Tailscale, "100.64.0.1:7431"), at(Kind::Lan, "192.168.1.20:7431")]);
-        assert_eq!(plan(true, true, 7440, None, v4("10.0.0.5")), vec![at(Kind::Lan, "10.0.0.5:7440")]);
+        assert_eq!(plan(true, ts(true), 7440, None, v4("10.0.0.5")), vec![at(Kind::Lan, "10.0.0.5:7440")]);
         // Tailscale is not running and the private network was not chosen: nowhere
-        assert!(plan(true, false, 7431, None, v4("192.168.1.20")).is_empty());
+        assert!(plan(true, ts(false), 7431, None, v4("192.168.1.20")).is_empty());
         // an address that is not what it should be is never bound, in either place
         for public in ["8.8.8.8", "0.0.0.0", "127.0.0.1", "169.254.10.1", "100.128.0.1", "172.32.0.1"] {
-            assert!(plan(true, true, 7431, v4(public), v4(public)).is_empty(), "{public}");
+            assert!(plan(true, ts(true), 7431, v4(public), v4(public)).is_empty(), "{public}");
         }
         // a private address is not taken for Tailscale's, nor Tailscale's for the private network's
-        assert!(plan(true, false, 7431, v4("192.168.1.20"), None).is_empty());
-        assert!(plan(true, true, 7431, None, v4("100.64.0.1")).is_empty());
+        assert!(plan(true, ts(false), 7431, v4("192.168.1.20"), None).is_empty());
+        assert!(plan(true, ts(true), 7431, None, v4("100.64.0.1")).is_empty());
         // every address the plan names is one the door's own peer rule would call Tailscale or private
-        for want in plan(true, true, 7431, v4("100.101.102.103"), v4("172.16.4.4")) {
+        for want in plan(true, ts(true), 7431, v4("100.101.102.103"), v4("172.16.4.4")) {
             assert!(matches!(classify(want.at.ip()), Net::Tailscale | Net::Private) && !want.at.ip().is_unspecified());
         }
-        assert!(plan(true, true, 80, v4("100.64.0.1"), v4("192.168.1.20")).is_empty(), "never a low port");
+        assert!(plan(true, ts(true), 80, v4("100.64.0.1"), v4("192.168.1.20")).is_empty(), "never a low port");
     }
 
     #[test]
     fn what_the_owner_changes_is_at_once_and_an_address_that_moved_is_confirmed_first() {
-        let owner = Owner { open: true, lan: false, port: 7431 };
+        let owner = Owner { open: true, listen: ts(false), port: 7431 };
         let (home, moved) = ([at(Kind::Tailscale, "100.64.0.1:7431")], [at(Kind::Tailscale, "100.64.0.2:7431")]);
         assert_eq!(decide(owner, owner, &home, &home, None), Decision::Keep);
         // the owner switched something on: at once
@@ -503,14 +540,41 @@ mod tests {
     #[test]
     fn the_switch_says_why_when_there_is_nowhere_for_the_door_to_stand() {
         let nothing = Reading::default();
-        assert_eq!(way_in(&nothing, false), Err(text::NO_WAY_IN));
-        assert_eq!(way_in(&nothing, true), Err(text::NO_WAY_IN_LAN));
+        assert_eq!(way_in(&nothing, ts(false)), Err(text::NO_WAY_IN));
+        assert_eq!(way_in(&nothing, ts(true)), Err(text::NO_WAY_IN_LAN));
         let private_only = Reading { tailscale: Some(None), lan: "192.168.1.20".parse().ok(), ..Reading::default() };
-        assert_eq!(way_in(&private_only, false), Err(text::NO_WAY_IN));
-        assert_eq!(way_in(&private_only, true), Ok(()));
+        assert_eq!(way_in(&private_only, ts(false)), Err(text::NO_WAY_IN));
+        assert_eq!(way_in(&private_only, ts(true)), Ok(()));
         let tailscale = Reading { tailscale: Some("100.64.0.1".parse().ok()), ..Reading::default() };
-        assert_eq!(way_in(&tailscale, false), Ok(()));
+        assert_eq!(way_in(&tailscale, ts(false)), Ok(()));
         let public = Reading { tailscale: Some("8.8.8.8".parse().ok()), lan: "8.8.4.4".parse().ok(), ..Reading::default() };
-        assert_eq!(way_in(&public, true), Err(text::NO_WAY_IN_LAN));
+        assert_eq!(way_in(&public, ts(true)), Err(text::NO_WAY_IN_LAN));
+        // the private network by itself, with no Tailscale chosen
+        let lan_only = Listen { tailscale: false, lan: true, local: false };
+        assert_eq!(way_in(&private_only, lan_only), Ok(()));
+        assert_eq!(way_in(&nothing, lan_only), Err(text::NO_WAY_IN_LAN_ONLY));
+        assert_eq!(way_in(&tailscale, lan_only), Err(text::NO_WAY_IN_LAN_ONLY));
+        // this computer itself is always there
+        assert_eq!(way_in(&nothing, Listen { tailscale: false, lan: false, local: true }), Ok(()));
+    }
+
+    #[test]
+    fn each_place_is_chosen_by_itself() {
+        let (tailscale, lan) = (v4("100.64.0.1"), v4("192.168.1.20"));
+        let listen = |tailscale: bool, lan: bool, local: bool| Listen { tailscale, lan, local };
+        // the private network without Tailscale: Tailscale's address is not used though it is there
+        assert_eq!(plan(true, listen(false, true, false), 7431, tailscale, lan), vec![at(Kind::Lan, "192.168.1.20:7431")]);
+        // this computer itself: for an SSH tunnel or a local https proxy
+        assert_eq!(plan(true, listen(false, false, true), 7431, tailscale, lan), vec![at(Kind::Local, "127.0.0.1:7431")]);
+        assert_eq!(plan(true, listen(false, false, true), 7431, None, None), vec![at(Kind::Local, "127.0.0.1:7431")]);
+        assert_eq!(plan(true, listen(true, true, true), 7431, tailscale, lan),
+            vec![at(Kind::Tailscale, "100.64.0.1:7431"), at(Kind::Local, "127.0.0.1:7431"), at(Kind::Lan, "192.168.1.20:7431")]);
+        // nothing is shared, or nothing is chosen: no door
+        assert!(plan(false, listen(true, true, true), 7431, tailscale, lan).is_empty());
+        assert!(plan(true, listen(false, false, false), 7431, tailscale, lan).is_empty());
+        // never every address, whatever is chosen
+        for want in plan(true, listen(true, true, true), 7431, tailscale, lan) {
+            assert!(!want.at.ip().is_unspecified() && classify(want.at.ip()) != Net::Public);
+        }
     }
 }

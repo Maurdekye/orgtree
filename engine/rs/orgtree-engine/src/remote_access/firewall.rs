@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use super::lifecycle::Listen;
 use crate::engine::Engine;
 
 /// The rule that lets Tailscale's addresses reach the door. The desktop adds it under this
@@ -94,15 +95,16 @@ pub fn parse(text: &str, mine: &dyn Fn(&str) -> bool) -> Option<Vec<Rule>> {
     ended.then_some(rules)
 }
 
-/// Do the rules let the door in, as the owner chose it? Tailscale's rule always, and the
-/// private network's too when that was chosen: each enabled, inbound, allowing, for the door's
+/// Do the rules let the door in, as the owner chose it? Tailscale's rule when Tailscale was
+/// chosen, the private network's when that was: each enabled, inbound, allowing, for the door's
 /// own port and for this engine's own program. A rule for another port or another program lets
-/// nobody reach this door.
+/// nobody reach this door. This computer itself (127.0.0.1) needs no rule: Windows Firewall
+/// does not filter it.
 #[nolog]
-pub fn lets_in(rules: &[Rule], port: u16, lan: bool) -> bool {
+pub fn lets_in(rules: &[Rule], port: u16, listen: Listen) -> bool {
     let port = port.to_string();
     let fits = |wanted: bool| rules.iter().any(|rule| rule.lan == wanted && rule.lets_in && rule.mine && rule.port == port);
-    fits(false) && (!lan || fits(true))
+    (!listen.tailscale || fits(false)) && (!listen.lan || fits(true))
 }
 
 /// Is this the engine's own program? Two ways of writing one file's path are one program
@@ -150,13 +152,13 @@ impl Firewall {
     /// `unknown` (not read yet, or it could not be read), `ok`, or `missing` (the door, as the
     /// owner chose it, is not let in: "Windows Firewall is blocking this"). `present`: a rule
     /// of the door's is there at all, so it can be offered for removal once nothing is shared.
-    pub fn shown(&self, port: u16, lan: bool) -> Value {
+    pub fn shown(&self, port: u16, listen: Listen) -> Value {
         if !applies() {
             return json!({ "state": "none", "present": false });
         }
         match self.held.lock().ok().and_then(|held| held.rules.clone()) {
             None => json!({ "state": "unknown", "present": false }),
-            Some(rules) => json!({ "state": if lets_in(&rules, port, lan) { "ok" } else { "missing" }, "present": !rules.is_empty() }),
+            Some(rules) => json!({ "state": if lets_in(&rules, port, listen) { "ok" } else { "missing" }, "present": !rules.is_empty() }),
         }
     }
 
@@ -298,31 +300,40 @@ mod tests {
 
     #[test]
     fn the_door_is_let_in_only_by_rules_for_its_port_its_program_and_the_owners_choice() {
+        // Tailscale, and this private network or not: what the one old choice was
+        let ts = |lan: bool| Listen { tailscale: true, lan, local: false };
         let rule = |lan: bool, port: &str| Rule { lan, lets_in: true, port: port.into(), mine: true };
         // no rule: blocked
-        assert!(!lets_in(&[], 7431, false));
+        assert!(!lets_in(&[], 7431, ts(false)));
         // Tailscale's rule is enough for "Tailscale only"
-        assert!(lets_in(&[rule(false, "7431")], 7431, false));
+        assert!(lets_in(&[rule(false, "7431")], 7431, ts(false)));
         // "and this private network" needs that network's rule as well
-        assert!(!lets_in(&[rule(false, "7431")], 7431, true));
-        assert!(lets_in(&[rule(false, "7431"), rule(true, "7431")], 7431, true));
+        assert!(!lets_in(&[rule(false, "7431")], 7431, ts(true)));
+        assert!(lets_in(&[rule(false, "7431"), rule(true, "7431")], 7431, ts(true)));
         // the private network's rule alone is never enough: Tailscale's is always wanted
-        assert!(!lets_in(&[rule(true, "7431")], 7431, true));
-        assert!(!lets_in(&[rule(true, "7431")], 7431, false));
+        assert!(!lets_in(&[rule(true, "7431")], 7431, ts(true)));
+        assert!(!lets_in(&[rule(true, "7431")], 7431, ts(false)));
         // a private-network rule that was left behind does no harm to "Tailscale only"
-        assert!(lets_in(&[rule(false, "7431"), rule(true, "7431")], 7431, false));
+        assert!(lets_in(&[rule(false, "7431"), rule(true, "7431")], 7431, ts(false)));
         // the port was changed: the old rules let nobody reach the new one
-        assert!(!lets_in(&[rule(false, "7431"), rule(true, "7431")], 7440, false));
-        assert!(!lets_in(&[rule(false, "7440"), rule(true, "7431")], 7440, true));
+        assert!(!lets_in(&[rule(false, "7431"), rule(true, "7431")], 7440, ts(false)));
+        assert!(!lets_in(&[rule(false, "7440"), rule(true, "7431")], 7440, ts(true)));
         // a list or a range of ports is not what the desktop adds, and is not taken for it
-        assert!(!lets_in(&[rule(false, "7431,7440")], 7431, false));
-        assert!(!lets_in(&[rule(false, "7000-8000")], 7431, false));
-        assert!(!lets_in(&[rule(false, "Any")], 7431, false));
+        assert!(!lets_in(&[rule(false, "7431,7440")], 7431, ts(false)));
+        assert!(!lets_in(&[rule(false, "7000-8000")], 7431, ts(false)));
+        assert!(!lets_in(&[rule(false, "Any")], 7431, ts(false)));
         // off, outbound or blocking; or another program's
-        assert!(!lets_in(&[Rule { lets_in: false, ..rule(false, "7431") }], 7431, false));
-        assert!(!lets_in(&[Rule { mine: false, ..rule(false, "7431") }], 7431, false));
+        assert!(!lets_in(&[Rule { lets_in: false, ..rule(false, "7431") }], 7431, ts(false)));
+        assert!(!lets_in(&[Rule { mine: false, ..rule(false, "7431") }], 7431, ts(false)));
         // two rules of one name: one that fits is enough
-        assert!(lets_in(&[Rule { lets_in: false, ..rule(false, "7431") }, rule(false, "7431")], 7431, false));
+        assert!(lets_in(&[Rule { lets_in: false, ..rule(false, "7431") }, rule(false, "7431")], 7431, ts(false)));
+        // the private network by itself: Tailscale's rule is not asked for
+        let lan_only = Listen { tailscale: false, lan: true, local: false };
+        assert!(lets_in(&[rule(true, "7431")], 7431, lan_only));
+        assert!(!lets_in(&[rule(false, "7431")], 7431, lan_only));
+        // this computer itself needs no rule at all
+        assert!(lets_in(&[], 7431, Listen { tailscale: false, lan: false, local: true }));
+        assert!(!lets_in(&[], 7431, Listen { tailscale: true, lan: false, local: true }));
     }
 
     #[test]

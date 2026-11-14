@@ -171,10 +171,18 @@ fn token_required() -> Response {
 pub fn admit(engine: &Engine, req: &mut Request, connection: &Arc<Connection>) -> Result<Option<Origin>, Response> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    // An address that was refused too often is answered nothing else for a minute.
+    // An address that was refused too often is answered nothing else for a minute, except to
+    // a token the door knows (a computer's, or a one-time code). Behind a tunnel or a proxy
+    // every caller has one address, 127.0.0.1, and behind a shared router too: somebody's
+    // guessing must not lock out the computers that were let in. It costs nothing against a
+    // guess: a token is 256 random bits and a code 130.
     let peer = connection.peer.ip();
     if engine.access.limiter.blocked(peer) {
-        return Err(refusal(StatusCode::TOO_MANY_REQUESTS, json!({ "detail": text::TOO_MANY_TRIES })));
+        let known = req.headers().get(header::ORIGIN).is_none()
+            && bearer(req.headers()).is_some_and(|token| engine.access.registry.authenticate(token, connection).is_some());
+        if !known {
+            return Err(refusal(StatusCode::TOO_MANY_REQUESTS, json!({ "detail": text::TOO_MANY_TRIES })));
+        }
     }
     // A request that shows no token the door knows is counted by its address (`limiter.rs`).
     let token_required = || {

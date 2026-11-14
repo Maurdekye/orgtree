@@ -1085,7 +1085,7 @@ async fn the_owner_is_told_whether_windows_firewall_lets_the_door_in() {
     for path in ["/api/remote-access?fresh=1", "/api/remote-access/orgs/open?fresh=1"] {
         assert!(refused_as_not_yours(&host.door("GET", path, &token, None).await), "{path}");
     }
-    assert_eq!(host.engine.access.firewall.shown(7440, true), json!({ "state": "unknown", "present": false }));
+    assert_eq!(host.engine.access.firewall.shown(7440, lifecycle::Listen { tailscale: true, lan: true, local: false }), json!({ "state": "unknown", "present": false }));
 }
 
 #[tokio::test]

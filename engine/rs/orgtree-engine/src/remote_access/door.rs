@@ -8,7 +8,8 @@
 //! tokens, its own route table, the API and nothing else.
 //!
 //! A peer whose address is public is dropped as it is accepted, before a byte
-//! of it is read.
+//! of it is read. (What a tunnel or a proxy on this computer hands on arrives
+//! from 127.0.0.1, at the listener the owner chose for that.)
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -26,6 +27,7 @@ use crate::remote::address::{classify, Net};
 /// Whose connections the door takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PeerRule {
+    tailscale: bool,
     lan: bool,
     loopback: bool,
 }
@@ -35,20 +37,26 @@ impl PeerRule {
     /// Tailscale's addresses always; this private network's too when `lan`
     /// (the app-wide choice "Tailscale and this private network").
     pub fn new(lan: bool) -> PeerRule {
-        PeerRule { lan, loopback: false }
+        PeerRule { tailscale: true, lan, loopback: false }
+    }
+
+    /// What the owner chose (`lifecycle::Listen`). `local` is the listener on this computer
+    /// itself: an SSH tunnel or a local https proxy connects there from 127.0.0.1.
+    pub fn of(listen: super::lifecycle::Listen, local: bool) -> PeerRule {
+        PeerRule { tailscale: listen.tailscale, lan: listen.lan, loopback: local }
     }
 
     /// As `new`, and this computer itself: for the test rig and unit tests,
     /// which run both ends on one machine. Not compiled into a release build.
     #[cfg(any(test, debug_assertions))]
     pub fn with_loopback(lan: bool) -> PeerRule {
-        PeerRule { lan, loopback: true }
+        PeerRule { tailscale: true, lan, loopback: true }
     }
 
     /// May a peer at this address come in? Never one at a public address.
     pub fn admits(&self, ip: IpAddr) -> bool {
         match classify(ip) {
-            Net::Tailscale => true,
+            Net::Tailscale => self.tailscale,
             Net::Private => self.lan,
             Net::Loopback => self.loopback,
             Net::Public => false,

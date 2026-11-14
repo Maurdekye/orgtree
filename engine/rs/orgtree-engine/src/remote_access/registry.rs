@@ -33,6 +33,7 @@ use crate::client_tokens::transport::Connection;
 use crate::client_tokens::{constant_eq, hash, valid_name};
 use crate::http::error::ApiError;
 
+use super::lifecycle::Listen;
 use super::text;
 
 pub const FILE: &str = "remote-access.json";
@@ -107,9 +108,17 @@ struct Saved {
     version: u8,
     #[serde(default = "default_port")]
     port: u16,
-    /// Does the door also listen on this private network (Tailscale always)?
+    /// Does the door listen on this private network?
     #[serde(default)]
     lan: bool,
+    /// Does it listen on Tailscale? Written only when the owner chose not to: a file from
+    /// before the choice existed reads as yes, and an engine from before it can still read
+    /// a file that says nothing new.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    tailscale: bool,
+    /// Does it listen on this computer itself (127.0.0.1), for a tunnel or a local proxy?
+    #[serde(default, skip_serializing_if = "is_no")]
+    local: bool,
     /// The organizations other computers may open: the switch of each, by uuid.
     #[serde(default)]
     open: Vec<String>,
@@ -122,9 +131,24 @@ fn default_port() -> u16 {
     DEFAULT_PORT
 }
 
+#[nolog]
+fn yes() -> bool {
+    true
+}
+
+#[nolog]
+fn is_yes(value: &bool) -> bool {
+    *value
+}
+
+#[nolog]
+fn is_no(value: &bool) -> bool {
+    !*value
+}
+
 impl Default for Saved {
     fn default() -> Saved {
-        Saved { version: FILE_VERSION, port: DEFAULT_PORT, lan: false, open: Vec::new(), clients: Vec::new(), invitations: Vec::new() }
+        Saved { version: FILE_VERSION, port: DEFAULT_PORT, lan: false, tailscale: true, local: false, open: Vec::new(), clients: Vec::new(), invitations: Vec::new() }
     }
 }
 
@@ -284,6 +308,29 @@ impl Registry {
     /// The door's port, and whether it also listens on this private network.
     pub fn listening(&self) -> (u16, bool) {
         self.state.lock().map(|state| (state.saved.port, state.saved.lan)).unwrap_or((DEFAULT_PORT, false))
+    }
+
+    /// Where the owner lets the door listen.
+    pub fn listen(&self) -> Listen {
+        self.state.lock().map(|state| Listen { tailscale: state.saved.tailscale, lan: state.saved.lan, local: state.saved.local }).unwrap_or_default()
+    }
+
+    /// Change where the door listens; answers whether anything changed. A choice of nowhere
+    /// is refused.
+    pub fn set_listen(&self, tailscale: Option<bool>, lan: Option<bool>, local: Option<bool>) -> Result<bool, ApiError> {
+        let mut state = self.lock()?;
+        let mut next = state.saved.clone();
+        next.tailscale = tailscale.unwrap_or(next.tailscale);
+        next.lan = lan.unwrap_or(next.lan);
+        next.local = local.unwrap_or(next.local);
+        if !(next.tailscale || next.lan || next.local) {
+            return Err(ApiError::bad_request(text::NOWHERE_CHOSEN));
+        }
+        if (next.tailscale, next.lan, next.local) == (state.saved.tailscale, state.saved.lan, state.saved.local) {
+            return Ok(false);
+        }
+        self.commit(&mut state, next)?;
+        Ok(true)
     }
 
     /// Change the port, the private-network choice, or both; answers whether anything changed.

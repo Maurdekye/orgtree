@@ -3,9 +3,11 @@
 //!
 //! Whoever presents no token the door knows is counted by the address the
 //! connection came from. After `strikes` refusals within `window` the door
-//! answers that address 429 for `block`, to every request, a good token
-//! included: guessing costs a minute per ten tries. A token the door knows
-//! is never counted, whatever it was refused for.
+//! answers that address 429 for `block`, to every request that shows no token
+//! it knows: guessing costs a minute per ten tries. A token the door knows
+//! is never counted, whatever it was refused for, and is never shut out
+//! (`admit`): behind a tunnel, a proxy or a shared router many callers have
+//! one address.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;

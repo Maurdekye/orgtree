@@ -63,7 +63,8 @@ fn shown(engine: &Engine, row: &Value) -> Value {
 /// connected to it now.
 #[nolog]
 pub(super) fn overview_of(engine: &Engine) -> Value {
-    let (port, lan) = engine.access.registry.listening();
+    let (port, _) = engine.access.registry.listening();
+    let listen = engine.access.registry.listen();
     let all = engine.access.registry.rows(None);
     let orgs: Vec<Value> = engine.orgs.all().iter().map(|org| {
         let mine: Vec<&Value> = all.iter().filter(|row| has(row, &org.uuid)).collect();
@@ -72,7 +73,8 @@ pub(super) fn overview_of(engine: &Engine) -> Value {
         json!({ "slug": org.slug, "name": org.name.load_full().as_str(), "on": engine.access.is_open(&org.uuid),
                 "computers": mine.len(), "connected": connected.len(), "connected_now": connected })
     }).collect();
-    json!({ "computer": super::host_name(engine), "port": port, "default_port": registry::DEFAULT_PORT, "lan": lan, "orgs": orgs,
+    json!({ "computer": super::host_name(engine), "port": port, "default_port": registry::DEFAULT_PORT,
+            "tailscale": listen.tailscale, "lan": listen.lan, "local": listen.local, "orgs": orgs,
             "door": lifecycle::status(engine) })
 }
 
@@ -133,11 +135,15 @@ pub async fn overview(State(engine): State<Arc<Engine>>, scope: Option<Extension
 #[serde(deny_unknown_fields)]
 pub struct Listening {
     port: Option<u32>,
+    tailscale: Option<bool>,
     lan: Option<bool>,
+    local: Option<bool>,
 }
 
-/// `PUT /api/remote-access {"port"?, "lan"?}`: the door's port, and whether it also listens on
-/// this private network.
+/// `PUT /api/remote-access {"port"?, "tailscale"?, "lan"?, "local"?}`: the door's port, and
+/// where it listens: on Tailscale, on this private network, on this computer itself
+/// (127.0.0.1, for an SSH tunnel or a local https proxy). Each is chosen by itself; a save
+/// that leaves none is refused.
 #[nolog]
 pub async fn listening(State(engine): State<Arc<Engine>>, scope: Option<Extension<Scope>>, Json(body): Json<Listening>) -> ApiResult<Json<Value>> {
     owner(&engine, &scope)?;
@@ -145,7 +151,8 @@ pub async fn listening(State(engine): State<Arc<Engine>>, scope: Option<Extensio
         Some(port) => Some(u16::try_from(port).ok().filter(|port| *port >= 1024).ok_or_else(|| ApiError::bad_request(text::PORT_RANGE))?),
         None => None,
     };
-    if engine.access.registry.set_listening(port, body.lan)? {
+    let moved = engine.access.registry.set_listen(body.tailscale, body.lan, body.local)?;
+    if engine.access.registry.set_listening(port, None)? || moved {
         settled(&engine).await;
     }
     Ok(Json(overview_of(&engine)))
@@ -172,8 +179,7 @@ pub async fn org(State(engine): State<Arc<Engine>>, Path(slug): Path<String>, sc
     if look.fresh.as_deref() == Some("1") {
         // What turning the switch on would be refused with now, or null: the app asks before it
         // asks Windows for anything, so nobody is shown an administrator prompt for nothing.
-        let (_, lan) = engine.access.registry.listening();
-        view["refusal"] = json!(lifecycle::way_in(&lifecycle::read(&engine).await, lan).err());
+        view["refusal"] = json!(lifecycle::way_in(&lifecycle::read(&engine).await, engine.access.registry.listen()).err());
     }
     Ok(Json(view))
 }
@@ -192,8 +198,7 @@ pub async fn switch(State(engine): State<Arc<Engine>>, Path(slug): Path<String>,
     let org = local_org(&engine, &slug)?;
     if body.on && !engine.access.is_open(&org.uuid) {
         // a switch that could let nobody in is not turned on: it says why instead
-        let (_, lan) = engine.access.registry.listening();
-        lifecycle::way_in(&lifecycle::read(&engine).await, lan).map_err(ApiError::conflict)?;
+        lifecycle::way_in(&lifecycle::read(&engine).await, engine.access.registry.listen()).map_err(ApiError::conflict)?;
     }
     if engine.access.registry.set_open(&org.uuid, body.on)? {
         record(&engine, &org.uuid, if body.on { "on" } else { "off" }, None, crate::caller::via());
