@@ -9,7 +9,7 @@
 //! address (`0.0.0.0`): `plan` is the one place that decides, and it takes a
 //! network address only for what `remote::address::classify` says it is.
 //!
-//! What the owner changes (a switch, the port, the private-network choice)
+//! What the owner changes (a switch, the port, a place to listen)
 //! takes effect at once. An address that moved by itself (Tailscale signed
 //! out, another Wi-Fi) is followed only when two readings in a row agree, as
 //! the phone door does (`phone::reconcile_door`), so one odd reading never
@@ -115,13 +115,14 @@ pub fn plan(open: bool, listen: Listen, port: u16, tailscale: Option<Ipv4Addr>, 
             wants.push(Want { kind: Kind::Tailscale, at: SocketAddr::new(IpAddr::V4(ip), port) });
         }
     }
-    if listen.local {
-        wants.push(Want { kind: Kind::Local, at: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port) });
-    }
     if listen.lan {
         if let Some(ip) = lan_ip.filter(|ip| classify(IpAddr::V4(*ip)) == Net::Private) {
             wants.push(Want { kind: Kind::Lan, at: SocketAddr::new(IpAddr::V4(ip), port) });
         }
+    }
+    // last: the addresses another computer can use come first, and 127.0.0.1 is never one
+    if listen.local {
+        wants.push(Want { kind: Kind::Local, at: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port) });
     }
     wants
 }
@@ -339,7 +340,9 @@ async fn step(engine: &Arc<Engine>, reading: Reading) {
                 let rule = match wanted.kind {
                     #[cfg(any(test, debug_assertions))]
                     Kind::Rig => PeerRule::with_loopback(owner.listen.lan),
-                    kind => PeerRule::of(owner.listen, kind == Kind::Local),
+                    // each listener takes the peers of its own place and no other, so a
+                    // listener that stays up while another choice changes has nothing to go stale
+                    kind => PeerRule::only(kind),
                 };
                 let (ending, stopping) = (engine.shutdown.clone(), stop.clone());
                 let both = CancellationToken::new();

@@ -17,8 +17,10 @@
 //! - The app's own token means nothing at the door, and a door token means
 //!   nothing on the app's listener. `admit` never compares with the desktop
 //!   token; the app's listener never reads `Authorization` (`http::guarded`).
-//! - A member has the organizations it was given, while their switch is on,
-//!   and nothing app-wide (`member::verdict`, fail-closed).
+//! - A member's API calls reach the organizations it was given, while their
+//!   switch is on, and no app-wide write (`member::verdict`, fail-closed).
+//!   That is workspace scoping: a member is trusted with the hosting computer
+//!   as an SSH sign-in is (user rulings 2026-11-14).
 //! - The door serves `/api/` and nothing else: no page, no language-server
 //!   proxy, no credential bridge.
 //! - A request from the door is never carried on to another engine

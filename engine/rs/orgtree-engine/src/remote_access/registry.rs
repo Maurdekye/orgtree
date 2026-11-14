@@ -3,7 +3,8 @@
 //!
 //! Everything about remote access is in this one file, and nothing of it is
 //! in a database: which organizations other computers may open (the switch of
-//! each), the door's port and whether it also listens on the private network,
+//! each), the door's port and where it listens (Tailscale, the private network,
+//! this computer itself),
 //! the computers, and the one-time codes. So the door knows all of it before
 //! any database is read, and an organization that is restored, copied or made
 //! from a template never comes up shared.

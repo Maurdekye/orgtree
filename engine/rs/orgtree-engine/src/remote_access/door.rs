@@ -40,10 +40,14 @@ impl PeerRule {
         PeerRule { tailscale: true, lan, loopback: false }
     }
 
-    /// What the owner chose (`lifecycle::Listen`). `local` is the listener on this computer
-    /// itself: an SSH tunnel or a local https proxy connects there from 127.0.0.1.
-    pub fn of(listen: super::lifecycle::Listen, local: bool) -> PeerRule {
-        PeerRule { tailscale: listen.tailscale, lan: listen.lan, loopback: local }
+    /// The rule of one listener: the peers of the place it stands at, and no other. The
+    /// Tailscale listener takes Tailscale's addresses, the private network's takes private
+    /// ones, and the one on this computer itself takes 127.0.0.1, which is where an SSH
+    /// tunnel or a local https proxy connects from. A rule made from the owner's choices as a
+    /// whole would go stale on a listener that stays up while another choice changes.
+    pub fn only(kind: super::lifecycle::Kind) -> PeerRule {
+        use super::lifecycle::Kind;
+        PeerRule { tailscale: kind == Kind::Tailscale, lan: kind == Kind::Lan, loopback: matches!(kind, Kind::Local | Kind::Rig) }
     }
 
     /// As `new`, and this computer itself: for the test rig and unit tests,

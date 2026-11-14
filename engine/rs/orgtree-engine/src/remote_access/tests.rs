@@ -1552,6 +1552,13 @@ fn the_audit_line_holds_no_id_and_no_value() {
 #[test]
 fn the_door_takes_tailscale_peers_private_ones_by_choice_and_never_a_public_one() {
     let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+    // each listener of the running door takes the peers of its own place only
+    use lifecycle::Kind;
+    for (kind, takes) in [(Kind::Tailscale, "100.64.0.9"), (Kind::Lan, "192.168.1.30"), (Kind::Local, "127.0.0.1")] {
+        for peer in ["100.64.0.9", "192.168.1.30", "127.0.0.1", "8.8.8.8"] {
+            assert_eq!(PeerRule::only(kind).admits(ip(peer)), peer == takes, "{kind:?} and {peer}");
+        }
+    }
     let (tailscale_only, with_lan) = (PeerRule::new(false), PeerRule::new(true));
     for peer in ["100.64.0.1", "100.101.102.103", "100.127.255.254", "fd7a:115c:a1e0::1"] {
         assert!(tailscale_only.admits(ip(peer)) && with_lan.admits(ip(peer)), "{peer}");

@@ -37,8 +37,9 @@ const LABEL_VERSION: u8 = 3;
 pub enum Scope {
     Full,
     Viewer { org: String, client_id: String },
-    /// Everything inside the organizations it was given (their uuids), nothing
-    /// app-wide (`remote_access/member.rs` lists its routes).
+    /// The API inside the organizations it was given (their uuids) and no
+    /// app-wide write (`remote_access/member.rs` lists its routes): scoping,
+    /// not a wall, since its agents run with the owner's rights.
     Member { orgs: Vec<String>, client_id: String },
     /// It reads `/api/desktop/alive` and `/api/host` and makes one client for
     /// this organization (its uuid).
