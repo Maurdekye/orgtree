@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {recordManagedExit} from './core-exit-log'
 import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
-import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
+import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, unsafeDescriptorMessage, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
@@ -172,6 +172,8 @@ export class Engine extends EventEmitter {
   /** Set when the last attach was refused because others can write this
    *  folder (DescriptorOwner.unsafeFolder): waiting cannot change that. */
   attachUnsafeFolder = ''
+  /** What to tell the user about it: the folder, who can change it, the fix. */
+  attachUnsafeMessage = ''
   status: EngineStatus = { state: 'starting' }
   /** Retained through a failed poll; a successful new engine read clears it. */
   credentialWarning: string | null = null
@@ -262,6 +264,7 @@ export class Engine extends EventEmitter {
     // Diagnostics describe this attempt, not a descriptor removed since the last one.
     this.attachDiagnostic = ''
     this.attachUnsafeFolder = ''
+    this.attachUnsafeMessage = ''
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     if (!fs.existsSync(root)) return false
     const realRoot = fs.realpathSync.native(root)
@@ -278,6 +281,7 @@ export class Engine extends EventEmitter {
       const trust = await this.trustCheck(file)
       if (!trust.ok) {
         this.attachUnsafeFolder = trust.unsafeFolder ?? ''
+        this.attachUnsafeMessage = trust.unsafeFolder ? unsafeDescriptorMessage(trust) : ''
         throw new Error('descriptor trust rejected: ' + trust.detail)
       }
       const raw = fs.readFileSync(file, 'utf8')
@@ -341,7 +345,7 @@ export class Engine extends EventEmitter {
     if (launched !== 'managed') {
       // attach() takes the slot only while it is still this desktop's to fill
       if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
-      if (!await this.attachWithRetry(options)) throw new Error('The background engine did not publish a verified attachment in time.')
+      if (!await this.attachWithRetry(options)) throw new Error(this.attachUnsafeMessage || 'The background engine did not publish a verified attachment in time.')
       this.stopping = false
       return
     }

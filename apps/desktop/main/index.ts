@@ -26,7 +26,7 @@ import { addAttentionDot } from './tray-dot'
 import { mailhubTrayItem } from './tray-mailhub'
 import { epicMuteTrayItem, refreshTrayEpic } from './tray-epic'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
-import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
+import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
 import { configureArtifactSession, configureEngineSession, configureWindow, forgetSealedSession, popoutRegistry, resealSandboxedSessions, revealPopout, sandboxSealed, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
 import { artifactThemeKeeper } from './frametheme'
@@ -2510,7 +2510,7 @@ else {
       const initialEngine = async () => {
       if (!await bootAttached() && !await engine.attach(engineOptions)) {
         if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
-        if (engine.attachUnsafeFolder) console.warn(`unsafe folder blocks the background engine: ${engine.attachUnsafeFolder} (fix: chmod g-w,o-w ${shellQuote(engine.attachUnsafeFolder)})`)
+        if (engine.attachUnsafeFolder) console.warn(`unsafe folder blocks the background engine: ${engine.attachUnsafeFolder}${process.platform === 'win32' ? '' : ` (fix: chmod g-w,o-w ${shellQuote(engine.attachUnsafeFolder)})`}`)
         try { await engine.start(engineOptions) }
         catch (error) {
           // A structured refusal means another owner holds this root — the
@@ -2524,7 +2524,7 @@ else {
             // The root is owned AND no descriptor verified for the whole
             // budget: the reason it was declined is the actual diagnosis
             // (an unverifiable owner, a stale port), not the lock refusal.
-            if (engine.attachUnsafeFolder) throw new Error(unsafeFolderMessage(engine.attachUnsafeFolder))
+            if (engine.attachUnsafeFolder) throw new Error(engine.attachUnsafeMessage)
             if (engine.attachDiagnostic) throw new Error(`${error.message}\nBoot engine descriptor rejected: ${engine.attachDiagnostic}`)
             throw error
           }

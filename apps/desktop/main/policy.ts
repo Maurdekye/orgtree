@@ -203,6 +203,30 @@ export interface DescriptorOwner {
    *  Its owner can fix that with chmod; nothing else changes the verdict, so
    *  the caller stops waiting and says so (see unsafeFolderMessage). */
   unsafeFolder?: string
+  /** Windows: the accounts (SIDs, comma-separated) that can change
+   *  `unsafeFolder`, and whether it is a folder above the data folder (they
+   *  can replace it) or the data folder itself (they can write in it). Set
+   *  only for a folder: a refusal about the file itself can end when a new
+   *  engine replaces the file, so it keeps the ordinary wait. */
+  unsafeBy?: string
+  unsafeAbove?: boolean
+}
+
+/** The accounts Windows itself defines, by the names its dialogs show. */
+const WELL_KNOWN_ACCOUNTS: Record<string, string> = { 'S-1-1-0': 'Everyone', 'S-1-5-11': 'Authenticated Users',
+  'S-1-5-32-545': 'Users', 'S-1-5-32-546': 'Guests', 'S-1-5-4': 'Interactive', 'S-1-5-7': 'Anonymous' }
+
+/** What the user is told when a refused folder blocks the background engine:
+ *  which folder, who can change it, and what to do. Waiting changes nothing,
+ *  so this replaces "no verified attachment in time" (user ruling 2026-11-14). */
+export function unsafeDescriptorMessage(trust: DescriptorOwner): string {
+  const folder = trust.unsafeFolder ?? ''
+  if (trust.unsafeBy === undefined) return unsafeFolderMessage(folder)
+  const accounts = trust.unsafeBy.split(',').filter(Boolean).map(sid => WELL_KNOWN_ACCOUNTS[sid] ? `${WELL_KNOWN_ACCOUNTS[sid]} (${sid})` : sid).join(', ')
+  const what = trust.unsafeAbove ? `the folder ${folder}, which is above Orgtree's data folder` : `Orgtree's data folder ${folder}`
+  return `Orgtree's background engine is running, but Orgtree will not connect to it because other accounts on this computer can change ${what}: ${accounts}.${trust.unsafeAbove ? ' Orgtree does not change permissions outside its own folders.' : ''}
+
+To fix it, open the folder's Properties, choose Security, and remove those accounts' permission to modify it. Then start Orgtree again.`
 }
 
 /** Single-quoted for a POSIX shell. */
@@ -345,7 +369,7 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
           const parts = stdout.trim().split('|')
           if (parts.length !== 5 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
           const [current, owner, fileBad, dirBad, ancestorBad] = parts
-          resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad))
+          resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad, path.dirname(file)))
         })
     }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
   })
@@ -366,11 +390,16 @@ const TRUSTED_OWNERS = new Set(['S-1-5-18', 'S-1-5-32-544'])
  *  which an unelevated test cannot do). Preconditions: verifyDescriptorTrust
  *  validates the five-field response and SID prefixes before calling this;
  *  this helper is not a validator for arbitrary external input. */
-export function judgeDescriptorTrust(current: string, owner: string, fileBad: string, dirBad: string, ancestorBad: string): DescriptorOwner {
+export function judgeDescriptorTrust(current: string, owner: string, fileBad: string, dirBad: string, ancestorBad: string, directory = ''): DescriptorOwner {
   if (owner !== current && !TRUSTED_OWNERS.has(owner)) return { ok: false, detail: `owner ${owner} is not current user ${current}` }
   if (fileBad) return { ok: false, detail: `descriptor writable by ${fileBad}` }
-  if (dirBad) return { ok: false, detail: `descriptor directory writable by ${dirBad}` }
-  if (ancestorBad) return { ok: false, detail: `path replaceable via ancestor ${ancestorBad.slice(0, 300)}` }
+  if (dirBad) return { ok: false, detail: `descriptor directory writable by ${dirBad}`, ...(directory ? { unsafeFolder: directory, unsafeBy: dirBad, unsafeAbove: false } : {}) }
+  if (ancestorBad) {
+    // `folder=sid,sid;folder=sid`, nearest first: the first is the one to name
+    const nearest = /^(.*?)=(S-1-[0-9-]+(?:,S-1-[0-9-]+)*)(?:;|$)/.exec(ancestorBad)
+    return { ok: false, detail: `path replaceable via ancestor ${ancestorBad.slice(0, 300)}`,
+      ...(nearest ? { unsafeFolder: nearest[1], unsafeBy: nearest[2], unsafeAbove: true } : {}) }
+  }
   return { ok: true, detail: `owner ${owner}, exclusive write boundary` }
 }
 
