@@ -645,6 +645,48 @@ fn availability(engine: &Engine) -> Value {
     json!({ "at": at, "stale": !errors.is_empty(), "errors": errors, "loading": !state.probed })
 }
 
+/// One who could take a hire of a tier: the engine's own sign-in, or a registered account
+/// the organization may use.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Candidate {
+    /// not signed in, or it does not offer the model: it was never in the running
+    Out,
+    /// signed in, and known to be at 100% in a window the model spends (or marked limited)
+    Spent,
+    /// signed in and not known to be at a limit; usage nobody has read counts as usable
+    Usable,
+}
+
+/// Whether nobody can take a hire of the tier BECAUSE OF LIMITS: no candidate is usable and
+/// at least one is signed in. The window greys the tile and says so, and the hire does not
+/// fall through to a default account that cannot run the model (coordinator's ruling
+/// 2026-11-14 on "nothing usable"). All signed out is not this: the tile then says to sign in.
+#[nolog]
+fn every_candidate_spent(_own: Candidate, _accounts: &[Candidate]) -> bool {
+    false
+}
+
+#[cfg(test)]
+mod spent_tests {
+    use super::{every_candidate_spent, Candidate::*};
+
+    #[test]
+    fn a_tier_is_spent_when_every_signed_in_candidate_is_at_its_limit() {
+        // the own sign-in at 100%, no account that could take it (the default is signed out)
+        assert!(every_candidate_spent(Spent, &[]));
+        assert!(every_candidate_spent(Spent, &[Out]));
+        // a headless engine: nothing on its own sign-in, every account folder at 100%
+        assert!(every_candidate_spent(Out, &[Spent, Spent, Out]));
+        // one that is not known to be at a limit is enough, and usage nobody read is usable
+        assert!(!every_candidate_spent(Spent, &[Spent, Usable]));
+        assert!(!every_candidate_spent(Usable, &[Spent]));
+        assert!(!every_candidate_spent(Usable, &[]));
+        // nobody is signed in: that is "sign in", not "at its limit"
+        assert!(!every_candidate_spent(Out, &[]));
+        assert!(!every_candidate_spent(Out, &[Out, Out]));
+    }
+}
+
 // User ruling 2026-11-14, "Pre-select an account": the accounts that can run a model are listed
 // in the order of room, and a hire form names the first.
 #[cfg(test)]
