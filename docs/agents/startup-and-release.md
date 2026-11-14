@@ -8,9 +8,10 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## The attach trust rule judges a drive's root without DELETE, and a refused folder is named at once (2026-11-14, 4.6.0)
 
-The rule that decides whether `engine-attach.json` may be trusted exists twice: `verifyDescriptorTrust`
-(`apps/desktop/main/policy.ts`) for the window and `Get-DescriptorDistrust` (`tools/installer-upgrade.ps1`) for the
-installer's close helper. Both refuse a folder above the descriptor that another account can replace.
+The rule that decides whether `engine-attach.json` may be trusted exists three times: `verifyDescriptorTrust`
+(`apps/desktop/main/policy.ts`) for the window, `Get-DescriptorDistrust` (`tools/installer-upgrade.ps1`) for the
+installer's close helper, and `trusted` (`engine/rs/orgtree-engine/src/credential_broker.rs`) for the credential
+broker. All three refuse a folder above the descriptor that another account can replace.
 
 - **A drive's root is judged without DELETE.** Windows gives the root of a formatted data drive "Authenticated
   Users: Modify, this folder only", and Modify carries DELETE. Nobody can delete or rename a volume's root folder,
@@ -21,7 +22,9 @@ installer's close helper. Both refuse a folder above the descriptor that another
 - **A root is any drive letter's** (`X:\`), a letter made with SUBST and a mapped network drive too (user ruling
   2026-11-14 08:00Z, "Any drive letter"; the first version of this change asked the mount manager and exempted
   real volumes only). A UNC root and a `\\?\` path have no drive letter and keep the full rule.
-- **Change both copies together.** `tests/descriptor-trust-drive-root.test.mjs` runs one table through both, the
+- **Change all three copies together.** The broker's has its own unit test
+  (`a_drive_letters_root_is_judged_without_delete_and_every_other_folder_as_before`, on real access entries).
+  `tests/descriptor-trust-drive-root.test.mjs` runs one table through the other two, the
   helper's in the 64-bit and the 32-bit Windows PowerShell, with `Get-Acl` replaced by a function that answers from
   security descriptors in the table. It touches no real permission.
 - **A refused folder ends the wait.** When others can write the data folder or replace a folder above it, the
