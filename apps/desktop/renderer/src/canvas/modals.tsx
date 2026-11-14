@@ -57,7 +57,7 @@ import { AccountSelect } from './accountselect'
 import { AgentHarnessRow, harnessOp, useHireHarness, useNodeHarness } from './agentharness'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { useAgyModelsRefresh } from './shared'
-import { hireAccount } from './hireaccount'
+import { hireAccount, hireNeedsChoice } from './hireaccount'
 import { accountProvider, accountValue, primaryAccount, providerAccounts } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
@@ -808,10 +808,12 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   // account that can, shown in the Account row and changeable there
   // (`hireAccount`; user ruling 2026-11-14, "Pre-select an account")
   const museAuto = hireAccount(tree.slug, draft.tier, tree.default_account)
+  // only a metered key can run the model: nothing is chosen for the user
+  const mustChoose = hireNeedsChoice(tree.slug, draft.tier, tree.default_account)
   const [acct, setAcct] = useState<string>(
     base.account !== undefined
       ? base.account
-      : (museAuto ?? (defaultAccountMatches ? (orgAccount ?? '') : ''))
+      : mustChoose ? '' : (museAuto ?? (defaultAccountMatches ? (orgAccount ?? '') : ''))
   )
   const [acctTouched, setAcctTouched] = useState(base.account !== undefined)
   const selectedProvider = accountProvider(acct, acctRows)
@@ -827,9 +829,9 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
 
   useEffect(() => {
     if (!acctTouched && base.account === undefined) {
-      setAcct(museAuto ?? (defaultAccountMatches ? (orgAccount ?? '') : ''))
+      setAcct(mustChoose ? '' : museAuto ?? (defaultAccountMatches ? (orgAccount ?? '') : ''))
     }
-  }, [acctTouched, base.account, defaultAccountMatches, orgAccount, museAuto])
+  }, [acctTouched, base.account, defaultAccountMatches, orgAccount, museAuto, mustChoose])
   // a Muse seat's levels and model are the login it lands on (its own catalog)
   const museTier = MUSE_TIERS.includes(draft.tier)
   const museWhy = museTier ? museUnofferedWhy(draft.tier, modelVersion || null, selectedAccount || null) : null
@@ -891,8 +893,9 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         hint={FAST_MODE_HELP} onChange={setFastOverride} />}
       <SetRow label="Account" hint="Choose the account this agent uses."><AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount} host={hostIdentity}
         eligible={peekStaffingOptions(tree.slug)?.tiers.find(t => t.tier === draft.tier)?.accounts.map(a => a.value)}
+        mustChoose={mustChoose}
         onChange={value => { setAcct(value); setAcctTouched(true) }} /></SetRow>
-      {selectedAccount && <button type="button" onClick={() => { setAcct(''); setAcctTouched(true) }}>Use machine default</button>}
+      {selectedAccount && !mustChoose && <button type="button" onClick={() => { setAcct(''); setAcctTouched(true) }}>Use machine default</button>}
       {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
       <AccountFallbackField provider={targetProvider} value={accountFallback} defaultOn={tree.account_fallback_default}
         onChange={setAccountFallback} />

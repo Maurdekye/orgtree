@@ -100,7 +100,7 @@ import type { AgentPanelKind, AgentSurfaceRoutes } from './panelcorner'
 import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { draftHarness } from './agentharness'
-import { hireAccount } from './hireaccount'
+import { chooseAccountText, hireAccount, hireAwaitsAccount, hireNeedsChoice } from './hireaccount'
 import { DraftNode, NodeSquare, UserNode } from './cards'
 import { RetiredBadge } from './retiredbadge'
 import type { DraftForm, DraftNodeProps } from './cards'
@@ -4259,6 +4259,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const confirmDraft = (name: string, grant: number, charter: string,
     scope: DraftScope | null) => {
     if (!draft || pendingHireRef.current) return
+    // only a metered key can run the model: no hire goes out naming nothing
+    if (hireAwaitsAccount(slug, draft.tier, tree.default_account, scope?.account)) { toast([chooseAccountText(draft.tier)]); return }
     const point = springs.current.get(DRAFT) ?? targetRef.current.get(DRAFT)
     if (!point) return
     // the hired name stands for the card until the response names it, unless
@@ -5444,6 +5446,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               const parent = placement === 'below' ? a.id : parentOf
               // judged on the ring as it is NOW, before the hire changes it
               const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
+              // only a metered key can run the model: the sheet has no Account row, so the
+              // hire opens as a draft, whose settings ask for the account
+              if (hireNeedsChoice(slug, tier, tree.default_account)) {
+                setHireOpen(false)
+                spawn(placement === 'below' ? a.id : parentOf ?? USER, tier)
+                toast([chooseAccountText(tier)])
+                return
+              }
               const museAccount = hireAccount(slug, tier, tree.default_account)
               const body: Parameters<OpFn>[0] = { op: 'hire', parent, tier, grant, name,
                 ...newHirePlacement(placement !== 'below'),

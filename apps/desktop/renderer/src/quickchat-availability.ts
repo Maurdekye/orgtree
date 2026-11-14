@@ -49,7 +49,8 @@ export function quickChatChoices(availability: StaffingOptions | null, tree: Tre
     if (configured) return [{ row, account: configured.value }]
     // With no named default, a runnable native/automatically balanced lane keeps the ordinary hire path.
     if (native && !tree.default_account) return [{ row }]
-    const alternative = row.accounts[0]
+    // never a metered key by itself: Quick chat has no form to choose it in (OpenRouter's keys are its accounts)
+    const alternative = row.accounts.find(account => account.kind !== 'apikey' || row.provider === 'openrouter')
     if (alternative) return [{ row, account: alternative.value }]
     // Explicit primary prevents an ineligible org default from replacing the eligible native login.
     if (native) return [{ row, ...(row.provider && tree.default_account ? { account: row.provider + '/primary' } : {}) }]

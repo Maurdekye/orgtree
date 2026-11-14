@@ -10,7 +10,7 @@ import type { AccountChoiceRow, HostIdentity } from '../accountidentity'
  * the host login's address on a machine whose primary account has no registry
  * row. Omitted or unknown, `default` still reads `email unavailable`. */
 export function AccountSelect({ rows, provider, value, onChange, host, label = 'Account',
-                               eligible, ineligibleNote }: {
+                               eligible, ineligibleNote, mustChoose }: {
   rows: AccountChoiceRow[]; provider: string; value: string
   onChange: (value: string) => void; host?: HostIdentity; label?: string
   /** the account VALUES the backend says can run the chosen tier right now.
@@ -25,21 +25,29 @@ export function AccountSelect({ rows, provider, value, onChange, host, label = '
   /** how a held binding that `eligible` leaves out is described (default
    *  "unavailable"), e.g. "not used by this org" */
   ineligibleNote?: string
+  /** Nothing may be chosen for the user (only a metered key can run the
+   *  model, `hireNeedsChoice`): with no value the row reads "Choose an
+   *  account" and selects nothing, instead of showing the first choice as if
+   *  the hire would use it. */
+  mustChoose?: boolean
 }) {
   const detailId = useId()
   const all = providerAccounts(rows, provider, host)
   const allowed = eligible && eligible.length
     ? all.filter(choice => eligible.includes(choice.value)) : all
   const choices = allowed.length ? allowed : all
-  const selected = accountValue(value, rows, provider) || choices[0].value
-  const unknown = !choices.some(choice => choice.value === selected)
+  const choosing = !!mustChoose && !accountValue(value, rows, provider)
+  const selected = choosing ? '' : accountValue(value, rows, provider) || choices[0].value
+  const unknown = !choosing && !choices.some(choice => choice.value === selected)
   const held = all.find(choice => choice.value === selected)
-  const detail = choices.find(choice => choice.value === selected)?.text
+  const detail = choosing ? 'Only a metered API key can run this model. It is used only when you choose it.'
+    : choices.find(choice => choice.value === selected)?.text
     ?? (held && ineligibleNote ? `${held.text} (${ineligibleNote})` : `${accountIdentity(selected)} (unavailable)`)
   return <div className="account-choice">
     <select aria-label={label} aria-describedby={detailId} title={detail}
-      value={selected} disabled={choices.length === 1}
+      value={selected} disabled={!choosing && choices.length === 1}
       onChange={event => onChange(event.target.value)}>
+      {choosing && <option value="" disabled>Choose an account</option>}
       {unknown && <option value={selected} disabled>{detail}</option>}
       {choices.map(choice => <option key={choice.value} value={choice.value}>{choice.text}</option>)}
     </select>

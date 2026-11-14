@@ -6,6 +6,7 @@ import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { DndBadge } from './dnd'
 import { hireTierDisabledReason, hireTierOffer, modelTierOffer, signedOutHire } from './shared'
+import { chooseAccountText, hireAwaitsAccount } from './hireaccount'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { creditSegments } from './creditsegments'
 import { toggleAgentHalt } from './haltcontrol'
@@ -1247,7 +1248,14 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel, pending])
   const ok = !pending && name.trim().length > 0
-  const hire = () => { if (ok) onConfirm(normalizeUserEnteredName(name), grant, finalCharter(), scope) }
+  // only a metered key can run the model and none is chosen: the button opens
+  // the settings, where the Account row asks, instead of hiring
+  const awaitsAccount = hireAwaitsAccount(tree?.slug ?? '', draft.tier, tree?.default_account, scope?.account)
+  const hire = () => {
+    if (!ok) return
+    if (awaitsAccount) { setPermsOpen(true); return }
+    onConfirm(normalizeUserEnteredName(name), grant, finalCharter(), scope)
+  }
   // a hire on its way (user 2026-10-20 16:45Z): the placeholder stays, greyed,
   // and takes no focus or clicks until the new card replaces it. React 18 has
   // no boolean `inert` prop (it warns and drops it), so the attribute is set
@@ -1374,8 +1382,8 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
             <button onClick={onCancel} disabled={pending}><CloseIcon fontSize="inherit" /> cancel</button>
             <button className="primary" disabled={!ok} onClick={hire}
               title={pending ? 'hiring: the new agent takes this place when it appears'
-                : ok ? undefined : 'give the agent a name first'}>
-              <CheckIcon fontSize="inherit" /> hire</button>
+                : !ok ? 'give the agent a name first' : awaitsAccount ? chooseAccountText(draft.tier) : undefined}>
+              {awaitsAccount ? <><SettingsIcon fontSize="inherit" /> choose an account</> : <><CheckIcon fontSize="inherit" /> hire</>}</button>
           </div>
         </div>
       </div>

@@ -34,7 +34,7 @@
 // form opens. With no answer yet, or a model it does not list, nothing is
 // named and the engine decides at the door.
 import { primaryAccount } from '../accountidentity'
-import { MUSE_TIERS, providerOf } from './shared'
+import { MUSE_TIERS, providerOf, tierLabel } from './shared'
 import { museHireAccount } from './musehire'
 import { peekStaffingOptions } from './staffingoptions'
 
@@ -64,3 +64,32 @@ export function hireAccount(org: string, tier: string, orgDefault: string | null
   // saying nothing lands on the own sign-in only while there is no default account
   return pick === own && !chosen ? undefined : pick
 }
+
+/** ONLY A METERED KEY CAN RUN IT (coordinator's ruling 2026-11-14, the key-only
+ *  case): the organization's default account cannot run the model, the
+ *  engine's own sign-in is signed out or at its limit, no account folder can,
+ *  and a metered key can. A key is never picked for the user, and a hire that
+ *  names nothing would land on a login that cannot run the model. So the tile
+ *  stays offered, the form's Account row reads "Choose an account", and the
+ *  hire waits until the user picked the key (`hireAwaitsAccount`). An
+ *  OpenRouter model is not this case: its keys are its accounts and the
+ *  engine places a hire on one (its own lane is then runnable). */
+export function hireNeedsChoice(org: string, tier: string, orgDefault: string | null | undefined): boolean {
+  if (MUSE_TIERS.includes(tier)) return false
+  const offered = peekStaffingOptions(org)?.tiers?.find((t) => t.tier === tier)
+  if (!offered) return false
+  const chosen = defaultAccountId(orgDefault)
+  if (chosen && offered.accounts.some((a) => a.value === chosen)) return false
+  if (offered.native_ok ?? offered.default_ok) return false
+  const ranked = offered.by_room ?? offered.accounts.filter((a) => !a.ambient && a.kind !== 'apikey').map((a) => a.value)
+  return ranked.length === 0 && offered.accounts.some((a) => !a.ambient)
+}
+
+/** Whether a hire of `tier` must not go out yet: only a metered key can run
+ *  it and the user has named no account. */
+export const hireAwaitsAccount = (org: string, tier: string, orgDefault: string | null | undefined,
+  account: string | null | undefined): boolean => !account && hireNeedsChoice(org, tier, orgDefault)
+
+/** What a surface says when it does not make such a hire. */
+export const chooseAccountText = (tier: string): string =>
+  `Only a metered API key can run ${tierLabel(tier)} here. Choose it as the account in the hire's settings to hire.`
