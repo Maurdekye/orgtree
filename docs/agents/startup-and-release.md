@@ -6,6 +6,36 @@ Boot, shutdown, placement, installers, native integration, updates and release e
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## The attach trust rule judges a drive's root without DELETE, and a refused folder is named at once (2026-11-14, 4.6.0)
+
+The rule that decides whether `engine-attach.json` may be trusted exists twice: `verifyDescriptorTrust`
+(`apps/desktop/main/policy.ts`) for the window and `Get-DescriptorDistrust` (`tools/installer-upgrade.ps1`) for the
+installer's close helper. Both refuse a folder above the descriptor that another account can replace.
+
+- **A drive's root is judged without DELETE.** Windows gives the root of a formatted data drive "Authenticated
+  Users: Modify, this folder only", and Modify carries DELETE. Nobody can delete or rename a volume's root folder,
+  so that right replaces nothing; counting it refused every data folder on such a drive (measured 2026-11-14: only
+  `C:\` passed on the development PC). "Delete subfolders and files", "change permissions", "take ownership" and
+  generic all still count on a root. The data folder itself and every folder between it and the root are judged as
+  before.
+- **A root is `X:\` that the mount manager names a volume for** (`mountvol X:\ /L` exits 0 with one
+  `\\?\Volume{...}\` line). A SUBST letter and a mapped share have the same shape but are folders somebody can
+  rename; mountvol refuses both (measured), and anything but that one line keeps the full rule. A UNC root and a
+  `\\?\` path are not roots for this rule.
+- **Change both copies together.** `tests/descriptor-trust-drive-root.test.mjs` runs one table through both, the
+  helper's in the 64-bit and the 32-bit Windows PowerShell, with `Get-Acl` replaced by a function that answers from
+  security descriptors in the table. It touches no real permission.
+- **A refused folder ends the wait.** When others can write the data folder or replace a folder above it, the
+  Windows verdict now carries `unsafeFolder`, `unsafeBy` and `unsafeAbove`, as the macOS and Linux verdict carries
+  `unsafeFolder`. `attachWithRetry` stops at once and `Engine.start` throws `unsafeDescriptorMessage`: the folder,
+  the accounts and what to do. Before, the window waited 150 s and said only that no verified attachment was
+  published. A refusal about the file itself (its owner, its own entries) keeps the ordinary wait, because a new
+  engine replaces the file.
+- Orgtree changes no permission for this, on any drive.
+
+[decided: user 2026-11-14, docket data-folder-on-a-second-drive-drive-root-delete-r; verified: `policy.ts`,
+`engine.ts`, `tools/installer-upgrade.ps1`, `tests/descriptor-trust-drive-root.test.mjs`, `tests/attach.test.mjs`]
+
 ## Setup checks the Microsoft Visual C++ runtime the database needs (2026-11-13, 4.5.13)
 
 On a PC with an outdated Visual C++ runtime, Setup succeeded and the bundled PostgreSQL then failed at every
