@@ -254,10 +254,19 @@ fn a_finished_upload_is_placed_by_the_users_choice() {
     outside.file("notes.txt", b"theirs");
     link_folder(&dir.0.join("away"), &outside.0);
     std::fs::write(dir.0.join("linked.txt"), b"").unwrap();
-    for conflict in [Conflict::Ask, Conflict::Replace, Conflict::KeepBoth] {
+    for conflict in [Conflict::Ask, Conflict::Replace] {
         assert_eq!(place(&dir.0, &part(b"five"), "taken", conflict), Err((StatusCode::CONFLICT, FOLDER_IN_THE_WAY)), "{conflict:?}");
         assert_eq!(place(&dir.0, &part(b"five"), "away", conflict), Err((StatusCode::FORBIDDEN, LINK)), "{conflict:?}");
+        assert_eq!(in_the_way(&dir.0, "taken", conflict), Err((StatusCode::CONFLICT, FOLDER_IN_THE_WAY)), "{conflict:?}");
+        assert_eq!(in_the_way(&dir.0, "away", conflict), Err((StatusCode::FORBIDDEN, LINK)), "{conflict:?}");
     }
+    // keep both numbers past a folder or a link of that name (review F-2)
+    assert_eq!(in_the_way(&dir.0, "taken", Conflict::KeepBoth), Ok(()));
+    assert_eq!(in_the_way(&dir.0, "away", Conflict::KeepBoth), Ok(()));
+    assert_eq!(place(&dir.0, &part(b"six"), "taken", Conflict::KeepBoth).unwrap(), "taken (2)");
+    assert_eq!(place(&dir.0, &part(b"seven"), "away", Conflict::KeepBoth).unwrap(), "away (2)");
+    assert_eq!((read("taken (2)"), read("away (2)")), (b"six".to_vec(), b"seven".to_vec()));
+    assert!(dir.0.join("taken").is_dir());
     assert_eq!(std::fs::read(outside.0.join("notes.txt")).unwrap(), b"theirs");
     std::fs::remove_dir(dir.0.join("away")).unwrap();
 }
@@ -281,4 +290,115 @@ fn a_download_is_named_for_any_reader() {
     assert_eq!(disposition("ün \"q\".txt"), "attachment; filename=\"_n _q_.txt\"; filename*=UTF-8''%C3%BCn%20%22q%22%2Etxt");
     assert_eq!((folder_label("lead", ScratchFolderScope::Agent), folder_label("lead", ScratchFolderScope::Team), folder_label("_shared", ScratchFolderScope::Shared)),
         ("lead".to_string(), "lead-team".to_string(), "shared".to_string()));
+}
+
+// Review F-2 (2026-11-14): Ask and Keep both never take the place of a file, also when several
+// uploads of one name end at the same moment.
+#[test]
+fn uploads_of_one_name_that_end_together_all_keep_their_files() {
+    let dir = Dir::new();
+    let many = 12usize;
+    let run = |name: &'static str, conflict: Conflict, tag: &str| -> Vec<(Vec<u8>, Refused<String>)> {
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(many));
+        let threads: Vec<_> = (0..many)
+            .map(|i| {
+                let payload = format!("{tag} payload {i}").into_bytes();
+                let part = dir.file(&format!(".up{tag}{i:02}.orgtree-part"), &payload);
+                let (folder, gate) = (dir.0.clone(), gate.clone());
+                std::thread::spawn(move || {
+                    gate.wait();
+                    (payload, place(&folder, &part, name, conflict))
+                })
+            })
+            .collect();
+        threads.into_iter().map(|t| t.join().unwrap()).collect()
+    };
+    // keep both: every upload has a name of its own, and under it its own bytes
+    let kept = run("same.txt", Conflict::KeepBoth, "k");
+    let mut names: Vec<String> = kept.iter().map(|(_, placed)| placed.clone().expect("every upload is placed")).collect();
+    for (payload, placed) in &kept {
+        assert_eq!(&std::fs::read(dir.0.join(placed.as_ref().unwrap())).unwrap(), payload, "{placed:?}");
+    }
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), many, "no two uploads were given one name: {names:?}");
+    // ask: one is placed, the others are refused, and the file is the one that was placed
+    let asked = run("one.txt", Conflict::Ask, "a");
+    let placed: Vec<&(Vec<u8>, Refused<String>)> = asked.iter().filter(|(_, placed)| placed.is_ok()).collect();
+    assert_eq!(placed.len(), 1, "{:?}", asked.iter().map(|(_, placed)| placed.clone()).collect::<Vec<_>>());
+    assert!(asked.iter().filter(|(_, placed)| placed.is_err()).all(|(_, placed)| *placed == Err((StatusCode::CONFLICT, EXISTS))));
+    assert_eq!(std::fs::read(dir.0.join("one.txt")).unwrap(), placed[0].0);
+}
+
+// Review F-1 (2026-11-14): the folder a request is about is itself never a link, nor is anything
+// above it down from the data folder, and it lies in the organization's scratch folders.
+#[test]
+fn the_folder_itself_is_never_a_link_and_lies_in_the_organizations_scratch() {
+    let (data, outside) = (Dir::new(), Dir::new());
+    let org = data.folder("scratch/acme");
+    data.file("scratch/acme/lead/a.txt", b"a");
+    data.folder("scratch/other/lead");
+    outside.file("secret.txt", b"secret");
+    outside.folder("lead");
+    // as it is: the folder, resolved
+    assert_eq!(unlinked_root(&data.0, &org, &org.join("lead")).unwrap(), std::fs::canonicalize(org.join("lead")).unwrap());
+    // one that was never made is not there, and is not made
+    assert_eq!(unlinked_root(&data.0, &org, &org.join("ghost")), Err((StatusCode::NOT_FOUND, NO_FOLDER)));
+    assert!(!org.join("ghost").exists());
+    // a file is no folder
+    assert_eq!(unlinked_root(&data.0, &org, &org.join("lead").join("a.txt")), Err((StatusCode::NOT_FOUND, NO_FOLDER)));
+    // a junction where the agent's folder should be
+    link_folder(&org.join("scout"), &outside.0);
+    assert_eq!(unlinked_root(&data.0, &org, &org.join("scout")), Err((StatusCode::FORBIDDEN, LINK)));
+    // a junction above it: the organization's own folder
+    let linked = data.0.join("scratch").join("linked");
+    link_folder(&linked, &outside.0);
+    assert_eq!(unlinked_root(&data.0, &linked, &linked.join("lead")), Err((StatusCode::FORBIDDEN, LINK)));
+    // a stored path that is not in the organization's scratch folders: another organization's, anywhere else, or by ".."
+    for elsewhere in [data.0.join("scratch").join("other").join("lead"), outside.0.clone(), org.join("..").join("other").join("lead"), org.clone().join("lead").join("..").join("..").join("other")] {
+        assert_eq!(unlinked_root(&data.0, &org, &elsewhere), Err((StatusCode::FORBIDDEN, OUTSIDE)), "{elsewhere:?}");
+    }
+    // the organization's folder itself is not an agent's folder, the shared one below it is
+    data.folder("scratch/acme/_shared");
+    assert!(unlinked_root(&data.0, &org, &org.join("_shared")).is_ok());
+    std::fs::remove_dir(org.join("scout")).unwrap();
+    std::fs::remove_dir(&linked).unwrap();
+}
+
+// Review F-5 (2026-11-14): an engine that was stopped hard in the middle of an upload leaves its
+// part behind; parts older than a day go when the engine starts. Nothing else goes.
+#[test]
+fn parts_left_by_a_stopped_engine_are_swept_when_they_are_a_day_old() {
+    let (data, outside) = (Dir::new(), Dir::new());
+    let scratch = data.folder("scratch");
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+    let aged = |at: &FsPath, age: std::time::Duration| std::fs::File::options().write(true).open(at).unwrap().set_modified(now - age).unwrap();
+    let old = data.file("scratch/acme/lead/deep/.up0123456789ab.orgtree-part", b"half");
+    let fresh = data.file("scratch/acme/lead/.upba9876543210.orgtree-part", b"on its way");
+    let ordinary = data.file("scratch/acme/lead/old notes.txt", b"kept");
+    let named_like = data.file("scratch/acme/lead/report.orgtree-part", b"a user's own file");
+    let beyond = outside.file(".upffffffffffff.orgtree-part", b"through a link");
+    for at in [&old, &ordinary, &named_like, &beyond] {
+        aged(at, day * 2);
+    }
+    aged(&fresh, day / 2);
+    link_folder(&scratch.join("acme").join("away"), &outside.0);
+    assert_eq!(sweep_stale_parts(&scratch, day, now), 1);
+    assert!(!old.exists(), "the old part is gone");
+    assert!(fresh.exists() && ordinary.exists() && named_like.exists() && beyond.exists(), "nothing else is touched, and no link is followed");
+    // a scratch folder that is not there is nothing to sweep
+    assert_eq!(sweep_stale_parts(&data.0.join("no-such"), day, now), 0);
+    std::fs::remove_dir(scratch.join("acme").join("away")).unwrap();
+}
+
+// Review F-4 (2026-11-14): a zip names an entry in at most 65535 bytes.
+#[test]
+fn a_name_too_long_for_a_zip_is_left_out() {
+    assert!(zip_name_fits(&"a".repeat(65535), false));
+    assert!(!zip_name_fits(&"a".repeat(65536), false));
+    // a folder is named with a slash after it
+    assert!(zip_name_fits(&"a".repeat(65534), true));
+    assert!(!zip_name_fits(&"a".repeat(65535), true));
+    assert!(!zip_name_fits(&"\u{fc}".repeat(32768), false), "bytes, not characters");
 }

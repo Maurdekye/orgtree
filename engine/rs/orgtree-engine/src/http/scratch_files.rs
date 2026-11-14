@@ -161,6 +161,26 @@ fn confine_folder(root: &FsPath, path: &str) -> Refused<PathBuf> {
     Ok(folder)
 }
 
+/// Not built yet (the red state of review F-1): the folder, resolved, as before.
+#[nolog]
+fn unlinked_root(_data_root: &FsPath, _within: &FsPath, folder: &FsPath) -> Refused<PathBuf> {
+    std::fs::canonicalize(folder).ok().filter(|folder| folder.is_dir()).ok_or((StatusCode::NOT_FOUND, NO_FOLDER))
+}
+
+/// Not built yet (the red state of review F-5).
+#[nolog]
+pub fn sweep_stale_parts(_scratch: &FsPath, _older_than: std::time::Duration, _now: std::time::SystemTime) -> usize {
+    0
+}
+
+/// Not built yet (the red state of review F-4).
+#[nolog]
+fn zip_name_fits(_name: &str, _folder: bool) -> bool {
+    true
+}
+
+const OUTSIDE: &str = "That folder is not among this organization's scratch folders.";
+
 /// The scratch folder the request is about, resolved. A personal scratch folder that was
 /// never made is not made here (as `nodes::scratch_folder` makes none).
 #[nolog]
