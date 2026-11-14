@@ -155,13 +155,26 @@ module.exports = async (page, { args }) => {
     await sleep(1500)
     H.title = await page.eval(() => document.title)
     H.chip = (await chip())?.text ?? null
-    // a folder of the organization: the entry stays, opens nothing here and says where the folder is
+    // a folder of the organization: the entry opens nothing on this computer; the Files panel shows the folder where it is
     await menu(args.agent, ['Open', 'Scratch folder'])
-    H.folder = await until('the folder sentence', () => {
-      const t = [...document.querySelectorAll('.toasts .toast')].map(e => (e.innerText || '').trim()).find(s => /This folder is on/.test(s))
-      return t || null
-    }, 10000).catch(() => null)
-    await shot('50-scratch-folder-is-on-the-remote-engine')
+    H.files = await until('the Files panel with its listing', () => {
+      const panel = document.querySelector('.remote-files')
+      const rows = [...document.querySelectorAll('.remote-files-list .remote-files-name')].map(e => (e.innerText || '').trim())
+      return panel && rows.length ? { where: (panel.querySelector('.remote-files-where')?.innerText || '').trim(), names: rows,
+        linkSays: (document.querySelector('.remote-files-link .remote-files-act')?.innerText || '').trim() } : null
+    }, 15000).catch(e => ({ error: String(e.message || e) }))
+    await shot('50-files-panel-of-the-remote-scratch-folder')
+    if (!H.files.error) {
+      await page.click({ selector: 'button.remote-files-name', text: '^notes$', regex: true })
+      H.files.inside = await until('the folder that was opened', () => {
+        const rows = [...document.querySelectorAll('.remote-files-list .remote-files-name')].map(e => (e.innerText || '').trim())
+        return rows.includes('readme.txt') ? rows : null
+      }, 10000).catch(() => null)
+      await shot('51-files-panel-inside-a-folder')
+      await page.click({ selector: '.remote-files .ls-actions button', text: '^Done$', regex: true })
+      await sleep(300)
+      H.files.closed = await page.eval(() => !document.querySelector('.remote-files'))
+    }
     // a reference the agent there writes with the organization's name THERE
     await menu(args.agent, ['Focus'])
     await page.waitFor(composer, { timeout: 20000 })

@@ -15,11 +15,13 @@
 // the remote engine restarts, its token is revoked and replaced, and a local
 // organization is used beside it; then the remote organization whose name is
 // taken here is opened, for what depends on the computer (a folder, a sign-in,
-// App settings, the folder picker) and for a reference written under the name
+// App settings, the folder picker; a scratch folder opens the Files panel) and for a reference written under the name
 // it has there. That part opens an Electron window, so it
 // runs only in Windows Session 0 (team rule; the harness is muted and off the
 // real clipboard). Without a bundle the same connection is made and broken
-// through the engine's routes alone, in any session.
+// through the engine's routes alone, in any session. Either way a file goes
+// to the remote agent's scratch folder and back through the Files panel's
+// routes, measured (files-round-trip.json).
 //
 // At the base (no /api/remotes) every check after the two engines start fails.
 
@@ -146,6 +148,113 @@ export default async function (rig) {
     return r && (Array.isArray(want) ? want.includes(r.state) : r.state === want) ? r : null
   }, { timeout, every: 250, what: what ?? `the connection to be ${want}` })
   const farTurns = () => far.fakeLog('lead').filter(l => l.kind === 'turn').length
+
+  /** One request of the Files panel's routes at this computer's engine, as its window sends it: the body and
+   *  the answer are bytes. Never throws on a refusal. */
+  const raw = async (method, route, { body, remote } = {}) => {
+    touch(rig.dir)
+    const res = await fetch(rig.url + route, { method, headers: { 'X-Orgtree-Desktop-Token': rig.token, ...(remote ? { 'X-Orgtree-Remote': remote } : {}) },
+      body, signal: AbortSignal.timeout(300000) })
+    const bytes = Buffer.from(await res.arrayBuffer())
+    let json = null
+    try { json = JSON.parse(bytes.toString('utf8')) } catch { /* not JSON */ }
+    return { status: res.status, bytes, json, type: res.headers.get('content-type') ?? '', disposition: res.headers.get('content-disposition') ?? '', length: res.headers.get('content-length') }
+  }
+  const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
+  /** the names in a zip, read from its end as a reader does (ZIP64 central directory) */
+  const zipNames = zip => {
+    const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x06, 0x07]))
+    if (end < 0) return null
+    const eocd = Number(zip.readBigUInt64LE(end + 8))
+    if (zip.readUInt32LE(eocd) !== 0x06064b50) return null
+    const count = Number(zip.readBigUInt64LE(eocd + 32))
+    let at = Number(zip.readBigUInt64LE(eocd + 48))
+    const names = []
+    for (let i = 0; i < count; i++) {
+      if (zip.readUInt32LE(at) !== 0x02014b50) return null
+      const [n, e, c] = [zip.readUInt16LE(at + 28), zip.readUInt16LE(at + 30), zip.readUInt16LE(at + 32)]
+      names.push(zip.subarray(at + 46, at + 46 + n).toString('utf8'))
+      at += 46 + n + e + c
+    }
+    return names
+  }
+  /** The Files panel's routes, through this computer's engine to the remote one: a file goes there and comes
+   *  back whole, a folder comes as a zip, and nothing outside the folder is reached. `twin` is the agent of
+   *  the remote organization whose name is taken here. Measured, and written to files-round-trip.json. */
+  const files = async alias => {
+    const base = `/api/orgs/${alias}/nodes/twin/scratch-files`
+    const where = (await far.api('GET', `/api/orgs/${local}/nodes/twin/scratch-folder`)).path
+    const inFar = path.resolve(where).toLowerCase().startsWith(path.resolve(far.data).toLowerCase() + path.sep)
+    proof.check("the remote agent's scratch folder is in the remote engine's data, not in this computer's", inFar && !path.resolve(where).toLowerCase().startsWith(path.resolve(rig.data).toLowerCase() + path.sep), { where })
+    if (!inFar) return
+    // what the folder holds before the window comes: a folder with a file, and a junction that leads out of it
+    fs.mkdirSync(path.join(where, 'notes'), { recursive: true })
+    fs.writeFileSync(path.join(where, 'notes', 'readme.txt'), 'a note in the remote folder\n')
+    const outside = path.join(far.dir, 'outside-the-folder')
+    fs.mkdirSync(outside, { recursive: true })
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'not for the window')
+    if (!fs.existsSync(path.join(where, 'away'))) fs.symlinkSync(outside, path.join(where, 'away'), 'junction')
+    const MB = 1024 * 1024
+    const big = crypto.randomBytes(32 * MB)
+    const name = 'round trip \u00fcn\u00ef.bin'
+    const q = extra => '?scope=agent' + Object.entries(extra).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join('')
+    let at = Date.now()
+    const up = await raw('PUT', `${base}/upload${q({ name })}`, { body: big })
+    const upMs = Date.now() - at
+    const stored = fs.existsSync(path.join(where, name)) ? fs.readFileSync(path.join(where, name)) : Buffer.alloc(0)
+    proof.check('a file uploaded through this computer is on the remote engine, whole, under its name', up.status === 200 && up.json?.name === name && up.json?.bytes === big.length
+      && sha(stored) === sha(big), { status: up.status, answer: up.json ?? up.bytes.toString('utf8').slice(0, 200), ms: upMs })
+    proof.check('no unfinished upload is left beside it', !fs.readdirSync(where).some(n => n.endsWith('.orgtree-part')), fs.readdirSync(where))
+    const list = await raw('GET', `${base}${q({})}`)
+    const entries = list.json?.entries ?? []
+    proof.check('the listing has the folder first, the file with its size and the junction as a link', list.status === 200 && entries[0]?.name === 'notes' && entries[0]?.kind === 'folder'
+      && entries.some(e => e.name === name && e.kind === 'file' && e.bytes === big.length) && entries.some(e => e.name === 'away' && e.kind === 'link'),
+      { status: list.status, entries: entries.map(e => [e.name, e.kind, e.bytes]) })
+    // as a window of the remote organization asks: the slug it has there, and the window's header
+    const windowed = await raw('GET', `/api/orgs/${local}/nodes/twin/scratch-files${q({ path: 'notes' })}`, { remote: id })
+    proof.check("a remote window's own request lists the same folder", windowed.status === 200 && windowed.json?.entries?.map(e => e.name).join() === 'readme.txt', { status: windowed.status, entries: windowed.json?.entries })
+    at = Date.now()
+    const down = await raw('GET', `${base}/file${q({ path: name })}`)
+    const downMs = Date.now() - at
+    proof.check('the file downloads whole, with its length and its name', down.status === 200 && sha(down.bytes) === sha(big) && Number(down.length) === big.length
+      && down.disposition.startsWith('attachment') && down.disposition.includes("filename*=UTF-8''"), { status: down.status, length: down.length, disposition: down.disposition, ms: downMs })
+    const taken = await raw('PUT', `${base}/upload${q({ name })}`, { body: Buffer.from('other') })
+    proof.check('a name that is taken is refused, and what was there stays', taken.status === 409 && sha(fs.readFileSync(path.join(where, name))) === sha(big), { status: taken.status, detail: taken.json?.detail })
+    const both = await raw('PUT', `${base}/upload${q({ name, conflict: 'keep_both' })}`, { body: Buffer.from('other') })
+    const second = 'round trip \u00fcn\u00ef (2).bin'
+    proof.check('Keep both gives the new file a number', both.status === 200 && both.json?.name === second && fs.readFileSync(path.join(where, second), 'utf8') === 'other', { status: both.status, answer: both.json })
+    const replaced = await raw('PUT', `${base}/upload${q({ name: second, conflict: 'replace', path: '' })}`, { body: Buffer.from('replaced') })
+    proof.check('Replace takes the place of the file that was there', replaced.status === 200 && replaced.json?.name === second && fs.readFileSync(path.join(where, second), 'utf8') === 'replaced', { status: replaced.status, answer: replaced.json })
+    const into = await raw('PUT', `${base}/upload${q({ name: 'added.txt', path: 'notes' })}`, { body: Buffer.from('into the open folder') })
+    proof.check('an upload goes into the folder that is open', into.status === 200 && fs.readFileSync(path.join(where, 'notes', 'added.txt'), 'utf8') === 'into the open folder', { status: into.status })
+    // nothing outside the folder
+    const out = {
+      up: (await raw('GET', `${base}${q({ path: '..' })}`)).status,
+      upFile: (await raw('GET', `${base}/file${q({ path: '../twin/notes/readme.txt' })}`)).status,
+      drive: (await raw('GET', `${base}/file${q({ path: 'C:/Windows/win.ini' })}`)).status,
+      link: (await raw('GET', `${base}${q({ path: 'away' })}`)).status,
+      throughLink: (await raw('GET', `${base}/file${q({ path: 'away/secret.txt' })}`)).status,
+      intoLink: (await raw('PUT', `${base}/upload${q({ name: 'x.txt', path: 'away' })}`, { body: Buffer.from('x') })).status,
+      badName: (await raw('PUT', `${base}/upload${q({ name: '..\\x.txt' })}`, { body: Buffer.from('x') })).status,
+    }
+    proof.check('nothing outside the folder is listed, read or written: not by "..", not by a drive, not through the junction', out.up === 400 && out.upFile === 400 && out.drive === 400
+      && out.link === 403 && out.throughLink === 403 && out.intoLink === 403 && out.badName === 400 && fs.readdirSync(outside).join() === 'secret.txt', out)
+    at = Date.now()
+    const zip = await raw('GET', `${base}/file${q({ path: '' })}`)
+    const zipMs = Date.now() - at
+    const names = zip.status === 200 ? zipNames(zip.bytes) : null
+    proof.check('the folder downloads as a zip that reads back, without the junction', zip.status === 200 && zip.type.includes('zip') && Array.isArray(names)
+      && names.includes(name) && names.includes('notes/readme.txt') && names.includes('notes/added.txt') && !names.some(n => n.includes('away') || n.includes('secret')),
+      { status: zip.status, type: zip.type, bytes: zip.bytes.length, names, ms: zipMs })
+    const logged = rig.engineLog()
+    proof.check("neither the file's bytes nor a listing is in this computer's engine log", !logged.includes('into the open folder') && !logged.includes('"readme.txt"'), { logBytes: logged.length })
+    const measured = { fileBytes: big.length, uploadMs: upMs, uploadMiBps: +(32 / (upMs / 1000)).toFixed(1), downloadMs: downMs, downloadMiBps: +(32 / (downMs / 1000)).toFixed(1),
+      zipBytes: zip.bytes.length, zipMs, path: 'window request -> this engine -> TCP forwarder -> remote engine, all on loopback', refusals: out }
+    proof.note('files round trip (measured)', measured)
+    proof.file('files-round-trip.json', measured)
+    // one upload stays for the window's picture; the large ones go
+    fs.rmSync(path.join(where, name), { force: true })
+  }
   let id = null
   /** the instance stamp a window of the remote organization last got */
   let stamp = ''
@@ -312,6 +421,9 @@ export default async function (rig) {
     proof.check("a local window's app feed has no connection of its own and still lists the connections", !('remote_link' in localWindow) && localWindow.remotes?.value?.[0]?.id === id,
       { keys: Object.keys(localWindow) })
 
+    // ------------------------------------------------------------ the files of a remote organization
+    await files(`${local}-galaxy`)
+
     // ------------------------------------------------------------ the window, or the routes alone
     if (ui) {
       const used = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'remote-org.cjs'), { org: 'far-lab', preset: '1000x700', timeout: 600000,
@@ -358,8 +470,9 @@ export default async function (rig) {
       const h = shared.value ?? {}
       proof.note('desktop receipt (here)', { session: shared.session, guards: shared.guards, shots: shared.shots?.map(s => path.basename(s.file)), consoleErrors: shared.consoleErrors?.slice(0, 8) })
       proof.check('the remote organization of the shared name opens under its alias', shared.ok && h.title?.includes(`Rig Org \u00b7 ${NAME}`) && h.chip?.includes(NAME), shared.ok ? { title: h.title, chip: h.chip } : { error: shared.error })
-      proof.check('a folder of a remote organization is not opened on this computer; the window says where it is', h.folder === `This folder is on ${NAME}, not on this computer.`
-        && Array.isArray(h.native) && !h.native.includes('openAgentScratchFolder'), { folder: h.folder, native: h.native })
+      proof.check('a folder of a remote organization is not opened on this computer: the Files panel shows it where it is', h.files?.where === `This folder is on ${NAME}. Nothing here opens on this computer until you download it.`
+        && h.files?.names?.[0] === 'notes' && h.files?.names?.includes('away') && h.files?.linkSays === 'not followed' && h.files?.inside?.includes('readme.txt') && h.files?.inside?.includes('added.txt')
+        && h.files?.closed === true && Array.isArray(h.native) && !h.native.includes('openAgentScratchFolder'), { files: h.files, native: h.native })
       proof.check("a reference written there under the name the organization has there is this window's own item", Array.isArray(h.ref?.chips) && h.ref.chips.length === 1
         && /\bref-ready\b/.test(h.ref.chips[0].cls), h.ref)
       proof.check("App settings says whose settings it shows and marks what is this computer's", h.note === `These settings belong to ${NAME}, the remote engine this organization runs on. Tabs and groups marked \u201cThis computer\u201d belong to this app on this computer.`

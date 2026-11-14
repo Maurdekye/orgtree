@@ -992,15 +992,19 @@ organization, the relay both ways, the two-process stamp, an outage (offline, th
 nothing reaching the remote, rows kept), recovery by itself, a restart of the remote engine (a new
 stamp), a revoked and replaced token, the local organization untouched, and removal (the client is
 revoked on the remote), the app feed of a remote window against a local one (its connection, the
-remote engine's values), and a question of a remote organization among this computer's notices.
+remote engine's values), a question of a remote organization among this computer's notices, and the
+Files panel's routes: a 32 MiB file goes to a remote agent's scratch folder and comes back whole, a
+name that is taken is refused, Keep both and Replace do what they say, the folder comes as a zip that
+reads back, and nothing is listed, read or written outside the folder (by `..`, by a drive, through a
+junction the proof puts there). What it measured is in the evidence folder (`files-round-trip.json`).
 With a bundle it drives the desktop too (`desktop/remote-org.cjs`), in four
 windows: the Homepage (the Add dialog, the list marks), the remote organization's window (its chip and
 Connection details, a message with a streamed answer, the desk's docket, presentations and mail, a
 question on the desk and in the user's inbox, hire and retire, the outage under the open window with
 the refused send and its kept draft, recovery without a reload, the reload after the remote restarts,
 the sign-in banner and Replace token), a local organization's window beside it, and the window of
-the remote organization that goes by an alias here (its desk opens; the folder entry opens nothing
-and says where the folder is; a reference written under the name it has there is that window's own
+the remote organization that goes by an alias here (its desk opens; the scratch-folder entry opens
+the Files panel, which lists the folder on the remote engine and opens a folder in it; a reference written under the name it has there is that window's own
 item; App settings' note and marks; the sign-in sentence; the folder picker's title and top). The
 tray row, main's own refusal of the native calls and the file link menu are not in the proof (the rig
 has no main process); their unit tests are `tests/traylist-remote.test.mjs`,
@@ -1011,6 +1015,8 @@ plants a minimal desktop bridge before each page loads, with the identity main g
 which has no status strip and so no connection chip. And the rig's desk harness (`desktop/main.cjs`)
 adds `X-Orgtree-Remote` for a page at `/o/<alias>` of a remote organization, as Electron main does
 for a window bound to one. Measured 2026-11-11 with a bundle: 53 checks, 32 captures, about 200 s; without one, 35 checks.
+Measured 2026-11-14 without a bundle, with the Files routes: 48 checks, 40 s; on loopback with debug engines the
+32 MiB file went up in 56 ms and came back in 417 ms, and the folder's zip took 473 ms.
 In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s
 after its start (`session_settle`), so the far engine's first answer can take that long; the proof's
 waits allow for it.
