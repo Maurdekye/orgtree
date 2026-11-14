@@ -9,6 +9,16 @@ management UI is not supported by this mode. A desktop app can also share its
 own organizations with other computers, with no standalone engine at all: see
 [Open an organization from another computer](collaborating.md#open-an-organization-from-another-computer).
 
+## Hiring with account folders only
+
+A standalone engine is usually signed in to account folders (see
+[Sign in to provider CLIs over SSH](#sign-in-to-provider-clis-over-ssh)) and has no sign-in in its own default
+profile. From Orgtree 4.6.0 a window offers the Claude and Codex hire tiles whenever a registered account of that
+provider is switched on and signed in, and the hire form starts on an account that can run the model: the
+organization's default account when it can, else the one with the most room. Before 4.6.0 the tiles were greyed
+with "isn't signed in" in that setup, although agents ran on those accounts. The desktop app applies the same rule
+to an older engine it is connected to, so only the app needs the update.
+
 ## Open it in the desktop app
 
 From Orgtree 4.6.0 the desktop app can show the organizations of a standalone

@@ -58,6 +58,20 @@ Effort choices follow the chosen tier and, for Muse, the selected login's model 
 
 There is no Apply button. Closing the menu keeps its current choices; only final Hire creates the seat. Live-agent settings retain their explicit Save action because they can retool or restart an existing agent. The final engine operation supplies the placement and chosen scope as a human action. For agent-side explicit fields, funding and kickoff, see `orgtree-tool-hire` (orgtree-working › team) and `orgtree-hiring` (orgtree-working › team). Do not infer that creating a seat starts a task: task/assignment mail is a separate concern.
 
+## Which account a new hire starts on
+
+The Account row is filled in before the user touches it, and it always shows the sign-in the hire will use. The user can change it.
+
+1. The organization's default account (Org settings > Hire defaults), when it can run the chosen model.
+2. Otherwise the one with the most room among this engine's own sign-in (shown as **default**, with its address) and the registered accounts that can run the model. They are ranked together: one whose usage resets within a day comes first, then the one with the lowest usage. An account whose usage has not been read is never taken to have room: it comes after every one that has been read.
+3. An account or sign-in that is signed out, switched off for this organization, or at 100% in a window this model spends is not offered and is never picked. A metered API key is never picked for the user; it is used only when the user chooses it, or made it the organization's default.
+
+When the default account cannot run the model, the hire names another sign-in itself, so it never starts on an account that would fail its first turn. Quick hires that open no form (a drop on the canvas, Quick chat) follow the same rule.
+
+The hire tiles of a provider are offered when any of this applies: its own sign-in is signed in, or a registered account of it is switched on and signed in. A standalone engine is usually signed in to account folders only, with no sign-in of its own; its Claude and Codex tiles are offered all the same. With no sign-in at all the tiles stay greyed, with the reason.
+
+An engine older than 4.6.0 does not rank by room. In a window connected to one, the own sign-in comes first when it can run the model, else the first registered account by name.
+
 Changing the model keeps staged folders, tools and visibility; a harness chosen for the old model is dropped, and the new one starts by following its key or server. An account belonging to another provider, or excluded by the target model's known staffing offers, returns to automatic placement. A known unsupported effort maps to the highest supported level at or below it, otherwise the lowest; models with no effort setting inherit. Open Draft settings to choose again. Final Hire still validates current accounts, model support and credits.
 
 Default-setting details belong to [Hire defaults: scope](../../org-settings/org-hire-defaults-scope/SKILL.md), [folders](../../org-settings/org-hire-defaults-folders/SKILL.md) and [tools](../../org-settings/org-hire-defaults-tools/SKILL.md), rather than a copied price/default table here.
