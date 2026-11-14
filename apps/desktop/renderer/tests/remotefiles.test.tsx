@@ -19,9 +19,13 @@ import {
   remoteFilesOpen, sizeText, transfersNow, uploadFile,
 } from '../src/remotefiles'
 import type { FileEntry, FilesTarget, UploadRequest } from '../src/remotefiles'
+// the names of the 2026-11-14 version check, asked through the module so that a case fails where one is missing
+import * as files from '../src/remotefiles'
 import { remoteFeed, remoteView } from './remotefeed.fixture'
 
 const LEAD: FilesTarget = { org: 'org', node: 'lead', title: "lead's scratch folder" }
+/** This window's connection: Galaxy, whose Orgtree has the Files routes unless a test says otherwise. */
+const here = (patch: Partial<ReturnType<typeof remoteView>> = {}) => remoteView({ version: '4.6.0', app_version: '4.6.0', ...patch })
 const entry = (name: string, kind: FileEntry['kind'] = 'file', bytes: number | null = 5): FileEntry =>
   ({ name, kind, bytes: kind === 'file' ? bytes : null, modified: 1_794_651_630_000 })
 
@@ -125,11 +129,22 @@ test('sizes, paths and names in words', () => {
   assert.equal(downloadUrl({ org: 'org', node: '', scope: 'shared', title: 'shared' }, 'a'), '/api/orgs/org/nodes/_shared/scratch-files/file?scope=shared&path=a')
   assert.equal(olderEngine(Object.assign(new Error('no route GET /api/orgs/org/nodes/lead/scratch-files'), { status: 404 })), true)
   assert.equal(olderEngine(Object.assign(new Error('That folder does not exist yet.'), { status: 404 })), false)
+  // an engine started without a window's files (star-system's, USER 2026-11-14 mb1f74cf38dff) answers a route it
+  // does not know before it looks at /api/: plain text, which the request words as "404: <text>"
+  assert.equal(olderEngine(Object.assign(new Error('404: no UI bundle configured'), { status: 404, body: 'no UI bundle configured' })), true)
+  assert.equal(olderEngine(Object.assign(new Error('404: no UI bundle configured'), { status: 500, body: 'no UI bundle configured' })), false)
+  // the version the other engine gave when this computer connected is asked first
+  assert.deepEqual(['4.5.11', '4.5.12', '3.9.9', '4.6.0', '4.6.0-alpha.3', '4.6.1', '4.10.0', '5.0.0', 'junk', '', null, undefined].map((v) => files.filesNeedUpdate(v)),
+    [true, true, true, false, false, false, false, false, false, false, false, false])
+  assert.equal(files.filesUpdateText('Galaxy', '4.5.11'),
+    'Orgtree on Galaxy needs updating to use the file browser: it runs 4.5.11, and the file browser needs 4.6.0 or later. This folder is on Galaxy, not on this computer.')
+  assert.equal(files.filesUpdateText('Galaxy', null),
+    'Orgtree on Galaxy needs updating to use the file browser, which needs 4.6.0 or later. This folder is on Galaxy, not on this computer.')
 })
 
 test('in a remote window a scratch-folder entry opens the Files panel, for each kind of folder', async (t) => {
   const { feed, desktopCalls, toasts } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   for (const [scope, title] of [[undefined, "lead's scratch folder"], ['team', "lead's team scratch folder"], ['shared', 'the shared scratch folder']] as const) {
     const action = scratchFolderAction('org', 'lead', (lines) => { toasts.push(lines) }, scope)
     assert.ok(action, 'the entry stays')
@@ -143,7 +158,7 @@ test('in a remote window a scratch-folder entry opens the Files panel, for each 
 
 test('in a local window the entry opens the file manager and no panel', async (t) => {
   const { feed, desktopCalls } = await remoteWindow(t)
-  await feed.remotes([remoteView()], undefined)
+  await feed.remotes([here()], undefined)
   await inAct(async () => { scratchFolderAction('org', 'lead', () => {})!(); await flush() })
   assert.deepEqual(desktopCalls, ['openAgentScratchFolder'])
   assert.equal(remoteFilesOpen(), null)
@@ -152,7 +167,7 @@ test('in a local window the entry opens the file manager and no panel', async (t
 
 test('the panel lists a folder at a time: folders open, files and folders download, a link does neither', async (t) => {
   const { feed, calls } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   assert.match(q('.remote-files-where')?.textContent ?? '', /This folder is on Galaxy\./)
   assert.deepEqual(names(), ['logs', 'elsewhere', 'notes.txt'], 'the first page')
@@ -189,20 +204,42 @@ test('the panel lists a folder at a time: folders open, files and folders downlo
   ])
 })
 
-test('an engine older than the Files routes keeps the sentence that says where the folder is', async (t) => {
-  const { feed, toasts } = await remoteWindow(t, () =>
-    new Response(JSON.stringify({ detail: 'no route GET /api/orgs/org/nodes/lead/scratch-files' }), { status: 404 }))
-  await feed.remotes([remoteView()], remoteView())
-  await inAct(async () => { scratchFolderAction('org', 'lead', () => {})!(); await flush() })
+test('an engine whose version is older than the Files routes is not asked: the entry says it needs updating', async (t) => {
+  // USER 2026-11-14 mb1f74cf38dff: the panel of an engine on 4.5.11 showed "404: no UI bundle configured"
+  const { feed, calls, toasts: panelToasts } = await remoteWindow(t)
+  await feed.remotes([here({ version: '4.5.11' })], here({ version: '4.5.11' }))
+  const toasts: string[][] = []
+  await inAct(async () => { scratchFolderAction('org', 'lead', (lines) => { toasts.push(lines) })!(); await flush() })
   await settle()
-  assert.equal(remoteFilesOpen(), null, 'the panel closes itself')
+  assert.equal(remoteFilesOpen(), null, 'no panel is opened')
   assert.equal(q('.remote-files'), null)
-  assert.deepEqual(toasts, [['This folder is on Galaxy, not on this computer. Its Orgtree is older than 4.6.0, which is what shows a folder here.']])
+  assert.deepEqual(calls, [], 'and the other engine is asked nothing')
+  assert.deepEqual([toasts, panelToasts], [[['Orgtree on Galaxy needs updating to use the file browser: it runs 4.5.11, and the file browser needs 4.6.0 or later. This folder is on Galaxy, not on this computer.']], []])
 })
+
+for (const [what, answer] of [
+  ['an engine that serves a window', () => new Response(JSON.stringify({ detail: 'no route GET /api/orgs/org/nodes/lead/scratch-files' }), { status: 404 })],
+  ['an engine started without one', () => new Response('no UI bundle configured', { status: 404 })],
+] as const) {
+  for (const version of [null, '4.6.0-alpha.1']) {
+    // a version this window cannot place (none given, or an early 4.6.0 alpha): the answer to the first listing decides
+    test(`an engine that does not know the Files routes closes the panel and says it needs updating: ${what}, version ${version}`, async (t) => {
+      const { feed, toasts } = await remoteWindow(t, answer)
+      await feed.remotes([here({ version })], here({ version }))
+      await inAct(async () => { scratchFolderAction('org', 'lead', () => {})!(); await flush() })
+      await settle()
+      assert.equal(remoteFilesOpen(), null, 'the panel closes itself')
+      assert.equal(q('.remote-files'), null)
+      assert.deepEqual(toasts, [[version
+        ? 'Orgtree on Galaxy needs updating to use the file browser: it runs 4.6.0-alpha.1, and the file browser needs 4.6.0 or later. This folder is on Galaxy, not on this computer.'
+        : 'Orgtree on Galaxy needs updating to use the file browser, which needs 4.6.0 or later. This folder is on Galaxy, not on this computer.']])
+    })
+  }
+}
 
 test('a folder that cannot be listed says why and stays open', async (t) => {
   const { feed } = await remoteWindow(t, () => new Response(JSON.stringify({ detail: 'That folder does not exist yet.' }), { status: 404 }))
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   assert.equal(q('.remote-files [role=alert]')?.textContent, 'That folder does not exist yet.')
   assert.equal(button('Upload files')?.disabled, true)
@@ -210,7 +247,7 @@ test('a folder that cannot be listed says why and stays open', async (t) => {
 
 test('an upload goes into the open folder with its progress, and can be cancelled', async (t) => {
   const { feed, toasts, calls } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   await click(all('.remote-files-entry button')[0])
   const fresh = file('fresh.bin')
@@ -240,7 +277,7 @@ test('an upload goes into the open folder with its progress, and can be cancelle
 
 test('a file of a name that is there is asked about: Replace, Keep both or Skip, once for all on request', async (t) => {
   const { feed } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   await click(button('Show more'))
   await choose([file('notes.txt'), file('new.txt'), file('plan.md')])
@@ -270,7 +307,7 @@ test('a file of a name that is there is asked about: Replace, Keep both or Skip,
 
 test('a name taken since the folder was listed is asked about when the engine refuses it', async (t) => {
   const { feed } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   await choose([file('late.txt')])
   await inAct(async () => { FakeUpload.sent[0]!.request.answer(409, { detail: 'A file of that name is already there.' }); await flush() })
@@ -282,7 +319,7 @@ test('a name taken since the folder was listed is asked about when the engine re
 
 test('a large file says its size first, and one over 2 GiB is not sent', async (t) => {
   const { feed } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   await choose([file('big.bin', 150 * 1024 * 1024), file('huge.bin', UPLOAD_MAX + 1)])
   assert.equal(FakeUpload.sent.length, 0)
@@ -294,7 +331,7 @@ test('a large file says its size first, and one over 2 GiB is not sent', async (
 
 test('a download shows how far it is, as the desktop tells it, and Cancel stops it there', async (t) => {
   const { feed, desktopCalls, event } = await remoteWindow(t)
-  await feed.remotes([remoteView()], remoteView())
+  await feed.remotes([here()], here())
   await inAct(async () => { openRemoteFiles(LEAD); await flush() })
   const news = (received: number, total: number, state: string, id = 'dl-1') =>
     event({ type: 'remote-file-download' as DesktopEvent['type'], data: { id, name: 'run.log', received, total, state } })
