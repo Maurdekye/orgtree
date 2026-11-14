@@ -56,7 +56,9 @@ async function windowOf(t: TestContext, remote: boolean) {
   const feed = remoteFeed(t, () => new Response('{}'))
   const view = await mountView(<Here />, el => el)
   t.after(() => view.unmount())
-  await feed.remotes([remoteView()], remote ? remoteView() : undefined)
+  // an engine from 4.6.0 on: an older one's scratch entries say it needs updating (remotefiles.test.tsx)
+  const link = remoteView({ version: '4.6.0', app_version: '4.6.0' })
+  await feed.remotes([link], remote ? link : undefined)
   return bridge(t)
 }
 
