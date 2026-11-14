@@ -1463,3 +1463,440 @@ test('readDataLocationState returns paths immediately without walking directorie
   assert.deepEqual(invoked.at(-1), ['desktop:data-location-preflight-cancel', []])
 })
 
+function queryCurrentWindowsSidForTest() {
+  if (!windows) return null
+  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  return execFileSync(
+    ps,
+    ['-NoProfile', '-NonInteractive', '-Command', '[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value'],
+    { encoding: 'utf8', windowsHide: true },
+  ).trim()
+}
+
+const testCurrentSid = queryCurrentWindowsSidForTest()
+const icaclsExe = windows ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'icacls.exe') : ''
+
+function makeDirectoryUnreadable(targetDir) {
+  if (windows) {
+    execFileSync(
+      icaclsExe,
+      [targetDir, '/inheritance:r', '/grant:r', `*${testCurrentSid}:(WDAC,RC)`],
+      { stdio: 'ignore', windowsHide: true },
+    )
+  } else {
+    fs.chmodSync(targetDir, 0o000)
+  }
+}
+
+function restoreDirectoryReadable(targetDir) {
+  if (!fs.existsSync(path.dirname(targetDir))) return
+  if (windows) {
+    try {
+      execFileSync(
+        icaclsExe,
+        [targetDir, '/grant:r', `*${testCurrentSid}:(OI)(CI)F`, '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F'],
+        { stdio: 'ignore', windowsHide: true },
+      )
+      execFileSync(icaclsExe, [targetDir, '/reset', '/T', '/C'], { stdio: 'ignore', windowsHide: true })
+    } catch {
+      // Directory may already have been deleted after unlocking.
+    }
+  } else {
+    try { fs.chmodSync(targetDir, 0o700) } catch { /* already gone */ }
+  }
+}
+
+test('unreadable entries: preflight lists all by path/count, Move without them skips them and verifies readable set, unlisted mid-copy EPERM rolls back, selective deletion keeps only undeletable entries and parents, and durable move log + report persist in userData', async t => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const okTrust = async () => ({ ok: true, detail: 'trusted' })
+  const lockedDirs = new Set()
+  const lockDir = p => {
+    lockedDirs.add(p)
+    makeDirectoryUnreadable(p)
+    assert.throws(() => fs.readdirSync(p), /EPERM|EACCES/, `Expected ${p} to be unreadable`)
+  }
+  const unlockDir = p => {
+    restoreDirectoryReadable(p)
+    lockedDirs.delete(p)
+  }
+  t.after(() => {
+    for (const p of [...lockedDirs]) {
+      restoreDirectoryReadable(p)
+    }
+  })
+
+  // --- Part 1: Preflight finds every unreadable entry, and re-probes cached unreadable entries ---
+  const sb1 = makeSandbox()
+  const pgDir1 = path.join(sb1.defaultData, 'pg', 'cluster', 'data')
+  const activeAgentDir = path.join(sb1.defaultData, 'scratch', 'orgtree', 'active-agent')
+  const astraSiblingDir = path.join(sb1.defaultData, 'scratch', 'orgtree', 'arch-review-astra', 'a2-review', 'temporary')
+  const badDir1 = path.join(astraSiblingDir, 'orgtree-agent-halt-b498bmpa')
+  const badDir2 = path.join(sb1.defaultData, 'scratch', 'orgtree', 'data-arch-astra', 'orgtree-migration-test-1')
+  const badDir3 = path.join(sb1.defaultData, 'scratch', 'orgtree', 'foundation-review-astra', 'orgtree-migration-test-2')
+  fs.mkdirSync(pgDir1, { recursive: true })
+  fs.mkdirSync(activeAgentDir, { recursive: true })
+  fs.mkdirSync(badDir1, { recursive: true })
+  fs.mkdirSync(badDir2, { recursive: true })
+  fs.mkdirSync(badDir3, { recursive: true })
+
+  fs.writeFileSync(path.join(pgDir1, 'PG_VERSION'), '17\n')
+  fs.writeFileSync(path.join(activeAgentDir, 'notes.md'), 'readable-notes-12345')
+  fs.writeFileSync(path.join(astraSiblingDir, 'keep-sibling.txt'), 'readable-sibling')
+  fs.writeFileSync(path.join(badDir1, 'secret-1.txt'), 'stays-behind-1')
+  fs.writeFileSync(path.join(badDir2, 'unlocked-later.txt'), 'ten-bytes!')
+  fs.writeFileSync(path.join(badDir3, 'secret-3.txt'), 'stays-behind-3')
+
+  lockDir(badDir1)
+  lockDir(badDir2)
+  lockDir(badDir3)
+
+  const measured1 = await datalocation.measureDirectoryBytes(sb1.defaultData)
+  assert.ok(Array.isArray(measured1.unreadableEntries), 'measureDirectoryBytes must return unreadableEntries')
+  assert.equal(measured1.unreadableEntries.length, 3, 'all 3 unreadable directories must be reported')
+  assert.deepEqual(
+    measured1.unreadableEntries.map(e => path.resolve(e.path)).sort(),
+    [badDir1, badDir2, badDir3].map(p => path.resolve(p)).sort(),
+  )
+
+  const cache1 = new datalocation.DataLocationSizeCache()
+  const target1 = path.join(sb1.dir, 'TargetMove1')
+  const pf1 = await datalocation.preflightDataLocation({
+    pickedPath: target1,
+    currentRoot: sb1.defaultData,
+    userData: sb1.userData,
+    forbiddenRoot: sb1.forbidden,
+    installDirectory: sb1.installDir,
+    trustCheck: okTrust,
+    sizeCache: cache1,
+  })
+  assert.equal(pf1.ok, true, pf1.error)
+  assert.equal(pf1.unreadableEntries?.length, 3)
+
+  // Unlocking badDir2 updates preflight via cached unreadable re-probe without stale unreadable list.
+  unlockDir(badDir2)
+  const pf1AfterUnlock = await datalocation.preflightDataLocation({
+    pickedPath: target1,
+    currentRoot: sb1.defaultData,
+    userData: sb1.userData,
+    forbiddenRoot: sb1.forbidden,
+    installDirectory: sb1.installDir,
+    trustCheck: okTrust,
+    sizeCache: cache1,
+  })
+  assert.equal(pf1AfterUnlock.ok, true, pf1AfterUnlock.error)
+  assert.equal(pf1AfterUnlock.unreadableEntries?.length, 2)
+  assert.equal(pf1AfterUnlock.sourceBytes, pf1.sourceBytes + 10)
+
+  // --- Part 2: Refuses without skipUnreadablePaths; succeeds with "Move without them" (skipUnreadablePaths) ---
+  let stoppedWithoutApproval = 0
+  const unapprovedMove = await datalocation.executeDataLocationMove({
+    options: { targetPath: target1, deletePrevious: false },
+    currentRoot: sb1.defaultData,
+    userData: sb1.userData,
+    forbiddenRoot: sb1.forbidden,
+    installDirectory: sb1.installDir,
+    trustCheck: okTrust,
+    stopOldEngine: async () => { stoppedWithoutApproval += 1; return true },
+    startAndVerifyNewEngine: async () => {},
+    restartOldEngineOnRollback: async () => {},
+  })
+  assert.equal(unapprovedMove.ok, false, 'Move must refuse when unreadableEntries were not approved in skipUnreadablePaths')
+  assert.equal(stoppedWithoutApproval, 0, 'Engine must NOT stop when unreadableEntries were not approved')
+
+  const approvedSkipPaths = pf1AfterUnlock.unreadableEntries.map(e => e.path)
+  const approvedMove = await datalocation.executeDataLocationMove({
+    options: {
+      targetPath: target1,
+      deletePrevious: false,
+      skipUnreadablePaths: approvedSkipPaths,
+    },
+    currentRoot: sb1.defaultData,
+    userData: sb1.userData,
+    forbiddenRoot: sb1.forbidden,
+    installDirectory: sb1.installDir,
+    trustCheck: okTrust,
+    stopOldEngine: async () => true,
+    startAndVerifyNewEngine: async newRoot => {
+      try { fs.unlinkSync(path.join(newRoot, datalocation.DATA_LOCATION_MOVED_STAMP)) } catch { /* ok */ }
+    },
+    restartOldEngineOnRollback: async () => {
+      throw new Error('Rollback should not run on approved skip move')
+    },
+  })
+  assert.equal(approvedMove.ok, true, approvedMove.error)
+  assert.equal(approvedMove.relaunching, true)
+
+  // Readable files + unlocked badDir2 were copied and verified; skipped badDir1 & badDir3 have NOTHING partial in target1.
+  assert.equal(fs.readFileSync(path.join(target1, 'pg', 'cluster', 'data', 'PG_VERSION'), 'utf8'), '17\n')
+  assert.equal(fs.readFileSync(path.join(target1, 'scratch', 'orgtree', 'active-agent', 'notes.md'), 'utf8'), 'readable-notes-12345')
+  assert.equal(
+    fs.readFileSync(path.join(target1, 'scratch', 'orgtree', 'arch-review-astra', 'a2-review', 'temporary', 'keep-sibling.txt'), 'utf8'),
+    'readable-sibling',
+  )
+  assert.equal(
+    fs.readFileSync(path.join(target1, 'scratch', 'orgtree', 'data-arch-astra', 'orgtree-migration-test-1', 'unlocked-later.txt'), 'utf8'),
+    'ten-bytes!',
+  )
+  assert.equal(
+    fs.existsSync(path.join(target1, 'scratch', 'orgtree', 'arch-review-astra', 'a2-review', 'temporary', 'orgtree-agent-halt-b498bmpa')),
+    false,
+    'Skipped unreadable directory must NOT exist (even empty) in destination',
+  )
+  assert.equal(
+    fs.existsSync(path.join(target1, 'scratch', 'orgtree', 'foundation-review-astra', 'orgtree-migration-test-2')),
+    false,
+    'Second skipped unreadable directory must NOT exist in destination',
+  )
+
+  // Durable move log in <userData>/data-location-move.log + one-shot restart notice + persistent state report.
+  assert.equal(typeof datalocation.DATA_MOVE_LOG_FILE, 'string')
+  const logPath1 = path.join(sb1.userData, datalocation.DATA_MOVE_LOG_FILE)
+  assert.equal(fs.existsSync(logPath1), true, 'Durable move log must exist in userData')
+  const logText1 = fs.readFileSync(logPath1, 'utf8')
+  assert.ok(logText1.includes(badDir1), 'Move log must name skipped directory 1')
+  assert.ok(logText1.includes(badDir3), 'Move log must name skipped directory 3')
+
+  const noticeOnce = datalocation.consumePendingMoveRestartNotice(sb1.userData, target1)
+  assert.ok(noticeOnce, 'consumePendingMoveRestartNotice must return the post-restart report once')
+  assert.equal(noticeOnce.skippedEntries.length, 2)
+  assert.equal(datalocation.consumePendingMoveRestartNotice(sb1.userData, target1), null, 'Second call must return null')
+
+  const postMoveState1 = await datalocation.readDataLocationState({
+    currentRoot: target1,
+    userData: sb1.userData,
+    envOverride: false,
+    moving: false,
+    forbiddenRoot: sb1.forbidden,
+    installDirectory: sb1.installDir,
+  })
+  assert.equal(postMoveState1.moveLogExists, true)
+  assert.ok(postMoveState1.lastMoveReport, 'readDataLocationState must expose lastMoveReport while fromRoot exists')
+  assert.equal(postMoveState1.lastMoveReport.skippedEntries.length, 2)
+  assert.ok(
+    fs.statSync(path.join(sb1.userData, 'data-location.json')).size < 4096,
+    'data-location.json must remain tiny (< 16 KiB engine/policy cap)',
+  )
+
+  // --- Part 3: Entry becoming unreadable MID-COPY (not listed in skipUnreadablePaths) MUST fail & roll back ---
+  const sb2 = makeSandbox()
+  const midApproved = path.join(sb2.defaultData, 'scratch', 'approved-skip')
+  const midSurprise = path.join(sb2.defaultData, 'scratch', 'surprise-midcopy-unreadable')
+  fs.mkdirSync(midApproved, { recursive: true })
+  fs.mkdirSync(midSurprise, { recursive: true })
+  fs.writeFileSync(path.join(sb2.defaultData, 'keep.txt'), 'keep')
+  fs.writeFileSync(path.join(midSurprise, 'file.txt'), 'surprise')
+  lockDir(midApproved)
+
+  const target2 = path.join(sb2.dir, 'TargetMove2')
+  const pf2 = await datalocation.preflightDataLocation({
+    pickedPath: target2,
+    currentRoot: sb2.defaultData,
+    userData: sb2.userData,
+    forbiddenRoot: sb2.forbidden,
+    installDirectory: sb2.installDir,
+    trustCheck: okTrust,
+  })
+  assert.equal(pf2.ok, true)
+  assert.equal(pf2.unreadableEntries?.length, 1)
+
+  let rolledBack2 = 0
+  const midFailMove = await datalocation.executeDataLocationMove({
+    options: {
+      targetPath: target2,
+      deletePrevious: false,
+      skipUnreadablePaths: [midApproved],
+    },
+    currentRoot: sb2.defaultData,
+    userData: sb2.userData,
+    forbiddenRoot: sb2.forbidden,
+    installDirectory: sb2.installDir,
+    trustCheck: okTrust,
+    prevalidatedPreflight: pf2,
+    stopOldEngine: async () => {
+      // Becomes unreadable AFTER preflight, right before copy!
+      lockDir(midSurprise)
+      return true
+    },
+    startAndVerifyNewEngine: async () => {
+      throw new Error('Should never start new engine when unlisted entry fails mid-copy')
+    },
+    restartOldEngineOnRollback: async () => {
+      rolledBack2 += 1
+    },
+  })
+  assert.equal(midFailMove.ok, false, 'Unlisted mid-copy unreadable entry must still fail the move')
+  assert.equal(rolledBack2, 1, 'Rollback must restart old engine')
+  assert.equal(fs.existsSync(target2), false, 'Partial destination must be cleaned on rollback')
+  assert.equal(fs.existsSync(path.join(sb2.userData, 'data-location.json')), false)
+  const logText2 = fs.readFileSync(path.join(sb2.userData, datalocation.DATA_MOVE_LOG_FILE), 'utf8')
+  assert.match(logText2, /rollback/i, 'Move log must record rollback on mid-copy failure')
+
+  // --- Part 4: Selective old-folder deletion (both post-move deletePrevious:true AND Delete previous folder button) ---
+  const sb3 = makeSandbox()
+  const pgDir3 = path.join(sb3.defaultData, 'pg', 'cluster', 'data')
+  const cleanDir3 = path.join(sb3.defaultData, 'orgs', 'clean-org')
+  const parentA = path.join(sb3.defaultData, 'scratch', 'orgtree', 'arch-review-astra', 'temp')
+  const skipNonEmpty = path.join(parentA, 'unreadable-with-file')
+  const parentB = path.join(sb3.defaultData, 'scratch', 'orgtree', 'foundation-review-astra')
+  const skipEmptyDir = path.join(parentB, 'unreadable-empty-dir')
+  fs.mkdirSync(pgDir3, { recursive: true })
+  fs.mkdirSync(cleanDir3, { recursive: true })
+  fs.mkdirSync(skipNonEmpty, { recursive: true })
+  fs.mkdirSync(skipEmptyDir, { recursive: true })
+
+  fs.writeFileSync(path.join(pgDir3, 'PG_VERSION'), '17\n')
+  fs.writeFileSync(path.join(cleanDir3, 'state.json'), '{"ok":true}')
+  fs.writeFileSync(path.join(parentA, 'deletable-sibling.txt'), 'delete-me')
+  fs.writeFileSync(path.join(skipNonEmpty, 'kept.txt'), 'never-lost')
+
+  lockDir(skipNonEmpty)
+  lockDir(skipEmptyDir) // Even an empty unreadable folder must NOT be removed via parent FILE_DELETE_CHILD!
+
+  const target3 = path.join(sb3.dir, 'TargetMove3')
+  const moveWithDelete = await datalocation.executeDataLocationMove({
+    options: {
+      targetPath: target3,
+      deletePrevious: true,
+      skipUnreadablePaths: [skipNonEmpty, skipEmptyDir],
+    },
+    currentRoot: sb3.defaultData,
+    userData: sb3.userData,
+    forbiddenRoot: sb3.forbidden,
+    installDirectory: sb3.installDir,
+    trustCheck: okTrust,
+    stopOldEngine: async () => true,
+    startAndVerifyNewEngine: async newRoot => {
+      try { fs.unlinkSync(path.join(newRoot, datalocation.DATA_LOCATION_MOVED_STAMP)) } catch { /* ok */ }
+    },
+    restartOldEngineOnRollback: async () => {},
+  })
+  assert.equal(moveWithDelete.ok, true, moveWithDelete.error)
+
+  // Everything readable in sb3.defaultData was deleted, while skipNonEmpty, skipEmptyDir, and their parent folders stayed!
+  assert.equal(fs.existsSync(path.join(sb3.defaultData, 'pg')), false, 'pg tree deleted from old folder')
+  assert.equal(fs.existsSync(path.join(sb3.defaultData, 'orgs')), false, 'orgs tree deleted from old folder')
+  assert.equal(fs.existsSync(path.join(parentA, 'deletable-sibling.txt')), false, 'readable sibling deleted from parent folder')
+  assert.equal(fs.existsSync(parentA), true, 'parent folder holding skipNonEmpty stayed')
+  assert.equal(fs.existsSync(parentB), true, 'parent folder holding skipEmptyDir stayed')
+
+  const postMoveState3 = await datalocation.readDataLocationState({
+    currentRoot: target3,
+    userData: sb3.userData,
+    envOverride: false,
+    moving: false,
+    forbiddenRoot: sb3.forbidden,
+    installDirectory: sb3.installDir,
+  })
+  assert.equal(
+    path.resolve(postMoveState3.previousRoot),
+    path.resolve(sb3.defaultData),
+    'previousRoot must remain recorded while undeleted skipped folders stay in oldRoot',
+  )
+  assert.equal(postMoveState3.lastMoveReport?.oldFolderDeleted, false)
+  assert.deepEqual(
+    postMoveState3.lastMoveReport?.remainingPaths.map(p => path.resolve(p)).sort(),
+    [skipNonEmpty, skipEmptyDir].map(p => path.resolve(p)).sort(),
+  )
+
+  // Unlock skipNonEmpty, keep skipEmptyDir unreadable, then run Delete previous folder button:
+  unlockDir(skipNonEmpty)
+  assert.equal(fs.readFileSync(path.join(skipNonEmpty, 'kept.txt'), 'utf8'), 'never-lost')
+
+  const partialBtnDel = await datalocation.deletePreviousDataLocationFolder({
+    userData: sb3.userData,
+    currentRoot: target3,
+    forbiddenRoot: sb3.forbidden,
+    installDirectory: sb3.installDir,
+  })
+  assert.equal(partialBtnDel.ok, true, partialBtnDel.error)
+  assert.equal(partialBtnDel.deletedAll, false)
+  assert.deepEqual(
+    partialBtnDel.remainingPaths.map(p => path.resolve(p)),
+    [path.resolve(skipEmptyDir)],
+    'Delete previous folder must delete unlocked skipNonEmpty + its parent branch while keeping still-unreadable skipEmptyDir',
+  )
+  assert.equal(fs.existsSync(parentA), false, 'now-empty parentA branch removed')
+  assert.equal(fs.existsSync(parentB), true, 'parentB holding skipEmptyDir still present')
+
+  // Unlock skipEmptyDir and click Delete previous folder one final time -> deletes everything cleanly!
+  unlockDir(skipEmptyDir)
+  assert.equal(fs.existsSync(skipEmptyDir), true, 'skipEmptyDir survived until unlocked')
+  const fullBtnDel = await datalocation.deletePreviousDataLocationFolder({
+    userData: sb3.userData,
+    currentRoot: target3,
+    forbiddenRoot: sb3.forbidden,
+    installDirectory: sb3.installDir,
+  })
+  assert.equal(fullBtnDel.ok, true, fullBtnDel.error)
+  assert.equal(fullBtnDel.deletedAll, true)
+  assert.deepEqual(fullBtnDel.remainingPaths, [])
+  assert.equal(fs.existsSync(sb3.defaultData), false, 'old folder completely deleted once last unreadable folder unlocked')
+
+  const finalState3 = await datalocation.readDataLocationState({
+    currentRoot: target3,
+    userData: sb3.userData,
+    envOverride: false,
+    moving: false,
+    forbiddenRoot: sb3.forbidden,
+    installDirectory: sb3.installDir,
+  })
+  assert.equal(finalState3.previousRoot, null)
+  assert.equal(finalState3.lastMoveReport ?? null, null)
+
+  // --- Part 5: Preload bridge exposes openDataLocationMoveLog and takeDataLocationMoveResult and forwards skipUnreadablePaths ---
+  const { build } = loadEsbuild()
+  const preloadBuild = await build({
+    entryPoints: ['apps/desktop/preload/index.ts'],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    external: ['electron'],
+  })
+  let exposedBridge = null
+  const invoked = []
+  vm.runInNewContext(preloadBuild.outputFiles[0].text, {
+    module: { exports: {} },
+    exports: {},
+    process: {
+      argv: ['--orgtree-ui-origin=http://127.0.0.1:47829', '--orgtree-stallwatch=0'],
+      isMainFrame: true,
+    },
+    location: {
+      origin: 'http://127.0.0.1:47829',
+      pathname: '/o/local-org',
+      protocol: 'http:',
+    },
+    require(specifier) {
+      if (specifier === 'electron') {
+        return {
+          contextBridge: { exposeInMainWorld(_n, api) { exposedBridge = api } },
+          ipcRenderer: {
+            sendSync: () => ({ token: 'tok' }),
+            invoke: async (ch, ...args) => { invoked.push([ch, args]); return { ok: true } },
+            send() {},
+            on() {},
+            removeListener() {},
+          },
+        }
+      }
+      throw new Error(`Unexpected require: ${specifier}`)
+    },
+  })
+  assert.equal(typeof exposedBridge?.openDataLocationMoveLog, 'function')
+  assert.equal(typeof exposedBridge?.takeDataLocationMoveResult, 'function')
+  await exposedBridge.openDataLocationMoveLog()
+  assert.deepEqual(invoked.at(-1), ['desktop:data-location-open-log', []])
+  await exposedBridge.takeDataLocationMoveResult()
+  assert.deepEqual(invoked.at(-1), ['desktop:data-location-take-result', []])
+  await exposedBridge.moveDataLocation({
+    targetPath: 'D:\\Orgtree data',
+    deletePrevious: true,
+    skipUnreadablePaths: ['C:\\Old\\unreadable-1'],
+  })
+  assert.deepEqual(invoked.at(-1), [
+    'desktop:data-location-move',
+    [{ targetPath: 'D:\\Orgtree data', deletePrevious: true, skipUnreadablePaths: ['C:\\Old\\unreadable-1'] }],
+  ])
+})
