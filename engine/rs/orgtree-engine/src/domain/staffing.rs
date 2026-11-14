@@ -226,11 +226,48 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
     // is soon first, then lower usage; an account with no reading after those that have one,
     // never ahead of them. A hire form names the first one when the login a plain hire lands on
     // cannot run the model (user ruling 2026-11-14, "Pre-select an account").
-    let readings: std::collections::HashMap<String, crate::domain::templates::Reading> = out.iter()
+    let readings = account_readings(engine, &out, tier);
+    by_room(out, &readings, now)
+}
+
+/// What is read of each listed account's usage for `tier` (never a fetch); an account with
+/// no reading is not in the map.
+#[nolog]
+fn account_readings(engine: &Engine, rows: &[Value], tier: &str) -> std::collections::HashMap<String, crate::domain::templates::Reading> {
+    let view = engine.accounts.view();
+    rows.iter()
         .filter_map(|row| row["id"].as_str())
         .filter_map(|id| view.get(id).and_then(|a| crate::usage::balance_reading(engine, Some(a), tier)).map(|reading| (id.to_string(), reading)))
-        .collect();
-    by_room(out, &readings, now)
+        .collect()
+}
+
+/// The values a hire of this model may name by itself, the one with the most room first.
+///
+/// `own` is the engine's own sign-in when it can run the model (`Some`), with what is read of
+/// its usage (the inner `None`: nothing). `accounts` are the accounts that can run it now: an
+/// account at a limit is not among them (`eligible_accounts`), so none is ever picked. The
+/// own sign-in and the accounts are ranked together by the balancing rule
+/// (`templates::balance`): a reset within a day first, the sooner the earlier, then lower
+/// usage; whatever has no reading comes after everything that has one, the own sign-in
+/// included. A metered API key is never in the list: the user chooses one, it is not chosen
+/// for them. The own sign-in is named as the window names it, `<provider>/primary`, so a hire
+/// that picks it says so and cannot fall through to the organization's default account.
+#[nolog]
+fn room_order(provider: &str, own: Option<Option<crate::domain::templates::Reading>>, accounts: &[Value],
+    readings: &std::collections::HashMap<String, crate::domain::templates::Reading>, now: chrono::DateTime<Utc>) -> Vec<String> {
+    const OWN: &str = "primary";
+    let mut candidates: Vec<String> = Vec::new();
+    let mut read = readings.clone();
+    if let Some(reading) = own {
+        candidates.push(OWN.to_string());
+        if let Some(reading) = reading {
+            read.insert(OWN.to_string(), reading);
+        }
+    }
+    candidates.extend(accounts.iter().filter(|row| row["kind"] != "apikey").filter_map(|row| row["id"].as_str()).map(str::to_string));
+    crate::domain::templates::balance(&candidates, &read, now).into_iter()
+        .map(|id| if id == OWN { format!("{provider}/primary") } else { id })
+        .collect()
 }
 
 /// `rows` (each with an `id`) in the order of room: see `eligible_accounts`.
@@ -578,9 +615,17 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
             if accounts.is_empty() && !host {
                 return None;
             }
+            let native_ok = host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none());
+            // Who a hire should name, the one with the most room first: the engine's own
+            // sign-in and the accounts that can run the model, ranked together (user ruling
+            // 2026-11-14, "Pre-select an account"). The organization's default account
+            // comes before this list when it can run the model: the window knows it.
+            let own = (native_ok && !accountless(t.provider))
+                .then(|| crate::usage::balance_reading(engine, None, &t.tier));
+            let readings = account_readings(engine, &accounts, &t.tier);
+            let by_room = room_order(t.provider, own, &accounts, &readings, Utc::now());
             Some(json!({ "tier": t.tier, "seat": t.seat, "provider": t.provider, "efforts": t.efforts,
-                         "accounts": accounts, "default_ok": host,
-                         "native_ok": host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none()) }))
+                         "accounts": accounts, "default_ok": host, "native_ok": native_ok, "by_room": by_room }))
         })
         .collect();
     let mut result = availability(engine);
@@ -625,5 +670,31 @@ mod room_order_tests {
         assert_eq!(ids(by_room(rows(&["claude-2", "claude-5"]), &std::collections::HashMap::new(), now)), ["claude-2", "claude-5"]);
         // every row is kept, whatever is read of it
         assert_eq!(by_room(rows(&["claude-9", "claude-7"]), &readings, now).len(), 2);
+    }
+
+    #[test]
+    fn the_own_sign_in_is_ranked_with_the_accounts_and_named_as_itself() {
+        let now = Utc::now();
+        let reading = |hours: Option<i64>, used: Option<f64>| Reading { reset: hours.map(|h| now + chrono::Duration::hours(h)), used };
+        let account = |id: &str, kind: &str| json!({ "id": id, "value": id, "kind": kind });
+        let accounts = vec![account("claude-2", "subscription"), account("claude-5", "subscription"), account("claude-key", "apikey")];
+        let mut readings = std::collections::HashMap::new();
+        readings.insert("claude-2".to_string(), reading(Some(100), Some(60.0)));
+        readings.insert("claude-5".to_string(), reading(Some(100), Some(20.0)));
+        // the own sign-in has the most room: it is first, named as the window names it
+        assert_eq!(room_order("claude", Some(Some(reading(Some(100), Some(5.0)))), &accounts, &readings, now), ["claude/primary", "claude-5", "claude-2"]);
+        // it has less room than an account: the account is first
+        assert_eq!(room_order("claude", Some(Some(reading(Some(100), Some(40.0)))), &accounts, &readings, now), ["claude-5", "claude/primary", "claude-2"]);
+        // nothing is read of it: unknown is never spare, so it comes after every account that was read
+        assert_eq!(room_order("claude", Some(None), &accounts, &readings, now), ["claude-5", "claude-2", "claude/primary"]);
+        // and an account nobody has read comes after the own sign-in that was
+        let unread = vec![account("claude-9", "subscription")];
+        assert_eq!(room_order("claude", Some(Some(reading(Some(100), Some(90.0)))), &unread, &readings, now), ["claude/primary", "claude-9"]);
+        // it cannot run the model (signed out, or a window the model spends is at 100%): it is not in the list
+        assert_eq!(room_order("claude", None, &accounts, &readings, now), ["claude-5", "claude-2"]);
+        // a metered key is never chosen for the user, even alone
+        assert!(room_order("claude", None, &[account("claude-key", "apikey")], &readings, now).is_empty());
+        // nothing can run it: nothing to name
+        assert!(room_order("openai", None, &[], &readings, now).is_empty());
     }
 }

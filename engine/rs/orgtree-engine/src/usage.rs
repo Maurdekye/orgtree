@@ -2539,6 +2539,14 @@ mod wham_tests {
         let broke = super::openrouter_limits(&ks(json!({ "usage": 3.0, "limit": 10.0, "total_credits": 30.0, "total_usage": 30.0 })));
         assert_eq!(broke[0]["percent"], json!(30.0));
         assert_eq!(broke[0]["is_active"], json!(true));
+        // A window a model spends at 100% is what keeps a sign-in out of every list a hire picks
+        // from (`at_limit`, asked by `domain::staffing::eligible_accounts` and for the own sign-in
+        // by `options`). Under 100%, and a window with no percent at all, is not at its limit.
+        let window = |percent: serde_json::Value| json!({ "kind": "weekly", "label": "weekly", "percent": percent, "resets_at": "2026-11-17T18:00:00Z" });
+        assert!(super::spent_window("claude", &window(json!(100.0))).is_some_and(|why| why.contains("weekly window at 100%")));
+        assert!(super::spent_window("claude", &window(json!(104.2))).is_some());
+        assert!(super::spent_window("claude", &window(json!(99.9))).is_none());
+        assert!(super::spent_window("claude", &window(serde_json::Value::Null)).is_none());
         assert!(super::spent_window("openrouter", &broke[0]).is_some());
         let room = super::openrouter_limits(&ks(json!({ "usage": 3.0, "limit": 10.0, "total_credits": 30.0, "total_usage": 11.43 })));
         assert!(super::spent_window("openrouter", &room[0]).is_none());
