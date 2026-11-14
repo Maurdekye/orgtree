@@ -1213,3 +1213,158 @@ test('Claude Waves Part A: wakes when canvas world un-hides and when floor inter
   assert.equal(roused.tapCount, 1, 'floor click records its tap ripple while rousing')
   assert.equal(Number(glCanvas.style.opacity) > 0, true, 'floor interaction restores non-zero canvas opacity')
 })
+
+test('Claude Waves Part B: tolerates normal VSync rAF jitter up to 100ms, escalates retry backoff until 30 good frames, and clears busy-off on focus return', async (t) => {
+  installAsciiGlEnv(t, 1)
+  stubReducedMotion(t, false)
+  const viewRef = { current: { x: 0, y: 0, z: 1 } }
+  let api: AsciiTestApi | null = null
+  const renderStage = (hidden: boolean) => (
+    <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={hidden} intensity={1}
+      pin={{ seed: 42, pool: 'mixed', budgetS: 600 }} onReady={a => { api = a }} />
+  )
+  const mounted = await mountView(renderStage(false), el => el)
+  t.after(async () => { await mounted.unmount() })
+  for (let i = 0; i < 20 && !api; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
+  }
+  assert.equal(api === null, false, 'AsciiLayer initializes')
+  // Pause real timers cleanly before switching the loop onto a deterministic clock
+  await mounted.render(renderStage(true))
+  assert.equal(api!.state().running, false)
+
+  const prevSetTimeout = window.setTimeout
+  const prevClearTimeout = window.clearTimeout
+  const prevRaf = window.requestAnimationFrame
+  const prevCancelRaf = window.cancelAnimationFrame
+  const prevPerfNow = performance.now.bind(performance)
+  let nowMs = prevPerfNow()
+  let rafDelayMs = 25
+  let seq = 1000
+  const timers = new Map<number, { dueAt: number; cb: () => void }>()
+  const rafs = new Map<number, { dueAt: number; cb: FrameRequestCallback }>()
+  let restored = false
+  const restoreClock = () => {
+    if (restored) return
+    restored = true
+    timers.clear()
+    rafs.clear()
+    window.setTimeout = prevSetTimeout
+    window.clearTimeout = prevClearTimeout
+    window.requestAnimationFrame = prevRaf
+    window.cancelAnimationFrame = prevCancelRaf
+    performance.now = prevPerfNow
+  }
+  t.after(restoreClock)
+
+  performance.now = () => nowMs
+  window.setTimeout = (((cb: TimerHandler, ms?: number) => {
+    const id = ++seq
+    timers.set(id, { dueAt: nowMs + Math.max(0, Number(ms) || 0), cb: typeof cb === 'function' ? cb as () => void : () => {} })
+    return id
+  }) as unknown) as typeof window.setTimeout
+  window.clearTimeout = (((id?: number) => {
+    if (id !== undefined) timers.delete(Number(id))
+  }) as unknown) as typeof window.clearTimeout
+  window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+    const id = ++seq
+    rafs.set(id, { dueAt: nowMs + rafDelayMs, cb })
+    return id
+  }) as typeof window.requestAnimationFrame
+  window.cancelAnimationFrame = ((id: number) => { rafs.delete(Number(id)) }) as typeof window.cancelAnimationFrame
+
+  const advanceMs = (deltaMs: number): void => {
+    const endMs = nowMs + deltaMs
+    for (let guard = 0; guard < 10_000; guard++) {
+      let nextKind: 'timer' | 'raf' | null = null
+      let nextId = -1
+      let nextDue = Number.POSITIVE_INFINITY
+      for (const [id, item] of timers) {
+        if (item.dueAt <= endMs && item.dueAt < nextDue) {
+          nextDue = item.dueAt; nextId = id; nextKind = 'timer'
+        }
+      }
+      for (const [id, item] of rafs) {
+        if (item.dueAt <= endMs && item.dueAt < nextDue) {
+          nextDue = item.dueAt; nextId = id; nextKind = 'raf'
+        }
+      }
+      if (!nextKind) break
+      nowMs = nextDue
+      if (nextKind === 'timer') {
+        const item = timers.get(nextId)!
+        timers.delete(nextId)
+        item.cb()
+      } else {
+        const item = rafs.get(nextId)!
+        rafs.delete(nextId)
+        item.cb(nowMs)
+      }
+    }
+    nowMs = endMs
+  }
+
+  try {
+    await mounted.render(renderStage(false))
+    const glCanvas = api!.renderer()!.canvas
+
+    // 1. 25 ms rAF dispatch latency (> 17 ms, <= 100 ms) across 25+ frames must NOT trigger busy-late
+    rafDelayMs = 25
+    advanceMs(25 * 70)
+    assert.equal(api!.state().busyOff, false, '25ms VSync/capture rAF jitter stays well within 100ms threshold')
+    assert.equal(api!.state().busyWhy, '')
+    assert.equal(api!.state().running, true)
+    assert.equal(api!.state().datasetState, 'moving')
+    assert.equal(Number(glCanvas.style.opacity) > 0, true)
+
+    // Genuine >100ms rAF hangs (120ms across 20 frames) still degrade cleanly to busy-late
+    rafDelayMs = 120
+    for (let step = 0; step < 30 && !api!.state().busyOff; step++) {
+      advanceMs(160)
+    }
+    assert.equal(api!.state().busyOff, true, 'sustained >100ms rAF stalls still enter busyOff')
+    assert.equal(api!.state().datasetState, 'busy-late')
+    assert.equal(api!.state().running, false)
+    assert.equal(glCanvas.style.opacity, '0')
+
+    // 2. First retry wakes at 1500ms; faulting again after <30 good frames escalates backoff to 3000ms
+    rafDelayMs = 8
+    advanceMs(1300) // <= 1500 - 160 step margin
+    assert.equal(api!.state().busyOff, true, 'first retry waits full 1500ms')
+    advanceMs(250)
+    assert.equal(api!.state().busyOff, false, 'first retry wakes at 1500ms')
+    assert.equal(api!.state().running, true)
+
+    advanceMs(5 * 50) // ~5 clean frames (< 30 sustained good frames)
+    api!.simulateLoad!('gpu', 2)
+    assert.equal(api!.state().busyOff, true)
+    advanceMs(2000)
+    assert.equal(api!.state().busyOff, true, 'faulting before 30 good frames must escalate retry to 3000ms instead of resetting to 1500ms')
+    advanceMs(1010)
+    assert.equal(api!.state().busyOff, false, 'escalated 3000ms retry wakes cleanly')
+    assert.equal(api!.state().running, true)
+
+    // After 30+ sustained clean frames, retry backoff resets to 1500ms
+    advanceMs(35 * 50)
+    api!.simulateLoad!('gpu', 2)
+    assert.equal(api!.state().busyOff, true)
+    advanceMs(1490)
+    assert.equal(api!.state().busyOff, true)
+    advanceMs(20)
+    assert.equal(api!.state().busyOff, false, '30+ sustained good frames reset retry backoff to 1500ms')
+    assert.equal(api!.state().running, true)
+
+    // 3. Regaining window focus/visibility while busyOff immediately clears busyOff and restores waves
+    api!.simulateLoad!('gpu', 2)
+    assert.equal(api!.state().busyOff, true)
+    assert.equal(glCanvas.style.opacity, '0')
+    window.dispatchEvent(new window.Event('focus'))
+    assert.equal(api!.state().busyOff, false, 'window focus return immediately clears busyOff')
+    assert.equal(api!.state().running, true)
+    assert.equal(api!.state().datasetState, 'moving')
+    assert.equal(Number(glCanvas.style.opacity) > 0, true, 'window focus return restores canvas opacity')
+  } finally {
+    await mounted.render(renderStage(true))
+    restoreClock()
+  }
+})

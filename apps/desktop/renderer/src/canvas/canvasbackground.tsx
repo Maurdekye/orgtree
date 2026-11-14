@@ -213,6 +213,8 @@ export interface AsciiTestApi {
 
 const INITIAL_RETRY_MS = 1500
 const MAX_RETRY_MS = 8000
+const LATE_RAF_MS = 100
+const RECOVERY_GOOD_FRAMES = 30
 
 export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   view: View
@@ -461,6 +463,8 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       busyOff = true
       busyWhy = why
       shown = false
+      goodFrames = 0
+      lateRing = []
       if (renderer) {
         // Hide the paused canvas so a stale world-coordinate frame is never
         // left frozen on screen while the user pans or zooms the org chart.
@@ -479,6 +483,8 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         strikes = 0
         lateFaults = 0
         stallRun = 0
+        goodFrames = 0
+        lateRing = []
         if (still) drawStill()
         else if (drawOnce(fieldTime, revealNow())) {
           setState('moving')
@@ -503,7 +509,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     }
     const frame = (tsMs: number): void => {
       if (cancelled || dead || contextLost || !loopActive) return
-      const late = performance.now() - rafRequestedAt > 17
+      const late = performance.now() - rafRequestedAt > LATE_RAF_MS
       lateRing = [...lateRing.slice(-9), late]
       if (lateRing.filter(Boolean).length >= 5) { lateRing = []; fault('late') }
       if (!loopActive) return
@@ -515,20 +521,22 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const t0 = performance.now()
       const drew = drawOnce(fieldTime, revealNow())
       const tookMs = performance.now() - t0
-      stallRun = tookMs > 50 ? stallRun + 1 : 0
+      const stalled = tookMs > 50
+      stallRun = stalled ? stallRun + 1 : 0
       if (stallRun >= 3) { stallRun = 0; fault('stall'); if (!loopActive) return }
-      if (renderer?.fellBehind()) fault('gpu')
+      const gpuBehind = Boolean(renderer?.fellBehind())
+      if (gpuBehind) fault('gpu')
       if (!loopActive) return
+      goodFrames = drew && !late && !stalled && !gpuBehind ? goodFrames + 1 : 0
       if (busyWhy) {
-        goodFrames = late ? 0 : goodFrames + 1
-        if (goodFrames >= 30) {
+        if (goodFrames >= RECOVERY_GOOD_FRAMES) {
           busyWhy = ''
           strikes = 0
           retryMs = INITIAL_RETRY_MS
           setState('moving')
         }
       } else if (drew) {
-        retryMs = INITIAL_RETRY_MS
+        if (goodFrames >= RECOVERY_GOOD_FRAMES) retryMs = INITIAL_RETRY_MS
         setState('moving')
       }
       if (settleFade() <= 0 && !touch.busy(touchNow())) {
@@ -582,8 +590,13 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     const onVisibleReturn = (): void => {
       if (cancelled || dead || contextLost || still) return
       if (!visibleNow()) { stopLoop(); return }
+      const wasBusyOff = busyOff
+      if (wasBusyOff) {
+        clearBusyOff()
+        retryMs = INITIAL_RETRY_MS
+      }
       if (calm) { restart(); return }
-      if (!loopActive && !busyOff && drawOnce(fieldTime, revealNow())) setState('moving')
+      if ((wasBusyOff || !loopActive) && drawOnce(fieldTime, revealNow())) setState('moving')
       tryStart()
     }
     wakeRef.current = still ? null : onVisibleReturn
@@ -650,6 +663,9 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       strikes = 0
       lateFaults = 0
       stallRun = 0
+      goodFrames = 0
+      lateRing = []
+      retryMs = INITIAL_RETRY_MS
       layoutSig = ''
       colourKey = ''
       if (!renderer.restore()) return
