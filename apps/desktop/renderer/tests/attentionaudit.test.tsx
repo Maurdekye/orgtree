@@ -125,6 +125,15 @@ test('§1 every caller of closeSavedWindow is one the audit accounts for', () =>
     "canvas/OrgCanvas.tsx :: for (const r of rows) if (r.kind === 'doc' || r.kind === 'doc-docket') closeSavedWindow(r.key)",
     'canvas/OrgCanvas.tsx :: closeSavedWindow(row.key); '
       + 'setRestoredDocs(old => old.filter(r => r.key !== row.key))',
+    // NOT in MovableSurface: "Return to canvas" on a restored desk (4.5.13, c77013f).
+    // It clears exactly one row, the one keyed windowLayoutKey(`desk:<identity>`, slug),
+    // i.e. JSON [org, 'desk:...']. An attention-kind row's key is [org, 'attention-queue']
+    // or [org, 'attention-desk'] (QUEUE_KIND / DESK_KIND), and neither starts with
+    // 'desk:', so the two keys can never be equal: this caller cannot clear an
+    // attention-kind row whatever the agent is called. The redock() on the line before
+    // it looks a surface up by that same desk kind, so it cannot reach an Attention
+    // panel's surface either. The exhaustiveness argument is untouched.
+    'canvas/OrgCanvas.tsx :: closeSavedWindow(windowLayoutKey(deskKind, slug))',
   ]
   const unaccounted = callsOf('closeSavedWindow').filter((c) => !accounted.includes(c))
   assert.deepEqual(unaccounted, [],

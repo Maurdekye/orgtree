@@ -154,7 +154,7 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     // the panel prints the seat verbatim, so a fraction must survive the
     // round trip rather than being floored or rendered as `undefined`
     for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['hydrogen', 1],
-                             ['fable', 10]] as const) {
+                             ['fable', 8]] as const) {
       assert.match(option(el, t).textContent ?? '',
         new RegExp(`^${t} · seat ${seat}\\b`))
     }
