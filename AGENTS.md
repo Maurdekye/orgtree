@@ -24,7 +24,7 @@ runner redirects `LOCALAPPDATA`; never relax product attach ACL checks. See
 [verified: `tests/installer-elevation.test.mjs`; 2026-10-26]
 
 The attach trust rule has two copies (`policy.ts`, `tools/installer-upgrade.ps1`): change both, held to one table
-by `tests/descriptor-trust-drive-root.test.mjs`. A real drive root is judged without DELETE. See
+by `tests/descriptor-trust-drive-root.test.mjs`. Any drive letter's root is judged without DELETE. See
 [startup and release](docs/agents/startup-and-release.md). [decided: user 2026-11-14]
 
 Hovering or focusing a mini node, agent or project, always shows its name on the

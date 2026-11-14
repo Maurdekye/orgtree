@@ -18,10 +18,9 @@ installer's close helper. Both refuse a folder above the descriptor that another
   `C:\` passed on the development PC). "Delete subfolders and files", "change permissions", "take ownership" and
   generic all still count on a root. The data folder itself and every folder between it and the root are judged as
   before.
-- **A root is `X:\` that the mount manager names a volume for** (`mountvol X:\ /L` exits 0 with one
-  `\\?\Volume{...}\` line). A SUBST letter and a mapped share have the same shape but are folders somebody can
-  rename; mountvol refuses both (measured), and anything but that one line keeps the full rule. A UNC root and a
-  `\\?\` path are not roots for this rule.
+- **A root is any drive letter's** (`X:\`), a letter made with SUBST and a mapped network drive too (user ruling
+  2026-11-14 08:00Z, "Any drive letter"; the first version of this change asked the mount manager and exempted
+  real volumes only). A UNC root and a `\\?\` path have no drive letter and keep the full rule.
 - **Change both copies together.** `tests/descriptor-trust-drive-root.test.mjs` runs one table through both, the
   helper's in the 64-bit and the 32-bit Windows PowerShell, with `Get-Acl` replaced by a function that answers from
   security descriptors in the table. It touches no real permission.
