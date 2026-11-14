@@ -153,6 +153,12 @@ pub async fn listening(State(engine): State<Arc<Engine>>, scope: Option<Extensio
     };
     let moved = engine.access.registry.set_listen(body.tailscale, body.lan, body.local)?;
     if engine.access.registry.set_listening(port, None)? || moved {
+        if engine.access.any_open() {
+            // while something is shared the desktop adds or removes the door's rules just before
+            // it asks for this (one prompt): the answer is what Windows Firewall says after it,
+            // as when a switch is turned on (review NEW-L1, 2026-11-14)
+            firewall::read_now(&engine).await;
+        }
         settled(&engine).await;
     }
     Ok(Json(overview_of(&engine)))
