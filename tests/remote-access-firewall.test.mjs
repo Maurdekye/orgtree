@@ -156,11 +156,29 @@ test('main validates what the window asks, and the window can ask through the br
   assert.ok(handler, 'index.ts registers desktop:remote-access-firewall')
   assert.match(handler[1], /validDoorPort\(port\)/)
   assert.match(handler[1], /typeof lan !== 'boolean'/)
-  assert.match(handler[1], /return addRemoteFirewallRule\(port, lan\)/, 'the program is main\'s own finding')
+  assert.match(handler[1], /tailscale !== undefined && typeof tailscale !== 'boolean'/)
+  assert.match(handler[1], /return addRemoteFirewallRule\(port, lan, undefined, undefined, tailscale \?\? true\)/, 'the program is main\'s own finding')
   assert.match(main, /handleApp\('desktop:remote-access-firewall-remove', \(\) => removeRemoteFirewallRule\(\)\)/)
-  assert.match(preload, /addRemoteAccessFirewallRule: \(port: number, lan: boolean\) => ipcRenderer\.invoke\('desktop:remote-access-firewall', \{ port, lan \}\)/)
+  assert.match(preload, /addRemoteAccessFirewallRule: \(port: number, lan: boolean, tailscale = true\) => ipcRenderer\.invoke\('desktop:remote-access-firewall', \{ port, lan, tailscale \}\)/)
   assert.match(preload, /removeRemoteAccessFirewallRule: \(\) => ipcRenderer\.invoke\('desktop:remote-access-firewall-remove'\)/)
   // the engine program is found by main and by nothing the page sent
   assert.match(source, /export function engineProgram\(\): string \| undefined/)
   assert.ok(!/ipcRenderer|process\.argv/.test(source))
+})
+
+// User ruling 2026-11-14: remote access is not limited to Tailscale. Each rule
+// is added for its own choice only.
+test('each place has its own rule: the private network without Tailscale, and none for this computer itself', () => {
+  const lanOnly = fw.remoteFirewallScript(7431, true, ENGINE, false)
+  assert.equal(rules(lanOnly).length, 1, lanOnly)
+  assert.match(rules(lanOnly)[0], /-DisplayName 'Orgtree remote access \(private network\)' .* -RemoteAddress LocalSubnet -Profile Private /)
+  assert.ok(!lanOnly.includes(TAILNET), 'no rule for Tailscale when Tailscale was not chosen')
+  // the rules of an earlier choice still go
+  assert.equal(removals(lanOnly).length, 2)
+  // neither chosen (the door on this computer itself): nothing is added
+  const neither = fw.remoteFirewallScript(7431, false, ENGINE, false)
+  assert.deepEqual(rules(neither), [])
+  assert.equal(removals(neither).length, 2)
+  // said nothing (an older page): Tailscale, as it was
+  assert.equal(fw.remoteFirewallScript(7431, false, ENGINE), fw.remoteFirewallScript(7431, false, ENGINE, true))
 })

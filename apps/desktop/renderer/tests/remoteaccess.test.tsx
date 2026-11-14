@@ -117,8 +117,8 @@ test('the words: the door, an address, a computer, the chip', () => {
   assert.equal(doorTrouble(door({ state: 'waiting', addresses: [], reason: 'Tailscale is not running on this computer.' })),
     'Tailscale is not running on this computer.')
   assert.equal(doorTrouble(door({ state: 'blocked', addresses: [], reason: null })), 'The port is taken by another program.')
-  assert.deepEqual(['tailscale', 'lan', 'rig'].map((kind) => addressNote({ kind: kind as 'tailscale' })),
-    ['Tailscale', 'Private network, not encrypted (http)', 'This computer'])
+  assert.deepEqual(['tailscale', 'lan', 'local', 'rig'].map((kind) => addressNote({ kind: kind as 'tailscale' })),
+    ['Tailscale', 'Private network, not encrypted (http)', 'This computer only: for an SSH tunnel or a local https proxy', 'This computer'])
   const time = () => '12:00', day = () => 'Nov 12, 2026'
   assert.equal(computerSeen(computer(), time, day), 'connected since 12:00')
   assert.equal(computerSeen(computer({ connected: false, connected_since: null }), time, day), 'last seen Nov 12, 2026')
@@ -384,7 +384,7 @@ test('the App settings page: where it listens, the port, the organizations, Stop
   await w.push({ remote_access: overview(false, { ...shut(), firewall: { state: 'ok', present: true } }) })
   assert.deepEqual(w.log, ['GET /api/remote-access'], 'the owner looks: the engine is asked once, and reads the firewall behind its answer')
   const labels = () => [...page().querySelectorAll('.set-row > .set-label')].map((el) => el.textContent!.trim())
-  assert.deepEqual(labels(), ['Where it listens', 'Port', 'Now', 'Windows Firewall still has the rules for remote access', 'Stop all remote access'])
+  assert.deepEqual(labels(), ['Tailscale', 'This private network', 'This computer only', 'Port', 'Now', 'Windows Firewall still has the rules for remote access', 'Stop all remote access'])
   const row = (label: string) => [...page().querySelectorAll('.set-row')].find((el) => el.querySelector('.set-label')!.textContent!.trim() === label) as HTMLElement
   assert.equal(row('Now').querySelector('.chip')!.textContent, 'Not listening: nothing is shared')
   assert.match(page().textContent!, /None\. The switch is in an organization's settings, under Connections\./)
@@ -397,20 +397,26 @@ test('the App settings page: where it listens, the port, the organizations, Stop
   assert.deepEqual(w.log, ['firewall remove', 'GET /api/remote-access?fresh=1'])
   assert.deepEqual(toasts, ['The firewall rules for remote access were removed'])
   // where it listens, while nothing is shared: the engine alone (the rules are asked for when a switch goes on)
-  const select = () => page().querySelector('select[aria-label="Where remote access listens"]') as HTMLSelectElement
-  assert.deepEqual([...select().options].map((o) => o.textContent), ['Tailscale only', 'Tailscale and this private network'])
-  assert.equal(select().value, 'tailscale')
+  // three places, each switched by itself (user ruling 2026-11-14: not limited to Tailscale)
+  assert.equal(page().querySelector('.set-block > .set-label')!.textContent, 'Where it listens')
+  const place = (label: string) => page().querySelector(`input[role="switch"][aria-label="${label}"]`) as HTMLInputElement
+  assert.deepEqual(['Tailscale', 'This private network', 'This computer only'].map((label) => place(label).checked), [true, false, false])
+  assert.match(place('This private network').closest('.set-row')!.textContent!, /not encrypted/)
+  assert.match(place('This computer only').closest('.set-row')!.textContent!, /SSH tunnel or a local https proxy/)
   w.log.length = 0
-  await inAct(() => { select().value = 'lan'; select().dispatchEvent(new (doc.defaultView!.Event)('change', { bubbles: true })) })
+  await inAct(() => { place('This private network').click() })
   await inAct(() => flush(10))
   assert.deepEqual(w.log, ['PUT /api/remote-access'])
   assert.deepEqual(w.calls.at(-1)!.body, { lan: true })
+  await inAct(() => { place('This computer only').click() })
+  await inAct(() => flush(10))
+  assert.deepEqual(w.calls.at(-1)!.body, { local: true })
   // two organizations are shared, one with somebody in it
   const dana = computer()
   const both = overview(true, door(), [dana])
   both.orgs[1] = { ...both.orgs[1]!, on: true, computers: 2 }
   await w.push({ remote_access: both })
-  assert.deepEqual(labels(), ['Where it listens', 'Port', 'Now', 'Acme', 'Beta', 'Stop all remote access'])
+  assert.deepEqual(labels(), ['Tailscale', 'This private network', 'This computer only', 'Port', 'Now', 'Acme', 'Beta', 'Stop all remote access'])
   assert.equal(row('Now').querySelector('.chip')!.textContent, 'Listening')
   assert.equal(row('Now').querySelector('[data-streamer-field="ip"]')!.textContent, URL)
   assert.equal(row('Acme').querySelector('.set-control')!.textContent, '1 computer, 1 connected')
@@ -461,12 +467,27 @@ test('the words of the page, and the order of a change', async (t) => {
   const w = world(t, () => overview(true, door()))
   let prompt: { ok: true } | { ok: false; declined: boolean; error: string } = { ok: true }
   const recorder = {
-    addRemoteAccessFirewallRule: async (port: number, lan: boolean) => { w.log.push(`firewall ${port} ${lan}`); return prompt },
+    addRemoteAccessFirewallRule: async (port: number, lan: boolean, tailscale?: boolean) => {
+      w.log.push(`firewall ${port} ${lan}${tailscale === false ? ' without Tailscale' : ''}`); return prompt
+    },
     removeRemoteAccessFirewallRule: async () => { w.log.push('firewall remove'); return prompt },
   }
   // shared: the rules follow first, with what the door will have (the new choice, the port it keeps)
   await changeListening(overview(true, door()), { lan: true }, recorder)
   assert.deepEqual(w.log, ['firewall 7431 true', 'PUT /api/remote-access'])
+  // the private network without Tailscale: Windows is asked for that rule alone
+  w.log.length = 0
+  await changeListening(overview(true, door()), { tailscale: false, lan: true }, recorder)
+  assert.deepEqual(w.log, ['firewall 7431 true without Tailscale', 'PUT /api/remote-access'])
+  // this computer only needs no rule: Windows is not asked at all
+  w.log.length = 0
+  await changeListening(overview(true, door()), { tailscale: false, local: true }, recorder)
+  assert.deepEqual(w.log, ['PUT /api/remote-access'])
+  // the last place cannot be switched off: nothing is asked of anybody
+  w.log.length = 0
+  assert.deepEqual(await changeListening(overview(true, door()), { tailscale: false }, recorder),
+    { refused: 'Choose at least one place for remote access to listen.' })
+  assert.deepEqual(w.log, [])
   // nothing shared, or no firewall of this kind, or no desktop: the engine alone
   for (const [now, with_] of [[overview(false, shut()), recorder], [overview(true, door({ firewall: { state: 'none', present: false } })), recorder],
     [overview(true, door()), undefined]] as const) {
