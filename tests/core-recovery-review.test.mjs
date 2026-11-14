@@ -5,7 +5,7 @@ import path from 'node:path'
 import vm from 'node:vm'
 import {createRequire} from 'node:module'
 import {execFileSync} from 'node:child_process'
-import {buildSync} from 'esbuild'
+import {buildSync,transformSync} from 'esbuild'
 const require=createRequire(import.meta.url)
 const options={dataRoot:path.resolve('unused-recovery-review-root'),forbiddenRoot:path.resolve('unused-forbidden-root'),directory:'unused',python:'unused',uiDirectory:'unused'}
 function source(file) {
@@ -33,7 +33,8 @@ test('post-task recovery executes real attachWithRetry and retains boot topology
  assert.equal(tasks,1);assert.equal(e.usesBackgroundTask,true)
 })
 const index=source('apps/desktop/main/index.ts')
-const handler=index.slice(index.indexOf('  const restartEngine = async () => {'),index.indexOf('  const rebuildTray = () => {'))
+// The stretch holds TypeScript (`let adminState: RunAsAdministratorState | null`), and vm evaluates JavaScript.
+const handler=transformSync(index.slice(index.indexOf('  const restartEngine = async () => {'),index.indexOf('  const rebuildTray = () => {')),{loader:'ts'}).code
 async function tray({native,withCore=true,healthy=false,cancel=false,blocked=false}) {
  const e=new Engine();let starts=0,transitions=0,tasks=0
  e.stop=async()=>{};e.stoppedConfirmed=async()=>true;e.rootReleased=async()=>true;e.start=async()=>{starts++}
@@ -47,8 +48,12 @@ async function tray({native,withCore=true,healthy=false,cancel=false,blocked=fal
   if(cancel)await core.cancelRecovery()
  }
  const messages=[]
+ // The handler reads process.platform and names restartBackground (the restart through a task's host, in Session 0).
+ // No task's host runs the engine here, so restartBackground is undefined. Without `process` the handler ends in its
+ // own catch and shows the restart error instead of restarting.
  const context={engine:e,coreLifecycle:core,engineRestartOptions:options,engineRestartBlocked:()=>blocked,resumeEngineStartup:undefined,
- startBootTask:async()=>tasks++,refreshTrayEngine:()=>{},rebuildTray:()=>{},dialog:{showMessageBox:async value=>messages.push(value)},Error}
+ startBootTask:async()=>tasks++,refreshTrayEngine:()=>{},rebuildTray:()=>{},dialog:{showMessageBox:async value=>messages.push(value)},Error,
+ process,restartBackground:undefined}
  vm.createContext(context);vm.runInContext(handler+';globalThis.invokeRestart=restartEngine',context);await context.invokeRestart()
  return {starts,transitions,tasks,messages}
 }
