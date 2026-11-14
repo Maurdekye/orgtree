@@ -91,13 +91,29 @@ test('the sidebar rows and the tray tooltip carry the same n/m active-hired voca
   const rows = read('apps/desktop/renderer/src/shell/orgrows.tsx')
   // every row renders the three aligned cells; n/m is not gated on activity
   assert.match(rows, /className="org-activity"/)
-  assert.match(rows, /title=\{current \? 'active \/ hired agents'/)
-  assert.match(rows, /typeof o\.working === 'number' \? `\$\{o\.working\}\/\$\{o\.live\}` : `\$\{o\.live\}`/)
+  // REMOTE ORGANIZATIONS (docs/rust-engine/remote-org.md) are drawn by the same
+  // `row` as this computer's own, so one whose engine is connected carries the
+  // same n/m and the same words by construction, not by a second copy of the
+  // markup that could drift.
+  assert.match(rows, /\{local\.map\(row\)\}/)
+  assert.match(rows, /\{orgs\.filter\(\(o\) => o\.remote\?\.id === remote\.id\)\.map\(row\)\}/)
+  // The one row that says something else is a remote organization whose engine
+  // is NOT connected: its numbers would be the last ones that engine sent, so
+  // the cell shows none, and its tooltip says why instead of naming a
+  // vocabulary for numbers that are not there. `away` needs `o.remote`, so a
+  // row of this computer can never lose its numbers or its words this way.
+  // (The rows are executed in apps/desktop/renderer/tests/remoteorg.test.tsx,
+  // the tray list's own remote rows in tests/traylist-remote.test.mjs.)
+  assert.match(rows, /const away = !!o\.remote && o\.remote\.state !== 'connected'/)
+  assert.match(rows, /title=\{away \? 'not connected: no current numbers' : current \? 'active \/ hired agents' : staleTitle\}>/)
+  assert.match(rows, /\{away \? '' : freshness === 'loading' \? '…'\s+: typeof o\.working === 'number' \? `\$\{o\.working\}\/\$\{o\.live\}` : `\$\{o\.live\}`\}/)
   // the spinner is the activity cell's conditional CONTENT, not a fourth
   // column — and since `show-current-organization-statuses-immediately` it is
   // ALSO gated on the snapshot being current, because an animation claiming a
-  // turn is executing NOW may not run on a remembered count
-  assert.match(rows, /\{attn === 0 && current && \(o\.working \?\? 0\) > 0 &&\s+<span className="working-ct"/)
+  // turn is executing NOW may not run on a remembered count. While a remote
+  // organization's engine is away its count is a remembered one too, so the
+  // spinner waits for that as well.
+  assert.match(rows, /\{attn === 0 && current && !away && \(o\.working \?\? 0\) > 0 &&\s+<span className="working-ct"/)
   const css = read('apps/desktop/renderer/src/styles.css')
   assert.match(css, /\.org \{\r?\n  display: grid; grid-template-columns: minmax\(14px, max-content\) minmax\(0, 1fr\) max-content auto;/)
   const main = read('apps/desktop/main/index.ts')
