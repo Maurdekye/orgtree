@@ -40,7 +40,7 @@ While another computer is connected, the organization's status bar shows a chip,
 
 Each opening of the dialog makes one new code.
 
-- **Address**: this computer's address, with Copy.
+- **Address**: this computer's address, with Copy: its Tailscale address when Tailscale is chosen, else its address on the private network. It is never `127.0.0.1`, which to the other computer is itself. With **This computer only** as the one place it listens, the row says to send the tunnel's address instead (the https address the proxy or tunnel gives, or `http://127.0.0.1:(port)` for an SSH tunnel), and there is no **Both in one line**: the code is sent beside that address.
 - **One-time code**: shown once, here. It is valid for 15 minutes and for one computer. Closing the dialog does not withdraw it. At most five codes are open for an organization, and an organization holds at most 32 computers.
 - **Both in one line**: the address and the code together, with **Copy both**, to send to whoever sits at the other computer.
 - **Or a computer you already added**: the computers that have another organization of this desktop. **Give access** adds this organization to one of them at once, with no code.
@@ -60,7 +60,7 @@ The tab is listed on a desktop's own engine only.
 
 Under **Organizations other computers can open**, each shared organization is named with how many computers it has and how many are connected. The switch itself stays in that organization's settings.
 
-Nothing listens while no organization is shared. There are two firewall rules: one for Tailscale's addresses, added only while Tailscale is chosen, and one for the local subnet on Private networks, added only with the private-network choice. Both are limited to the port and to Orgtree's engine. **This computer only** needs none. Changing the port or where it listens while something is shared asks Windows first, and a No leaves everything as it was. **Windows Firewall is blocking this** with **Allow** appears here too when the rules are missing. When nothing is shared and the rules are still there, **Windows Firewall still has the rules for remote access** offers **Remove the rules**. They are asked for again when remote access is next turned on.
+Nothing listens while no organization is shared. There are two firewall rules: one for Tailscale's addresses, added only while Tailscale is chosen, and one for the local subnet on Private networks, added only with the private-network choice. Both are limited to the port and to Orgtree's engine. **This computer only** needs none. Changing the port, or switching Tailscale or the private network, while something is shared asks Windows first, and a No leaves everything as it was. A rule whose place was switched off is taken out in the same step. Switching **This computer only** by itself asks nothing, because it needs no rule. **Windows Firewall is blocking this** with **Allow** appears here too when the rules are missing. When nothing is shared and the rules are still there, **Windows Firewall still has the rules for remote access** offers **Remove the rules**. They are asked for again when remote access is next turned on.
 
 ## Without Tailscale
 

@@ -161,16 +161,18 @@ When the tunnel is closed, the window says the hosting computer is offline; it r
 
 - Caddy, with a name that points at the hosting computer: `caddy reverse-proxy --from orgtree.example.com --to 127.0.0.1:7431`
 - Cloudflare Tunnel: `cloudflared tunnel --url http://127.0.0.1:7431`
-- ngrok: `ngrok http 7431`
+- ngrok: `ngrok http 127.0.0.1:7431`
 
 On the other computer the address is the `https://` address that program gives you. The certificate must be one the other computer trusts, which those three provide; a self-signed one is refused.
+
+With **This computer only** as the one place it listens, **Add a computer...** shows no address and no line to copy: `127.0.0.1` would be the other computer itself there. It says to send your tunnel's address, and shows the one-time code. Send the `https://` address and the code; on the other computer the address goes into **Address** and the code into **Token**. For an SSH tunnel the address on the other computer is `http://127.0.0.1:7431`.
 
 Such an address can be reached by anybody who knows it. What keeps them out is the token, which is long and random and cannot be guessed, and the door answers an address that keeps guessing "too many refused requests" for a minute. A computer you already let in is never shut out by somebody else's guessing.
 
 ### On the other computer
 
 1. On the Homepage choose **Add a remote engine...**.
-2. Paste the line you were sent into **Address**. It fills Address and Token. You can also type the address and put the code into Token.
+2. Paste the line you were sent into **Address**. It fills Address and Token. You can also type the address and put the code into Token, which is what you do when you were sent a tunnel's address and a code separately.
 3. Choose **Connect**. The hosting computer appears in the list under its name, with the organizations you were given. Open one like any organization.
 
 If the code was already used or is older than 15 minutes, the dialog says "That code was already used or has run out. Ask for a new one."
