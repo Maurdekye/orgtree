@@ -354,28 +354,112 @@ test('the right-click Swap panels entry does the same as the button', async (t) 
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
   await inAct(() => flush(3))
   const entries = [...document.querySelectorAll<HTMLElement>('.ctxmenu button')]
-  assert.deepEqual(entries.map((b) => b.textContent?.trim()), ['Swap panels', 'Reset to center'])
+  assert.deepEqual(entries.map((b) => b.textContent?.trim()), ['Swap panels', 'Swap edge', 'Reset to center'])
   await inAct(() => { entries[0]!.click() })
   await inAct(() => flush(3))
   assert.deepEqual([seen().queue, seen().desk, seen().hidden], [false, true, 'right'])
 })
 
 // USER 2026-11-13 m80a0aa581880: a "reset to center" entry in the divider's menu.
-async function openMenu(entry: number) {
-  await inAct(() => { q('.attn-divider')!.dispatchEvent(new window.MouseEvent('contextmenu',
+async function menuEntries(selector = '.attn-divider') {
+  await inAct(() => { q(selector)!.dispatchEvent(new window.MouseEvent('contextmenu',
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
   await inAct(() => flush(3))
-  const entries = [...document.querySelectorAll<HTMLElement>('.ctxmenu button')]
-  await inAct(() => { entries[entry]!.click() })
+  return [...document.querySelectorAll<HTMLElement>('.ctxmenu button')]
+}
+const labels = (entries: HTMLElement[]) => entries.map((b) => b.textContent?.trim())
+const closeMenu = async () => {
+  await inAct(() => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   await inAct(() => flush(3))
 }
+async function openMenu(label: string, selector = '.attn-divider') {
+  const entries = await menuEntries(selector)
+  const entry = entries.find((b) => b.textContent?.trim() === label)
+  assert.ok(entry, `the divider's menu has no "${label}": ${JSON.stringify(labels(entries))}`)
+  await inAct(() => { entry!.click() })
+  await inAct(() => flush(3))
+}
+
+// USER 2026-11-14 mc82a540f42fd: "add a new context menu entry to the attention split that only appears when its
+// dragged fully to the left or right edge. "swap edge", which moves it to the opposite edge snd keeps the ssme panel
+// visible".
+test('Swap edge is in the menu only while the divider stands at an edge', async (t) => {
+  reset()
+  const { drag } = await mounted(t)
+  assert.deepEqual(labels(await menuEntries()), ['Swap panels', 'Reset to center'], 'both panels shown')
+  await closeMenu()
+  await drag(380, 200)
+  assert.equal(seen().hidden, null, 'at a panel\'s minimum nothing is hidden')
+  assert.deepEqual(labels(await menuEntries()), ['Swap panels', 'Reset to center'], 'at the minimum, not the edge')
+  await closeMenu()
+  await drag(200, 20)
+  for (const sel of ['.attn-divider', 'button.attn-swap']) {
+    assert.deepEqual(labels(await menuEntries(sel)), ['Swap panels', 'Swap edge', 'Reset to center'], `left edge, ${sel}`)
+    await closeMenu()
+  }
+  await drag(0, 990)
+  assert.deepEqual(labels(await menuEntries()), ['Swap panels', 'Swap edge', 'Reset to center'], 'right edge')
+  await closeMenu()
+  await drag(1000, 500)
+  assert.deepEqual(labels(await menuEntries()), ['Swap panels', 'Reset to center'], 'dragged back in')
+})
+
+test('Swap edge takes the divider to the opposite edge and the same panel stays in view', async (t) => {
+  reset()
+  const { drag, press } = await mounted(t)
+  await drag(380, 20)
+  assert.deepEqual([seen().queue, seen().desk, seen().hidden, seen().swapped], [false, true, 'left', false])
+  await openMenu('Swap edge')
+  assert.deepEqual([seen().queue, seen().desk, seen().hidden, seen().swapped], [false, true, 'right', true],
+    'the Agent desk is still the one in view, with the divider at the right edge')
+  assert.equal(q('.attn-divider')!.getAttribute('aria-valuetext'), 'Needs attention hidden')
+  // dragging back in from the new edge brings the hidden panel back on that side, at its minimum
+  await press('ArrowLeft')
+  assert.deepEqual([seen().queue, seen().desk, seen().hidden], [true, true, null])
+  assert.ok(near(seen().split, 0.2), `the queue comes back at its minimum: ${seen().split}`)
+  assert.equal(q('.attn-slot-queue')!.style.order, '3', 'on the right, where the divider now is')
+})
+
+test('Swap edge from the right edge goes left, and a second one goes back', async (t) => {
+  reset()
+  const { drag } = await mounted(t)
+  await drag(380, 990)
+  const before = seen()
+  assert.deepEqual([before.queue, before.desk, before.hidden, before.swapped], [true, false, 'right', false])
+  await openMenu('Swap edge', 'button.attn-swap')
+  assert.deepEqual([seen().queue, seen().desk, seen().hidden, seen().swapped], [true, false, 'left', true])
+  await openMenu('Swap edge')
+  assert.deepEqual(seen(), before, 'twice is where it started')
+})
+
+test('Swap edge starts no slide: the panel in view does not move', async (t) => {
+  reset()
+  const { drag } = await mounted(t)
+  await drag(380, 20)
+  const slides: unknown[] = []
+  for (const sel of ['.attn-slot-queue', '.attn-slot-desk']) {
+    (q(sel) as unknown as { animate: unknown }).animate = (...args: unknown[]) => { slides.push(args); return {} }
+  }
+  await openMenu('Swap edge')
+  assert.equal(seen().hidden, 'right')
+  assert.deepEqual(slides, [])
+})
+
+test('Swap edge is remembered for the organization', async (t) => {
+  reset()
+  const { drag } = await mounted(t)
+  await drag(380, 20)
+  await openMenu('Swap edge')
+  const stored = JSON.parse(localStorage.getItem(ATTENTION_LAYOUT_KEY) ?? '{}') as Record<string, { hidden?: unknown; swapped?: unknown }>
+  assert.deepEqual([stored[SLUG]?.hidden, stored[SLUG]?.swapped], ['right', true])
+})
 
 test('Reset to center with the left panel hidden shows both at 50%', async (t) => {
   reset()
   const { drag } = await mounted(t)
   await drag(380, 20)
   assert.equal(seen().hidden, 'left')
-  await openMenu(1)
+  await openMenu('Reset to center')
   assert.deepEqual([seen().hidden, seen().queue, seen().desk, seen().swapped], [null, true, true, false])
   assert.ok(near(seen().split, 0.5))
 })
@@ -400,7 +484,7 @@ test('Reset to center keeps the panels swapped', async (t) => {
   reset()
   setAttentionLayout(SLUG, { split: 0.3, swapped: true })
   await mounted(t)
-  await openMenu(1)
+  await openMenu('Reset to center')
   assert.ok(near(seen().split, 0.5))
   assert.equal(seen().swapped, true)
 })

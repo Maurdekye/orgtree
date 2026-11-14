@@ -57,7 +57,7 @@ import type { AttentionQueueProps } from './AttentionQueue'
 import { AgentDeskPanel } from './AgentDeskPanel'
 import type { DraftNodeProps } from '../canvas/cards'
 import {
-  dividerPlace, hiddenPanel, onAttentionAgentChosen, placeFromKey, placeFromPointer, placePatch,
+  dividerPlace, hiddenPanel, onAttentionAgentChosen, placeFromKey, placeFromPointer, placePatch, swapEdgePatch,
   setAttentionLayout, setOrgView, startAttentionModeSync, useAttentionLayout, useOrgView,
 } from './mode'
 import type { DividerPlace, StageSide } from './mode'
@@ -689,8 +689,13 @@ export function AttentionView(props: AttentionViewProps) {
   const menu = useContextMenu(props.toast)
   // ONE menu for the divider and its button: the button sits on the divider's
   // middle, where a right-click lands (USER 2026-11-13 m5ae27bfba121)
+  // Swap edge is offered only while the divider stands at an edge (USER
+  // 2026-11-14 mc82a540f42fd). It starts no slide: the panel in view stays
+  // where it is, only the divider crosses to the other edge.
+  const edgeSwap = swapEdgePatch(layout)
   const onDividerMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, [
     { label: 'Swap panels', onSelect: swapPanels },
+    ...(edgeSwap ? [{ label: 'Swap edge', onSelect: () => setAttentionLayout(slug, edgeSwap) }] : []),
     { label: 'Reset to center', onSelect: () => commit({ left: 0.5, hidden: null }) },
   ])
 

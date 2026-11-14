@@ -83,6 +83,19 @@ export const placePatch = (place: DividerPlace, swapped: boolean): Pick<Attentio
 const AT_LEFT: DividerPlace = { left: SPLIT_MIN, hidden: 'left' }
 const AT_RIGHT: DividerPlace = { left: SPLIT_MAX, hidden: 'right' }
 
+/** SWAP EDGE (USER 2026-11-14 mc82a540f42fd): with the divider at an edge, the
+ *  layout that has it at the OPPOSITE edge with the same panel in view, or null
+ *  when it stands at no edge. The hidden side and `swapped` change together,
+ *  which is what keeps `hiddenPanel` the same: the panels trade sides and the
+ *  divider crosses the stage. A panel brought back afterwards comes in from
+ *  the new edge, at its minimum. */
+export function swapEdgePatch(l: Pick<AttentionLayout, 'swapped' | 'hidden'>):
+  Pick<AttentionLayout, 'split' | 'hidden' | 'swapped'> | null {
+  if (l.hidden === null) return null
+  const swapped = !l.swapped
+  return { ...placePatch(l.hidden === 'left' ? AT_RIGHT : AT_LEFT, swapped), swapped }
+}
+
 /** The place a pointer at `x` (a fraction of the stage's width) asks for: a
  *  panel stops at its minimum, and within HIDE_SNAP of an edge it is hidden. */
 export function placeFromPointer(x: number): DividerPlace {

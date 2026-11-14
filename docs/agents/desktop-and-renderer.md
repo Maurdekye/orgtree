@@ -766,7 +766,9 @@ User 2026-11-13 m525fd3e66e99, eight points approved in m2672b93c2df8.
   `stopPropagation` and pointer capture, and the click after a drag is suppressed (ref reset at each press);
   pointercancel never swaps. The button swaps through its own click, the divider on pointerup. Enter/Space on the
   divider swap. The divider menu is [Swap panels, Reset to center], and the button opens the SAME menu (it sits on the divider's middle, where a right-click lands; USER 2026-11-13 m5ae27bfba121); reset is `commit({ left: 0.5, hidden: null })`
-  (`swapped` unchanged). `aria-valuenow` keeps meaning the queue's share. The divider and button are ONE hover
+  (`swapped` unchanged). With a side hidden the menu has a third entry between them, Swap edge (USER 2026-11-14
+  mc82a540f42fd): `swapEdgePatch` flips `hidden` and `swapped` TOGETHER, so `hiddenPanel` is unchanged, the divider
+  stands at the opposite edge and the same panel stays in view. It starts no slide (`swapFrom` is not set). `aria-valuenow` keeps meaning the queue's share. The divider and button are ONE hover
   target: the button has one look, `opacity` 0 until the divider (or the button) is hovered, either has keyboard
   focus, a drag runs, or `(hover: none)`; it fades at the grip's 120 ms ease, none under reduced motion, and is
   always in the DOM, focusable and clickable.
