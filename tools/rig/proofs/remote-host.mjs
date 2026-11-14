@@ -367,7 +367,7 @@ export default async function (rig) {
       proof.check('a message from the other computer reads "User · PC-SAM" on the hosting desktop', h.sent?.status === 200 && h.theirs === `User · ${ME}`, { sent: h.sent, theirs: h.theirs })
       proof.check('rules that went missing: "Windows Firewall is blocking this" with Allow, which asks Windows again and clears it', h.blocked?.row === true && JSON.stringify(h.blocked?.asked) === JSON.stringify({ add: [port, false] })
         && h.blocked?.cleared === true, h.blocked)
-      proof.check('App settings has the page "Remote access": where it listens, the port, what the door does now, and the organizations', h.page?.listens === 'tailscale' && h.page?.port === String(port)
+      proof.check('App settings has the page "Remote access": where it listens, the port, what the door does now, and the organizations', h.page?.listens === 'Tailscale' && h.page?.port === String(port)
         && h.page?.now === 'Listening' && (h.page?.addresses ?? []).includes(door) && (h.page?.orgs ?? []).some(o => /^Far Lab/.test(o) && /2 computers, 1 connected/.test(o))
         && h.page?.stop === true && String(h.page?.subtitle).includes(HOST), h.page)
       proof.check('Revoke asks first and says what goes; then the computer is out of the list', String(h.revoke?.text).includes(`Revoke ${DANA}?`) && /It is disconnected at once and can no longer open this organization\./.test(h.revoke?.text ?? '')

@@ -316,7 +316,7 @@ module.exports = async (page, { args }) => {
     await page.waitFor('#app-settings-tab-remoteaccess', { timeout: 30000 })
     await page.eval(() => { document.querySelector('#app-settings-tab-remoteaccess')?.scrollIntoView({ block: 'center', inline: 'center' }); return true })
     await page.click('#app-settings-tab-remoteaccess')
-    await page.waitFor(`${pageOf} select[aria-label="Where remote access listens"]`, { timeout: 30000 })
+    await page.waitFor(`${pageOf} input[role="switch"][aria-label="Tailscale"]`, { timeout: 30000 })
     await sleep(800)
     return page.eval(s => {
       const panel = document.querySelector(s)
@@ -326,7 +326,8 @@ module.exports = async (page, { args }) => {
       const stop = panel.querySelector('button.danger')
       return {
         subtitle: said(panel.querySelector('.set-group-subtitle')),
-        listens: panel.querySelector('select[aria-label="Where remote access listens"]')?.value ?? null,
+        listens: ['Tailscale', 'This private network', 'This computer only']
+          .filter(label => panel.querySelector(`input[role="switch"][aria-label="${label}"]`)?.checked).join(' + ') || null,
         port: panel.querySelector('input[aria-label="Remote access port"]')?.value ?? null,
         now: said(row('Now')?.querySelector('.chip:not(.mono)')),
         addresses: [...(row('Now')?.querySelectorAll('.chip.mono') ?? [])].map(said),
