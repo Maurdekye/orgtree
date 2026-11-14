@@ -118,7 +118,7 @@ export interface DesktopWindowState { visible: boolean; restoreWindows: boolean 
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
 
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'taskbar-attention' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel' | 'open-reference' | 'remote-file-download'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'taskbar-attention' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel' | 'open-reference' | 'remote-file-download' | 'data-location-progress'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is
@@ -164,6 +164,47 @@ export interface UpdateCapability { unattendedInstall: boolean; installDirectory
  *  permission once. `available` is false where there is no background engine
  *  for it to apply to. */
 export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string }
+export interface DataLocationState {
+  currentRoot: string
+  defaultRoot: string
+  isCustom: boolean
+  envOverride: boolean
+  currentBytes: number
+  previousRoot: string | null
+  previousBytes: number | null
+  movedAt: string | null
+  moving: boolean
+}
+export interface DataLocationPreflight {
+  ok: boolean
+  pickedPath: string
+  resolvedRoot: string
+  usedSubfolder: boolean
+  sourceBytes: number
+  requiredBytes: number
+  freeBytes: number
+  activeAgents: number
+  error?: string
+}
+export interface DataLocationProgress {
+  phase: 'stopping' | 'copying' | 'verifying' | 'switching' | 'starting' | 'cleaning' | 'rolling-back' | 'done' | 'error'
+  filesCopied: number
+  totalFiles: number
+  bytesCopied: number
+  totalBytes: number
+  cancellable: boolean
+  detail?: string
+}
+export interface DataLocationMoveOptions {
+  targetPath: string
+  deletePrevious: boolean
+}
+export interface DataLocationMoveResult {
+  ok: boolean
+  cancelled?: boolean
+  relaunching?: boolean
+  error?: string
+}
 /** What the startup switch does here (docket
  *  option-to-run-the-background-engine-in-the-user-s, user 2026-10-16): `boot`
  *  on an installation for all users on Windows, "Run on boot" (the engine at
@@ -274,6 +315,16 @@ export interface DesktopBridge {
   /** Change the setting: one UAC prompt, then it applies at once (the engine
    *  restarts in Session 0 and the sign-in helper follows; coordinator Q1). */
   setRunAsAdministrator?(enabled: boolean): Promise<RunAsAdministratorState>
+  /** Data location (App settings › Runtime, this computer): read current/default/previous
+   *  folder state, choose/preflight a target folder, move data safely with rollback,
+   *  open current/previous folder, or delete the previous backup folder. */
+  getDataLocationState?(): Promise<DataLocationState>
+  chooseDataLocation?(defaultPath?: string | null, popoutName?: string | null): Promise<string | null>
+  preflightDataLocation?(targetPath: string): Promise<DataLocationPreflight>
+  moveDataLocation?(options: DataLocationMoveOptions): Promise<DataLocationMoveResult>
+  cancelDataLocationMove?(): Promise<{ ok: boolean }>
+  deletePreviousDataLocation?(): Promise<{ ok: boolean; error?: string }>
+  openDataLocationFolder?(which: 'current' | 'previous'): Promise<{ ok: boolean; error?: string }>
   /** What the startup switch is called here: "run on boot" or "run on sign-in". */
   getStartupKind?(): Promise<StartupKind>
   /** "Chat from your phone" › Turn on phone access: add the Windows Firewall

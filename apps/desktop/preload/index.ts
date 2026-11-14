@@ -1,6 +1,6 @@
 import { isAppPath } from '../../../packages/contracts/ui-route'
 import { contextBridge, ipcRenderer } from 'electron'
-import type { DesktopBridge, DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
+import type { DataLocationMoveOptions, DesktopBridge, DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
 import type { OrgWindowIdentity } from '../../../packages/contracts/desktop-window'
 
 // Blank portals inherit webPreferences but never receive their own bridge.
@@ -105,6 +105,18 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),
     setRunAsAdministrator: (enabled: boolean) => ipcRenderer.invoke('desktop:set-run-as-admin', enabled),
+    getDataLocationState: () => ipcRenderer.invoke('desktop:data-location-state'),
+    chooseDataLocation: (defaultPath?: string | null, popoutName?: string | null) =>
+      ipcRenderer.invoke(
+        'desktop:data-location-choose',
+        typeof defaultPath === 'string' && defaultPath ? defaultPath : null,
+        typeof popoutName === 'string' && popoutName ? popoutName : null,
+      ),
+    preflightDataLocation: (targetPath: string) => ipcRenderer.invoke('desktop:data-location-preflight', targetPath),
+    moveDataLocation: (options: DataLocationMoveOptions) => ipcRenderer.invoke('desktop:data-location-move', options),
+    cancelDataLocationMove: () => ipcRenderer.invoke('desktop:data-location-cancel'),
+    deletePreviousDataLocation: () => ipcRenderer.invoke('desktop:data-location-delete-previous'),
+    openDataLocationFolder: (which: 'current' | 'previous') => ipcRenderer.invoke('desktop:data-location-open', which),
     getStartupKind: () => ipcRenderer.invoke('desktop:startup-kind'),
     addPhoneFirewallRule: (scope: 'tailnet' | 'lan') => ipcRenderer.invoke('desktop:phone-firewall', scope),
     removePhoneFirewallRule: () => ipcRenderer.invoke('desktop:phone-firewall-remove'),

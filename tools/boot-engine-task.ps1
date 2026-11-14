@@ -93,7 +93,8 @@ function Find-BootTask($Folder) {
 function Get-BootProcesses { return @(Get-CimInstance Win32_Process -ErrorAction Stop) }
 # The operator's engine data folder, chosen the way the boot host chooses it
 # (engine host.rs data_root): their ORGTREE_V2_DATA when their registry hive is
-# loaded and sets one, else <profile>\AppData\Roaming\Orgtree v2\data.
+# loaded and sets one, else data-location.json in their AppData\Roaming\Orgtree v2,
+# else <profile>\AppData\Roaming\Orgtree v2\data.
 function Get-OperatorDataRoot([string]$Sid) {
     $value = $null
     try {
@@ -106,7 +107,24 @@ function Get-OperatorDataRoot([string]$Sid) {
     if ($value) { return [string]$value }
     $profilePath = Get-OperatorProfile $Sid
     if (-not $profilePath) { return $null }
-    return (Join-Path $profilePath 'AppData\Roaming\Orgtree v2\data')
+    $userData = Join-Path $profilePath 'AppData\Roaming\Orgtree v2'
+    $configured = Read-DataLocationChoice (Join-Path $userData 'data-location.json')
+    if ($configured) { return $configured }
+    return (Join-Path $userData 'data')
+}
+function Read-DataLocationChoice([string]$File) {
+    try {
+        if (-not [IO.File]::Exists($File)) { return $null }
+        $attr = [IO.File]::GetAttributes($File)
+        if (([int]$attr -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) { return $null }
+        $parsed = [IO.File]::ReadAllText($File) | ConvertFrom-Json
+        if ($null -eq $parsed -or [int]$parsed.version -ne 1) { return $null }
+        $raw = ([string]$parsed.dataRoot).Trim()
+        if (-not $raw) { return $null }
+        if ($raw.StartsWith('\\?\')) { $raw = $raw.Substring(4) }
+        if (-not [IO.Path]::IsPathRooted($raw)) { return $null }
+        return [IO.Path]::GetFullPath($raw)
+    } catch { return $null }
 }
 function Get-OperatorProfile([string]$Sid) {
     $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')

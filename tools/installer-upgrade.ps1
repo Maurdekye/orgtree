@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
   [string] $InstallDir,
@@ -714,12 +714,66 @@ try {
   $script:EngineRequest = $null
   $script:EngineLeftLogged = $false
 
+  # Configured custom data folder from `<userData>\data-location.json` when
+  # valid and non-reparse; $null when absent or unreadable.
+  function Read-ConfiguredDataRoot([string] $UserDataDir) {
+    if (Test-Blank $UserDataDir) { return $null }
+    $configFile = Join-Path -Path $UserDataDir -ChildPath 'data-location.json'
+    if (-not (Test-Path -LiteralPath $configFile -PathType Leaf)) { return $null }
+    try {
+      $item = Get-Item -LiteralPath $configFile -Force -ErrorAction Stop
+      if (([int]$item.Attributes -band 0x400) -ne 0) { return $null }
+      $parsed = (Get-Content -LiteralPath $configFile -Raw -ErrorAction Stop) | ConvertFrom-Json
+      if ($null -eq $parsed) { return $null }
+      $ver = 0
+      try { $ver = [int]$parsed.version } catch { $ver = 0 }
+      if ($ver -ne 1) { return $null }
+      $rawRoot = ''
+      try { $rawRoot = ([string]$parsed.dataRoot).Trim() } catch { $rawRoot = '' }
+      if (Test-Blank $rawRoot) { return $null }
+      $plain = $rawRoot
+      if ($plain.StartsWith('\\?\')) { $plain = $plain.Substring(4) }
+      if (-not (Split-Path -Path $plain -IsAbsolute)) { return $null }
+      return (Get-CanonicalPath $plain)
+    } catch {
+      return $null
+    }
+  }
+
+  function Assert-NoDataMoveInProgress {
+    if (-not (Test-Blank $DataRoot)) { return }
+    if (-not (Test-Blank $env:ORGTREE_V2_DATA)) { return }
+    if (Test-Blank $env:APPDATA) { return }
+    $marker = Join-Path -Path $env:APPDATA -ChildPath 'Orgtree v2\.data-move-in-progress.json'
+    if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { return }
+    $movePid = 0
+    try {
+      $item = Get-Item -LiteralPath $marker -Force -ErrorAction Stop
+      if (([int]$item.Attributes -band 0x400) -ne 0) { return }
+      $parsed = (Get-Content -LiteralPath $marker -Raw -ErrorAction Stop) | ConvertFrom-Json
+      if ($null -ne $parsed -and [int]$parsed.version -eq 1) {
+        $movePid = [int]$parsed.pid
+      }
+    } catch {
+      $movePid = 0
+    }
+    if ($movePid -gt 0 -and (Test-TargetAlive $movePid)) {
+      throw "Orgtree is currently moving its data folder (process $movePid). Wait for the move to finish, then click Retry."
+    }
+  }
+
   # The folder the engine uses for this user, chosen the way the boot host
-  # chooses it (engine host.rs data_root).
+  # chooses it (engine host.rs data_root): explicit -DataRoot, ORGTREE_V2_DATA,
+  # data-location.json, else %APPDATA%\Orgtree v2\data.
   function Get-EngineDataRoot {
     if (-not (Test-Blank $DataRoot)) { return [string]$DataRoot }
     if (-not (Test-Blank $env:ORGTREE_V2_DATA)) { return [string]$env:ORGTREE_V2_DATA }
-    if (-not (Test-Blank $env:APPDATA)) { return (Join-Path -Path $env:APPDATA -ChildPath 'Orgtree v2\data') }
+    if (-not (Test-Blank $env:APPDATA)) {
+      $userData = Join-Path -Path $env:APPDATA -ChildPath 'Orgtree v2'
+      $configured = Read-ConfiguredDataRoot $userData
+      if (-not (Test-Blank $configured)) { return $configured }
+      return (Join-Path -Path $userData -ChildPath 'data')
+    }
     return $null
   }
 
@@ -1061,6 +1115,9 @@ try {
   # A failure here is reported outright rather than recovered from, because
   # nothing has been asked of the application yet: the user gets a named,
   # retryable refusal and an installation nobody has touched.
+  Set-Step 'check-data-move-in-progress'
+  Assert-NoDataMoveInProgress
+
   Set-Step 'snapshot-install-tree'
   $script:TreeSnapshot = @(Get-InstallTreeMembers (@(Get-InstallTreeReadings)))
   if (@($script:TreeSnapshot).Count -eq 0) {

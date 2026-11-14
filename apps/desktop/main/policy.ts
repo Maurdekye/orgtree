@@ -105,13 +105,51 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
 
 /** A path with its longest existing prefix resolved through links, so two
  *  spellings of the same folder (case, `..`, a junction) compare equal. */
-function resolveExisting(p: string): string {
+export function resolveExisting(p: string): string {
   if (fs.existsSync(p)) return fs.realpathSync.native(p)
   const parent = path.dirname(p)
   if (parent === p) throw new Error('Invalid data root')
   return path.join(resolveExisting(parent), path.basename(p))
 }
 const canonicalRoot = (p: string) => process.platform === 'win32' ? p.toLowerCase() : p
+
+export const DATA_LOCATION_FILE = 'data-location.json'
+export const DATA_MOVE_MARKER_FILE = '.data-move-in-progress.json'
+
+export interface DataLocationConfig {
+  version: 1
+  dataRoot: string
+  previousRoot?: string
+  movedAt?: string
+}
+
+/** `<userData>\data-location.json` when present and valid; null when absent or malformed. */
+export function readDataLocationConfig(userData: string, io: Pick<typeof fs, 'readFileSync'> = fs): DataLocationConfig | null {
+  let value: unknown
+  try { value = JSON.parse(io.readFileSync(path.join(userData, DATA_LOCATION_FILE), 'utf8')) } catch { return null }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  if (raw.version !== 1 || typeof raw.dataRoot !== 'string') return null
+  const trimmed = raw.dataRoot.trim()
+  if (!trimmed || !path.isAbsolute(trimmed)) return null
+  const previousRoot = typeof raw.previousRoot === 'string' && raw.previousRoot.trim() && path.isAbsolute(raw.previousRoot.trim())
+    ? path.normalize(raw.previousRoot.trim())
+    : undefined
+  const movedAt = typeof raw.movedAt === 'string' && raw.movedAt.trim() ? raw.movedAt.trim().slice(0, 64) : undefined
+  return {
+    version: 1,
+    dataRoot: path.normalize(trimmed),
+    ...(previousRoot ? { previousRoot } : {}),
+    ...(movedAt ? { movedAt } : {}),
+  }
+}
+
+let lastResolvedFromEnv = false
+
+/** Whether the last `resolveDataRoot` call took an explicit environment override. */
+export function isDataRootFromEnv(): boolean {
+  return lastResolvedFromEnv
+}
 
 /** Never allow the current v1 root, a nested directory within it, or its parent. */
 export function validateDataRoot(candidate: string, forbidden: string): string {
@@ -136,12 +174,23 @@ export function validateDataRoot(candidate: string, forbidden: string): string {
  *  folder; any other value, including an empty or relative one, is refused
  *  before anything is started or attached, and the refusal names both paths.
  *
- *  Every other identity keeps the override exactly as before. */
+ *  Every other identity obeys `ORGTREE_V2_DATA` first, then `data-location.json`
+ *  in `userData`, and otherwise `<userData>\data`. */
 export function resolveDataRoot(requested: string | undefined, userData: string, identity: Pick<DesktopIdentity, 'ownDataRootOnly'>): string {
   const own = path.join(userData, 'data')
-  if (!identity.ownDataRootOnly) return requested ?? own
-  if (requested === undefined) return own
-  if (path.isAbsolute(requested) && canonicalRoot(resolveExisting(path.resolve(requested))) === canonicalRoot(resolveExisting(path.resolve(own)))) return own
+  if (!identity.ownDataRootOnly) {
+    if (requested !== undefined) {
+      lastResolvedFromEnv = true
+      return requested
+    }
+    lastResolvedFromEnv = false
+    return readDataLocationConfig(userData)?.dataRoot ?? own
+  }
+  if (requested === undefined) { lastResolvedFromEnv = false; return own }
+  if (path.isAbsolute(requested) && canonicalRoot(resolveExisting(path.resolve(requested))) === canonicalRoot(resolveExisting(path.resolve(own)))) {
+    lastResolvedFromEnv = true
+    return own
+  }
   throw new Error(`This Orgtree 3.0 alpha uses only its own data folder, ${own}. ORGTREE_V2_DATA is set to ${JSON.stringify(requested)}, which is a different folder. Unset ORGTREE_V2_DATA and start it again.`)
 }
 
