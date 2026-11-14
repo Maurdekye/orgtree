@@ -1107,6 +1107,34 @@ async fn turning_a_switch_on_asks_windows_firewall_again() {
     assert_eq!((one["on"].as_bool(), one["door"]["firewall"]["present"].as_bool()), (Some(false), Some(true)), "{one}");
 }
 
+// Review NEW-L1 (2026-11-14): the desktop adds or removes the door's rules just before it saves where
+// the door listens, as it does before a switch is turned on. The answer to that save is what Windows
+// Firewall says after it, so the page offers neither "Allow" for rules that are there nor "Remove
+// the rules" for rules that are gone.
+#[tokio::test]
+async fn saving_where_the_door_listens_asks_windows_firewall_again_while_something_is_shared() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    host.shared(7, "galaxy");
+    let port = registry::DEFAULT_PORT;
+    let firewall = |all: &Value| all["door"]["firewall"].clone();
+    host.engine.access.firewall.fix(Some(&format!("{}\nread", firewall_rule("tailscale", port))));
+    let (_, all) = host.owner("GET", "/api/remote-access?fresh=1", None).await;
+    assert_eq!(firewall(&all), json!({ "state": "ok", "present": true }), "{all}");
+    // the private network too: the desktop added its rule (one prompt), then saved
+    host.engine.access.firewall.fix(Some(&format!("{}\n{}\nread", firewall_rule("tailscale", port), firewall_rule("lan", port))));
+    let (status, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "lan": true }))).await;
+    assert_eq!((status, firewall(&all)), (200, json!({ "state": "ok", "present": true })), "no \"blocking\" for a rule that is there: {all}");
+    // this computer only: the desktop took the rules out, then saved
+    host.engine.access.firewall.fix(Some("read"));
+    let (status, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "tailscale": false, "lan": false, "local": true }))).await;
+    assert_eq!((status, firewall(&all)), (200, json!({ "state": "ok", "present": false })), "no rule is left to offer for removal: {all}");
+    // a save that changes nothing reads nothing
+    host.engine.access.firewall.fix(Some(&format!("{}\nread", firewall_rule("tailscale", port))));
+    let (_, all) = host.owner("PUT", "/api/remote-access", Some(json!({ "local": true }))).await;
+    assert_eq!(firewall(&all)["present"], false, "{all}");
+}
+
 // ------------------------------------------------------------ F-T5: what a member is sent
 
 /// A socket of the engine's as another computer opens one at the door.
