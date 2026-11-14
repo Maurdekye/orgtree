@@ -286,7 +286,7 @@ export interface DesktopBridge {
    *  addresses; with `lan`, the local subnet on Private networks too) behind
    *  ONE UAC prompt. They replace the door's earlier rules. `declined`: the
    *  user said No and nothing changed. */
-  addRemoteAccessFirewallRule?(port: number, lan: boolean): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
+  addRemoteAccessFirewallRule?(port: number, lan: boolean, tailscale?: boolean): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
   /** Nothing is shared any more: remove those rules (one administrator prompt). */
   removeRemoteAccessFirewallRule?(): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
   /** Window commands for ONE popped-out desk or modal, named by the frame name

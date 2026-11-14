@@ -2654,10 +2654,12 @@ else {
       // prompt. The page says the port and the choice and nothing else: the
       // program is main's own finding (remotefirewall.ts).
       handleApp('desktop:remote-access-firewall', (setting: unknown) => {
-        const { port, lan } = (setting ?? {}) as { port?: unknown; lan?: unknown }
+        const { port, lan, tailscale } = (setting ?? {}) as { port?: unknown; lan?: unknown; tailscale?: unknown }
         if (!validDoorPort(port)) throw new Error('Invalid port')
         if (typeof lan !== 'boolean') throw new Error('Invalid setting')
-        return addRemoteFirewallRule(port, lan)
+        // a page from before the choice existed says nothing: Tailscale, as it was
+        if (tailscale !== undefined && typeof tailscale !== 'boolean') throw new Error('Invalid setting')
+        return addRemoteFirewallRule(port, lan, undefined, undefined, tailscale ?? true)
       })
       handleApp('desktop:remote-access-firewall-remove', () => removeRemoteFirewallRule())
       changeRunAsAdministrator = async (enabled: unknown) => {

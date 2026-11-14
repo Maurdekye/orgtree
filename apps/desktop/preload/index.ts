@@ -107,7 +107,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getStartupKind: () => ipcRenderer.invoke('desktop:startup-kind'),
     addPhoneFirewallRule: (scope: 'tailnet' | 'lan') => ipcRenderer.invoke('desktop:phone-firewall', scope),
     removePhoneFirewallRule: () => ipcRenderer.invoke('desktop:phone-firewall-remove'),
-    addRemoteAccessFirewallRule: (port: number, lan: boolean) => ipcRenderer.invoke('desktop:remote-access-firewall', { port, lan }),
+    addRemoteAccessFirewallRule: (port: number, lan: boolean, tailscale = true) => ipcRenderer.invoke('desktop:remote-access-firewall', { port, lan, tailscale }),
     removeRemoteAccessFirewallRule: () => ipcRenderer.invoke('desktop:remote-access-firewall-remove'),
     getPopoutState: (name: string) => ipcRenderer.invoke('desktop:popout-state', name),
     minimizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-minimize', name),
