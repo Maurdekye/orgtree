@@ -408,7 +408,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 - **"Org inbox" is now "org mailbox"** in visible text and docs; internal ids keep the old name. [decided: user 2026-11-07 mb0175e053ee5; DECISIONS 97]
 - **Folder pickers use the OS native dialog on local desktop windows** (`dialog.showOpenDialog` via `handleHere('desktop:pick-folder')`, `openDirectory` + `createDirectory`, modal to the asking window, seeded from an existing field directory), narrowing v1 `1ec63e8`; remote-engine orgs (`remoteHere()`) and browser surfaces without the preload bridge keep the `/api/fs` picker. See [native folder picker](docs/agents/desktop-and-renderer.md#native-os-folder-picker-for-local-organizations-2026-11-13-460). [decided: user 2026-11-13 m365cee9110b5, m98bc74e8a3c7]
-- **Remote window: scratch-folder entries open the Files panel**; its `/scratch-files` routes stay inside the folder and refuse links. See [remote-org](docs/rust-engine/remote-org.md#what-depends-on-the-computer). [decided: user 2026-11-14 mda676963aed1]
+- **Remote window: scratch-folder entries open the Files panel**; its `/scratch-files` routes stay inside the folder and refuse links. A window may meet an older engine: ask the connection's `version` before using a new route; an engine without a UI folder answered an unknown `/api/` path with plain "no UI bundle configured", not "no route", until 4.6.0. See [remote-org](docs/rust-engine/remote-org.md#what-depends-on-the-computer). [decided: user 2026-11-14 mda676963aed1; verified: `http/mod.rs` `ui`]
 
 ## Find the detailed rule
 
