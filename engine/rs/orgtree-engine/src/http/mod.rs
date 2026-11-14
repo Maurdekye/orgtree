@@ -1069,3 +1069,32 @@ mod org_inbox_wire_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod unknown_route_tests {
+    use tower::ServiceExt;
+
+    async fn answer(path: &str) -> (axum::http::StatusCode, String) {
+        // `for_tests` is an engine started without a UI folder, as one that runs by itself is
+        let engine = crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        assert!(engine.cfg.ui_dir.is_none());
+        let req = axum::http::Request::builder().uri(path).body(axum::body::Body::empty()).unwrap();
+        let response = super::router(engine).oneshot(req).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    /// A window of another version asks routes this engine does not know (2026-11-14: the Files panel
+    /// against 4.5.11 showed "404: no UI bundle configured"). What it is told must not depend on
+    /// whether this engine also serves a window's files.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_engine_without_a_ui_folder_answers_an_unknown_api_path_as_one_with_it_does() {
+        let (status, body) = answer("/api/orgs/demo/nodes/lead/no-such-route?path=a").await;
+        assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+        let said: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| panic!("not the API's answer: {body}"));
+        assert_eq!(said["detail"], "no route GET /api/orgs/demo/nodes/lead/no-such-route");
+        // what is not the API's is still the window's files, of which there are none
+        assert_eq!(answer("/some/page").await, (axum::http::StatusCode::NOT_FOUND, "no UI bundle configured".to_string()));
+    }
+}
