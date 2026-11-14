@@ -100,7 +100,7 @@ import type { AgentPanelKind, AgentSurfaceRoutes } from './panelcorner'
 import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { draftHarness } from './agentharness'
-import { museHireAccount } from './musehire'
+import { hireAccount } from './hireaccount'
 import { DraftNode, NodeSquare, UserNode } from './cards'
 import { RetiredBadge } from './retiredbadge'
 import type { DraftForm, DraftNodeProps } from './cards'
@@ -4266,10 +4266,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const pending = { slug, pos: { x: point.x, y: point.y }, ...(map.has(name) ? {} : { name }) }
     pendingHireRef.current = pending
     setPendingHire(pending)
-    // a Muse tier the login a no-account hire lands on does not offer goes to
-    // an eligible subscription login that does (`museHireAccount`)
+    // a model the login a no-account hire lands on cannot run goes to an
+    // account that can (`hireAccount`); the form's own choice comes first
     const museAccount = scope?.account === undefined
-      ? museHireAccount(slug, draft!.tier, tree.default_account) : undefined
+      ? hireAccount(slug, draft!.tier, tree.default_account) : undefined
     const hireBody: Parameters<OpFn>[0] = { op: 'hire', parent: draft!.parent, tier: draft!.tier, grant, name,
          ...newHirePlacement(!!(draft.beside || draft.above)),
          ...(museAccount ? { account: museAccount } : {}),
@@ -5444,7 +5444,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               const parent = placement === 'below' ? a.id : parentOf
               // judged on the ring as it is NOW, before the hire changes it
               const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
-              const museAccount = museHireAccount(slug, tier, tree.default_account)
+              const museAccount = hireAccount(slug, tier, tree.default_account)
               const body: Parameters<OpFn>[0] = { op: 'hire', parent, tier, grant, name,
                 ...newHirePlacement(placement !== 'below'),
                 ...(placement === 'above' ? { above: a.id } : {}),

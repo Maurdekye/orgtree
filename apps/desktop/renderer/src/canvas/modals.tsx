@@ -57,7 +57,7 @@ import { AccountSelect } from './accountselect'
 import { AgentHarnessRow, harnessOp, useHireHarness, useNodeHarness } from './agentharness'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { useAgyModelsRefresh } from './shared'
-import { museHireAccount } from './musehire'
+import { hireAccount } from './hireaccount'
 import { accountProvider, accountValue, primaryAccount, providerAccounts } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
@@ -804,9 +804,10 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     orgAccount && (orgAccount === primaryValue ||
       acctRows.some((r) => r.id === orgAccount && r.provider === targetProvider))
   )
-  // a Muse tier the login a no-account hire lands on does not offer starts on
-  // an eligible subscription login that does (`museHireAccount`)
-  const museAuto = museHireAccount(tree.slug, draft.tier, tree.default_account)
+  // a model the login a no-account hire lands on cannot run starts on an
+  // account that can, shown in the Account row and changeable there
+  // (`hireAccount`; user ruling 2026-11-14, "Pre-select an account")
+  const museAuto = hireAccount(tree.slug, draft.tier, tree.default_account)
   const [acct, setAcct] = useState<string>(
     base.account !== undefined
       ? base.account

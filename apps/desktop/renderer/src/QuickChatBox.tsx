@@ -34,6 +34,7 @@ import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
 import { staffingOptions, tierEffortLevels, type StaffingOptions } from './canvas/staffingoptions'
 import { museHireAccount, museLandingAccount } from './canvas/musehire'
+import { hireAccount } from './canvas/hireaccount'
 import { agentNavProps } from './canvas/agentnav'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
@@ -303,7 +304,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         let born: string
         try {
           const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = levelsFor(tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant }, nodes)
-          const account = chosen?.account ?? museHireAccount(slug, tier, tree.default_account)
+          const account = chosen?.account ?? hireAccount(slug, tier, tree.default_account)
           const r = await op({ ...(carry.length || objectReply ? bare : { ...bare, kickoff, kickoff_kind }), ...(account ? { account } : {}) }, { quiet: true })
           born = typeof r?.node === 'string' && r.node ? r.node : name
         } catch (e) {
