@@ -29,6 +29,9 @@ const code = transformSync(slice('  const setPreferences =', '  // "RUN ON BOOT"
 
 function fixture() {
   let saved = { epicMode: false, epicMuted: false }, current
+  // Streamer mode as main/streamer-native.ts keeps it: setPreferences reads it before and after a change and
+  // closes the tray list when it flipped. Nothing here turns it on.
+  let streamer = false
   const events = []
   class Menu extends EventEmitter {
     constructor(rows) { super(); this.rows = rows }
@@ -36,6 +39,7 @@ function fixture() {
     static buildFromTemplate(rows) { return new Menu(rows) }
   }
   const ctx = vm.createContext({ ...helpers, Menu, BrowserWindow: { getAllWindows: () => [] },
+    nativeStreamerOn: () => streamer, setNativeStreamer: on => { streamer = on }, closeTrayPopup() {},
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { current = menu } },
     preferences: { get: () => ({ ...saved }), set: patch => (saved = { ...saved, ...patch }) },
     effectiveTheme: undefined, trayMenu: undefined, trayMenuOpen: false, startupChanging: false,

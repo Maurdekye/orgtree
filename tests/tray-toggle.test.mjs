@@ -37,6 +37,9 @@ function fixture(platform = 'win32') {
   }
   const ctx = vm.createContext({
     BrowserWindow: Popup, tray, quitting: false, process: { platform },
+    // Streamer mode is off here, so the list shows the organizations' own names (main/streamer-native.ts;
+    // with it on, the tray code puts each name through nativeScreenText first).
+    nativeStreamerOn: () => false,
     performance: { now: () => now }, console,
     engine: { orgActivity: () => new Promise(resolve => reads.push(resolve)) },
     screen: { getCursorScreenPoint: () => cursor, getDisplayNearestPoint: () => ({ workArea: icon }) },

@@ -35,6 +35,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve))
 function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
   let prefs = { startAtLogin: initial, automaticUpdates: true, notificationsEnabled: true }
   let buildCount = 0, boot = initial
+  // Streamer mode as main/streamer-native.ts keeps it: setPreferences reads it before and after a change and
+  // closes the tray list when it flipped. Nothing here turns it on.
+  let streamer = false
   const writes = [], extra = [], warnings = [], pending = []
   class MenuDouble {
     constructor(items) { this.items = items; this.events = new Map() }
@@ -46,6 +49,7 @@ function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
   const ctx = {
     preferences: { get: () => ({ ...prefs }), set: patch => (prefs = { ...prefs, ...patch }, { ...prefs }) },
     trayMenu: undefined, trayMenuOpen: false,
+    nativeStreamerOn: () => streamer, setNativeStreamer: on => { streamer = on }, closeTrayPopup() {},
     adminState: null, adminChanging: false, refreshRunAsAdministrator: undefined, changeRunAsAdministrator: undefined,
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { this.menu = menu } },
     runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0,
