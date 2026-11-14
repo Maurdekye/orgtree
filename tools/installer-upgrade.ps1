@@ -740,18 +740,11 @@ try {
     return @($found | Select-Object -Unique)
   }
 
-  # Whether $Folder is the root folder of a real volume: `X:\` that the mount
-  # manager names a volume for. A SUBST letter or a mapped share has the same
-  # shape, but is a folder somebody can rename, and mountvol refuses it.
-  # Anything but the one volume line is "no".
+  # Whether $Folder is a drive letter's root (`X:\`). Any drive letter: a SUBST
+  # letter and a mapped network drive too (user ruling 2026-11-14). A UNC path
+  # has no drive letter.
   function Test-DriveRoot([string] $Folder) {
-    if ($Folder -notmatch '^[A-Za-z]:\\$') { return $false }
-    try {
-      $answer = @(& (Join-Path -Path ([Environment]::SystemDirectory) -ChildPath 'mountvol.exe') $Folder '/L' 2>&1)
-      return ($LASTEXITCODE -eq 0 -and $answer.Count -eq 1 -and ([string]$answer[0]).Trim() -match '^\\\\\?\\Volume\{[0-9A-Fa-f-]+\}\\$')
-    } catch {
-      return $false
-    }
+    return ($Folder -match '^[A-Za-z]:\\$')
   }
 
   # The window's rule, unchanged: the descriptor is owned by this user (or by
