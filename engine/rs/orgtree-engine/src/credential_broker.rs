@@ -90,6 +90,14 @@ mod win {
     /// that, nobody else may be able to replace a path component.
     const WRITE_MASK: u32 = 0x116 | 0x40 | 0x10000 | 0x40000 | 0x80000 | 0x1000_0000 | 0x4000_0000;
     const REPLACE_MASK: u32 = 0x10000 | 0x40 | 0x40000 | 0x80000 | 0x1000_0000;
+    /// The same without DELETE, for a drive letter's root: nobody can delete or
+    /// rename a drive's root folder, and Windows gives the root of a formatted
+    /// data drive "Authenticated Users: Modify", which carries DELETE (user
+    /// rulings 2026-11-14, "Any drive letter"). This rule has three copies that
+    /// change together: here, `verifyDescriptorTrust` in
+    /// apps/desktop/main/policy.ts and `Get-DescriptorDistrust` in
+    /// tools/installer-upgrade.ps1.
+    const ROOT_MASK: u32 = 0x40 | 0x40000 | 0x80000 | 0x1000_0000;
     const INHERIT_ONLY_ACE: u8 = 0x08;
     const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 
@@ -422,6 +430,20 @@ mod win {
         }
     }
 
+    /// The mask a folder above the data folder is judged with: a drive letter's
+    /// root (`X:\`, any letter, one made with SUBST or mapped to a share too)
+    /// without DELETE, every other folder with the whole replace mask. A UNC
+    /// path and a `\\?\` path have no drive letter's root.
+    #[nolog]
+    fn ancestor_mask(folder: &Path) -> u32 {
+        let text = folder.as_os_str().to_string_lossy();
+        let mut chars = text.chars();
+        match (chars.next(), chars.next(), chars.next(), chars.next()) {
+            (Some(letter), Some(':'), Some('\\'), None) if letter.is_ascii_alphabetic() => ROOT_MASK,
+            _ => REPLACE_MASK,
+        }
+    }
+
     /// Current-user (or SYSTEM/Administrators) ownership and an exclusive
     /// write boundary on the file, its folder and every ancestor: the same
     /// verdict as the desktop's verifyDescriptorTrust.
@@ -449,7 +471,7 @@ mod win {
             let mut up = dir.parent();
             while let Some(a) = up {
                 let (_, dacl, _sd) = security(a).ok_or("a parent folder's permissions could not be read")?;
-                if foreign_writer(dacl, &allowed, REPLACE_MASK) {
+                if foreign_writer(dacl, &allowed, ancestor_mask(a)) {
                     return Err("others can replace a folder above the data folder");
                 }
                 up = a.parent();
@@ -811,6 +833,50 @@ mod win {
     mod tests {
         use super::{instance_name, leaves_on, registration};
         use std::path::Path;
+
+        // The third copy of the attach trust rule (the window's and the installer helper's are
+        // held to one table by tests/descriptor-trust-drive-root.test.mjs). Without the root's
+        // own mask a data folder on a formatted data drive is refused here too.
+        #[test]
+        #[nolog]
+        fn a_drive_letters_root_is_judged_without_delete_and_every_other_folder_as_before() {
+            use super::{ancestor_mask, foreign_writer, sid, LocalFree, REPLACE_MASK, ROOT_MASK};
+            use windows_sys::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+            use windows_sys::Win32::Security::{GetSecurityDescriptorDacl, ACL, PSECURITY_DESCRIPTOR, PSID};
+
+            // which folder is a drive letter's root: any letter, and nothing else
+            for root in ["S:\\", "c:\\", "Z:\\"] {
+                assert_eq!(ancestor_mask(Path::new(root)), ROOT_MASK, "{root}");
+            }
+            for other in ["S:\\orgtree", "S:", "S:/", "\\\\server\\share", "\\\\server\\share\\", "\\\\?\\S:\\", "1:\\", ""] {
+                assert_eq!(ancestor_mask(Path::new(other)), REPLACE_MASK, "{other}");
+            }
+
+            // what each mask counts, on real access entries read as the broker reads them
+            let refused = |sddl: &str, folder: &str| unsafe {
+                let text: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
+                let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+                assert_ne!(ConvertStringSecurityDescriptorToSecurityDescriptorW(text.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()), 0, "{sddl}");
+                let (mut present, mut defaulted) = (0, 0);
+                let mut dacl: *mut ACL = std::ptr::null_mut();
+                assert_ne!(GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted), 0, "{sddl}");
+                let (system, admins) = (sid("S-1-5-18").unwrap(), sid("S-1-5-32-544").unwrap());
+                let allowed: [PSID; 2] = [system.0, admins.0];
+                let hit = foreign_writer(dacl, &allowed, ancestor_mask(Path::new(folder)));
+                LocalFree(sd);
+                hit
+            };
+            // S:\ and H:\ of the computer this was written on: what Windows gives a formatted data drive
+            const DATA_DRIVE: &str = "D:(A;OICIIO;SDGXGWGR;;;AU)(A;;0x1301bf;;;AU)(A;;FA;;;SY)(A;OICIIO;GA;;;SY)(A;OICIIO;GA;;;BA)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;OICIIO;GXGR;;;BU)";
+            assert!(!refused(DATA_DRIVE, "S:\\"), "Modify on a drive's root carries DELETE, which replaces nothing there");
+            assert!(!refused("D:(A;;0x10000;;;AU)", "H:\\"), "DELETE alone");
+            assert!(refused(DATA_DRIVE, "S:\\shared"), "the same entries on a folder below the root are refused as before");
+            assert!(refused("D:(A;;0x10000;;;AU)", "\\\\server\\share"), "a share has no drive letter");
+            // every other replacement right still counts on a root
+            for entry in ["0x40", "0x40000", "0x80000", "0x10000000", "0x1301ff", "FA"] {
+                assert!(refused(&format!("D:(A;;{entry};;;AU)"), "S:\\"), "{entry}");
+            }
+        }
 
         #[nolog]
         fn synthetic_lookup_env(mode: &str) -> Vec<(String, String)> {
