@@ -431,13 +431,21 @@ mod win {
     }
 
     /// The mask a folder above the data folder is judged with: a drive letter's
-    /// root (`X:\`, any letter, one made with SUBST or mapped to a share too)
-    /// without DELETE, every other folder with the whole replace mask. A UNC
-    /// path and a `\\?\` path have no drive letter's root.
+    /// root (`X:\`, any letter) without DELETE, every other folder with the
+    /// whole replace mask. `attach` resolves the data folder before it asks
+    /// (`std::fs::canonicalize`), so the root arrives in the verbatim form
+    /// `\\?\X:\`, which is the same folder. A share has no drive letter, in
+    /// either form (`\\server\share`, `\\?\UNC\server\share`).
+    ///
+    /// Resolving also turns a SUBST letter into the folder it stands for, so
+    /// the broker judges such a data folder by its real path. That is stricter
+    /// than the window and the installer helper, which take any drive letter
+    /// as typed.
     #[nolog]
     fn ancestor_mask(folder: &Path) -> u32 {
         let text = folder.as_os_str().to_string_lossy();
-        let mut chars = text.chars();
+        let plain = text.strip_prefix("\\\\?\\").unwrap_or(&text);
+        let mut chars = plain.chars();
         match (chars.next(), chars.next(), chars.next(), chars.next()) {
             (Some(letter), Some(':'), Some('\\'), None) if letter.is_ascii_alphabetic() => ROOT_MASK,
             _ => REPLACE_MASK,
