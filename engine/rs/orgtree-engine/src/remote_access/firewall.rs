@@ -149,14 +149,20 @@ fn applies() -> bool {
 #[nolog]
 impl Firewall {
     /// What the owner's app is shown. `state`: `none` (this computer has no Windows Firewall),
-    /// `unknown` (not read yet, or it could not be read), `ok`, or `missing` (the door, as the
+    /// `unknown` (not read yet, or it could not be read), `ok` (also when the door listens on
+    /// this computer itself only, which needs no rule), or `missing` (the door, as the
     /// owner chose it, is not let in: "Windows Firewall is blocking this"). `present`: a rule
     /// of the door's is there at all, so it can be offered for removal once nothing is shared.
     pub fn shown(&self, port: u16, listen: Listen) -> Value {
         if !applies() {
             return json!({ "state": "none", "present": false });
         }
-        match self.held.lock().ok().and_then(|held| held.rules.clone()) {
+        let rules = self.held.lock().ok().and_then(|held| held.rules.clone());
+        if !listen.tailscale && !listen.lan {
+            // this computer itself only: no rule is needed, so none is ever asked for
+            return json!({ "state": "ok", "present": rules.is_some_and(|rules| !rules.is_empty()) });
+        }
+        match rules {
             None => json!({ "state": "unknown", "present": false }),
             Some(rules) => json!({ "state": if lets_in(&rules, port, listen) { "ok" } else { "missing" }, "present": !rules.is_empty() }),
         }
@@ -334,6 +340,14 @@ mod tests {
         // this computer itself needs no rule at all
         assert!(lets_in(&[], 7431, Listen { tailscale: false, lan: false, local: true }));
         assert!(!lets_in(&[], 7431, Listen { tailscale: true, lan: false, local: true }));
+    }
+
+    #[test]
+    fn this_computer_itself_needs_no_rule_so_none_is_ever_asked_for() {
+        let firewall = Firewall::default();
+        // not read yet: with Tailscale chosen the app would ask Windows; with this computer only it must not
+        assert_eq!(firewall.shown(7431, Listen::default()), json!({ "state": "unknown", "present": false }));
+        assert_eq!(firewall.shown(7431, Listen { tailscale: false, lan: false, local: true }), json!({ "state": "ok", "present": false }));
     }
 
     #[test]
