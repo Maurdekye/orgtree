@@ -15,6 +15,7 @@ import { ToolFilePath } from '../src/canvas/toolfilepath'
 import type { NativeDesktop } from '../src/desktop'
 import { localFolder, remoteHere, useRemoteHere } from '../src/remotehere'
 import { scratchFolderAction } from '../src/scratch-folder'
+import { forgetRemoteFiles, remoteFilesOpen } from '../src/remotefiles'
 import { remoteFeed, remoteView } from './remotefeed.fixture'
 
 const FOLDER = 'This folder is on Galaxy, not on this computer.'
@@ -91,7 +92,11 @@ test('a remote window opens no folder of this computer and says where the folder
   assert.deepEqual(await localFolder(async () => { opened = true; return { ok: true } }), { ok: false, error: FOLDER, remote: true })
   await flush(2)
   assert.equal(opened, false)
-  assert.deepEqual(toasts, [[FOLDER], [FOLDER], [FOLDER]])
+  // the scratch-folder entries open the Files panel on the other computer's folder instead
+  // (remotefiles.test.tsx): no sentence stands in for it
+  assert.deepEqual(toasts, [])
+  assert.deepEqual(remoteFilesOpen(), { org: 'org', node: 'lead', scope: 'shared', title: 'the shared scratch folder' })
+  forgetRemoteFiles()
   assert.deepEqual(calls, [], 'nothing was asked of this computer')
 })
 
