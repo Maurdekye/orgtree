@@ -10746,7 +10746,7 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .provider-dialog:has(.remote-files) { width: min(760px, 94vw); }
 .ls-add.remote-files { border-color: var(--line); display: flex; flex-direction: column; gap: 8px; }
 .remote-files-where { margin: 0; font-size: 12px; }
-.remote-files-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 12.5px; }
+.remote-files-trail { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 12.5px; }
 .remote-files-trail button { background: none; border: 0; padding: 2px 4px; color: var(--accent); cursor: pointer; font: inherit; }
 .remote-files-trail button:disabled { color: var(--ink); cursor: default; }
 .remote-files-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
