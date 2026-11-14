@@ -15,6 +15,13 @@ async function load(name) {
   return req(out)
 }
 const policy = await load('policy'), { Engine, ENGINE_REFUSED } = await load('engine')
+// Two tests below start a stand-in engine: this node binary running a JavaScript
+// file named launch.py. It must start as plain node. tests/run.mjs preloads the
+// assertion guard into every test process with NODE_OPTIONS=--import=..., a child
+// inherits that, and with an --import node sends the entry file through its module
+// loader, which refuses the .py name (ERR_UNKNOWN_FILE_EXTENSION). The stand-in
+// then ends before its first line. Nothing else this file starts reads NODE_OPTIONS.
+delete process.env.NODE_OPTIONS
 
 const forbidden = path.join(temp, 'v1'); fs.mkdirSync(forbidden)
 const dataRoot = path.join(temp, 'v2'); fs.mkdirSync(dataRoot)

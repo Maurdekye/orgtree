@@ -195,6 +195,15 @@ test('the force is refused when the root has moved on: newer descriptor, or rele
 // A real child process, spawned exactly as the desktop spawns one: the
 // stand-in "launch.py" is JavaScript and the "python" is this node binary
 // (the same trick attach.test.mjs uses for the recovery spawn).
+//
+// The stand-in must start as plain node. tests/run.mjs preloads the assertion
+// guard into every test process with NODE_OPTIONS=--import=..., and a child
+// inherits that. With an --import, node sends the entry file through its
+// module loader, which refuses a file named launch.py
+// (ERR_UNKNOWN_FILE_EXTENSION): the stand-in ends before its first line and
+// the engine reports "Python engine exited before readiness". Nothing else
+// this file starts reads NODE_OPTIONS.
+delete process.env.NODE_OPTIONS
 const stubDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-quit-stub-'))
 fs.writeFileSync(path.join(stubDirectory, 'launch.py'), `
   const http = require('node:http')
