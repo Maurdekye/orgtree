@@ -121,23 +121,51 @@ The PC/hub and network must remain reachable. Use your computer's power settings
 
 From Orgtree 4.6.0 a desktop can let other computers that run Orgtree open one of its organizations: your laptop opens the organization that runs on your desktop PC, or a colleague works in it from their own computer. The organization keeps running where it is. Its agents, folders, provider sign-ins and usage stay on the hosting computer; the other computer shows it and sends what its user does.
 
-Add only computers you trust with that organization. A computer you add can do in it what you can, and its agents run on your computer with your accounts' rights. It sees the organizations you gave it and no other, and it cannot change your app-wide settings.
+**Adding a computer is like giving it SSH access to yours.** A computer you add can do in the organization what you can, and the organization's agents run on your computer with your account's rights. Through them it can run commands and read or change any file your account can, outside the organization too. So add only computers, and people, you would trust with your whole computer.
+
+The list of organizations decides what the other computer's window shows, and its window cannot change your app-wide settings. Both keep its work in the organizations you shared. Neither is a wall around the rest of your computer.
 
 ### On the computer that has the organization
 
-1. The two computers need a way to reach each other. Install and sign in to Tailscale on both, in the same tailnet: what travels is encrypted. To allow the same local network too, choose **Tailscale and this private network** in App settings > **Remote access**; on a private network it is plain http, which is not encrypted. It never listens on a public address.
+1. The two computers need a way to reach each other. Choose it in App settings > **Remote access**, under **Where it listens**. There are three places, each with its own switch:
+   - **Tailscale** (on at first). Install and sign in to Tailscale on both computers, in the same tailnet. What travels is encrypted.
+   - **This private network.** The same home network, or a VPN you trust. It is plain http, which is not encrypted: anyone on that network can read what travels, the token included.
+   - **This computer only.** For an SSH tunnel or a local https proxy, which carry the connection to this computer and encrypt it on the way. See [Without Tailscale](#without-tailscale) below.
+
+   It never listens on a public address by itself.
 2. Open the organization's settings > **Connections**. Under **Remote access** turn on **Let other computers open this organization**. Windows asks for an administrator's permission to add the firewall rules. If you answer No, nothing changes and the switch stays off.
 3. Choose **Add a computer...**. The dialog shows this computer's address and a one-time code, and both in one line with **Copy both**. Send that line to whoever sits at the other computer. The code works once, for one computer, for 15 minutes.
 
-The group then lists the computers that have this organization: the name others see for each, since when it is connected or when it was last seen, and **Revoke**. Revoke asks first; it takes the computer out of every organization of yours and disconnects it at once. While another computer is connected, the organization's status bar shows "1 computer connected".
+The group then lists the computers that have this organization: the name others see for each, since when it is connected or when it was last seen, and **Revoke**. Revoke asks first; it takes the computer out of every organization of yours and disconnects it at once. Revoking ends its access from then on. It cannot take back what was copied or changed while the computer had access: if you stopped trusting it, also change the provider sign-ins and keys on your computer, as you would after removing somebody's SSH key. While another computer is connected, the organization's status bar shows "1 computer connected".
 
 To let a computer you already added into a second organization, turn that organization's switch on, choose **Add a computer...** there and use **Give access** beside the computer. No code is needed.
 
 Turning the switch off disconnects everybody from that organization and keeps the list of computers, so turning it on again lets the same computers back in. App settings > **Remote access** shows where this computer listens, the port (7431 unless you change it), what it does now, the organizations that are shared, and **Stop all remote access**, which turns every switch off. Nothing listens while no organization is shared.
 
-If the group says **Windows Firewall is blocking this**, choose **Allow**: the firewall rules are missing. If turning the switch on is refused because no other computer could reach this one, start Tailscale or allow the private network, as the sentence says.
+If the group says **Windows Firewall is blocking this**, choose **Allow**: the firewall rules are missing. If turning the switch on is refused because no other computer could reach this one, start Tailscale or choose another place to listen, as the sentence says.
 
 Agents cannot turn remote access on, add a computer or make a code.
+
+### Without Tailscale
+
+Both ways below use **This computer only**: Orgtree listens on `127.0.0.1` and another program carries the connection there, encrypted. Turn that switch on in App settings > **Remote access** (you can turn **Tailscale** off), then turn the organization's switch on. No firewall rule is needed, and Windows does not ask for one.
+
+**Through an SSH tunnel.** The hosting computer runs an SSH server (on Windows: Settings > System > Optional features > OpenSSH Server) that the other computer can sign in to.
+
+1. On the other computer, open the tunnel and leave it running: `ssh -N -L 7431:127.0.0.1:7431 you@the-hosting-computer`. Use the port App settings > Remote access shows if it is not 7431.
+2. In **Add a remote engine...**, the address is `http://127.0.0.1:7431`, with the one-time code as the token. Connection details then says "This computer (forwarded port)".
+
+When the tunnel is closed, the window says the hosting computer is offline; it reconnects when the tunnel is back.
+
+**Through an https tunnel or proxy.** A program on the hosting computer accepts https from outside and hands it on to `http://127.0.0.1:7431`. Examples, each as that program's own documentation describes it:
+
+- Caddy, with a name that points at the hosting computer: `caddy reverse-proxy --from orgtree.example.com --to 127.0.0.1:7431`
+- Cloudflare Tunnel: `cloudflared tunnel --url http://127.0.0.1:7431`
+- ngrok: `ngrok http 7431`
+
+On the other computer the address is the `https://` address that program gives you. The certificate must be one the other computer trusts, which those three provide; a self-signed one is refused.
+
+Such an address can be reached by anybody who knows it. What keeps them out is the token, which is long and random and cannot be guessed, and the door answers an address that keeps guessing "too many refused requests" for a minute. A computer you already let in is never shut out by somebody else's guessing.
 
 ### On the other computer
 

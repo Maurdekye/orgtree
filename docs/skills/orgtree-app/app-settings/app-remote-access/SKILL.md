@@ -13,21 +13,23 @@ Two screens hold it. Each organization's switch and computers are in Org setting
 
 ## An organization's switch
 
-**Let other computers open this organization** is off for every organization at first. A computer the user adds can then use this organization as the user does: read it, message its agents, answer questions and change its settings. Its agents keep running on this computer, with this computer's accounts and folders, so the user adds only computers they trust with that. A computer that was let in sees the organizations it was given and no other, and it cannot change this computer's app-wide settings.
+**Let other computers open this organization** is off for every organization at first. A computer the user adds can then use this organization as the user does: read it, message its agents, answer questions and change its settings. Its agents keep running on this computer, with this computer's accounts and folders.
+
+Adding a computer is like giving it SSH access to this one. Through the organization's agents it can run commands and read or change any file the user's account can, outside the organization too. So the user adds only computers, and people, they would trust with this whole computer. A computer that was let in is shown the organizations it was given and no other, and its window cannot change this computer's app-wide settings. Both keep its work in what was shared. Neither is a wall around the rest of the computer: say so when a user asks whether a shared organization is isolated.
 
 Turning the switch on goes in this order and stops at the first No:
 
-1. Orgtree checks that another computer could reach this one. If none could, the switch stays off and says why, for example "Tailscale is not running on this computer, so no other computer could reach it. Start Tailscale, or let remote access also use this private network (App settings, Remote access)."
-2. When the firewall rules are not there yet, Windows asks for an administrator's permission to add them. A No leaves the switch off.
+1. Orgtree checks that another computer could reach this one. If none could, the switch stays off and says why, for example "Tailscale is not running on this computer, so no other computer could reach it. Start Tailscale, or choose another place for remote access to listen (App settings, Remote access)."
+2. When a firewall rule is needed and not there yet, Windows asks for an administrator's permission to add it. A No leaves the switch off. With **This computer only** as the one place to listen, no rule is needed and Windows is not asked.
 3. The switch turns on and this computer starts to listen.
 
 While it is on, the group shows these rows:
 
 | Row | What it is |
 | --- | --- |
-| **Address** | Where the other computer connects, with **Copy**. With the private network chosen there is a second row, **Address on this private network**, marked as not encrypted (http). When this computer cannot listen, the reason stands here: the port is taken by another program, or the computer has no address other computers could reach. |
+| **Address** | Where the other computer connects, with **Copy**. There is one row for each place it listens. **Address on this private network** is marked as not encrypted (http). The address `http://127.0.0.1:(port)` is marked "This computer only: for an SSH tunnel or a local https proxy": the other computer types the tunnel's or the proxy's address, not this one. When this computer cannot listen, the reason stands here: the port is taken by another program, or the computer has no address other computers could reach. |
 | **Windows Firewall is blocking this** | Shown when Orgtree reads that the rules are missing. **Allow** asks Windows again. |
-| **Computers** | Every computer that has this organization: the name others see for it, what the computer calls itself, when it was added, and "connected since" or when it was last seen. **Revoke** asks first. It takes the computer out of every organization of this desktop, not only this one, and ends its connections at once. |
+| **Computers** | Every computer that has this organization: the name others see for it, what the computer calls itself, when it was added, and "connected since" or when it was last seen. **Revoke** asks first. It takes the computer out of every organization of this desktop, not only this one, and ends its connections at once. It cannot take back what was copied or changed while the computer had access: a user who stopped trusting it should also change the sign-ins and keys on this computer, as after removing somebody's SSH key. |
 | **Let another computer in** | **Add a computer...** opens the dialog below. |
 
 Turning the switch off disconnects the computers that are connected (the question says how many lose it) and keeps the list, so turning it on again lets the same computers back in.
@@ -51,14 +53,23 @@ The tab is listed on a desktop's own engine only.
 
 | Control | Default | Effect |
 | --- | --- | --- |
-| **Where it listens** | Tailscale only | **Tailscale only**, or **Tailscale and this private network**. Tailscale encrypts what travels. On a private network it is plain http, which is not encrypted. It never listens on a public address. |
+| **Where it listens** | Tailscale | Three switches, each by itself; at least one stays on. **Tailscale**: encrypted, both computers in one tailnet. **This private network**: a home network or a trusted VPN, plain http, which is not encrypted, so anyone on it can read what travels, the token included. **This computer only**: `127.0.0.1`, for an SSH tunnel or a local https proxy (Caddy, cloudflared, ngrok) that carries the connection here; nothing else can reach it. It never listens on a public address by itself. |
 | **Port** | 7431 | A number from 1024 to 65535. |
 | **Now** | | What this computer does now: "Not listening: nothing is shared", "Listening" with each address, "Waiting for an address" or "Cannot listen", with the reason. |
 | **Stop all remote access** | | After a question, turns every organization's switch off and stops listening. The lists of computers stay. |
 
 Under **Organizations other computers can open**, each shared organization is named with how many computers it has and how many are connected. The switch itself stays in that organization's settings.
 
-Nothing listens while no organization is shared. There are two firewall rules: one for Tailscale's addresses, and one for the local subnet on Private networks, which is added only with the private-network choice. Both are limited to the port and to Orgtree's engine. Changing the port or where it listens while something is shared asks Windows first, and a No leaves everything as it was. **Windows Firewall is blocking this** with **Allow** appears here too when the rules are missing. When nothing is shared and the rules are still there, **Windows Firewall still has the rules for remote access** offers **Remove the rules**. They are asked for again when remote access is next turned on.
+Nothing listens while no organization is shared. There are two firewall rules: one for Tailscale's addresses, added only while Tailscale is chosen, and one for the local subnet on Private networks, added only with the private-network choice. Both are limited to the port and to Orgtree's engine. **This computer only** needs none. Changing the port or where it listens while something is shared asks Windows first, and a No leaves everything as it was. **Windows Firewall is blocking this** with **Allow** appears here too when the rules are missing. When nothing is shared and the rules are still there, **Windows Firewall still has the rules for remote access** offers **Remove the rules**. They are asked for again when remote access is next turned on.
+
+## Without Tailscale
+
+Both ways use **This computer only**; the user guide's section "Without Tailscale" has the steps.
+
+- **SSH tunnel:** the other computer runs `ssh -N -L 7431:127.0.0.1:7431 user@hosting-computer` and adds the remote engine at `http://127.0.0.1:7431`.
+- **https tunnel or proxy:** Caddy, Cloudflare Tunnel or ngrok on the hosting computer hands https on to `http://127.0.0.1:7431`; the other computer adds the `https://` address. The certificate must be one the other computer trusts.
+
+Every caller then arrives from this computer itself. The door answers an address that keeps showing tokens it does not know "too many refused requests" for a minute, but a computer that was let in, and a valid one-time code, are never shut out by that.
 
 ## In the other computer's window
 
