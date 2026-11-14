@@ -24,6 +24,7 @@ pub mod markdown_image;
 pub mod media_file;
 pub mod nodes;
 pub mod reply_sources;
+pub mod scratch_files;
 pub mod reader_availability;
 pub mod orgops;
 pub mod undo;
@@ -300,6 +301,10 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/helpers", get(nodes::helpers))
         .route("/api/orgs/{slug}/nodes/{nid}/tooloutput/{seq}/{tool}", get(nodes::tooloutput))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch-folder", get(nodes::scratch_folder))
+        // the Files panel of a window on another computer: list, download, upload (streamed)
+        .route("/api/orgs/{slug}/nodes/{nid}/scratch-files", get(scratch_files::list))
+        .route("/api/orgs/{slug}/nodes/{nid}/scratch-files/file", get(scratch_files::download))
+        .route("/api/orgs/{slug}/nodes/{nid}/scratch-files/upload", axum::routing::put(scratch_files::upload))
         .fallback(api_not_found);
     // test-only: debug builds in rig mode (tools/rig), never a release build
     #[cfg(debug_assertions)]
@@ -473,6 +478,8 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         || path == "/api/markdown-image"
         || path.ends_with("/upload")
         || path.ends_with("/file")
+        // a scratch folder's listing names private files
+        || path.ends_with("/scratch-files")
         || path.contains("/toolimg/")
         || path.contains("/toolinput/")
         || path.contains("/helpertranscript/")

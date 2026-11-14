@@ -1420,25 +1420,35 @@ pub async fn scratch_folder(
     Path((slug, nid)): Path<(String, String)>,
     Query(q): Query<ScratchFolderQuery>,
 ) -> ApiResult<Json<Value>> {
-    let org = org(&e, &slug)?;
-    if matches!(q.scope, ScratchFolderScope::Shared) {
+    let dir = scratch_root(&e, &slug, &nid, q.scope).await?;
+    let path = dir.to_string_lossy();
+    Ok(Json(match q.scope {
+        ScratchFolderScope::Shared => json!({ "path": path, "scope": "shared" }),
+        ScratchFolderScope::Team => json!({ "path": path, "scope": "team" }),
+        ScratchFolderScope::Agent => json!({ "path": path }),
+    }))
+}
+
+/// The folder a scratch-folder request is about: the one `scratch_folder` names, and the
+/// one the Files panel's routes list (`http::scratch_files`).
+#[logged]
+pub(super) async fn scratch_root(e: &Arc<Engine>, slug: &str, nid: &str, scope: ScratchFolderScope) -> ApiResult<PathBuf> {
+    let org = org(e, slug)?;
+    if matches!(scope, ScratchFolderScope::Shared) {
         if nid != crate::config::ORG_NOTES_DIR {
             return Err(ApiError::unprocessable("shared scratch does not take an agent identity"));
         }
-        let dir = managed_scratch_directory(&e.cfg.data_root, &e.cfg.scratch_root(&org.slug), &e.cfg.org_notes_dir(&org.slug))?;
-        return Ok(Json(json!({ "path": dir.to_string_lossy(), "scope": "shared" })));
+        return managed_scratch_directory(&e.cfg.data_root, &e.cfg.scratch_root(&org.slug), &e.cfg.org_notes_dir(&org.slug));
     }
-    let a = agent(&e, &org, &nid).await?;
-    if matches!(q.scope, ScratchFolderScope::Team) {
+    let a = agent(e, &org, nid).await?;
+    if matches!(scope, ScratchFolderScope::Team) {
         let target = crate::domain::teams::workspace(&e.cfg.teams_dir(&org.slug), a.id);
-        let dir = managed_scratch_directory(&e.cfg.data_root, &e.cfg.scratch_root(&org.slug), &target)?;
-        return Ok(Json(json!({ "path": dir.to_string_lossy(), "scope": "team" })));
+        return managed_scratch_directory(&e.cfg.data_root, &e.cfg.scratch_root(&org.slug), &target);
     }
     let client = e.db.get().await?;
     let dir: Option<String> = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
     drop(client);
-    let root = dir.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name));
-    Ok(Json(json!({ "path": root.to_string_lossy() })))
+    Ok(dir.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name)))
 }
 
 /// Use the same checked initialization as org startup and CLI launch.
