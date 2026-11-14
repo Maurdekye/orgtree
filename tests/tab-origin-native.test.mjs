@@ -8,9 +8,11 @@ const {build}=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url)('esb
 const fixture=testOutput('TAB_ORIGIN_NATIVE_OUT','tab-origin-'),root=fixture.directory
 test.after(()=>fixture.cleanup())
 const output=path.join(root,'windows.cjs')
+// The stand-in for electron: `screen` is what the placement reads; the empty `Menu` is for main/editmenu.ts,
+// which wraps it while the bundle loads (without it this file ends before its first test).
 await build({entryPoints:['apps/desktop/main/windows.ts'],outfile:output,bundle:true,platform:'node',format:'cjs',
  plugins:[{name:'synthetic-screen',setup(b){b.onResolve({filter:/^electron$/},()=>({path:'electron',namespace:'synthetic-screen'}));
-  b.onLoad({filter:/.*/,namespace:'synthetic-screen'},()=>({loader:'js',contents:`module.exports={screen:{
+  b.onLoad({filter:/.*/,namespace:'synthetic-screen'},()=>({loader:'js',contents:`module.exports={Menu:{},screen:{
    dipToScreenRect:(_owner,r)=>r,screenToDipRect:(_owner,r)=>r,
    getDisplayMatching:r=>r.x<0?{id:2,workArea:{x:-1280,y:0,width:1280,height:720}}:{id:1,workArea:{x:0,y:0,width:1280,height:720}}
   }}`}))}}]})

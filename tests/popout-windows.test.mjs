@@ -13,14 +13,18 @@ import { createRequire } from 'node:module'
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-popout-')), 'windows.cjs')
 // 'electron' is stubbed, not bundled and not left external: outside an Electron
 // process the real package resolves to the path of its own binary and refuses
-// to load, while the registry under test reads nothing off it at all. The
-// native window behaviour this module also contains is measured separately, in
-// a real Electron window, by tools/test-popout-header-regions.mjs.
+// to load, while the registry under test calls nothing on it. One export is
+// read while the bundle loads: main/editmenu.ts, which windows.ts imports,
+// wraps `Menu` for streamer protection at its top level, and a Proxy around
+// nothing throws. So the stand-in carries an empty `Menu`; without it this
+// file ends before its first test. The native window behaviour this module
+// also contains is measured separately, in a real Electron window, by
+// tools/test-popout-header-regions.mjs.
 const stubElectron = {
   name: 'stub-electron',
   setup(builder) {
     builder.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'stub-electron' }))
-    builder.onLoad({ filter: /.*/, namespace: 'stub-electron' }, () => ({ contents: 'module.exports = {}', loader: 'js' }))
+    builder.onLoad({ filter: /.*/, namespace: 'stub-electron' }, () => ({ contents: 'module.exports = { Menu: {} }', loader: 'js' }))
   },
 }
 await build({ entryPoints: ['apps/desktop/main/windows.ts'], outfile: out, bundle: true, platform: 'node', format: 'cjs', plugins: [stubElectron] })

@@ -17,13 +17,14 @@ import { createRequire } from 'node:module'
 
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-sandbox-net-')), 'windows.cjs')
 // 'electron' is stubbed, as in popout-windows.test.mjs: outside an Electron
-// process the real package refuses to load, and these helpers read nothing
-// off it.
+// process the real package refuses to load, and these helpers call nothing
+// on it. The empty `Menu` is for main/editmenu.ts, which wraps it while the
+// windows bundle loads; without it this file ends before its first test.
 const stubElectron = {
   name: 'stub-electron',
   setup(builder) {
     builder.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'stub-electron' }))
-    builder.onLoad({ filter: /.*/, namespace: 'stub-electron' }, () => ({ contents: 'module.exports = {}', loader: 'js' }))
+    builder.onLoad({ filter: /.*/, namespace: 'stub-electron' }, () => ({ contents: 'module.exports = { Menu: {} }', loader: 'js' }))
   },
 }
 await build({ entryPoints: ['apps/desktop/main/windows.ts'], outfile: out, bundle: true, platform: 'node', format: 'cjs', plugins: [stubElectron], logLevel: 'silent' })
