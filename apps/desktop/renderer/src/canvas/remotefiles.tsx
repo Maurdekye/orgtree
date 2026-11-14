@@ -9,10 +9,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { ToastFn } from '../types'
 import { DownloadIcon, FileIcon, FolderIcon } from '../icons'
-import { remoteFolderText, useRemoteHere } from '../remotehere'
+import { useRemoteHere } from '../remotehere'
 import { ProviderDialog } from './providerdialog'
 import {
-  LARGE, UPLOAD_MAX, closeRemoteFiles, crumbs, dismissTransfer, downloadUrl, joinPath, keptBeside, listFiles, olderEngine,
+  LARGE, UPLOAD_MAX, closeRemoteFiles, crumbs, dismissTransfer, downloadUrl, filesUpdateText, joinPath, keptBeside, listFiles, olderEngine,
   progressText, sizeText, uploadFile, useRemoteFilesTarget, useTransfers, watchDownloads,
 } from '../remotefiles'
 import type { Conflict, FileEntry, FilesTarget, Transfer } from '../remotefiles'
@@ -68,8 +68,8 @@ function Panel({ target, toast }: { target: FilesTarget; toast: ToastFn }) {
     } catch (e) {
       if (at !== serial.current) return
       if (olderEngine(e)) {
-        // an engine older than the Files routes: what the entry said before there was a panel
-        toast([`${remoteFolderText(where)} Its Orgtree is older than 4.6.0, which is what shows a folder here.`])
+        // an engine without the Files routes whose version did not say so (scratch-folder.ts asks that first)
+        toast([filesUpdateText(where, remote?.version)])
         closeRemoteFiles()
         return
       }

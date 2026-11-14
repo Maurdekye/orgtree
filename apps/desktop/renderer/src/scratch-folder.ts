@@ -1,6 +1,6 @@
 import { desktop } from './desktop'
 import { remoteHere } from './remotehere'
-import { openRemoteFiles } from './remotefiles'
+import { filesNeedUpdate, filesUpdateText, openRemoteFiles } from './remotefiles'
 import type { ToastFn } from './types'
 
 export type ScratchFolderAction = (() => void) & {
@@ -18,8 +18,13 @@ export function scratchFolderAction(org: string, node: string, toast: ToastFn,
   // An organization on a remote engine keeps its folders on that engine's computer, where this
   // computer's file manager cannot go. The entry opens the Files panel instead (remotefiles.ts):
   // the folder is listed there, with download and upload. No AGENTS.md here is offered. An
-  // engine too old to list a folder gets the sentence that says where the folder is (the panel).
-  if (remoteHere()) return () => openRemoteFiles({ org, node, ...(scope ? { scope } : {}), title: description })
+  // engine too old to list a folder is told so here by its version, or by the panel when its answer shows it.
+  if (remoteHere()) return () => {
+    // asked at the click: the connection may have learned the engine's version since this entry was made
+    const remote = remoteHere()
+    if (remote && filesNeedUpdate(remote.version)) toast([filesUpdateText(remote.name, remote.version)])
+    else openRemoteFiles({ org, node, ...(scope ? { scope } : {}), title: description })
+  }
   const action: ScratchFolderAction = () => {
     // Preserve the two-argument personal action for old-shell compatibility.
     const request = scope ? bridge.openAgentScratchFolder!(org, node, scope)

@@ -16,6 +16,7 @@
 import { useSyncExternalStore } from 'react'
 import { desktop } from './desktop'
 import { req } from './api'
+import { remoteFolderText } from './remotehere'
 
 /** A scratch folder, as scratch-folder.ts names it: an agent's own, its team's, or the
  *  organization's shared one. */
@@ -52,11 +53,37 @@ export const listFiles = (target: FilesTarget, path: string, offset = 0): Promis
 /** The address of a download: a file as it is, a folder as a zip. */
 export const downloadUrl = (target: FilesTarget, path: string): string => `${base(target)}/file${query(target, path)}`
 
-/** Is this the answer of an engine that has no Files routes (older than 4.6.0)? Its answer to
- *  an unknown route is a 404 that names the route; this engine's own 404s say what is missing. */
+/** The first Orgtree whose engine has the Files routes. */
+const FILES_SINCE = [4, 6, 0] as const
+
+/** Does the other engine's version say it has no Files routes? Asked BEFORE anything is sent
+ *  (scratch-folder.ts), with the version that engine gave when this computer connected
+ *  (`version` of the window's connection). Only the three numbers count, and a version that
+ *  cannot be read says nothing: then the answer to the first listing decides (`olderEngine`).
+ *  An alpha of 4.6.0 is such a case: its first two had no Files routes. */
+export const filesNeedUpdate = (version: string | null | undefined): boolean => {
+  const numbers = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version ?? '')?.slice(1).map(Number)
+  if (!numbers) return false
+  for (let i = 0; i < FILES_SINCE.length; i++) if (numbers[i] !== FILES_SINCE[i]) return numbers[i]! < FILES_SINCE[i]!
+  return false
+}
+
+/** What an entry or the panel says of an engine that cannot show a folder. */
+export const filesUpdateText = (name: string, version: string | null | undefined): string =>
+  `Orgtree on ${name} needs updating to use the file browser${version ? `: it runs ${version}, and the file browser needs` : ', which needs'} ${FILES_SINCE.join('.')} or later. `
+  + remoteFolderText(name)
+
+/** Is this the answer of an engine that has no Files routes? It answers a route it does not
+ *  know with a 404 that names the route ("no route GET ..."), and this engine's own 404s say
+ *  what is missing. An engine started without a UI folder, which is what one that runs by
+ *  itself is, answered such a route "no UI bundle configured" in plain text until 4.6.0 (the
+ *  request words it "404: ..." and keeps the text as `body`): that is the same case, and the
+ *  one a user met on 2026-11-14. */
 export const olderEngine = (error: unknown): boolean => {
-  const e = error as { status?: unknown; message?: unknown } | null
-  return !!e && e.status === 404 && typeof e.message === 'string' && e.message.startsWith('no route ')
+  const e = error as { status?: unknown; message?: unknown; body?: unknown } | null
+  if (!e || e.status !== 404) return false
+  return (typeof e.message === 'string' && e.message.startsWith('no route '))
+    || (typeof e.body === 'string' && e.body.trim() === 'no UI bundle configured')
 }
 
 // ---------------------------------------------------------------- paths and words
