@@ -2582,3 +2582,25 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     [remote-access-security](remote-access-security.md).
     Numbered 101 until the same merge (2026-11-13): commits, evidence and docket entries from before
     it say decision 101.
+    **Amended 2026-11-14, before 4.6.0 was published, by four user rulings** (docket
+    `remote-org-4-6-0-desktop-door-on-127-0-0-1-for-t`). They replace "on Tailscale and by choice
+    the private network" and "reaches only the organizations it was given and nothing app-wide"
+    above:
+    - 07:34:38Z m78c4f826b534, "also i dont want to limit remote org connections to tailscale".
+      Where the door listens is three choices, each by itself: Tailscale, this private network, and
+      this computer itself (127.0.0.1), for an SSH tunnel or a local https proxy. Still never a
+      public address.
+    - 07:35:01Z m46ff4f4650b5, "basically they should allow the same permissions as someone
+      connecting with ssh + root access". A member is trusted with the hosting computer as an SSH
+      sign-in under the owner's account is. The member route table and the filter on what it is
+      shown are workspace scoping and courtesy privacy, not a security boundary.
+    - 07:35:40Z m4214ebc76474, "Drop the 3 fixes". The independent review's findings SEC-01 to
+      SEC-03 (a member reads host files through attachments, the file route, the folder browser
+      and an image by its path) are by design and are not restricted.
+    - 07:47:02Z m61a895318483, 4.6.0 "Wording + tunnels"; after 4.6.0 "Neither for now". 4.6.0
+      carries the loopback door, the private network as a choice of its own, a limiter that never
+      shuts out a token the door knows, and this wording in the windows, the help, the user guide,
+      the security page and the spec. Built-in TLS on the door and a relay through the mail hub
+      are not built.
+    The security review the decision asks for was done (2026-11-14); what it found beyond SEC-01
+    to SEC-03 waits for a later release.

@@ -512,9 +512,11 @@ The two share the router and nothing else.
   `client_tokens/transport.rs`). The request guard decides by that mark alone which rules a request
   is judged by; nothing in a request can set or clear it.
 - A peer is asked about as it is accepted (`PeerRule::admits`, by `remote::address::classify`):
-  Tailscale's addresses always, private ones only by the app-wide choice, a public one never. A
-  connection that is not taken is dropped unread. Loopback peers exist only for tests and the rig
-  (`PeerRule::with_loopback`, not compiled into a release build).
+  Tailscale's addresses when Tailscale is chosen, private ones when the private network is, a public
+  one never. A connection that is not taken is dropped unread. Loopback peers are taken at the
+  listener on this computer itself (`PeerRule::of(listen, true)`, the owner's choice "This computer
+  only") and, for tests and the rig, by `PeerRule::with_loopback` (not compiled into a release
+  build).
 
 ### The connecting side
 
@@ -541,14 +543,19 @@ engine says about itself: `GET /api/host` answers `mode: "host"` at a door.
 
 `remote_access/lifecycle.rs`. The door exists only while at least one organization is shared.
 
-- `plan` is the one place that says where: this computer's Tailscale IPv4 address when
-  `remote::address::classify` calls it Tailscale's, and its address on the local network too when the
-  owner chose that and the address is a private one. Nothing else, ever: no public address, no
-  loopback, no `0.0.0.0`, no port below 1024. A separate listener is bound to each address.
+- The owner chooses where, each place by itself (`Listen {tailscale, lan, local}`; user ruling
+  2026-11-14, remote access is not limited to Tailscale). `plan` is the one place that says where:
+  this computer's Tailscale IPv4 address when Tailscale is chosen and `remote::address::classify`
+  calls the address Tailscale's; its address on the local network when the private network is chosen
+  and the address is a private one; and `127.0.0.1` when "This computer only" is chosen, which is
+  where an SSH tunnel (`ssh -L`) or a local https proxy (Caddy, cloudflared, ngrok) hands
+  connections on. Nothing else, ever: no public address, no `0.0.0.0`, no port below 1024. A
+  separate listener is bound to each address. `PUT /api/remote-access` takes `tailscale`, `lan` and
+  `local`; a save that leaves none chosen is refused (400).
 - The addresses are read as the phone door reads them (`phone::tailscale`, `phone::lan_ipv4`), every
   30 s while something is shared. Tailscale that does not answer says nothing: its address is taken to
   be what the door has.
-- `decide`: what the owner changes (a switch, the port, the private-network choice) takes effect at
+- `decide`: what the owner changes (a switch, the port, a place to listen) takes effect at
   once, in the request that changed it (`refresh`). An address that moved by itself is followed only
   when two readings in a row agree (5 s apart), so one odd reading never closes a door people work
   through. An address the door could not be bound to is tried again at every step.
@@ -556,11 +563,14 @@ engine says about itself: `GET /api/host` answers `mode: "host"` at a door.
   (`Registry::close_all`): they come back through where the door stands.
 - `status`: `state` is `closed` (nothing is shared), `open`, `waiting` (something is shared but this
   computer has no address the door may stand at; `reason` says so) or `blocked` (the port is taken;
-  `reason` names it), and `addresses` are where it stands: `kind` (`tailscale`, `lan`), `ip`, `port`,
-  `url` (with the MagicDNS name when Tailscale has one) and `encrypted` (true on Tailscale only).
+  `reason` names it), and `addresses` are where it stands: `kind` (`tailscale`, `lan`, `local`), `ip`, `port`,
+  `url` (with the MagicDNS name when Tailscale has one) and `encrypted` (true on Tailscale only; at
+  `local` the tunnel or proxy in front encrypts, which the engine cannot see). The status also says
+  the three choices (`tailscale`, `lan`, `local`).
 - A switch that could let nobody in is not turned on: `PUT .../orgs/{slug} {"on": true}` answers 409
-  with the reason when this computer has no Tailscale address and the private network was not chosen
-  (or has no private address either). Switching off is never refused.
+  with the reason when none of the chosen places has an address: Tailscale is chosen and not
+  running, the private network is chosen and this computer has no private address. With "This
+  computer only" chosen there is always a place. Switching off is never refused.
 - The loop (`start`, a desktop only) also looks every 5 s at who is connected while the door stands,
   writes `connected` and `disconnected` into the organizations' histories when someone came or went,
   pushes the app value `remote_access` (the answer of `GET /api/remote-access`) to this desktop's own
@@ -583,18 +593,21 @@ both inbound, TCP, for the door's port and for the engine's program only:
 
 | Rule | Remote addresses | Profile | When |
 | --- | --- | --- | --- |
-| `Orgtree remote access` | Tailscale's (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) | any | always |
+| `Orgtree remote access` | Tailscale's (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) | any | only while Tailscale is chosen |
 | `Orgtree remote access (private network)` | `LocalSubnet` | Private | only with the private-network choice |
 
 They are two because one rule has one profile: the private network's rule must not hold on a network
 Windows calls Public, and Tailscale's must hold whatever Windows calls its adapter. They are separate
 from the phone door's rule (`Orgtree phone access`), so turning one off never takes the other's.
+The door on this computer itself (127.0.0.1) needs no rule: Windows Firewall does not filter it,
+and with that as the only place `door.firewall.state` is `ok` and Windows is never asked.
 
 - **Adding and removing is the desktop's**, behind one administrator prompt
   (`apps/desktop/main/remotefirewall.ts`, as `phonefirewall.ts` does for the phone door): the engine
   may run where there is no desktop to show a prompt on. The page says the port and the choice
-  (`desktop:remote-access-firewall {port, lan}`; the bridge's `addRemoteAccessFirewallRule`); main
-  checks them (an integer from 1024 to 65535, a boolean) and finds the engine's program itself, the way
+  (`desktop:remote-access-firewall {port, lan, tailscale}`; the bridge's
+  `addRemoteAccessFirewallRule`; a page that does not say `tailscale` means yes, as before); main
+  checks them (an integer from 1024 to 65535, booleans) and finds the engine's program itself, the way
   the launch does. Without that program nothing is added: there is never a rule for every program. The
   script removes the door's earlier rules first, so a changed port or choice leaves nothing of the old
   one. `removeRemoteAccessFirewallRule` removes both.
@@ -604,8 +617,8 @@ from the phone door's rule (`Orgtree phone access`), so turning one off never ta
   or `missing`: the door, as the owner chose it, is not let in, which the windows show as "Windows
   Firewall is blocking this" with **Allow**. A rule lets the door in when it is enabled, inbound,
   allowing, for exactly the door's port and for this engine's own program (two ways of writing one
-  file's path are one program); Tailscale's rule is always wanted, the private network's when that was
-  chosen. The rule's addresses and profile are not judged: a rule changed by hand is its owner's.
+  file's path are one program); Tailscale's rule is wanted while Tailscale is chosen, the private
+  network's while that is. The rule's addresses and profile are not judged: a rule changed by hand is its owner's.
   `present` says a rule of the door's is there at all, so it can be offered for removal once nothing is
   shared.
 - **The order in the windows** (`turnOnOrgAccess`, `changeListening` in the renderer's
@@ -639,8 +652,10 @@ about remote access is in this one file and none of it is in a database:
 ```
 
 - `open` is the switch: the organizations other computers may open. `port` is the door's (7431
-  unless the owner chose another, never below 1024); `lan` says whether the door also listens on this
-  private network (Tailscale always).
+  unless the owner chose another, never below 1024); `lan` says whether the door listens on this
+  private network, `tailscale` whether on Tailscale and `local` whether on this computer itself.
+  The last two are written only when they differ from what a file without them means (Tailscale
+  yes, this computer no), so an engine from before them still reads the file.
 - Why a file and not the organization's settings in its database (decision 103 says "a per-org
   setting", and to the owner it is one): the door must know what is shared before any database is
   read, and an organization that is restored from a backup, copied, or made from a template must
@@ -670,9 +685,12 @@ about remote access is in this one file and none of it is in a database:
 `remote_access::admit`, called by `http::guard` for a connection that is the door's, before any
 handler or dispatch. In order:
 
-0. An address that was refused too often is answered 429 and nothing else (`limiter.rs`): after 10
-   requests within a minute that showed no token the door knows, for a minute, a good token
-   included. What a known computer is refused (step 7) is never counted.
+0. An address that was refused too often is answered 429 (`limiter.rs`): after 10 requests within a
+   minute that showed no token the door knows, for a minute, to every request that shows none. A
+   token the door knows (a computer's, or a one-time code) is still heard, unless the request names
+   an `Origin`: behind an SSH tunnel, a local https proxy or a shared router every caller has one
+   address, and somebody's guessing must not shut out the computers that were let in (user ruling
+   2026-11-14). What a known computer is refused (step 7) is never counted.
 1. The desktop token header and `X-Orgtree-Remote` are removed from the request. Neither is read.
 2. A path outside `/api/` is 404. The door serves no page, and the language-server proxy and the
    credential bridge are never dispatched for it.
@@ -704,13 +722,22 @@ of its lists, and `every_route_is_classified_for_members` fails for a route that
 | `OWN` | its own client record: `GET /api/standalone/clients` (one row and `you`), `PATCH` and `DELETE` of its own id |
 | `REFUSED` | everything app-wide and everything of the hosting computer; and two routes below an organization that reach beyond it: `/mcp` and `/template` |
 
+**What this table is, and is not (user rulings 2026-11-14).** A member is trusted with the hosting
+computer as an SSH sign-in under the owner's account is: its organizations' agents run commands
+there, and routes in `ORG` and `READ` read host files by a path (attachments, the file route,
+`/api/fs`, an image by path). That is by design ("Drop the 3 fixes"). The table scopes a member's
+windows and API calls to the organizations it was given and refuses app-wide writes, so shared work
+stays where it was shared and nothing app-wide changes by accident. It is workspace scoping, and
+`shown.rs` is courtesy privacy (the owner's e-mail addresses stay out of lists). Neither is a
+security boundary against a member.
+
 - An organization that is not the member's and one that does not exist are refused alike (403, code
-  `E17`, "This belongs to <computer>."), so a member cannot learn what else the desktop has.
+  `E17`, "This belongs to <computer>."), so a member's window is not shown what else the desktop has.
 - An organization it was given whose switch is off is 403 with code `E16`.
 - A new route must be put in a list. A route of an organization goes in `ORG` unless it reaches
   beyond the organization; anything else goes in `REFUSED` unless a computer that was let in must
-  read it, and then its answer must hold nothing of the owner's (no e-mail address, no other
-  organization).
+  read it, and then its answer holds nothing of the owner's that a window has no use for (no e-mail
+  address, no other organization): courtesy, not secrecy.
 - Still in `REFUSED` among the reads: usage, the model servers, OpenRouter, the changelog and the
   organization list (`GET /api/orgs`: a member's list is its app feed). A window of a hosted
   organization shows those pages without their figures until each answer has been looked at.
@@ -885,7 +912,7 @@ status strip's chip.
   (no code). The engine's refusal (five open codes, the switch off) is the sentence under the rows.
 - **App settings, "Remote access"** (`RemoteAccessSettings`; the tab is listed only where the value
   exists, and is one of this computer's in a remote organization's window): where it listens
-  (Tailscale only, or Tailscale and this private network), the port, what the door does now, the
+  (three switches: Tailscale, this private network, this computer only), the port, what the door does now, the
   organizations that are shared with how many computers each has, "Stop all remote access" behind a
   confirmation, Allow when the rules are missing, and "Remove the rules" when nothing is shared and
   the rules are still there. Opening the page asks the engine once, which reads Windows Firewall
@@ -1074,7 +1101,7 @@ What to know when reading them, or when changing the page script:
   evidence keeps only its length.
 - 07 shows two messages of the same computer: the engines' part sent the upper one, and the window
   looks for the lower one by its text (it may still be queued when the capture is taken).
-- 09 says "Tailscale only" beside a loopback address: the rig's door is where
+- 09 shows Tailscale switched on (it said "Tailscale only" until the three switches) beside a loopback address: the rig's door is where
   `ORGTREE_RIG_REMOTE_DOOR` puts it.
 
 ## Not yet

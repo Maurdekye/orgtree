@@ -27,6 +27,11 @@ The attach trust rule has three copies (`policy.ts`, `tools/installer-upgrade.ps
 `credential_broker.rs`): change all three; `tests/descriptor-trust-drive-root.test.mjs` holds the first two to one table. Any drive letter's root is judged without DELETE. See
 [startup and release](docs/agents/startup-and-release.md). [decided: user 2026-11-14]
 
+Remote access (4.6.0): a member is trusted like an SSH sign-in under the owner's account; the member route
+table is workspace scoping, not a security wall. Never describe it as isolation. The door listens where the
+owner chooses (Tailscale, private network, 127.0.0.1). See [remote-access-security](docs/rust-engine/remote-access-security.md).
+[decided: user 2026-11-14]
+
 Hovering or focusing a mini node, agent or project, always shows its name on the
 floating plate above every card, also while desks are open (pinned or popped out;
 replaces 0a47651). Never hide or cover it. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
