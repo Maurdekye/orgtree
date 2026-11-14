@@ -204,7 +204,7 @@ test('the block: the switch and its hint; then the address, the computers and Re
   const toggle = () => block().querySelector('input[role="switch"]') as HTMLInputElement
   assert.equal(toggle().getAttribute('aria-label'), 'Let other computers open this organization')
   assert.equal(toggle().checked, false)
-  assert.match(block().textContent!, /A computer you add can use this organization as you do\. Its agents run on this computer with your account's rights: add only computers you trust with it\./)
+  assert.match(block().textContent!, /A computer you add can use this organization as you do\. Through its agents it can run commands and read or change files on this computer with your account's rights, as if it had signed in over SSH: add only computers you would trust with this whole computer\./)
   const labels = () => [...block().querySelectorAll('.set-row > .set-label, .set-block > .set-label')].map((el) => el.textContent!.trim())
   assert.deepEqual(labels(), ['Let other computers open this organization'], 'off: no address, no computers, nothing to add')
   // turning it on: the engine is asked, Windows is asked, then the switch

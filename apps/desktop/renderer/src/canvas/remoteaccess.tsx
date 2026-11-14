@@ -108,7 +108,7 @@ export function RemoteAccess({ slug, name, toast }: { slug: string; name: string
   return <SetGroup title="Remote access">
     <SetToggle label="Let other computers open this organization" checked={on} disabled={busy}
       onChange={(next) => { void turn(next) }}
-      hint="A computer you add can use this organization as you do. Its agents run on this computer with your account's rights: add only computers you trust with it." />
+      hint="A computer you add can use this organization as you do. Through its agents it can run commands and read or change files on this computer with your account's rights, as if it had signed in over SSH: add only computers you would trust with this whole computer." />
     {note && <SetBlock><p className="ask-warn remote-access-note" role="alert">{note}</p></SetBlock>}
     {trouble && <SetBlock><p className="ask-warn remote-access-door" role="status">{trouble}</p></SetBlock>}
     {on && door.firewall?.state === 'missing' && <SetRow label="Windows Firewall is blocking this"

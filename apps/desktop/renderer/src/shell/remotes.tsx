@@ -236,7 +236,7 @@ export function RemoteDetails({ remote, actions, close }: { remote: RemoteView; 
         </SetRow>
         <SetRow label="Signed in as"
           hint={remote.scope === 'member'
-            ? `${remote.name} is somebody's own computer. It decides which of its organizations this computer may open, and can end that at any time. Nothing else of it can be changed from here.`
+            ? `${remote.name} is somebody's own computer. It decides which of its organizations this computer may open, and can end that at any time. Its app-wide settings cannot be changed from here. Agents you run there act on that computer with its owner's rights.`
             : remote.own_token ? 'Full control. This computer has its own token there, which can be revoked alone.'
               : 'Full control, with the token you pasted (that engine could not make one for this computer).'}>
           {/* "Orgtree desktop (<computer>)": this computer's name is a host field, masked like the address */}

@@ -353,7 +353,7 @@ export default async function (rig) {
       // (the code was used a moment after it was shown; the evidence keeps its shape, not the code)
       proof.file('desktop-host.json', { value: { ...h, add: h.add ? { ...h.add, code: `(${String(h.add.code).length} characters)`, line: '(the address and the code)' } : null }, session: hosting.session, guards: hosting.guards })
       proof.check('the hosting desktop\'s window ran in Session 0 and to its end', hosting.ok === true && hosting.session?.electron === 0, hosting.ok ? hosting.session : { error: hosting.error, output: hosting.electronOutput })
-      proof.check('Org settings, Connections has the group "Remote access" with the switch off and its plain sentence', h.off?.checked === false && /add only computers you trust with it\.$/.test(h.off?.hint ?? '')
+      proof.check('Org settings, Connections has the group "Remote access" with the switch off and its plain sentence', h.off?.checked === false && /add only computers you would trust with this whole computer\.$/.test(h.off?.hint ?? '')
         && JSON.stringify(h.off?.rows) === JSON.stringify(['Let other computers open this organization']), h.off)
       proof.check('turning it on asks Windows through the desktop for the door\'s port, and a No leaves the switch off and says so', JSON.stringify(h.declined?.asked) === JSON.stringify({ add: [port, false] })
         && h.declined?.checked === false && h.declined?.note === 'Nothing changed: Windows Firewall stays as it was.', h.declined)
