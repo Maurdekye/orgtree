@@ -22,6 +22,11 @@ broker. All three refuse a folder above the descriptor that another account can 
 - **A root is any drive letter's** (`X:\`), a letter made with SUBST and a mapped network drive too (user ruling
   2026-11-14 08:00Z, "Any drive letter"; the first version of this change asked the mount manager and exempted
   real volumes only). A UNC root and a `\\?\` path have no drive letter and keep the full rule.
+- **The broker asks about the resolved path.** Its `attach` resolves the data folder first
+  (`std::fs::canonicalize`), which on Windows answers `\\?\X:\...`; its rule takes `\\?\X:\` as the drive
+  letter's root (the first version did not, and still refused every such drive). Resolving also turns a SUBST letter
+  into the folder it stands for, so the broker judges a SUBST data folder by its real path: stricter than the window
+  and the installer helper, on purpose left so.
 - **Change all three copies together.** The broker's has its own unit test
   (`a_drive_letters_root_is_judged_without_delete_and_every_other_folder_as_before`, on real access entries).
   `tests/descriptor-trust-drive-root.test.mjs` runs one table through the other two, the
