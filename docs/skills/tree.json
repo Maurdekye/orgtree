@@ -3005,7 +3005,8 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/shell/homepage.tsx#HomepageView",
-    "apps/desktop/renderer/src/shell/remotes.tsx#RemoteEngineDialog"
+    "apps/desktop/renderer/src/shell/remotes.tsx#RemoteEngineDialog",
+    "apps/desktop/renderer/src/canvas/remotefiles.tsx#RemoteFilesPanel"
    ],
    "ui_labels": [
     {

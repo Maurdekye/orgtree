@@ -1015,8 +1015,9 @@ plants a minimal desktop bridge before each page loads, with the identity main g
 which has no status strip and so no connection chip. And the rig's desk harness (`desktop/main.cjs`)
 adds `X-Orgtree-Remote` for a page at `/o/<alias>` of a remote organization, as Electron main does
 for a window bound to one. Measured 2026-11-11 with a bundle: 53 checks, 32 captures, about 200 s; without one, 35 checks.
-Measured 2026-11-14 without a bundle, with the Files routes: 48 checks, 40 s; on loopback with debug engines the
-32 MiB file went up in 56 ms and came back in 417 ms, and the folder's zip took 473 ms.
+Measured 2026-11-14 with the Files routes: with a bundle 67 checks, 33 captures, 125 s; without one 48 checks
+in 40 s (one check was added after that run). On loopback with debug engines the 32 MiB file went up in about
+55 ms and came back in about 420 ms, and the folder's zip took about 475 ms (three runs).
 In Session 0 with a user signed in, an engine holds its first turns for the sign-in helper until 60 s
 after its start (`session_settle`), so the far engine's first answer can take that long; the proof's
 waits allow for it.
