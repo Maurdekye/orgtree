@@ -10794,3 +10794,28 @@ button.remote-files-name:hover, button.remote-files-name:focus-visible { color: 
 /* the last known state, not a live one: dimmed, and nothing in it spins as if a turn were running */
 .solo.remote-away .canvas-stage { opacity: .55; filter: saturate(.6); }
 .solo.remote-away .canvas-stage .cc-spin { animation: none; }
+
+/* Data location move & previous-folder confirmation dialogs (canvas/desktopsettings.tsx) */
+.move-data-dialog { max-width: 560px; width: min(560px, 92vw); }
+.dataloc-summary {
+  display: flex; flex-direction: column; gap: 6px; margin: 10px 0;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 35%, var(--panel));
+}
+.dataloc-kv {
+  display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 10px;
+  align-items: baseline; font-size: 12.5px;
+}
+.dataloc-kv code {
+  font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere;
+  background: none; padding: 0;
+}
+.dataloc-subfolder-note { margin: 2px 0 4px; font-size: 12px; line-height: 1.45; }
+.dataloc-check {
+  display: flex; align-items: flex-start; gap: 8px; margin: 10px 0;
+  font-size: 12.5px; cursor: pointer; user-select: none;
+}
+.dataloc-check input { margin-top: 2px; flex: none; }
+.dataloc-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;
+}

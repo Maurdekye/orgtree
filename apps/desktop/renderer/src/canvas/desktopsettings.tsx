@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
-import type { RunAsAdministratorState, StartupKind, UpdateCapability } from '../../../../../packages/contracts'
+import type {
+  DataLocationPreflight, DataLocationProgress, DataLocationState,
+  RunAsAdministratorState, StartupKind, UpdateCapability,
+} from '../../../../../packages/contracts'
+import { initiatingDocument, popoutNameForDocument } from '../windowlife'
+import { PinFrame } from './modalpin'
 import { SetGroup, SetRow, SetToggle } from './settingskit'
 import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
 
@@ -146,4 +151,326 @@ export function RunAsAdministratorSetting() {
           + 'always together. Windows asks once per change, and both restart at once, which interrupts running turns; boot, sign-in, '
           + 'restarts and updates then need no further prompts.'} />
   </SetGroup>
+}
+
+export function formatDataBytes(bytes: number | null | undefined): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return ''
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (bytes < 1024 ** 4) return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+  return `${(bytes / 1024 ** 4).toFixed(2)} TB`
+}
+
+/** "Data location" — where Orgtree keeps its organizations, PostgreSQL cluster,
+ *  transcripts, diagnostics and managed CLI profiles on this computer (4.6.0,
+ *  docket settings-choose-where-orgtree-keeps-its-data-dat). The pointer file
+ *  itself stays in `<userData>/data-location.json`; moving copies and verifies
+ *  every file before switching over, keeps the old folder read-only unless the
+ *  user ticks the unticked-by-default delete box or clicks "Delete previous
+ *  folder (<size>)", and rolls back cleanly on Cancel or any startup failure. */
+export function DataLocationSetting({ onDialogChange }: {
+  onDialogChange?: (open: boolean) => void
+} = {}) {
+  const bridge = desktop()
+  const [state, setState] = useState<DataLocationState | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [opening, setOpening] = useState<'current' | 'previous' | null>(null)
+  const [preflight, setPreflight] = useState<DataLocationPreflight | null>(null)
+  const [deletePrevious, setDeletePrevious] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const [progress, setProgress] = useState<DataLocationProgress | null>(null)
+  const [dialogError, setDialogError] = useState('')
+  const [confirmDeletePrevious, setConfirmDeletePrevious] = useState(false)
+  const [deletingPrevious, setDeletingPrevious] = useState(false)
+
+  const dialogOpen = preflight !== null || confirmDeletePrevious
+  useEffect(() => {
+    onDialogChange?.(dialogOpen)
+    return () => { onDialogChange?.(false) }
+  }, [dialogOpen, onDialogChange])
+
+  useEffect(() => {
+    if (!bridge?.getDataLocationState) return
+    let alive = true
+    const unsubscribe = bridge.onEvent
+      ? bridge.onEvent(e => {
+          if (!alive) return
+          if (e.type === 'data-location-progress') {
+            setProgress(e.data as DataLocationProgress)
+          }
+        })
+      : () => {}
+    bridge.getDataLocationState()
+      .then(s => { if (alive) { setState(s); setError('') } })
+      .catch((e: Error) => { if (alive) setError(e.message) })
+    return () => { alive = false; unsubscribe() }
+  }, [bridge])
+
+  if (!bridge?.getDataLocationState) return null
+
+  const refreshState = async () => {
+    if (!bridge.getDataLocationState) return
+    const next = await bridge.getDataLocationState()
+    setState(next)
+  }
+
+  const openFolder = async (which: 'current' | 'previous') => {
+    if (!bridge.openDataLocationFolder) return
+    setOpening(which)
+    setError('')
+    try {
+      const res = await bridge.openDataLocationFolder(which)
+      if (!res.ok) setError(`Could not open folder: ${res.error || 'unknown error'}`)
+    } catch (e) {
+      setError(`Could not open folder: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setOpening(null)
+    }
+  }
+
+  const inspectCandidate = async (candidatePath: string) => {
+    if (!bridge.preflightDataLocation) return
+    setChecking(true)
+    setError('')
+    setNotice('')
+    try {
+      const pf = await bridge.preflightDataLocation(candidatePath)
+      if (!pf.ok) {
+        setError(pf.error || 'That folder cannot be used as the Orgtree data location.')
+        return
+      }
+      // Always unticked by default on every move dialog open (user ruling Q4).
+      setDeletePrevious(false)
+      setDialogError('')
+      setProgress(null)
+      setPreflight(pf)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const chooseFolder = async () => {
+    if (!bridge.chooseDataLocation || !state) return
+    setChecking(true)
+    setError('')
+    setNotice('')
+    try {
+      const doc = initiatingDocument()
+      const picked = await bridge.chooseDataLocation(state.currentRoot, popoutNameForDocument(doc))
+      if (!picked) {
+        setChecking(false)
+        return
+      }
+      await inspectCandidate(picked)
+    } catch (e) {
+      setChecking(false)
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const dismissMoveDialog = () => {
+    if (moving) return
+    setPreflight(null)
+    setDialogError('')
+    setProgress(null)
+  }
+
+  const confirmMove = async () => {
+    if (!preflight || !bridge.moveDataLocation || moving) return
+    setMoving(true)
+    setDialogError('')
+    try {
+      const res = await bridge.moveDataLocation({
+        targetPath: preflight.pickedPath,
+        deletePrevious,
+      })
+      if (!res.ok) {
+        if (res.cancelled) {
+          setPreflight(null)
+          setNotice('Data folder move cancelled. Orgtree stayed on your current data folder.')
+        } else {
+          setDialogError(res.error || 'Could not move the data folder.')
+        }
+        await refreshState().catch(() => {})
+        return
+      }
+      setPreflight(null)
+      if (!res.relaunching) {
+        await refreshState().catch(() => {})
+      }
+    } catch (e) {
+      setDialogError(e instanceof Error ? e.message : String(e))
+      await refreshState().catch(() => {})
+    } finally {
+      setMoving(false)
+      setProgress(null)
+    }
+  }
+
+  const runDeletePrevious = async () => {
+    if (!bridge.deletePreviousDataLocation || deletingPrevious) return
+    setDeletingPrevious(true)
+    setError('')
+    try {
+      const res = await bridge.deletePreviousDataLocation()
+      if (!res.ok) {
+        setError(res.error || 'Could not delete the previous data folder.')
+        return
+      }
+      setConfirmDeletePrevious(false)
+      setNotice('Previous data folder deleted.')
+      await refreshState()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeletingPrevious(false)
+    }
+  }
+
+  const busy = checking || moving || deletingPrevious || Boolean(state?.moving)
+  const currentSize = formatDataBytes(state?.currentBytes)
+  const prevSize = formatDataBytes(state?.previousBytes)
+  const statusText = !state
+    ? ''
+    : state.envOverride
+      ? ` · Controlled by the ORGTREE_V2_DATA environment variable for this session${currentSize ? ` · ${currentSize}` : ''}`
+      : state.isCustom
+        ? ` · Custom location${currentSize ? ` · ${currentSize}` : ''}`
+        : ` · Default location${currentSize ? ` · ${currentSize}` : ''}`
+
+  return <>
+    <SetGroup title="Data location">
+      {error && <p className="ask-warn" role="alert">{error}</p>}
+      {notice && !error && <p className="dim" role="status">{notice}</p>}
+      <SetRow label="Current folder" field="data-location"
+        hint={state
+          ? <><span className="mono" data-streamer-field="path">{state.currentRoot}</span>{statusText}. Stores organizations, the PostgreSQL database, transcripts, diagnostics and managed CLI profiles on this computer.</>
+          : 'Loading current data folder…'}>
+        <button type="button" disabled={!state || opening !== null || moving}
+          onClick={() => { void openFolder('current') }}>
+          {opening === 'current' ? 'Opening…' : 'Open folder'}
+        </button>
+        <button type="button"
+          disabled={!state || busy || state.envOverride}
+          title={state?.envOverride ? 'Unset ORGTREE_V2_DATA to change the saved data location.' : undefined}
+          onClick={() => { void chooseFolder() }}>
+          {checking ? 'Checking…' : 'Change location…'}
+        </button>
+        {state?.isCustom && !state.envOverride && (
+          <button type="button" disabled={busy}
+            onClick={() => { void inspectCandidate(state.defaultRoot) }}>
+            Use default location…
+          </button>
+        )}
+      </SetRow>
+      {state?.previousRoot && (
+        <SetRow label="Previous folder" field="data-location-previous"
+          hint={<><span className="mono" data-streamer-field="path">{state.previousRoot}</span> · Kept untouched from your last move until you delete it.</>}>
+          <button type="button" disabled={opening !== null || busy}
+            onClick={() => { void openFolder('previous') }}>
+            {opening === 'previous' ? 'Opening…' : 'Open folder'}
+          </button>
+          <button type="button" disabled={busy}
+            onClick={() => { setError(''); setNotice(''); setConfirmDeletePrevious(true) }}>
+            {prevSize ? `Delete previous folder (${prevSize})` : 'Delete previous folder'}
+          </button>
+        </SetRow>
+      )}
+    </SetGroup>
+
+    {preflight && state && (
+      <PinFrame kind="move-data-location" title="Move data folder" panel="settings move-data-dialog"
+        close={dismissMoveDialog} onEsc={dismissMoveDialog} closable={!moving} pinnable={false}
+        dialogLabel="Move data folder">
+        <h3>Move data folder</h3>
+        <div className="dataloc-summary">
+          <div className="dataloc-kv">
+            <span className="dim">From</span>
+            <code data-streamer-field="path">{state.currentRoot}</code>
+          </div>
+          <div className="dataloc-kv">
+            <span className="dim">To</span>
+            <code data-streamer-field="path">{preflight.resolvedRoot}</code>
+          </div>
+          {preflight.usedSubfolder && (
+            <p className="dim dataloc-subfolder-note">
+              Because <span className="mono" data-streamer-field="path">{preflight.pickedPath}</span> is not empty, Orgtree will create and use <span className="mono" data-streamer-field="path">{preflight.resolvedRoot}</span> inside it.
+            </p>
+          )}
+          <div className="dataloc-kv">
+            <span className="dim">Data to copy</span>
+            <span>{formatDataBytes(preflight.sourceBytes) || '0 B'}</span>
+          </div>
+          <div className="dataloc-kv">
+            <span className="dim">Available on destination</span>
+            <span>{formatDataBytes(preflight.freeBytes) || 'Unknown'}</span>
+          </div>
+        </div>
+        <p className="dim">
+          Orgtree will close its windows, stop the background engine, copy and verify every file into the new folder, start the engine there, and reopen your windows. If copying is cancelled or the new folder fails to start, Orgtree leaves your current folder untouched and reopens there.
+        </p>
+        {preflight.activeAgents > 0 && (
+          <p className="ask-warn" role="alert">
+            {preflight.activeAgents === 1
+              ? '1 agent turn is running and will be stopped before copying.'
+              : `${preflight.activeAgents} agent turns are running and will be stopped before copying.`}
+          </p>
+        )}
+        <label className="dataloc-check">
+          <input type="checkbox" checked={deletePrevious} disabled={moving}
+            onChange={e => setDeletePrevious(e.target.checked)} />
+          <span>Delete the old folder once the new location starts cleanly</span>
+        </label>
+        {moving && progress && (
+          <p className="dim" role="status">{progress.detail}</p>
+        )}
+        {dialogError && <p className="ask-warn" role="alert">{dialogError}</p>}
+        <div className="dataloc-actions">
+          <button type="button" disabled={moving} onClick={dismissMoveDialog}>Cancel</button>
+          <button type="button" className="primary" disabled={moving}
+            onClick={() => { void confirmMove() }}>
+            {moving
+              ? 'Moving…'
+              : preflight.activeAgents > 0
+                ? 'Stop turns and move'
+                : 'Move data'}
+          </button>
+        </div>
+      </PinFrame>
+    )}
+
+    {confirmDeletePrevious && state?.previousRoot && (
+      <PinFrame kind="delete-previous-data-location" title="Delete previous data folder"
+        panel="settings move-data-dialog"
+        close={() => { if (!deletingPrevious) setConfirmDeletePrevious(false) }}
+        onEsc={() => { if (!deletingPrevious) setConfirmDeletePrevious(false) }}
+        closable={!deletingPrevious} pinnable={false}
+        dialogLabel="Delete previous data folder">
+        <h3>Delete previous data folder</h3>
+        <p className="dim">
+          Permanently delete the previous data folder at{' '}
+          <span className="mono" data-streamer-field="path">{state.previousRoot}</span>
+          {prevSize ? ` (${prevSize})` : ''}? Orgtree is currently running from{' '}
+          <span className="mono" data-streamer-field="path">{state.currentRoot}</span>.
+        </p>
+        <div className="dataloc-actions">
+          <button type="button" disabled={deletingPrevious}
+            onClick={() => setConfirmDeletePrevious(false)}>Cancel</button>
+          <button type="button" className="primary" disabled={deletingPrevious}
+            onClick={() => { void runDeletePrevious() }}>
+            {deletingPrevious
+              ? 'Deleting…'
+              : prevSize
+                ? `Delete previous folder (${prevSize})`
+                : 'Delete previous folder'}
+          </button>
+        </div>
+      </PinFrame>
+    )}
+  </>
 }

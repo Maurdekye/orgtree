@@ -6,7 +6,7 @@ import { HireAutoFocusSetting, NewHirePositionSetting } from './hirepositionsett
 import { EventHeadlineSetting } from './eventheadlinesetting'
 import { ChangelogAfterUpdateSetting } from '../changelog'
 import { setProjectBunchesOn, useProjectBunches, setProjectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
-import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
+import { DesktopSettings, DataLocationSetting, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
 import { LiveFeedSetting } from './livefeedsetting'
@@ -852,6 +852,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [dataLocationDialogOpen, setDataLocationDialogOpen] = useState(false)
   const [discovering, setDiscovering] = useState(true)
   const pushedProviders = useAppValue<ProvidersPayload>('providers')
   const enterKey = useAppValue<EnterKeyBehavior>('enter_key_behavior')
@@ -937,7 +938,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   const appTabs = (remote ? APP_TABS.map(item => LOCAL_APP_TABS.has(item.id) ? { ...item, note: 'this computer' } : item) : APP_TABS)
     .filter(item => item.id !== 'remoteaccess' || sharing)
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
-    close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false)
+    close={close} onEsc={() => addAccount || dataLocationDialogOpen ? undefined : pickerOpen ? setPickerOpen(false)
       : settingsSearchEscape() ? undefined : close()}>
     <h3>App settings</h3>
     <SettingsSearch tabs={APP_TABS} idBase="app-settings" setTab={setTab} target={target}
@@ -1043,6 +1044,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <ThisComputer on={!!remote}>
         <DesktopSettings />
         <RunAsAdministratorSetting />
+        <DataLocationSetting onDialogChange={setDataLocationDialogOpen} />
       </ThisComputer>
       <QuickStaffSetting />
       <TurnLimitsSetting />
