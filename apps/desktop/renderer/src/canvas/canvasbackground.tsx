@@ -226,6 +226,8 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   const live = useRef({ hidden, intensity })
   live.current = { hidden, intensity }
   const stillRef = useRef<(() => void) | null>(null)
+  const wakeRef = useRef<(() => void) | null>(null)
+  const pauseRef = useRef<(() => void) | null>(null)
   // The camera the DOM last COMMITTED (what the cards are drawn with); `viewRef` is written ahead of the commit by the wheel.
   const committed = useRef(view)
   committed.current = view
@@ -558,17 +560,34 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       drawOnce(fieldTime, revealNow())
       tryStart()
     }
+    const clearBusyOff = (): void => {
+      win.clearTimeout(retryTimer)
+      busyOff = false
+      busyWhy = ''
+      strikes = 0
+      lateFaults = 0
+      stallRun = 0
+      goodFrames = 0
+      lateRing = []
+    }
     const rouse = (): void => {
-      if (still || busyOff || !gridOk || dead || contextLost) return
+      if (still || !gridOk || dead || contextLost || !visibleNow()) return
+      const wasBusyOff = busyOff
+      if (wasBusyOff) clearBusyOff()
       if (calm) { restart(); return }
       budgetEnd = animTime + budgetS
+      if ((wasBusyOff || !loopActive) && drawOnce(fieldTime, revealNow())) setState('moving')
       tryStart()
     }
     const onVisibleReturn = (): void => {
       if (cancelled || dead || contextLost || still) return
-      if (calm) restart()
-      else tryStart()
+      if (!visibleNow()) { stopLoop(); return }
+      if (calm) { restart(); return }
+      if (!loopActive && !busyOff && drawOnce(fieldTime, revealNow())) setState('moving')
+      tryStart()
     }
+    wakeRef.current = still ? null : onVisibleReturn
+    pauseRef.current = stopLoop
 
     const applyResize = (): void => {
       if (cancelled || dead || contextLost || !renderer) return
@@ -595,7 +614,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const hit = t.closest(INTERACTIVE)
       return hit !== null && hit !== parent && parent.contains(hit)
     }
-    const interactionLive = (): boolean => !still && !busyOff && gridOk && !dead && !contextLost && (loopActive || calm)
+    const interactionLive = (): boolean => !still && gridOk && !dead && !contextLost && visibleNow()
     const onPointerMove = (e: PointerEvent): void => {
       if (!interactionLive() || e.pointerType === 'touch') return
       if (onInteractive(e)) { touch.leave(); return }
@@ -749,6 +768,8 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         renderer.destroy()
       }
       if (stillRef.current === drawStill) stillRef.current = null
+      if (wakeRef.current === onVisibleReturn) wakeRef.current = null
+      if (pauseRef.current === stopLoop) pauseRef.current = null
       if (trackRef.current === trackCamera) trackRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -760,7 +781,9 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   // The canvas world coming back (or going away) is a visibility edge the
   // loop's own checks also see; nudging here restarts without a 50 ms lag.
   useEffect(() => {
-    if (!hidden && reduced) stillRef.current?.()
+    if (hidden) { pauseRef.current?.(); return }
+    if (reduced) stillRef.current?.()
+    else wakeRef.current?.()
   }, [hidden, reduced])
 
   return <div ref={hostRef} className="canvas-bg-ascii" data-canvas-bg="ascii"

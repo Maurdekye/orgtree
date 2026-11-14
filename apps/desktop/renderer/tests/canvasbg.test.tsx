@@ -1160,3 +1160,56 @@ test('Claude Waves fades out at the grid minimum instead of vanishing, and fades
   assert.match(c.style.transition, /opacity 250ms/, 'and fades in over the same 250 ms')
   assert.notEqual(c.style.display, 'none')
 })
+
+test('Claude Waves Part A: wakes when canvas world un-hides and when floor interaction rouses a parked or busy-off layer', async (t) => {
+  installAsciiGlEnv(t, 1)
+  stubReducedMotion(t, false)
+  const viewRef = { current: { x: 0, y: 0, z: 1 } }
+  let api: AsciiTestApi | null = null
+  const renderStage = (hidden: boolean) => (
+    <div className={`canvas-world${hidden ? ' canvas-world-hidden' : ''}`}>
+      <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={hidden} intensity={1}
+        pin={{ seed: 42, pool: 'mixed' }} onReady={a => { api = a }} />
+    </div>
+  )
+  const mounted = await mountView(renderStage(true), el => el)
+  t.after(async () => { await mounted.unmount() })
+  for (let i = 0; i < 20 && !api; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
+  }
+  assert.equal(api === null, false, 'AsciiLayer initializes even when mounted while hidden')
+  assert.equal(api!.state().running, false, 'loop stays parked while canvas world is hidden')
+  assert.equal(api!.state().datasetState, 'unseen', 'initial hidden mount remains unseen')
+
+  // 1. Switching Attention -> Canvas (hidden: true -> false) wakes the animation loop immediately
+  await mounted.render(renderStage(false))
+  assert.equal(api!.state().running, true, 'un-hiding the canvas world immediately starts the animation loop')
+  assert.equal(api!.state().datasetState, 'moving', 'un-hiding transitions datasetState to moving')
+  for (let i = 0; i < 15 && api!.state().reveal <= 0; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 25)); await flush(2) })
+  }
+  assert.equal(api!.state().reveal > 0, true, 'frames advance reveal above 0 after un-hiding')
+
+  // 2. Switching Canvas -> Attention -> Canvas pauses immediately on hide and resumes on return
+  await mounted.render(renderStage(true))
+  assert.equal(api!.state().running, false, 'hiding the canvas world stops the loop immediately')
+  await mounted.render(renderStage(false))
+  assert.equal(api!.state().running, true, 'returning to the canvas world resumes the loop immediately')
+
+  // 3. Floor interaction immediately wakes a layer parked in busyOff without waiting for retryTimer
+  const glCanvas = api!.renderer()!.canvas
+  api!.simulateLoad!('gpu', 2)
+  assert.equal(api!.state().busyOff, true, '2 GPU faults park the layer in busyOff')
+  assert.equal(api!.state().running, false)
+  assert.equal(glCanvas.style.opacity, '0')
+
+  const hostParent = mounted.el.querySelector('.canvas-bg-ascii')!.parentElement!
+  const PointerEv = window.PointerEvent ?? window.MouseEvent
+  hostParent.dispatchEvent(new PointerEv('pointerdown', { bubbles: true, button: 0, clientX: 140, clientY: 140 }))
+  const roused = api!.state()
+  assert.equal(roused.busyOff, false, 'floor interaction clears busyOff immediately')
+  assert.equal(roused.running, true, 'floor interaction resumes the animation loop')
+  assert.equal(roused.datasetState, 'moving')
+  assert.equal(roused.tapCount, 1, 'floor click records its tap ripple while rousing')
+  assert.equal(Number(glCanvas.style.opacity) > 0, true, 'floor interaction restores non-zero canvas opacity')
+})
