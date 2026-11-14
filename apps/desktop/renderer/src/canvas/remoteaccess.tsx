@@ -14,7 +14,7 @@ import { ProviderDialog } from './providerdialog'
 import { ageTitle } from './listage'
 import { RemoteIcon } from '../icons'
 import { remoteOfOrg, useRemotes } from '../remotes'
-import { addressAndCode, addressNote, allowDoor, changeListening, listenOf, computerSeen, computersWord, connectedChip, doorTrouble, doorWord,
+import { addressAndCode, addressNote, addressToShare, onlyThisComputer, allowDoor, changeListening, listenOf, computerSeen, computersWord, connectedChip, doorTrouble, doorWord,
   getOrgAccess, getRemoteAccess, giveComputer, makeCode, removeDoorRules, revokeComputer, stopAllAccess, switchOrgAccess,
   turnOnOrgAccess, useRemoteAccess, validPort, type CodeView, type ComputerView, type DoorView, type ListenPatch, type OrgAccessView } from '../remoteaccess'
 import type { ToastFn } from '../types'
@@ -158,7 +158,9 @@ export function AddComputerDialog({ slug, view, door, toast, close, changed }: {
     asked.current = true
     makeCode(slug).then(setCode, (e) => setError(message(e)))
   }, [slug])
-  const url = door.addresses[0]?.url ?? ''
+  // never 127.0.0.1: to the other computer that is itself (`addressToShare`)
+  const url = addressToShare(door)?.url ?? ''
+  const tunnel = onlyThisComputer(door)
   const copy = (value: string, said: string) => {
     navigator.clipboard.writeText(value)
       .then(() => toast([said]))
@@ -181,7 +183,11 @@ export function AddComputerDialog({ slug, view, door, toast, close, changed }: {
           {url ? <>
             <span className="chip mono" data-streamer-field="ip">{url}</span>
             <button type="button" onClick={() => copy(url, 'Address copied')}>Copy</button>
-          </> : <span className="dim">{doorTrouble(door) ?? 'This computer is not listening yet.'}</span>}
+          </> : tunnel ? <span className="remote-tunnel-address">
+            This computer listens only on itself, so send the address of your tunnel instead: the https address your
+            proxy or tunnel gives you, or for an SSH tunnel <span className="mono">http://127.0.0.1:{door.port}</span>,
+            which the other computer forwards here.
+          </span> : <span className="dim">{doorTrouble(door) ?? 'This computer is not listening yet.'}</span>}
         </SetRow>
         <SetRow label="One-time code" hint={`It goes into the Token field there. Valid for ${view.limits.minutes} minutes, for one computer.`}>
           {code ? <>

@@ -182,6 +182,18 @@ export const addressNote = (address: Pick<DoorAddress, 'kind'>): string =>
   address.kind === 'tailscale' ? 'Tailscale' : address.kind === 'lan' ? 'Private network, not encrypted (http)'
     : address.kind === 'local' ? 'This computer only: for an SSH tunnel or a local https proxy' : 'This computer'
 
+/** The address to hand to another computer: Tailscale's first, then this
+ *  private network's. The door on this computer itself (127.0.0.1) is never
+ *  one: only a tunnel or a proxy on this computer connects there, and to the
+ *  other computer that address is itself (review M-2, 2026-11-14). */
+export const addressToShare = (door: Pick<DoorView, 'addresses'>): DoorAddress | undefined =>
+  door.addresses.find((a) => a.kind === 'tailscale') ?? door.addresses.find((a) => a.kind !== 'local')
+
+/** Does the door stand on this computer itself and nowhere else? Then the
+ *  other computer needs the address of the tunnel or proxy in front of it. */
+export const onlyThisComputer = (door: Pick<DoorView, 'addresses'>): boolean =>
+  door.addresses.length > 0 && door.addresses.every((a) => a.kind === 'local')
+
 /** When a computer was last here, in words. */
 export function computerSeen(computer: Pick<ComputerView, 'connected' | 'connected_since' | 'last_seen_at'>,
   time: (iso: string) => string, day: (iso: string) => string): string {
@@ -208,14 +220,25 @@ export function connectedChip(org: Pick<SharedOrgView, 'connected' | 'connected_
 export async function changeListening(now: RemoteAccessView, patch: ListenPatch,
   bridge: FirewallBridge | undefined = desktop()): Promise<{ view: RemoteAccessView } | { refused: string }> {
   const state = now.door.firewall?.state
-  const next = { ...listenOf(now), ...(patch.tailscale === undefined ? {} : { tailscale: patch.tailscale }),
+  const current = listenOf(now)
+  const next = { ...current, ...(patch.tailscale === undefined ? {} : { tailscale: patch.tailscale }),
     ...(patch.lan === undefined ? {} : { lan: patch.lan }), ...(patch.local === undefined ? {} : { local: patch.local }) }
   if (!next.tailscale && !next.lan && !next.local) return { refused: 'Choose at least one place for remote access to listen.' }
-  // this computer itself needs no rule: Windows is asked only for Tailscale or the private network
-  if (now.orgs.some((org) => org.on) && (next.tailscale || next.lan)
-    && bridge?.addRemoteAccessFirewallRule && state !== undefined && state !== 'none') {
-    const result = await bridge.addRemoteAccessFirewallRule(patch.port ?? now.port, next.lan, next.tailscale)
-    if (!result.ok) return { refused: result.error }
+  const port = patch.port ?? now.port
+  // The rules are for Tailscale and for the private network, each for the door's port. Windows
+  // is asked only when one of those three changes: this computer itself needs no rule, so
+  // switching it alone asks nothing (review M-1, 2026-11-14).
+  const rulesChange = port !== now.port || next.tailscale !== current.tailscale || next.lan !== current.lan
+  if (now.orgs.some((org) => org.on) && rulesChange && bridge && state !== undefined && state !== 'none') {
+    if (next.tailscale || next.lan) {
+      // the script takes the door's earlier rules out first, so a choice that went leaves no rule
+      const result = await bridge.addRemoteAccessFirewallRule?.(port, next.lan, next.tailscale)
+      if (result && !result.ok) return { refused: result.error }
+    } else if (now.door.firewall?.present) {
+      // nothing needs a rule any more: the rules that are there go
+      const result = await bridge.removeRemoteAccessFirewallRule?.()
+      if (result && !result.ok) return { refused: result.error }
+    }
   }
   return { view: await setListening(patch) }
 }

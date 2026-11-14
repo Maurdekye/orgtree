@@ -283,8 +283,8 @@ export interface DesktopBridge {
   /** Remote access › "Let other computers open this organization", and
    *  "Allow" beside "Windows Firewall is blocking this": add the Windows
    *  Firewall rules for the engine's remote door on `port` (Tailscale's
-   *  addresses; with `lan`, the local subnet on Private networks too) behind
-   *  ONE UAC prompt. They replace the door's earlier rules. `declined`: the
+   *  addresses unless `tailscale` is false; with `lan`, the local subnet on
+   *  Private networks) behind ONE UAC prompt. They replace the door's earlier rules. `declined`: the
    *  user said No and nothing changed. */
   addRemoteAccessFirewallRule?(port: number, lan: boolean, tailscale?: boolean): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
   /** Nothing is shared any more: remove those rules (one administrator prompt). */

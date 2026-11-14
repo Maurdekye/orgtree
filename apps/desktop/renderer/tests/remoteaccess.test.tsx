@@ -479,10 +479,10 @@ test('the words of the page, and the order of a change', async (t) => {
   w.log.length = 0
   await changeListening(overview(true, door()), { tailscale: false, lan: true }, recorder)
   assert.deepEqual(w.log, ['firewall 7431 true without Tailscale', 'PUT /api/remote-access'])
-  // this computer only needs no rule: Windows is not asked at all
+  // this computer only needs no rule: the rule Tailscale had is taken out, and none is added
   w.log.length = 0
   await changeListening(overview(true, door()), { tailscale: false, local: true }, recorder)
-  assert.deepEqual(w.log, ['PUT /api/remote-access'])
+  assert.deepEqual(w.log, ['firewall remove', 'PUT /api/remote-access'])
   // the last place cannot be switched off: nothing is asked of anybody
   w.log.length = 0
   assert.deepEqual(await changeListening(overview(true, door()), { tailscale: false }, recorder),
