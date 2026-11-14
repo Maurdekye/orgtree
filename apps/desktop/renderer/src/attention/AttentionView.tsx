@@ -212,6 +212,13 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  *     the very subtree the borrower is using. Only desk kinds are borrowed
  *     today. If an attention kind ever becomes borrowable, this state analysis
  *     must be redone rather than assumed to carry over.
+ *   · "RETURN TO CANVAS" ON A RESTORED DESK is a FIFTH caller (OrgCanvas, 4.5.13),
+ *     outside MovableSurface. It clears exactly one row, the one keyed
+ *     `windowLayoutKey('desk:<identity>', slug)`. An attention row is keyed by
+ *     `attention-queue` or `attention-desk`, and neither starts with `desk:`, so
+ *     the two keys can never be equal: it cannot clear an attention-kind row,
+ *     whatever the agent is called. The `redock()` beside it finds its surface by
+ *     the same desk kind, so it cannot reach one of this view's panels either.
  *   · `saveWindow` is EXPORTED, so `open: false` could in principle be written
  *     without going through `closeSavedWindow`. Nothing outside windowlayout.ts
  *     calls it, so "the only writer" holds by convention, not by construction.
@@ -297,6 +304,13 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  *     the very subtree the borrower is using. Only desk kinds are borrowed
  *     today. If an attention kind ever becomes borrowable, this state analysis
  *     must be redone rather than assumed to carry over.
+ *   · "RETURN TO CANVAS" ON A RESTORED DESK is a FIFTH caller (OrgCanvas, 4.5.13),
+ *     outside MovableSurface. It clears exactly one row, the one keyed
+ *     `windowLayoutKey('desk:<identity>', slug)`. An attention row is keyed by
+ *     `attention-queue` or `attention-desk`, and neither starts with `desk:`, so
+ *     the two keys can never be equal: it cannot clear an attention-kind row,
+ *     whatever the agent is called. The `redock()` beside it finds its surface by
+ *     the same desk kind, so it cannot reach one of this view's panels either.
  *   · `saveWindow` is EXPORTED, so `open: false` could in principle be written
  *     without going through `closeSavedWindow`. Nothing outside windowlayout.ts
  *     calls it, so "the only writer" holds by convention, not by construction.
