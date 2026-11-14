@@ -17,7 +17,8 @@ had no final-event handler to capture the set before close callbacks.
 Startup now reveals every main window and then focuses the original first
 window. A shared synchronous capture saves the current geometry and full
 membership for Quit, updater handoff, successful installer shutdown, console
-signals and final Windows `session-end`. The first final event latches
+signals, offline Data location moves (before windows close for the copy) and
+final Windows `session-end`. The first final event latches
 `quitting`; later events cannot replace the snapshot with a smaller set.
 Installer refusal and cancelable `query-session-end` do not latch this state.
 Engine-only restart keeps its existing window objects and membership.

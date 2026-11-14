@@ -238,6 +238,35 @@ test('shipping wiring publishes feed changes and preserves installer control pri
   for (const pattern of [/if \(hasInstallerUpgradeRequest\(commandLine\)\)[^\n]+return/,
     /if \(acceptTaskbar\(commandLine\)\) return/, /await drainTaskbar\(\)/,
     /taskbarOrgs\(appFeed\.state\)/, /app\.setJumpList\(/,
-    /args: process\.argv\.slice\(1\)\.filter\(arg => !arg\.startsWith\('--orgtree-taskbar='/])
+    // relaunchApp branches on options?.interactive (used only by Data location's
+    // finishSuccessfulMove): non-interactive relaunches keep the exact filtered argv,
+    // and interactiveRelaunchArgs strips --orgtree-taskbar= and orgtree:// links too
+    // alongside --background and --core-recovered.
+    /args:\s*options\?\.interactive\s*\?\s*interactiveRelaunchArgs\(process\.argv\.slice\(1\),\s*isOrgtreeLinkArg\)\s*:\s*process\.argv\.slice\(1\)\.filter\(arg => !arg\.startsWith\('--orgtree-taskbar='\) && !isOrgtreeLinkArg\(arg\)\)/])
     assert.equal(pattern.test(source), true, String(pattern))
+  assert.equal(source.split('interactive: true').length - 1, 1,
+    'only the Data location move relaunch selects the interactive argv branch')
+  const datalocation = fs.readFileSync('apps/desktop/main/datalocation.ts', 'utf8')
+  const helperStart = datalocation.indexOf('export function interactiveRelaunchArgs(')
+  const helperEnd = datalocation.indexOf('function overlapsPath(', helperStart)
+  const relaunchStart = source.indexOf('const relaunchApp =')
+  const relaunchEnd = source.indexOf('installMacWindowIconShim()', relaunchStart)
+  assert.ok(helperStart >= 0 && helperEnd > helperStart && relaunchStart >= 0 && relaunchEnd > relaunchStart)
+  const relaunched = []
+  const argv = ['C:\\Orgtree.exe', '--background', '--core-recovered', '--orgtree-taskbar=org:alpha', 'orgtree://alpha', '--keep']
+  const ctx = vm.createContext({
+    linuxAppImage: undefined, process: { argv, pid: 1 }, isOrgtreeLinkArg,
+    app: { relaunch: opts => relaunched.push(opts.args) },
+    appImageRelaunch: () => ({ file: '', args: [] }), appImageRelaunchEnv: env => env,
+    spawnProcess: () => ({ on() {}, unref() {} }), os: { homedir: () => '' }, console,
+  })
+  const snippet = datalocation.slice(helperStart, helperEnd).replace(/^export /m, '') + '\n' +
+    source.slice(relaunchStart, relaunchEnd) + '\nglobalThis.testRelaunch = relaunchApp;'
+  vm.runInContext(transformSync(snippet, { loader: 'ts' }).code, ctx)
+  ctx.testRelaunch()
+  ctx.testRelaunch([], { interactive: true })
+  assert.deepEqual(plain(relaunched), [
+    ['--background', '--core-recovered', '--keep'],
+    ['--keep'],
+  ])
 })

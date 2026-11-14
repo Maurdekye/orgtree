@@ -38,7 +38,9 @@ existing lowercase org-slug alphabet. Installer control retains priority.
 Cold-launch and second-instance targets queue until the window routes exist;
 a cold task launch opens its destination instead of restoring unrelated saved
 windows. Internal relaunches omit this one-shot argument and follow their
-ordinary saved-window behavior. A stale/deleted task takes the existing org
+ordinary saved-window behavior; interactive Data location move relaunches also
+omit `--background` and `--core-recovered` so the moved app reopens visibly.
+A stale/deleted task takes the existing org
 window error route rather than silently selecting a different organization.
 
 An `orgtree://` link from Hubchat ([orgtree-links](orgtree-links.md)) is the other

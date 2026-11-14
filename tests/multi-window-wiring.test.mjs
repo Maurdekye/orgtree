@@ -172,8 +172,19 @@ test('shutdown routes share a capture of all open windows BEFORE teardown', () =
   // nothing at all
   assert.equal(main.split('placement?.beginShutdown(').length - 1, 1,
     'one shared helper captures the full reopen set')
-  assert.equal(main.split('captureOpenWindowsForShutdown()').length - 1, 5,
-    'Quit, updater, installer, signals and final Windows session all capture it')
+  // 5 final shutdown routes (Quit, updater, installer, signals, Windows session-end)
+  // plus 1 offline Data location move capture in prepareUiForMove (before destroying
+  // open windows, since finishSuccessfulMove sets quitComplete = true before app.quit()).
+  assert.equal(main.split('captureOpenWindowsForShutdown()').length - 1, 6,
+    'Quit, updater, installer, signals, Data location move and final Windows session all capture it')
+  const moveStart = main.indexOf('prepareUiForMove: async () => {')
+  const moveEnd = main.indexOf('stopEngineForMove:', moveStart)
+  assert.ok(moveStart > 0 && moveEnd > moveStart, 'Data location move UI teardown block exists')
+  const moveUi = main.slice(moveStart, moveEnd)
+  assert.equal(moveUi.split('captureOpenWindowsForShutdown()').length - 1, 1,
+    'the 6th capture belongs to the Data location move path')
+  assert.ok(moveUi.indexOf('captureOpenWindowsForShutdown()') < moveUi.indexOf('record.window.destroy()'),
+    'Data location move captures open windows before destroying them')
   assert.match(main, /if \(record\.placementKey && !quitting\) placement\?\.closedWindow\(record\.placementKey\)/,
     'a close during a shutdown is not the user closing a window')
 })
