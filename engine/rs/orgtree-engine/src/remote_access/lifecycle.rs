@@ -568,7 +568,8 @@ mod tests {
         assert_eq!(plan(true, listen(false, false, true), 7431, tailscale, lan), vec![at(Kind::Local, "127.0.0.1:7431")]);
         assert_eq!(plan(true, listen(false, false, true), 7431, None, None), vec![at(Kind::Local, "127.0.0.1:7431")]);
         assert_eq!(plan(true, listen(true, true, true), 7431, tailscale, lan),
-            vec![at(Kind::Tailscale, "100.64.0.1:7431"), at(Kind::Local, "127.0.0.1:7431"), at(Kind::Lan, "192.168.1.20:7431")]);
+            vec![at(Kind::Tailscale, "100.64.0.1:7431"), at(Kind::Lan, "192.168.1.20:7431"), at(Kind::Local, "127.0.0.1:7431")],
+            "an address another computer can use comes before this computer itself: the first is the one handed on");
         // nothing is shared, or nothing is chosen: no door
         assert!(plan(false, listen(true, true, true), 7431, tailscale, lan).is_empty());
         assert!(plan(true, listen(false, false, false), 7431, tailscale, lan).is_empty());

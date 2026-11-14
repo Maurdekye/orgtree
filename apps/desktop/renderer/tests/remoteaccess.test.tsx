@@ -619,3 +619,59 @@ test('Add a remote engine: an address without a port gets the standalone engine\
     ['', ''], ['http://', 'http://'], ['two words', 'two words'],
   ] as const) assert.equal(addressWithPort(typed), filled, JSON.stringify(typed))
 })
+
+// Review of the loopback door (remote-sec-carbon, 2026-11-14), M-1: the firewall
+// rules follow what the door needs, and Windows is asked only when they change.
+test('changing where it listens: a rule that is no longer needed goes, and a change that needs no rule asks nothing', async (t) => {
+  const w = world(t, () => overview(true, door()))
+  const prompt = { ok: true as const }
+  const recorder = {
+    addRemoteAccessFirewallRule: async (port: number, lan: boolean, tailscale?: boolean) => {
+      w.log.push(`firewall ${port} ${lan}${tailscale === false ? ' without Tailscale' : ''}`); return prompt
+    },
+    removeRemoteAccessFirewallRule: async () => { w.log.push('firewall remove'); return prompt },
+  }
+  const shared = (patch: Partial<RemoteAccessView> = {}) => ({ ...overview(true, door()), ...patch })
+  // shared on Tailscale; "This computer only" goes on beside it: the rules do not change, so nobody is asked
+  w.log.length = 0
+  await changeListening(shared(), { local: true }, recorder)
+  assert.deepEqual(w.log, ['PUT /api/remote-access'])
+  // and off again
+  w.log.length = 0
+  await changeListening(shared({ local: true }), { local: false }, recorder)
+  assert.deepEqual(w.log, ['PUT /api/remote-access'])
+  // Tailscale goes off with only this computer left: its rule is taken out first
+  w.log.length = 0
+  await changeListening(shared({ local: true }), { tailscale: false }, recorder)
+  assert.deepEqual(w.log, ['firewall remove', 'PUT /api/remote-access'])
+  // a No at the prompt leaves everything as it was
+  w.log.length = 0
+  const refusing = { ...recorder, removeRemoteAccessFirewallRule: async () => { w.log.push('firewall remove'); return { ok: false as const, declined: true, error: 'Nothing changed: Windows Firewall stays as it was.' } } }
+  assert.deepEqual(await changeListening(shared({ local: true }), { tailscale: false }, refusing), { refused: 'Nothing changed: Windows Firewall stays as it was.' })
+  assert.deepEqual(w.log, ['firewall remove'])
+  // no rule is there to take out: nothing is asked
+  w.log.length = 0
+  await changeListening(shared({ local: true, door: door({ firewall: { state: 'ok', present: false } }) }), { tailscale: false }, recorder)
+  assert.deepEqual(w.log, ['PUT /api/remote-access'])
+  // only this computer, and the port changes: still no rule
+  w.log.length = 0
+  await changeListening(shared({ tailscale: false, local: true, door: door({ firewall: { state: 'ok', present: false } }) }), { port: 7440 }, recorder)
+  assert.deepEqual(w.log, ['PUT /api/remote-access'])
+  // the port changes while Tailscale is chosen: the rule follows, as before
+  w.log.length = 0
+  await changeListening(shared(), { port: 7440 }, recorder)
+  assert.deepEqual(w.log, ['firewall 7440 false', 'PUT /api/remote-access'])
+})
+
+// M-2: 127.0.0.1 is never an address for another computer.
+test('the address to hand on is Tailscale\'s, then the private network\'s, and never this computer itself', async () => {
+  const { addressToShare, onlyThisComputer } = await import('../src/remoteaccess')
+  const at = (kind: 'tailscale' | 'lan' | 'local', url: string) => ({ kind, ip: '', port: 7431, url, encrypted: kind === 'tailscale' })
+  const tailscale = at('tailscale', URL), lan = at('lan', 'http://192.168.1.20:7431'), local = at('local', 'http://127.0.0.1:7431')
+  assert.equal(addressToShare({ addresses: [local, lan, tailscale] })?.url, URL)
+  assert.equal(addressToShare({ addresses: [local, lan] })?.url, 'http://192.168.1.20:7431')
+  assert.equal(addressToShare({ addresses: [lan, local] })?.url, 'http://192.168.1.20:7431')
+  assert.equal(addressToShare({ addresses: [local] }), undefined)
+  assert.equal(addressToShare({ addresses: [] }), undefined)
+  assert.deepEqual([[local], [local, lan], []].map((addresses) => onlyThisComputer({ addresses })), [true, false, false])
+})
