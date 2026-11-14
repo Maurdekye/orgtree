@@ -5321,6 +5321,18 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "Tailscale"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "This private network"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
+     "label": "This computer only"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/remoteaccess.tsx",
      "label": "Port"
     },
     {
