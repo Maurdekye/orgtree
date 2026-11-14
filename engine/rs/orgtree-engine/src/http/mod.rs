@@ -324,13 +324,16 @@ pub fn router(engine: Arc<Engine>) -> Router {
 /// (never cached: it names the content-hashed assets).
 #[logged]
 async fn ui(State(engine): State<Arc<Engine>>, req: Request) -> Response {
+    // An API path no route knows is answered as the API answers, before the UI folder is looked
+    // at: an engine started without one (a headless one) said "no UI bundle configured" here, and
+    // a window of a newer version could not tell an unknown route from a missing page (2026-11-14).
+    if req.uri().path().trim_start_matches('/').starts_with("api/") {
+        return api_not_found(req).await;
+    }
     let Some(dir) = engine.cfg.ui_dir.clone() else {
         return (StatusCode::NOT_FOUND, "no UI bundle configured").into_response();
     };
     let rel = req.uri().path().trim_start_matches('/');
-    if rel.starts_with("api/") {
-        return api_not_found(req).await;
-    }
     let safe = !rel.split(['/', '\\']).any(|seg| seg == ".." || seg.contains(':'));
     if safe && !rel.is_empty() {
         let full = dir.join(rel);
