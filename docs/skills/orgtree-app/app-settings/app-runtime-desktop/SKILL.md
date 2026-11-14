@@ -1,6 +1,6 @@
 ---
 name: orgtree-app-runtime-desktop
-description: Explain desktop startup, closing, automatic updates and administrator rights.
+description: Explain desktop startup, closing, automatic updates, administrator rights and data location.
 ---
 
 Up: [orgtree-app-settings](../SKILL.md)
@@ -19,6 +19,8 @@ These Runtime-tab controls apply to the desktop installation on this machine. Th
 | Exit when the last window closes | `np:exitOnClose`, native preferences | Off | With Off, closing leaves Orgtree available in the tray. With On, closing the last visible window quits the desktop; other visible windows prevent that final-window exit. Suggest On for deliberate desktop exit on close. |
 | Automatic updates | `np:automaticUpdates`, native preferences | On | Allows the automatic check/download/install path while idle. Off selects manual updates; a download already started may finish. Suggest manual updates when the user wants to schedule them. |
 | Run as admin | `bridge:setRunAsAdministrator`, protected Windows installation record | Off | One switch for the engine in Session 0 and the sign-in helper in the user's session, always together, and so for every agent they start. On means full administrator rights at boot, sign-in, restarts and updates with no further prompts. Switching it on shows a warning, then one Windows permission prompt; switching it off asks once too. The change applies at once: the engine and the helper restart, which interrupts running turns. Suggest only for an intended task requiring those rights. |
+| Current folder (Data location) | `bridge:moveDataLocation`, `<userData>/data-location.json` | `<userData>/data` (`%APPDATA%\Orgtree v2\data` on Windows) | Moves organizations, the PostgreSQL database, transcripts, diagnostics and managed CLI profiles to another local folder or drive, copying and verifying every file before switching over. Suggest when the system drive is low on space. |
+| Previous folder (Data location) | `bridge:moveDataLocation`, `previousRoot` in `<userData>/data-location.json` | Shown only while the previous folder still exists after a move | Opens or deletes the untouched previous data folder once the new location is running cleanly. |
 
 ## Startup and updates
 
@@ -76,6 +78,18 @@ The desktop preference switches do not rewrite agent instructions by themselves.
 ## Git and GitHub credentials in Session 0
 
 The signed-in desktop or helper relays git HTTPS and GitHub CLI credentials to isolated agent processes without moving the engine. A lookup can take up to 20 seconds; its pipe and engine request have 25/30-second bounds. `[gh-timeout]` reports an unfinished lookup, not proof of a missing login. The command then tries GitHub CLI's native sign-in path. Local `gh --version` and help skip credential lookup. API/network commands still use the bridge, with explicit tokens retaining precedence. No new credential caching is added; general Windows vault access remains isolated. For diagnosis, report elapsed time and the fixed error code without tokens or tool stderr.
+
+## Data location
+
+**Runtime > Data location** controls where Orgtree stores this computer's organizations, bundled PostgreSQL cluster, scratch folders, transcripts, diagnostics and managed provider profiles (`profiles/`). Native desktop preferences (`preferences.json`, window state) and the pointer file `<userData>/data-location.json` stay in `<userData>` (`%APPDATA%\Orgtree v2` on Windows). Precedence everywhere — the desktop main process, `orgtree-engine host`, `orgtree-credential-broker`, and installer/task scripts — is `ORGTREE_V2_DATA` first, then `dataRoot` in `data-location.json`, then `<userData>/data`. While `ORGTREE_V2_DATA` is set for the process, **Change location…** is disabled. Standalone engines (`orgtree-engine standalone`) keep their own `ORGTREE_DATA` and ignore `data-location.json`. In a remote-organization window, Data location appears under the **this computer** group and moves only this desktop's local data folder, never the remote engine's.
+
+Choosing **Change location…** (or **Use default location…** when a custom folder is active) runs preflight checks before stopping anything:
+
+- **Target folder**: an empty or not-yet-existing folder is used directly; a non-empty folder such as a drive root (`S:\`) uses `<picked>\Orgtree data` inside it, disclosed in the confirmation dialog. Paths overlapping the current data folder, `<userData>` itself, the installation folder, system root, or any symlink/junction/reparse ancestor are refused.
+- **Permissions and free space**: Orgtree applies an owner-only NTFS ACL (`SYSTEM`, `Administrators` and the current user) to the folder it creates, checks every ancestor directory above the drive root against the descriptor-trust rule, verifies exclusive file locking, and requires `sourceBytes + max(2 GiB, 10%)` free on the destination volume.
+- **Move flow and rollback**: if agent turns are running, the dialog warns with the count (**Stop turns and move**). Orgtree saves open windows, opens one offline progress window with live GB/file progress and **Cancel**, stops the Session 0 engine and PostgreSQL cleanly, copies and verifies every regular file's size and modification time without touching the old folder, stamps `.data-location-moved.json`, switches `data-location.json`, starts the engine on the new folder, and relaunches your windows once `/api/desktop/identity` responds for the new path. Cancelling before the switch or failing to start cleans up the partial destination, restores `data-location.json`, and reopens on the untouched original folder.
+- **Old folder**: **Delete the old folder once the new location starts cleanly** in the move dialog is **unticked by default**. When left unticked, the old folder stays untouched and **Previous folder** offers **Open folder** and **Delete previous folder (<size>)** until deleted; there is no post-reopen prompt and no automatic timer.
+- **Path relocation and offline drives**: on first boot at the moved folder, the engine runs an idempotent, crash-resumable relocation across stored scratch/profile/attachment paths in PostgreSQL and Claude Code session directories before starting organizations or watchdogs, recording a receipt in `diagnostics/data-relocation.jsonl`. External workspace grants (such as project checkouts) are untouched. If a configured custom drive is unplugged or missing at startup, Orgtree never creates a blank database silently: it prompts **Retry**, **Choose folder…**, **Use default location**, or **Quit**, and installer upgrades refuse while `.data-move-in-progress.json` names a live move process.
 
 ## See also
 

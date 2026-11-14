@@ -128,7 +128,7 @@ When [reporting a bug](https://github.com/Maurdekye/orgtree/issues), include app
 
 ## Data and privacy
 
-In the desktop installation, the engine runs locally, and organization data and retained history are stored on your machine in its bundled database. The database listens on the local loopback interface. A standard Windows installation keeps Orgtree's data under **`%APPDATA%\Orgtree v2\data`**. Account profiles can also use provider-specific locations.
+In the desktop installation, the engine runs locally, and organization data and retained history are stored on your machine in its bundled database. The database listens on the local loopback interface. A standard Windows installation keeps Orgtree's data under **`%APPDATA%\Orgtree v2\data`** unless you move it in **App settings > Runtime > Data location** (which records the chosen path in `%APPDATA%\Orgtree v2\data-location.json`, stops the engine cleanly, copies and verifies every file into an owner-restricted folder, updates stored scratch and managed-profile paths on first start, and keeps the previous folder untouched until you delete it). If a configured custom drive or folder is offline at startup, Orgtree prompts you to retry, pick another folder, use the default location or quit instead of creating an empty database. Account profiles outside `profiles/` can still use provider-specific locations.
 
 Agent requests still go to the providers you configure. Local storage does not mean model inference happens offline. Folder and tool permissions are worth choosing deliberately, just as they are when running the provider's coding tool directly.
 

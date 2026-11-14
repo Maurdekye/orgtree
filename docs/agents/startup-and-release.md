@@ -81,6 +81,13 @@ start (user report 2026-11-12; the PC's exact versions were not measured).
 minimum and check-only silent runs are the implementer's choices, flagged on the docket item; verified:
 `tools/vc-runtime.ps1`, `build/installer.nsh`, `engine/rs/orgtree-engine/src/pg.rs`, `tools/postgres-layout.mjs`]
 
+## Data location pointer, active-move guard and boot relocation (4.6.0)
+
+- **Shared resolution (`<userData>/data-location.json`):** `policy.ts` (`resolveDataRoot`), `host.rs` (`data_root`), `credential_broker.rs` (`data_root`), `tools/installer-upgrade.ps1` (`Get-EngineDataRoot`) and `tools/boot-engine-task.ps1` (`Get-OperatorDataRoot`) resolve the desktop data root in the same order: `ORGTREE_V2_DATA` -> `dataRoot` in `<userData>/data-location.json` -> `<userData>/data`. Standalone engines (`orgtree-engine standalone`) ignore `data-location.json` and use `ORGTREE_DATA`.
+- **Active-move refusal (`.data-move-in-progress.json`):** while Electron main copies or switches data roots (`datalocation.ts`), `<userData>/.data-move-in-progress.json` records the desktop PID. `host.rs` and `tools/installer-upgrade.ps1` check whether that PID is still alive and refuse to start a competing Session 0 engine or run an upgrade mid-copy; stale markers from dead PIDs are ignored.
+- **Missing custom drive at startup:** when `data-location.json` names a `dataRoot` that does not exist on disk and `ORGTREE_V2_DATA` is unset, Electron main prompts Retry / Choose folder… / Use default location / Quit before starting the engine so an unplugged drive never creates a blank database silently.
+- **Crash-resumable relocation (`.data-location-moved.json`):** after `migrate::run` and before organizations, accounts, mailhub or watchdogs start (`main.rs` -> `data_relocate::run_if_needed`), a moved root rewrites `<fromRoot>` prefixes (including Windows `\\?\` verbatim and slash variants) across all 16 path/JSONB columns in `ot.*` in one SQL transaction, relocates `profiles/claude-*/projects/<encoded-cwd>` and `.claude.json`, appends a receipt to `diagnostics/data-relocation.jsonl`, and removes `.data-location-moved.json`. External workspace grants outside `<fromRoot>` are untouched. [decided: user 2026-11-14, decision 104; verified: `engine/rs/orgtree-engine/src/{data_location,data_relocate}.rs`, `engine/rs/orgtree-engine/tests/data_location.rs`, `apps/desktop/main/datalocation.ts`, `tests/data-location.test.mjs`]
+
 <a id="e-1df71884f6ecc434"></a>
 
 ## The tray left-click popup shows at most ten whole org rows, with native

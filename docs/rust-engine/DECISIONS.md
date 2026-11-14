@@ -2604,3 +2604,36 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       are not built.
     The security review the decision asks for was done (2026-11-14); what it found beyond SEC-01
     to SEC-03 waits for a later release.
+
+104. **Data location: choose where Orgtree keeps its local data, with non-destructive move and crash-resumable relocation**
+    (USER 2026-11-14 08:04Z "yes, id prefer that for 4.6.0"; rulings 08:41Z via @coordinator-opus m83ed1eba38ae;
+    docket `settings-choose-where-orgtree-keeps-its-data-dat`).
+    - **Pointer file:** `<userData>/data-location.json` (`{ version: 1, dataRoot, previousRoot?, movedAt? }`,
+      owner-only ACL) stays in `%APPDATA%\Orgtree v2` beside `preferences.json`. Precedence across Electron
+      main (`policy.ts`), `orgtree-engine host` (`host.rs`), `orgtree-credential-broker` (`credential_broker.rs`),
+      `tools/installer-upgrade.ps1` and `tools/boot-engine-task.ps1` is `ORGTREE_V2_DATA` -> `data-location.json`
+      (`dataRoot`) -> `<userData>/data`. Standalone engines (`orgtree-engine standalone`) keep `ORGTREE_DATA`.
+    - **Folder and ACL rules:** an empty or new folder is used directly; a non-empty picked folder (such as `S:\`)
+      uses `<picked>\Orgtree data`. Orgtree applies a protected owner-only NTFS DACL (`SYSTEM`, `Administrators`
+      and the current user's SID) to the folder it creates, checks both the typed and canonicalized real path
+      against the descriptor-trust ancestor rule before stopping the engine, requires `sourceBytes + max(2 GiB,
+      ceil(0.10 * sourceBytes))` free on the target volume, and refuses overlapping, system, install, `userData`
+      or reparse-ancestor paths.
+    - **Non-destructive copy, offline window and rollback:** moving warns when turns are active, saves window
+      layout, opens one scriptless network-sealed progress window with live GB/file counters and pre-switch
+      Cancel, stops the Session 0 engine and PostgreSQL cleanly, copies and verifies every regular file's byte
+      size and mtime while leaving `<oldRoot>` read-only, stamps `<newRoot>/.data-location-moved.json`, switches
+      `data-location.json`, starts the engine on `<newRoot>` and relaunches once `/api/desktop/identity` matches.
+      Cancel or startup failure deletes `<newRoot>`, restores `data-location.json`, and reopens on `<oldRoot>`.
+    - **Old folder (explicit user ruling):** an **unticked** checkbox in the move dialog ("Delete the old folder
+      once the new location starts cleanly") plus **Delete previous folder (<size>)** in Settings while
+      `previousRoot` exists. No post-reopen prompt and no auto-delete timer.
+    - **Relocation without junctions, offline drives and upgrades:** on engine boot after migrations and before
+      organizations/accounts/watchdogs start, `data_relocate.rs` runs an idempotent single-transaction SQL
+      prefix rewrite across all 17 path/JSONB columns in `ot.*` (including verbatim `\\?\` and slash variants,
+      leaving external workspace folders untouched) plus Claude `profiles/claude-*/projects/<encoded-cwd>` and
+      `.claude.json`, writes a receipt to `diagnostics/data-relocation.jsonl`, and removes
+      `.data-location-moved.json`. Missing custom drives at startup prompt Retry / Choose folder… / Use default
+      location / Quit instead of creating an empty database; installer scripts and `host.rs` refuse while
+      `.data-move-in-progress.json` names a live PID. Contract:
+      [app-runtime-desktop](../skills/orgtree-app/app-settings/app-runtime-desktop/SKILL.md#data-location).

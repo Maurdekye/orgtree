@@ -285,6 +285,8 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Data location (USER 2026-11-14, 4.6.0): App settings > Runtime > Data location moves this computer's data root (`%APPDATA%\Orgtree v2\data` by default) to another local folder or drive, persisted in `<userData>/data-location.json` (`ORGTREE_V2_DATA` still overrides; standalone keeps `ORGTREE_DATA`). Empty picked folders are used directly; non-empty folders use `<picked>\Orgtree data` with an owner-only NTFS DACL and ancestor trust verification. Moving stops the engine cleanly, copies and verifies every file behind an offline progress window with rollback on Cancel or startup failure, relocates internal scratch/profile/attachment paths idempotently on first boot (`.data-location-moved.json`), and keeps the old folder unless the unticked move checkbox is ticked or **Delete previous folder (<size>)** is clicked. See [decision 104](DECISIONS.md) and the [desktop runtime guide](../skills/orgtree-app/app-settings/app-runtime-desktop/SKILL.md#data-location).
+
 Project watchdogs (USER 2026-11-03 mce2b36a98c88, 4.5.5+): a watchdog owned by a project (`orgtree_watchdog create project=P`) fires the project's event to every armed `project_listener`; any agent above or below the project manages it; `project_listener` gains an optional `pattern`; the Listeners tab lists the dogs as Event sources. See [project watchdogs](project-watchdogs.md). Delivery forms (USER 2026-11-04 m3349f8c87236, mb29a9befb448): `project_delivery` event | broadcast | queue (queue always queues).
 
 Custom project themes and icons (USER 2026-10-28 m1c0bc6c121e9, 4.5.5): in a

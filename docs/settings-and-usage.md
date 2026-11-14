@@ -125,6 +125,14 @@ The feedback suggestion switch encourages agents to prepare redacted issue draft
 
 Use actual evidence before increasing a silence allowance for a legitimate quiet operation. Changes apply across organizations and can affect an already running turn at its next timer check. A harness may also retain a timeout supplied when its process launched. Raising a limit does not revive a turn already ended. Some Muse foreground-tool recovery differs, but the total ceiling still applies. See [Operating and troubleshooting](operating-orgtree.md).
 
+### Data location
+
+**Runtime > Data location** shows where this computer keeps Orgtree's organizations, PostgreSQL database, scratch folders, transcripts, diagnostics and managed provider profiles (`%APPDATA%\Orgtree v2\data` by default on Windows), and lets you move it to another local drive or folder without editing junctions or stopping tasks by hand:
+
+- **Change location…** (and **Use default location…** while a custom path is active) checks free space (`data size + max(2 GiB, 10%)`), ancestor folder permissions and exclusive locking before stopping anything. Picking an empty or new folder uses it directly; picking a non-empty folder such as `S:\` creates and uses `Orgtree data` inside it, shown in the confirmation dialog, with an owner-only Windows ACL.
+- Confirming closes Orgtree's windows, stops active turns and the Session 0 engine cleanly, copies and verifies every file in a small offline progress window with **Cancel**, starts the engine at the new folder, updates stored scratch/profile/attachment paths on first boot, and reopens your saved windows. Cancelling before switch-over or failing to start leaves your original folder untouched and reopens there.
+- **Delete the old folder once the new location starts cleanly** starts **unticked**. While the old folder remains on disk, **Previous folder** offers **Open folder** and **Delete previous folder (<size>)** so you can reclaim space whenever you are ready. When `ORGTREE_V2_DATA` overrides the folder for the current session, changing the saved location is disabled. In a remote-organization window, Data location carries the **this computer** badge and moves only this desktop's local data folder.
+
 ## Set organization defaults deliberately
 
 **App settings > Default org settings** supplies defaults for future organizations. Explicit existing-org values remain; missing keys can still inherit effective defaults. For a current org, use its own settings. Both the Default org settings tab and standalone Defaults save changes automatically: discrete choices immediately and numeric edits after about 750 ms. The form stays open, and errors offer Retry.
