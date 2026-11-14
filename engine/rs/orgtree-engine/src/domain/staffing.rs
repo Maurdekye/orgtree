@@ -602,20 +602,29 @@ mod hire_position_tests {
 /// `GET /api/orgs/{slug}/staffing-options`: the warm availability every
 /// staffing surface reads (hire modal, staff menus, model/account/effort
 /// selects): each tier this machine can staff, its efforts, its eligible
-/// accounts, and whether a hire naming no account can run it.
+/// accounts, and whether a hire naming no account can run it. `spent` names the tiers nobody
+/// can take a hire of because every signed-in candidate is at its limit (4.6.0 on).
 #[logged]
 pub fn options(engine: &Engine, org_slug: &str) -> Value {
+    // the tiers nobody can take a hire of because every signed-in candidate is at its limit
+    let mut spent: Vec<String> = Vec::new();
     let tiers: Vec<Value> = runnable_tiers(engine, org_slug)
         .into_iter()
         .filter_map(|t| {
             let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
-            let host = host_for(engine, org_slug, &t.tier, t.provider)
-                && crate::usage::antigravity_limit(engine, &t.tier).is_none()
+            let signed_in = host_for(engine, org_slug, &t.tier, t.provider)
                 && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier));
+            let host = signed_in && crate::usage::antigravity_limit(engine, &t.tier).is_none();
+            let native_ok = host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none());
+            if accounts.is_empty() && !native_ok && !accountless(t.provider) {
+                let own = if signed_in { Candidate::Spent } else { Candidate::Out };
+                if every_candidate_spent(own, &account_candidates(engine, &t.tier, org_slug)) {
+                    spent.push(t.tier.clone());
+                }
+            }
             if accounts.is_empty() && !host {
                 return None;
             }
-            let native_ok = host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none());
             // Who a hire should name, the one with the most room first: the engine's own
             // sign-in and the accounts that can run the model, ranked together (user ruling
             // 2026-11-14, "Pre-select an account"). The organization's default account
@@ -630,6 +639,7 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
         .collect();
     let mut result = availability(engine);
     result["tiers"] = json!(tiers);
+    result["spent"] = json!(spent);
     result["generation"] = json!(0);
     result
 }
@@ -662,8 +672,33 @@ enum Candidate {
 /// fall through to a default account that cannot run the model (coordinator's ruling
 /// 2026-11-14 on "nothing usable"). All signed out is not this: the tile then says to sign in.
 #[nolog]
-fn every_candidate_spent(_own: Candidate, _accounts: &[Candidate]) -> bool {
-    false
+fn every_candidate_spent(own: Candidate, accounts: &[Candidate]) -> bool {
+    let all = || std::iter::once(own).chain(accounts.iter().copied());
+    !all().any(|c| c == Candidate::Usable) && all().any(|c| c == Candidate::Spent)
+}
+
+/// The registered accounts as candidates for `tier`: the same questions `eligible_accounts`
+/// asks, with "at a limit" kept apart from "not in the running".
+#[logged]
+fn account_candidates(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Candidate> {
+    let provider = catalog::provider_of(tier);
+    let now = Utc::now();
+    engine.accounts.view().all().into_iter().filter(|a| a.provider == provider).map(|a| {
+        let running = (a.provider != catalog::OPENROUTER
+                || crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, &a.id)))
+            && a.available_to(Some(org_slug))
+            && crate::accounts::active(engine, provider, Some(a))
+            && a.auth != "signed_out"
+            && (provider != catalog::MUSE || matches!(
+                crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)));
+        if !running {
+            Candidate::Out
+        } else if a.limited_for(tier, now).is_some() || crate::usage::at_limit(engine, Some(a), tier).is_some() {
+            Candidate::Spent
+        } else {
+            Candidate::Usable
+        }
+    }).collect()
 }
 
 #[cfg(test)]
