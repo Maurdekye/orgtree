@@ -194,6 +194,24 @@ export function addressWithCode(typed: string): { url: string; code: string } | 
     ? { url: parts[0]!, code: parts[1]! } : null
 }
 
+/** The port a standalone engine listens on unless it was given another
+ *  (the container's `ORGTREE_PORT`, docs/standalone-engine.md). */
+export const STANDALONE_PORT = 7430
+
+/** An address as the Add dialog will try it: one typed without a port gets
+ *  the standalone engine's (user request 2026-11-14: a bare host name went to
+ *  port 80, where something else may answer). A typed port is kept. `https`
+ *  has its own port, which a proxy answers on, so it is left alone. Anything
+ *  this cannot read as an address is left as typed, for the engine to refuse. */
+export function addressWithPort(typed: string): string {
+  const address = typed.trim()
+  const parts = /^(https?:\/\/)?(\[[0-9A-Fa-f:.]+\]|[^\s/:[\]]+)(:\d*)?(\/\S*)?$/i.exec(address)
+  if (!parts) return address
+  const [, scheme = '', host, port, path = ''] = parts
+  if (/^https:/i.test(scheme) || port) return address
+  return `${scheme}${host}:${STANDALONE_PORT}${path}`
+}
+
 /** Is this organization one its hosting desktop no longer shares? The link is
  *  up, the desktop is somebody's own, and its list no longer has the
  *  organization: the sentence is the hosting desktop's own (E16). */

@@ -13,7 +13,7 @@ import { SetRow } from '../canvas/settingskit'
 import { useContextMenu } from '../canvas/contextmenu'
 import { ageTitle } from '../canvas/listage'
 import { RemoteIcon } from '../icons'
-import { addRemote, addressWithCode, getPeople, getShownAs, noLongerShared, patchRemote, remoteBanner, remoteOfOrg, removeRemote, retryRemote,
+import { addRemote, addressWithCode, addressWithPort, STANDALONE_PORT, getPeople, getShownAs, noLongerShared, patchRemote, remoteBanner, remoteOfOrg, removeRemote, retryRemote,
   setShownAs, stateWord, transportLabel, useRemotes, type PeopleView, type RemoteView } from '../remotes'
 
 const clock = (iso: string): string => {
@@ -38,7 +38,12 @@ export function RemoteEngineDialog({ close, replace }: { close: () => void; repl
     setError(null)
     try {
       if (replace) await patchRemote(replace.id, { token: token.trim() })
-      else await addRemote(url.trim(), token.trim(), name)
+      else {
+        // what is sent is what the field shows: a missing port is filled in first
+        const address = addressWithPort(url)
+        setUrl(address)
+        await addRemote(address, token.trim(), name)
+      }
       close()
     } catch (e) { setError(message(e)); setBusy(false) }
   }
@@ -46,9 +51,10 @@ export function RemoteEngineDialog({ close, replace }: { close: () => void; repl
   return (
     <ProviderDialog title={replace ? `Replace the token of ${replace.name}` : 'Add a remote engine'} busy={busy} close={close}>
       <div className="ls-add remote-add" role="group" aria-label={replace ? 'Replace a remote engine token' : 'Add a remote engine'}>
-        {!replace && <SetRow label="Address" hint="Where the standalone engine listens, as this computer reaches it.">
+        {!replace && <SetRow label="Address" hint={`Where the standalone engine listens, as this computer reaches it. Without a port, ${STANDALONE_PORT} is filled in.`}>
           <input data-streamer-field="ip" type="text" aria-label="Engine address" spellCheck={false} value={url}
             placeholder="http://100.x.y.z:7430" disabled={busy} onKeyDown={onEnter}
+            onBlur={() => setUrl((typed) => addressWithPort(typed))}
             onChange={(e) => {
               // another desktop's "Both in one line": its address and its one-time code, pasted at once
               const both = addressWithCode(e.target.value)
