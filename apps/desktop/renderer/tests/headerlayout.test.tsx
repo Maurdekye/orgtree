@@ -200,8 +200,9 @@ test('desk cost badge distinguishes unresolved zero and positive estimates', asy
   try {
     const badge = [...positive.el.querySelectorAll<HTMLElement>('.cc-head-meta .badge')]
       .find((b) => b.textContent?.includes('$'))
-    // 4.x: cost diagnostics (unknown fields, estimated/incomplete notes) were removed — PLAN C6; the cost shows plainly
-    assert.equal(badge?.textContent, '$1.25')
+    // 4.x: cost diagnostics (unknown fields, incomplete notes) were removed — PLAN C6. 4.5.13 (6219b47): positive spend
+    // that includes an estimated turn says so; the fixture's one turn is estimated
+    assert.equal(badge?.textContent, '$1.25 est.')
   } finally { await positive.unmount() }
 })
 
