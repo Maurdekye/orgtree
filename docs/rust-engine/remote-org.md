@@ -614,7 +614,9 @@ and with that as the only place `door.firewall.state` is `ok` and Windows is nev
   The window asks Windows only when what the rules are for changes: the port, Tailscale or the private
   network (`changeListening`). A place that was switched off loses its rule in the same step (the script
   removes both and adds what is still needed; with neither left, the rules that are there are removed).
-  Switching "This computer only" alone asks nothing.
+  Switching "This computer only" alone asks nothing. The engine reads the rules again when such a save
+  changes something while an organization is shared (`api::listening`, as `api::switch` does), so the
+  answer never offers Allow for a rule just added or Remove for rules just taken out.
 - **The engine only reads** (`remote_access/firewall.rs`): one PowerShell whose every command is a
   `Get-`, for the two names. `door.firewall` in the owner's answers is `{state, present}`. `state` is
   `none` (not Windows), `unknown` (not read yet, or it could not be read: nothing is claimed), `ok`,
