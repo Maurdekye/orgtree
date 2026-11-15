@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -2425,4 +2426,44 @@ test('R7 review: writes after a watcher take are not lost, torn reads never repl
 
   const settingsSrc = fs.readFileSync(path.resolve('apps/desktop/renderer/src/canvas/desktopsettings.tsx'), 'utf8')
   assert.match(settingsSrc, /could not be settled/)
+})
+
+// R7-R3 (@idle-limit-sol at c60da5a, LOW): with grouped events for a folder and a child folder
+// that became a file, the folder's scan took the child's event and its old copy (a folder) stayed
+// in the new folder, so the copy failed with EISDIR and a multi-hour move rolled back. Fixture
+// from the review's controls.cjs (parent-folder-file): a stub watch delivers exactly these events.
+test('R7-R3: a child folder that became a file is replaced in the new folder when its parent folder changed too', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const { dir, defaultData } = makeSandbox()
+  const item = path.join(defaultData, 'parent', 'item')
+  fs.mkdirSync(item, { recursive: true })
+  fs.writeFileSync(path.join(item, 'child'), 'old')
+  const target = path.join(dir, 'GroupedFlipTarget')
+  const originalWatch = fs.watch
+  let callback = null
+  fs.watch = (_root, _opts, cb) => {
+    callback = cb
+    const watcher = new EventEmitter()
+    watcher.close = () => {}
+    return watcher
+  }
+  try {
+    const res = await datalocation.copyDataRootWithVerify(defaultData, target, {
+      watchSettleMs: 0,
+      beforeRescan: pass => {
+        if (pass !== 1) return
+        fs.unlinkSync(path.join(item, 'child'))
+        fs.rmdirSync(item)
+        fs.writeFileSync(item, 'new file')
+        callback('change', 'parent')
+        callback('change', `parent${path.sep}item`)
+      },
+    })
+    assert.equal(fs.statSync(path.join(target, 'parent', 'item')).isFile(), true)
+    assert.equal(fs.readFileSync(path.join(target, 'parent', 'item'), 'utf8'), 'new file')
+    assert.deepEqual(res.unsettledPaths, [])
+  } finally {
+    fs.watch = originalWatch
+  }
 })
