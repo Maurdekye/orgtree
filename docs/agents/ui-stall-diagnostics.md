@@ -18,10 +18,22 @@ Common fields: `at` (ISO UTC of the stall start), `src`, `ms`, `window` (the win
 | `main-lag` | a 100 ms main interval whose tick is 500 ms or more late | `lag_ms`, `ipc[]` (handlers pending or running in the window), `main_stack` (a worker thread pauses main through an inspector session; the worker is LAZY - about 8 MB resident, so it never starts in the first 60 s after launch (startup sync IPC and engine attach look like stalls; a `main-lag` record in that window carries `unavailable:startup-grace`), then starts on the first stall signal and stops after 10 quiet minutes; the stall that starts it has `unavailable:none-captured`; at most once a minute, never leaves the debugger enabled; `unavailable:<reason>` on any failure) |
 | `sync-ipc` | a `sendSync` handler that took 100 ms or more | `channel` |
 | `process-gone` | Electron's `child-process-gone` (GPU, utility, ...) or a window's `render-process-gone`, except `clean-exit` | `kind` (`renderer`, `GPU`, `Utility`, ...; else `other`), `reason` (Electron's enum; else `other`), `exit_code` |
+| `stall-trace` | main finished a stall trace (below) | `file` (bare name in `diagnostics/stall-traces/`), `events`, `bytes`, `caught` (the stall it waited for happened inside it), `canvas_bg` |
 
 `gpu` (recorder v2, on `renderer-loaf`, `renderer-ping`, `renderer-unresponsive` and `main-lag`): main reads the GPU process's cumulative CPU with `app.getAppMetrics()` every 5 s (`GpuSampler`, main/stall-probe.ts, a ring of 13); a record gets `cpu_pct` (percent of one core) over `window_ms`, from the last sample at or before the stall start to when the record reached main, `restarted` (the GPU pid changed: no CPU compared) and `ws_mb` (working set). Numbers only; nulls when there is no GPU process.
 
 **The attract trace is NOT in this file.** `src:'attract'` records (attract mode's own steps, kinds and timings only) go to `diagnostics/ui-attract.jsonl` with their own rate bucket (30/min) and rotation (1 MB x 2): attract lines can never use the freeze budget or rotate freeze evidence out.
+
+## Stall traces (4.6.1)
+
+Item `hang-every-time-a-new-desk-loads-especially-whil`. Code: `apps/desktop/main/stall-trace.ts`, wired in `main/index.ts`; tests `tests/stall-trace.test.mjs` (TR1-TR7) and `renderer/tests/stallcanvasbg.test.tsx`.
+
+- **Armed by a frame that waited:** a `renderer-loaf` of 500 ms or more with `loaf.blocking` under 50 and `scripts_ms` under 20 % of `ms`. That stall has already ended, so it starts an Electron `contentTracing` capture; the next waiting frame lands inside it. The capture stops 3 s after that frame, or at 20 s.
+- **Bounded:** one capture per 10 minutes, three per run; categories `gpu`, `cc`, `viz`, `benchmark`, `toplevel`, `disabled-by-default-gpu.service`, `disabled-by-default-viz.gpu_composite_time`; a 32 MB trace buffer (record-until-full); the newest three files kept. `ORGTREE_STALLTRACE=0` turns only this off (`ORGTREE_STALLWATCH=0` turns everything off).
+- **Private:** the raw recording is streamed line by line through `filterTraceLine` (allowlisted categories, numeric args from a fixed key list, identifier-shaped names, process/thread names; no URLs, free text or Chromium metadata) into `diagnostics/stall-traces/<UTC start>.json.gz` and then deleted. The file is `{"meta":{...},"traceEvents":[...]}`: `meta` holds the arming and caught frames' numbers, the app version and `canvas_bg`.
+- **`canvas_bg`** (also on every `renderer-loaf`): `{theme, webgl}`, the background actually MOUNTED (`[data-canvas-bg]`, or `.canvas-bg` without it = `dots`; `none` when no canvas is on screen) and whether the ascii layer's WebGL canvas exists.
+- **Reading:** open the `.json.gz` (gunzip it first) in Perfetto or `about://tracing`; look at the GPU process's and the compositor's slices across the caught frame's wall time.
+- **Measured cost** (Session 0, software GL, 60 fps synthetic page, 2026-11-15): frame mean 16.67 ms with and without tracing (p95 16.7 to 16.8 ms); CPU of all app processes 3.8 % to 4.0 %; a 10 s capture was 55 MB raw and 2.7 MB gzipped, filtered in 5.4 s with no main-thread lag; start 29 ms, stop 1.9 s.
 
 ## How to read a stall
 
