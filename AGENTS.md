@@ -186,12 +186,6 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 ## Engine and desktop invariants
 
-- Every place a desk is open renders it live (no single owner, no "open
-  elsewhere"); its draft is one shared value per desk identity
-  (`draftstore.ts`). Desk views register without subscribing; a hidden place
-  mounts nothing. See [desks in every place](docs/agents/desktop-and-renderer.md#desks-show-in-every-place-at-once-2026-11-15-461).
-  [decided: user 2026-11-15; verified: `canvas/deskhosts.tsx`]
-
 - Chat audio is click-to-load; video opens on render, paused; maximize needs
   the `fullscreen` grant in `main/windows.ts`. Capped at256MiB, streamed only
   after file authorization, ranges bounded to the opened size. Keep image
