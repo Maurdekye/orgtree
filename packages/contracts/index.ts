@@ -220,13 +220,19 @@ export interface DataLocationPreflight {
   error?: string
 }
 export interface DataLocationProgress {
-  phase: 'checking' | 'stopping' | 'copying' | 'verifying' | 'switching' | 'starting' | 'cleaning' | 'rolling-back' | 'done' | 'error'
+  phase: 'checking' | 'stopping' | 'preparing' | 'copying' | 'verifying' | 'switching' | 'starting' | 'cleaning' | 'rolling-back' | 'done' | 'error'
   filesCopied: number
   totalFiles: number
   bytesCopied: number
   totalBytes: number
   cancellable: boolean
   detail?: string
+  /** Post-copy step meter (phases 'preparing' and 'verifying'): name of the running step. */
+  stepLabel?: string
+  /** Units done in the running step (files; seconds for the 'preparing' watch). */
+  stepDone?: number
+  /** Units in the running step; 0 or absent means indeterminate. */
+  stepTotal?: number
 }
 export interface DataLocationMoveOptions {
   targetPath: string
