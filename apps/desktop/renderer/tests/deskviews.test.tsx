@@ -171,3 +171,66 @@ test('generic focus reveals only the matching already-open desk window', (t) => 
   assert.equal(revealExistingDesk('another-org', n), false, 'a desk in another org is not selected')
   assert.deepEqual(raised, ['desk'], 'no unrelated window is focused')
 })
+
+// ---------------------------------------------------------------- a hidden place keeps its scroll
+// A place off screen mounts no desk; coming back it restores where the reader was (@coordinator-opus m4c0bc69a8b6b):
+// reading history, the same place; at the bottom, still pinned to the bottom.
+function stubTranscriptGeometry(t: TestContext) {
+  const proto = W.HTMLElement.prototype
+  const keys = ['clientHeight', 'scrollHeight', 'scrollTop'] as const
+  const saved = keys.map((k) => [k, Object.getOwnPropertyDescriptor(proto, k)] as const)
+  const tops = new WeakMap<HTMLElement, number>()
+  const msgs = (el: HTMLElement) => el.classList?.contains('msgs') ?? false
+  Object.defineProperties(proto, {
+    clientHeight: { configurable: true, get(this: HTMLElement) { return msgs(this) ? 300 : 0 } },
+    scrollHeight: { configurable: true, get(this: HTMLElement) { return msgs(this) ? 2000 : 0 } },
+    scrollTop: { configurable: true, get(this: HTMLElement) { return tops.get(this) ?? 0 },
+      set(this: HTMLElement, v: number) { tops.set(this, Math.max(0, Math.min(msgs(this) ? 1700 : 0, v))) } },
+  })
+  t.after(() => {
+    for (const [k, d] of saved) {
+      if (d) Object.defineProperty(proto, k, d); else delete (proto as unknown as Record<string, unknown>)[k]
+    }
+  })
+}
+const scrollerOf = (el: HTMLElement, which: string) => box(el, which).querySelector('.msgs') as HTMLElement | null
+
+test('a place that goes off screen and comes back keeps the reader where they were reading', async (t: TestContext) => {
+  setup()
+  stubTranscriptGeometry(t)
+  const n = agent('iota')
+  const view = await mountView(places(n, { card: { openIn: 'card' } }), (el) => el)
+  t.after(() => view.unmount())
+  await flush()
+  const first = scrollerOf(view.el, 'card')!
+  assert.ok(first, 'control: the desk has a transcript scroller')
+  assert.equal(first.scrollTop, 1700, 'control: a new desk opens at the bottom')
+  await inAct(() => {
+    first.dispatchEvent(new W.WheelEvent('wheel', { deltaY: -120, bubbles: true }))
+    first.scrollTop = 500
+    first.dispatchEvent(new W.Event('scroll'))
+  })
+  await flush()
+  await view.render(places(n, { card: { openIn: 'card', eligible: false } }))
+  await flush()
+  assert.equal(scrollerOf(view.el, 'card'), null, 'control: the hidden place unmounted its desk')
+  await view.render(places(n, { card: { openIn: 'card' } }))
+  await flush(5)
+  const again = scrollerOf(view.el, 'card')!
+  assert.notEqual(again, first, 'control: a new desk mounted')
+  assert.equal(again.scrollTop, 500, 'the reader is back where they were reading')
+})
+
+test('a place at the bottom that goes off screen and comes back is still pinned to the bottom', async (t: TestContext) => {
+  setup()
+  stubTranscriptGeometry(t)
+  const n = agent('kappa')
+  const view = await mountView(places(n, { card: { openIn: 'card' } }), (el) => el)
+  t.after(() => view.unmount())
+  await flush()
+  await view.render(places(n, { card: { openIn: 'card', eligible: false } }))
+  await flush()
+  await view.render(places(n, { card: { openIn: 'card' } }))
+  await flush(5)
+  assert.equal(scrollerOf(view.el, 'card')!.scrollTop, 1700)
+})
