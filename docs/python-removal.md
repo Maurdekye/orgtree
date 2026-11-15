@@ -14,7 +14,9 @@ Keep the receipt tool's package closure (`engine/backend/orgtree/__init__.py`,
 `workevidence.py`, `workfields.py`) until the receipt tool is ported. The two
 live Python repository tests also need `tests/import_provenance.py`; their
 package entry point retains `tests/__init__.py`, `hub_isolation.py` and
-`child_python.py` unchanged. The empty `tools/test-startup.py` runner remains
+`child_python.py` unchanged. Keep `engine/__init__.py` as the local package
+marker: the provenance guard must not resolve the bundled interpreter's other
+checkout instead of this one. The empty `tools/test-startup.py` runner remains
 for phase 2; CI runs the live Node startup test instead.
 
 The five JS/TS source-text guards now read the live Rust sources. Legacy
