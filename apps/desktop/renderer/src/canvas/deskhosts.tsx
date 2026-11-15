@@ -61,6 +61,9 @@ export function deskOpenElsewhere(slug: string,
  * subscribe, each to its own scalar.
  */
 type Box = { x: number; y: number; w: number; h: number }
+/** a desk window: the props of the place it was popped out from, that place's frame (where a fresh window first
+ *  opens), and what to do once it really is open (close a temporary place) */
+interface Win { props: DeskChatProps | null; box: Box | null; fresh: boolean; onOpened?: () => void }
 interface View {
   id: object
   props: DeskChatProps
@@ -80,7 +83,7 @@ class Desks {
   views = new Map<string, Map<object, View>>()
   /** desk identities open as a native window of their own: the props of the place it was popped out from (the
    *  canvas's own `popoutDesk` props win when there are any) and that place's frame, where the window first opens */
-  windows = new Map<string, { props: DeskChatProps | null; box: Box | null }>()
+  windows = new Map<string, Win>()
   listeners = new Set<() => void>()
   clock = 0
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
@@ -104,11 +107,11 @@ class Desks {
     if (v) v.usedAt = ++this.clock
   }
   /** open this desk in a window of its own, or raise the one already open */
-  popout(key: string, props: DeskChatProps | null, box: Box | null = null) {
+  popout(key: string, props: DeskChatProps | null, box: Box | null = null, onOpened?: () => void, fresh = true) {
     const open = deskSurface(key)
-    if (open) { revealSurface(open); return }
+    if (open) { revealSurface(open); onOpened?.(); return }
     if (this.windows.has(key)) return
-    this.windows.set(key, { props, box })
+    this.windows.set(key, { props, box, fresh, onOpened })
     this.change()
   }
   closeWindow(key: string) {
@@ -188,7 +191,8 @@ export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: 
     restored.current = true
     for (const [org, id, generation] of savedDeskIdentities(slug)) {
       const node = map.get(id)
-      if (org === slug && node?.generation === generation) desks.popout(deskIdentity(slug, node), popoutDesk(node))
+      // not fresh: MovableSurface reopens it from its saved row, at its saved place
+      if (org === slug && node?.generation === generation) desks.popout(deskIdentity(slug, node), popoutDesk(node), null, undefined, false)
     }
   }, [desks, map, slug, treeSlug, popoutDesk])
   // a window whose agent is gone or has a new generation closes with it
@@ -207,33 +211,46 @@ function DeskWindows({ desks, map, slug, propsFor }: {
   desks: Desks; map: Map<string, CanvasNode>; slug: string; propsFor?: (node: CanvasNode) => DeskChatProps
 }) {
   useSyncExternalStore(desks.subscribe, () => desks.windows.size)
-  return <>{[...desks.windows].map(([key, { props, box }]) => {
+  return <>{[...desks.windows].map(([key, win]) => {
+    const { props, box } = win
     const [org, id, generation] = JSON.parse(key) as [string, string, number]
     const node = map.get(id)
     const base = node && (propsFor?.(node) ?? props)
     if (org !== slug || node?.generation !== generation || !base) return null
-    return <PopoutDesk key={key} desks={desks} winKey={key} box={box} props={{ ...base, node, map, eligible: true,
+    return <PopoutDesk key={key} desks={desks} winKey={key} win={win} box={box} props={{ ...base, node, map, eligible: true,
       claim: undefined, borrow: undefined, openIn: undefined, temporaryPlacement: undefined, onPoppedOut: undefined }} />
   })}</>
 }
 
 /**
- * A DESK IN A NATIVE WINDOW OF ITS OWN: one more view, in its own `MovableSurface`. `windowed` opens it straight
- * into the window (at the saved place and size when the last session left one) and keeps it there. Closing the
+ * A DESK IN A NATIVE WINDOW OF ITS OWN: one more view, in its own `MovableSurface`, docked in a hidden holder
+ * while it is not a window. A FRESH one (the user popped it out) opens at once over the frame it was popped out
+ * from; one the last session left open is reopened by MovableSurface itself, from its saved row. Closing the
  * window, or its Return, ends this view; the places in the main window kept their own desks all along.
  */
-function PopoutDesk({ desks, winKey, props, box }: { desks: Desks; winKey: string; props: DeskChatProps; box: Box | null }) {
+function PopoutDesk({ desks, winKey, win, props, box }: {
+  desks: Desks; winKey: string; win: Win; props: DeskChatProps; box: Box | null
+}) {
   const [dock, setDock] = useState<HTMLElement | null>(null)
   return <div hidden ref={setDock}>
     {dock && <MovableSurface kind={`desk:${winKey}`} title={`${props.node.id} · desk`} org={props.slug} anchor={dock}
-      windowed sourceBox={() => box} exactSourceBox
-      onDetached={(v) => { if (!v) desks.closeWindow(winKey) }}>
-      <PopoutDeskBody desks={desks} winKey={winKey} props={props} />
+      sourceBox={() => box} exactSourceBox
+      onDetached={(v) => {
+        if (v) { const done = win.onOpened; win.onOpened = undefined; done?.() }
+        else desks.closeWindow(winKey)
+      }}>
+      <PopoutDeskBody desks={desks} winKey={winKey} win={win} props={props} />
     </MovableSurface>}
   </div>
 }
-function PopoutDeskBody({ desks, winKey, props }: { desks: Desks; winKey: string; props: DeskChatProps }) {
+function PopoutDeskBody({ desks, winKey, win, props }: { desks: Desks; winKey: string; win: Win; props: DeskChatProps }) {
   const surface = useSurface()
+  useLayoutEffect(() => {
+    if (!win.fresh || !surface || surface.detached) return
+    win.fresh = false
+    surface.open()
+  }, [win, surface])
+  // a window that could not open (blocked, or it failed): say why, and the place it was popped out from stays
   useEffect(() => {
     if (!surface?.error) return
     props.toast([surface.error])
@@ -302,11 +319,11 @@ function DeskView({ desks, deskKey, props, window: inWindow = false }: {
     // the window first opens over the frame this place shows the desk in, a pin's title bar included
     const frame = anchor.current?.closest('.pinwin') ?? anchor.current?.querySelector('.desk-body')
     const rect = frame?.getBoundingClientRect()
+    // the place it was popped out from may go with it once the window is open (a pin, the floating modal:
+    // design-461 question 2); a blocked window leaves it where it is
     desks.popout(deskKey, props, props.temporaryPlacement?.sourceBox()
-      ?? (rect ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height } : null))
-    // the place it was popped out from may go with it (a pin, the floating modal: design-461 question 2)
-    props.temporaryPlacement?.onPopout()
-    props.onPoppedOut?.()
+      ?? (rect ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height } : null),
+      () => { props.temporaryPlacement?.onPopout(); props.onPoppedOut?.() })
   }
   control.current.closeWindow = () => desks.closeWindow(deskKey)
   const used = () => desks.touch(deskKey, id)
@@ -327,8 +344,9 @@ export interface DeskActions {
   detached: boolean
   /** raise that window */
   show?: () => void
-  /** open it in a window of its own, first over `box` when given (the frame it is shown in) */
-  requestPopout: (box?: Box | null) => void
+  /** open it in a window of its own, first over `box` when given (the frame it is shown in); `onOpened` runs once
+   *  the window really is open */
+  requestPopout: (box?: Box | null, onOpened?: () => void) => void
 }
 
 function deskActionsOf(desks: Desks | null, mapReady: boolean, slug: string,
@@ -345,9 +363,9 @@ function deskActionsOf(desks: Desks | null, mapReady: boolean, slug: string,
     show: surface ? () => { revealSurface(surface) } : undefined,
     // the list may ask before any place shows this desk (its card is outside the viewport): the window renders with
     // the canvas's own props (`popoutDesk`), else those of a place that shows it
-    requestPopout: (box) => {
+    requestPopout: (box, onOpened) => {
       if (!key || !desks) return
-      desks.popout(key, views?.values().next().value?.props ?? null, box ?? null)
+      desks.popout(key, views?.values().next().value?.props ?? null, box ?? null, onOpened)
     },
   }
 }

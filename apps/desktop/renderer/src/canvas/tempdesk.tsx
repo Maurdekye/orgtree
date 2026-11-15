@@ -95,9 +95,9 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
       glance={{
         label: `${node.id} · desk, opened temporarily`,
         // THE POP-OUT HANDS OVER: the desk window opens over this panel's box
-        // and this modal closes (design-461 question 2: the place popped out
-        // from goes with it when it is a temporary one).
-        popElsewhere: () => { actions(node).requestPopout(sourceBox()); close() },
+        // and this modal closes once that window is open (design-461 question
+        // 2: a temporary place goes with it). A blocked window changes nothing.
+        popElsewhere: () => actions(node).requestPopout(sourceBox(), close),
       }}>
       <div ref={host} className="tempdesk-host">
         {/* `borrow` names this place as the floating desk (deskhosts.tsx).
