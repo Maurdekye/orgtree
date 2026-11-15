@@ -1977,21 +1977,22 @@ test('R6: a move waits for the old folder\'s writers, recopies files that change
     assert.match(log, /recopied credential-broker\.log/)
   }
 
-  // 2. A writer that never stops fails the move after the bounded catch-up passes and rolls back;
-  //    a target file damaged while its source stayed unchanged fails strict verification.
+  // 2. A writer that never stops no longer fails the move (R7, USER m15f87ac2b667): after the
+  //    bounded catch-up passes its latest bytes are copied once more and it is named;
+  //    a target file damaged while its source stayed unchanged still fails strict verification.
   {
     const { dir, defaultData } = makeSandbox()
     const rogue = path.join(defaultData, 'credential-broker.log')
     fs.writeFileSync(rogue, 'start\n')
     fs.writeFileSync(path.join(defaultData, 'steady.txt'), 'steady\n')
     let passes = 0
-    await assert.rejects(
-      datalocation.copyDataRootWithVerify(defaultData, path.join(dir, 'RogueTarget'), {
-        beforeRescan: () => { passes += 1; fs.appendFileSync(rogue, `line ${passes}\n`) },
-      }),
-      /kept changing after Orgtree stopped its writers: credential-broker\.log/,
-    )
+    const rogueTarget = path.join(dir, 'RogueTarget')
+    const kept = await datalocation.copyDataRootWithVerify(defaultData, rogueTarget, {
+      beforeRescan: () => { passes += 1; fs.appendFileSync(rogue, `line ${passes}\n`) },
+    })
     assert.equal(passes, datalocation.MAX_RECOPY_PASSES)
+    assert.deepEqual(kept.changedDuringMove, ['credential-broker.log'])
+    assert.equal(fs.readFileSync(path.join(rogueTarget, 'credential-broker.log'), 'utf8'), fs.readFileSync(rogue, 'utf8'))
 
     const damagedTarget = path.join(dir, 'DamagedTarget')
     await assert.rejects(
@@ -2159,4 +2160,158 @@ test('R6-R2: a file that left the source during the copy is removed from the new
     await release()
     try { fs.chmodSync(stuckTarget, 0o755) } catch { /* best effort */ }
   }
+})
+
+// R7 (USER 2026-11-15 15:04:06Z m15f87ac2b667 "how about you dont revert the ENTIRE DAMN 5 HOUR MOVE
+// if ONE FILE CHANGES"): the alpha.6 move rolled back after 5 h because a foreign process (the
+// stream bridge) rewrote stream-manager/stats.json every 30 s. A completed bulk copy is never
+// thrown away for files that keep changing: their latest bytes are copied at switch time and they
+// are named. Catch-up passes look only at what a watcher saw change, not a full rescan.
+test('R7: files that never stop changing are copied at their latest version and named, real copy errors still roll back, and a pre-check lists changing files', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const okTrust = async () => ({ ok: true, detail: 'trusted' })
+  const startWriter = (file, everyMs = 40) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    let n = 0
+    fs.writeFileSync(file, JSON.stringify({ n }))
+    const timer = setInterval(() => { n += 1; fs.writeFileSync(file, JSON.stringify({ n, pad: 'x'.repeat(n % 7) })) }, everyMs)
+    return () => clearInterval(timer)
+  }
+
+  // 1. A whole move completes while a foreign writer never stops; result report and move log name it.
+  {
+    const { dir, userData, defaultData, forbidden } = makeSandbox()
+    for (let i = 0; i < 40; i++) fs.writeFileSync(path.join(defaultData, `steady-${i}.txt`), `steady ${i}\n`)
+    const stats = path.join(defaultData, 'scratch', 'orgtree', 'stream-manager', 'stats.json')
+    const stop = startWriter(stats)
+    const target = path.join(dir, 'R7Target')
+    const steps = []
+    const passModes = []
+    let res
+    try {
+      res = await datalocation.executeDataLocationMove({
+        options: { targetPath: target, deletePrevious: false },
+        currentRoot: defaultData,
+        userData,
+        forbiddenRoot: forbidden,
+        trustCheck: okTrust,
+        onProgress: p => { if (p.phase === 'verifying' && p.stepLabel) steps.push(p) },
+        onCatchUpPass: (pass, mode) => { passModes.push(mode) },
+        stopOldEngine: async () => true,
+        startAndVerifyNewEngine: async () => {},
+        restartOldEngineOnRollback: async () => { throw new Error('must not roll back') },
+      })
+    } finally {
+      stop()
+    }
+    assert.equal(res.ok, true, `the move completes although stats.json kept changing: ${res.error ?? ''}`)
+    assert.equal(fs.readFileSync(path.join(target, 'steady-7.txt'), 'utf8'), 'steady 7\n')
+    JSON.parse(fs.readFileSync(path.join(target, 'scratch', 'orgtree', 'stream-manager', 'stats.json'), 'utf8'))
+    const report = datalocation.readDataLocationMoveReport(userData)
+    assert.ok(report, 'a move with changing files leaves a result report')
+    assert.deepEqual(report.changedDuringMove, ['scratch/orgtree/stream-manager/stats.json'])
+    assert.equal(report.pendingRestartNotice, true)
+    const log = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+    assert.match(log, /changed during the move; latest version copied/)
+    assert.match(log, /scratch\/orgtree\/stream-manager\/stats\.json/)
+    assert.doesNotMatch(log, /rollback complete/)
+    // Catch-up passes use the watcher, never a full rescan, while the watcher works.
+    assert.ok(passModes.length > 0 && passModes.every(m => m === 'watch'), `catch-up modes: ${passModes.join(',')}`)
+    // Each post-copy step reports simple {stepLabel, stepDone, stepTotal} and ends done == total.
+    const labels = [...new Set(steps.map(p => p.stepLabel))]
+    assert.ok(labels.includes('Checking for changes') && labels.includes('Verifying copied files'), labels.join(', '))
+    for (const label of labels) {
+      const last = steps.filter(p => p.stepLabel === label).at(-1)
+      assert.equal(last.stepDone, last.stepTotal, `${label} ends done == total`)
+    }
+  }
+
+  // 2. A real copy error during the final copy still fails the copy (and so rolls back).
+  {
+    const { dir, defaultData } = makeSandbox()
+    const rogue = path.join(defaultData, 'busy.log')
+    fs.writeFileSync(rogue, 'start\n')
+    const target = path.join(dir, 'R7ErrTarget')
+    await assert.rejects(
+      datalocation.copyDataRootWithVerify(defaultData, target, {
+        beforeRescan: pass => {
+          fs.appendFileSync(rogue, `line ${pass}\n`)
+          if (pass === datalocation.MAX_RECOPY_PASSES) {
+            // The new folder's copy turns into something that cannot be written: a real error.
+            fs.rmSync(path.join(target, 'busy.log'))
+            fs.mkdirSync(path.join(target, 'busy.log', 'blocker'), { recursive: true })
+          }
+        },
+      }),
+      err => !/kept changing/.test(String(err?.message)),
+    )
+  }
+
+  // 3. The pre-check watches the quiet source briefly and lists files still changing (never the
+  //    runtime ephemerals); the move asks, and Cancel stops it before anything is copied.
+  {
+    const { dir, userData, defaultData, forbidden } = makeSandbox()
+    fs.writeFileSync(path.join(defaultData, 'steady.txt'), 'steady\n')
+    const stats = path.join(defaultData, 'stream-manager', 'stats.json')
+    const stop = startWriter(stats)
+    const stopPort = startWriter(path.join(defaultData, '.port'))
+    try {
+      const changing = await datalocation.watchSourceForChanges(defaultData, { durationMs: 600 })
+      assert.deepEqual(changing, ['stream-manager/stats.json'])
+
+      const target = path.join(dir, 'R7PrecheckTarget')
+      let asked = null
+      let restarted = false
+      const precheck = []
+      const cancelled = await datalocation.executeDataLocationMove({
+        options: { targetPath: target, deletePrevious: false },
+        currentRoot: defaultData,
+        userData,
+        forbiddenRoot: forbidden,
+        trustCheck: okTrust,
+        changeWatchMs: 600,
+        onProgress: p => { if (p.phase === 'preparing') precheck.push(p) },
+        confirmChangingFiles: async files => { asked = files; return false },
+        stopOldEngine: async () => true,
+        startAndVerifyNewEngine: async () => { throw new Error('must not start') },
+        restartOldEngineOnRollback: async () => { restarted = true },
+      })
+      assert.deepEqual(asked, ['stream-manager/stats.json'])
+      assert.equal(cancelled.ok, false)
+      assert.equal(cancelled.cancelled, true)
+      assert.equal(restarted, true)
+      assert.equal(fs.existsSync(path.join(target, 'steady.txt')), false, 'nothing copied after Cancel')
+      assert.ok(precheck.length > 0 && precheck.at(-1).stepDone === precheck.at(-1).stepTotal)
+      assert.equal(precheck[0].stepLabel, 'Watching for changes')
+      const log = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+      assert.match(log, /still changing before the copy/)
+
+      const goTarget = path.join(dir, 'R7ContinueTarget')
+      const cont = await datalocation.executeDataLocationMove({
+        options: { targetPath: goTarget, deletePrevious: false },
+        currentRoot: defaultData,
+        userData,
+        forbiddenRoot: forbidden,
+        trustCheck: okTrust,
+        changeWatchMs: 600,
+        confirmChangingFiles: async () => true,
+        stopOldEngine: async () => true,
+        startAndVerifyNewEngine: async () => {},
+        restartOldEngineOnRollback: async () => { throw new Error('must not roll back') },
+      })
+      assert.equal(cont.ok, true, `Continue anyway completes: ${cont.error ?? ''}`)
+    } finally {
+      stop()
+      stopPort()
+    }
+  }
+
+  // 4. Main wires the pre-check dialog; the result screen names the changed files.
+  const indexSrc = fs.readFileSync(path.resolve('apps/desktop/main/index.ts'), 'utf8')
+  assert.match(indexSrc, /changeWatchMs: DATA_MOVE_CHANGE_WATCH_MS/)
+  assert.match(indexSrc, /confirmChangingFiles: async files =>/)
+  assert.match(indexSrc, /'Continue anyway'/)
+  const settingsSrc = fs.readFileSync(path.resolve('apps/desktop/renderer/src/canvas/desktopsettings.tsx'), 'utf8')
+  assert.match(settingsSrc, /changed during the move; latest version copied/)
 })
