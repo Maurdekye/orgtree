@@ -71,7 +71,13 @@
         "from": "engine",
         "to": "engine",
         "filter": [
-          "**/*",
+          "*",
+          "backend/**/*",
+          "docs/**/*",
+          "hub/**/*",
+          "native/**/*",
+          "postgresql/**/*",
+          "runtime/**/*",
           "!**/__pycache__/**",
           "!native/**/target/**",
           "!rs/**",
@@ -91,12 +97,9 @@
         "to": "engine/orgtree-mailhub.exe"
       },
       {
-        "from": "tools/pypg",
-        "to": "tools/pypg",
-        "filter": [
-          "pgimport.py",
-          "cutover_verify.py"
-        ]
+        "from": "tools/rig/fixtures/pg_migrations_32",
+        "to": "engine/backend/orgtree/pg_migrations",
+        "filter": ["**/*.sql"]
       },
       {
         "from": "dist/renderer",

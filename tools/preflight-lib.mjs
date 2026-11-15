@@ -5,7 +5,7 @@ import { assertPublicReleaseAllowed, PRIVATE_ALPHA_MARKER } from './private-alph
 /** Everything a packaged build cannot function without. Shared by the release
  *  preflight and the development packaging path: an installer of either channel
  *  with a missing engine or runtime installs an app that cannot start. */
-export const REQUIRED_PACKAGE_INPUTS = ['engine/launch.py', 'engine/backend/orgtree/api.py', 'engine/runtime/python.exe', 'engine/runtime/python313.zip', 'engine/runtime/runtime-manifest.json', 'dist/renderer/index.html']
+export const REQUIRED_PACKAGE_INPUTS = ['engine/runtime/python.exe', 'engine/runtime/python313.zip', 'engine/runtime/runtime-manifest.json', 'dist/renderer/index.html']
 
 export function assertPackageInputsPresent(io = fs) {
   for (const file of REQUIRED_PACKAGE_INPUTS) {

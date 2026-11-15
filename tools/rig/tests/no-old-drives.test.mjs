@@ -67,8 +67,6 @@ const KEPT = new Map([
   ['engine/rs/orgtree-engine/migrations/0086_app_private_sites.sql', 'a checksummed migration (a comment)'],
   ['engine/rs/orgtree-engine/src/runtime/convo.rs', 'synthetic tool-input paths in tests'],
   ['engine/rs/orgtree-engine/src/runtime/convo_work_ref_tests.rs', 'synthetic tool-input paths'],
-  ['tests/test_sensitive_path_gate.py', '3.x sample commands'],
-  ['tests/test_state_human_mail_boundary.py', 'a 3.x sample mail body'],
   ['tools/rig/desktop/tool-rows.scenario.json', 'a fake CLI scenario: commands that are shown, never run'],
   ['apps/desktop/renderer/tests/images.test.tsx', 'a sample Markdown path'],
   ['apps/desktop/renderer/tests/mail-filter-bar-probe.tsx', 'a sample mail body'],

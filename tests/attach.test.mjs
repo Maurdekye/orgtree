@@ -400,9 +400,9 @@ test('a descriptor owned by someone else is rejected BEFORE the token is sent an
 })
 
 test('the attach retry budget covers the host readiness timeout', () => {
-  const host = fs.readFileSync('engine/service_host.py', 'utf8')
-  const ready = Number(/READY_TIMEOUT = (\d+)/.exec(host)?.[1])
-  assert.ok(Number.isFinite(ready) && ready > 0, 'READY_TIMEOUT not found in service_host.py')
+  const host = fs.readFileSync('engine/rs/orgtree-engine/src/host.rs', 'utf8')
+  const ready = Number(/READY_TIMEOUT: Duration = Duration::from_secs\((\d+)\)/.exec(host)?.[1])
+  assert.ok(Number.isFinite(ready) && ready > 0, 'READY_TIMEOUT not found in host.rs')
   const { ATTACH_RETRY_BUDGET_MS } = req(path.join(temp, 'engine.cjs'))
   assert.ok(ATTACH_RETRY_BUDGET_MS >= (ready + 20) * 1000,
     `retry budget ${ATTACH_RETRY_BUDGET_MS}ms must exceed host readiness ${ready}s plus margin`)

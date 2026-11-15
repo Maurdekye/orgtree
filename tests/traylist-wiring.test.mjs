@@ -119,7 +119,7 @@ test('the sidebar rows and the tray tooltip carry the same n/m active-hired voca
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /\$\{stats\.activeAgents\} active \/ \$\{stats\.totalAgents\} hired/)
   // and the backend total the tooltip sums is HIRED agents, not every node
-  const launch = read('engine/launch.py')
-  assert.match(launch, /total \+= int\(row\.get\("live"\) or 0\)/)
-  assert.doesNotMatch(launch, /total \+= int\(row\.get\("nodes"\) or 0\)/)
+  const desktop = read('engine/rs/orgtree-engine/src/http/desktop.rs')
+  assert.match(desktop, /SELECT count\(\*\) FROM ot\.agents WHERE state = 'live' AND kind = 'agent'/)
+  assert.match(desktop, /"totalAgents": total/)
 })

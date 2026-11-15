@@ -153,6 +153,8 @@ Every setting name, description/help text, settings section header and settings-
 
 ## Read this first
 
+[Python removal scope](docs/python-removal.md).
+
 Windows installer task suspension is transactional across Prepare/copy/Register;
 keep the protected snapshot and failure/exit hooks, defer starts until commit,
 capture a fresh baseline before each new suspension, and distinguish disabled

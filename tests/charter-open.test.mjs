@@ -97,18 +97,10 @@ test('desktop main process registers desktop:open-charter-folder IPC handler', (
 })
 
 test('backend API exposes /api/charters/open endpoint', () => {
-  const apiPyPath = path.resolve('engine/backend/orgtree/api.py')
-  const apiPySource = fs.readFileSync(apiPyPath, 'utf8')
-  assert.ok(
-    apiPySource.includes('@app.post("/api/charters/open")'),
-    'backend API registers POST /api/charters/open',
-  )
-  assert.ok(
-    apiPySource.includes('_checked_user_charters(create=True)'),
-    'backend API ensures canonical user charters directory creation',
-  )
-  assert.ok(
-    apiPySource.includes('not os.path.isdir(folder)'),
-    'backend API validates that canonical path is a directory',
-  )
+  const routes = fs.readFileSync('engine/rs/orgtree-engine/src/http/mod.rs', 'utf8')
+  const settings = fs.readFileSync('engine/rs/orgtree-engine/src/http/settings.rs', 'utf8')
+  assert.ok(routes.includes('.route("/api/charters/open", post(settings::charters_open))'),
+    'backend API registers POST /api/charters/open')
+  assert.match(settings, /pub async fn charters_open\(\)[\s\S]*?let dir = user_charter_dir\(\);[\s\S]*?std::fs::create_dir_all\(&dir\)/,
+    'backend API ensures canonical user charters directory creation')
 })

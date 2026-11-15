@@ -1,13 +1,13 @@
 // engine-liveness.test.mjs — hung-engine recovery for an engine the DESKTOP
 // started (item v3-hung-engine-recovery-also-for-an-engine-the-d).
 //
-// The boot host (engine/service_host.py) ends and replaces a hung engine it
+// The boot host (engine/rs/orgtree-engine/src/host.rs) ends and replaces a hung engine it
 // started. An engine the desktop started itself had no such watch: a hung one
 // kept the root lock forever. engine.ts now watches its own managed child by
 // the SAME rules. Like engine-restart.test.mjs, every process here is a
 // SANDBOXED FIXTURE with its own temp data root; nothing reads ORGTREE_DATA.
 //
-//   THE RULES      the numbers match service_host.py, and the watch applies them
+//   THE RULES      the numbers match host.rs, and the watch applies them
 //   THE DECISION   Engine.checkLiveness against injected doubles
 //   THE REAL THING a sandbox engine that stops answering is ended and replaced
 //
@@ -35,10 +35,10 @@ const { Engine, LIVENESS, LIVENESS_LOG, LivenessWatch } = await load('engine')
 // ------------------------------------------------------------- the rules
 
 test('the desktop judges a hang by the SAME numbers as the boot host', () => {
-  const source = fs.readFileSync(path.join(repo, 'engine/service_host.py'), 'utf8')
+  const source = fs.readFileSync(path.join(repo, 'engine/rs/orgtree-engine/src/host.rs'), 'utf8')
   const value = name => {
-    const match = source.match(new RegExp(`^${name} = ([0-9.]+)`, 'm'))
-    assert.ok(match, `${name} is defined in service_host.py`)
+    const match = source.match(new RegExp(`(?:pub\\(crate\\) )?const ${name}: [^=]+ = (?:Duration::from_secs\\()?([0-9.]+)`, 'm'))
+    assert.ok(match, `${name} is defined in host.rs`)
     return Number(match[1])
   }
   assert.equal(LIVENESS.intervalMs, value('LIVENESS_INTERVAL') * 1000)
@@ -47,7 +47,7 @@ test('the desktop judges a hang by the SAME numbers as the boot host', () => {
   assert.equal(LIVENESS.minFailures, value('LIVENESS_MIN_FAILURES'))
   assert.equal(LIVENESS.restartLimit, value('HUNG_RESTART_LIMIT'))
   assert.equal(LIVENESS.restartWindowMs, value('HUNG_RESTART_WINDOW') * 1000)
-  const log = source.match(/^LIVENESS_LOG = Path\("(\w+)"\) \/ "([\w.-]+)"/m)
+  const log = source.match(/root\.join\("(\w+)"\)\.join\("([\w.-]+)"\)/)
   assert.ok(log)
   assert.equal(LIVENESS_LOG, path.join(log[1], log[2]), 'both watchers write the same file')
 })

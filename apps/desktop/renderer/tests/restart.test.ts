@@ -98,10 +98,13 @@ test('the detector reads a header the server actually sends', () => {
   const src = readFileSync(path.join(__SRC_DIR__, 'api.ts'), 'utf8')
   assert.ok(/r\.headers\.get\('X-Orgtree-Instance'\)/.test(src),
     'api.ts no longer reads X-Orgtree-Instance')
-  const api = readFileSync(
-    path.join(__SRC_DIR__, '..', '..', '..', '..', 'engine', 'backend', 'orgtree', 'api.py'), 'utf8')
-  assert.ok(/b"x-orgtree-instance"/.test(api),
+  const engineDir = path.join(__SRC_DIR__, '..', '..', '..', '..', 'engine', 'rs', 'orgtree-engine', 'src')
+  const api = readFileSync(path.join(engineDir, 'http', 'mod.rs'), 'utf8')
+  assert.ok(api.includes('res.headers_mut().insert("x-orgtree-instance", v)'),
     'the backend no longer sends x-orgtree-instance — drift guard')
-  assert.ok(/INSTANCE = secrets\.token_hex/.test(api),
-    'the instance id is no longer per-process — drift guard')
+  assert.ok(api.includes('None => engine.boot.id.clone()'),
+    'the local instance header no longer uses the process boot id — drift guard')
+  const main = readFileSync(path.join(engineDir, 'main.rs'), 'utf8')
+  assert.ok(main.includes('id: startup.generation.clone()'),
+    'the instance id no longer follows the startup generation — drift guard')
 })

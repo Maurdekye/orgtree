@@ -98,7 +98,7 @@ test('release preflight refuses a dev-channel build outright', () => {
 })
 
 test('packaging preflight still demands the standalone inputs', () => {
-  assert.deepEqual(REQUIRED_PACKAGE_INPUTS.slice(0, 3), ['engine/launch.py', 'engine/backend/orgtree/api.py', 'engine/runtime/python.exe'])
+  assert.deepEqual(REQUIRED_PACKAGE_INPUTS.slice(0, 3), ['engine/runtime/python.exe', 'engine/runtime/python313.zip', 'engine/runtime/runtime-manifest.json'])
   const present = new Set(REQUIRED_PACKAGE_INPUTS)
   assertPackageInputsPresent({ existsSync: file => present.has(file) })
   present.delete('engine/runtime/python.exe')
