@@ -1,13 +1,12 @@
 // attention/AgentDeskPanel.tsx — THE DYNAMIC AGENT AREA.
 //
 // An agents list and EXACTLY ONE agent Desk, in place of the canvas's many. The
-// Desk is the canonical one — `DeskSlot` from canvas/deskhosts.tsx, registered
-// in the organization's ONE desk registry, so this panel and the canvas can
-// never both own a writer for the same agent: whichever holds it draws the
-// desk and the other draws the existing "open elsewhere / Show desk / Return
-// here" placeholder. Nothing about the Desk, its permissions or its actions is
-// reimplemented here; this file decides WHICH agent's desk is showing and
-// nothing else.
+// Desk is the canonical one — `DeskSlot` from canvas/deskhosts.tsx — and since
+// 4.6.1 it shows live here even while the same agent's desk is open on the
+// canvas, in a pin or in a window (USER 2026-11-15 mbf1f1ca2cfe9): every place
+// shows it, with the agent's one conversation and one unsent draft. Nothing
+// about the Desk, its permissions or its actions is reimplemented here; this
+// file decides WHICH agent's desk is showing and nothing else.
 //
 // ⚠ THE LIST'S ORDER COMES FROM THE HOST'S LAYOUT, NOT FROM THE TREE ARRAY
 // (coordinator ruling 2026-09-21). "The leftmost top-level agent" has to be the
