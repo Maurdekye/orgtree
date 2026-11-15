@@ -70,7 +70,7 @@ import { readAttachments, storeAttachments, setSharedDraftPart, sharedDraftPart,
 import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
 import { useHistoryNav } from '../composerhistorynav'
 import type { HistoryEntry } from '../composerhistory'
-import { DeskSlot } from './deskhosts'
+import { DeskSlot, DeskViewContext } from './deskhosts'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
 // styled as a miniature Claude Code session) with its transcript renderers
@@ -1795,6 +1795,18 @@ function useSharedDraft<T>(keys: readonly string[], read: () => T, write: (value
   return [value, set]
 }
 
+/** The desk header's pop-out control for a desk view: the same button the surface's own `PopoutButton` draws,
+ *  opening this desk in a window of its own, or, in that window, closing it (the places in the main window kept
+ *  their desks). */
+function DeskPopoutButton({ control }: { control: import('./deskhosts').DeskViewControl }) {
+  const label = control.inWindow ? 'Return to main window' : 'Open in new window'
+  return <button type="button" className="popout-button" title={label} aria-label={label}
+    onPointerDown={(e) => e.stopPropagation()}
+    onClick={(e) => { e.stopPropagation(); if (control.inWindow) control.closeWindow(); else control.popout() }}>
+    {control.inWindow ? '↙' : '↗'}
+  </button>
+}
+
 export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
@@ -1874,6 +1886,11 @@ export interface DeskChatProps {
    *  needs this. It draws nothing and plays no part in which slot owns the
    *  desk. */
   openIn?: 'pin' | 'attention' | 'card'
+  /** THIS PLACE GOES WITH THE DESK INTO ITS WINDOW: popping the desk out of it
+   *  closes the place (a desk pin, design-461 question 2, provisional; the
+   *  places that always show their agent's desk, a card and the Attention desk,
+   *  pass none and keep it). */
+  onPoppedOut?: () => void
   /** The temporary host supplies its outer frame, measured before adoption. */
   temporaryPlacement?: {
     sourceBox: () => { x: number; y: number; w: number; h: number } | null
@@ -2196,6 +2213,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // What stays local below is only what is genuinely per-VIEW: this desk's
   // scroll position, its open tab, its composer draft.
   const surface = useSurface()
+  // this place's own pop-out (deskhosts.tsx DeskView): a desk inside a pin or a popped-out panel pops out ITSELF
+  const deskView = useContext(DeskViewContext)
   const surfaceDocument = useSurfaceDocument()
   const historyVisible = eligible || !!surface?.detached
   const historyStart = useRef<() => void>(() => {})
@@ -4017,7 +4036,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           && (v !== 'files' || deskFilesVisible(view,readerAvailability))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
-          {!(hidePopout && !surface?.detached) && <PopoutButton />}
+          {deskView
+            ? !(hidePopout && !deskView.inWindow) && <DeskPopoutButton control={deskView} />
+            : !(hidePopout && !surface?.detached) && <PopoutButton />}
           </>}
         pin={onPin && !surface?.detached ? { ariaLabel: `pin ${node.id}'s desk as a window`, onPin } : null}
         settings={{ label: node.id, onConfig }}

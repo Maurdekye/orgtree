@@ -7,16 +7,14 @@
 // one doing?". So this is the glance: a modal over the canvas, the agent's own
 // desk inside it, and nothing left behind when it closes.
 //
-// ⚠ IT BORROWS THE CANONICAL DESK — IT DOES NOT DRAW A COPY. That is the whole
-// design, and it is what the ticket asks for ("reuse the canonical desk
+// ⚠ IT IS THE CANONICAL DESK, as every place a desk is open is (4.6.1, USER
+// 2026-11-15 mbf1f1ca2cfe9: a desk shows in every place at once). It is the
+// real desk with its real actions and authorization ("reuse the canonical desk
 // rendering and permissions rather than creating a divergent read-only
-// imitation"). A second desk for one agent would be a second live composer:
-// two message boxes, two drafts, two things claiming to be the conversation.
-// Instead the `borrow` slot takes the ONE desk for as long as this modal is
-// mounted and the registry gives it back to the exact destination it came from
-// — including re-opening a native window at the geometry it had. So actions
-// inside it are the real actions with their real authorization, and the draft
-// you were half-way through typing is still there afterwards.
+// imitation"), the conversation and the unsent draft are the agent's one copy
+// (convo.ts, draftstore.ts), and the places it was already open in keep
+// showing it while this modal is up. `borrow` now only names this place as the
+// floating desk for a question notification (deskhosts.tsx `claimQuestionDesk`).
 //
 // ⚠ AND IT LEAVES NO STATE OF ITS OWN. No pin, no popout, no saved layout row,
 // no change to the focused agent. The modal is local component state in
@@ -96,16 +94,15 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
       pinElsewhere={onPin}
       glance={{
         label: `${node.id} · desk, opened temporarily`,
-        // THE POP-OUT HANDS OVER: the borrowed desk's own surface opens the
-        // real desk window from this panel's box, and `onPopout` below closes
-        // this modal once that window exists. A blocked window changes nothing.
-        popElsewhere: () => actions(node).requestPopout(),
+        // THE POP-OUT HANDS OVER: the desk window opens over this panel's box
+        // and this modal closes (design-461 question 2: the place popped out
+        // from goes with it when it is a temporary one).
+        popElsewhere: () => { actions(node).requestPopout(sourceBox()); close() },
       }}>
       <div ref={host} className="tempdesk-host">
-        {/* ⚠ `borrow` IS THE WHOLE MECHANISM. It takes the canonical desk for
-            this modal's lifetime and the registry returns it on unmount — see
-            `Desks.endBorrow`. `bare` renders the desk 1:1 rather than
-            counter-scaled into a canvas card, which is what a modal wants. */}
+        {/* `borrow` names this place as the floating desk (deskhosts.tsx).
+            `bare` renders the desk 1:1 rather than counter-scaled into a
+            canvas card, which is what a modal wants. */}
         <DeskChat {...desk} node={node} borrow bare hidePopout temporaryPlacement={{ sourceBox, onPopout: close }} />
       </div>
     </DeskModalShell>,

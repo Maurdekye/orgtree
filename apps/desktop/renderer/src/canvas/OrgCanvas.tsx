@@ -20,7 +20,7 @@ import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } 
 import { useAppRead } from '../appfeed'
 import { useOrgHireProviders } from '../orghire'
 import { adoptPinLayer, canvasBox, readPinSurfaces, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
-import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, savedDeskIdentities, windowLayoutKey } from '../windowlayout'
+import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import type { WindowRestore } from '../windowlayout'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modalkinds'
 import { placedInstance, useModalInstances } from './modalinstances'
@@ -30,7 +30,7 @@ import { registerStallCounts } from '../stallwatch'
 import { reportAttract } from '../streamrooms'
 import type { AttractPanel } from '../attract/canvas'
 import type { ReleaseVia } from '../attract/attract'
-import { detachedPanel, openSurfaces, revealDetachedDocument, revealSurface } from '../windowlife'
+import { detachedPanel, revealDetachedDocument, revealSurface } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { moveDeskMemory } from './desktabs'
@@ -40,7 +40,7 @@ import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
 import { agentFocusHistory, NavigationDeskMemory, orgNavigationTarget, type OrgDirection } from './keyboardnavigation'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
-import { deskIdentity, DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
+import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
 import { tierEffortLevels, useSpentHireTiers } from './staffingoptions'
 import { newHirePlacement, useNewHirePosition } from '../hireposition'
@@ -5220,26 +5220,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         </button>
       </div>
       </MaybePortal>
-      {/* restored desks from the last session STAY in the world: each is a
-          fixed full-window panel (`.popout-recovery.restored-desk`) with a
-          "Return to canvas" action, so it belongs to the canvas and is put
-          away with it rather than covering a presented Attention view */}
-      {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
-        const n = map.get(id)!
-        const deskKind = `desk:${deskIdentity(slug, n)}`
-        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}
-          onPointerDown={e => e.stopPropagation()}>
-          <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
-            openSurfaces().find(s => s.kind === deskKind)?.redock()
-            closeSavedWindow(windowLayoutKey(deskKind, slug))
-            setRestoreDesks(old => old.filter(([, other]) => other !== id))
-            centerOn(id)
-          }}>Return to canvas</button></div>
-          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast}
-            compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
-            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
-        </div>
-      })}
+      {/* desks the last session left in windows of their own come back as those windows (DeskHosts restores
+          them through MovableSurface `windowed`); the canvas keeps its own desk for each agent as well */}
       </div>{/* .canvas-world */}
       {/* THE OVERLAYS ARE OUTSIDE `.canvas-world` (2026-09-29). They used to
           sit inside it, so while the Attention view was presented every

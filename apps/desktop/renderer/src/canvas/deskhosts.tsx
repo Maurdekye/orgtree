@@ -1,9 +1,9 @@
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
 import { MovableSurface, PopoutChip, useSurface } from '../popout'
 import { openSurfaces, revealSurface, revealDetachedPanel } from '../windowlife'
 import { instanceKind } from '../modalkinds'
-import type { BorrowedSurface } from '../windowlife'
+import { savedDeskIdentities } from '../windowlayout'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
@@ -40,383 +40,139 @@ export function deskOpenElsewhere(slug: string,
     || !Number.isSafeInteger(node.generation) || node.generation < 0) return false
   return openSurfaces().some((s) => s.kind === `desk:${deskIdentity(slug, node)}`)
 }
-interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
-interface Entry {
-  key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean
-  show?: () => void; redock?: (slot?: object) => void; popout?: () => void; pendingPopout?: boolean
-  /** the borrowing slot's id, while a temporary surface holds this desk */
-  borrowedBy?: object
-  /** WHERE THE DESK WAS WHEN THE BORROW BEGAN. Read ONCE, on the transition
-   *  into the borrow — never re-read, or a borrower records itself. */
-  borrowedFrom?: { id: object; detached: boolean }
-  /** the two ways a borrowed NATIVE window can end — `restore` puts it back
-   *  exactly where it was, `release` gives it up. Absent unless the desk was
-   *  detached when the borrow began. */
-  borrowedHandle?: BorrowedSurface
-  /** THE OWNER AS OF THE END OF THE PREVIOUS COMMIT — see `settle`. */
-  settled?: object
-}
-
-/** is this slot's destination on screen and reachable right now?
- *
- *  ⚠ NOT "is this the selected org view". It is a fact about ONE destination:
- *  a pinned window is eligible whatever view the org is in, because it is
- *  screen-space and survives the switch, while a canvas card behind a
- *  presented Attention stage is not. Absent means eligible, so every existing
- *  call site is unaffected. */
-const eligible = (slot: Slot) => slot.props.eligible !== false
-
-/** is this registration a VIEW MOUNTING rather than the user asking for this
- *  desk here?
- *
- *  ⚠ THIS FIELD EXISTS BECAUSE ITS PREDECESSOR LIED. The first design carried
- *  `placed` on the DESTINATION — "the user put the desk here" — and protected
- *  any placed owner from any other claim. That rewrote pin ownership in
- *  general, and the user ruled only on the Attention view: it would have
- *  changed today's behaviour for an agent that is pinned AND open in an eye
- *  panel, where the panel currently takes the desk. The offered patch was to
- *  label the eye panel `placed` too, and multi-window-design refused it on the
- *  grounds that an eye panel is not a placed window and the field would then
- *  mean something false (2026-09-21). So the deciding fact moved to where it
- *  actually lives: the CLAIM. Only the Attention stage sets this, and only
- *  while it is the presented stage — pinned or popped out, the user placed it,
- *  so it claims like anything else. */
-const automatic = (slot: Slot) => slot.props.claim === 'automatic'
-
-/** the live native window showing THIS desk, if it is popped out. Keyed the
- *  way `DeskHost` opens it — `desk:<identity>` — which is the same shape
- *  `detachedKind` already matches on. */
-const deskSurface = (key: string) =>
-  openSurfaces().find((s) => s.kind === `desk:${key}`)
-
 /**
- * WHICH SLOT OWNS THE ONE LIVE DESK — the single answer both assignment points
- * now go through.
+ * EVERY PLACE A DESK IS OPEN SHOWS IT, LIVE, AT ONCE (USER 2026-11-15 10:34:16Z mbf1f1ca2cfe9, 4.6.1: "you should
+ * no longer see \"xyz's desk is open elsewhere (bring it here)\" etc. it should always show in both locations at
+ * once; on the canvas, in a pinned / popped out desk, in the attention desk, etc."; design-461-desk-views.md).
  *
- * ⚠ THERE WERE TWO OF THEM, AND ONLY ONE WAS EVER REPORTED. `put` promoting
- * every registration was the known half; `DeskHost`'s per-render re-point
- * (below) was the other, and it re-pointed ownership at
- * `[...entry.slots.values()][0]` — the first slot in Map INSERTION ORDER —
- * whenever the owning slot's id was gone. So a fix to `put` alone left
- * ownership landing by registration accident the moment a slot unregistered.
- * Both call this.
+ * This file used to keep exactly ONE live `OwnedDeskChat` per desk identity and move it between the places that
+ * asked for it, drawing an "open elsewhere" notice everywhere else. The single owner existed for the composer;
+ * the conversation was already one store per node (convo.ts), and the unsent draft is now one shared value per
+ * desk identity too (draftstore.ts). So each place renders its own live desk, and what is left here is:
  *
- * ⚠ AND `put` FIRES ON EVERY PROP UPDATE, not just on registration
- * (RegisteredSlot's useLayoutEffect depends on `props`). So the live rule this
- * has to preserve is "the last writer wins, on every update", NOT "the first
- * registration wins". An earlier draft of this function preferred the incumbent
- * globally and would have silently changed behaviour for every caller that
- * passes none of the new fields.
+ *   - THE LIST OF OPEN VIEWS per desk identity: which places show it, whether each is on screen, and which was
+ *     used last. Readers: question notifications (`claimQuestionDesk`), attract mode (`deskShownAnywhere`).
+ *   - THE DESK WINDOWS: a popped-out desk is a view of its own, in a native window held here (`PopoutDesk`), so
+ *     the place it was popped out from keeps its desk.
  *
- * WHAT IS UNCHANGED FOR EXISTING CALLERS, by construction rather than by
- * argument: steps 2 and 5's eligibility branches are unreachable while nothing
- * passes `eligible={false}` or `claim`, and step 6 is unreachable while 3 or 4
- * can fire. So an all-default registry runs 1 → 3 → 4 → 5 and lands exactly
- * where the previous code did:
- *
- *   put, attached, any registration or prop update  →  3, the incoming slot
- *   put, detached, some other slot                  →  1, no change
- *   put, detached, the owning slot again            →  1's exception, itself
- *   DeskHost, owner still registered                →  4, the owner
- *   DeskHost, owner gone                            →  5, first in order
+ * ⚠ VIEWS DO NOT SUBSCRIBE TO THE REGISTRY. The old registry bumped a version on every slot prop update and every
+ * slot re-rendered on it, so one parent render re-rendered every desk on screen (@desk-freeze-opus, 2026-11-15).
+ * A view registers in a layout effect and draws nothing from here; only readers that DRAW registry state
+ * subscribe, each to its own scalar.
  */
-function pick(e: Entry, incoming?: Slot): Slot {
-  // 0. BORROWED. A temporary surface holds the desk for as long as it is
-  //    mounted, whatever else registers or re-renders behind it.
-  //
-  //    ⚠ AHEAD OF THE DETACHED GUARD, DELIBERATELY. That guard exists to stop
-  //    an ordinary registration stealing a desk out of a native window by
-  //    accident. A borrow is not an accident: it has already REDOCKED that
-  //    window through `borrow()` (see `put`), so there is no window left to
-  //    protect, and the user ruled that the temporary modal may borrow a
-  //    popped-out desk and must give it back to the same placement.
-  if (e.borrowedBy) {
-    const held = e.slots.get(e.borrowedBy)
-    if (held) return held
-  }
-  // 1. DETACHED. While the desk is a native window ownership does not move at
-  //    all, and the one exception is the owning slot re-registering as itself —
-  //    which is the previous code's `e.last.id === slot.id` term, verbatim.
-  //    Eligibility deliberately plays no part here: a detached desk's
-  //    Show/Return placeholder is the behaviour the ruling says to preserve.
-  if (e.detached) return incoming && e.last.id === incoming.id ? incoming : e.last
-  const cur = e.slots.get(e.last.id)
-  // 2. AN AUTOMATIC CLAIM DEFERS TO A VISIBLE OWNER. This is the whole of the
-  //    Attention rule: a view mounting or re-rendering does not take a desk
-  //    away from a destination the user can currently see. It falls through
-  //    when the incumbent is NOT eligible, which is the other half — a hidden
-  //    embedded owner relinquishes rather than holding the desk somewhere
-  //    nobody can look at.
-  if (incoming && automatic(incoming) && cur && cur.id !== incoming.id && eligible(cur)) return cur
-  // 3. the incoming slot — the previous code's unconditional promotion
-  if (incoming && eligible(incoming)) return incoming
-  // 4. the incumbent — the previous code's `slots.get(entry.last.id)`
-  if (cur && eligible(cur)) return cur
-  // 5. the first ELIGIBLE slot in registration order, where the previous code
-  //    took the first slot in registration order
-  for (const s of e.slots.values()) if (eligible(s)) return s
-  // 6. NEVER HOMELESS. Eligibility reorders preference; it must not leave a
-  //    desk with no host, so an all-ineligible registry still gets an owner.
-  return cur ?? incoming ?? [...e.slots.values()][0] ?? e.last
+type Box = { x: number; y: number; w: number; h: number }
+interface View {
+  id: object
+  props: DeskChatProps
+  /** when this view was last pressed or focused: the "most recently used" place */
+  usedAt: number
 }
-class Desks {
-  entries = new Map<string, Entry>()
-  pendingPopouts = new Set<string>()
-  popoutMounts = new Set<string>()
-  version = 0
-  nextKey = 0
-  renamedAway = new Map<string, string>()
-  listeners = new Set<() => void>()
-  subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
-  snapshot = () => this.version
-  change = () => {
-    this.version++
-    for (const fn of [...this.listeners]) fn()
-    this.settle()
-  }
-  settling = false
-  /**
-   * REMEMBER WHO OWNED EACH DESK AT THE END OF THE LAST COMMIT.
-   *
-   * ⚠ WITHOUT THIS, A BORROW RECORDS THE WRONG DESTINATION. Registration
-   * re-runs for EVERY slot whenever its parent re-renders — `RegisteredSlot`'s
-   * effect depends on `props`, which is a fresh object each render — so the
-   * slots of one commit re-register in tree order and `last` moves several
-   * times before the commit is over. The modal opening IS such a commit, so
-   * `e.last` at the moment the borrowing slot registers is merely whichever
-   * sibling registered just before it, not the desk's actual pre-open owner.
-   * Reading a value snapshotted in a microtask AFTER the previous commit is
-   * what makes "put it back where it was" mean the place the user was actually
-   * looking at.
-   */
-  settle() {
-    if (this.settling) return
-    this.settling = true
-    queueMicrotask(() => {
-      this.settling = false
-      for (const e of this.entries.values()) if (!e.borrowedBy) e.settled = e.last.id
-    })
-  }
-  requestPopout(key: string) {
-    const entry = this.entries.get(key)
-    if (entry?.popout) { entry.popout(); return }
-    if (entry) entry.pendingPopout = true
-    else { this.pendingPopouts.add(key); this.popoutMounts.add(key) }
-    this.change()
-  }
-  put(key: string, slot: Slot) {
-    if (this.renamedAway.has(key)) {
-      this.pendingPopouts.delete(key)
-      return
-    }
-    let e = this.entries.get(key)
-    if (!e) {
-      e = { key: `host-${++this.nextKey}`, slots: new Map(), last: slot, detached: false }
-      if (this.pendingPopouts.delete(key)) e.pendingPopout = true
-      this.entries.set(key, e)
-    }
-    const prev = e.slots.get(slot.id)
-    e.slots.set(slot.id, slot)
-    // ⚠ CAPTURED ON THE TRANSITION IN, AND NOWHERE ELSE. This runs again on
-    // every prop change — RegisteredSlot's registration effect depends on
-    // `props` — so an unguarded capture would record the borrower as its OWN
-    // previous owner on its second render, and the restore would silently
-    // become a no-op. Read before `pick` moves `last`, because `last` is the
-    // thing being saved.
-    if (slot.props.borrow && e.borrowedBy !== slot.id) {
-      e.borrowedBy = slot.id
-      // ⚠ `settled`, NOT `e.last` — see `settle()`. `e.last` mid-commit is
-      // whichever sibling re-registered just before this one, because opening
-      // the modal re-renders the whole subtree and every slot re-registers in
-      // tree order. `settled` is the owner as of the end of the last commit,
-      // which is the destination the user was actually looking at.
-      e.borrowedFrom = { id: e.settled ?? e.last.id, detached: e.detached }
-      // A DETACHED DESK IS BORROWED BY REDOCKING IT, and `borrow()` is the only
-      // call that does so without recording the window as closed — an ordinary
-      // `redock` clears the saved row, which both loses the arrangement on
-      // reopen and makes the return land at a freshly computed position rather
-      // than the one it left. The handle is held here, for exactly as long as
-      // the borrowing slot is mounted, and ended once in `endBorrow`.
-      if (e.detached) e.borrowedHandle = deskSurface(key)?.borrow?.()
-    }
-    // ⚠ A RE-RENDER IS NOT A CLAIM (user report 2026-09-30). `put` also runs
-    // on every prop update, and this used to hand the desk to whichever slot
-    // re-rendered last — so with an agent's desk pinned in the Attention view
-    // AND its node zoomed on the canvas, merely hovering each (a re-render)
-    // moved the live desk back and forth. Only a NEW registration, or a slot
-    // whose claim actually changed (it became eligible, or stopped being an
-    // automatic claim), competes for the desk; any other update just refreshes
-    // its props and ownership stays where it is. Moving it otherwise is an
-    // explicit act: "Move desk here" on the placeholder (`moveHere`).
-    const claims = !prev
-      || (!eligible(prev) && eligible(slot))
-      || (automatic(prev) && !automatic(slot))
-    const won = pick(e, claims ? slot : undefined)
-    e.last = e.slots.get(won.id) ?? won
-    this.change()
-  }
-
-  /** the user asked for this desk HERE — the placeholder's "Move desk here".
-   *  Refused while a temporary surface borrows it or while it is a native
-   *  window (that has its own "Return here"). */
-  moveHere(key: string, id: object) {
-    const e = this.entries.get(key)
-    const target = e?.slots.get(id)
-    if (!e || !target || e.borrowedBy || e.detached) return
-    e.last = target
-    this.change()
-  }
-
-  /**
-   * THE BORROW ENDS WHEN ITS SLOT UNREGISTERS — a dismissal, an unmount, a
-   * route change and an error teardown all arrive here, because `remove` is a
-   * layout-effect cleanup.
-   *
-   * ⚠ THE NATIVE WINDOW AND THE OWNERSHIP ARE TWO DIFFERENT QUESTIONS, and
-   * fusing them leaks state. The borrow is ALWAYS ENDED — never simply dropped
-   * — because `borrow()` left the saved row `open: true` with its rect and
-   * nothing behind it, so walking away strands exactly the row the seam exists
-   * to protect and startup would reopen a window nobody left open. But ENDED IS
-   * NOT THE SAME AS RESTORED, and this is the correction: exactly ONE of the
-   * two outcomes is used, decided by whether there is anywhere valid to go
-   * back to.
-   *
-   *   destination still registered, identity intact  ->  restore()
-   *   gone, invalidated, or mid-rename               ->  release()
-   *
-   * Never both, and never neither. Ownership follows the same test, so a
-   * removed destination is not resurrected and `pick` finds the desk a home by
-   * the ordinary rules instead (multi-window-design, 2026-09-21).
-   */
-  endBorrow(e: Entry) {
-    const from = e.borrowedFrom
-    const handle = e.borrowedHandle
-    e.borrowedBy = undefined
-    e.borrowedFrom = undefined
-    e.borrowedHandle = undefined
-    // ⚠ RESTORE ONLY FOR A VALID PRIOR DESTINATION *AND* IDENTITY, NEVER BOTH
-    // OUTCOMES (multi-window-design, 2026-09-21). `invalidated` is set when the
-    // tree no longer has this generation, and `pendingRename` while an identity
-    // move is still mid-flight — putting a window back onto either is putting it
-    // onto an agent that is not there any more. The restore branch returns, so
-    // exactly one of the two is ever used.
-    if (from && !e.invalidated && !e.pendingRename) {
-      const target = e.slots.get(from.id)
-      if (target) {
-        e.last = target
-        // it came from a native window, so it goes back to one — at the
-        // geometry it actually had, which `borrow()` captured before closing
-        handle?.restore()
-        return
-      }
-    }
-    // NOTHING VALID TO GO BACK TO. The window must still be given up rather
-    // than simply dropped: `borrow()` left the saved row `open: true` with its
-    // rect and nothing behind it, so a borrow that merely stops makes startup
-    // restoration reopen a window nobody left open — and restoring it here
-    // would resurrect a window with nowhere valid to be.
-    handle?.release()
-  }
-  remove(key: string, id: object) {
-    const e = [...this.entries.values()].find((entry) => entry.slots.has(id))
-    if (!e) return
-    e.slots.delete(id)
-    if (e.borrowedBy === id) this.endBorrow(e)
-    // Slot migration can unregister/register in a single React commit. Give
-    // that commit a chance to finish before releasing its stable host.
-    queueMicrotask(() => {
-      if (!e.slots.size && !e.detached) {
-        for (const [k, entry] of this.entries) if (entry === e) this.entries.delete(k)
-      }
-      // Resolve the departed owner's replacement BEFORE notifying slots.
-      // Otherwise RegisteredSlot renders the old owner's placeholder, then
-      // DeskHost changes `last` later in that same render and adopts the live
-      // desk beside it. Nothing publishes that change until the next click.
-      // Defer until this commit ends so slot migration still keeps its host;
-      // pick preserves borrows, detached windows and a registered incumbent.
-      if (e.slots.size && !e.detached) e.last = pick(e)
-      this.change()
-    })
-  }
-}
-const DeskContext = createContext<Desks | null>(null)
-const DeskMapReady = createContext(true)
-
-/** EACH ORGANIZATION'S ONE REGISTRY, for a caller outside `DeskHosts` that
- *  has to decide during a click: a question's desktop notification chooses
- *  between the asker's open desk and the inbox in one handler (App.tsx).
- *  Present while that organization's `DeskHosts` is mounted. */
-const orgDesks = new Map<string, Desks>()
 
 /** where a question's desktop notification found the asker's open desk */
 export type QuestionDeskPlace = 'popout' | 'floating' | 'pin' | 'attention' | 'card'
 
+/** this view's place, as the question notification names it (a `borrow` view is the floating desk modal) */
+const placeOf = (v: View): QuestionDeskPlace | undefined => v.props.borrow ? 'floating' : v.props.openIn
+/** on screen and reachable right now (a canvas card behind the presented Attention stage is not) */
+const eligible = (v: View) => v.props.eligible !== false
+
+class Desks {
+  views = new Map<string, Map<object, View>>()
+  /** desk identities open as a native window of their own: the props of the place it was popped out from (the
+   *  canvas's own `popoutDesk` props win when there are any) and that place's frame, where the window first opens */
+  windows = new Map<string, { props: DeskChatProps | null; box: Box | null }>()
+  listeners = new Set<() => void>()
+  clock = 0
+  subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
+  change = () => { for (const fn of [...this.listeners]) fn() }
+  put(key: string, id: object, props: DeskChatProps) {
+    let m = this.views.get(key)
+    if (!m) this.views.set(key, m = new Map())
+    const prev = m.get(id)
+    m.set(id, { id, props, usedAt: prev?.usedAt ?? ++this.clock })
+    // a prop update is not news to anyone; a new view, or one coming on or off screen, is
+    if (!prev || eligible(prev) !== eligible({ id, props, usedAt: 0 })) this.change()
+  }
+  remove(key: string, id: object) {
+    const m = this.views.get(key)
+    if (!m?.delete(id)) return
+    if (!m.size) this.views.delete(key)
+    this.change()
+  }
+  touch(key: string, id: object) {
+    const v = this.views.get(key)?.get(id)
+    if (v) v.usedAt = ++this.clock
+  }
+  /** open this desk in a window of its own, or raise the one already open */
+  popout(key: string, props: DeskChatProps | null, box: Box | null = null) {
+    const open = deskSurface(key)
+    if (open) { revealSurface(open); return }
+    if (this.windows.has(key)) return
+    this.windows.set(key, { props, box })
+    this.change()
+  }
+  closeWindow(key: string) {
+    if (this.windows.delete(key)) this.change()
+  }
+}
+
+/** the live native window showing THIS desk. Keyed `desk:<identity>`, the shape `detachedKind` and
+ *  `savedDeskIdentities` match on. */
+const deskSurface = (key: string) => openSurfaces().find((s) => s.kind === `desk:${key}`)
+
+const DeskContext = createContext<Desks | null>(null)
+const DeskMapReady = createContext(true)
+
+/** EACH ORGANIZATION'S ONE REGISTRY, for a caller outside `DeskHosts` that has to decide during a click: a
+ *  question's desktop notification chooses between the asker's open desk and the inbox in one handler (App.tsx).
+ *  Present while that organization's `DeskHosts` is mounted. */
+const orgDesks = new Map<string, Desks>()
+
 /**
- * THE ASKER'S DESK IS ALREADY OPEN: SAY WHERE, WITH THE LIVE DESK THERE.
+ * THE ASKER'S DESK IS ALREADY OPEN: SAY WHERE.
  *
- * USER 2026-10-27 13:25:36Z m007c48d12f28: "also if the asking agent's desk of
- * a question is pinned anywhre, open either as a floating panel, a desk pin,
- * or open in the attention agent desk, then dont open the question in the
- * inbox when clicking a desktop notification for it"; 19:00Z m41e0735bee13:
- * "a desk on a zoomed canvas card should count"; 19:10Z m1a947c081d09: the
- * switchboard's panels count too ("Count the switchboard").
+ * USER 2026-10-27 13:25:36Z m007c48d12f28: "also if the asking agent's desk of a question is pinned anywhre, open
+ * either as a floating panel, a desk pin, or open in the attention agent desk, then dont open the question in the
+ * inbox when clicking a desktop notification for it"; 19:00Z m41e0735bee13: "a desk on a zoomed canvas card should
+ * count"; 19:10Z m1a947c081d09: the switchboard's panels count too ("Count the switchboard").
  *
- * Open means one of these places:
- *   popout     its own native window, which holds the live desk outright
- *   floating   the Open desk modal, which borrows the live desk (`borrow`)
- *   pin        a desk pin (`openIn: 'pin'`)
- *   attention  the Attention agent desk (`openIn: 'attention'`), only while
- *              eligible: its view presented, or its panel pinned or popped out
- *   card       a zoomed canvas card (`openIn: 'card'`): the agent's own, or
- *              its panel on the zoomed switchboard, only while eligible: the
- *              canvas is not behind the presented Attention view.
+ * OPEN IN MORE THAN ONE PLACE, THE MOST RECENTLY USED ONE WINS (design-461 question 3, provisional default): the
+ * one last pressed or focused. A desk window counts as used when it is open. With no use recorded, the old order
+ * stands: a desk pin, else the Attention desk, else the card. Every place shows the live desk now, so nothing moves.
  *
- * OPEN IN MORE THAN ONE, THE PLACE HOLDING THE LIVE DESK WINS. That is the
- * "most recently used" one (@coordinator-opus, 2026-10-27): the registry hands
- * the one desk to the place it was last opened in, moved to or returned to.
- * When only placeholders are open (another surface holds the desk), a desk
- * pin, else the Attention desk, else the card takes it through `moveHere`, the
- * placeholder's own "Move desk here", whose refusals still apply.
- *
- * Returns null when no such place is open, and the caller keeps its old path.
- * `within` is the slot holding the desk, where the question card is. Bringing
- * the window or panel forward is the caller's job.
+ * Returns null when no such place is open, and the caller keeps its old path. `within` is the place's element, where
+ * the question card is. Bringing the window or panel forward is the caller's job.
  */
 export function claimQuestionDesk(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>):
   { place: QuestionDeskPlace; within: HTMLElement | null } | null {
   if (typeof node.generation !== 'number' || !Number.isSafeInteger(node.generation) || node.generation < 0) return null
   const key = deskIdentity(slug, node)
+  const open = [...(orgDesks.get(slug)?.views.get(key)?.values() ?? [])].filter((v) => placeOf(v) && eligible(v))
+  const floating = open.find((v) => placeOf(v) === 'floating')
+  if (floating) return { place: 'floating', within: anchorOf(floating) }
   if (deskSurface(key)) return { place: 'popout', within: null }
-  const desks = orgDesks.get(slug)
-  const e = desks?.entries.get(key)
-  if (!desks || !e || e.invalidated || e.pendingRename || e.detached) return null
-  const borrower = e.borrowedBy ? e.slots.get(e.borrowedBy) : undefined
-  if (borrower) return { place: 'floating', within: borrower.anchor }
-  const open = [...e.slots.values()].filter((s) => s.props.openIn && eligible(s))
-  const chosen = open.find((s) => s.id === e.last.id) ?? open.find((s) => s.props.openIn === 'pin')
-    ?? open.find((s) => s.props.openIn === 'attention') ?? open[0]
-  if (!chosen?.props.openIn) return null
-  if (chosen.id !== e.last.id) desks.moveHere(key, chosen.id)
-  return { place: chosen.props.openIn, within: chosen.anchor }
+  const order: QuestionDeskPlace[] = ['pin', 'attention', 'card']
+  const chosen = [...open].sort((a, b) => b.usedAt - a.usedAt
+    || order.indexOf(placeOf(a)!) - order.indexOf(placeOf(b)!))[0]
+  return chosen ? { place: placeOf(chosen)!, within: anchorOf(chosen) } : null
 }
+const anchors = new WeakMap<object, HTMLElement>()
+const anchorOf = (v: View) => anchors.get(v.id) ?? null
 
-/** Is this agent's desk visible ANYWHERE right now, read from the registry the hosts themselves use (and with no side effect,
- *  unlike claimQuestionDesk)? A popped-out window, a borrowing modal, a pin, the Attention agent desk, a zoomed canvas card or
- *  a switchboard panel: any live slot that is open and eligible. Attract mode skips such an agent entirely
- *  (USER 2026-11-04 m1869e398fdea), so a new host kind registered here can never be missed again. */
+/** Is this agent's desk visible ANYWHERE right now, read from the registry the views themselves use? A desk window,
+ *  the floating modal, a pin, the Attention agent desk, a zoomed canvas card or a switchboard panel: any view that is
+ *  open and on screen. Attract mode skips such an agent entirely (USER 2026-11-04 m1869e398fdea). */
 export function deskShownAnywhere(slug: string, node: Pick<CanvasNode, 'id' | 'generation'> | undefined): boolean {
   if (!node || typeof node.generation !== 'number' || !Number.isSafeInteger(node.generation) || node.generation < 0) return false
   const key = deskIdentity(slug, node)
   if (deskSurface(key)) return true
-  const e = orgDesks.get(slug)?.entries.get(key)
-  if (!e || e.invalidated || e.pendingRename) return false
-  if (e.detached) return true
-  if (e.borrowedBy && e.slots.get(e.borrowedBy)) return true
-  return [...e.slots.values()].some((s) => s.props.openIn && eligible(s))
+  return [...(orgDesks.get(slug)?.views.get(key)?.values() ?? [])].some((v) => (v.props.openIn || v.props.borrow) && eligible(v))
 }
 
 export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: {
   children: ReactNode; map: Map<string, CanvasNode>; slug: string; treeSlug?: string
+  /** the props a desk WINDOW renders with (the canvas's own routes). A desk saved open as a window at the last
+   *  session comes back with these, and so does one popped out from a place that has no props of its own. */
   popoutDesk?: (node: CanvasNode) => DeskChatProps
 }) {
   const [desks] = useState(() => new Desks())
@@ -424,144 +180,85 @@ export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: 
     orgDesks.set(slug, desks)
     return () => { if (orgDesks.get(slug) === desks) orgDesks.delete(slug) }
   }, [desks, slug])
+  // the desk windows the last session left open come back as windows (MovableSurface `windowed` reopens each at its
+  // saved place), once this organization's tree is the one shown
+  const restored = useRef(false)
   useEffect(() => {
-    const rename = (event: Event) => {
-      const d = (event as CustomEvent<{ slug: string; from: string; to: string }>).detail
-      if (!d || d.slug !== slug) return
-      for (const [key, entry] of [...desks.entries]) {
-        if (entry.invalidated || entry.last.props.slug !== slug || entry.last.props.node.id !== d.from) continue
-        const move = (slot: Slot): Slot => ({ ...slot, props: { ...slot.props, node: { ...slot.props.node, id: d.to } } })
-        const next = move(entry.last)
-        const target = deskIdentity(slug, next.props.node)
-        const destination = desks.entries.get(target)
-        if (destination?.detached) continue
-        // A full payload can create its new presentation slot before the
-        // parent's validated rename notification. Retain the original host
-        // and adopt only that new slot; never revive an invalidated host.
-        if (destination) {
-          for (const [id, slot] of destination.slots) entry.slots.set(id, slot)
-          desks.entries.delete(target)
-        }
-        entry.pendingRename = true
-        entry.last = next
-        entry.slots = new Map([...entry.slots].map(([id, slot]) => [id, move(slot)]))
-        desks.renamedAway.set(key, d.from)
-        desks.entries.delete(key); desks.entries.set(target, entry)
-      }
-      desks.change()
+    if (restored.current || !popoutDesk || treeSlug !== slug) return
+    restored.current = true
+    for (const [org, id, generation] of savedDeskIdentities(slug)) {
+      const node = map.get(id)
+      if (org === slug && node?.generation === generation) desks.popout(deskIdentity(slug, node), popoutDesk(node))
     }
-    window.addEventListener('orgtree:desk-rename', rename)
-    return () => window.removeEventListener('orgtree:desk-rename', rename)
-  }, [desks, slug])
+  }, [desks, map, slug, treeSlug, popoutDesk])
+  // a window whose agent is gone or has a new generation closes with it
   useEffect(() => {
     if (treeSlug !== slug) return
-    // Parent passive effects reconcile payload-only same-session renames.
-    // Validate this accepted snapshot after those effects, without clearing
-    // an earlier deletion or generation invalidation.
-    queueMicrotask(() => {
-      let changed = false
-      for (const [key, entry] of [...desks.entries]) {
-        if (entry.last.props.slug !== slug) continue
-        const current = map.get(entry.last.props.node.id)
-        if (entry.pendingRename && current?.generation === entry.last.props.node.generation) entry.pendingRename = false
-        if (entry.invalidated || entry.pendingRename || (current && current.generation === entry.last.props.node.generation)) continue
-        entry.invalidated = true
-        desks.entries.delete(key); desks.entries.set(`recovery:${entry.key}`, entry); changed = true
-      }
-      if (changed) desks.change()
-    })
-  }, [desks, map, slug, treeSlug])
-  useEffect(() => {
-    let changed = false
-    for (const key of new Set([...desks.pendingPopouts, ...desks.popoutMounts])) {
-      let parsed: unknown
-      try { parsed = JSON.parse(key) } catch { parsed = null }
-      const parts = Array.isArray(parsed) ? parsed : []
-      const id = typeof parts[1] === 'string' ? parts[1] : null
-      const generation = typeof parts[2] === 'number' ? parts[2] : null
-      const current = id ? map.get(id) : undefined
-      if (parts[0] !== slug || !current || current.generation !== generation) {
-        desks.pendingPopouts.delete(key)
-        desks.popoutMounts.delete(key)
-        changed = true
-      }
+    for (const key of [...desks.windows.keys()]) {
+      const [, id, generation] = JSON.parse(key) as [string, string, number]
+      if (map.get(id)?.generation !== generation) desks.closeWindow(key)
     }
-    if (changed) desks.change()
-  }, [desks, map, slug, treeSlug])
-  useEffect(() => {
-    // Once the authoritative tree drops the old name, a later new hire may
-    // reuse it. Until then an old presentation must not recreate a writer.
-    if (treeSlug !== slug) return
-    for (const [key, id] of desks.renamedAway) if (!map.has(id)) desks.renamedAway.delete(key)
   }, [desks, map, slug, treeSlug])
   return <DeskMapReady.Provider value={treeSlug === slug}><DeskContext.Provider value={desks}>{children}
-    {popoutDesk && <PopoutMounts desks={desks} map={map} slug={slug} propsFor={popoutDesk} />}
-    <HostList desks={desks} map={map} slug={slug} /></DeskContext.Provider></DeskMapReady.Provider>
+    <DeskWindows desks={desks} map={map} slug={slug} propsFor={popoutDesk} /></DeskContext.Provider></DeskMapReady.Provider>
 }
 
-/** Mount only explicitly requested desks, without selecting a canvas node.
- * The same canonical host moves to its window; its launch slot is removed
- * once detached, or on failure. No permanently hidden composers are retained. */
-function PopoutMounts({ desks, map, slug, propsFor }: {
-  desks: Desks; map: Map<string, CanvasNode>; slug: string
-  propsFor: (node: CanvasNode) => DeskChatProps
+function DeskWindows({ desks, map, slug, propsFor }: {
+  desks: Desks; map: Map<string, CanvasNode>; slug: string; propsFor?: (node: CanvasNode) => DeskChatProps
 }) {
-  useSyncExternalStore(desks.subscribe, desks.snapshot)
-  return <div hidden>{[...desks.popoutMounts].map(key => {
+  useSyncExternalStore(desks.subscribe, () => desks.windows.size)
+  return <>{[...desks.windows].map(([key, { props, box }]) => {
     const [org, id, generation] = JSON.parse(key) as [string, string, number]
     const node = map.get(id)
-    return org === slug && node?.generation === generation
-      ? <PopoutMount key={key} node={node} propsFor={propsFor} /> : null
-  })}</div>
+    const base = node && (propsFor?.(node) ?? props)
+    if (org !== slug || node?.generation !== generation || !base) return null
+    return <PopoutDesk key={key} desks={desks} winKey={key} box={box} props={{ ...base, node, map, eligible: true,
+      claim: undefined, borrow: undefined, openIn: undefined, temporaryPlacement: undefined, onPoppedOut: undefined }} />
+  })}</>
 }
 
-// Registry notifications must not manufacture new slot props: registration
-// itself notifies the registry. Refresh only when the node/canvas props change.
-const PopoutMount = memo(function PopoutMount({ node, propsFor }: {
-  node: CanvasNode; propsFor: (node: CanvasNode) => DeskChatProps
-}) {
-  return <DeskSlot {...propsFor(node)} bare eligible={false} />
-})
-
 /**
- * A press on a control inside a canvas card must not reach the viewport.
- *
- * The viewport takes pointer capture on EVERY left press that gets to it
- * (OrgCanvas's onPointerDown), and once that capture is live Chromium fires
- * the compatibility mouse events — `click` among them — at the CAPTURING
- * element. A button that lets its pointerdown through is therefore pressed,
- * highlights under the cursor, and never hears the click at all. The card's
- * own `startNodeDrag` deliberately returns early for a button WITHOUT
- * stopping propagation, so nothing upstream saves it.
- *
- * Every in-card control already does this for itself: PinnedPlaceholder
- * (pins.tsx), the stack badge (cards.tsx), PopoutButton (popout.tsx), and
- * `.desk-over`'s own wall (desk.tsx) — which is what protects a real desk's
- * buttons, and which is NOT rendered while the desk is elsewhere. That is
- * why this notice has to carry its own.
- *
- * User report 2026-09-11: neither "Show desk" nor "Return here" did
- * anything. MEASURED in a real window, the click on both was delivered to
- * `div.viewport`; tests/placeholder-actions.probe.ts records the target of
- * every press so the difference is visible rather than inferred.
+ * A DESK IN A NATIVE WINDOW OF ITS OWN: one more view, in its own `MovableSurface`. `windowed` opens it straight
+ * into the window (at the saved place and size when the last session left one) and keeps it there. Closing the
+ * window, or its Return, ends this view; the places in the main window kept their own desks all along.
  */
-const stopPress = (e: ReactPointerEvent) => e.stopPropagation()
+function PopoutDesk({ desks, winKey, props, box }: { desks: Desks; winKey: string; props: DeskChatProps; box: Box | null }) {
+  const [dock, setDock] = useState<HTMLElement | null>(null)
+  return <div hidden ref={setDock}>
+    {dock && <MovableSurface kind={`desk:${winKey}`} title={`${props.node.id} · desk`} org={props.slug} anchor={dock}
+      windowed sourceBox={() => box} exactSourceBox
+      onDetached={(v) => { if (!v) desks.closeWindow(winKey) }}>
+      <PopoutDeskBody desks={desks} winKey={winKey} props={props} />
+    </MovableSurface>}
+  </div>
+}
+function PopoutDeskBody({ desks, winKey, props }: { desks: Desks; winKey: string; props: DeskChatProps }) {
+  const surface = useSurface()
+  useEffect(() => {
+    if (!surface?.error) return
+    props.toast([surface.error])
+    desks.closeWindow(winKey)
+  }, [desks, winKey, props, surface?.error])
+  return <DeskView desks={desks} deskKey={winKey} props={props} window />
+}
+
+/** A desk's own pop-out control: this place's desk opens in a window of its own, or the window this desk is in
+ *  closes. Read by the desk header's pop-out button (desk.tsx) in place of the nearest surface's, which for a desk
+ *  inside a pin or a popped-out panel would pop out the pin or the panel. */
+export interface DeskViewControl {
+  /** this desk is the one in a desk window */
+  inWindow: boolean
+  popout: () => void
+  closeWindow: () => void
+}
+export const DeskViewContext = createContext<DeskViewControl | null>(null)
 
 /**
- * A notice standing where a desk would be.
+ * A notice standing where a desk would be, before the organization's tree has loaded.
  *
- * On a CANVAS CARD the desk is counter-scaled into the card's 120px
- * interior (`.desk-inner`), so a notice that replaces it has to be too, or
- * it renders at the camera's scale instead — 7.5x too big, wrapped, with its
- * buttons hanging outside the card. That is the shape the user reported on
- * 2026-09-11. `.pin-holder` + `.pin-placeholder` have always done this for a
- * pinned desk; this is the same pair for a popped-out one.
- *
- * `bare` is the discriminator and not a guess: it is the same flag that
- * decides whether the real desk renders counter-scaled (`.desk-inner`) or at
- * 1:1 (`.desk-bare`), so the notice follows whatever its desk would have
- * done. The switchboard panels and a pinned window's body are `bare` and
- * keep the plain inline notice.
+ * On a CANVAS CARD the desk is counter-scaled into the card's 120px interior (`.desk-inner`), so a notice that
+ * replaces it has to be too (user report 2026-09-11). `bare` is the same flag that decides whether the real desk
+ * renders counter-scaled or at 1:1, so the notice follows whatever its desk would have done.
  */
 function InDesksPlace({ bare, children }: { bare?: boolean; children: ReactNode }) {
   if (bare) return <PopoutChip>{children}</PopoutChip>
@@ -573,29 +270,65 @@ function InDesksPlace({ bare, children }: { bare?: boolean; children: ReactNode 
 export function DeskSlot(outer: DeskChatProps) {
   const desks = useContext(DeskContext)
   const mapReady = useContext(DeskMapReady)
-  // §4.8: an archived seat arrives summarised, and the desk reads its full
-  // charter and turn history. Resolved HERE because this is the one door every
-  // desk goes through — five call sites, one fetch rule. It does NOT gate:
-  // the desk renders from the summary and upgrades when detail lands, so
-  // opening a retired agent never waits on a spinner.
+  // §4.8: an archived seat arrives summarised, and the desk reads its full charter and turn history. Resolved HERE
+  // because this is the one door every desk goes through. It does NOT gate: the desk renders from the summary and
+  // upgrades when detail lands, so opening a retired agent never waits on a spinner.
   const { node } = useNodeDetail(outer.slug, outer.node)
   const props = node === outer.node ? outer : { ...outer, node }
   if (!mapReady) return <InDesksPlace bare={props.bare}>Loading organization...</InDesksPlace>
   if (!desks || isMobile || typeof props.node.generation !== 'number'
     || !Number.isSafeInteger(props.node.generation) || props.node.generation < 0) return <OwnedDeskChat {...props} />
-  return <RegisteredSlot desks={desks} props={props} />
+  return <DeskView desks={desks} deskKey={deskIdentity(props.slug, props.node)} props={props} />
+}
+
+/**
+ * ONE PLACE'S LIVE DESK. It registers itself (for the readers above) and renders its own `OwnedDeskChat` while its
+ * place is on screen. Off screen it renders nothing at all and mounts when it comes back: a desk nobody can see is
+ * never mounted (design-461; the mount-cost budget agreed with @desk-freeze-opus).
+ */
+function DeskView({ desks, deskKey, props, window: inWindow = false }: {
+  desks: Desks; deskKey: string; props: DeskChatProps; window?: boolean
+}) {
+  const id = useRef({}).current
+  const anchor = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (anchor.current) anchors.set(id, anchor.current)
+    desks.put(deskKey, id, props)
+  }, [desks, deskKey, id, props])
+  useLayoutEffect(() => () => desks.remove(deskKey, id), [desks, deskKey, id])
+  const control = useRef<DeskViewControl>({ inWindow, popout: () => {}, closeWindow: () => {} })
+  control.current.inWindow = inWindow
+  control.current.popout = () => {
+    // the window first opens over the frame this place shows the desk in, a pin's title bar included
+    const frame = anchor.current?.closest('.pinwin') ?? anchor.current?.querySelector('.desk-body')
+    const rect = frame?.getBoundingClientRect()
+    desks.popout(deskKey, props, props.temporaryPlacement?.sourceBox()
+      ?? (rect ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height } : null))
+    // the place it was popped out from may go with it (a pin, the floating modal: design-461 question 2)
+    props.temporaryPlacement?.onPopout()
+    props.onPoppedOut?.()
+  }
+  control.current.closeWindow = () => desks.closeWindow(deskKey)
+  const used = () => desks.touch(deskKey, id)
+  return <div className="desk-slot" ref={anchor} data-desk-slot={deskKey}
+    onPointerDownCapture={used} onFocusCapture={used}>
+    {props.eligible !== false && <DeskViewContext.Provider value={control.current}>
+      <OwnedDeskChat {...props} />
+    </DeskViewContext.Provider>}
+  </div>
 }
 
 export interface DeskActions {
   /** this seat can own a desk at all (a generation is what identifies one) */
   valid: boolean
-  /** its desk is mounted somewhere right now */
+  /** its desk is open somewhere right now */
   present: boolean
-  /** its desk is already open as a native window */
+  /** its desk is open in a window of its own */
   detached: boolean
-  /** raise that native window */
+  /** raise that window */
   show?: () => void
-  requestPopout: () => void
+  /** open it in a window of its own, first over `box` when given (the frame it is shown in) */
+  requestPopout: (box?: Box | null) => void
 }
 
 function deskActionsOf(desks: Desks | null, mapReady: boolean, slug: string,
@@ -603,32 +336,27 @@ function deskActionsOf(desks: Desks | null, mapReady: boolean, slug: string,
   const valid = typeof node.generation === 'number'
     && Number.isSafeInteger(node.generation) && node.generation >= 0
   const key = valid ? deskIdentity(slug, node) : null
-  const entry = mapReady && desks && key ? desks.entries.get(key) : undefined
+  const views = mapReady && desks && key ? desks.views.get(key) : undefined
+  const surface = key ? deskSurface(key) : undefined
   return {
     valid,
-    present: !!entry,
-    detached: !!entry?.detached,
-    show: entry?.show,
-    // The list may ask before a desk host exists (the card is outside the
-    // viewport), so the request is RETAINED until that desk registers its
-    // native surface.
-    requestPopout: () => { if (key) desks?.requestPopout(key) },
+    present: !!views?.size || !!surface,
+    detached: !!surface,
+    show: surface ? () => { revealSurface(surface) } : undefined,
+    // the list may ask before any place shows this desk (its card is outside the viewport): the window renders with
+    // the canvas's own props (`popoutDesk`), else those of a place that shows it
+    requestPopout: (box) => {
+      if (!key || !desks) return
+      desks.popout(key, views?.values().next().value?.props ?? null, box ?? null)
+    },
   }
 }
 
-/** An agent's desk-window actions, read at the moment they are needed — a
- *  context menu builds its entries when the menu OPENS, not on every render.
+/** An agent's desk-window actions, read at the moment they are needed — a context menu builds its entries when the
+ *  menu OPENS, not on every render.
  *
- *  ⚠ IT DELIBERATELY DOES NOT SUBSCRIBE, which is what lets every agent card
- *  on the canvas and every row of the Agents List hold one: a
- *  `useSyncExternalStore` per caller would be hundreds of subscriptions to a
- *  store that only the open menu is looking at. The returned reader walks the
- *  live registry when it is called, so a menu opened a second later still sees
- *  the truth. A surface that DRAWS this state (a control that has to say
- *  "show" while the desk is detached and "pop out" while it is not) would need
- *  the subscription — there is no such control any more: the user had the
- *  per-agent pin and popout buttons removed from the list on 2026-09-12, in
- *  favour of the menu these entries live in. */
+ *  ⚠ IT DELIBERATELY DOES NOT SUBSCRIBE, which is what lets every agent card on the canvas and every row of the
+ *  Agents List hold one. The returned reader walks the live registry when it is called. */
 export function useDeskActionsNow(slug: string):
 (node: Pick<CanvasNode, 'id' | 'generation'>) => DeskActions {
   const desks = useContext(DeskContext)
@@ -636,140 +364,12 @@ export function useDeskActionsNow(slug: string):
   return (node) => deskActionsOf(desks, mapReady, slug, node)
 }
 
-const NEVER = () => () => {}
-/** The card's own desk is open as a native window right now. Subscribes ONLY
- *  while `watch` (the card holds the open desk): every other card keeps the
- *  no-subscription cost useDeskActionsNow promises. Drives the focused card's
- *  face: a card whose desk is elsewhere shows exactly what the same card shows
- *  unfocused (@item:orgtree/x-is-in-another-window-placeholder-covers-parts-o,
- *  @coordinator-opus m1033e120df5d). */
-export function useDeskElsewhere(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>, watch: boolean): boolean {
-  const desks = useContext(DeskContext)
-  const mapReady = useContext(DeskMapReady)
-  // the snapshot is the BOOLEAN, not the registry version: the card re-renders
-  // only when its desk goes elsewhere or comes back. Subscribing to the version
-  // would re-render the card (and the DeskChat props it passes) on every
-  // registry change, and RegisteredSlot's put() changes the registry again.
-  return useSyncExternalStore(watch && desks ? desks.subscribe : NEVER,
-    () => watch ? deskActionsOf(desks, mapReady, slug, node).detached : false)
-}
-
-/** The card is laid out as the focused desk (desk-sized, head hidden) only
- *  while it shows the desk: not when its desk is in another window. */
-export const cardIsDeskLayout = (deskOpen: boolean, pinnedFocus: boolean, deskElsewhere: boolean): boolean =>
+/** The card is laid out as the focused desk (desk-sized, head hidden) while its desk is open. A card always shows
+ *  its own desk now, popped out or not; `deskElsewhere` stays for its callers and is always false. */
+export const cardIsDeskLayout = (deskOpen: boolean, pinnedFocus: boolean, deskElsewhere = false): boolean =>
   (deskOpen && !deskElsewhere) || pinnedFocus
 
-function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }) {
-  const id = useRef({}).current
-  const anchor = useRef<HTMLDivElement>(null)
-  const key = deskIdentity(props.slug, props.node)
-  useSyncExternalStore(desks.subscribe, desks.snapshot)
-  useLayoutEffect(() => {
-    if (anchor.current) desks.put(key, { id, anchor: anchor.current, props })
-  }, [desks, key, id, props])
-  useLayoutEffect(() => () => desks.remove(key, id), [desks, key, id])
-  const e = desks.entries.get(key)
-  const elsewhere = e?.detached || (e && e.last.id !== id)
-  return <div className="desk-slot" ref={anchor} data-desk-slot={key}>
-    {elsewhere && <InDesksPlace bare={props.bare}>
-      <span data-copy-agent-name={props.node.id}>{props.node.id}'s desk is open elsewhere.</span>
-      <button onPointerDown={stopPress} onClick={() => e.show?.()}>Show desk</button>
-      {/* `id` is THIS slot: the desk comes back where it was asked for, which
-          need not be the host it was popped out of. */}
-      {e.detached && <button onPointerDown={stopPress} onClick={() => e.redock?.(id)}>Return here</button>}
-      {!e.detached && !e.borrowedBy && props.eligible !== false &&
-        <button onPointerDown={stopPress} onClick={() => desks.moveHere(key, id)}>Move desk here</button>}
-    </InDesksPlace>}
-  </div>
-}
-function HostList({ desks, map, slug }: { desks: Desks; map: Map<string, CanvasNode>; slug: string }) {
-  useSyncExternalStore(desks.subscribe, desks.snapshot)
-  return <>{[...desks.entries.values()].filter((e) => e.last.props.slug === slug).map((e) =>
-    <DeskHost key={e.key} desks={desks} entry={e} map={map} />)}</>
-}
-function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<string, CanvasNode> }) {
-  const current = map.get(entry.last.props.node.id)
-  const changedGeneration = !!entry.invalidated || !current || current.generation !== entry.last.props.node.generation
-  // THE SECOND ASSIGNMENT POINT (see `pick`). This used to be
-  // `entry.slots.get(entry.last.id) ?? [...entry.slots.values()][0]`, which
-  // handed ownership to the first slot in Map insertion order once the owner's
-  // id was gone — as likely to be an invisible destination as a visible one.
-  const slot = !entry.detached ? pick(entry) : entry.slots.get(entry.last.id)
-  if (slot && !entry.detached) entry.last = slot
-  const props = entry.last.props
-  return <MovableSurface kind={`desk:${deskIdentity(props.slug, props.node)}`} title={`${props.node.id} · desk`}
-    org={props.slug} anchor={slot?.anchor ?? null}
-    sourceBox={props.temporaryPlacement?.sourceBox ?? (() => {
-      // Slots and bare desks use display:contents. Measure the visible frame,
-      // including a pin's title bar, before the shared desk moves documents.
-      const frame = slot?.anchor.closest('.pinwin') ?? slot?.anchor.querySelector('.desk-body')
-      const rect = frame?.getBoundingClientRect()
-      return rect ? {x: rect.x, y: rect.y, w: rect.width, h: rect.height} : null
-    })} exactSourceBox
-    onDetached={(v, reason) => {
-      entry.detached = v
-      if (v) desks.popoutMounts.delete(deskIdentity(props.slug, props.node))
-      if (v) props.temporaryPlacement?.onPopout()
-      if (!v && reason !== 'close' && !entry.slots.size) props.onJump?.(props.node.id)
-      desks.change()
-    }}>
-    <DeskOwnerControls desks={desks} entry={entry} stale={changedGeneration} dismiss={() => {
-      entry.redock?.(); for (const [key, e] of desks.entries) if (e === entry) desks.entries.delete(key); desks.change()
-    }} />
-    {changedGeneration && <StaleIdentityNotice generation={props.node.generation} />}
-    <OwnedDeskChat {...props} node={changedGeneration ? props.node : current}
-      map={map} staleIdentity={changedGeneration} />
-  </MovableSurface>
-}
-function DeskOwnerControls({ desks, entry, stale, dismiss }: { desks: Desks; entry: Entry; stale: boolean; dismiss: () => void }) {
-  const surface = useSurface()
-  useEffect(() => {
-    if (surface?.error && desks.popoutMounts.delete(deskIdentity(entry.last.props.slug, entry.last.props.node))) {
-      entry.last.props.toast([surface.error])
-      desks.change()
-    }
-  }, [desks, entry, surface?.error])
-  useLayoutEffect(() => {
-    entry.show = () => {
-      if (surface?.detached) surface.open()
-      else { entry.last.anchor.scrollIntoView({ block: 'nearest' }); entry.last.props.onJump?.(entry.last.props.node.id) }
-    }
-    entry.redock = (slot) => {
-      // Return the desk to the host that ASKED for it. `entry.last` is what
-      // DeskHost hands MovableSurface as its anchor, so pointing it at the
-      // clicked slot first is what makes the redock land there; the anchor
-      // prop change re-places the surface on the commit that follows.
-      const target = slot ? entry.slots.get(slot) : undefined
-      if (target) entry.last = target
-      surface?.redock()
-    }
-    entry.popout = () => surface?.open()
-    if (entry.pendingPopout) {
-      entry.pendingPopout = false
-      queueMicrotask(() => entry.popout?.())
-    }
-  }, [entry, surface])
-  return <StaleDeskControls stale={stale} dismiss={dismiss} />
-}
-/** The draft stranded by an identity change is now SAVED, not copied: it goes
- *  into this agent's sent-message history and comes back with Up in the
- *  message box. So the notice reads the same docked or popped out - there is
- *  no longer a control that exists in one place and not the other. */
-function StaleIdentityNotice({ generation }: { generation: number | undefined }) {
-  return <div className="popout-error" role="status">
-    This agent's identity changed. This draft belongs to generation {generation}.
-    It will not be sent to the new generation; it is kept in this agent's
-    message history, so press Up in the message box to bring it back.
-  </div>
-}
-/** What is left on a desk whose agent's identity has moved on: the way to
- *  close it. The `Copy unsent draft` button that used to sit here is retired -
- *  the draft is written into the agent's message history instead, so there is
- *  nothing to copy by hand and nothing that only works in the main window. */
-function StaleDeskControls({ stale, dismiss }: { stale: boolean; dismiss: () => void }) {
-  const surface = useSurface()
-  if (!surface || !stale || surface.detached) return null
-  return <div className="popout-draft-recovery">
-    <button onClick={dismiss}>Close old desk</button>
-  </div>
+/** Kept for its caller: a card's desk is never elsewhere any more (every place shows it). */
+export function useDeskElsewhere(_slug: string, _node: Pick<CanvasNode, 'id' | 'generation'>, _watch: boolean): boolean {
+  return false
 }
