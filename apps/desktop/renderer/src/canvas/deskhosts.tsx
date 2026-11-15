@@ -338,7 +338,11 @@ function DeskView({ desks, deskKey, props, window: inWindow = false }: {
       ?? (rect ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height } : null),
       () => { props.temporaryPlacement?.onPopout(); props.onPoppedOut?.() })
   }
-  control.current.closeWindow = () => desks.closeWindow(deskKey)
+  control.current.closeWindow = () => {
+    // Return to main window with no place there showing this desk: go to the agent, as the return always did
+    if (!desks.shownInMain(deskKey)) props.onJump?.(props.node.id)
+    desks.closeWindow(deskKey)
+  }
   const used = () => desks.touch(deskKey, id)
   return <div className="desk-slot" ref={anchor} data-desk-slot={deskKey}
     onPointerDownCapture={used} onFocusCapture={used}>
