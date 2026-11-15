@@ -5,7 +5,7 @@ import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
 import { pickNativeFolder } from './folder-picker'
 import { watchRemoteFileDownloads, type SessionLike as DownloadSession } from './remote-downloads'
-import { app, BrowserWindow, WebContentsView, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, WebContentsView, contentTracing, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
@@ -64,6 +64,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
 import { STALL_LOG, StallLog } from './stall-log'
+import { StallTracer, TRACE_DIR, processTrace } from './stall-trace'
 import { GpuSampler, IpcTracker, LazyStackWorker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
 import type { IpcLike } from './stall-probe'
 import { MAIN_STACK_WORKER_SOURCE } from './stall-worker-source'
@@ -573,10 +574,26 @@ else {
     } })
     stallSync = (channel, ms) => { stackWorker.wake(); stallLog.write('sync-ipc', { ms, channel }) }
     stallWindowOf = event => { try { return resolveNativeSender(event as never, windows, engine.origin).id } catch { return '' } }
+    // 4.6.1 (main/stall-trace.ts): a long frame that WAITED arms one short GPU/compositor trace into
+    // diagnostics/stall-traces, rate-limited; ORGTREE_STALLTRACE=0 turns only this off
+    const stallTracer = process.env.ORGTREE_STALLTRACE === '0' ? null : new StallTracer({
+      now: Date.now, setTimeout: (fn, ms) => setTimeout(() => { void fn() }, ms), clearTimeout: h => clearTimeout(h as NodeJS.Timeout),
+      dir: () => engineRestartOptions?.dataRoot && !dataMoveInFlight ? path.join(engineRestartOptions.dataRoot, TRACE_DIR) : undefined,
+      tracing: {
+        start: async categories => { await contentTracing.startRecording({ included_categories: categories, recording_mode: 'record-until-full', trace_buffer_size_in_kb: 32 * 1024 }) },
+        stop: file => contentTracing.stopRecording(file),
+      },
+      process: processTrace,
+      log: line => stallLog.write('stall-trace', line),
+      app: () => stallApp,
+    })
     ipcMain.on('diag:stall', (event, record) => {
       const id = stallWindowOf?.(event) ?? ''
       if (id && (record as { src?: unknown } | null)?.src === 'attract') stallLog.write('attract', record, { id, org: windows.get(id)?.kind === 'org' })   // the attract trace: no stack worker, no GPU
-      else if (id) { stackWorker.wake(); stallLog.write('renderer-loaf', withGpu(record), { id, org: windows.get(id)?.kind === 'org' }) }
+      else if (id) {
+        stackWorker.wake(); stallLog.write('renderer-loaf', withGpu(record), { id, org: windows.get(id)?.kind === 'org' })
+        void stallTracer?.onStall('renderer-loaf', record, id)
+      }
     })
     new MainLagProbe({ now: Date.now, setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: h => clearInterval(h as NodeJS.Timeout), tracker: stallTracker,
       mainStack: (from, to) => stackStore.near(from, to), beat: t => { heartbeat[0] = t },

@@ -7,8 +7,11 @@ export const STALL_RATE_PER_MIN = 30
 /** a stall is a long animation frame (or a main-loop tick) of at least this many ms; shorter ones only count */
 export const STALL_MIN_MS = 500
 
-export const STALL_SRCS = ['renderer-loaf', 'renderer-ping', 'renderer-unresponsive', 'main-lag', 'sync-ipc', 'process-gone', 'attract'] as const
+export const STALL_SRCS = ['renderer-loaf', 'renderer-ping', 'renderer-unresponsive', 'main-lag', 'sync-ipc', 'process-gone', 'attract', 'stall-trace'] as const
 export type StallSrc = typeof STALL_SRCS[number]
+
+/** what `canvas_bg.theme` may say: the mounted canvas background (contracts/canvas-background.ts), or none on screen */
+export const STALL_CANVAS_BGS = ['dots', 'line-grid', 'hex-dots', 'hex-lines', 'checkerboard', 'square-tiles', 'triangle-tiles', 'hex-tiles', 'ascii', 'none'] as const
 
 export const STALL_SCREENS = ['canvas', 'desk', 'homepage', 'create', 'settings', 'other'] as const
 export const STALL_PANELS = ['mail', 'docket', 'files', 'apps', 'usage', 'hubchat', 'transcript', 'none'] as const

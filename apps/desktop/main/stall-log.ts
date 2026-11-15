@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { STREAMER_TYPE_LIST, sensitiveSpans } from '../../../packages/contracts/streamer'
 import type { StreamerType, StreamerTypes } from '../../../packages/contracts/streamer'
-import { RateCap, STALL_PANELS, STALL_SCREENS, STALL_SRCS } from '../../../packages/contracts/stall'
+import { RateCap, STALL_CANVAS_BGS, STALL_PANELS, STALL_SCREENS, STALL_SRCS } from '../../../packages/contracts/stall'
 import type { StallSrc } from '../../../packages/contracts/stall'
 
 export const STALL_LOG = path.join('diagnostics', 'ui-stalls.jsonl')
@@ -107,6 +107,15 @@ const context = (v: unknown) => {
     popout: c.popout === null || c.popout === undefined ? null : oneOf(c.popout, STALL_PANELS) }
 }
 
+/** which canvas background was mounted (an enum) and whether its WebGL canvas existed */
+function canvasBg(v: unknown): { theme: string; webgl?: boolean } | undefined {
+  if (v === undefined) return undefined
+  const c = rec(v)
+  return compact({ theme: oneOf(c.theme, STALL_CANVAS_BGS), webgl: bool(c.webgl) })
+}
+/** a stall-trace file is named by its UTC start, nothing else (main/stall-trace.ts) */
+const TRACE_FILE = /^[0-9TZ-]{1,40}\.json\.gz$/
+
 /** The allowlisted body of one record, per source. Anything not listed here never reaches the file. */
 function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown> {
   const ipc = () => arr(r.ipc, 32).map(x => { const i = rec(x); return compact({ channel: str(i.channel, 80), age_ms: num(i.age_ms) }) })
@@ -142,8 +151,12 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
         scans: arr(s.scans, 32).map(x => { const k = rec(x); return compact({ start: num(k.start), ms: num(k.ms),
           trigger: oneOf(k.trigger, TRIGGERS), mutations: int(k.mutations), nodes_walked: int(k.nodes_walked), text_nodes: int(k.text_nodes),
           text_chars: int(k.text_chars), ranges_after: int(k.ranges_after) }) }) }),
-      loaf_50_500: int(r.loaf_50_500), capture_ms: num(r.capture_ms), gpu: gpu(r.gpu),
+      loaf_50_500: int(r.loaf_50_500), capture_ms: num(r.capture_ms), gpu: gpu(r.gpu), canvas_bg: canvasBg(r.canvas_bg),
     })
+  }
+  if (src === 'stall-trace') {
+    return compact({ file: typeof r.file === 'string' && TRACE_FILE.test(r.file) ? r.file : undefined, events: int(r.events), bytes: int(r.bytes),
+      caught: bool(r.caught), canvas_bg: canvasBg(r.canvas_bg ?? undefined) })
   }
   if (src === 'renderer-ping' || src === 'renderer-unresponsive') {
     return compact({ blocked_ms: num(r.blocked_ms), stacks: arr(r.stacks, 2).map(stack), ipc: ipc(), ctx: r.ctx === undefined ? undefined : context(r.ctx), gpu: gpu(r.gpu) })
