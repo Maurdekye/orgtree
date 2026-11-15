@@ -19,6 +19,14 @@ marker: the provenance guard must not resolve the bundled interpreter's other
 checkout instead of this one. The empty `tools/test-startup.py` runner remains
 for phase 2; CI runs the live Node startup test instead.
 
+Live synthetic startup/restart/liveness and quit/attach tests still import
+`engine/process_lifetime.py` (`RootLock` and the guardian) and
+`engine/startup_progress.py` (`StartupProgress`). Both helpers remain unchanged
+until those fixtures are ported. Their exercised paths use only the standard
+library. The progress helper's conditional account-migration branch is not
+used by these fixtures and is not a reason to retain the retired PostgreSQL
+Python wrapper.
+
 The five JS/TS source-text guards now read the live Rust sources. Legacy
 Python launcher branches in desktop code and the synthetic `launch.py` files
 that tests generate remain for the later port. The 3.x process-name strings in
