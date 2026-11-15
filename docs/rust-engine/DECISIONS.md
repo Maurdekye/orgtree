@@ -2658,7 +2658,7 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       just moved in an ineeterminate state"; the alpha.7 move spent about 47 min in catch-up and
       verification passes for one changing file):** the copy is one pass. Each file is copied as it is when
       read; its copy must hold every byte read, checked as it is copied; a file gone since the scan is
-      skipped. No catch-up, recopy, verification rescan or post-copy step meter remains, and the result
+      skipped and named in the move log. No catch-up, recopy, verification rescan or post-copy step meter remains, and the result
       report has no changed/unsettled fields. Rollback stays for real failures (a copy error, a full or
       unwritable target, the new engine not starting), and "Delete old folder" deletes it. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
       `installer-upgrade.ps1`). In boot topology the `Orgtree Credential Helper` task is started after the new
