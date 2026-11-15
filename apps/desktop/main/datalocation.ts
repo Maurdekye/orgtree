@@ -301,11 +301,41 @@ export function writeMoveInProgressMarker(userData: string, sourceRoot: string, 
       targetRoot: path.resolve(targetRoot),
       startedAt: new Date(nowMs).toISOString(),
       startedAtMs: nowMs,
+      heartbeatAtMs: nowMs,
     },
     null,
     2,
   ) + '\n'
   fs.writeFileSync(file, payload, { encoding: 'utf8', mode: 0o600 })
+}
+
+/** Every 60 s while a move runs: refresh `heartbeatAtMs` so a copy longer than
+ *  `MAX_MOVE_MARKER_AGE_MS` (the user's 243 GB copy took over five hours) keeps
+ *  the boot host, installer and helpers out. A crashed desktop stops beating, so
+ *  the marker still expires. Rewrites only this desktop's own marker. */
+export function refreshMoveInProgressMarker(userData: string, nowMs: number = Date.now()): boolean {
+  const file = path.join(userData, DATA_MOVE_MARKER_FILE)
+  try {
+    const st = fs.lstatSync(file)
+    if (st.isSymbolicLink() || !st.isFile() || st.size > DATA_LOCATION_MAX_BYTES) return false
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+    if (raw.version !== 1 || raw.pid !== process.pid) return false
+    const tmp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ ...raw, heartbeatAtMs: nowMs }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
+    fs.renameSync(tmp, file)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const MOVE_MARKER_HEARTBEAT_MS = 60 * 1000
+
+function latestMarkerMs(raw: { startedAtMs?: unknown; heartbeatAtMs?: unknown }): number | null {
+  const values = [raw.startedAtMs, raw.heartbeatAtMs].filter(
+    (v): v is number => typeof v === 'number' && Number.isFinite(v),
+  )
+  return values.length ? Math.max(...values) : null
 }
 
 export function clearMoveInProgressMarker(userData: string): void {
@@ -325,10 +355,12 @@ export function hasActiveMoveInProgressMarker(userData: string, nowMs: number = 
       pid?: unknown
       created?: unknown
       startedAtMs?: unknown
+      heartbeatAtMs?: unknown
     }
     if (raw.version !== 1 || typeof raw.pid !== 'number' || !Number.isSafeInteger(raw.pid) || raw.pid <= 0) return false
-    if (typeof raw.startedAtMs === 'number' && Number.isFinite(raw.startedAtMs)) {
-      if (nowMs - raw.startedAtMs > MAX_MOVE_MARKER_AGE_MS) return false
+    const latest = latestMarkerMs(raw)
+    if (latest !== null) {
+      if (nowMs - latest > MAX_MOVE_MARKER_AGE_MS) return false
     } else if (nowMs - st.mtimeMs > MAX_MOVE_MARKER_AGE_MS) {
       return false
     }
@@ -1813,9 +1845,112 @@ async function copyFileCancellable(
   try { await fs.promises.utimes(dst, mtimeSec, mtimeSec) } catch { /* best effort */ }
 }
 
+/** How often the copy re-walks the quiesced source for files that changed or appeared
+ *  during the bulk copy before it gives up and rolls back (R6). */
+export const MAX_RECOPY_PASSES = 3
+
+interface SourceScan {
+  dirs: string[]
+  files: CopyManifestItem[]
+  totalBytes: number
+  skippedPaths: string[]
+}
+
+/** Walk `sourceRoot` without following symlinks or junctions, skipping runtime ephemerals and
+ *  the preflight-approved unreadable entries. Any other unreadable entry throws. */
+async function scanSourceTree(
+  sourceRoot: string,
+  targetRoot: string,
+  skipSet: ReadonlySet<string>,
+  signal: AbortSignal | undefined,
+  onEntry?: (files: number, bytes: number) => void,
+): Promise<SourceScan> {
+  const scan: SourceScan = { dirs: [targetRoot], files: [], totalBytes: 0, skippedPaths: [] }
+  if (!fs.existsSync(sourceRoot)) return scan
+  const addFile = (item: { fullSrc: string; fullDst: string; relPosix: string }, st: fs.Stats) => {
+    scan.files.push({
+      relPosix: item.relPosix,
+      sourcePath: item.fullSrc,
+      targetPath: item.fullDst,
+      size: st.size,
+      mode: st.mode,
+      mtimeMs: st.mtimeMs,
+    })
+    scan.totalBytes += st.size
+    onEntry?.(scan.files.length, scan.totalBytes)
+  }
+  const collect = async (dir: string, relPrefix: string): Promise<void> => {
+    if (signal?.aborted) throw new Error('Data move cancelled')
+    if (relPrefix !== '' && matchesCanonicalKeySet(dir, skipSet)) {
+      scan.skippedPaths.push(path.resolve(dir))
+      return
+    }
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+    const fileEntries: { fullSrc: string; fullDst: string; relPosix: string }[] = []
+    const subdirs: { fullSrc: string; fullDst: string; relPosix: string }[] = []
+    const unknownEntries: { fullSrc: string; fullDst: string; relPosix: string }[] = []
+
+    for (const entry of entries) {
+      const relPosix = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+      if (isEphemeralEntry(relPosix, entry.name)) continue
+      if (entry.isSymbolicLink()) continue
+      const fullSrc = path.join(dir, entry.name)
+      if (matchesCanonicalKeySet(fullSrc, skipSet)) {
+        scan.skippedPaths.push(path.resolve(fullSrc))
+        continue
+      }
+      const fullDst = path.join(targetRoot, ...relPosix.split('/'))
+      if (entry.isFile()) {
+        fileEntries.push({ fullSrc, fullDst, relPosix })
+      } else if (entry.isDirectory()) {
+        scan.dirs.push(fullDst)
+        subdirs.push({ fullSrc, fullDst, relPosix })
+      } else {
+        unknownEntries.push({ fullSrc, fullDst, relPosix })
+      }
+    }
+
+    if (fileEntries.length > 0) {
+      await runWithConcurrency(fileEntries, FILE_STAT_CONCURRENCY, signal, async item => {
+        const st = await fs.promises.lstat(item.fullSrc)
+        if (!st.isSymbolicLink() && st.isFile()) addFile(item, st)
+      })
+    }
+
+    if (unknownEntries.length > 0) {
+      await runWithConcurrency(unknownEntries, FILE_STAT_CONCURRENCY, signal, async item => {
+        const st = await fs.promises.lstat(item.fullSrc)
+        if (isEntryReparsePoint(item.fullSrc, st)) return
+        if (st.isDirectory()) {
+          scan.dirs.push(item.fullDst)
+          subdirs.push(item)
+        } else if (st.isFile()) {
+          addFile(item, st)
+        }
+      })
+    }
+
+    for (const sub of subdirs) {
+      if (signal?.aborted) throw new Error('Data move cancelled')
+      await collect(sub.fullSrc, sub.relPosix)
+    }
+  }
+  try {
+    await collect(sourceRoot, '')
+  } catch (err) {
+    if (signal?.aborted || isAbortError(err)) throw new Error('Data move cancelled')
+    throw err
+  }
+  return scan
+}
+
 /** Stream-copy `sourceRoot` -> `targetRoot` with chunked cancellation, skipping runtime
- *  ephemerals, symlinks/junctions, and any preflight-approved `skipUnreadablePaths`, then verify
- *  every copied file's existence and size plus PostgreSQL's `PG_VERSION` when a cluster is present. */
+ *  ephemerals, symlinks/junctions, and any preflight-approved `skipUnreadablePaths`.
+ *  The caller stops every writer of `sourceRoot` first. After the bulk copy the quiesced
+ *  source is walked again: a file that changed or appeared meanwhile is recopied, and one
+ *  that vanished is removed from the target, up to `MAX_RECOPY_PASSES` walks; a source that
+ *  is still changing then fails the move. Finally every copied file is verified strictly
+ *  (no exclusions) against that last walk, plus PostgreSQL's `PG_VERSION`. */
 export async function copyDataRootWithVerify(
   sourceRoot: string,
   targetRoot: string,
@@ -1823,119 +1958,38 @@ export async function copyDataRootWithVerify(
     signal?: AbortSignal
     onProgress?: (progress: DataLocationProgress) => void
     skipUnreadablePaths?: readonly string[]
+    /** Each catch-up pass: the files recopied and those removed because they left the source. */
+    onRecopy?: (pass: number, recopied: readonly string[], removed: readonly string[]) => void
+    /** Test seam: runs after the bulk copy, before each re-walk of the source. */
+    beforeRescan?: (pass: number) => Promise<void> | void
   } = {},
-): Promise<{ filesCopied: number; bytesCopied: number; skippedPaths: string[] }> {
+): Promise<{ filesCopied: number; bytesCopied: number; skippedPaths: string[]; recopiedPaths: string[] }> {
   const { signal, onProgress } = options
   const skipSet = canonicalEntryKeySet(options.skipUnreadablePaths)
-  const skippedPaths: string[] = []
-  const dirsToCreate: string[] = [targetRoot]
-  const files: CopyManifestItem[] = []
-  let totalBytes = 0
 
-  if (fs.existsSync(sourceRoot)) {
-    let lastScanEmitMs = Date.now()
-    const maybeEmitScan = () => {
-      if (!onProgress) return
-      const now = Date.now()
-      if (now - lastScanEmitMs < SCAN_PROGRESS_INTERVAL_MS) return
-      lastScanEmitMs = now
-      onProgress({
-        phase: 'copying',
-        filesCopied: 0,
-        totalFiles: files.length,
-        bytesCopied: 0,
-        totalBytes,
-        cancellable: true,
-        detail: `Scanning files to copy… (${files.length.toLocaleString('en-US')} files, ${formatBytes(totalBytes)})`,
-      })
-    }
-    const collect = async (dir: string, relPrefix: string): Promise<void> => {
-      if (signal?.aborted) throw new Error('Data move cancelled')
-      if (relPrefix !== '' && matchesCanonicalKeySet(dir, skipSet)) {
-        skippedPaths.push(path.resolve(dir))
-        return
-      }
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true })
-      const fileEntries: { fullSrc: string; fullDst: string; relPosix: string }[] = []
-      const subdirs: { fullSrc: string; fullDst: string; relPosix: string }[] = []
-      const unknownEntries: { fullSrc: string; fullDst: string; relPosix: string }[] = []
-
-      for (const entry of entries) {
-        const relPosix = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
-        if (isEphemeralEntry(relPosix, entry.name)) continue
-        if (entry.isSymbolicLink()) continue
-        const fullSrc = path.join(dir, entry.name)
-        if (matchesCanonicalKeySet(fullSrc, skipSet)) {
-          skippedPaths.push(path.resolve(fullSrc))
-          continue
-        }
-        const fullDst = path.join(targetRoot, ...relPosix.split('/'))
-        if (entry.isFile()) {
-          fileEntries.push({ fullSrc, fullDst, relPosix })
-        } else if (entry.isDirectory()) {
-          dirsToCreate.push(fullDst)
-          subdirs.push({ fullSrc, fullDst, relPosix })
-        } else {
-          unknownEntries.push({ fullSrc, fullDst, relPosix })
-        }
-      }
-
-      if (fileEntries.length > 0) {
-        await runWithConcurrency(fileEntries, FILE_STAT_CONCURRENCY, signal, async item => {
-          const st = await fs.promises.lstat(item.fullSrc)
-          if (!st.isSymbolicLink() && st.isFile()) {
-            files.push({
-              relPosix: item.relPosix,
-              sourcePath: item.fullSrc,
-              targetPath: item.fullDst,
-              size: st.size,
-              mode: st.mode,
-              mtimeMs: st.mtimeMs,
-            })
-            totalBytes += st.size
-            maybeEmitScan()
-          }
-        })
-      }
-
-      if (unknownEntries.length > 0) {
-        await runWithConcurrency(unknownEntries, FILE_STAT_CONCURRENCY, signal, async item => {
-          const st = await fs.promises.lstat(item.fullSrc)
-          if (isEntryReparsePoint(item.fullSrc, st)) return
-          if (st.isDirectory()) {
-            dirsToCreate.push(item.fullDst)
-            subdirs.push(item)
-          } else if (st.isFile()) {
-            files.push({
-              relPosix: item.relPosix,
-              sourcePath: item.fullSrc,
-              targetPath: item.fullDst,
-              size: st.size,
-              mode: st.mode,
-              mtimeMs: st.mtimeMs,
-            })
-            totalBytes += st.size
-            maybeEmitScan()
-          }
-        })
-      }
-
-      for (const sub of subdirs) {
-        if (signal?.aborted) throw new Error('Data move cancelled')
-        await collect(sub.fullSrc, sub.relPosix)
-      }
-    }
-    try {
-      await collect(sourceRoot, '')
-    } catch (err) {
-      if (signal?.aborted || isAbortError(err)) throw new Error('Data move cancelled')
-      throw err
-    }
-  }
+  let lastScanEmitMs = Date.now()
+  const first = await scanSourceTree(sourceRoot, targetRoot, skipSet, signal, (count, bytes) => {
+    if (!onProgress) return
+    const now = Date.now()
+    if (now - lastScanEmitMs < SCAN_PROGRESS_INTERVAL_MS) return
+    lastScanEmitMs = now
+    onProgress({
+      phase: 'copying',
+      filesCopied: 0,
+      totalFiles: count,
+      bytesCopied: 0,
+      totalBytes: bytes,
+      cancellable: true,
+      detail: `Scanning files to copy… (${count.toLocaleString('en-US')} files, ${formatBytes(bytes)})`,
+    })
+  })
+  const skippedPaths = first.skippedPaths
+  let files = first.files
+  const totalBytes = first.totalBytes
 
   fs.mkdirSync(targetRoot, { recursive: true })
   await lockOwnerOnlyAcl(targetRoot, true)
-  for (const dir of dirsToCreate) {
+  for (const dir of first.dirs) {
     if (signal?.aborted) throw new Error('Data move cancelled')
     fs.mkdirSync(dir, { recursive: true })
   }
@@ -1992,6 +2046,61 @@ export async function copyDataRootWithVerify(
     bytesCopied,
     totalBytes,
     cancellable: true,
+    detail: `Checking ${files.length} files for changes made during the copy…`,
+  })
+
+  // Catch-up: the writers are stopped, but a file measured before a last write landed (the
+  // alpha.5 failure: credential-broker.log grew by 222 bytes) is copied again, never waived.
+  const recopiedPaths = new Set<string>()
+  let settled = false
+  for (let pass = 1; pass <= MAX_RECOPY_PASSES; pass++) {
+    if (signal?.aborted) throw new Error('Data move cancelled')
+    await options.beforeRescan?.(pass)
+    const fresh = await scanSourceTree(sourceRoot, targetRoot, skipSet, signal)
+    const before = new Map(files.map(f => [f.relPosix, f]))
+    const changed = fresh.files.filter(f => {
+      const old = before.get(f.relPosix)
+      return !old || old.size !== f.size || old.mtimeMs !== f.mtimeMs
+    })
+    const freshKeys = new Set(fresh.files.map(f => f.relPosix))
+    const removed = files.filter(f => !freshKeys.has(f.relPosix))
+    files = fresh.files
+    if (changed.length === 0 && removed.length === 0) {
+      settled = true
+      break
+    }
+    if (pass === MAX_RECOPY_PASSES) {
+      const names = [...changed, ...removed].map(f => f.relPosix)
+      throw new Error(
+        `Copy verification failed: files in ${path.resolve(sourceRoot)} kept changing after Orgtree stopped its writers: ` +
+          names.slice(0, 5).join(', ') + (names.length > 5 ? ` and ${names.length - 5} more` : ''),
+      )
+    }
+    for (const gone of removed) {
+      try {
+        const st = fs.lstatSync(gone.targetPath)
+        if (st.isFile() && !isEntryReparsePoint(gone.targetPath, st)) fs.unlinkSync(gone.targetPath)
+      } catch {
+        // Already absent in the target.
+      }
+    }
+    for (const dir of fresh.dirs) fs.mkdirSync(dir, { recursive: true })
+    for (const item of changed) {
+      await copyFileCancellable(item.sourcePath, item.targetPath, item.mode, item.mtimeMs, signal, () => {})
+      recopiedPaths.add(item.relPosix)
+    }
+    options.onRecopy?.(pass, changed.map(f => f.relPosix), removed.map(f => f.relPosix))
+  }
+  if (!settled) throw new Error('Copy verification failed: the source folder did not settle.')
+
+  if (signal?.aborted) throw new Error('Data move cancelled')
+  onProgress?.({
+    phase: 'verifying',
+    filesCopied,
+    totalFiles: files.length,
+    bytesCopied,
+    totalBytes,
+    cancellable: true,
     detail: `Verifying ${files.length} copied files…`,
   })
 
@@ -2022,7 +2131,50 @@ export async function copyDataRootWithVerify(
   }
 
   skippedPaths.sort((a, b) => a.localeCompare(b))
-  return { filesCopied, bytesCopied, skippedPaths }
+  return { filesCopied, bytesCopied, skippedPaths, recopiedPaths: [...recopiedPaths].sort() }
+}
+
+export interface DataRootWritersReport {
+  quiet: boolean
+  members: { role: string; life: string }[]
+}
+
+/** Poll `probe` (the engine's read-only `core-control quiesce <root>`, which judges each
+ *  writer by its stamped PID and creation time, never by image name) until every writer
+ *  of the old folder has exited. Throws, naming who is still running, when `timeoutMs`
+ *  passes: the move then rolls back before anything was copied. */
+export async function waitForDataRootWritersToExit(params: {
+  probe: () => Promise<DataRootWritersReport>
+  timeoutMs?: number
+  intervalMs?: number
+  signal?: AbortSignal
+  now?: () => number
+  sleep?: (ms: number) => Promise<void>
+}): Promise<string> {
+  const now = params.now ?? Date.now
+  const sleep = params.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)))
+  const timeoutMs = params.timeoutMs ?? 60_000
+  const started = now()
+  let last: DataRootWritersReport | null = null
+  let lastError: unknown
+  for (;;) {
+    if (params.signal?.aborted) throw new Error('Data move cancelled')
+    try {
+      last = await params.probe()
+      lastError = undefined
+      if (last.quiet && last.members.length === 0) return `all writers exited after ${now() - started} ms`
+    } catch (err) {
+      lastError = err
+    }
+    if (now() - started >= timeoutMs) break
+    await sleep(params.intervalMs ?? 500)
+  }
+  const who = last?.members.map(m => `${m.role} (${m.life})`).join(', ')
+  throw new Error(
+    who
+      ? `Orgtree processes still using the data folder did not stop within ${Math.round(timeoutMs / 1000)} s: ${who}. Your existing data folder was not changed.`
+      : `Orgtree could not confirm that its other processes stopped (${lastError instanceof Error ? lastError.message : 'no answer'}). Your existing data folder was not changed.`,
+  )
 }
 
 export function stampDataLocationMoved(fromRoot: string, toRoot: string, movedAt: string): void {
@@ -2064,6 +2216,10 @@ export interface ExecuteDataLocationMoveParams {
   trustCheck?: (file: string) => Promise<DescriptorOwner>
   prevalidatedPreflight?: DataLocationPreflight
   stopOldEngine: () => Promise<boolean>
+  /** After the engine stopped: resolve only once every other writer of the old folder (the
+   *  sign-in helper, the boot host, the desktop recovery watch) has exited; throw otherwise.
+   *  Nothing is copied before it resolves. */
+  waitForWritersToExit?: (oldRoot: string) => Promise<string>
   startAndVerifyNewEngine: (newRoot: string) => Promise<void>
   restartOldEngineOnRollback: (oldRoot: string) => Promise<void>
 }
@@ -2139,6 +2295,8 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
   }
 
   writeMoveInProgressMarker(userData, oldRoot, newRoot)
+  const heartbeat = setInterval(() => { refreshMoveInProgressMarker(userData) }, MOVE_MARKER_HEARTBEAT_MS)
+  heartbeat.unref?.()
   try {
     emit('stopping', true, 'Stopping the local Orgtree engine…')
     const stopped = await params.stopOldEngine()
@@ -2150,16 +2308,30 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
     }
     appendDataLocationMoveLog(userData, 'engine stopped', `Confirmed local engine stop and lock release on ${oldRoot}`)
     if (signal?.aborted) throw new Error('Data move cancelled')
+    if (params.waitForWritersToExit) {
+      emit('stopping', true, 'Waiting for the sign-in helper and other Orgtree processes to stop…')
+      const writers = await params.waitForWritersToExit(oldRoot)
+      appendDataLocationMoveLog(userData, 'writers stopped', writers)
+      if (signal?.aborted) throw new Error('Data move cancelled')
+    }
 
     const copied = await copyDataRootWithVerify(oldRoot, newRoot, {
       signal,
       onProgress,
       skipUnreadablePaths: options.skipUnreadablePaths,
+      onRecopy: (pass, recopied, removed) => {
+        appendDataLocationMoveLog(
+          userData,
+          'recopied changed files',
+          `pass ${pass}: ${recopied.length} changed or new, ${removed.length} removed from the source after the bulk copy`,
+          [...recopied.map(r => `recopied ${r}`), ...removed.map(r => `removed ${r}`)],
+        )
+      },
     })
     appendDataLocationMoveLog(
       userData,
       'copy verified',
-      `filesCopied=${copied.filesCopied} bytesCopied=${copied.bytesCopied} skipped=${copied.skippedPaths.length}`,
+      `filesCopied=${copied.filesCopied} bytesCopied=${copied.bytesCopied} skipped=${copied.skippedPaths.length} recopied=${copied.recopiedPaths.length}`,
       copied.skippedPaths,
     )
     if (signal?.aborted) throw new Error('Data move cancelled')
@@ -2349,6 +2521,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
     }
     return { ok: false, error: errMsg }
   } finally {
+    clearInterval(heartbeat)
     clearMoveInProgressMarker(userData)
   }
 }
@@ -2663,6 +2836,7 @@ export interface OrchestrateDesktopDataMoveParams {
     onProgress?: (progress: DataLocationProgress) => void
   }>
   stopEngineForMove: (topology: 'boot' | 'managed') => Promise<boolean>
+  waitForWritersToExit?: (oldRoot: string, topology: 'boot' | 'managed') => Promise<string>
   startAndVerifyNewEngine: (newRoot: string, topology: 'boot' | 'managed') => Promise<void>
   restartOldEngineOnRollback: (oldRoot: string, topology: 'boot' | 'managed') => Promise<void>
   finishSuccessfulMove: () => void
@@ -2745,6 +2919,9 @@ export async function orchestrateDesktopDataMove(
         }
         return params.stopEngineForMove(topology)
       },
+      ...(params.waitForWritersToExit
+        ? { waitForWritersToExit: (oldRoot: string) => params.waitForWritersToExit!(oldRoot, topology) }
+        : {}),
       startAndVerifyNewEngine: newRoot => params.startAndVerifyNewEngine(newRoot, topology),
       restartOldEngineOnRollback: oldRoot => params.restartOldEngineOnRollback(oldRoot, topology),
     })

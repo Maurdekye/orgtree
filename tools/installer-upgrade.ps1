@@ -760,9 +760,18 @@ try {
       $verProp = $parsed.PSObject.Properties['version']
       if ($null -eq $verProp -or [int]$verProp.Value -ne 1) { return }
       $nowMs = [double][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-      $startedProp = $parsed.PSObject.Properties['startedAtMs']
-      if ($null -ne $startedProp -and $null -ne $startedProp.Value) {
-        if (($nowMs - [double]$startedProp.Value) -gt $maxAgeMs) { return }
+      # A long move refreshes heartbeatAtMs every minute (datalocation.ts), so
+      # the age counts from the latest of the start and the heartbeat.
+      $latestMs = $null
+      foreach ($name in @('startedAtMs', 'heartbeatAtMs')) {
+        $prop = $parsed.PSObject.Properties[$name]
+        if ($null -ne $prop -and $null -ne $prop.Value) {
+          $value = [double]$prop.Value
+          if ($null -eq $latestMs -or $value -gt $latestMs) { $latestMs = $value }
+        }
+      }
+      if ($null -ne $latestMs) {
+        if (($nowMs - $latestMs) -gt $maxAgeMs) { return }
       } else {
         if (([DateTime]::UtcNow - $item.LastWriteTimeUtc).TotalMilliseconds -gt $maxAgeMs) { return }
       }

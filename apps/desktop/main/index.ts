@@ -45,6 +45,8 @@ import {
   readDataLocationState,
   resolveMissingDataLocationChoice,
   validateDeletablePreviousFolder,
+  waitForDataRootWritersToExit,
+  type DataRootWritersReport,
 } from './datalocation'
 import { configureArtifactSession, configureEngineSession, configureWindow, forgetSealedSession, popoutRegistry, resealSandboxedSessions, revealPopout, sandboxSealed, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
 import { artifactThemeKeeper } from './frametheme'
@@ -89,7 +91,7 @@ import { isOrgtreeLinkArg, registerOrgtreeScheme } from './orgtree-link'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
-import { readStartupTasks, startEngineTask, startupOn, writeRunOnStartup } from './runonstartup'
+import { readStartupTasks, startEngineTask, startHelperTask, startupOn, writeRunOnStartup } from './runonstartup'
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
 import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
@@ -532,8 +534,9 @@ else {
    *  Orgtree actions behind them, in diagnostics/desktop-windows.jsonl
    *  (main/window-events.ts). `get`, not `identity`: identity reconciles
    *  notification ownership, and a log line must not change what is announced. */
+  // While a Data location move runs, nothing of main writes into the folder being copied (R6).
   const windowEvents = new WindowEventLog(() =>
-    engineRestartOptions?.dataRoot ? path.join(engineRestartOptions.dataRoot, WINDOW_EVENTS_LOG) : undefined)
+    engineRestartOptions?.dataRoot && !dataMoveInFlight ? path.join(engineRestartOptions.dataRoot, WINDOW_EVENTS_LOG) : undefined)
   const windowFacts = (id: string) => { const entry = windows.get(id); return entry && { kind: entry.kind, org: entry.org } }
   // UI stall log, probes and per-window ping (main/stall-*.ts): the file is <data root>/diagnostics/ui-stalls.jsonl, written only here
   const stallApp = (() => {
@@ -542,7 +545,7 @@ else {
     return `${app.getVersion()}${commit ? ' ' + commit : ''}`
   })()
   const stallLog = new StallLog({
-    file: () => engineRestartOptions?.dataRoot ? path.join(engineRestartOptions.dataRoot, STALL_LOG) : undefined, app: () => stallApp })
+    file: () => engineRestartOptions?.dataRoot && !dataMoveInFlight ? path.join(engineRestartOptions.dataRoot, STALL_LOG) : undefined, app: () => stallApp })
   // recorder v2: the GPU process's CPU around each stall (a frame can wait on it while the renderer's main thread is free)
   const gpuSampler = stallOn ? new GpuSampler({ now: Date.now, metrics: () => app.getAppMetrics(), setInterval: (fn, ms) => setInterval(fn, ms),
     clearInterval: h => clearInterval(h as NodeJS.Timeout) }) : null
@@ -2581,7 +2584,7 @@ else {
         // a refused launch or failed recovery control records why (fixed shape)
         coreLifecycle = new CoreLifecycle(engineOptions.binary, engineOptions.dataRoot, credentialBridge,
           () => ({origin: engine.origin, token: engine.token}), stopCoreApplication,
-          failure => recordCoreControlFailure(engineOptions.dataRoot, failure))
+          failure => { if (!dataMoveInFlight) recordCoreControlFailure(engineOptions.dataRoot, failure) })
         if (await coreLifecycle.begin(process.argv.includes('--background') || process.argv.includes('--core-recovered'))) {
           stopCoreApplication(); return
         }
@@ -3025,6 +3028,28 @@ else {
               }
             },
             stopEngineForMove: async () => engine.stopGracefullyForInstaller(90000),
+            // Every other writer of the old folder must have exited before it is scanned (R6):
+            // the engine's read-only probe judges each by its stamped PID and creation time.
+            waitForWritersToExit: async oldRoot => {
+              const binary = engineOptions.binary
+              if (process.platform !== 'win32' || !binary) return 'no native writers on this platform'
+              return waitForDataRootWritersToExit({
+                signal: dataMoveAbort?.signal,
+                timeoutMs: 60000,
+                probe: () => new Promise<DataRootWritersReport>((resolve, reject) => execFile(binary,
+                  ['core-control', 'quiesce', oldRoot], { windowsHide: true, timeout: 5000, maxBuffer: 8192 },
+                  (error, stdout) => {
+                    if (error) { reject(new Error('The native process check did not answer')); return }
+                    try {
+                      const v = JSON.parse(stdout) as { quiet?: unknown; members?: unknown }
+                      const members = Array.isArray(v.members)
+                        ? v.members.map(m => ({ role: String((m as { role?: unknown }).role ?? ''), life: String((m as { life?: unknown }).life ?? '') }))
+                        : [{ role: 'unknown', life: 'unknown' }]
+                      resolve({ quiet: v.quiet === true, members })
+                    } catch { reject(new Error('Invalid process check reply')) }
+                  })),
+              })
+            },
             startAndVerifyNewEngine: async (newRoot, moveTopology) => {
               const newRootIsCustom = !isDataRootFromEnv() && canonicalPath(newRoot) !== canonicalPath(defaultDataFolder)
               if (moveTopology === 'boot') {
@@ -3041,6 +3066,8 @@ else {
                 if (fs.existsSync(path.join(newRoot, DATA_LOCATION_MOVED_STAMP))) {
                   throw new Error('The background engine started without completing data-location path relocation.')
                 }
+                // The move stopped the sign-in helper; start it on the new folder now.
+                await startHelperTask().catch(err => console.warn('Could not start the sign-in helper after the data move', err))
                 return
               }
               if (unixBootInputs && preferences.get().startAtLogin) {
@@ -3073,8 +3100,13 @@ else {
             restartOldEngineOnRollback: async (oldRoot, moveTopology) => {
               const oldOpts = { ...engineOptions, dataRoot: oldRoot, customDataRoot: isCustomRoot(oldRoot) }
               if (moveTopology === 'boot') {
-                await startEngineTask()
-                await engine.reattachBackground(oldOpts, 120000)
+                try {
+                  await startEngineTask()
+                  await engine.reattachBackground(oldOpts, 120000)
+                } finally {
+                  // The move stopped the sign-in helper; start it again on the original folder.
+                  await startHelperTask().catch(err => console.warn('Could not start the sign-in helper after rollback', err))
+                }
               } else {
                 if (unixBootInputs && preferences.get().startAtLogin) {
                   const restoredBoot = { ...unixBootInputs, dataRoot: oldRoot }

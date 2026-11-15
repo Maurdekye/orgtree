@@ -184,3 +184,11 @@ export async function writeRunOnStartup(enabled: boolean, runner: Runner = run, 
 export function startEngineTask(runner: Runner = run, target: StartupTarget = INSTALLED): Promise<void> {
   return startTask(target.boot, runner)
 }
+
+/** Start the sign-in helper's task ("Orgtree Credential Helper"), which the
+ *  operator may also run without elevation. A Data location move stops the
+ *  helper before copying; it starts again on the settled folder once the move
+ *  succeeded or rolled back, rather than after the engine's keepalive wait. */
+export function startHelperTask(runner: Runner = run, target: StartupTarget = INSTALLED): Promise<void> {
+  return startTask(target.helper, runner)
+}
