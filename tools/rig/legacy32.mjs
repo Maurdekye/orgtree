@@ -1,6 +1,6 @@
 // tools/rig/legacy32.mjs: a synthetic Orgtree 3.2 store inside a rig run's
 // own cluster, built with the 3.x engine's real migrations
-// (engine/backend/orgtree/pg_migrations/app and org): the registry database
+// (tools/rig/fixtures/pg_migrations_32/app and org): the registry database
 // orgtree_app and one org database orgtree_org_1, seeded with a small org.
 // Used as startRun's `prepare` hook, so it runs on the run's cluster before
 // the engine's first start (which then imports it). Never touches any other
@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process'
 import { PG_VERSION, REPO, rigHome } from './lib.mjs'
 
 export const SLUG32 = 'legacy32'
-const MIGRATIONS = path.join(REPO, 'engine', 'backend', 'orgtree', 'pg_migrations')
+const MIGRATIONS = path.join(REPO, 'tools', 'rig', 'fixtures', 'pg_migrations_32')
 
 const freePort = () => new Promise((resolve, reject) => {
   const s = net.createServer()
