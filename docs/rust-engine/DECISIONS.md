@@ -2659,6 +2659,14 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       copy error, or an unchanged file whose copy fails verification. Before the bulk copy, once the writers
       are quiet, a 12 s watch (`DATA_MOVE_CHANGE_WATCH_MS`) lists files still changing in a "Continue anyway" /
       Cancel dialog (Cancel copies nothing); no foreign process is looked for or stopped. Post-copy steps
-      report `stepLabel`/`stepDone`/`stepTotal` for the step meter. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
+      report `stepLabel`/`stepDone`/`stepTotal` for the step meter. Review fixes (@idle-limit-sol R7-R1..R3
+      at c60da5a): the catch-up ends only on an EMPTY take made after the last copy and after strict
+      verification (3 passes + at most 2 drain rounds); each catch-up copy goes to a temporary file and
+      replaces the target only when the source's size and mtime were the same before and after the read and
+      every byte was read (up to 3 reads), so a torn, empty or short read never replaces an earlier good copy.
+      A file that never holds still is "could not be settled": its last complete copy (or the bulk copy) is
+      kept, and the old folder is NEVER deleted then, even with the delete box ticked; the result screen and
+      the move log give each original's path in it (`unsettledDuringMove`). A folder below a changed folder
+      that became a file is replaced too. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
       `installer-upgrade.ps1`). In boot topology the `Orgtree Credential Helper` task is started after the new
       engine verified and after rollback. `coreLifecycle.transition(true)` stays (never `cancelRecovery`).
