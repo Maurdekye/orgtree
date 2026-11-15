@@ -2075,3 +2075,66 @@ test('R6: a move waits for the old folder\'s writers, recopies files that change
   const startupSrc = fs.readFileSync(path.resolve('apps/desktop/main/runonstartup.ts'), 'utf8')
   assert.match(startupSrc, /export function startHelperTask\([^)]*\): Promise<void> \{\s*return startTask\(target\.helper, runner\)/)
 })
+
+// R6-R2 (@idle-limit-sol review of 32249b2): a file that left the source during the copy must
+// also leave the new folder. A target delete that fails (here a read-only copy, EPERM on Windows)
+// was swallowed and the move succeeded with the obsolete file in place.
+test('R6-R2: a file that left the source during the copy is removed from the new folder, or the copy fails', async () => {
+  const { policy, datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const { dir, defaultData } = makeSandbox()
+  fs.writeFileSync(path.join(defaultData, 'keep.txt'), 'keep\n')
+
+  // A vanished file is removed from the target and the copy settles.
+  const leaving = path.join(defaultData, 'leaving.txt')
+  fs.writeFileSync(leaving, 'temporary\n')
+  const okTarget = path.join(dir, 'VanishTarget')
+  const ok = await datalocation.copyDataRootWithVerify(defaultData, okTarget, {
+    beforeRescan: pass => { if (pass === 1) fs.rmSync(leaving) },
+  })
+  assert.equal(fs.existsSync(path.join(okTarget, 'leaving.txt')), false)
+  assert.equal(fs.existsSync(path.join(okTarget, 'keep.txt')), true)
+  assert.equal(ok.filesCopied, 2)
+
+  // A copy that cannot be removed fails the copy instead of leaving an obsolete file behind.
+  // Windows: a child of this test holds the copy open without sharing (Node's own unlink clears
+  // a read-only attribute, so that is no obstacle); elsewhere the folder is made read-only.
+  fs.writeFileSync(leaving, 'temporary\n')
+  const stuckTarget = path.join(dir, 'StuckTarget')
+  const stuck = path.join(stuckTarget, 'leaving.txt')
+  let holder = null
+  const release = async () => {
+    if (!holder) return
+    const exited = new Promise(resolve => holder.once('exit', resolve))
+    holder.stdin.end()
+    await exited
+    holder = null
+  }
+  try {
+    await assert.rejects(
+      datalocation.copyDataRootWithVerify(defaultData, stuckTarget, {
+        beforeRescan: async pass => {
+          if (pass !== 1) return
+          fs.rmSync(leaving)
+          if (!windows) { fs.chmodSync(stuckTarget, 0o555); return }
+          const quoted = stuck.replace(/'/g, "''")
+          holder = spawn(
+            policy.WINDOWS_POWERSHELL,
+            ['-NoProfile', '-NonInteractive', '-Command',
+              `$f = [IO.File]::Open('${quoted}', 'Open', 'Read', 'None'); [Console]::Out.WriteLine('HELD'); [Console]::Out.Flush(); [void][Console]::In.ReadLine(); $f.Close()`],
+            { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, env: policy.windowsPowerShellEnv() },
+          )
+          await new Promise((resolve, reject) => {
+            let out = ''
+            holder.stdout.on('data', chunk => { out += chunk; if (out.includes('HELD')) resolve() })
+            holder.once('exit', code => reject(new Error(`file holder exited early (${code})`)))
+          })
+        },
+      }),
+      /could not remove leaving\.txt from the new folder/,
+    )
+  } finally {
+    await release()
+    try { fs.chmodSync(stuckTarget, 0o755) } catch { /* best effort */ }
+  }
+})
