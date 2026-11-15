@@ -3271,7 +3271,7 @@ carrying `data-popout-opener="<MovableSurface kind>"`, else top-centre at 52 px;
 windows" chip whose list holds each panel's Show window / Return here. The strip is a body-fixed host at z 12 (above the canvas, below menus 1600 and overlays 60+). The canvas is a scaled layer, so no z-index or sibling mount can put a CLICKABLE chip under a desk (a canvas-world sibling before `.space` painted fine but `.space` took the clicks: R7 measured) [decided: coordinator m50194ab90648, fallback A]. Instead `placeStrip` (`popout.tsx`) keeps it clear of every focused desk (`.sq.desk`, `.desk-bare`): first free of under-the-opener, top-centre, top-left, top-right, bottom-left, bottom-right; with none free it collapses to a 44x28 count badge (its list holds each panel's actions), else top-left, so the way back never disappears. It re-places on every commit, on resize and every 300 ms (the camera moves a desk with no React commit). The host is
 `pointer-events: none`, only the chip catches pointers. The old bottom-left 40vh stack is gone. A canvas-card desk's
 `.desk-elsewhere` (`deskhosts.tsx` `InDesksPlace`) is the same chip, counter-scaled at the top of the card body; its holder no longer
-paints or catches the card. A focused card whose desk is in another window wears its normal face (`cardIsDeskLayout` in `deskhosts.tsx`: `deskOpen && !deskElsewhere`; `useDeskElsewhere` snapshots a boolean, never the registry version, or `put()` loops), and the chip sits under the header rows (`.sq:not(.desk) .desk-elsewhere-holder`, top 58px) [decided: coordinator m1033e120df5d]. No surface sets `data-popout-opener` yet, so lone notices currently use the strip. Proof:
+paints or catches the card. A focused card whose desk is in another window wore its normal face until 4.6.1, which retired that state: every place shows its desk, see [Desks show in every place at once](#desks-show-in-every-place-at-once-2026-11-15-461). The chip sits under the header rows (`.sq:not(.desk) .desk-elsewhere-holder`, top 58px) [decided: coordinator m1033e120df5d]. No surface sets `data-popout-opener` yet, so lone notices currently use the strip. Proof:
 `tests/popoutchip.test.tsx`. [decided: user 2026-11-03; coordinator; verified: `popout.tsx`, `canvas/deskhosts.tsx`, `styles.css`]
 
 ## Rich text: one path (2026-11-03, 4.5.5)
@@ -3315,3 +3315,18 @@ surface's own `RefRoutes`:
   change the writing rows, with the caller stack) and `__ORGTREE_DESK_TRACE__` (writing rows before and after the dedup, per desk
   render) do nothing unless a function is installed. Tests: `toolwritingstable` (the clear order, the retire window, socketLost, the
   snapshot guard, the hooks), `toolwriting` (retire windows), `toolwriting-wire`.
+
+## Desks show in every place at once (2026-11-15, 4.6.1)
+
+USER 2026-11-15 10:34:16Z mbf1f1ca2cfe9: "you should no longer see \"xyz's desk is open elsewhere (bring it here)\" etc. it should always show in both locations at once". @item:orgtree/desks-show-in-every-place-at-once-no-more-desk-i; design note desk-parity-opus design-461-desk-views.md.
+
+- Every `DeskSlot` (canvas card, switchboard panel, pin, Attention agent desk, temporary desk) renders its own `OwnedDeskChat` (`deskhosts.tsx` `DeskView`). The single-owner registry, its `pick` precedence, `claim`/`borrow` give-back, `moveHere`, Return here and the "open elsewhere" placeholder are gone.
+- One draft per desk identity: the text, attachments and reply targets are shared values keyed on their existing localStorage keys (`draftstore.ts` `sharedDraftPart`, the desk's `useSharedDraft`). A snapshot re-parses only when the raw stored string changes, so direct storage writers (`carryDraftForward`, `renameDrafts`, a failed send's restore) stay visible. Per view: scroll, tab, focus, caret, composer height.
+- The registry is the list of open views (for `claimQuestionDesk`, `deskShownAnywhere`, `deskActionsOf`) and the desk windows. Views register in a layout effect and do NOT subscribe; only `DeskWindows` subscribes, to the window count. (The old registry bumped a version on every slot prop update, re-rendering every desk shell: @desk-freeze-opus measured the cascade stopped at the desk memo.)
+- A place off screen (`eligible={false}`) renders nothing, not a placeholder, and mounts its desk when it comes back.
+- A desk window is a view in its own `MovableSurface` (`PopoutDesk`), docked in a hidden holder. A user pop-out opens at once over the frame of the place it came from; a window the last session left open reopens from its saved row (`savedDeskIdentities` at `DeskHosts` mount, replacing the canvas's restored-desk panel). `onDismiss` ends it on native Close (geometry saved); at app exit it redocks and keeps its row. Return with no place in the main window showing the desk goes to the agent. A temporary place (pin: `POP_OUT_MOVES_PIN`; the temporary desk) closes only once the window really opened.
+- The desk header's pop-out button reads the view's `DeskViewContext`, not the nearest surface, so a desk inside a pin or a popped-out panel pops out itself.
+- Question notifications pick the most recently pressed or focused place (`usedAt`), then pin, Attention, card.
+- Provisional choices pending the user's answers (design-461 questions 1-3): shared draft, pin moves into the window, most recently used wins.
+
+[decided: user 2026-11-15; coordinator m0aa310a36f67 provisional defaults; verified: `canvas/deskhosts.tsx`, `draftstore.ts`, `canvas/desk.tsx`, `tests/deskviews.test.tsx`]

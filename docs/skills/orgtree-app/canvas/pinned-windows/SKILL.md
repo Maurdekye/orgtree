@@ -6,7 +6,7 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # One desk, several placements
 
-A desk can be hosted on the canvas, pinned in screen space, detached to another window or borrowed temporarily. These are placements of the canonical desk and composer, not independent copied conversations. A placeholder can indicate the desk is already open elsewhere; Show raises it. See [agent desk](../../desk/agent-desk/SKILL.md) for the contents of that desk.
+A desk can be open on the canvas, pinned in screen space, in a window of its own, in the Attention view or in the temporary desk, and every one of those places shows it live at the same time. They are views of the one canonical desk, not copied conversations: the conversation and the unsent draft (its text, attachments and reply targets) are the agent's one copy, so typing in one place shows in all of them and a send from any clears them all. Scroll position, the open tab and focus belong to each place. Popping a desk out opens it in a window of its own and the place you popped it from keeps its desk, except a pinned desk, whose pin moves into the window. The window's Close or Return ends only that window. See [agent desk](../../desk/agent-desk/SKILL.md) for the contents of that desk.
 
 ## Pinned windows
 
