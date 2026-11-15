@@ -2191,3 +2191,39 @@ test('R8: a move completes with no post-copy pass while a file keeps changing, a
   assert.equal(fs.existsSync(defaultData), false, 'Delete old folder deletes it although a file kept changing')
   assert.equal(datalocation.readDataLocationMoveReport(userData), null, 'nothing to report')
 })
+
+// R8 review (@idle-limit-sol, MEDIUM): a file that leaves the source between the scan and its copy
+// is skipped; the move log names it, so the user can see what was not copied.
+test('R8: a file that left the source before its copy is skipped and named in the move log', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const okTrust = async () => ({ ok: true, detail: 'trusted' })
+  const { dir, userData, defaultData, forbidden } = makeSandbox()
+  fs.writeFileSync(path.join(defaultData, 'keep.txt'), 'keep\n')
+  const leaving = path.join(defaultData, 'scratch', 'leaving.tmp')
+  fs.mkdirSync(path.dirname(leaving), { recursive: true })
+  fs.writeFileSync(leaving, 'temporary\n')
+  const target = path.join(dir, 'R8VanishTarget')
+  let removed = false
+  const res = await datalocation.executeDataLocationMove({
+    options: { targetPath: target, deletePrevious: false },
+    currentRoot: defaultData,
+    userData,
+    forbiddenRoot: forbidden,
+    trustCheck: okTrust,
+    onProgress: p => {
+      // The first copy-phase report after the scan: the file list is fixed, no file copied yet.
+      if (!removed && p.phase === 'copying' && !/Scanning/.test(p.detail ?? '')) { removed = true; fs.rmSync(leaving) }
+    },
+    stopOldEngine: async () => true,
+    startAndVerifyNewEngine: async () => {},
+    restartOldEngineOnRollback: async () => { throw new Error('must not roll back') },
+  })
+  assert.equal(removed, true)
+  assert.equal(res.ok, true, `a vanished file does not roll the move back: ${res.error ?? ''}`)
+  assert.equal(fs.existsSync(path.join(target, 'scratch', 'leaving.tmp')), false)
+  assert.equal(fs.readFileSync(path.join(target, 'keep.txt'), 'utf8'), 'keep\n')
+  const log = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+  assert.match(log, /left the source before it was copied/)
+  assert.match(log, /scratch\/leaving\.tmp/)
+})
