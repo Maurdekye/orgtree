@@ -2315,3 +2315,114 @@ test('R7: files that never stop changing are copied at their latest version and 
   const settingsSrc = fs.readFileSync(path.resolve('apps/desktop/renderer/src/canvas/desktopsettings.tsx'), 'utf8')
   assert.match(settingsSrc, /changed during the move; latest version copied/)
 })
+
+// R7 review (@idle-limit-sol at c60da5a, two HIGH, measured on synthetic controls): (1) a write or
+// rename landing after a watcher take, when that take was empty, was lost: the copy returned with
+// the old bytes or without the renamed file; (2) a final copy trusted the bytes it read, so a
+// source rewritten during that read left an EMPTY or stale copy. With "Delete old folder" ticked
+// either loses the latest data. Fix: end only on an empty take after the last copy and after
+// verification; count a copy only when the source held still across the read; a file that never
+// holds still is "could not be settled" and the old folder is kept with its original.
+test('R7 review: writes after a watcher take are not lost, torn reads never replace a good copy, and unsettled files keep the old folder', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const okTrust = async () => ({ ok: true, detail: 'trusted' })
+
+  // 1. A write and a rename that land right after an empty take still reach the new folder.
+  {
+    const { dir, defaultData } = makeSandbox()
+    const steady = path.join(defaultData, 'steady.txt')
+    const moveMe = path.join(defaultData, 'move-me.txt')
+    fs.writeFileSync(steady, 'old\n')
+    fs.writeFileSync(moveMe, 'moving\n')
+    const target = path.join(dir, 'TakeRaceTarget')
+    let raced = false
+    const res = await datalocation.copyDataRootWithVerify(defaultData, target, {
+      onCatchUpPass: pass => {
+        if (pass !== 1 || raced) return
+        raced = true
+        fs.writeFileSync(steady, 'new bytes after the take\n')
+        fs.renameSync(moveMe, path.join(defaultData, 'moved.txt'))
+      },
+    })
+    assert.equal(raced, true)
+    assert.equal(fs.readFileSync(path.join(target, 'steady.txt'), 'utf8'), 'new bytes after the take\n')
+    assert.equal(fs.readFileSync(path.join(target, 'moved.txt'), 'utf8'), 'moving\n')
+    assert.equal(fs.existsSync(path.join(target, 'move-me.txt')), false)
+    assert.deepEqual(res.unsettledPaths, [])
+  }
+
+  // 2. A source rewritten while its catch-up copy was read is read again: never an empty or stale copy.
+  {
+    const { dir, defaultData } = makeSandbox()
+    const busy = path.join(defaultData, 'busy.json')
+    fs.writeFileSync(busy, JSON.stringify({ v: 1 }))
+    const target = path.join(dir, 'TornReadTarget')
+    let torn = 0
+    const res = await datalocation.copyDataRootWithVerify(defaultData, target, {
+      beforeRescan: pass => { if (pass === 1) fs.writeFileSync(busy, JSON.stringify({ v: 2, pad: 'x'.repeat(10) })) },
+      afterRecopyRead: (rel, attempt) => {
+        if (rel !== 'busy.json' || attempt !== 1 || torn > 0) return
+        torn += 1
+        fs.writeFileSync(busy, '')
+        fs.writeFileSync(busy, JSON.stringify({ v: 3, pad: 'y'.repeat(200) }))
+      },
+    })
+    assert.equal(torn, 1, 'the read was torn once')
+    const copied = fs.readFileSync(path.join(target, 'busy.json'), 'utf8')
+    assert.equal(copied, fs.readFileSync(busy, 'utf8'))
+    assert.equal(JSON.parse(copied).v, 3)
+    assert.deepEqual(res.unsettledPaths, [])
+  }
+
+  // 3. A file that never holds still keeps a complete earlier copy (never a 0-byte one), is named,
+  //    and the old folder is kept with its original although "Delete old folder" was ticked.
+  {
+    const { dir, userData, defaultData, forbidden } = makeSandbox()
+    fs.writeFileSync(path.join(defaultData, 'steady.txt'), 'steady\n')
+    const busy = path.join(defaultData, 'busy.json')
+    fs.writeFileSync(busy, JSON.stringify({ v: 0 }))
+    const target = path.join(dir, 'UnsettledTarget')
+    let dirtied = false
+    let n = 0
+    const res = await datalocation.executeDataLocationMove({
+      options: { targetPath: target, deletePrevious: true },
+      currentRoot: defaultData,
+      userData,
+      forbiddenRoot: forbidden,
+      trustCheck: okTrust,
+      onProgress: p => {
+        if (p.phase === 'copying' && !dirtied && p.totalFiles > 0) {
+          dirtied = true
+          fs.writeFileSync(busy, JSON.stringify({ v: 1, pad: 'z'.repeat(50) }))
+        }
+      },
+      afterRecopyRead: rel => {
+        if (rel !== 'busy.json') return
+        n += 1
+        fs.writeFileSync(busy, '')
+        fs.writeFileSync(busy, JSON.stringify({ v: 1 + n, pad: 'q'.repeat(60 + n) }))
+      },
+      stopOldEngine: async () => true,
+      startAndVerifyNewEngine: async () => {},
+      restartOldEngineOnRollback: async () => { throw new Error('must not roll back') },
+    })
+    assert.equal(res.ok, true, `the move completes: ${res.error ?? ''}`)
+    assert.ok(n >= 3, `the reads were torn (${n})`)
+    const kept = fs.readFileSync(path.join(target, 'busy.json'), 'utf8')
+    assert.ok(kept.length > 0, 'never a 0-byte copy of a non-empty file')
+    JSON.parse(kept)
+    assert.equal(fs.existsSync(busy), true, 'the old folder keeps the original')
+    const report = datalocation.readDataLocationMoveReport(userData)
+    assert.ok(report)
+    assert.deepEqual(report.unsettledDuringMove, [path.join(path.resolve(defaultData), 'busy.json')])
+    assert.equal(report.oldFolderDeleted, false)
+    assert.ok(!(report.changedDuringMove ?? []).includes('busy.json'))
+    const log = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+    assert.match(log, /could not be settled; the previous folder was kept/)
+    assert.match(log, /old folder kept/)
+  }
+
+  const settingsSrc = fs.readFileSync(path.resolve('apps/desktop/renderer/src/canvas/desktopsettings.tsx'), 'utf8')
+  assert.match(settingsSrc, /could not be settled/)
+})
