@@ -278,6 +278,9 @@ function PopoutDeskBody({ desks, winKey, win, props }: { desks: Desks; winKey: s
 export interface DeskViewControl {
   /** this desk is the one in a desk window */
   inWindow: boolean
+  /** the kind of place it is shown in, which its scroll is remembered under while the place is off screen
+   *  (deskscroll.ts): card, pin, attention, window, floating, or place for one with no name */
+  place: string
   popout: () => void
   closeWindow: () => void
 }
@@ -326,8 +329,9 @@ function DeskView({ desks, deskKey, props, window: inWindow = false }: {
     desks.put(deskKey, id, props, inWindow)
   }, [desks, deskKey, id, props, inWindow])
   useLayoutEffect(() => () => desks.remove(deskKey, id), [desks, deskKey, id])
-  const control = useRef<DeskViewControl>({ inWindow, popout: () => {}, closeWindow: () => {} })
+  const control = useRef<DeskViewControl>({ inWindow, place: 'place', popout: () => {}, closeWindow: () => {} })
   control.current.inWindow = inWindow
+  control.current.place = inWindow ? 'window' : props.borrow ? 'floating' : props.openIn ?? 'place'
   control.current.popout = () => {
     // the window first opens over the frame this place shows the desk in, a pin's title bar included
     const frame = anchor.current?.closest('.pinwin') ?? anchor.current?.querySelector('.desk-body')

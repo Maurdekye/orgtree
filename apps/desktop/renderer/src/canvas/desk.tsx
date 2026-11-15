@@ -71,6 +71,7 @@ import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from
 import { useHistoryNav } from '../composerhistorynav'
 import type { HistoryEntry } from '../composerhistory'
 import { DeskSlot, DeskViewContext } from './deskhosts'
+import { placeScrollKey, recallPlaceScroll, rememberPlaceScroll } from './deskscroll'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
 // styled as a miniature Claude Code session) with its transcript renderers
@@ -2728,7 +2729,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const live = node.state === 'live'
   // Only user input releases bottom follow. Native scroll events also come
   // from browser anchoring, image loads, prepends and viewport reflow.
-  const stickRef = useRef(true)
+  // WHERE THIS PLACE'S DESK WAS SCROLLED when it last went off screen (deskscroll.ts): a reader who was reading
+  // history comes back there, one at the bottom stays pinned to it. Read once, at mount.
+  const scrollPlace = deskView ? placeScrollKey(deskView.place, slug, node.id, node.generation) : null
+  const rememberedScroll = useRef(scrollPlace ? recallPlaceScroll(scrollPlace) : undefined)
+  const stickRef = useRef(rememberedScroll.current ? rememberedScroll.current.stuck : true)
   const followTop = useRef<number | null>(null)
   const scrollIntent = useRef<{ direction: -1 | 1, until: number } | null>(null)
   const scrollbarPointer = useRef<number | null>(null)
@@ -2743,6 +2748,27 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const syncJumpRef = useRef(syncJump)
   syncJumpRef.current = syncJump
+  // the remembered position goes back as soon as the transcript is tall enough to hold it; the reader's own
+  // scrolling first cancels it (the scroll handler clears it)
+  useLayoutEffect(() => {
+    const want = rememberedScroll.current
+    const el = scroller.current
+    if (!want || !el) return
+    if (want.stuck) { rememberedScroll.current = undefined; return }
+    if (el.scrollHeight - el.clientHeight < want.top - 1) return
+    rememberedScroll.current = undefined
+    anchorEcho.current = want.top
+    el.scrollTop = want.top
+    knownTop.current = el.scrollTop
+    followTop.current = el.scrollTop
+    syncJumpRef.current()
+  })
+  // …and is recorded as this desk leaves its place
+  const scrollPlaceRef = useRef(scrollPlace); scrollPlaceRef.current = scrollPlace
+  useLayoutEffect(() => () => {
+    const el = scroller.current
+    if (scrollPlaceRef.current && el) rememberPlaceScroll(scrollPlaceRef.current, { stuck: stickRef.current, top: el.scrollTop })
+  }, [])
   const atBottom = () => {
     const el = scroller.current
     // A small tail margin covers fractional layout and hand-scrolled stops.
@@ -4312,6 +4338,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               && (direction === 0 || scrollIntent.current?.direction === 1)
             const manual = (direction !== null || returningToBottom) && !echo
             if (manual) {
+              rememberedScroll.current = undefined
               cancelMentionScroll()
               if (direction === 0 && top < previous) setStuck(false)
               else if (returningToBottom) setStuck(true)
