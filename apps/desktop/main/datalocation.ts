@@ -2081,6 +2081,8 @@ export async function copyDataRootWithVerify(
   filesCopied: number
   bytesCopied: number
   skippedPaths: string[]
+  /** Files (relative, sorted) that left the source between the scan and their copy: not copied. */
+  vanishedPaths: string[]
 }> {
   const { signal, onProgress } = options
   const skipSet = canonicalEntryKeySet(options.skipUnreadablePaths)
@@ -2138,6 +2140,7 @@ export async function copyDataRootWithVerify(
   }
   emit(true)
 
+  const vanishedPaths: string[] = []
   for (const item of first.files) {
     try {
       await copyFileCancellable(item.sourcePath, item.targetPath, item.mode, item.mtimeMs, signal, delta => {
@@ -2146,7 +2149,10 @@ export async function copyDataRootWithVerify(
       })
     } catch (err) {
       // Gone from the source since the scan (a foreign program's temporary file): nothing to copy.
-      if (errnoCode(err) === 'ENOENT' && !fs.existsSync(item.sourcePath)) continue
+      if (errnoCode(err) === 'ENOENT' && !fs.existsSync(item.sourcePath)) {
+        vanishedPaths.push(item.relPosix)
+        continue
+      }
       throw err
     }
     filesCopied += 1
@@ -2174,6 +2180,7 @@ export async function copyDataRootWithVerify(
     filesCopied,
     bytesCopied,
     skippedPaths,
+    vanishedPaths: vanishedPaths.sort(),
   }
 }
 
@@ -2428,6 +2435,14 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
       `filesCopied=${copied.filesCopied} bytesCopied=${copied.bytesCopied} skipped=${copied.skippedPaths.length}`,
       copied.skippedPaths,
     )
+    if (copied.vanishedPaths.length > 0) {
+      appendDataLocationMoveLog(
+        userData,
+        'left the source before it was copied',
+        `${copied.vanishedPaths.length} file(s) in ${oldRoot} were gone when their turn to be copied came; they are not in ${newRoot}`,
+        copied.vanishedPaths.slice(0, MAX_REPORTED_CHANGED_FILES),
+      )
+    }
     if (signal?.aborted) throw new Error('Data move cancelled')
 
     // Point of switch: stamp relocation marker, write data-location.json, clear move-in-progress
