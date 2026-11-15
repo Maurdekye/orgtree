@@ -533,6 +533,7 @@ test('move progress window shows a step meter (label, done / total, bar) for the
   })
   assert.match(preparing, /width:25%/)
   assert.match(preparing, /Watching for changes/)
+  assert.doesNotMatch(preparing, /final copy/, 'R8: there is one copy, no final one')
   assert.match(preparing, /5 \/ 20/)
   // R8: no post-copy check, so a step outside 'preparing' is not shown.
   const copying = datalocation.dataMoveProgressHtml({ ...base, phase: 'copying', stepLabel: 'Checking for changes', stepDone: 3, stepTotal: 10 })
@@ -2134,6 +2135,9 @@ test('R7: a pre-check lists files still changing after the writers stopped, and 
         restartOldEngineOnRollback: async () => { throw new Error('must not roll back') },
       })
       assert.equal(cont.ok, true, `Continue anyway completes: ${cont.error ?? ''}`)
+      const contLog = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+      assert.match(contLog, /Files still changing are copied as they are when read/)
+      assert.doesNotMatch(contLog, /latest version/, 'R8: no later copy of changing files')
     } finally {
       stop()
       stopPort()
@@ -2145,6 +2149,9 @@ test('R7: a pre-check lists files still changing after the writers stopped, and 
   assert.match(indexSrc, /changeWatchMs: DATA_MOVE_CHANGE_WATCH_MS/)
   assert.match(indexSrc, /confirmChangingFiles: async files =>/)
   assert.match(indexSrc, /'Continue anyway'/)
+  // R8: the dialog promises no later copy or list (stale R7 text found in the 4.6.0 hands-on).
+  assert.match(indexSrc, /If you continue, each file is copied as it is at that moment and may be incomplete\./)
+  assert.doesNotMatch(indexSrc, /latest version at the end|lists them when it finishes/)
 })
 
 
