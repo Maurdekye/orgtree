@@ -99,6 +99,7 @@ test('its drawer switches ITS desk; the main Attention desk\'s selection does no
   const v = await mountView(scene(), (el) => el)
   t.after(() => v.unmount())
   await inAct(async () => { openAttentionDeskWindow(SLUG, 'alpha'); await flush(8) })
+  assert.equal(s.open().length, 1, 'the attention desk window opened')
   const win = s.open()[0]!.document
   assert.equal(deskAgent(win), 'alpha', 'control: the window opened on alpha')
   await click(win.querySelector('.attn-agents-toggle'))
@@ -124,6 +125,7 @@ test('Make plain desk turns it back into a plain desk window on the agent it sho
   const v = await mountView(scene(), (el) => el)
   t.after(() => v.unmount())
   await inAct(async () => { openAttentionDeskWindow(SLUG, 'beta'); await flush(8) })
+  assert.equal(s.open().length, 1, 'the attention desk window opened')
   await click(s.open()[0]!.document.querySelector('button[aria-label="Make plain desk"]'))
   assert.equal(s.open().length, 1, 'one window')
   const win = s.open()[0]!.document
