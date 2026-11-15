@@ -272,7 +272,9 @@ for (const mode of ['row', 'circular'] as const) {
         : surface === 'desk-composer' ? 'textarea' : '.msgs'
       const target = host?.querySelector<HTMLElement>(selector)
       assert.ok(target, `real ${surface} is mounted: card=${card(m.el, 'x')?.className}; camera=${space.style.transform}; desks=${m.el.querySelectorAll('.desk-over,.desk-bare').length}`)
-      if (surface !== 'pinned-header') assert.ok(target.closest('.movable-events'), 'use the registry-owned portal, not a stand-in')
+      // the real desk, rendered in its own place since 4.6.1 (every place shows the live desk; there is no registry
+      // portal moving one desk between places any more)
+      if (surface !== 'pinned-header') assert.ok(target.closest('.desk-slot'), 'use the real desk in its place, not a stand-in')
       const scroll = host.querySelector<HTMLElement>('.msgs')!
       // jsdom has no layout. Model scrollable geometry, then let the desk's
       // follow-tail settle and record that position BEFORE the pan. A scroll
