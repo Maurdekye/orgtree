@@ -1900,3 +1900,178 @@ test('unreadable entries: preflight lists all by path/count, Move without them s
     [{ targetPath: 'D:\\Orgtree data', deletePrevious: true, skipUnreadablePaths: ['C:\\Old\\unreadable-1'] }],
   ])
 })
+
+// R6 (4.6.0-alpha.5): a 243 GB move copied for five hours, then failed verification with
+// "size mismatch for credential-broker.log (expected 123641, got 123863)". The sign-in helper
+// was still writing into the old folder. The move must wait for every writer of the old folder to
+// exit before it scans, recopy a file that still changed during the bulk copy, keep verifying
+// every file strictly, and keep its marker alive past six hours.
+test('R6: a move waits for the old folder\'s writers, recopies files that changed during the copy, verifies strictly, and keeps its marker alive past six hours', async () => {
+  const { policy, datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const okTrust = async () => ({ ok: true, detail: 'trusted' })
+
+  // 1. A straggler write after the bulk copy measured the file is recopied, never fatal; the
+  //    writers' exit is awaited before anything is copied, and the move log names the recopy.
+  {
+    const { dir, userData, defaultData, forbidden } = makeSandbox()
+    fs.mkdirSync(path.join(defaultData, 'pg', 'cluster', 'data'), { recursive: true })
+    fs.writeFileSync(path.join(defaultData, 'pg', 'cluster', 'data', 'PG_VERSION'), '18\n')
+    const brokerLog = path.join(defaultData, 'credential-broker.log')
+    fs.writeFileSync(brokerLog, 'x'.repeat(123641))
+    const target = path.join(dir, 'R6Target')
+    const order = []
+    let straggled = false
+    const res = await datalocation.executeDataLocationMove({
+      options: { targetPath: target, deletePrevious: false },
+      currentRoot: defaultData,
+      userData,
+      forbiddenRoot: forbidden,
+      trustCheck: okTrust,
+      onProgress: p => {
+        if (p.phase === 'copying' && !straggled && p.totalFiles > 0) {
+          straggled = true
+          order.push('straggler')
+          // The alpha.5 broker's three exit lines: +222 bytes after the scan measured the file.
+          fs.appendFileSync(brokerLog, 'y'.repeat(222))
+        }
+      },
+      stopOldEngine: async () => { order.push('stop'); return true },
+      waitForWritersToExit: async oldRoot => {
+        assert.equal(path.resolve(oldRoot), path.resolve(defaultData))
+        assert.equal(fs.existsSync(target), false, 'nothing is copied before the writers exited')
+        order.push('writers')
+        return 'all writers exited after 0 ms'
+      },
+      startAndVerifyNewEngine: async () => { order.push('start') },
+      restartOldEngineOnRollback: async () => { order.push('rollback') },
+    })
+    assert.equal(res.ok, true, `move succeeds after recopying the straggler: ${res.error ?? ''}`)
+    assert.deepEqual(order, ['stop', 'writers', 'straggler', 'start'])
+    assert.equal(fs.statSync(path.join(target, 'credential-broker.log')).size, 123863)
+    const log = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+    assert.match(log, /writers stopped/)
+    assert.match(log, /recopied changed files/)
+    assert.match(log, /recopied credential-broker\.log/)
+  }
+
+  // 2. A writer that never stops fails the move after the bounded catch-up passes and rolls back;
+  //    a target file damaged while its source stayed unchanged fails strict verification.
+  {
+    const { dir, defaultData } = makeSandbox()
+    const rogue = path.join(defaultData, 'credential-broker.log')
+    fs.writeFileSync(rogue, 'start\n')
+    fs.writeFileSync(path.join(defaultData, 'steady.txt'), 'steady\n')
+    let passes = 0
+    await assert.rejects(
+      datalocation.copyDataRootWithVerify(defaultData, path.join(dir, 'RogueTarget'), {
+        beforeRescan: () => { passes += 1; fs.appendFileSync(rogue, `line ${passes}\n`) },
+      }),
+      /kept changing after Orgtree stopped its writers: credential-broker\.log/,
+    )
+    assert.equal(passes, datalocation.MAX_RECOPY_PASSES)
+
+    const damagedTarget = path.join(dir, 'DamagedTarget')
+    await assert.rejects(
+      datalocation.copyDataRootWithVerify(defaultData, damagedTarget, {
+        beforeRescan: () => { fs.writeFileSync(path.join(damagedTarget, 'steady.txt'), 'x') },
+      }),
+      /size mismatch for steady\.txt/,
+      'no log or other file is waived: a damaged copy of an unchanged file fails',
+    )
+  }
+
+  // 3. The writers' wait judges the engine's quiesce answer and gives up with names.
+  {
+    let calls = 0
+    const quiet = await datalocation.waitForDataRootWritersToExit({
+      probe: async () => (++calls < 3 ? { quiet: false, members: [{ role: 'broker', life: 'alive' }] } : { quiet: true, members: [] }),
+      sleep: async () => {},
+    })
+    assert.equal(calls, 3)
+    assert.match(quiet, /all writers exited/)
+    let clock = 0
+    await assert.rejects(
+      datalocation.waitForDataRootWritersToExit({
+        probe: async () => ({ quiet: false, members: [{ role: 'broker', life: 'alive' }, { role: 'watcher', life: 'unknown' }] }),
+        timeoutMs: 60000,
+        now: () => clock,
+        sleep: async ms => { clock += ms },
+      }),
+      /did not stop within 60 s: broker \(alive\), watcher \(unknown\)/,
+    )
+    await assert.rejects(
+      datalocation.waitForDataRootWritersToExit({
+        probe: async () => { throw new Error('no binary') },
+        timeoutMs: 1000,
+        now: () => clock,
+        sleep: async ms => { clock += ms },
+      }),
+      /could not confirm that its other processes stopped/,
+      'an unanswered probe is never taken as quiet',
+    )
+  }
+
+  // 4. The move marker stays active past six hours while its desktop keeps beating.
+  {
+    const { dir, userData, defaultData } = makeSandbox()
+    datalocation.writeMoveInProgressMarker(userData, defaultData, path.join(dir, 'LongMove'))
+    const markerFile = path.join(userData, '.data-move-in-progress.json')
+    const doc = JSON.parse(fs.readFileSync(markerFile, 'utf8'))
+    assert.equal(typeof doc.heartbeatAtMs, 'number')
+    const later = doc.startedAtMs + 7 * 3600 * 1000
+    assert.equal(datalocation.hasActiveMoveInProgressMarker(userData, later), false, 'no heartbeat for 7 h: stale')
+    assert.equal(datalocation.refreshMoveInProgressMarker(userData, later - 60 * 1000), true)
+    assert.equal(datalocation.hasActiveMoveInProgressMarker(userData, later), true, 'a recent heartbeat keeps a 7-hour move guarded')
+    const refreshed = JSON.parse(fs.readFileSync(markerFile, 'utf8'))
+    assert.equal(refreshed.startedAtMs, doc.startedAtMs, 'the start stays recorded')
+
+    if (windows) {
+      const upgradeSrc = fs.readFileSync(path.resolve('tools/installer-upgrade.ps1'), 'utf8')
+      const fnStart = upgradeSrc.indexOf('function Assert-NoDataMoveInProgress')
+      const fnEnd = upgradeSrc.indexOf('function Get-EngineDataRoot')
+      assert.ok(fnStart > 0 && fnEnd > fnStart)
+      const fakeRoaming = path.join(dir, 'PsRoamingR6')
+      const fakeUd = path.join(fakeRoaming, 'Orgtree v2')
+      fs.mkdirSync(fakeUd, { recursive: true })
+      const harness = path.join(dir, 'test-installer-heartbeat.ps1')
+      const marker = path.join(fakeUd, '.data-move-in-progress.json').replace(/'/g, "''")
+      fs.writeFileSync(
+        harness,
+        `
+        $DataRoot = ''
+        function Test-Blank([string]$s) { return [string]::IsNullOrWhiteSpace($s) }
+        function Test-TargetAlive([int]$id) { return $true }
+        ${upgradeSrc.slice(fnStart, fnEnd)}
+        $env:ORGTREE_V2_DATA = ''
+        $env:APPDATA = '${fakeRoaming.replace(/'/g, "''")}'
+        Set-Content -LiteralPath '${marker}' -Value ('{"version":1,"pid":' + $PID + ',"startedAtMs":1000,"heartbeatAtMs":' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + '}') -Encoding UTF8
+        $guarded = $false
+        try { Assert-NoDataMoveInProgress } catch { $guarded = $true }
+        if (-not $guarded) { throw 'a beating 7-hour move was not guarded' }
+        Set-Content -LiteralPath '${marker}' -Value ('{"version":1,"pid":' + $PID + ',"startedAtMs":1000,"heartbeatAtMs":2000}') -Encoding UTF8
+        Assert-NoDataMoveInProgress
+        Write-Output 'PS_OK'
+        `,
+        'utf8',
+      )
+      const out = execFileSync(policy.WINDOWS_POWERSHELL, ['-NoProfile', '-NonInteractive', '-File', harness], {
+        encoding: 'utf8',
+        env: policy.windowsPowerShellEnv(),
+      }).trim()
+      assert.equal(out, 'PS_OK')
+    }
+  }
+
+  // 5. Main wires it: the native quiesce probe before the copy, no diagnostics into the old folder
+  //    while the move runs, and the sign-in helper's task restarted after success and rollback.
+  const indexSrc = fs.readFileSync(path.resolve('apps/desktop/main/index.ts'), 'utf8')
+  assert.match(indexSrc, /waitForWritersToExit: async oldRoot =>/)
+  assert.match(indexSrc, /\['core-control', 'quiesce', oldRoot\]/)
+  assert.match(indexSrc, /new WindowEventLog\(\(\) =>\s*engineRestartOptions\?\.dataRoot && !dataMoveInFlight/)
+  assert.match(indexSrc, /file: \(\) => engineRestartOptions\?\.dataRoot && !dataMoveInFlight \? path\.join\(engineRestartOptions\.dataRoot, STALL_LOG\)/)
+  assert.match(indexSrc, /if \(!dataMoveInFlight\) recordCoreControlFailure\(engineOptions\.dataRoot, failure\)/)
+  assert.equal((indexSrc.match(/await startHelperTask\(\)/g) ?? []).length, 2, 'helper restarted after success and after rollback')
+  const startupSrc = fs.readFileSync(path.resolve('apps/desktop/main/runonstartup.ts'), 'utf8')
+  assert.match(startupSrc, /export function startHelperTask\([^)]*\): Promise<void> \{\s*return startTask\(target\.helper, runner\)/)
+})
