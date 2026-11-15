@@ -170,43 +170,6 @@ function unreadableCountLabel(entries: readonly DataLocationUnreadableEntry[] | 
   return count === 1 ? '1 folder' : `${count} folders`
 }
 
-/** Files another program kept writing during the move (R7): copied at their latest version. */
-function ChangedDuringMoveList({ report }: { report: DataLocationLastMoveReport }) {
-  const files = report.changedDuringMove ?? []
-  const unsettled = report.unsettledDuringMove ?? []
-  const keptBecauseChanging = report.oldFolderKeptBecauseChanging === true && unsettled.length === 0
-  if (files.length === 0 && unsettled.length === 0 && !keptBecauseChanging) return null
-  const total = Math.max(report.changedDuringMoveTotal ?? 0, files.length)
-  return <>
-    {keptBecauseChanging && (
-      <p>
-        Files were still changing when the move finished, so the previous folder{' '}
-        <code data-streamer-field="path">{report.fromRoot}</code> was kept with their originals.
-      </p>
-    )}
-    {unsettled.length > 0 && <>
-      <p>
-        {unsettled.length === 1 ? '1 file' : `${unsettled.length} files`} could not be settled (they kept changing while being copied), so the previous folder{' '}
-        <code data-streamer-field="path">{report.fromRoot}</code> was kept. The intact originals are:
-      </p>
-      <ul className="dataloc-unreadable-list">
-        {unsettled.map(p => (
-          <li key={p}><code data-streamer-field="path">{p}</code></li>
-        ))}
-      </ul>
-    </>}
-    {files.length > 0 && <p>
-      {total === 1 ? '1 file' : `${total} files`} changed during the move; latest version copied:
-    </p>}
-    {files.length > 0 && <ul className="dataloc-unreadable-list">
-      {files.map(p => (
-        <li key={p}><code data-streamer-field="path">{p}</code></li>
-      ))}
-      {total > files.length && <li className="dim">…and {total - files.length} more (see the move log)</li>}
-    </ul>}
-  </>
-}
-
 export function DataLocationMoveResultModal({ report, close }: {
   report: DataLocationLastMoveReport
   close: () => void
@@ -256,7 +219,6 @@ export function DataLocationMoveResultModal({ report, close }: {
             ))}
           </ul>
         </>}
-        <ChangedDuringMoveList report={report} />
       </div>
       {logError && <p className="ask-warn" role="alert">{logError}</p>}
       <div className="dataloc-actions">
@@ -556,7 +518,7 @@ export function DataLocationSetting({ onDialogChange }: {
       ? activeReport.remainingPaths
       : activeReport.skippedEntries.map(e => e.path)
     : []
-  const showMoveReport = activeReport !== null && (reportPaths.length > 0 || (activeReport.changedDuringMove?.length ?? 0) > 0 || (activeReport.unsettledDuringMove?.length ?? 0) > 0 || activeReport.oldFolderKeptBecauseChanging === true)
+  const showMoveReport = activeReport !== null && reportPaths.length > 0
   const preflightUnreadable = preflight?.unreadableEntries ?? []
   const preflightUnreadableCount = preflightUnreadable.length
 
@@ -582,7 +544,6 @@ export function DataLocationSetting({ onDialogChange }: {
               ))}
             </ul>
           </>}
-          <ChangedDuringMoveList report={activeReport} />
           {bridge.openDataLocationMoveLog && (
             <div className="dataloc-report-actions">
               <button type="button" disabled={openingLog || moving}
@@ -709,7 +670,7 @@ export function DataLocationSetting({ onDialogChange }: {
           </p>
         )}
         {moving && progress && (() => {
-          const stepped = !!progress.stepLabel && (progress.phase === 'verifying' || progress.phase === 'preparing')
+          const stepped = !!progress.stepLabel && progress.phase === 'preparing'
           const total = stepped ? (progress.stepTotal ?? 0) : progress.totalBytes
           const done = stepped ? (progress.stepDone ?? 0) : progress.bytesCopied
           const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : null

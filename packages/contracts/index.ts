@@ -179,15 +179,6 @@ export interface DataLocationLastMoveReport {
   oldFolderDeleted: boolean
   skippedEntries: DataLocationUnreadableEntry[]
   remainingPaths: string[]
-  /** Files that kept changing after the catch-up passes; their latest version was copied (R7). */
-  changedDuringMove?: string[]
-  /** How many changed in all, when more than `changedDuringMove` lists. */
-  changedDuringMoveTotal?: number
-  /** Files (their path in the kept previous folder) that never held still while copied: the
-   *  previous folder is kept with their originals (R7 review). */
-  unsettledDuringMove?: string[]
-  /** The last check still found changes: the previous folder was kept with their originals. */
-  oldFolderKeptBecauseChanging?: boolean
   pendingRestartNotice?: boolean
 }
 export interface DataLocationDeletePreviousResult {
@@ -236,7 +227,7 @@ export interface DataLocationProgress {
   totalBytes: number
   cancellable: boolean
   detail?: string
-  /** Post-copy step meter (phases 'preparing' and 'verifying'): name of the running step. */
+  /** Step meter of the pre-copy change watch (phase 'preparing'): name of the running step. */
   stepLabel?: string
   /** Units done in the running step (files; seconds for the 'preparing' watch). */
   stepDone?: number
