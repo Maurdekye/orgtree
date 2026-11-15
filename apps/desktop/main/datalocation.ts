@@ -1236,6 +1236,12 @@ export function readDataLocationMoveReport(userData: string): DataLocationLastMo
           .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
           .slice(0, MAX_REPORTED_CHANGED_FILES)
       : []
+    const unsettledDuringMove: string[] = Array.isArray(raw.unsettledDuringMove)
+      ? raw.unsettledDuringMove
+          .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+          .slice(0, MAX_REPORTED_CHANGED_FILES)
+          .map(p => path.normalize(p))
+      : []
     return {
       movedAt: raw.movedAt,
       fromRoot: path.normalize(raw.fromRoot),
@@ -1245,6 +1251,7 @@ export function readDataLocationMoveReport(userData: string): DataLocationLastMo
       skippedEntries,
       remainingPaths,
       ...(changedDuringMove.length > 0 ? { changedDuringMove } : {}),
+      ...(unsettledDuringMove.length > 0 ? { unsettledDuringMove } : {}),
       ...(typeof raw.changedDuringMoveTotal === 'number' && Number.isFinite(raw.changedDuringMoveTotal) && raw.changedDuringMoveTotal > changedDuringMove.length
         ? { changedDuringMoveTotal: Math.floor(raw.changedDuringMoveTotal) }
         : {}),
@@ -1860,6 +1867,12 @@ async function copyFileCancellable(
  *  every file still changing then gets its latest bytes copied once more and is named in the
  *  result screen and the move log; the move completes instead of rolling back. */
 export const MAX_RECOPY_PASSES = 3
+/** Extra rounds after those passes while the watcher still reports changes (R7 review). */
+export const FINAL_DRAIN_ROUNDS = 2
+/** Reads of one file per round before it counts as "could not be settled" (R7 review). */
+export const STABLE_COPY_ATTEMPTS = 3
+/** How a file that never held still during its copies is named; the old folder is kept. */
+export const UNSETTLED_DURING_MOVE_NOTE = 'could not be settled; the previous folder was kept'
 /** How long a catch-up pass lets the source watcher deliver pending events (R7). */
 export const WATCH_SETTLE_MS = 750
 /** How long the pre-check watches the quiet source for files still changing (R7). */
@@ -2099,6 +2112,8 @@ export async function copyDataRootWithVerify(
     onCatchUpPass?: (pass: number, mode: 'watch' | 'full') => void
     /** Test seam: runs after the bulk copy, before each catch-up pass looks for changes. */
     beforeRescan?: (pass: number) => Promise<void> | void
+    /** Test seam: runs after each catch-up read of a file, before its source is checked again. */
+    afterRecopyRead?: (relPosix: string, attempt: number) => Promise<void> | void
     watchSettleMs?: number
   } = {},
 ): Promise<{
@@ -2107,6 +2122,7 @@ export async function copyDataRootWithVerify(
   skippedPaths: string[]
   recopiedPaths: string[]
   changedDuringMove: string[]
+  unsettledPaths: string[]
 }> {
   const { signal, onProgress } = options
   const skipSet = canonicalEntryKeySet(options.skipUnreadablePaths)
@@ -2199,6 +2215,59 @@ export async function copyDataRootWithVerify(
     emit(true)
 
     if (signal?.aborted) throw new Error('Data move cancelled')
+
+    // A catch-up copy counts only when the source held still across the read (R7 review): the
+    // same size and modification time before and after, and every byte of that size read. A
+    // copy goes to a temporary file and replaces the target only when it is stable, or (when
+    // the file never holds still) when it is complete for the size the source had: a torn,
+    // empty or short read never replaces an earlier good copy.
+    const unsettled = new Set<string>()
+    const stableCopy = async (item: ManifestItem): Promise<'ok' | 'gone' | 'unsettled'> => {
+      const tmp = `${item.targetPath}.orgtree-recopy-${process.pid}.tmp`
+      let haveTarget = false
+      try { haveTarget = fs.lstatSync(item.targetPath).isFile() } catch { haveTarget = false }
+      const discardTmp = () => { try { fs.unlinkSync(tmp) } catch { /* absent */ } }
+      let lastComplete = false
+      for (let attempt = 1; attempt <= STABLE_COPY_ATTEMPTS; attempt++) {
+        if (signal?.aborted) throw new Error('Data move cancelled')
+        let before: fs.Stats
+        try {
+          before = fs.lstatSync(item.sourcePath)
+        } catch (err) {
+          if (errnoCode(err) === 'ENOENT') { discardTmp(); return 'gone' }
+          throw err
+        }
+        if (!before.isFile() || isEntryReparsePoint(item.sourcePath, before)) { discardTmp(); return 'gone' }
+        let copied = 0
+        try {
+          await copyFileCancellable(item.sourcePath, tmp, before.mode, before.mtimeMs, signal, delta => { copied += delta })
+        } catch (err) {
+          discardTmp()
+          if (errnoCode(err) === 'ENOENT' && !fs.existsSync(item.sourcePath)) return 'gone'
+          throw err
+        }
+        await options.afterRecopyRead?.(item.relPosix, attempt)
+        let after: fs.Stats | null = null
+        try { after = fs.lstatSync(item.sourcePath) } catch (err) { if (errnoCode(err) !== 'ENOENT') throw err }
+        if (!after) { discardTmp(); return 'gone' }
+        const stable = after.size === before.size && after.mtimeMs === before.mtimeMs && copied === before.size
+        const complete = copied === after.size && (copied > 0 || after.size === 0)
+        if (stable || complete || !haveTarget) {
+          fs.renameSync(tmp, item.targetPath)
+          haveTarget = true
+          item.size = stable ? before.size : after.size
+          item.mtimeMs = stable ? before.mtimeMs : after.mtimeMs
+          item.mode = before.mode
+          item.copiedBytes = copied
+          lastComplete = stable
+          if (stable) return 'ok'
+        } else {
+          discardTmp()
+        }
+      }
+      discardTmp()
+      return lastComplete ? 'ok' : 'unsettled'
+    }
 
     // Post-copy step meter: {stepLabel, stepDone, stepTotal}, throttled, each step ends done == total.
     let lastStepEmitMs = 0
@@ -2365,17 +2434,18 @@ export async function copyDataRootWithVerify(
       step(label, 0, delta.changed.length, `Copying ${delta.changed.length.toLocaleString('en-US')} changed files…`, true)
       for (const item of delta.changed) {
         fs.mkdirSync(path.dirname(item.targetPath), { recursive: true })
-        try {
-          await copyItem(item, () => {})
-        } catch (err) {
+        const prior = manifest.get(item.relPosix)
+        if (prior && prior !== item && prior.copiedBytes !== undefined) item.copiedBytes = prior.copiedBytes
+        const outcome = await stableCopy(item)
+        if (outcome === 'gone') {
           // Gone between the check and the copy: it left the source, so it leaves the new folder.
-          if (errnoCode(err) === 'ENOENT' && !fs.existsSync(item.sourcePath)) {
-            removeTargetFile(item)
-            done += 1
-            continue
-          }
-          throw err
+          removeTargetFile(item)
+          unsettled.delete(item.relPosix)
+          done += 1
+          continue
         }
+        if (outcome === 'unsettled') unsettled.add(item.relPosix)
+        else unsettled.delete(item.relPosix)
         manifest.set(item.relPosix, item)
         recopiedPaths.add(item.relPosix)
         copied.push(item.relPosix)
@@ -2393,46 +2463,75 @@ export async function copyDataRootWithVerify(
     const recopiedPaths = new Set<string>()
     const vanished = new Map<string, string>()
     const changedDuringMove = new Set<string>()
-    for (let pass = 1; pass <= MAX_RECOPY_PASSES; pass++) {
-      if (signal?.aborted) throw new Error('Data move cancelled')
-      await options.beforeRescan?.(pass)
-      if (!watch.failed && settleMs > 0) await new Promise<void>(resolve => setTimeout(resolve, settleMs))
-      const taken = watch.take()
-      const mode = taken.overflow ? 'full' : 'watch'
-      options.onCatchUpPass?.(pass, mode)
-      const delta = mode === 'full' ? await diffFull('Checking for changes') : await diffPaths(taken.paths, 'Checking for changes')
-      if (delta.changed.length === 0 && delta.removed.length === 0 && delta.newDirs.length === 0 && delta.replacedDirs.length === 0) break
-      const final = pass === MAX_RECOPY_PASSES
-      const applied = await applyDelta(delta, final ? 'Copying latest versions' : 'Copying changed files')
-      options.onRecopy?.(pass, applied.copied, applied.removed)
-      if (final) {
-        for (const rel of [...applied.copied, ...applied.removed]) changedDuringMove.add(rel)
-      }
-    }
-
-    if (signal?.aborted) throw new Error('Data move cancelled')
-
-    // Strict verification of everything: a copy must match the bytes copied, and a file that
-    // did not change since its scan must match that scan too.
-    const items = [...manifest.values()]
-    let verified = 0
-    step('Verifying copied files', 0, items.length, `Verifying ${items.length.toLocaleString('en-US')} copied files…`, true)
-    for (const item of items) {
-      if (signal?.aborted) throw new Error('Data move cancelled')
+    // Strict verification: a copy must hold exactly the bytes accepted for it, and a file that
+    // did not change since its scan must match that scan too. Only a file that never held still
+    // (kept in the old folder too) is checked against the copy that was kept.
+    const verifyItem = async (item: ManifestItem) => {
       let dstStat: fs.Stats
       try {
         dstStat = await fs.promises.lstat(item.targetPath)
       } catch {
         throw new Error(`Copy verification failed: missing ${item.relPosix}`)
       }
-      const expected = changedDuringMove.has(item.relPosix) ? (item.copiedBytes ?? item.size) : item.size
+      const expected = unsettled.has(item.relPosix) ? (item.copiedBytes ?? item.size) : item.size
       if (!dstStat.isFile() || dstStat.size !== expected || (item.copiedBytes !== undefined && item.copiedBytes !== expected)) {
         throw new Error(`Copy verification failed: size mismatch for ${item.relPosix} (expected ${expected}, got ${dstStat.isFile() ? dstStat.size : 'not a file'})`)
       }
-      verified += 1
-      step('Verifying copied files', verified, items.length, `Verifying ${items.length.toLocaleString('en-US')} copied files…`)
     }
-    step('Verifying copied files', items.length, items.length, `Verified ${items.length.toLocaleString('en-US')} copied files`, true)
+    const verifyAll = async () => {
+      const items = [...manifest.values()]
+      let verified = 0
+      step('Verifying copied files', 0, items.length, `Verifying ${items.length.toLocaleString('en-US')} copied files…`, true)
+      for (const item of items) {
+        if (signal?.aborted) throw new Error('Data move cancelled')
+        await verifyItem(item)
+        verified += 1
+        step('Verifying copied files', verified, items.length, `Verifying ${items.length.toLocaleString('en-US')} copied files…`)
+      }
+      step('Verifying copied files', items.length, items.length, `Verified ${items.length.toLocaleString('en-US')} copied files`, true)
+    }
+
+    // Rounds: each takes what the watcher saw since the last take and copies it. The copy ends
+    // only on an EMPTY take made after the last copy and after strict verification (R7 review:
+    // a write landing after a take was otherwise lost). Bounded: after MAX_RECOPY_PASSES the
+    // copies are "latest versions" and named; at most FINAL_DRAIN_ROUNDS more rounds follow.
+    let round = 0
+    let verifiedAll = false
+    const maxRounds = MAX_RECOPY_PASSES + FINAL_DRAIN_ROUNDS
+    for (;;) {
+      if (signal?.aborted) throw new Error('Data move cancelled')
+      round += 1
+      if (round <= MAX_RECOPY_PASSES) await options.beforeRescan?.(round)
+      if (!watch.failed && settleMs > 0) await new Promise<void>(resolve => setTimeout(resolve, settleMs))
+      const taken = watch.take()
+      const mode = taken.overflow ? 'full' : 'watch'
+      options.onCatchUpPass?.(round, mode)
+      const delta = mode === 'full' ? await diffFull('Checking for changes') : await diffPaths(taken.paths, 'Checking for changes')
+      const changed = delta.changed.length > 0 || delta.removed.length > 0 || delta.newDirs.length > 0 || delta.replacedDirs.length > 0
+      if (changed) {
+        const final = round >= MAX_RECOPY_PASSES
+        const applied = await applyDelta(delta, final ? 'Copying latest versions' : 'Copying changed files')
+        options.onRecopy?.(round, applied.copied, applied.removed)
+        if (final) {
+          for (const rel of [...applied.copied, ...applied.removed]) changedDuringMove.add(rel)
+        }
+        if (verifiedAll) {
+          for (const rel of applied.copied) {
+            const item = manifest.get(rel)
+            if (item) await verifyItem(item)
+          }
+        }
+        if (round < maxRounds) continue
+      }
+      if (!verifiedAll) {
+        if (signal?.aborted) throw new Error('Data move cancelled')
+        await verifyAll()
+        verifiedAll = true
+        if (round < maxRounds + 1) continue // one more take: writes that landed while verifying
+      }
+      break
+    }
+    for (const rel of unsettled) changedDuringMove.delete(rel)
     for (const [relPosix, targetPath] of vanished) {
       if (manifest.has(relPosix)) continue
       let st: fs.Stats | null = null
@@ -2466,6 +2565,7 @@ export async function copyDataRootWithVerify(
       skippedPaths,
       recopiedPaths: [...recopiedPaths].sort(),
       changedDuringMove: [...changedDuringMove].sort(),
+      unsettledPaths: [...unsettled].sort(),
     }
   }
 }
@@ -2564,6 +2664,8 @@ export interface ExecuteDataLocationMoveParams {
   confirmChangingFiles?: (files: string[]) => Promise<boolean>
   /** Test/diagnostic seam: each catch-up pass and whether it used the watcher or a full rescan. */
   onCatchUpPass?: (pass: number, mode: 'watch' | 'full') => void
+  /** Test seam passed to the copy: runs after each catch-up read of a file. */
+  afterRecopyRead?: (relPosix: string, attempt: number) => Promise<void> | void
   startAndVerifyNewEngine: (newRoot: string) => Promise<void>
   restartOldEngineOnRollback: (oldRoot: string) => Promise<void>
 }
@@ -2717,6 +2819,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
       onProgress,
       skipUnreadablePaths: options.skipUnreadablePaths,
       ...(params.onCatchUpPass ? { onCatchUpPass: params.onCatchUpPass } : {}),
+      ...(params.afterRecopyRead ? { afterRecopyRead: params.afterRecopyRead } : {}),
       onRecopy: (pass, recopied, removed) => {
         appendDataLocationMoveLog(
           userData,
@@ -2732,6 +2835,17 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
       `filesCopied=${copied.filesCopied} bytesCopied=${copied.bytesCopied} skipped=${copied.skippedPaths.length} recopied=${copied.recopiedPaths.length} changedDuringMove=${copied.changedDuringMove.length}`,
       copied.skippedPaths,
     )
+    // A file that never held still while it was copied keeps its intact original in the old
+    // folder: that folder is never deleted then, whatever the delete box says (R7 review).
+    const unsettledOldPaths = copied.unsettledPaths.map(rel => path.join(oldRoot, ...rel.split('/')))
+    if (unsettledOldPaths.length > 0) {
+      appendDataLocationMoveLog(
+        userData,
+        'files could not be settled',
+        `${unsettledOldPaths.length} file(s) kept changing while they were copied; the copy kept for each may be torn, and ${oldRoot} is kept with their originals`,
+        copied.unsettledPaths.map((rel, i) => `${rel}: ${UNSETTLED_DURING_MOVE_NOTE} (original: ${unsettledOldPaths[i]})`),
+      )
+    }
     if (copied.changedDuringMove.length > 0) {
       appendDataLocationMoveLog(
         userData,
@@ -2788,7 +2902,9 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
     }
 
     let remainingPaths: string[] = skippedEntries.map(e => e.path)
-    if (options.deletePrevious) {
+    if (options.deletePrevious && unsettledOldPaths.length > 0) {
+      appendDataLocationMoveLog(userData, 'old folder kept', `Not deleting ${oldRoot}: it holds the originals of files that could not be settled`)
+    } else if (options.deletePrevious) {
       emit('cleaning', false, 'Deleting the previous data folder…', {
         filesCopied: copied.filesCopied,
         totalFiles: copied.filesCopied,
@@ -2836,7 +2952,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
 
     const oldFolderDeleted = !fs.existsSync(oldRoot)
     const changedDuringMove = copied.changedDuringMove
-    if (skippedEntries.length > 0 || remainingPaths.length > 0 || changedDuringMove.length > 0) {
+    if (skippedEntries.length > 0 || remainingPaths.length > 0 || changedDuringMove.length > 0 || unsettledOldPaths.length > 0) {
       await writeDataLocationMoveReport(userData, {
         movedAt,
         fromRoot: oldRoot,
@@ -2851,6 +2967,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
               ...(changedDuringMove.length > MAX_REPORTED_CHANGED_FILES ? { changedDuringMoveTotal: changedDuringMove.length } : {}),
             }
           : {}),
+        ...(unsettledOldPaths.length > 0 ? { unsettledDuringMove: unsettledOldPaths.slice(0, MAX_REPORTED_CHANGED_FILES) } : {}),
         pendingRestartNotice: true,
       })
     } else {
@@ -2860,7 +2977,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
     appendDataLocationMoveLog(
       userData,
       'move complete',
-      `Relaunching on ${newRoot} (skipped=${skippedEntries.length}, changedDuringMove=${changedDuringMove.length}, oldFolderDeleted=${oldFolderDeleted}, remainingInOld=${remainingPaths.length})`,
+      `Relaunching on ${newRoot} (skipped=${skippedEntries.length}, changedDuringMove=${changedDuringMove.length}, unsettled=${unsettledOldPaths.length}, oldFolderDeleted=${oldFolderDeleted}, remainingInOld=${remainingPaths.length})`,
     )
 
     emit('done', false, 'Move complete. Reopening Orgtree…', {

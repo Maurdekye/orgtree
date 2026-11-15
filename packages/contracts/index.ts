@@ -183,6 +183,9 @@ export interface DataLocationLastMoveReport {
   changedDuringMove?: string[]
   /** How many changed in all, when more than `changedDuringMove` lists. */
   changedDuringMoveTotal?: number
+  /** Files (their path in the kept previous folder) that never held still while copied: the
+   *  previous folder is kept with their originals (R7 review). */
+  unsettledDuringMove?: string[]
   pendingRestartNotice?: boolean
 }
 export interface DataLocationDeletePreviousResult {

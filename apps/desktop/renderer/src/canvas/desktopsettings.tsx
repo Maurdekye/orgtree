@@ -173,18 +173,30 @@ function unreadableCountLabel(entries: readonly DataLocationUnreadableEntry[] | 
 /** Files another program kept writing during the move (R7): copied at their latest version. */
 function ChangedDuringMoveList({ report }: { report: DataLocationLastMoveReport }) {
   const files = report.changedDuringMove ?? []
-  if (files.length === 0) return null
+  const unsettled = report.unsettledDuringMove ?? []
+  if (files.length === 0 && unsettled.length === 0) return null
   const total = Math.max(report.changedDuringMoveTotal ?? 0, files.length)
   return <>
-    <p>
+    {unsettled.length > 0 && <>
+      <p>
+        {unsettled.length === 1 ? '1 file' : `${unsettled.length} files`} could not be settled (they kept changing while being copied), so the previous folder{' '}
+        <code data-streamer-field="path">{report.fromRoot}</code> was kept. The intact originals are:
+      </p>
+      <ul className="dataloc-unreadable-list">
+        {unsettled.map(p => (
+          <li key={p}><code data-streamer-field="path">{p}</code></li>
+        ))}
+      </ul>
+    </>}
+    {files.length > 0 && <p>
       {total === 1 ? '1 file' : `${total} files`} changed during the move; latest version copied:
-    </p>
-    <ul className="dataloc-unreadable-list">
+    </p>}
+    {files.length > 0 && <ul className="dataloc-unreadable-list">
       {files.map(p => (
         <li key={p}><code data-streamer-field="path">{p}</code></li>
       ))}
       {total > files.length && <li className="dim">…and {total - files.length} more (see the move log)</li>}
-    </ul>
+    </ul>}
   </>
 }
 
@@ -537,7 +549,7 @@ export function DataLocationSetting({ onDialogChange }: {
       ? activeReport.remainingPaths
       : activeReport.skippedEntries.map(e => e.path)
     : []
-  const showMoveReport = activeReport !== null && (reportPaths.length > 0 || (activeReport.changedDuringMove?.length ?? 0) > 0)
+  const showMoveReport = activeReport !== null && (reportPaths.length > 0 || (activeReport.changedDuringMove?.length ?? 0) > 0 || (activeReport.unsettledDuringMove?.length ?? 0) > 0)
   const preflightUnreadable = preflight?.unreadableEntries ?? []
   const preflightUnreadableCount = preflightUnreadable.length
 
