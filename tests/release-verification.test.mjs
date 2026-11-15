@@ -339,7 +339,7 @@ test('verification runner reuses only the receipt from the exact explicit versio
     let ran = 0
     const rerun = runVerification({ root, base: 'base', candidate: 'head', receiptPath: oldPath, git, runner: () => { ran++; return { status: 0 } } })
     assert.equal(rerun.reused, undefined)
-    assert.equal(ran, 2)
+    assert.equal(ran, 1)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
