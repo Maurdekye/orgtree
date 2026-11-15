@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { MovableSurface, PopoutChip, useSurface } from '../popout'
 import { openSurfaces, revealSurface, revealDetachedPanel } from '../windowlife'
 import { instanceKind } from '../modalkinds'
-import { savedDeskIdentities, windowExitStarted } from '../windowlayout'
+import { savedDeskIdentities, useRestoreWindows, windowExitStarted } from '../windowlayout'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
@@ -116,7 +116,8 @@ class Desks {
   popout(key: string, props: DeskChatProps | null, box: Box | null = null, onOpened?: () => void, fresh = true) {
     const open = deskSurface(key)
     if (open) { revealSurface(open); onOpened?.(); return }
-    if (this.windows.has(key)) return
+    // an entry with no live window (one waiting for a restore that has not come) is replaced, so this request opens it
+    this.windows.delete(key)
     this.windows.set(key, { props, box, fresh, onOpened })
     this.change()
   }
@@ -189,18 +190,20 @@ export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: 
     orgDesks.set(slug, desks)
     return () => { if (orgDesks.get(slug) === desks) orgDesks.delete(slug) }
   }, [desks, slug])
-  // the desk windows the last session left open come back as windows (MovableSurface `windowed` reopens each at its
-  // saved place), once this organization's tree is the one shown
+  // the desk windows the last session left open come back as windows (MovableSurface reopens each at its saved
+  // place), once this organization's tree is the one shown AND windows may be restored: not before, or the entry
+  // would wait in its hidden holder with no window
   const restored = useRef(false)
+  const restoreAllowed = useRestoreWindows()
   useEffect(() => {
-    if (restored.current || !popoutDesk || treeSlug !== slug) return
+    if (restored.current || !popoutDesk || treeSlug !== slug || !restoreAllowed) return
     restored.current = true
     for (const [org, id, generation] of savedDeskIdentities(slug)) {
       const node = map.get(id)
       // not fresh: MovableSurface reopens it from its saved row, at its saved place
       if (org === slug && node?.generation === generation) desks.popout(deskIdentity(slug, node), popoutDesk(node), null, undefined, false)
     }
-  }, [desks, map, slug, treeSlug, popoutDesk])
+  }, [desks, map, slug, treeSlug, popoutDesk, restoreAllowed])
   // a window whose agent is gone or has a new generation closes with it
   useEffect(() => {
     if (treeSlug !== slug) return
