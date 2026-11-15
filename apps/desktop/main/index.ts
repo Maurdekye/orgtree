@@ -46,6 +46,7 @@ import {
   resolveMissingDataLocationChoice,
   validateDeletablePreviousFolder,
   waitForDataRootWritersToExit,
+  DATA_MOVE_CHANGE_WATCH_MS,
   type DataRootWritersReport,
 } from './datalocation'
 import { configureArtifactSession, configureEngineSession, configureWindow, forgetSealedSession, popoutRegistry, resealSandboxedSessions, revealPopout, sandboxSealed, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
@@ -3049,6 +3050,27 @@ else {
                     } catch { reject(new Error('Invalid process check reply')) }
                   })),
               })
+            },
+            // R7: files another program keeps writing are listed before the copy; they never
+            // roll the move back (they are copied at their latest version and named).
+            changeWatchMs: DATA_MOVE_CHANGE_WATCH_MS,
+            confirmChangingFiles: async files => {
+              const shown = files.slice(0, 12).join('\n') + (files.length > 12 ? `\n…and ${files.length - 12} more` : '')
+              const { response } = await dialog.showMessageBox({
+                type: 'warning',
+                buttons: ['Continue anyway', 'Cancel'],
+                defaultId: 0,
+                cancelId: 1,
+                noLink: true,
+                title: 'Data location',
+                message: files.length === 1
+                  ? '1 file in the data folder is still changing'
+                  : `${files.length} files in the data folder are still changing`,
+                detail: 'Another program is still writing to these files although Orgtree has stopped. '
+                  + 'If you continue, the move copies their latest version at the end and lists them when it finishes.\n\n'
+                  + shown,
+              })
+              return response === 0
             },
             startAndVerifyNewEngine: async (newRoot, moveTopology) => {
               const newRootIsCustom = !isDataRootFromEnv() && canonicalPath(newRoot) !== canonicalPath(defaultDataFolder)

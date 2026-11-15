@@ -170,6 +170,24 @@ function unreadableCountLabel(entries: readonly DataLocationUnreadableEntry[] | 
   return count === 1 ? '1 folder' : `${count} folders`
 }
 
+/** Files another program kept writing during the move (R7): copied at their latest version. */
+function ChangedDuringMoveList({ report }: { report: DataLocationLastMoveReport }) {
+  const files = report.changedDuringMove ?? []
+  if (files.length === 0) return null
+  const total = Math.max(report.changedDuringMoveTotal ?? 0, files.length)
+  return <>
+    <p>
+      {total === 1 ? '1 file' : `${total} files`} changed during the move; latest version copied:
+    </p>
+    <ul className="dataloc-unreadable-list">
+      {files.map(p => (
+        <li key={p}><code data-streamer-field="path">{p}</code></li>
+      ))}
+      {total > files.length && <li className="dim">…and {total - files.length} more (see the move log)</li>}
+    </ul>
+  </>
+}
+
 export function DataLocationMoveResultModal({ report, close }: {
   report: DataLocationLastMoveReport
   close: () => void
@@ -205,20 +223,21 @@ export function DataLocationMoveResultModal({ report, close }: {
       dialogLabel="Data folder moved">
       <h3>Data folder moved</h3>
       <div className="dataloc-report">
-        <p>
-          Moved; {countLabel} could not be read and stayed in{' '}
-          <code data-streamer-field="path">{report.fromRoot}</code>
-          {report.deletePreviousRequested && !report.oldFolderDeleted
-            ? ' (everything else in the previous folder was deleted; parent folders holding these stayed):'
-            : ':'}
-        </p>
-        {pathsToShow.length > 0 && (
+        {pathsToShow.length > 0 && <>
+          <p>
+            Moved; {countLabel} could not be read and stayed in{' '}
+            <code data-streamer-field="path">{report.fromRoot}</code>
+            {report.deletePreviousRequested && !report.oldFolderDeleted
+              ? ' (everything else in the previous folder was deleted; parent folders holding these stayed):'
+              : ':'}
+          </p>
           <ul className="dataloc-unreadable-list">
             {pathsToShow.map(p => (
               <li key={p}><code data-streamer-field="path">{p}</code></li>
             ))}
           </ul>
-        )}
+        </>}
+        <ChangedDuringMoveList report={report} />
       </div>
       {logError && <p className="ask-warn" role="alert">{logError}</p>}
       <div className="dataloc-actions">
@@ -518,7 +537,7 @@ export function DataLocationSetting({ onDialogChange }: {
       ? activeReport.remainingPaths
       : activeReport.skippedEntries.map(e => e.path)
     : []
-  const showMoveReport = activeReport !== null && reportPaths.length > 0
+  const showMoveReport = activeReport !== null && (reportPaths.length > 0 || (activeReport.changedDuringMove?.length ?? 0) > 0)
   const preflightUnreadable = preflight?.unreadableEntries ?? []
   const preflightUnreadableCount = preflightUnreadable.length
 
@@ -529,19 +548,22 @@ export function DataLocationSetting({ onDialogChange }: {
       {notice && !error && !checkingDetail && <p className="dim" role="status">{notice}</p>}
       {showMoveReport && activeReport && (
         <div className="dataloc-report" role="status">
-          <p>
-            Moved; {unreadableCountLabel(activeReport.remainingPaths.length > 0 ? activeReport.remainingPaths : activeReport.skippedEntries)}{' '}
-            could not be read and stayed in{' '}
-            <code data-streamer-field="path">{activeReport.fromRoot}</code>
-            {activeReport.deletePreviousRequested && !activeReport.oldFolderDeleted
-              ? ' (everything else in the previous folder was deleted; parent folders holding these stayed):'
-              : ':'}
-          </p>
-          <ul className="dataloc-unreadable-list">
-            {reportPaths.map(p => (
-              <li key={p}><code data-streamer-field="path">{p}</code></li>
-            ))}
-          </ul>
+          {reportPaths.length > 0 && <>
+            <p>
+              Moved; {unreadableCountLabel(activeReport.remainingPaths.length > 0 ? activeReport.remainingPaths : activeReport.skippedEntries)}{' '}
+              could not be read and stayed in{' '}
+              <code data-streamer-field="path">{activeReport.fromRoot}</code>
+              {activeReport.deletePreviousRequested && !activeReport.oldFolderDeleted
+                ? ' (everything else in the previous folder was deleted; parent folders holding these stayed):'
+                : ':'}
+            </p>
+            <ul className="dataloc-unreadable-list">
+              {reportPaths.map(p => (
+                <li key={p}><code data-streamer-field="path">{p}</code></li>
+              ))}
+            </ul>
+          </>}
+          <ChangedDuringMoveList report={activeReport} />
           {bridge.openDataLocationMoveLog && (
             <div className="dataloc-report-actions">
               <button type="button" disabled={openingLog || moving}

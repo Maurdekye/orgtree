@@ -179,6 +179,10 @@ export interface DataLocationLastMoveReport {
   oldFolderDeleted: boolean
   skippedEntries: DataLocationUnreadableEntry[]
   remainingPaths: string[]
+  /** Files that kept changing after the catch-up passes; their latest version was copied (R7). */
+  changedDuringMove?: string[]
+  /** How many changed in all, when more than `changedDuringMove` lists. */
+  changedDuringMoveTotal?: number
   pendingRestartNotice?: boolean
 }
 export interface DataLocationDeletePreviousResult {
