@@ -55,6 +55,19 @@ so instead of acting on the desktop's computer:
   desktop's own.
 - **Notifications and the tray.** Questions and other notices of a remote
   organization appear with this computer's, titled "<organization> · <name>".
+  In the tray's organization list a remote organization shows its engine's name
+  after its own ("Work · build-box"), its tooltip says "on build-box (remote
+  engine)", and while the link is down it reads ", not connected" and shows a
+  dash instead of the active / hired counts (they would be the last ones it sent).
+- **Files.** In a remote organization's window the scratch folder entries (an
+  agent's, its team's, the shared one) open the **Files** panel, which shows that
+  folder on the engine's computer. Click a folder to open it. **Download** saves
+  a file, or a whole folder as a zip. **Upload files** puts files into the folder
+  that is open; a file whose name is already there asks **Replace**, **Keep
+  both** or **Skip**. A file of 100 MB or more says its size first, and a file
+  over 2 GiB is not sent. Nothing can be deleted or renamed from the panel. With
+  an engine older than 4.6.0 the entries open no panel and say that the engine
+  needs updating to use the file browser.
 - **Names.** When this computer already has an organization of the same name,
   the remote one is listed as `<name>-<engine>`. References written by its
   agents keep working in its window.
@@ -72,7 +85,11 @@ Two people cannot silently replace each other's changes to an agent's settings.
 A save says what it was based on; when someone changed the same setting in the
 meantime, nothing is saved and the form says who changed it and when, with
 **See their version**, **Save mine anyway** and **Cancel**. What you typed stays
-in the form.
+in the form. **Use theirs** takes their version into the form, and **Save mine
+anyway** is refused again if the setting changed once more in between. While you
+are editing a text that then changes underneath, a line under it says **This
+changed while you were editing.** with **See the new value**; none of these throw
+away what you typed.
 
 ## The orgtree-engine package
 

@@ -84,6 +84,8 @@ Many other panels can also be pinned or opened in a separate window: settings, m
 
 **Attention** puts **Needs attention** beside a desk. The queue combines open question cards, unread urgent or user-mention mail, and manually flagged docket items. Choose a row to read it and use its normal question, mail or work controls. The desk can be changed independently with its agent drawer.
 
+The divider between the two panels can be dragged or moved with the arrow keys. Drag it to the edge (or press Home or End) to hide a panel, and click it to make the two panels trade places. While one panel is hidden, right-click the divider and choose **Swap edge**: the divider goes to the opposite edge and the same panel stays in view, so the hidden one comes back from that side. **Reset to center** puts the divider back in the middle and shows a hidden panel.
+
 Answering a question removes it from the open-question feed. Reading a selected mail can keep it in view until the selection changes. Click a selected row again, or press Escape with the queue list focused, to clear the reading pane. Changing a work item's status does not clear its manual attention flag. Loading, stale and failed states are shown separately from a verified empty queue.
 
 Attention, inbox, work and presented-document details are covered in [Messages and work](messages-and-work.md).
