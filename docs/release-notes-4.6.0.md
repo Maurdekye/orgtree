@@ -1,6 +1,6 @@
 # Orgtree 4.6.0
 
-Orgtree 4.6.0 lets you open an organization from another computer: from a standalone engine, or from another desktop that shares it with you. It also adds a **Data location** setting that moves Orgtree's data folder for you, a Files panel for remote organizations, and native folder dialogs for organizations on this computer. Hiring now picks an account that can run the model. It still bundles Mail hub 2.4.0 and works with Hubchat 1.3.5.
+Orgtree 4.6.0 lets you open an organization from another computer: from a standalone engine, or from another desktop that shares it with you. It also adds a **Data location** setting that moves Orgtree's data folder for you, a Files panel for remote organizations, and native folder dialogs for organizations on this computer. Hiring now picks an account that can run the model. It still bundles Mail hub 2.4.0 and works with Hubchat 1.3.6.
 
 ## Remote organizations
 
@@ -34,7 +34,7 @@ Orgtree 4.6.0 lets you open an organization from another computer: from a standa
 ## Untested
 
 - The remote features were tested with synthetic organizations on one PC (Tailscale, loopback and tunnel addresses), not between two separate computers on a real network.
-- Data location was tested hands-on with real moves of the user's own data folder between drives.
+- Data location: the earlier version moved the user's own 245 GB data folder between drives successfully. The final version, without the check after the copy, was tested with synthetic moves only.
 
 ## Notes
 
