@@ -251,26 +251,40 @@ pub fn begin(root: &Path) -> Result<(), Refusal> {
 #[nolog]
 pub fn unquiet_writers(root: &Path, broker: Life) -> Vec<(&'static str, Life)> {
     let mut out = Vec::new();
-    if let Some(state) = read(root) {
-        for (role, who) in [("engine", Some(&state.engine)), ("host", state.host.as_ref()), ("helper", state.helper.as_ref())] {
-            if let Some(who) = who {
-                let life = core_process::life(who);
-                if life != Life::Gone { out.push((role, life)); }
+    // Only a record that does not exist is absent: one that is there but
+    // cannot be opened or read (invalid, held without sharing) is unknown,
+    // so the move waits and then rolls back (R6-R1).
+    match std::fs::File::open(root.join(FILE)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => out.push(("snapshot", Life::Unknown)),
+        Ok(_) => match read(root) {
+            Some(state) => {
+                for (role, who) in [("engine", Some(&state.engine)), ("host", state.host.as_ref()), ("helper", state.helper.as_ref())] {
+                    if let Some(who) = who {
+                        let life = core_process::life(who);
+                        if life != Life::Gone { out.push((role, life)); }
+                    }
+                }
             }
-        }
+            None => out.push(("snapshot", Life::Unknown)),
+        },
     }
     let mut bytes = Vec::new();
-    if let Ok(f) = std::fs::File::open(root.join("core-recovery-watcher.json")) {
-        if f.take(MAX + 1).read_to_end(&mut bytes).is_ok() && bytes.len() as u64 <= MAX {
-            match serde_json::from_slice::<(Identity, Identity)>(&bytes) {
-                Ok((_desktop, watcher)) => {
-                    let life = core_process::life(&watcher);
-                    if life != Life::Gone { out.push(("watcher", life)); }
+    match std::fs::File::open(root.join("core-recovery-watcher.json")) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => out.push(("watcher", Life::Unknown)),
+        Ok(f) => {
+            if f.take(MAX + 1).read_to_end(&mut bytes).is_ok() && bytes.len() as u64 <= MAX {
+                match serde_json::from_slice::<(Identity, Identity)>(&bytes) {
+                    Ok((_desktop, watcher)) => {
+                        let life = core_process::life(&watcher);
+                        if life != Life::Gone { out.push(("watcher", life)); }
+                    }
+                    Err(_) => out.push(("watcher", Life::Unknown)),
                 }
-                Err(_) => out.push(("watcher", Life::Unknown)),
+            } else {
+                out.push(("watcher", Life::Unknown));
             }
-        } else {
-            out.push(("watcher", Life::Unknown));
         }
     }
     if broker != Life::Gone { out.push(("broker", broker)); }
