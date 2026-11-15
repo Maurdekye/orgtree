@@ -191,6 +191,10 @@ mod win {
         if fs::write(root.join("core-recovery-watcher.json"), bytes).is_err() { return; }
         let mut noted_exit = false;
         loop {
+            // A data move of this folder (or a finished one) owns it now:
+            // leave without another line in it, and never relaunch on it,
+            // however long the copy outlasts the transition (R6).
+            if moved_away(root) { return; }
             let Some(next) = current(root, &desktop) else { return; };
             if next.engine != s.engine {
                 let Some(handle) = opened(&next.engine) else { return; };
@@ -208,6 +212,7 @@ mod win {
         }
         let began = Instant::now();
         while began.elapsed() < Duration::from_secs(300) {
+            if moved_away(root) { return; }
             let Some(fresh) = current(root, &desktop) else { return; };
             if stands_down(&fresh, &desktop) {
                 core_diagnostics::record(root, "desktop-recovery-stood-down-for-install", Some(&fresh.generation), desktop.pid, None);
@@ -221,7 +226,7 @@ mod win {
                 if claim(root, "desktop", &key) {
                     let Some(_publication) = singleton(root, "publication") else { return; };
                     // Re-read after admission. A user's launch or Quit wins.
-                    if !current(root, &desktop).is_some_and(|s| !core_state::recovery_deferred(&s) && signed_in(root, &s) == Some(true)) { return; }
+                    if moved_away(root) || !current(root, &desktop).is_some_and(|s| !core_state::recovery_deferred(&s) && signed_in(root, &s) == Some(true)) { return; }
                     let child = Command::new(&exe).arg("--core-recovered")
                         .env_remove("ELECTRON_RUN_AS_NODE").env("ORGTREE_V2_DATA", root)
                         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
@@ -236,6 +241,12 @@ mod win {
             std::thread::sleep(Duration::from_secs(1));
         }
         record(root, "desktop-recovery-budget-or-resources-exhausted", &s, None);
+    }
+    /// A Data location move of `root` runs, or `data-location.json` now names
+    /// another folder: the watch's root is no longer the desktop's.
+    #[nolog]
+    fn moved_away(root: &Path) -> bool {
+        crate::data_location::broker_should_exit(root)
     }
     /// The desktop exited inside its own installing transition: an installer
     /// or the in-app updater closed it to replace the installation this

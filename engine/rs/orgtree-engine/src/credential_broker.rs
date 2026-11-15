@@ -129,11 +129,7 @@ mod win {
     /// own, so it runs beside the helper of the real session.
     #[nolog]
     fn instance_name(root: &Path, rig_session: Option<u32>) -> String {
-        let key = root.to_string_lossy().to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
-        match rig_session {
-            Some(s) => format!("Local\\OrgtreeCredentialBroker-{key:016x}-rig{s}"),
-            None => format!("Local\\OrgtreeCredentialBroker-{key:016x}"),
-        }
+        crate::data_location::broker_mutex_name(root, rig_session)
     }
 
     /// The other Windows session of the user that a debug rig proof's helper
@@ -383,8 +379,10 @@ mod win {
     /// or `data-location.json` names another folder. Only once no hosted CLI
     /// remains, so their exit records are written first.
     #[nolog]
-    fn leave_now(attached: bool, hosted: usize, root_released: impl FnOnce() -> bool) -> bool {
-        !attached && hosted == 0 && root_released()
+    fn leave_now(_attached: bool, hosted: usize, root_released: impl FnOnce() -> bool) -> bool {
+        // Attached or not: a stopped engine is only noticed after another
+        // registration round, whose retry lines landed in the copy (R6).
+        hosted == 0 && root_released()
     }
 
     #[nolog]

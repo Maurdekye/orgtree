@@ -211,6 +211,15 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
                 Err(refusal) => { eprintln!("{}", refusal.json()); std::process::ExitCode::from(1) },
             };
         }
+        if args[0] == "quiesce" {
+            // Read-only proof for a Data location move (R6): which writers
+            // of this folder have not exited yet. Never writes into it.
+            let members = core_state::unquiet_writers(root, broker_life(root));
+            println!("{}", serde_json::json!({"quiet": members.is_empty(),
+                "members": members.iter().map(|(role, life)| serde_json::json!({"role": role,
+                    "life": if *life == Life::Alive { "alive" } else { "unknown" }})).collect::<Vec<_>>()}));
+            return std::process::ExitCode::SUCCESS;
+        }
         if args[0] != "status" { return std::process::ExitCode::from(2); }
         let mut session = core_process::Sessions::new();
         let active = core_state::sessions(root, &mut session);
@@ -223,6 +232,45 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
     }
     #[cfg(not(windows))] let _ = args;
     std::process::ExitCode::SUCCESS
+}
+
+/// Whether the credential broker of `root` still runs in this Windows
+/// session: its single-instance mutex exists while it lives. The mutex name
+/// hashes the root as the broker resolved it, so every spelling the broker
+/// may have used is probed (as given, as configured, canonical).
+#[cfg(windows)]
+#[nolog]
+fn broker_life(root: &Path) -> Life {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_FILE_NOT_FOUND};
+    use windows_sys::Win32::System::Threading::OpenMutexW;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    let mut spellings: Vec<std::path::PathBuf> = vec![root.to_path_buf()];
+    if let Ok(resolved) = crate::data_location::resolve_from(None, std::env::var_os("APPDATA").as_deref(),
+        std::env::var_os("USERPROFILE").as_deref(), true) {
+        spellings.push(resolved.path);
+    }
+    for p in spellings.clone() {
+        if let Ok(real) = std::fs::canonicalize(&p) {
+            let text = real.to_string_lossy().to_string();
+            spellings.push(real);
+            if let Some(plain) = text.strip_prefix(r"\\?\") { spellings.push(plain.into()); }
+        }
+        let text = p.to_string_lossy().to_string();
+        let trimmed = text.trim_end_matches(['\\', '/']);
+        if trimmed.len() != text.len() { spellings.push(trimmed.into()); }
+    }
+    let mut life = Life::Gone;
+    for p in spellings {
+        let name: Vec<u16> = std::ffi::OsStr::new(&crate::data_location::broker_mutex_name(&p, None)).encode_wide().chain(Some(0)).collect();
+        let h = unsafe { OpenMutexW(SYNCHRONIZE, 0, name.as_ptr()) };
+        if !h.is_null() {
+            unsafe { CloseHandle(h) };
+            return Life::Alive;
+        }
+        if unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND { life = Life::Unknown; }
+    }
+    life
 }
 
 /// What the monitor keeps after a command: the state the command changed

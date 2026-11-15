@@ -482,8 +482,9 @@ pub fn verify_directory_trust(dir: &Path) -> Result<(), String> {
 
 /// Whether an active desktop process is mid-way through copying/switching the
 /// data folder. If the desktop process recorded in the marker has already died
-/// or the marker is older than `MAX_MOVE_MARKER_AGE_MS`, it is treated as stale
-/// so a hard crash never wedges recovery.
+/// or its latest heartbeat (else its start) is older than
+/// `MAX_MOVE_MARKER_AGE_MS`, it is treated as stale so a hard crash never
+/// wedges recovery.
 #[nolog]
 pub fn is_move_in_progress(user_data: &Path) -> bool {
     let marker = user_data.join(MOVE_IN_PROGRESS_FILE);
@@ -510,7 +511,13 @@ pub fn is_move_in_progress(user_data: &Path) -> bool {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
         .and_then(|d| u64::try_from(d.as_millis()).ok());
-    if let (Some(now), Some(started_ms)) = (now_ms, doc.get("startedAtMs").and_then(Value::as_u64))
+    // A move refreshes `heartbeatAtMs` while it runs (a 243 GB copy took over
+    // five hours), so the age counts from the latest heartbeat.
+    let latest_ms = match (doc.get("startedAtMs").and_then(Value::as_u64), doc.get("heartbeatAtMs").and_then(Value::as_u64)) {
+        (Some(s), Some(h)) => Some(s.max(h)),
+        (s, h) => s.or(h),
+    };
+    if let (Some(now), Some(started_ms)) = (now_ms, latest_ms)
     {
         if now.saturating_sub(started_ms) > MAX_MOVE_MARKER_AGE_MS {
             return false;
@@ -675,8 +682,21 @@ pub fn resolve_for_broker() -> Option<PathBuf> {
     )
 }
 
-/// True when an idle, unattached credential broker should exit because a data
-/// move began or `data-location.json` now points at a different folder.
+/// The source folder of the live data move, when one runs.
+#[nolog]
+pub fn moving_source_root(user_data: &Path) -> Option<PathBuf> {
+    if !is_move_in_progress(user_data) {
+        return None;
+    }
+    let doc = read_bounded_json(&user_data.join(MOVE_IN_PROGRESS_FILE)).ok()?;
+    doc.get("sourceRoot").and_then(Value::as_str).filter(|s| !s.is_empty()).map(PathBuf::from)
+}
+
+/// True when a writer of `current_root` (the credential broker, the desktop
+/// recovery watch) must stand down because a data move began or
+/// `data-location.json` now points at a different folder. Under an
+/// `ORGTREE_V2_DATA` override only a live move whose source is this folder
+/// counts: the override never follows `data-location.json`.
 #[nolog]
 pub fn broker_should_exit_from(
     current_root: &Path,
@@ -685,7 +705,9 @@ pub fn broker_should_exit_from(
     userprofile: Option<&OsStr>,
 ) -> bool {
     if env_override.filter(|v| !v.is_empty()).is_some() {
-        return false;
+        return user_data_dir_from(appdata, userprofile)
+            .and_then(|u| moving_source_root(&u))
+            .is_some_and(|src| comparable_path(&src) == comparable_path(current_root));
     }
     match resolve_from(None, appdata, userprofile, true) {
         Ok(resolved) => {
@@ -706,4 +728,21 @@ pub fn broker_should_exit(current_root: &Path) -> bool {
         std::env::var_os("APPDATA").as_deref(),
         std::env::var_os("USERPROFILE").as_deref(),
     )
+}
+
+/// The credential broker's single-instance mutex (`Local\` is per Windows
+/// session): one broker per session and data root, the root compared without
+/// case. A debug rig helper standing for another session has its own. Shared
+/// so `core-control quiesce` can prove the broker of a root has exited.
+#[nolog]
+pub fn broker_mutex_name(root: &Path, rig_session: Option<u32>) -> String {
+    let key = root
+        .to_string_lossy()
+        .to_lowercase()
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+    match rig_session {
+        Some(s) => format!(r"Local\OrgtreeCredentialBroker-{key:016x}-rig{s}"),
+        None => format!(r"Local\OrgtreeCredentialBroker-{key:016x}"),
+    }
 }

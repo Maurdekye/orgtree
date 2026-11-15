@@ -241,9 +241,74 @@ pub fn begin(root: &Path) -> Result<(), Refusal> {
     }
 }
 
+/// The writers of `root` a Data location move must see exit before it scans
+/// the folder: the engine, boot host and sign-in helper stamped in the
+/// snapshot, the desktop recovery watch (`core-recovery-watcher.json`) and the
+/// credential broker (`broker`: whether its per-root mutex still exists).
+/// Each is judged by its stamped identity (PID plus creation time), never by
+/// image name. Read-only: nothing is written into `root`. Returns the members
+/// not proven gone; empty means quiet.
+#[nolog]
+pub fn unquiet_writers(root: &Path, broker: Life) -> Vec<(&'static str, Life)> {
+    let mut out = Vec::new();
+    if let Some(state) = read(root) {
+        for (role, who) in [("engine", Some(&state.engine)), ("host", state.host.as_ref()), ("helper", state.helper.as_ref())] {
+            if let Some(who) = who {
+                let life = core_process::life(who);
+                if life != Life::Gone { out.push((role, life)); }
+            }
+        }
+    }
+    let mut bytes = Vec::new();
+    if let Ok(f) = std::fs::File::open(root.join("core-recovery-watcher.json")) {
+        if f.take(MAX + 1).read_to_end(&mut bytes).is_ok() && bytes.len() as u64 <= MAX {
+            match serde_json::from_slice::<(Identity, Identity)>(&bytes) {
+                Ok((_desktop, watcher)) => {
+                    let life = core_process::life(&watcher);
+                    if life != Life::Gone { out.push(("watcher", life)); }
+                }
+                Err(_) => out.push(("watcher", Life::Unknown)),
+            }
+        } else {
+            out.push(("watcher", Life::Unknown));
+        }
+    }
+    if broker != Life::Gone { out.push(("broker", broker)); }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// R6: a move scans the old folder only once every stamped writer is
+    /// gone. A live member (this test process) or an unreadable watcher record
+    /// keeps it unquiet; gone members, an absent watcher record and an exited
+    /// broker leave it quiet.
+    #[cfg(windows)]
+    #[test]
+    fn a_data_move_waits_for_every_stamped_writer_of_its_folder() {
+        let dir = std::env::temp_dir().join(format!("orgtree-core-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let alive = core_process::identity(std::process::id()).unwrap();
+        let gone = Identity { pid: u32::MAX, created: "0".into() };
+        assert!(unquiet_writers(&dir, Life::Gone).is_empty(), "no journal, no watcher, no broker");
+        let mut state = Snapshot { generation: "d".repeat(32), engine: gone.clone(), host: Some(gone.clone()),
+            desktop: Some(alive.clone()), helper: Some(alive.clone()), sessions: vec![], transition_until: 0,
+            transition_desktop: None, installing: false, completion_requested: false };
+        write(&dir, &state).unwrap();
+        assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("helper", Life::Alive)], "the desktop itself is not waited for");
+        state.helper = Some(gone.clone());
+        write(&dir, &state).unwrap();
+        assert!(unquiet_writers(&dir, Life::Gone).is_empty());
+        assert_eq!(unquiet_writers(&dir, Life::Alive), vec![("broker", Life::Alive)]);
+        std::fs::write(dir.join("core-recovery-watcher.json"), serde_json::to_vec(&(alive.clone(), alive.clone())).unwrap()).unwrap();
+        assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("watcher", Life::Alive)]);
+        std::fs::write(dir.join("core-recovery-watcher.json"), serde_json::to_vec(&(alive, gone)).unwrap()).unwrap();
+        assert!(unquiet_writers(&dir, Life::Gone).is_empty());
+        std::fs::write(dir.join("core-recovery-watcher.json"), b"not json").unwrap();
+        assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("watcher", Life::Unknown)], "unreadable is never quiet");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn old_observer_cannot_stop_new_generation() {
         let dir = std::env::temp_dir().join(format!("orgtree-core-{}", uuid::Uuid::new_v4()));
