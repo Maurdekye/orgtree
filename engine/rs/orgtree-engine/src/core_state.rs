@@ -309,6 +309,28 @@ mod tests {
         assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("watcher", Life::Unknown)], "unreadable is never quiet");
         std::fs::remove_dir_all(dir).unwrap();
     }
+    /// R6-R1 (@idle-limit-sol review of 32249b2): a lifecycle journal that is
+    /// there but unreadable, or a watcher record another process holds open
+    /// without sharing, is never taken for an absent writer.
+    #[cfg(windows)]
+    #[test]
+    fn an_unreadable_writer_record_is_never_quiet() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("orgtree-core-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILE), b"not json").unwrap();
+        assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("snapshot", Life::Unknown)], "invalid journal");
+        std::fs::remove_file(dir.join(FILE)).unwrap();
+        let alive = core_process::identity(std::process::id()).unwrap();
+        let record = dir.join("core-recovery-watcher.json");
+        std::fs::write(&record, serde_json::to_vec(&(alive.clone(), alive)).unwrap()).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&record).unwrap();
+        assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("watcher", Life::Unknown)], "record held without sharing");
+        drop(held);
+        assert_eq!(unquiet_writers(&dir, Life::Gone), vec![("watcher", Life::Alive)]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn old_observer_cannot_stop_new_generation() {
         let dir = std::env::temp_dir().join(format!("orgtree-core-{}", uuid::Uuid::new_v4()));
