@@ -808,15 +808,15 @@ test('Move dialog shows a step meter (label, done / total, progressbar) while th
   const mock = installDesktopBridge(
     t,
     {
-      currentRoot: 'C:\Users\operator\AppData\Roaming\Orgtree v2\data',
-      defaultRoot: 'C:\Users\operator\AppData\Roaming\Orgtree v2\data',
+      currentRoot: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
+      defaultRoot: 'C:\\Users\\operator\\AppData\\Roaming\\Orgtree v2\\data',
       isCustom: false, envOverride: false, previousRoot: null, movedAt: null,
       currentBytes: 1024 ** 3, previousBytes: null, moving: false,
     },
     {
-      choose: async () => 'S:\',
+      choose: async () => 'S:\\',
       preflight: async picked => ({
-        ok: true, pickedPath: picked, resolvedRoot: 'S:\Orgtree data', usedSubfolder: false,
+        ok: true, pickedPath: picked, resolvedRoot: 'S:\\Orgtree data', usedSubfolder: false,
         sourceBytes: 1024 ** 3, freeBytes: 120 * 1024 ** 3, activeAgents: 0,
       }),
       move: () => new Promise(() => {}),
