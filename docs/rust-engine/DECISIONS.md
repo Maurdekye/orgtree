@@ -2663,10 +2663,14 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       at c60da5a): the catch-up ends only on an EMPTY take made after the last copy and after strict
       verification (3 passes + at most 2 drain rounds); each catch-up copy goes to a temporary file and
       replaces the target only when the source's size and mtime were the same before and after the read and
-      every byte was read (up to 3 reads), so a torn, empty or short read never replaces an earlier good copy.
-      A file that never holds still is "could not be settled": its last complete copy (or the bulk copy) is
-      kept, and the old folder is NEVER deleted then, even with the delete box ticked; the result screen and
-      the move log give each original's path in it (`unsettledDuringMove`). A folder below a changed folder
-      that became a file is replaced too. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
+      every byte was read (up to 10 reads, 200 ms apart), so a torn, empty or short read is never written: an
+      earlier good copy (or the bulk copy) stays, and a new file without a complete read is not created. Such
+      a file is "could not be settled", and the old folder is NEVER deleted then, even with the delete box
+      ticked; the result screen and the move log give each original's path in it (`unsettledDuringMove`). A
+      folder below a changed folder that became a file is replaced too. Never silent (@coordinator-opus
+      m18c648fd4c71, final for this item: a file written without pause can always race a finite check): after
+      the bounded rounds one last take runs with nothing between it and the result; whatever it holds is
+      copied and named, as is what the last bounded round applied, and the old folder is then kept
+      (`oldFolderKeptBecauseChanging`). The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
       `installer-upgrade.ps1`). In boot topology the `Orgtree Credential Helper` task is started after the new
       engine verified and after rollback. `coreLifecycle.transition(true)` stays (never `cancelRecovery`).
