@@ -66,7 +66,7 @@ import type { CopyableMailRow } from './copytext'
 import { firstUseSent } from './firstuse'
 import { FastModeButton } from './fastmodebutton'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
-import { readAttachments, storeAttachments } from '../draftstore'
+import { readAttachments, storeAttachments, setSharedDraftPart, sharedDraftPart, subscribeDraftPart } from '../draftstore'
 import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
 import { useHistoryNav } from '../composerhistorynav'
 import type { HistoryEntry } from '../composerhistory'
@@ -1780,6 +1780,21 @@ const eventKey = (id: unknown): string | undefined =>
 const toolKey = (id: unknown): string | undefined =>
   typeof id === 'string' && id ? `tool:${id}` : undefined
 
+/** One part of an agent's unsent draft, shared by every open view of its desk
+ *  (draftstore.ts). `keys` must be stable per draft identity (memoize it). */
+function useSharedDraft<T>(keys: readonly string[], read: () => T, write: (value: T) => void):
+[T, (next: T | ((previous: T) => T)) => void] {
+  const io = useRef({ read, write }); io.current = { read, write }
+  const subscribe = useCallback((fn: () => void) => subscribeDraftPart(keys[0], fn), [keys])
+  const value = useSyncExternalStore(subscribe, () => sharedDraftPart(keys, () => io.current.read()))
+  const set = useCallback((next: T | ((previous: T) => T)) => {
+    const current = sharedDraftPart(keys, () => io.current.read())
+    const value = typeof next === 'function' ? (next as (previous: T) => T)(current) : next
+    setSharedDraftPart(keys, value, (v) => io.current.write(v))
+  }, [keys])
+  return [value, set]
+}
+
 export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
@@ -2235,25 +2250,28 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // №2: the draft survives the camera — persisted per node on every keystroke
   // (clicking a sibling card unmounts this whole component)
   const draftKey = `orgtree-draft-v2-${JSON.stringify([slug, node.id, node.generation])}`
-  const [text, setTextRaw] = useState(() => {
-    // A compaction keeps what was in the box: bring the previous generation's
-    // unsent text (and attachments) under this generation's key before
-    // reading it. See carryDraftForward.
-    carryDraftForward(slug, node.id, node.generation)
-    try { return localStorage.getItem(draftKey) || '' } catch { return '' }
-  })
-  const setText = useCallback((v: string | ((prev: string) => string)) => setTextRaw((prev) => {
-    const next = typeof v === 'function' ? v(prev) : v
-    try {
-      if (next) { localStorage.setItem(draftKey, next); noteDraftSave() }
-      else localStorage.removeItem(draftKey)
-    } catch { /* private mode */ }
-    return next
-  }), [draftKey])
+  // A compaction keeps what was in the box: bring the previous generation's
+  // unsent text (and attachments) under this generation's key before the
+  // first read. See carryDraftForward.
+  useState(() => { carryDraftForward(slug, node.id, node.generation); return 0 })
+  // ONE DRAFT PER AGENT, SHARED BY EVERY PLACE ITS DESK IS OPEN (USER
+  // 2026-11-15 mbf1f1ca2cfe9; design-461 question 1, provisional default
+  // SHARED_DRAFT): typing in the pinned desk shows in the canvas card and the
+  // Attention desk at once, and a send from any of them clears all of them.
+  const [text, setText] = useSharedDraft<string>(useMemo(() => [draftKey], [draftKey]),
+    () => { try { return localStorage.getItem(draftKey) || '' } catch { return '' } },
+    (next) => {
+      try {
+        if (next) { localStorage.setItem(draftKey, next); noteDraftSave() }
+        else localStorage.removeItem(draftKey)
+      } catch { /* private mode */ }
+    })
   const composerIdentity=useRef(draftKey);composerIdentity.current=draftKey
-  const [replyTargets, setReplyTargetsRaw] = useState<ReplyContext[]>(() => readReplies(draftKey))
+  const [replyTargets, setReplyTargetsShared] = useSharedDraft<ReplyContext[]>(
+    useMemo(() => [`${draftKey}-replies`, `${draftKey}-reply`], [draftKey]),
+    () => readReplies(draftKey), (next) => storeReplies(draftKey, next))
   const reply = replyTargets[0] ?? null
-  const setReplyTargets = (next: ReplyContext[]) => { setReplyTargetsRaw(next); storeReplies(draftKey, next) }
+  const setReplyTargets = (next: ReplyContext[]) => setReplyTargetsShared(next)
   const setReply = (next: ReplyContext | null) => setReplyTargets(next ? [next] : [])
   /** SENT-MESSAGE HISTORY - Up and Down walk what you have sent to THIS agent,
    *  the way PowerShell and bash do (user request 2026-09-18). Kept per agent
@@ -3665,14 +3683,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // focus moves. Tracked rather than read from `document.activeElement` so the
   // render stays a pure function of state.
   const [composerFocused, setComposerFocused] = useState(false)
-  const [attached, setAttachedRaw] = useState(() => readAttachments(draftKey))
-  const setAttached = useCallback((next: { name: string; path: string; bytes: number }[] | ((previous: { name: string; path: string; bytes: number }[]) => { name: string; path: string; bytes: number }[])) => {
-    setAttachedRaw((previous) => {
-      const value = typeof next === 'function' ? next(previous) : next
-      storeAttachments(draftKey, value)
-      return value
-    })
-  }, [draftKey])
+  const [attached, setAttached] = useSharedDraft<{ name: string; path: string; bytes: number }[]>(
+    useMemo(() => [`${draftKey}-attachments`], [draftKey]),
+    () => readAttachments(draftKey), (value) => storeAttachments(draftKey, value))
   const selectionRecovery=useRef({text,replies:replyTargets,attached});selectionRecovery.current={text,replies:replyTargets,attached}
   const uploadIdentity = useRef({ draftKey, staleIdentity }); uploadIdentity.current = { draftKey, staleIdentity }
   const attach = (file: File) => {
