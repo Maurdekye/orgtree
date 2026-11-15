@@ -9010,6 +9010,8 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
   cursor: pointer; font-size: 18px; line-height: 1; flex: none;
 }
 .popout-button:hover, .settings .popout-button:hover { color: var(--ink-strong); background: none; }
+/* a desk window's attention toggle, pressed in an attention-desk window: the accent, as other header toggles */
+.popout-button[aria-pressed="true"] { color: var(--agent-accent-text, var(--accent)); }
 .popout-placeholder, .popout-error, .popout-restart, .popout-dependency {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   background: var(--bg, #171717); color: var(--ink); font-size: 12px;

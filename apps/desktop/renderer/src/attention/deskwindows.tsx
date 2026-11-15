@@ -8,24 +8,24 @@
 // A desk window's "Make attention desk" (desk header) turns it into one of these: a native window drawing the
 // Attention view's own agent desk (`AgentDeskPanel`: the agents drawer and the desk), so it looks and works the same,
 // with a SELECTION OF ITS OWN. Switching its agent never moves the main Attention desk (`layout.agent`). Any number
-// can be open, several on one agent too: every place shows the live desk (deskhosts.tsx). "Make plain desk" in its
-// bar turns it back into a plain desk window on the agent it shows.
+// can be open, several on one agent too: every place shows the live desk (deskhosts.tsx). The convert control is
+// ONE header icon beside the pin and pop-out buttons, a toggle (USER 2026-11-15 m4492aff12953 "make it an icon next
+// to the pin / pop buttons"): "Make attention desk" on a plain desk window, pressed "Make plain desk" here.
 //
 // Remembered per organization with its agent (localStorage `orgtree-attention-desk-windows`), and its window
 // geometry is the ordinary saved row of its `MovableSurface`: at the next start a window that was open comes back
 // as an attention desk on the same agent (design-461 question 6, provisional), or the default agent if that one is
-// gone. Provisional defaults for design-461 questions 4-7 are the seams below.
+// gone. The user approved design-461 questions 5-7 as recommended (m4492aff12953).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { MovableSurface, useSurface } from '../popout'
-import { FocusIcon } from '../icons'
 import { restoredWindows, useRestoreWindows, windowExitStarted } from '../windowlayout'
-import { useDeskActionsNow } from '../canvas/deskhosts'
+import { AttentionWindowContext, useDeskActionsNow } from '../canvas/deskhosts'
 import { USER } from '../canvas/shared'
 import { AgentDeskPanel } from './AgentDeskPanel'
 import type { AgentDeskPanelProps } from './AgentDeskPanel'
 
-/** An agent link inside an attention-desk window switches THAT window's agent (design-461 question 5, provisional);
- *  false sends it to the canvas, as the canvas's own desks do. */
+/** An agent link inside an attention-desk window switches THAT window's agent (design-461 question 5, approved
+ *  m4492aff12953); false sends it to the canvas, as the canvas's own desks do. */
 export const WINDOW_LINKS_STAY_IN_WINDOW = true
 
 export interface AttentionDeskWindow { id: string; agent: string | null }
@@ -97,7 +97,7 @@ export function windowFrame(w: Window | null | undefined): Box | null {
     w: w.innerWidth || w.outerWidth, h: w.innerHeight || w.outerHeight }
 }
 
-type PanelProps = Omit<AgentDeskPanelProps, 'eligible' | 'claim' | 'attentionDraft' | 'selection' | 'barExtras'>
+type PanelProps = Omit<AgentDeskPanelProps, 'eligible' | 'claim' | 'attentionDraft' | 'selection'>
 
 /** every attention-desk window of this organization (rendered inside its `DeskHosts`, beside the canvas) */
 export function AttentionDeskWindows(props: PanelProps) {
@@ -151,8 +151,7 @@ function AttentionDeskWindowBody({ win, panel }: { win: AttentionDeskWindow; pan
   const jump = panel.deskExtras?.onJump
   const onJump = (id: string) => { if (id !== USER && panel.map.has(id)) select(id); else jump?.(id) }
   const deskExtras = WINDOW_LINKS_STAY_IN_WINDOW ? { ...panel.deskExtras, onJump } : panel.deskExtras
-  return <AgentDeskPanel {...panel} deskExtras={deskExtras} selection={selection}
-    barExtras={<button type="button" className="iconbtn attn-plain-desk" aria-label="Make plain desk"
-      title="make this a plain desk window on this agent" onClick={makePlain}>
-      <FocusIcon fontSize="inherit" /></button>} />
+  return <AttentionWindowContext.Provider value={{ makePlain }}>
+    <AgentDeskPanel {...panel} deskExtras={deskExtras} selection={selection} />
+  </AttentionWindowContext.Provider>
 }

@@ -289,6 +289,9 @@ export interface DeskViewControl {
   toAttention: () => void
 }
 export const DeskViewContext = createContext<DeskViewControl | null>(null)
+/** This desk is the one in an ATTENTION-DESK WINDOW (attention/deskwindows.tsx): its header's attention toggle is
+ *  pressed, and pressing it makes the window a plain desk again. */
+export const AttentionWindowContext = createContext<{ makePlain: () => void } | null>(null)
 
 /**
  * A notice standing where a desk would be, before the organization's tree has loaded.

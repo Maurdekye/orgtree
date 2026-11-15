@@ -102,8 +102,6 @@ export interface AgentDeskPanelProps {
    *  how that changes. Absent, the panel is the organization's main Attention desk and its selection is the
    *  view's (`layout.agent`), as it always was. */
   selection?: { agent: string | null; select: (id: string) => void }
-  /** controls at the end of the drawer's bar: an attention-desk window's Make plain desk */
-  barExtras?: ReactNode
 }
 
 type ListRow = TrayRow
@@ -156,7 +154,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
-  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft, projectDesk, selection, barExtras,
+  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft, projectDesk, selection,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -301,7 +299,6 @@ export function AgentDeskPanel({
           }}>
           {open ? <ChevronLeftIcon fontSize="inherit" /> : <ViewListIcon fontSize="inherit" />}
         </button>
-        {barExtras}
       </div>
       {/* the scrim: darkens the desk while the drawer is out, and a click on it
           closes the drawer. Always rendered so the dimming can fade. */}

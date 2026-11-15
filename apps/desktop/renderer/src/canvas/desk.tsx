@@ -70,7 +70,7 @@ import { readAttachments, storeAttachments, setSharedDraftPart, sharedDraftPart,
 import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
 import { useHistoryNav } from '../composerhistorynav'
 import type { HistoryEntry } from '../composerhistory'
-import { DeskSlot, DeskViewContext } from './deskhosts'
+import { AttentionWindowContext, DeskSlot, DeskViewContext } from './deskhosts'
 import { placeScrollKey, recallPlaceScroll, rememberPlaceScroll } from './deskscroll'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
@@ -2216,6 +2216,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const surface = useSurface()
   // this place's own pop-out (deskhosts.tsx DeskView): a desk inside a pin or a popped-out panel pops out ITSELF
   const deskView = useContext(DeskViewContext)
+  const attentionWindow = useContext(AttentionWindowContext)
   const surfaceDocument = useSurfaceDocument()
   const historyVisible = eligible || !!surface?.detached
   const historyStart = useRef<() => void>(() => {})
@@ -4064,10 +4065,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           && (v !== 'files' || deskFilesVisible(view,readerAvailability))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
-          {deskView?.inWindow && <button type="button" className="popout-button" aria-label="Make attention desk"
-            title="Make attention desk: add the agents list, to switch the agent this window shows"
+          {/* the ATTENTION TOGGLE of a desk in a window of its own (USER 2026-11-15 m4492aff12953: an icon next to
+              the pin and pop-out buttons): a plain desk window becomes an attention desk, and pressed, an attention
+              desk window becomes a plain desk again (attention/deskwindows.tsx) */}
+          {(deskView?.inWindow || attentionWindow) && <button type="button" className="popout-button"
+            aria-pressed={!!attentionWindow}
+            aria-label={attentionWindow ? 'Make plain desk' : 'Make attention desk'}
+            title={attentionWindow ? 'Make plain desk' : 'Make attention desk'}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); deskView.toAttention() }}>
+            onClick={(e) => { e.stopPropagation(); if (attentionWindow) attentionWindow.makePlain(); else deskView?.toAttention() }}>
             <ViewListIcon fontSize="inherit" /></button>}
           {deskView
             ? !(hidePopout && !deskView.inWindow) && <DeskPopoutButton control={deskView} />
