@@ -75,8 +75,8 @@ test('best effort: no data root yet, or an unwritable one, never throws', () => 
 
 test('main/index.ts logs every main window and each Orgtree cause before it acts', () => {
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
-  assert.match(main, /const windowEvents = new WindowEventLog\(\(\) =>\s*engineRestartOptions\?\.dataRoot \? path\.join\(engineRestartOptions\.dataRoot, WINDOW_EVENTS_LOG\) : undefined\)/,
-    'the log lives in the engine data root\'s diagnostics folder')
+  assert.match(main, /const windowEvents = new WindowEventLog\(\(\) =>\s*engineRestartOptions\?\.dataRoot && !dataMoveInFlight \? path\.join\(engineRestartOptions\.dataRoot, WINDOW_EVENTS_LOG\) : undefined\)/,
+    'the log lives in the engine data root\'s diagnostics folder, and pauses while a Data location move copies it')
   assert.match(main, /const windowFacts = \(id: string\) => \{ const entry = windows\.get\(id\); return entry && \{ kind: entry\.kind, org: entry\.org \} \}/,
     'facts come from windows.get, which does not reconcile notification ownership')
   assert.match(main, /records\.set\(id, record\)\s*if \(registerNow\) windows\.register\([^\n]*\)\s*watchWindowEvents\(window, id, \(\) => windowFacts\(id\), windowEvents\)/,
