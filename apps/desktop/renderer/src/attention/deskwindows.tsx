@@ -14,7 +14,7 @@
 //
 // Remembered per organization with its agent (localStorage `orgtree-attention-desk-windows`), and its window
 // geometry is the ordinary saved row of its `MovableSurface`: at the next start a window that was open comes back
-// as an attention desk on the same agent (design-461 question 6, provisional), or the default agent if that one is
+// as an attention desk on the same agent (design-461 question 6, approved m4492aff12953), or the default agent if that one is
 // gone. The user approved design-461 questions 5-7 as recommended (m4492aff12953).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { MovableSurface, useSurface } from '../popout'

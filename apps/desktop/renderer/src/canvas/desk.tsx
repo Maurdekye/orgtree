@@ -1888,7 +1888,7 @@ export interface DeskChatProps {
    *  desk. */
   openIn?: 'pin' | 'attention' | 'card'
   /** THIS PLACE GOES WITH THE DESK INTO ITS WINDOW: popping the desk out of it
-   *  closes the place (a desk pin, design-461 question 2, provisional; the
+   *  closes the place (a desk pin, design-461 question 2, approved m4492aff12953; the
    *  places that always show their agent's desk, a card and the Attention desk,
    *  pass none and keep it). */
   onPoppedOut?: () => void
@@ -2276,7 +2276,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // first read. See carryDraftForward.
   useState(() => { carryDraftForward(slug, node.id, node.generation); return 0 })
   // ONE DRAFT PER AGENT, SHARED BY EVERY PLACE ITS DESK IS OPEN (USER
-  // 2026-11-15 mbf1f1ca2cfe9; design-461 question 1, provisional default
+  // 2026-11-15 mbf1f1ca2cfe9; design-461 question 1, approved m4492aff12953
   // SHARED_DRAFT): typing in the pinned desk shows in the canvas card and the
   // Attention desk at once, and a send from any of them clears all of them.
   const [text, setText] = useSharedDraft<string>(useMemo(() => [draftKey], [draftKey]),

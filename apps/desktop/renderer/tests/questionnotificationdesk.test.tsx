@@ -258,7 +258,7 @@ test('Attention agent desk: in the Attention view and pinned on the canvas, the 
 })
 
 // 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9): both places show the live desk, so the notification brings forward the one
-// USED LAST (design-461 question 3, provisional): the one opened most recently, until another is pressed.
+// USED LAST (design-461 question 3, approved m4492aff12953): the one opened most recently, until another is pressed.
 test('open in two placements: both show the live desk, and the one used last wins', async (t) => {
   const { el, click } = await setup(t, 'canvas', 'asker')
   await inAct(async () => {

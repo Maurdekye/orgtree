@@ -147,7 +147,7 @@ const orgDesks = new Map<string, Desks>()
  * inbox when clicking a desktop notification for it"; 19:00Z m41e0735bee13: "a desk on a zoomed canvas card should
  * count"; 19:10Z m1a947c081d09: the switchboard's panels count too ("Count the switchboard").
  *
- * OPEN IN MORE THAN ONE PLACE, THE MOST RECENTLY USED ONE WINS (design-461 question 3, provisional default): the
+ * OPEN IN MORE THAN ONE PLACE, THE MOST RECENTLY USED ONE WINS (design-461 question 3, approved m4492aff12953): the
  * one last pressed or focused. A desk window counts as used when it is open. With no use recorded, the old order
  * stands: a desk pin, else the Attention desk, else the card. Every place shows the live desk now, so nothing moves.
  *

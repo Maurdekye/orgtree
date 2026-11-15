@@ -145,7 +145,7 @@ export const PIN_Z_TOP = 16
 export const zIndexOf = (z: number): number =>
   Math.min(PIN_Z_TOP, PIN_Z_BASE + Math.max(0, z))
 /** Popping a pinned desk out MOVES the pin into the desk window: the pin closes (design-461 question 2,
- *  provisional default; false keeps the pin as well, since every place shows the live desk). */
+ *  approved m4492aff12953; false keeps the pin as well, since every place shows the live desk). */
 export const POP_OUT_MOVES_PIN = true
 /** how long the minimise ghost flies on unpin (CSS transition, ms) */
 export const PIN_GHOST_MS = 220
