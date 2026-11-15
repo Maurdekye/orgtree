@@ -2734,6 +2734,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const scrollPlace = deskView ? placeScrollKey(deskView.place, slug, node.id, node.generation) : null
   const rememberedScroll = useRef(scrollPlace ? recallPlaceScroll(scrollPlace) : undefined)
   const stickRef = useRef(rememberedScroll.current ? rememberedScroll.current.stuck : true)
+  /** this desk resumes a reader who was reading history here: its first payload must not land it at the bottom */
+  const resumesPlace = useRef(!!rememberedScroll.current && !rememberedScroll.current.stuck)
   const followTop = useRef<number | null>(null)
   const scrollIntent = useRef<{ direction: -1 | 1, until: number } | null>(null)
   const scrollbarPointer = useRef<number | null>(null)
@@ -3582,7 +3584,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // store fetched it for us or another view had already loaded it
     if (convo.loaded && !loadedRef.current) {
       loadedRef.current = true
-      if (!mentionHighlight && !pendingReplyJump) setStuck(true)
+      if (!mentionHighlight && !pendingReplyJump && !resumesPlace.current) setStuck(true)
     }
   }, [convo.loaded])   // eslint-disable-line react-hooks/exhaustive-deps
   // (the busy-gated poller that lived here is gone. Liveness is now driven by
