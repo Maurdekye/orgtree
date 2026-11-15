@@ -2551,3 +2551,47 @@ test('R7 review delta: late writes are never silent, and a file with no complete
   const settingsSrc = fs.readFileSync(path.resolve('apps/desktop/renderer/src/canvas/desktopsettings.tsx'), 'utf8')
   assert.match(settingsSrc, /oldFolderKeptBecauseChanging/)
 })
+
+// R8 (USER 2026-11-15 23:00:44Z m2cf493ed8f8c "Remove check, then release (Rec.)", after 21:58Z
+// "maybe just skip it entirely" and "if files change during tbe move, then theyre just moved in an
+// ineeterminate state"): the alpha.7 move spent about 47 min in post-copy change checks for one
+// file. There is no post-copy pass now: each file is copied as it is when read, the move completes
+// while a file keeps changing, and "Delete old folder" deletes it.
+test('R8: a move completes with no post-copy pass while a file keeps changing, and deletes the old folder when asked', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const okTrust = async () => ({ ok: true, detail: 'trusted' })
+  const { dir, userData, defaultData, forbidden } = makeSandbox()
+  for (let i = 0; i < 40; i++) fs.writeFileSync(path.join(defaultData, `steady-${i}.txt`), `steady ${i}\n`)
+  const stats = path.join(defaultData, 'scratch', 'orgtree', 'stream-manager', 'stats.json')
+  fs.mkdirSync(path.dirname(stats), { recursive: true })
+  let n = 0
+  fs.writeFileSync(stats, JSON.stringify({ n }))
+  const timer = setInterval(() => { n += 1; try { fs.writeFileSync(stats, JSON.stringify({ n })) } catch { /* folder deleted */ } }, 20)
+  const target = path.join(dir, 'R8Target')
+  const phases = new Set()
+  let res
+  try {
+    res = await datalocation.executeDataLocationMove({
+      options: { targetPath: target, deletePrevious: true },
+      currentRoot: defaultData,
+      userData,
+      forbiddenRoot: forbidden,
+      trustCheck: okTrust,
+      onProgress: p => { phases.add(p.phase); if (p.stepLabel) phases.add(`step:${p.stepLabel}`) },
+      stopOldEngine: async () => true,
+      startAndVerifyNewEngine: async () => {},
+      restartOldEngineOnRollback: async () => { throw new Error('must not roll back') },
+    })
+  } finally {
+    clearInterval(timer)
+  }
+  assert.equal(res.ok, true, `the move completes although stats.json kept changing: ${res.error ?? ''}`)
+  assert.equal(fs.readFileSync(path.join(target, 'steady-7.txt'), 'utf8'), 'steady 7\n')
+  assert.ok(fs.existsSync(path.join(target, 'scratch', 'orgtree', 'stream-manager', 'stats.json')))
+  assert.equal(phases.has('verifying'), false, `no post-copy check: ${[...phases].join(', ')}`)
+  const log = fs.readFileSync(path.join(userData, 'data-location-move.log'), 'utf8')
+  assert.doesNotMatch(log, /recopied changed files|changed during the move|could not be settled|old folder kept/)
+  assert.equal(fs.existsSync(defaultData), false, 'Delete old folder deletes it although a file kept changing')
+  assert.equal(datalocation.readDataLocationMoveReport(userData), null, 'nothing to report')
+})
