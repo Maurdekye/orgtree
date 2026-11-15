@@ -2646,7 +2646,19 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       or `data-location.json` names another one, attached or not and whatever the 180 s transition says. Main
       writes no window/stall/core-control diagnostics into the folder during a move. After the bulk copy the
       quiesced source is re-walked: changed or new files are recopied and vanished ones removed (at most 3
-      passes, then the move fails), recopies are logged, and every file is verified strictly with no log
-      exemption. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
+      passes), recopies are logged, and every file is verified strictly with no log exemption.
+    - **Files that keep changing never roll a move back (R7, USER 2026-11-15 15:04:06Z m15f87ac2b667 "how
+      about you dont revert the ENTIRE DAMN 5 HOUR MOVE if ONE FILE CHANGES", after the 4.6.0-alpha.6 move
+      rolled back after 5 h over `stream-manager/stats.json`, rewritten every 30 s by a program outside
+      Orgtree's writer list):** a recursive `fs.watch` of the old folder starts before the first scan, and each
+      catch-up pass only lstats the paths it reported (a folder that appeared is scanned); an event without a
+      file name (dropped events) or an unusable watch falls back to one full rescan. The third pass is the
+      final copy: each file still changing gets its latest bytes, is verified against exactly those bytes, and
+      is named in the move log and the result report (`changedDuringMove`, "changed during the move; latest
+      version copied"); the move completes. Rollback stays for real failures: an unwritable or full target, a
+      copy error, or an unchanged file whose copy fails verification. Before the bulk copy, once the writers
+      are quiet, a 12 s watch (`DATA_MOVE_CHANGE_WATCH_MS`) lists files still changing in a "Continue anyway" /
+      Cancel dialog (Cancel copies nothing); no foreign process is looked for or stopped. Post-copy steps
+      report `stepLabel`/`stepDone`/`stepTotal` for the step meter. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
       `installer-upgrade.ps1`). In boot topology the `Orgtree Credential Helper` task is started after the new
       engine verified and after rollback. `coreLifecycle.transition(true)` stays (never `cancelRecovery`).
