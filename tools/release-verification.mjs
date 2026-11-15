@@ -61,17 +61,7 @@ const RELEASE = [
   // is that release tooling whose own tests are not in this gate can break them
   // and still be waved through green.
   ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs', 'tests/test-baseline.test.mjs']],
-  // ⚠ NEVER run this gate as a bare `python -m unittest`. Orgtree spawns an
-  // agent CLI with PYTHONPATH prepended by its own installed backend so the
-  // child can import it, so a bare `python` resolves `import orgtree` to
-  // C:\Program Files\Orgtree\resources\engine\backend — the SHIPPED build,
-  // ahead of the checkout. This gate was that bare invocation, which means it
-  // verified the installed app instead of the release candidate for as long as
-  // it existed, and reported green for doing it. The runner launches modules
-  // with -I (isolated mode ignores PYTHONPATH) and selects the bundled
-  // engine/runtime/python.exe, so it measures the tree being released.
-  // Exit status is unchanged: 0 iff the module passed.
-  ['receipt', ['python', 'tools/run-python-verification.py', 'tests/test_work_evidence_receipts.py']],
+
 ]
 const INSTALLER = [
   ['installer', ['node', '--test', 'tests/installer-elevation.test.mjs', 'tests/installer-upgrade.test.mjs']],

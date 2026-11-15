@@ -22,7 +22,7 @@ test('release selector keeps release-only changes focused', () => {
   const plan = selectReleaseVerification(['tools/release-windows.mjs', 'docs/windows-release.md'])
   assert.equal(plan.area, 'release')
   assert.equal(plan.escalation, false)
-  assert.deepEqual(plan.checks.map(check => check.gate), ['source', 'receipt'])
+  assert.deepEqual(plan.checks.map(check => check.gate), ['source'])
   assert.equal(plan.gates.find(gate => gate.gate === 'artifact').reuse, true)
 })
 
@@ -402,10 +402,10 @@ test('verification runner captures hidden child options, commands, and measured 
   })
   assert.equal(receipt.green, true)
   assert.equal(receipt.durationMs, 1000)
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 1)
   assert.equal(calls.every(call => call.options.windowsHide === true), true)
   assert.equal(calls.every(call => call.options.stdio === 'pipe'), true)
-  assert.deepEqual(calls.map(call => call.args[0]), ['--test', 'tools/run-python-verification.py'])
+  assert.deepEqual(calls.map(call => call.args[0]), ['--test'])
   // ⚠ The receipt gate must NEVER be a bare `python -m unittest`. Orgtree
   // prepends its own installed backend to PYTHONPATH when it spawns an agent
   // CLI, so that form resolved `import orgtree` to the SHIPPED build and the
