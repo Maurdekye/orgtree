@@ -2637,3 +2637,16 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       location / Quit instead of creating an empty database; installer scripts and `host.rs` refuse while
       `.data-move-in-progress.json` names a live PID. Contract:
       [app-runtime-desktop](../skills/orgtree-app/app-settings/app-runtime-desktop/SKILL.md#data-location).
+    - **Writer quiescence (R6, after the 4.6.0-alpha.5 243 GB move failed verification on
+      `credential-broker.log` +222 B):** the move writes its marker, stops the engine, then waits up to 60 s for
+      the read-only `orgtree-engine core-control quiesce <oldRoot>` to report every other writer gone (engine,
+      boot host, sign-in helper and desktop recovery watch by stamped PID + creation time, the credential broker
+      by its per-root `Local\` mutex; never by image name) and rolls back untouched otherwise. The broker leaves
+      and the recovery watch stands down (no line, no `--core-recovered` relaunch) whenever their folder is moving
+      or `data-location.json` names another one, attached or not and whatever the 180 s transition says. Main
+      writes no window/stall/core-control diagnostics into the folder during a move. After the bulk copy the
+      quiesced source is re-walked: changed or new files are recopied and vanished ones removed (at most 3
+      passes, then the move fails), recopies are logged, and every file is verified strictly with no log
+      exemption. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
+      `installer-upgrade.ps1`). In boot topology the `Orgtree Credential Helper` task is started after the new
+      engine verified and after rollback. `coreLifecycle.transition(true)` stays (never `cancelRecovery`).
