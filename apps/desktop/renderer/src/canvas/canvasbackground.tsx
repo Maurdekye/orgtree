@@ -216,6 +216,38 @@ const MAX_RETRY_MS = 8000
 const LATE_RAF_MS = 100
 const RECOVERY_GOOD_FRAMES = 30
 
+/** <html>'s inline style without the rainbow theme's per-frame variables. */
+function rootStyleKey(doc: Document): string {
+  const style = doc.documentElement.style
+  let key = ''
+  for (let i = 0; i < style.length; i++) {
+    const prop = style.item(i)
+    if (!prop.startsWith('--rainbow-')) key += `${prop}:${style.getPropertyValue(prop)};`
+  }
+  return key
+}
+
+/** Call `schedule` when a change on <html> could move the layer's ink or glow:
+ *  the visual theme, a root class, or a root style other than the rainbow's.
+ *
+ *  ⚠ THE RAINBOW THEME WRITES `--rainbow-accent` ON <html> ABOUT 30 TIMES A
+ *  SECOND (rainbow.ts), and each answer here is getComputedStyle(host), a
+ *  forced full-document style recalc. The ink is `color: var(--dim)` and the
+ *  glow follows the colour scheme; the rainbow sets neither, so those frames
+ *  are skipped (canvasbgrainbow.test.tsx). Returns the disconnect. */
+export function watchRootColours(doc: Document, schedule: () => void): () => void {
+  let last = rootStyleKey(doc)
+  const mo = new (doc.defaultView ?? window).MutationObserver((records) => {
+    const key = rootStyleKey(doc)
+    const styleOnly = records.every(r => r.attributeName === 'style')
+    const changed = key !== last
+    last = key
+    if (!styleOnly || changed) schedule()
+  })
+  mo.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-visual-theme', 'style', 'class'] })
+  return () => mo.disconnect()
+}
+
 export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   view: View
   viewRef: { current: View }
@@ -300,7 +332,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     let resizeTimer = 0
     let firstResize = true
     let ro: ResizeObserver | null = null
-    let mo: MutationObserver | null = null
+    let stopRootWatch: (() => void) | null = null
     const parent = host.parentElement
 
     const touchNow = (): number => {
@@ -698,8 +730,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       applyColours()
       ro = new win.ResizeObserver(onResize)
       try { ro.observe(host, { box: 'device-pixel-content-box' }) } catch { ro.observe(host) }
-      mo = new win.MutationObserver(scheduleColours)
-      mo.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-visual-theme', 'style', 'class'] })
+      stopRootWatch = watchRootColours(doc, scheduleColours)
       win.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', scheduleColours)
       doc.addEventListener('visibilitychange', onVisibleReturn)
       win.addEventListener('focus', onVisibleReturn)
@@ -769,7 +800,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       win.clearTimeout(retryTimer)
       win.clearTimeout(resizeTimer)
       ro?.disconnect()
-      mo?.disconnect()
+      stopRootWatch?.()
       doc.removeEventListener('visibilitychange', onVisibleReturn)
       win.removeEventListener('focus', onVisibleReturn)
       if (parent) {
