@@ -2052,6 +2052,7 @@ export async function copyDataRootWithVerify(
   // Catch-up: the writers are stopped, but a file measured before a last write landed (the
   // alpha.5 failure: credential-broker.log grew by 222 bytes) is copied again, never waived.
   const recopiedPaths = new Set<string>()
+  const vanished = new Map<string, string>()
   let settled = false
   for (let pass = 1; pass <= MAX_RECOPY_PASSES; pass++) {
     if (signal?.aborted) throw new Error('Data move cancelled')
@@ -2077,11 +2078,25 @@ export async function copyDataRootWithVerify(
       )
     }
     for (const gone of removed) {
+      // Only "already absent" is fine: any other failure would leave an obsolete file in the
+      // new folder, so the copy fails and the move rolls back (R6-R2).
+      vanished.set(gone.relPosix, gone.targetPath)
+      let st: fs.Stats
       try {
-        const st = fs.lstatSync(gone.targetPath)
-        if (st.isFile() && !isEntryReparsePoint(gone.targetPath, st)) fs.unlinkSync(gone.targetPath)
-      } catch {
-        // Already absent in the target.
+        st = fs.lstatSync(gone.targetPath)
+      } catch (err) {
+        if (errnoCode(err) === 'ENOENT') continue
+        throw new Error(`Copy verification failed: could not check ${gone.relPosix} in the new folder after it left the source (${errnoCode(err) ?? 'error'})`)
+      }
+      if (!st.isFile() || isEntryReparsePoint(gone.targetPath, st)) {
+        throw new Error(`Copy verification failed: ${gone.relPosix} in the new folder is no longer a regular file`)
+      }
+      try {
+        fs.unlinkSync(gone.targetPath)
+      } catch (err) {
+        if (errnoCode(err) !== 'ENOENT') {
+          throw new Error(`Copy verification failed: could not remove ${gone.relPosix} from the new folder after it left the source (${errnoCode(err) ?? 'error'})`)
+        }
       }
     }
     for (const dir of fresh.dirs) fs.mkdirSync(dir, { recursive: true })
@@ -2115,6 +2130,18 @@ export async function copyDataRootWithVerify(
     if (!dstStat.isFile() || dstStat.size !== item.size) {
       throw new Error(`Copy verification failed: size mismatch for ${item.relPosix} (expected ${item.size}, got ${dstStat.size})`)
     }
+  }
+  const finalKeys = new Set(files.map(f => f.relPosix))
+  for (const [relPosix, targetPath] of vanished) {
+    if (finalKeys.has(relPosix)) continue
+    let present = true
+    try {
+      fs.lstatSync(targetPath)
+    } catch (err) {
+      if (errnoCode(err) !== 'ENOENT') throw new Error(`Copy verification failed: could not check ${relPosix} in the new folder (${errnoCode(err) ?? 'error'})`)
+      present = false
+    }
+    if (present) throw new Error(`Copy verification failed: ${relPosix} left the source but is still in the new folder`)
   }
 
   const srcPgVersion = path.join(sourceRoot, 'pg', 'cluster', 'data', 'PG_VERSION')
