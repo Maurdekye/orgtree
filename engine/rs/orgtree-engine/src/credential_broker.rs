@@ -242,7 +242,7 @@ mod win {
                     continue;
                 }
             }
-            if engine.is_none() && crate::codex_host::sweep() == 0 && crate::data_location::broker_should_exit(&root) {
+            if leave_now(engine.is_some(), crate::codex_host::sweep(), || crate::data_location::broker_should_exit(&root)) {
                 write_events();
                 note(&root, "configured data folder changed; exiting");
                 return ExitCode::SUCCESS;
@@ -379,6 +379,14 @@ mod win {
 
     /// Whether the engine's answer to a host registration ends this helper:
     /// 412, other administrator rights than the engine's.
+    /// Whether the broker leaves now because its data folder is being moved
+    /// or `data-location.json` names another folder. Only once no hosted CLI
+    /// remains, so their exit records are written first.
+    #[nolog]
+    fn leave_now(attached: bool, hosted: usize, root_released: impl FnOnce() -> bool) -> bool {
+        !attached && hosted == 0 && root_released()
+    }
+
     #[nolog]
     fn leaves_on(host_status: Result<u16, ()>) -> bool {
         host_status == Ok(412)
@@ -841,7 +849,7 @@ mod win {
 
     #[cfg(test)]
     mod tests {
-        use super::{instance_name, leaves_on, registration};
+        use super::{instance_name, leave_now, leaves_on, registration};
         use std::path::{Path, PathBuf};
 
         // The broker never asks about a path as it is typed: `attach` resolves the data folder
@@ -1141,6 +1149,83 @@ mod win {
             assert!(broker_should_exit_from(&old_root, None, Some(roaming.as_os_str()), None));
             assert!(!broker_should_exit_from(&custom, None, Some(roaming.as_os_str()), None));
 
+            let _ = std::fs::remove_dir_all(&scratch);
+        }
+
+        // R6 (4.6.0-alpha.5 243 GB move): the broker was still attached when the engine stopped,
+        // so it skipped the move check, logged two retry lines and only left a tick later, after
+        // the copy had measured credential-broker.log (+222 B, verification failed after 5 h).
+        #[test]
+        #[nolog]
+        fn an_attached_broker_leaves_at_once_when_its_data_folder_moves() {
+            assert!(leave_now(true, 0, || true), "attached: the move still ends the broker this tick");
+            assert!(leave_now(false, 0, || true));
+            assert!(!leave_now(true, 1, || true), "a hosted CLI drains first, so its exit record is written");
+            assert!(!leave_now(true, 0, || false));
+            assert!(!leave_now(false, 0, || false));
+        }
+
+        #[nolog]
+        fn move_scratch(label: &str) -> (PathBuf, PathBuf, PathBuf) {
+            let scratch = std::env::temp_dir().join(format!("orgtree-broker-{label}-{}-{}", std::process::id(), uuid_like()));
+            let roaming = scratch.join("Roaming");
+            let user_data = roaming.join(crate::data_location::APP_DIR_NAME);
+            std::fs::create_dir_all(user_data.join("data")).unwrap();
+            (scratch, roaming, user_data)
+        }
+
+        #[nolog]
+        fn uuid_like() -> u128 {
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        }
+
+        #[nolog]
+        fn now_ms() -> u64 {
+            u64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()).unwrap()
+        }
+
+        // The user's real copy took 5 h 08 m. A move that is still running past the marker's
+        // 6-hour age keeps its guard while the desktop refreshes heartbeatAtMs; without a
+        // heartbeat the old age rule still applies, so a crashed desktop never wedges recovery.
+        #[test]
+        #[nolog]
+        fn a_move_longer_than_six_hours_stays_guarded_by_its_heartbeat() {
+            use crate::data_location::{is_move_in_progress, MOVE_IN_PROGRESS_FILE};
+            use serde_json::json;
+            let (scratch, _roaming, user_data) = move_scratch("heartbeat");
+            let started = now_ms() - 7 * 60 * 60 * 1000;
+            let write = |doc: serde_json::Value| std::fs::write(user_data.join(MOVE_IN_PROGRESS_FILE), doc.to_string()).unwrap();
+            write(json!({ "version": 1, "pid": std::process::id(), "startedAtMs": started, "heartbeatAtMs": now_ms() }));
+            assert!(is_move_in_progress(&user_data), "a fresh heartbeat keeps a 7-hour move guarded");
+            write(json!({ "version": 1, "pid": std::process::id(), "startedAtMs": started }));
+            assert!(!is_move_in_progress(&user_data), "no heartbeat: the 6-hour age still expires it");
+            write(json!({ "version": 1, "pid": std::process::id(), "startedAtMs": started, "heartbeatAtMs": started + 1000 }));
+            assert!(!is_move_in_progress(&user_data), "a stale heartbeat expires like a stale start");
+            let _ = std::fs::remove_dir_all(&scratch);
+        }
+
+        // An ORGTREE_V2_DATA override never follows data-location.json, but a live move whose
+        // source is this very folder still stands every writer of that folder down.
+        #[test]
+        #[nolog]
+        fn a_move_of_this_folder_stands_the_broker_down_even_with_an_env_override() {
+            use crate::data_location::{broker_should_exit_from, MOVE_IN_PROGRESS_FILE};
+            use serde_json::json;
+            let (scratch, roaming, user_data) = move_scratch("envmove");
+            let root = user_data.join("data");
+            let other = scratch.join("Other");
+            std::fs::create_dir_all(&other).unwrap();
+            std::fs::write(
+                user_data.join(MOVE_IN_PROGRESS_FILE),
+                json!({ "version": 1, "pid": std::process::id(), "startedAtMs": now_ms(),
+                        "sourceRoot": root.to_string_lossy(), "targetRoot": other.to_string_lossy() }).to_string(),
+            )
+            .unwrap();
+            let env = root.clone().into_os_string();
+            assert!(broker_should_exit_from(&root, Some(env.as_os_str()), Some(roaming.as_os_str()), None));
+            let env_other = other.clone().into_os_string();
+            assert!(!broker_should_exit_from(&other, Some(env_other.as_os_str()), Some(roaming.as_os_str()), None),
+                "an override naming another folder is not this move's source");
             let _ = std::fs::remove_dir_all(&scratch);
         }
     }
