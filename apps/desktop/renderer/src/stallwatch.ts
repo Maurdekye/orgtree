@@ -158,6 +158,18 @@ export interface StallEnv {
 }
 const FIELDS = ['invoker', 'invokerType', 'sourceFunctionName', 'sourceURL', 'sourceCharPosition', 'duration', 'forcedStyleAndLayoutDuration'] as const
 
+/** Which canvas background is MOUNTED (not what the preference says) and whether the ascii layer's
+ *  WebGL canvas exists: a stall then answers "was the background on?" by itself (4.6.1 desk-load hang,
+ *  main/stall-trace.ts). The default dots layer carries no data-canvas-bg attribute. */
+export function canvasBgOf(doc: Any): { theme: string; webgl: boolean } {
+  try {
+    const el = doc?.querySelector?.('[data-canvas-bg], .canvas-bg')
+    if (!el) return { theme: 'none', webgl: false }
+    const theme = el.getAttribute('data-canvas-bg') || 'dots'
+    return { theme, webgl: !!el.querySelector('canvas') }
+  } catch { return { theme: 'none', webgl: false } }
+}
+
 export class StallWatch {
   private events: Any[] = []
   private keys = new TimeRing(64)
@@ -225,6 +237,7 @@ export class StallWatch {
         scans: scansIn.slice(-32).map(x => ({ ...x, start: x.start - start })),
       } : { on: false },
       loaf_50_500: this.small,
+      canvas_bg: canvasBgOf(this.env.doc),
     }
     this.small = 0
     record.capture_ms = this.env.now() - t0
