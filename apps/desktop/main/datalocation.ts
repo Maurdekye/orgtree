@@ -2419,7 +2419,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
         if (params.confirmChangingFiles && !(await params.confirmChangingFiles(changing))) {
           throw new Error('Data move cancelled')
         }
-        appendDataLocationMoveLog(userData, 'continue anyway', 'Files still changing are copied at their latest version.')
+        appendDataLocationMoveLog(userData, 'continue anyway', 'Files still changing are copied as they are when read.')
       }
       if (signal?.aborted) throw new Error('Data move cancelled')
     }
@@ -3073,7 +3073,7 @@ export const DATA_MOVE_CANCEL_URL = 'https://cancel.orgtree.invalid/'
 const PHASE_TITLES: Record<DataLocationProgress['phase'], string> = {
   checking: 'Checking folder and measuring data size…',
   stopping: 'Stopping local engine…',
-  preparing: 'Preparing the final copy…',
+  preparing: 'Preparing the copy…',
   copying: 'Copying Orgtree data…',
   verifying: 'Verifying copied files…',
   switching: 'Switching data location…',

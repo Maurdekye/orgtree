@@ -3052,7 +3052,7 @@ else {
               })
             },
             // R7: files another program keeps writing are listed before the copy; they never
-            // roll the move back (they are copied at their latest version and named).
+            // roll the move back (R8: each is copied once, as it is when read).
             changeWatchMs: DATA_MOVE_CHANGE_WATCH_MS,
             confirmChangingFiles: async files => {
               const shown = files.slice(0, 12).join('\n') + (files.length > 12 ? `\n…and ${files.length - 12} more` : '')
@@ -3067,7 +3067,7 @@ else {
                   ? '1 file in the data folder is still changing'
                   : `${files.length} files in the data folder are still changing`,
                 detail: 'Another program is still writing to these files although Orgtree has stopped. '
-                  + 'If you continue, the move copies their latest version at the end and lists them when it finishes.\n\n'
+                  + 'If you continue, each file is copied as it is at that moment and may be incomplete.\n\n'
                   + shown,
               })
               return response === 0
