@@ -2334,6 +2334,15 @@ export async function copyDataRootWithVerify(
           const prefix = `${rel}/`
           if (dirRels.has(rel)) {
             for (const [key, item] of manifest) if (key.startsWith(prefix) && !present.has(key)) delta.removed.push(item)
+            // A folder below that is no longer a folder (now a file, or gone): its copy goes too,
+            // also when the scan already took the event for that path (R7-R3).
+            const subDirRels = new Set(sub.dirs.map(d => path.relative(targetRoot, d).split(path.sep).join('/')))
+            for (const d of [...dirRels]) {
+              if (d.startsWith(prefix) && !subDirRels.has(d)) {
+                dirRels.delete(d)
+                delta.replacedDirs.push(d)
+              }
+            }
           }
           for (const d of sub.dirs) {
             const drel = path.relative(targetRoot, d).split(path.sep).join('/')
