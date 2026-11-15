@@ -112,8 +112,10 @@ test('temporary borrow still preserves the open row and restores the same conten
   } finally { await v.unmount(); s.tidy() }
 })
 
+// A desk window is ONE MORE PLACE showing the desk (4.6.1, USER 2026-11-15 mbf1f1ca2cfe9): the place it was popped
+// out from keeps its own live desk, the window stays when that place goes, and its Close or Return ends only it.
 for (const explicit of [false, true]) {
-  test(`production DeskHost with no slot: ${explicit ? 'Pop in activates its destination' : 'native Close does not activate or create a main surface'}`, async () => {
+  test(`a desk window: ${explicit ? 'Return to main window with no place left goes to the agent' : 'native Close ends only the window and goes nowhere'}`, async () => {
     const s = stage(); let jumps = 0
     const node = { id: 'writer', generation: 3, tier: 'opus', charter: 'write', state: 'live', children: [], turns: [], seat: 1, grant: 0, free: 0, tasks: 0 } as unknown as CanvasNode
     const map = new Map([[node.id, node]])
@@ -121,20 +123,20 @@ for (const explicit of [false, true]) {
       op={async () => ({})} toast={() => {}} pub={false} onJump={() => jumps++} />}</DeskHosts>
     const v = await mountView(view(true), el => el)
     try {
+      const place = v.el.querySelector('textarea')
+      assert.ok(place, 'control: the place shows a live desk')
       await click(button(v.el, 'Open in new window'))
-      const composer = s.w.document.querySelector('textarea')!
-      assert.ok(composer, 'the real desk composer is mounted')
+      assert.ok(s.w.document.querySelector('textarea'), 'the window has a live desk of its own')
+      assert.equal(v.el.querySelector('textarea') === place, true, 'the place kept its own desk')
       await v.render(view(false)); await inAct(async () => { await flush(5) })
-      assert.equal(openSurfaces().length, 1, 'no-slot desk remains in its window')
+      assert.equal(openSurfaces().length, 1, 'the window stays when the place goes')
       if (explicit) await click(button(s.w.document, 'Return to main window'))
       else await inAct(async () => { s.nativeClose(); await flush(5) })
       assert.equal(jumps, explicit ? 1 : 0)
-      if (!explicit) assert.equal(document.querySelector('.popout-recovery'), null)
+      assert.equal(document.querySelector('.popout-recovery'), null)
       noWindows()
-      if (!explicit) {
-        await v.render(view(true)); await inAct(async () => { await flush(5) })
-        assert.equal(v.el.querySelector('textarea'), composer, 'registered destination receives SAME retained composer')
-      }
+      await v.render(view(true)); await inAct(async () => { await flush(5) })
+      assert.ok(v.el.querySelector('textarea'), 'a place opened again shows the desk')
     } finally { await v.unmount(); s.tidy() }
   })
 }

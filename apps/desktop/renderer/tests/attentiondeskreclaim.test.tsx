@@ -13,7 +13,9 @@ function setup() {
 }
 const settle = () => inAct(() => flush(8))
 
-test('closing the switchboard returns the SAME live desk to pinned Attention without a click or placeholder', async t => {
+// 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9): the switchboard and the pinned Attention desk each show the agent's live
+// desk at once. Neither takes it from the other; the unsent draft is the agent's one draft, in both.
+test('opening the switchboard beside the pinned Attention desk shows the live desk in both, with one draft', async t => {
   setup()
   const scene = attentionDeskScene(); scene.init()
   const v = await mountView(scene.wrap(false), el => el)
@@ -29,29 +31,30 @@ test('closing the switchboard returns the SAME live desk to pinned Attention wit
   })
   for (let cycle = 0; cycle < 2; cycle++) {
     await v.render(scene.wrap(true)); await settle()
-    assert.equal(v.el.querySelector('[data-switchboard] textarea') === composer, true)
-    assert.equal(panel.querySelectorAll('.popout-placeholder').length, 1)
-    assert.equal(panel.querySelectorAll('textarea').length, 0, 'a non-owner shows only the placeholder')
+    const board = v.el.querySelector('[data-switchboard] textarea') as HTMLTextAreaElement | null
+    assert.equal(Boolean(board), true, 'the switchboard shows a live desk')
+    assert.equal(board!.value, 'unfinished draft', 'the switchboard shows the same draft')
+    assert.equal(panel.querySelector('textarea') === composer, true, 'the Attention desk kept its own desk')
+    assert.equal(document.querySelectorAll('.popout-placeholder').length, 0, 'no place shows a placeholder')
     await v.render(scene.wrap(false)); await settle()
-    assert.equal(panel.querySelector('textarea') === composer, true, 'close returns the existing composer')
+    assert.equal(panel.querySelector('textarea') === composer, true, 'closing the switchboard leaves the Attention desk alone')
     assert.equal(composer.value, 'unfinished draft')
-    assert.equal(panel.querySelectorAll('.popout-placeholder').length, 0, 'the returned desk cannot share width with a stale placeholder')
     assert.equal(document.querySelectorAll('textarea').length, 1)
   }
 })
 
-test('owner removal resolves the visible fallback before publishing, skipping the earlier hidden slot', async t => {
+test('a place off screen shows nothing while the places on screen each show the live desk', async t => {
   setup()
   const scene = eligibleDeskScene()
   const v = await mountView(scene.before, el => el)
   t.after(() => v.unmount())
   await settle()
-  const composer = v.el.querySelector('[data-host="owner"] textarea')!
-  assert.ok(composer)
+  for (const host of ['visible', 'owner']) {
+    assert.equal(v.el.querySelector(`[data-host="${host}"] textarea`) !== null, true, `${host} shows a live desk`)
+  }
+  const visible = v.el.querySelector('[data-host="visible"] textarea')
   await v.render(scene.after); await settle()
-  const visible = v.el.querySelector('[data-host="visible"]')!
-  assert.equal(visible.querySelector('textarea') === composer, true)
-  assert.equal(visible.querySelectorAll('.popout-placeholder').length, 0)
+  assert.equal(v.el.querySelector('[data-host="visible"] textarea') === visible, true, 'removing a place leaves the others mounted')
   assert.equal(v.el.querySelector('[data-host="hidden"] textarea') === null, true)
-  assert.equal(v.el.querySelector('[data-host="hidden"] .popout-placeholder') !== null, true)
+  assert.equal(v.el.querySelector('[data-host="hidden"] .popout-placeholder') === null, true, 'the hidden place draws nothing')
 })

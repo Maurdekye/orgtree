@@ -97,18 +97,17 @@ test('stylesheet: chip bounds, z-order and pointer pass-through', () => {
   assert.match(holder.slice(0, holder.indexOf('}')), /pointer-events:\s*none/, 'the card stays clickable around the chip')
 })
 
-test('a focused card whose desk is in another window is NOT laid out as the desk', () => {
-  assert.equal(cardIsDeskLayout(true, false, false), true, 'the open desk keeps the desk layout')
-  assert.equal(cardIsDeskLayout(true, false, true), false, 'desk elsewhere: the normal face (header, name, badges) returns')
-  assert.equal(cardIsDeskLayout(false, true, false), true, 'a pinned desk placeholder is unchanged')
-  assert.equal(cardIsDeskLayout(false, false, false), false)
+// 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9): a desk shows in every place at once, so a card whose desk is also in a
+// window keeps showing it, and no place draws the "open elsewhere" notice any more.
+test('a focused card is laid out as the desk whether or not its desk is also in a window', () => {
+  assert.equal(cardIsDeskLayout(true, false), true, 'the open desk keeps the desk layout')
+  assert.equal(cardIsDeskLayout(false, true), true, 'a pinned desk placeholder is unchanged')
+  assert.equal(cardIsDeskLayout(false, false), false)
   const cards = readFileSync(joinPath(__SRC_DIR__, 'canvas', 'cards.tsx'), 'utf8')
   assert.match(cards, /const focused = cardIsDeskLayout\(/, 'the card derives its layout from that rule')
-  const holder = css().match(/\.sq:not\(\.desk\) \.desk-elsewhere-holder \{ top: (\d+)px; \}/)
-  assert.ok(holder, 'the chip sits below the face rows on a face-up card')
+  assert.doesNotMatch(cards, /useDeskElsewhere/, 'the card no longer asks whether its desk is elsewhere')
   const hosts = readFileSync(joinPath(__SRC_DIR__, 'canvas', 'deskhosts.tsx'), 'utf8')
-  assert.match(hosts, /className="desk-slot"[^]*?\{elsewhere && <InDesksPlace/, 'production markup: the holder is INSIDE .desk-slot, not a direct child of .sq')
-  assert.doesNotMatch(css(), /\.sq:not\(\.desk\) > \.desk-elsewhere-holder/, 'so the offset must be a descendant selector')
+  assert.doesNotMatch(hosts, /desk is open elsewhere\.<\/span>/, 'no place draws the old notice')
 })
 
 test('with no canvas the strip is the body-fixed host', async (t) => {

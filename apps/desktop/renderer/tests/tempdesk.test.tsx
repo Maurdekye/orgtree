@@ -5,12 +5,10 @@
 // window, no second composer, and everything back where it was on dismissal.
 // Those are the assertions here.
 //
-// ⚠ THE CENTRAL ONE IS §2. The modal BORROWS the canonical desk rather than
-// drawing a copy, and the witness for that is the canvas slot showing the
-// registry's own "open elsewhere" placeholder while the modal holds it — then
-// having the real desk back afterwards. A test that only checked the modal
-// contains a desk would pass just as happily against a second, divergent,
-// read-only imitation, which is the thing the ticket forbids.
+// §2 IS THE 4.6.1 RULE (USER 2026-11-15 mbf1f1ca2cfe9): a desk shows in every
+// place at once, so the modal shows the agent's live desk AND the canvas keeps
+// its own. What makes it the canonical desk rather than a divergent imitation
+// is that the unsent draft is the agent's one draft, seen in both.
 import './harness'
 import { FakeServer, advance, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { openBranchOf, surveyMenu } from './menuhelp'
@@ -48,17 +46,6 @@ const deskProps = (map: Map<string, CanvasNode>) => ({
 function scene(node: CanvasNode, open: boolean, close = noop,
   canvasProps: Record<string, unknown> = {}) {
   const map = new Map([[node.id, node]])
-  // ⚠ THE MODAL IS FIRST IN TREE ORDER HERE, DELIBERATELY, AND THAT IS NOT HOW
-  // OrgCanvas RENDERS IT. Registration re-runs for every slot on any parent
-  // re-render, in tree order, so a slot placed LAST wins under plain
-  // last-writer-wins whatever the borrow does. In the real host the modal does
-  // come last, which means a docked desk would mostly stay in it by accident of
-  // ordering — so a fixture that copies that ordering cannot tell the borrow
-  // from the accident, and my first version of §2b could not. Putting the modal
-  // FIRST makes the canvas the last writer, which is what the borrow actually
-  // has to survive. (Where the borrow is load-bearing regardless of ordering is
-  // the restore target — deskowner §7b/§7e — and the detached case, which no
-  // ordinary slot can take at all.)
   return (
     <DeskHosts map={map} slug="org">
       {open && <TempDeskModal node={node} close={close} desk={deskProps(map)} />}
@@ -75,8 +62,15 @@ const canvasBox = (el: HTMLElement) =>
 const modal = () => document.querySelector('.tempdesk-panel') as HTMLElement | null
 // the shared frame's backdrop (user 2026-11-13: the temporary desk is on PinFrame)
 const backdrop = () => (modal()?.parentElement?.classList.contains('overlay') ? modal()!.parentElement : null) as HTMLElement | null
-const borrowed = (el: HTMLElement) =>
-  /desk is open elsewhere/.test(canvasBox(el).textContent ?? '')
+const canvasComposer = (el: HTMLElement) => canvasBox(el).querySelector('textarea') as HTMLTextAreaElement | null
+const modalComposer = () => modal()?.querySelector('textarea') as HTMLTextAreaElement | null
+async function type(area: HTMLTextAreaElement, value: string) {
+  await inAct(() => {
+    Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')!.set!.call(area, value)
+    area.dispatchEvent(new W.Event('input', { bubbles: true }))
+  })
+  await flush()
+}
 
 const setup = () => { resetConvos(); installFetch(new FakeServer()) }
 
@@ -186,110 +180,60 @@ test('§1 it is a real modal dialog, named for the agent it is showing',
       'a screen reader is not told whose desk this is')
   })
 
-test('§2 IT BORROWS THE CANONICAL DESK — it does not draw a second one',
+test('§2 the modal shows the agent\'s live desk and the canvas keeps its own',
   async (t: TestContext) => {
-    // ⚠ THE TEST THAT DISTINGUISHES A BORROW FROM A COPY. While the modal is
-    // open the canvas slot must show the registry's own placeholder, because
-    // there is exactly ONE desk and the modal has it. Afterwards the canvas
-    // has it back. A read-only imitation would leave the canvas desk untouched
-    // and pass any weaker assertion.
     setup()
     const n = agent('beta')
     const view = await mountView(scene(n, false), (el) => el)
     t.after(() => view.unmount())
     await flush()
-    assert.equal(borrowed(view.el), false,
-      'the canvas slot already showed a placeholder before the modal opened')
+    const canvas = canvasComposer(view.el)
+    assert.ok(canvas, 'control: the canvas shows the desk')
     await view.render(scene(n, true))
     await flush()
     assert.ok(modal(), 'the modal did not open')
-    assert.equal(borrowed(view.el), true,
-      'the canvas slot kept the desk while the modal was open — so the modal '
-      + 'is showing a SECOND desk, which is the divergent copy the ticket forbids')
-    // and exactly one composer exists across both surfaces
-    assert.equal(document.querySelectorAll('.cc-head-meta').length <= 1, true,
-      'more than one desk header is mounted for one agent')
+    assert.ok(modalComposer(), 'the modal shows a live desk')
+    assert.equal(canvasComposer(view.el) === canvas, true, 'the canvas kept its own desk while the modal was open')
+    assert.doesNotMatch(document.body.textContent ?? '', /desk is open elsewhere/, 'no place shows the old notice')
     await view.render(scene(n, false))
     await flush()
     assert.equal(modal(), null, 'the modal did not close')
-    assert.equal(borrowed(view.el), false,
-      'the desk did not come back to the canvas after the modal closed')
+    assert.equal(canvasComposer(view.el) === canvas, true, 'closing the modal left the canvas desk alone')
   })
 
-test('§2b IT KEEPS THE DESK WHILE THE CANVAS RE-RENDERS UNDER IT',
+test('§2b canvas re-renders under the modal disturb neither desk',
   async (t: TestContext) => {
-    // ⚠ THIS IS THE TEST THAT NEEDS `borrow`, AND §2 IS NOT. I checked: §2
-    // passes with `borrow` removed, because an ordinary slot mounted last takes
-    // the desk under plain last-writer-wins and the fallback hands it back on
-    // close. What an ordinary slot CANNOT survive is the canvas re-registering
-    // — and the canvas re-renders on every poll, so without the borrow this
-    // modal would lose the desk within a second of opening and show the
-    // "open elsewhere" placeholder at the user instead of a desk.
     setup()
     const n = agent('eta')
-    const view = await mountView(scene(n, false), (el) => el)
+    const view = await mountView(scene(n, true), (el) => el)
     t.after(() => view.unmount())
     await flush()
-    await view.render(scene(n, true))
-    await flush()
-    assert.equal(borrowed(view.el), true, 'the modal did not take the desk')
-    // the canvas re-renders beneath it, repeatedly, exactly as polling does
+    const inModal = modalComposer(), canvas = canvasComposer(view.el)
+    assert.ok(inModal && canvas)
     for (const compactAt of [0.4, 0.5, 0.6]) {
       await view.render(scene(n, true, noop, { compactAt }))
       await flush()
-      assert.equal(borrowed(view.el), true,
-        `the canvas took the desk back on a re-render (compactAt ${compactAt}) `
-        + '— the modal is now showing a placeholder instead of a desk')
-      assert.ok(modal(), 'the modal vanished')
+      assert.equal(modalComposer() === inModal, true, `the modal's desk was remounted (compactAt ${compactAt})`)
+      assert.equal(canvasComposer(view.el) === canvas, true, `the canvas desk was remounted (compactAt ${compactAt})`)
     }
-    // and it still goes home afterwards
-    await view.render(scene(n, false, noop, { compactAt: 0.6 }))
-    await flush()
-    assert.equal(borrowed(view.el), false, 'the desk did not come back')
   })
 
-test('§2c THE DESK IS MOVED, NOT REMOUNTED — so a half-typed draft survives',
+test('§2c the draft is the agent\'s one draft: typed on the canvas, it is in the modal, and back',
   async (t: TestContext) => {
-    // ⚠ THE PROPERTY EVERYTHING ELSE RESTS ON, and the one I promised to prove
-    // rather than assert in a comment. `DeskHost` renders exactly one
-    // `OwnedDeskChat` per agent and a borrow changes only which anchor it is
-    // placed into, so the React element is never unmounted and its DOM node is
-    // MOVED (appendChild relocates a node, it does not clone it). If that ever
-    // became a remount, the user's unsent message would vanish when they
-    // glanced at the desk — silently, and only for people mid-sentence.
     setup()
     const n = agent('theta')
     const view = await mountView(scene(n, false), (el) => el)
     t.after(() => view.unmount())
     await flush()
-    const box = document.querySelector('textarea') as HTMLTextAreaElement | null
-    assert.ok(box, 'the desk rendered no composer to type into')
-    // identity of a live node inside the desk, captured before the borrow
-    const before = box!
-    // the composer is CONTROLLED, so the value has to go in through the native
-    // setter or React's own state never hears about it and re-renders the box
-    // back to empty — which is what my first version of this test measured
-    // (deskhistory.test.tsx uses the same idiom for the same reason)
-    await inAct(() => {
-      Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')!
-        .set!.call(before, 'half a sentence')
-      before.dispatchEvent(new W.Event('input', { bubbles: true }))
-    })
-    await flush()
+    await type(canvasComposer(view.el)!, 'half a sentence')
     await view.render(scene(n, true))
     await flush()
-    const during = document.querySelector('textarea') as HTMLTextAreaElement | null
-    assert.ok(during, 'the borrowed desk has no composer')
-    assert.equal(during, before,
-      'the composer is a DIFFERENT element inside the modal — the desk was '
-      + 'remounted rather than moved, so anything unsent is gone')
-    assert.equal(during!.value, 'half a sentence', 'the draft did not survive the borrow')
+    assert.equal(modalComposer()!.value, 'half a sentence', 'the modal shows the draft typed on the canvas')
+    await type(modalComposer()!, 'half a sentence, finished in the modal')
+    assert.equal(canvasComposer(view.el)!.value, 'half a sentence, finished in the modal', 'the canvas shows it live')
     await view.render(scene(n, false))
     await flush()
-    const after = document.querySelector('textarea') as HTMLTextAreaElement | null
-    assert.equal(after, before, 'the desk was remounted on the way back')
-    assert.equal(after!.value, 'half a sentence',
-      'the draft did not survive the return')
+    assert.equal(canvasComposer(view.el)!.value, 'half a sentence, finished in the modal', 'the draft survived the modal')
   })
 
 test('§3 Escape dismisses it, through the shared escape stack',
@@ -565,8 +509,8 @@ for (const ratio of [1, 1.25, 1.5, 2]) test(`temporary pop-out preserves the fra
   }
   assert.equal(Boolean(modal()), false, 'successful pop-out closes its temporary modal')
   assert.equal(Boolean(backdrop()), false, 'no modal backdrop remains')
-  assert.equal(cw.document.querySelector('textarea') === composer, true, 'the same composer moves into the window')
-  assert.equal(document.querySelectorAll('textarea').length, 0, 'no duplicate desk remains')
+  assert.equal(Boolean(cw.document.querySelector('textarea')), true, 'the window shows a live desk')
+  assert.equal(document.querySelectorAll('textarea').length, 1, 'the canvas keeps its own desk; the modal\'s is gone')
 })
 
 test('blocked temporary pop-out keeps the modal and its composer', async t => {

@@ -13,7 +13,8 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { resetConvos } from '../src/convo'
-import { DeskHosts, DeskSlot, deskShownAnywhere } from '../src/canvas/deskhosts'
+import { DeskHosts, DeskSlot, deskIdentity, deskShownAnywhere, revealExistingDesk } from '../src/canvas/deskhosts'
+import { registerWindow } from '../src/windowlife'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -153,4 +154,20 @@ test('a desk counts as shown anywhere while any visible place has it', async (t:
   await view.render(places(n, { card: { eligible: false, openIn: 'card' } }))
   await flush()
   assert.equal(deskShownAnywhere('org', n), false, 'only a hidden place is left')
+})
+
+// moved from deskowner.test.tsx, whose single-owner rules this change retires (4.6.1)
+test('generic focus reveals only the matching already-open desk window', (t) => {
+  const n = agent('already-open')
+  const raised: string[] = []
+  const unregister = registerWindow({
+    id: 'desk-window', kind: `desk:${deskIdentity('org', n)}`, org: 'org',
+    editable: true, window: window as unknown as Window,
+    redock: noop, reveal: () => raised.push('desk'),
+  })
+  t.after(unregister)
+  assert.equal(revealExistingDesk('org', n), true)
+  assert.deepEqual(raised, ['desk'], 'the matching open desk is brought to the front')
+  assert.equal(revealExistingDesk('another-org', n), false, 'a desk in another org is not selected')
+  assert.deepEqual(raised, ['desk'], 'no unrelated window is focused')
 })

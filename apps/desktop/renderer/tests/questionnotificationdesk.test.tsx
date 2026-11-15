@@ -257,7 +257,9 @@ test('Attention agent desk: in the Attention view and pinned on the canvas, the 
   assert.equal(document.activeElement, card(el, '.attn-desk'), 'its question card has focus')
 })
 
-test('open in two placements: the one holding the live desk wins, and Move desk here changes it', async (t) => {
+// 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9): both places show the live desk, so the notification brings forward the one
+// USED LAST (design-461 question 3, provisional): the one opened most recently, until another is pressed.
+test('open in two placements: both show the live desk, and the one used last wins', async (t) => {
   const { el, click } = await setup(t, 'canvas', 'asker')
   await inAct(async () => {
     addPin(ORG, 'asker', { x: 20, y: 20, w: 360, h: 280 })
@@ -265,17 +267,15 @@ test('open in two placements: the one holding the live desk wins, and Move desk 
     pinModal(DESK_KIND, { x: 420, y: 40, w: 480, h: 360 }, ORG)
     await flush(25)
   })
-  // the panel pinned last took the live desk; the pin shows the placeholder
-  assert.ok(card(el, '.attn-desk'), 'fixture: the pinned Attention agent desk holds the live desk')
-  assert.equal(card(el, '.pinwin'), null, 'fixture: the desk pin shows the placeholder')
+  assert.ok(card(el, '.attn-desk'), 'fixture: the pinned Attention agent desk shows the live desk')
+  assert.ok(card(el, '.pinwin'), 'the desk pin shows the live desk as well')
   await click()
   assert.equal(inbox(el), null, 'no inbox')
-  assert.equal(document.activeElement, card(el, '.attn-desk'), 'the Attention agent desk, which holds the live desk, has the focus')
+  assert.equal(document.activeElement, card(el, '.attn-desk'), 'the Attention agent desk, opened last, has the focus')
 
-  const move = [...el.querySelectorAll<HTMLButtonElement>('.pinwin button')].find(b => b.textContent === 'Move desk here')
-  assert.ok(move, 'fixture: the desk pin offers Move desk here')
-  await inAct(async () => { move.click(); await flush(20) })
-  assert.ok(card(el, '.pinwin'), 'fixture: the desk pin now holds the live desk')
+  const pin = el.querySelector<HTMLElement>('.pinwin .desk-slot')
+  assert.ok(pin, 'fixture: the desk pin holds a desk')
+  await inAct(async () => { pin.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); await flush(5) })
   ;(document.activeElement as HTMLElement | null)?.blur()
   await click()
   assert.equal(inbox(el), null, 'still no inbox')
