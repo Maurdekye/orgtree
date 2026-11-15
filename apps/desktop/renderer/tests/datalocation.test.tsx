@@ -802,3 +802,62 @@ test('unreadable preflight entries show path list + count with Move without them
   await click(modalOk)
   assert.equal(modalClosed, 1)
 })
+
+test('Move dialog shows a step meter (label, done / total, progressbar) while the post-copy check runs', async t => {
+  const DataLocationSetting = getDataLocationComponent()
+  const mock = installDesktopBridge(
+    t,
+    {
+      currentRoot: 'C:\Users\operator\AppData\Roaming\Orgtree v2\data',
+      defaultRoot: 'C:\Users\operator\AppData\Roaming\Orgtree v2\data',
+      isCustom: false, envOverride: false, previousRoot: null, movedAt: null,
+      currentBytes: 1024 ** 3, previousBytes: null, moving: false,
+    },
+    {
+      choose: async () => 'S:\',
+      preflight: async picked => ({
+        ok: true, pickedPath: picked, resolvedRoot: 'S:\Orgtree data', usedSubfolder: false,
+        sourceBytes: 1024 ** 3, freeBytes: 120 * 1024 ** 3, activeAgents: 0,
+      }),
+      move: () => new Promise(() => {}),
+    },
+  )
+  const view = await mountView(<DataLocationSetting />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(5) })
+  const changeBtn = [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find(b => b.textContent === 'Change location…')!
+  await click(changeBtn)
+  const dialog = document.querySelector<HTMLElement>('.move-data-dialog')!
+  const moveBtn = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Move data')!
+  await click(moveBtn)
+  await inAct(async () => {
+    mock.emitEvent({
+      type: 'data-location-progress',
+      data: {
+        phase: 'verifying', filesCopied: 100, totalFiles: 100, bytesCopied: 1024 ** 3, totalBytes: 1024 ** 3,
+        cancellable: true, detail: 'Checking for changes…',
+        stepLabel: 'Checking for changes', stepDone: 40, stepTotal: 100,
+      },
+    })
+    await flush(3)
+  })
+  const bar = document.querySelector<HTMLElement>('.move-data-dialog [role="progressbar"]')
+  assert.ok(bar, 'a progressbar is shown for the post-copy step')
+  assert.equal(bar.getAttribute('aria-valuenow'), '40')
+  assert.match(document.querySelector('.move-data-dialog')?.textContent ?? '', /Checking for changes\s*·?\s*40 \/ 100/)
+  // Indeterminate step: bar present without a value.
+  await inAct(async () => {
+    mock.emitEvent({
+      type: 'data-location-progress',
+      data: {
+        phase: 'verifying', filesCopied: 100, totalFiles: 100, bytesCopied: 1, totalBytes: 1,
+        cancellable: true, stepLabel: 'Copying latest versions', stepDone: 0, stepTotal: 0,
+      },
+    })
+    await flush(3)
+  })
+  const bar2 = document.querySelector<HTMLElement>('.move-data-dialog [role="progressbar"]')!
+  assert.equal(bar2.getAttribute('aria-valuenow'), null)
+  assert.match(document.querySelector('.move-data-dialog')?.textContent ?? '', /Copying latest versions/)
+})

@@ -667,9 +667,26 @@ export function DataLocationSetting({ onDialogChange }: {
             Deletes everything readable in the old folder once the new location starts cleanly; the unreadable entries above and the parent folders holding them stay in place.
           </p>
         )}
-        {moving && progress && (
-          <p className="dim" role="status">{progress.detail}</p>
-        )}
+        {moving && progress && (() => {
+          const stepped = !!progress.stepLabel && (progress.phase === 'verifying' || progress.phase === 'preparing')
+          const total = stepped ? (progress.stepTotal ?? 0) : progress.totalBytes
+          const done = stepped ? (progress.stepDone ?? 0) : progress.bytesCopied
+          const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : null
+          const stepText = stepped
+            ? `${progress.stepLabel}${total > 0 ? ` · ${done.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}` : '…'}`
+            : ''
+          return (
+            <>
+              {stepText && <p className="dim" role="status">{stepText}</p>}
+              <div className={`dataloc-meter${pct === null ? ' indeterminate' : ''}`} role="progressbar"
+                aria-label={progress.stepLabel ?? 'Move progress'} aria-valuemin={0} aria-valuemax={100}
+                aria-valuenow={pct ?? undefined}>
+                <div className="dataloc-meter-fill" style={pct === null ? undefined : { width: `${pct}%` }} />
+              </div>
+              {progress.detail && <p className="dim" role="status">{progress.detail}</p>}
+            </>
+          )
+        })()}
         {dialogError && <p className="ask-warn" role="alert">{dialogError}</p>}
         <div className="dataloc-actions">
           <button type="button" disabled={moving} onClick={dismissMoveDialog}>Cancel</button>

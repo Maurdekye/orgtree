@@ -10803,6 +10803,11 @@ button.remote-files-name:hover, button.remote-files-name:focus-visible { color: 
 }
 .move-data-dialog > h3 { margin: 0; }
 .move-data-dialog > p { margin: 0; font-size: 12.5px; line-height: 1.4; }
+.dataloc-meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 2px 0 8px; }
+.dataloc-meter-fill { height: 100%; width: 12%; background: var(--accent, #d97757); transition: width .15s linear; }
+.dataloc-meter.indeterminate .dataloc-meter-fill { animation: dataloc-meter-slide 1.2s ease-in-out infinite alternate; }
+@keyframes dataloc-meter-slide { from { margin-left: 0 } to { margin-left: 88% } }
+@media (prefers-reduced-motion: reduce) { .dataloc-meter.indeterminate .dataloc-meter-fill { animation: none; } }
 .dataloc-summary {
   display: flex; flex-direction: column; gap: 4px; margin: 2px 0;
   padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px;

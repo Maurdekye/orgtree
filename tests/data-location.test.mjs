@@ -524,6 +524,28 @@ test('preload exposes narrow data-location bridge methods and offline progress H
   assert.equal(postSwitchHtml.includes(datalocation.DATA_MOVE_CANCEL_URL), false)
 })
 
+test('move progress window shows a step meter (label, done / total, bar) for the post-copy check', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+  const base = { filesCopied: 10, totalFiles: 10, bytesCopied: 1000, totalBytes: 1000, cancellable: true }
+  const html = datalocation.dataMoveProgressHtml({
+    ...base, phase: 'verifying', stepLabel: 'Checking for changes', stepDone: 3, stepTotal: 10,
+  })
+  assert.match(html, /width:30%/)
+  assert.match(html, /Checking for changes/)
+  assert.match(html, /3 \/ 10/)
+  const indeterminate = datalocation.dataMoveProgressHtml({
+    ...base, phase: 'verifying', stepLabel: 'Copying latest versions', stepDone: 0, stepTotal: 0,
+  })
+  assert.doesNotMatch(indeterminate, /width:100%/)
+  assert.match(indeterminate, /Copying latest versions/)
+  const preparing = datalocation.dataMoveProgressHtml({
+    ...base, phase: 'preparing', stepLabel: 'Watching for changes', stepDone: 5, stepTotal: 20,
+  })
+  assert.match(preparing, /width:25%/)
+  assert.match(preparing, /Watching for changes/)
+})
+
 test('Windows PowerShell 5.1 installer-upgrade.ps1 and boot-engine-task.ps1 honor data-location.json and active move markers', { skip: !windows }, async () => {
   const { policy } = await loadDataLocationModules()
   const { dir } = makeSandbox()

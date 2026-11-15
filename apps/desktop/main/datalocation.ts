@@ -2987,6 +2987,7 @@ export const DATA_MOVE_CANCEL_URL = 'https://cancel.orgtree.invalid/'
 const PHASE_TITLES: Record<DataLocationProgress['phase'], string> = {
   checking: 'Checking folder and measuring data size…',
   stopping: 'Stopping local engine…',
+  preparing: 'Preparing the final copy…',
   copying: 'Copying Orgtree data…',
   verifying: 'Verifying copied files…',
   switching: 'Switching data location…',
@@ -3006,8 +3007,17 @@ export function dataMoveProgressHtml(
 ): string {
   const title = maskText(PHASE_TITLES[progress.phase] || 'Moving Orgtree data…')
   const detail = maskText(progress.detail || '')
-  const pct =
-    progress.totalBytes > 0
+  const stepped = !!progress.stepLabel && (progress.phase === 'verifying' || progress.phase === 'preparing')
+  const stepTotal = progress.stepTotal ?? 0
+  const stepDone = progress.stepDone ?? 0
+  const stepText = stepped
+    ? `${progress.stepLabel}${stepTotal > 0 ? ` · ${stepDone.toLocaleString('en-US')} / ${stepTotal.toLocaleString('en-US')}` : '…'}`
+    : ''
+  const pct = stepped
+    ? stepTotal > 0
+      ? Math.max(0, Math.min(100, Math.round((stepDone / stepTotal) * 100)))
+      : 12
+    : progress.totalBytes > 0
       ? Math.max(0, Math.min(100, Math.round((progress.bytesCopied / progress.totalBytes) * 100)))
       : progress.phase === 'verifying' || progress.phase === 'switching' || progress.phase === 'starting' || progress.phase === 'done'
         ? 100
@@ -3027,6 +3037,7 @@ export function dataMoveProgressHtml(
     'a.btn:hover{background:#32302d}' +
     '</style>' +
     `<h1>${escapeHtml(title)}</h1>` +
+    (stepText ? `<h1 style="font-size:13px;font-weight:500">${escapeHtml(maskText(stepText))}</h1>` : '') +
     `<p>${escapeHtml(detail || 'Keep Orgtree open until this finishes. Your original data folder remains untouched until the new location starts cleanly.')}</p>` +
     '<div class="track"><div class="fill"></div></div>' +
     '<div class="row">' +
