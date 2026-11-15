@@ -6,10 +6,10 @@
 // checks for:
 //   1. CSS app-region specificity on `.popout-recovery` without breaking
 //      scrolled-content title-bar drag (pinscrolldrag invariant)
-//   2. `.viewport` pointer-capture & wheel-zoom isolation on `.restored-desk`
-//   3. `"Return to canvas"` closing the saved layout row (`open: false`),
-//      redocking any detached desk window, removing `.restored-desk`, and
-//      focusing the agent's desk on the canvas with drafts intact.
+//   2. since 4.6.1 a desk the last session left in a window comes back AS that
+//      window (deskhosts.tsx `DeskHosts`), not as a `.restored-desk` panel over
+//      the canvas: every place shows the live desk, so the canvas keeps its own
+//      (USER 2026-11-15 mbf1f1ca2cfe9). With window restore off nothing opens.
 import { FakeServer, flush, inAct, installFetch, JSDOM, mountView } from './harness'
 import { installBridge, removeBridge, typeInto } from './shellbridge'
 import test from 'node:test'
@@ -133,9 +133,12 @@ test('CSS: .popout-recovery cuts a no-drag hole inside .canvas-stage > .viewport
   }
 })
 
-test('docked .restored-desk isolates pointerdown and wheel from .viewport, and Return to canvas closes the saved row and focuses the agent', async () => {
+test('with window restore off, a desk saved open in a window opens no window and draws no restored-desk panel', async () => {
   seedSavedDesk()
   const restoreFetch = installCanvasFetch()
+  const origOpen = window.open
+  let opens = 0
+  window.open = (() => { opens++; return null }) as typeof window.open
   installBridge({
     getWindowState: async () => ({ visible: true, focused: true, restoreWindows: false }),
     getWindowControlsState: async () => ({ visible: true, minimized: false, maximized: false }),
@@ -151,53 +154,14 @@ test('docked .restored-desk isolates pointerdown and wheel from .viewport, and R
   )
   try {
     await inAct(async () => { await flush(6) })
-    const viewport = v.el.querySelector<HTMLDivElement>('.viewport')!
-    assert.ok(viewport, 'viewport mounted')
-    viewport.getBoundingClientRect = () => ({
-      left: 0, top: 49, right: 1100, bottom: 749, width: 1100, height: 700, x: 0, y: 49, toJSON: () => ({}),
-    })
-    const captured: number[] = []
-    viewport.setPointerCapture = (id: number) => { captured.push(id) }
-
-    const panel = v.el.querySelector<HTMLDivElement>('.popout-recovery.restored-desk')!
-    assert.ok(panel, 'restored-desk panel mounted')
-    const returnBtn = panel.querySelector<HTMLButtonElement>('.row button')!
-    assert.equal(returnBtn.textContent, 'Return to canvas')
-
-    // 1. pointerdown on "Return to canvas" must NOT reach .viewport's setPointerCapture
-    const PEvent = (window as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent
-    await inAct(async () => {
-      returnBtn.dispatchEvent(new PEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 7 } as MouseEventInit))
-      await flush(2)
-    })
-    assert.deepEqual(captured, [], '.viewport must not capture pointerdown originating inside .restored-desk')
-
-    // 2. wheel inside .restored-desk must NOT be preventDefault()ed by .viewport's zoom handler
-    const wheel = new window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 120, clientY: 120 })
-    panel.dispatchEvent(wheel)
-    assert.equal(wheel.defaultPrevented, false, 'wheel inside .restored-desk must scroll the panel rather than zoom the canvas')
-
-    // 3. Type a draft in .restored-desk's composer and click "Return to canvas"
-    const composer = panel.querySelector<HTMLTextAreaElement>('textarea')!
-    assert.ok(composer, 'docked restored desk holds the composer')
-    await inAct(async () => {
-      typeInto(composer as unknown as HTMLInputElement, 'kept-docked-draft')
-      await flush(3)
-    })
-    await inAct(async () => {
-      returnBtn.click()
-      await new Promise((r) => setTimeout(r, 480))
-      await flush(6)
-    })
-
-    assert.equal(v.el.querySelector('.popout-recovery.restored-desk'), null, '.restored-desk is dismissed')
-    assert.equal(savedWindows().find((r) => r.key === LAYOUT_KEY)?.open, false, 'saved window layout row is marked closed')
-    const canvasComposer = v.el.querySelector<HTMLTextAreaElement>('.desk-over textarea')
-    assert.ok(canvasComposer, 'agent desk is focused on the canvas')
-    assert.equal(canvasComposer.value, 'kept-docked-draft', 'composer draft survives Return to canvas')
+    assert.ok(v.el.querySelector('.viewport'), 'control: the canvas mounted')
+    assert.equal(opens, 0, 'no window was opened')
+    assert.equal(openSurfaces().length, 0)
+    assert.equal(v.el.querySelector('.popout-recovery.restored-desk'), null, 'no restored-desk panel covers the canvas')
   } finally {
     await v.unmount()
     removeBridge()
+    window.open = origOpen
     restoreFetch()
     localStorage.clear()
     endWindowExit()
@@ -205,7 +169,7 @@ test('docked .restored-desk isolates pointerdown and wheel from .viewport, and R
   }
 })
 
-test('detached .restored-desk Return to canvas redocks the popout window, marks layout closed, and focuses the desk on canvas', async () => {
+test('a desk saved open in a window comes back as that window; its Return closes it and marks the layout closed, the draft kept', async () => {
   seedSavedDesk()
   const restoreFetch = installCanvasFetch()
   const childDom = new JSDOM('<html><head></head><body></body></html>', { url: 'http://localhost/' })
@@ -260,21 +224,20 @@ test('detached .restored-desk Return to canvas redocks the popout window, marks 
       await flush(3)
     })
 
-    const returnBtn = v.el.querySelector<HTMLButtonElement>('.popout-recovery.restored-desk .row button')!
-    assert.equal(returnBtn.textContent, 'Return to canvas')
+    assert.equal(v.el.querySelector('.popout-recovery.restored-desk'), null, 'no restored-desk panel over the canvas')
+    const returnBtn = childWin.document.querySelector<HTMLButtonElement>('button[aria-label="Return to main window"]')!
+    assert.ok(returnBtn, 'control: the window offers Return to main window')
     await inAct(async () => {
       returnBtn.click()
       await new Promise((r) => setTimeout(r, 480))
       await flush(6)
     })
 
-    assert.equal(openSurfaces().length, 0, 'Return to canvas redocks and closes the detached popout window')
+    assert.equal(openSurfaces().length, 0, 'Return closes the desk window')
     assert.equal((childWin as unknown as { closed: boolean }).closed, true, 'child window closed')
-    assert.equal(v.el.querySelector('.popout-recovery.restored-desk'), null, '.restored-desk removed')
     assert.equal(savedWindows().find((r) => r.key === LAYOUT_KEY)?.open, false, 'saved layout row marked closed')
-    const canvasComposer = v.el.querySelector<HTMLTextAreaElement>('.desk-over textarea')
-    assert.equal(canvasComposer, detachedComposer, 'the SAME composer element returned to the canvas desk')
-    assert.equal(canvasComposer?.value, 'kept-detached-draft', 'draft preserved across redock')
+    assert.equal(localStorage.getItem(`orgtree-draft-v2-${JSON.stringify([SLUG, AGENT, 0])}`), 'kept-detached-draft',
+      'the agent\'s one draft kept the text typed in the window')
   } finally {
     await v.unmount()
     removeBridge()
