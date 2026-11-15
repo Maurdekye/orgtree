@@ -88,6 +88,8 @@ export function preserveRemovedDrafts(slug: string, ids: Pick<ReadonlyMap<string
 // renameDrafts, a failed send restoring its text) is seen at the next read without having to know about this store,
 // and an unchanged raw value returns the same parsed object, which useSyncExternalStore requires.
 interface SharedPart { raw: string; value: unknown }
+/** the part's name: its first storage key */
+const partOf = (keys: readonly string[]) => keys[0] ?? ''
 const sharedParts = new Map<string, SharedPart>()
 const sharedListeners = new Map<string, Set<() => void>>()
 const rawOf = (keys: readonly string[]) => keys.map((k) => {
@@ -97,18 +99,18 @@ const rawOf = (keys: readonly string[]) => keys.map((k) => {
 /** The current shared value stored under `keys` (the first names the part). */
 export function sharedDraftPart<T>(keys: readonly string[], read: () => T): T {
   const raw = rawOf(keys)
-  const held = sharedParts.get(keys[0])
+  const held = sharedParts.get(partOf(keys))
   if (held && held.raw === raw) return held.value as T
   const value = read()
-  sharedParts.set(keys[0], { raw, value })
+  sharedParts.set(partOf(keys), { raw, value })
   return value
 }
 /** Write a shared part and tell every view holding it. */
 export function setSharedDraftPart<T>(keys: readonly string[], value: T, write: (value: T) => void): void {
   write(value)
   // a storage that refuses the write still updates every open view: the value is what they show
-  sharedParts.set(keys[0], { raw: rawOf(keys), value })
-  for (const fn of [...(sharedListeners.get(keys[0]) ?? [])]) fn()
+  sharedParts.set(partOf(keys), { raw: rawOf(keys), value })
+  for (const fn of [...(sharedListeners.get(partOf(keys)) ?? [])]) fn()
 }
 export function subscribeDraftPart(key: string, fn: () => void): () => void {
   let set = sharedListeners.get(key)

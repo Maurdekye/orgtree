@@ -1785,7 +1785,7 @@ const toolKey = (id: unknown): string | undefined =>
 function useSharedDraft<T>(keys: readonly string[], read: () => T, write: (value: T) => void):
 [T, (next: T | ((previous: T) => T)) => void] {
   const io = useRef({ read, write }); io.current = { read, write }
-  const subscribe = useCallback((fn: () => void) => subscribeDraftPart(keys[0], fn), [keys])
+  const subscribe = useCallback((fn: () => void) => subscribeDraftPart(keys[0] ?? '', fn), [keys])
   const value = useSyncExternalStore(subscribe, () => sharedDraftPart(keys, () => io.current.read()))
   const set = useCallback((next: T | ((previous: T) => T)) => {
     const current = sharedDraftPart(keys, () => io.current.read())
