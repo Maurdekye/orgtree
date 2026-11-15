@@ -2644,33 +2644,22 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       by its per-root `Local\` mutex; never by image name) and rolls back untouched otherwise. The broker leaves
       and the recovery watch stands down (no line, no `--core-recovered` relaunch) whenever their folder is moving
       or `data-location.json` names another one, attached or not and whatever the 180 s transition says. Main
-      writes no window/stall/core-control diagnostics into the folder during a move. After the bulk copy the
-      quiesced source is re-walked: changed or new files are recopied and vanished ones removed (at most 3
-      passes), recopies are logged, and every file is verified strictly with no log exemption.
+      writes no window/stall/core-control diagnostics into the folder during a move. (Its post-copy recopy
+      and verification passes were removed in R8, below.)
     - **Files that keep changing never roll a move back (R7, USER 2026-11-15 15:04:06Z m15f87ac2b667 "how
       about you dont revert the ENTIRE DAMN 5 HOUR MOVE if ONE FILE CHANGES", after the 4.6.0-alpha.6 move
-      rolled back after 5 h over `stream-manager/stats.json`, rewritten every 30 s by a program outside
-      Orgtree's writer list):** a recursive `fs.watch` of the old folder starts before the first scan, and each
-      catch-up pass only lstats the paths it reported (a folder that appeared is scanned); an event without a
-      file name (dropped events) or an unusable watch falls back to one full rescan. The third pass is the
-      final copy: each file still changing gets its latest bytes, is verified against exactly those bytes, and
-      is named in the move log and the result report (`changedDuringMove`, "changed during the move; latest
-      version copied"); the move completes. Rollback stays for real failures: an unwritable or full target, a
-      copy error, or an unchanged file whose copy fails verification. Before the bulk copy, once the writers
-      are quiet, a 12 s watch (`DATA_MOVE_CHANGE_WATCH_MS`) lists files still changing in a "Continue anyway" /
-      Cancel dialog (Cancel copies nothing); no foreign process is looked for or stopped. Post-copy steps
-      report `stepLabel`/`stepDone`/`stepTotal` for the step meter. Review fixes (@idle-limit-sol R7-R1..R3
-      at c60da5a): the catch-up ends only on an EMPTY take made after the last copy and after strict
-      verification (3 passes + at most 2 drain rounds); each catch-up copy goes to a temporary file and
-      replaces the target only when the source's size and mtime were the same before and after the read and
-      every byte was read (up to 10 reads, 200 ms apart), so a torn, empty or short read is never written: an
-      earlier good copy (or the bulk copy) stays, and a new file without a complete read is not created. Such
-      a file is "could not be settled", and the old folder is NEVER deleted then, even with the delete box
-      ticked; the result screen and the move log give each original's path in it (`unsettledDuringMove`). A
-      folder below a changed folder that became a file is replaced too. Never silent (@coordinator-opus
-      m18c648fd4c71, final for this item: a file written without pause can always race a finite check): after
-      the bounded rounds one last take runs with nothing between it and the result; whatever it holds is
-      copied and named, as is what the last bounded round applied, and the old folder is then kept
-      (`oldFolderKeptBecauseChanging`). The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
+      rolled back after 5 h over `stream-manager/stats.json`):** before the bulk copy, once the writers are
+      quiet, a 12 s watch (`DATA_MOVE_CHANGE_WATCH_MS`) lists files still changing in a "Continue anyway" /
+      Cancel dialog (Cancel copies nothing); no foreign process is looked for or stopped. Its R7 post-copy
+      catch-up (watcher-driven recopy rounds, stable re-reads, "could not be settled", the kept old folder)
+      was removed in R8.
+    - **No post-copy check (R8, USER 2026-11-15 23:00:44Z m2cf493ed8f8c "Remove check, then release
+      (Rec.)", after 21:58Z "maybe just skip it entirely" and "if files change during tbe move, then theyre
+      just moved in an ineeterminate state"; the alpha.7 move spent about 47 min in catch-up and
+      verification passes for one changing file):** the copy is one pass. Each file is copied as it is when
+      read; its copy must hold every byte read, checked as it is copied; a file gone since the scan is
+      skipped. No catch-up, recopy, verification rescan or post-copy step meter remains, and the result
+      report has no changed/unsettled fields. Rollback stays for real failures (a copy error, a full or
+      unwritable target, the new engine not starting), and "Delete old folder" deletes it. The marker's `heartbeatAtMs` is refreshed every 60 s and its 6 h age counts from it (TS, Rust,
       `installer-upgrade.ps1`). In boot topology the `Orgtree Credential Helper` task is started after the new
       engine verified and after rollback. `coreLifecycle.transition(true)` stays (never `cancelRecovery`).
