@@ -9,6 +9,7 @@ import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
 import type { CanvasNode } from './shared'
 import { useNodeDetail } from '../nodedetail'
+import { openAttentionDeskWindow, windowFrame } from '../attention/deskwindows'
 
 export function deskGeneration(node: Pick<CanvasNode, 'generation'>): number {
   if (typeof node.generation !== 'number' || !Number.isSafeInteger(node.generation) || node.generation < 0) {
@@ -283,6 +284,9 @@ export interface DeskViewControl {
   place: string
   popout: () => void
   closeWindow: () => void
+  /** in a desk window: turn it into an attention desk window on this agent, where it is (USER 2026-11-15
+   *  mbf1f1ca2cfe9 item 3; attention/deskwindows.tsx) */
+  toAttention: () => void
 }
 export const DeskViewContext = createContext<DeskViewControl | null>(null)
 
@@ -334,7 +338,7 @@ function DeskView({ desks, deskKey, props, window: inWindow = false, stale = fal
     desks.put(deskKey, id, props, inWindow)
   }, [desks, deskKey, id, props, inWindow])
   useLayoutEffect(() => () => desks.remove(deskKey, id), [desks, deskKey, id])
-  const control = useRef<DeskViewControl>({ inWindow, place: 'place', popout: () => {}, closeWindow: () => {} })
+  const control = useRef<DeskViewControl>({ inWindow, place: 'place', popout: () => {}, closeWindow: () => {}, toAttention: () => {} })
   control.current.inWindow = inWindow
   control.current.place = inWindow ? 'window' : props.borrow ? 'floating' : props.openIn ?? 'place'
   control.current.popout = () => {
@@ -350,6 +354,10 @@ function DeskView({ desks, deskKey, props, window: inWindow = false, stale = fal
   control.current.closeWindow = () => {
     // Return to main window with no place there showing this desk: go to the agent, as the return always did
     if (!desks.shownInMain(deskKey)) props.onJump?.(props.node.id)
+    desks.closeWindow(deskKey)
+  }
+  control.current.toAttention = () => {
+    openAttentionDeskWindow(props.slug, props.node.id, windowFrame(anchor.current?.ownerDocument.defaultView))
     desks.closeWindow(deskKey)
   }
   const used = () => desks.touch(deskKey, id)

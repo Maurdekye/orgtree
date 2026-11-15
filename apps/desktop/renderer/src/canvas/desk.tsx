@@ -105,7 +105,7 @@ import {
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
   DocketIcon, HearingIcon, LayersIcon, LockIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
-  SettingsIcon, SparkIcon, StopIcon, WarnIcon,
+  SettingsIcon, SparkIcon, StopIcon, ViewListIcon, WarnIcon,
 } from '../icons'
 import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
@@ -4064,6 +4064,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           && (v !== 'files' || deskFilesVisible(view,readerAvailability))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
+          {deskView?.inWindow && <button type="button" className="popout-button" aria-label="Make attention desk"
+            title="Make attention desk: add the agents list, to switch the agent this window shows"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); deskView.toAttention() }}>
+            <ViewListIcon fontSize="inherit" /></button>}
           {deskView
             ? !(hidePopout && !deskView.inWindow) && <DeskPopoutButton control={deskView} />
             : !(hidePopout && !surface?.detached) && <PopoutButton />}

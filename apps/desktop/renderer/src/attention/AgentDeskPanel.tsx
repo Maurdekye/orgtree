@@ -98,6 +98,12 @@ export interface AgentDeskPanelProps {
    *  project never reaches `DeskSlot`, which is the AGENT desk; without this
    *  the panel draws ProjectDesk itself with the routes it has. */
   projectDesk?: (node: CanvasNode) => ReactNode
+  /** A SELECTION OF ITS OWN, for an attention desk in a window of its own (deskwindows.tsx): the agent it shows and
+   *  how that changes. Absent, the panel is the organization's main Attention desk and its selection is the
+   *  view's (`layout.agent`), as it always was. */
+  selection?: { agent: string | null; select: (id: string) => void }
+  /** controls at the end of the drawer's bar: an attention-desk window's Make plain desk */
+  barExtras?: ReactNode
 }
 
 type ListRow = TrayRow
@@ -150,7 +156,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
-  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft, projectDesk,
+  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft, projectDesk, selection, barExtras,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -169,16 +175,19 @@ export function AgentDeskPanel({
   // an effect: an effect would leave one frame showing a desk for an agent
   // that is gone, and — worse — would write the default into storage for an
   // organization whose real selection simply had not loaded yet.
-  const stored = layout.agent
+  const stored = selection ? selection.agent : layout.agent
   const selectedId = stored && map.has(stored) ? stored : fallback
   const selected = selectedId ? map.get(selectedId) : undefined
+  // the main window's button colours follow the main Attention desk only, never a window's own selection
   useEffect(() => {
-    if (eligible) setButtonAgent(slug, selected?.tier ? selected.id : null)
-  }, [slug, eligible, selected?.id, selected?.tier])
+    if (eligible && !selection) setButtonAgent(slug, selected?.tier ? selected.id : null)
+  }, [slug, eligible, selection, selected?.id, selected?.tier])
 
+  const ownSelect = selection?.select
   const select = useCallback((id: string) => {
-    setAttentionLayout(slug, { agent: id })
-  }, [slug])
+    if (ownSelect) ownSelect(id)
+    else setAttentionLayout(slug, { agent: id })
+  }, [slug, ownSelect])
   // a name in a row's status summary opens that agent's desk here, like a
   // press on its row
   const refs = useRefRoutes(slug, map, {
@@ -292,6 +301,7 @@ export function AgentDeskPanel({
           }}>
           {open ? <ChevronLeftIcon fontSize="inherit" /> : <ViewListIcon fontSize="inherit" />}
         </button>
+        {barExtras}
       </div>
       {/* the scrim: darkens the desk while the drawer is out, and a click on it
           closes the drawer. Always rendered so the dimming can fade. */}

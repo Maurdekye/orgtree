@@ -40,6 +40,7 @@ import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
 import { agentFocusHistory, NavigationDeskMemory, orgNavigationTarget, type OrgDirection } from './keyboardnavigation'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
+import { AttentionDeskWindows } from '../attention/deskwindows'
 import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
 import { tierEffortLevels, useSpentHireTiers } from './staffingoptions'
@@ -5511,6 +5512,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         `DeskHosts` so a desk it mounts registers in the ONE registry and
         cannot become a second live composer. It is focusable (tabIndex -1)
         because the world hands it focus when the canvas goes away. */}
+    {/* attention desks in windows of their own (attention/deskwindows.tsx, 4.6.1): the Attention view's agent desk
+        with the same routes the org slot gives it */}
+    {!isMobile && <AttentionDeskWindows slug={slug} tree={tree} op={op} toast={toast} map={map} posOf={posOf}
+      deskExtras={{ compactAt: tree.compact_at, maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,
+        onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView, onJump: centerOn }}
+      projectDesk={projectDeskOf} />}
     {renderOrgSlot && <div className="org-slot" ref={slotRef} tabIndex={-1}
       style={slotBox ? { left: slotBox.x, top: slotBox.y, width: slotBox.w, height: slotBox.h } : undefined}>
       {renderOrgSlot({
