@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { MovableSurface, PopoutChip, useSurface } from '../popout'
 import { openSurfaces, revealSurface, revealDetachedPanel } from '../windowlife'
 import { instanceKind } from '../modalkinds'
-import { savedDeskIdentities } from '../windowlayout'
+import { savedDeskIdentities, windowExitStarted } from '../windowlayout'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
@@ -69,6 +69,8 @@ interface View {
   props: DeskChatProps
   /** when this view was last pressed or focused: the "most recently used" place */
   usedAt: number
+  /** this view is the desk in a desk window */
+  inWindow: boolean
 }
 
 /** where a question's desktop notification found the asker's open desk */
@@ -88,13 +90,17 @@ class Desks {
   clock = 0
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
   change = () => { for (const fn of [...this.listeners]) fn() }
-  put(key: string, id: object, props: DeskChatProps) {
+  put(key: string, id: object, props: DeskChatProps, inWindow = false) {
     let m = this.views.get(key)
     if (!m) this.views.set(key, m = new Map())
     const prev = m.get(id)
-    m.set(id, { id, props, usedAt: prev?.usedAt ?? ++this.clock })
+    m.set(id, { id, props, usedAt: prev?.usedAt ?? ++this.clock, inWindow })
     // a prop update is not news to anyone; a new view, or one coming on or off screen, is
-    if (!prev || eligible(prev) !== eligible({ id, props, usedAt: 0 })) this.change()
+    if (!prev || eligible(prev) !== (props.eligible !== false)) this.change()
+  }
+  /** a place in the main window shows this desk (its window aside) */
+  shownInMain(key: string): boolean {
+    return [...(this.views.get(key)?.values() ?? [])].some((v) => !v.inWindow && eligible(v))
   }
   remove(key: string, id: object) {
     const m = this.views.get(key)
@@ -235,9 +241,16 @@ function PopoutDesk({ desks, winKey, win, props, box }: {
   return <div hidden ref={setDock}>
     {dock && <MovableSurface kind={`desk:${winKey}`} title={`${props.node.id} · desk`} org={props.slug} anchor={dock}
       sourceBox={() => box} exactSourceBox
-      onDetached={(v) => {
+      // the window's own Close ends this view, saving where the window was; at the app's exit it stays open, so the
+      // next start reopens it (MovableSurface `dismissWindow`)
+      onDismiss={() => desks.closeWindow(winKey)}
+      onDetached={(v, reason) => {
         if (v) { const done = win.onOpened; win.onOpened = undefined; done?.() }
-        else desks.closeWindow(winKey)
+        else if (!windowExitStarted()) {
+          // Return to main window with no place there showing this desk: go to the agent, as the return always did
+          if (reason !== 'close' && !desks.shownInMain(winKey)) props.onJump?.(props.node.id)
+          desks.closeWindow(winKey)
+        }
       }}>
       <PopoutDeskBody desks={desks} winKey={winKey} win={win} props={props} />
     </MovableSurface>}
@@ -310,8 +323,8 @@ function DeskView({ desks, deskKey, props, window: inWindow = false }: {
   const anchor = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (anchor.current) anchors.set(id, anchor.current)
-    desks.put(deskKey, id, props)
-  }, [desks, deskKey, id, props])
+    desks.put(deskKey, id, props, inWindow)
+  }, [desks, deskKey, id, props, inWindow])
   useLayoutEffect(() => () => desks.remove(deskKey, id), [desks, deskKey, id])
   const control = useRef<DeskViewControl>({ inWindow, popout: () => {}, closeWindow: () => {} })
   control.current.inWindow = inWindow
