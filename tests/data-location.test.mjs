@@ -2467,3 +2467,87 @@ test('R7-R3: a child folder that became a file is replaced in the new folder whe
     fs.watch = originalWatch
   }
 })
+
+// R7 review delta (@idle-limit-sol at e24c70e; @coordinator-opus m18c648fd4c71, final for this item:
+// "never succeed SILENTLY"): (1) a write after the post-verification take, and a batch still queued
+// when the round bound is hit, returned success with old bytes or a missing file and named nothing;
+// (2) a NEW file whose every read tore was written as 0 bytes. Now a last take follows every exit:
+// what it holds, and what the last bounded round applied, is named and the old folder is kept; a
+// file with no complete read is never written, but named with its original kept.
+test('R7 review delta: late writes are never silent, and a file with no complete read is never written', async () => {
+  const { datalocation: dl } = await loadDataLocationModules()
+  const datalocation = requireDatalocation(dl)
+
+  // 1. A write in the last seam after the post-verification take is copied and named; the old
+  //    folder must be kept.
+  {
+    const { dir, defaultData } = makeSandbox()
+    const steady = path.join(defaultData, 'steady.txt')
+    fs.writeFileSync(steady, 'old bytes')
+    const target = path.join(dir, 'LateSecondTarget')
+    const passes = []
+    const res = await datalocation.copyDataRootWithVerify(defaultData, target, {
+      watchSettleMs: 50,
+      onCatchUpPass: pass => {
+        passes.push(pass)
+        if (pass === 2) fs.writeFileSync(steady, 'LATEST bytes which must survive')
+      },
+    })
+    assert.ok(passes.includes(2), `passes: ${passes.join(',')}`)
+    assert.equal(fs.readFileSync(path.join(target, 'steady.txt'), 'utf8'), 'LATEST bytes which must survive')
+    assert.deepEqual(res.changedDuringMove, ['steady.txt'])
+    assert.equal(res.sourceStillChanging, true)
+  }
+
+  // 2. A batch still queued when the bounded rounds run out reaches the new folder and is named.
+  {
+    const { dir, defaultData } = makeSandbox()
+    const rogue = path.join(defaultData, 'rogue.log')
+    fs.writeFileSync(rogue, 'start\n')
+    const target = path.join(dir, 'BoundTarget')
+    const maxRounds = datalocation.MAX_RECOPY_PASSES + datalocation.FINAL_DRAIN_ROUNDS
+    let rounds = 0
+    const res = await datalocation.copyDataRootWithVerify(defaultData, target, {
+      watchSettleMs: 50,
+      beforeRescan: pass => { fs.appendFileSync(rogue, `pass ${pass}\n`) },
+      onRecopy: round => {
+        rounds = round
+        if (round < maxRounds) fs.appendFileSync(rogue, `round ${round}\n`)
+        else fs.writeFileSync(path.join(defaultData, 'late.txt'), 'late\n')
+      },
+    })
+    assert.ok(rounds >= maxRounds, `rounds: ${rounds}`)
+    assert.equal(fs.readFileSync(path.join(target, 'late.txt'), 'utf8'), 'late\n')
+    assert.ok(res.changedDuringMove.includes('late.txt') && res.changedDuringMove.includes('rogue.log'), res.changedDuringMove.join(','))
+    assert.equal(res.sourceStillChanging, true)
+  }
+
+  // 3. A NEW file whose every read tears is not written at all (never 0 bytes) and is unsettled.
+  {
+    const { dir, defaultData } = makeSandbox()
+    fs.writeFileSync(path.join(defaultData, 'steady.txt'), 'steady\n')
+    const fresh = path.join(defaultData, 'new.json')
+    const target = path.join(dir, 'NewTornTarget')
+    let reads = 0
+    const res = await datalocation.copyDataRootWithVerify(defaultData, target, {
+      watchSettleMs: 50,
+      beforeRescan: pass => { if (pass === 1) fs.writeFileSync(fresh, JSON.stringify({ v: 0, pad: 'p'.repeat(40) })) },
+      afterRecopyRead: rel => {
+        if (rel !== 'new.json') return
+        reads += 1
+        fs.writeFileSync(fresh, '')
+        fs.writeFileSync(fresh, JSON.stringify({ v: reads, pad: 'p'.repeat(40 + reads) }))
+      },
+    })
+    assert.ok(reads >= datalocation.STABLE_COPY_ATTEMPTS, `reads: ${reads}`)
+    assert.equal(fs.existsSync(path.join(target, 'new.json')), false, 'no 0-byte or torn copy of a non-empty file')
+    assert.deepEqual(res.unsettledPaths, ['new.json'])
+    assert.equal(fs.readFileSync(path.join(target, 'steady.txt'), 'utf8'), 'steady\n')
+  }
+
+  // 4. The move keeps the old folder when the source was still changing, and says so.
+  const src = fs.readFileSync(path.resolve('apps/desktop/main/datalocation.ts'), 'utf8')
+  assert.match(src, /still changing when the move finished/)
+  const settingsSrc = fs.readFileSync(path.resolve('apps/desktop/renderer/src/canvas/desktopsettings.tsx'), 'utf8')
+  assert.match(settingsSrc, /oldFolderKeptBecauseChanging/)
+})
