@@ -85,12 +85,20 @@ test('a popped-out desk turns into an attention desk: the agents drawer and the 
   assert.equal(s.open().length, 1, 'control: the desk window opened')
   const plain = s.open()[0]!.document
   assert.equal(attentionDesk(plain), false, 'control: a plain desk window has no agents drawer')
-  await click(plain.querySelector('button[aria-label="Make attention desk"]'))
+  const toggle = plain.querySelector('.cc-head-right button.popout-button[aria-label="Make attention desk"]')
+  assert.ok(toggle, 'the toggle is a header icon beside the pop-out button')
+  assert.equal(toggle!.getAttribute('aria-pressed'), 'false')
+  assert.equal(toggle!.getAttribute('title'), 'Make attention desk')
+  await click(toggle)
   assert.equal(s.open().length, 1, 'one window: the plain desk window became the attention desk')
   const win = s.open()[0]!.document
   assert.equal(attentionDesk(win), true, 'the window has the Attention desk\'s agents drawer')
   assert.equal(deskAgent(win), 'alpha', 'on the agent it was showing')
   assert.deepEqual(attentionDeskWindows(SLUG).map((w) => w.agent), ['alpha'], 'it is remembered with its agent')
+  const pressed = win.querySelector('.cc-head-right button.popout-button[aria-label="Make plain desk"]')
+  assert.ok(pressed, 'the same header icon is there, now to make it a plain desk')
+  assert.equal(pressed!.getAttribute('aria-pressed'), 'true')
+  assert.equal(pressed!.getAttribute('title'), 'Make plain desk')
   assert.equal(openSurfaces().some((x) => x.kind.startsWith('desk:')), false, 'the plain desk window is gone')
 })
 
