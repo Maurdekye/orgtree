@@ -1252,6 +1252,7 @@ export function readDataLocationMoveReport(userData: string): DataLocationLastMo
       remainingPaths,
       ...(changedDuringMove.length > 0 ? { changedDuringMove } : {}),
       ...(unsettledDuringMove.length > 0 ? { unsettledDuringMove } : {}),
+      ...(raw.oldFolderKeptBecauseChanging === true ? { oldFolderKeptBecauseChanging: true } : {}),
       ...(typeof raw.changedDuringMoveTotal === 'number' && Number.isFinite(raw.changedDuringMoveTotal) && raw.changedDuringMoveTotal > changedDuringMove.length
         ? { changedDuringMoveTotal: Math.floor(raw.changedDuringMoveTotal) }
         : {}),
@@ -1869,8 +1870,12 @@ async function copyFileCancellable(
 export const MAX_RECOPY_PASSES = 3
 /** Extra rounds after those passes while the watcher still reports changes (R7 review). */
 export const FINAL_DRAIN_ROUNDS = 2
-/** Reads of one file per round before it counts as "could not be settled" (R7 review). */
-export const STABLE_COPY_ATTEMPTS = 3
+/** Reads of one file per round before it counts as "could not be settled" (R7 review), with
+ *  STABLE_COPY_RETRY_MS between reads (about 2 s in all). */
+export const STABLE_COPY_ATTEMPTS = 10
+export const STABLE_COPY_RETRY_MS = 200
+/** Logged and shown when files were still changing as the copy finished: the old folder is kept. */
+export const STILL_CHANGING_NOTE = 'files were still changing when the move finished; the previous folder was kept'
 /** How a file that never held still during its copies is named; the old folder is kept. */
 export const UNSETTLED_DURING_MOVE_NOTE = 'could not be settled; the previous folder was kept'
 /** How long a catch-up pass lets the source watcher deliver pending events (R7). */
@@ -2115,6 +2120,7 @@ export async function copyDataRootWithVerify(
     /** Test seam: runs after each catch-up read of a file, before its source is checked again. */
     afterRecopyRead?: (relPosix: string, attempt: number) => Promise<void> | void
     watchSettleMs?: number
+    stableRetryMs?: number
   } = {},
 ): Promise<{
   filesCopied: number
@@ -2123,10 +2129,14 @@ export async function copyDataRootWithVerify(
   recopiedPaths: string[]
   changedDuringMove: string[]
   unsettledPaths: string[]
+  /** True when the last take still held changes (or the bounded rounds ran out): the caller
+   *  keeps the old folder; every such path is in changedDuringMove or unsettledPaths. */
+  sourceStillChanging: boolean
 }> {
   const { signal, onProgress } = options
   const skipSet = canonicalEntryKeySet(options.skipUnreadablePaths)
   const settleMs = options.watchSettleMs ?? WATCH_SETTLE_MS
+  const retryMs = options.stableRetryMs ?? STABLE_COPY_RETRY_MS
   const watch = startSourceWatch(sourceRoot)
   try {
     return await copyWatched()
@@ -2218,18 +2228,16 @@ export async function copyDataRootWithVerify(
 
     // A catch-up copy counts only when the source held still across the read (R7 review): the
     // same size and modification time before and after, and every byte of that size read. A
-    // copy goes to a temporary file and replaces the target only when it is stable, or (when
-    // the file never holds still) when it is complete for the size the source had: a torn,
-    // empty or short read never replaces an earlier good copy.
+    // copy goes to a temporary file and replaces the target only then; up to
+    // STABLE_COPY_ATTEMPTS reads with a short backoff. A torn, empty or short read is never
+    // written: an earlier good copy stays, and a new file without one is not created at all.
     const unsettled = new Set<string>()
     const stableCopy = async (item: ManifestItem): Promise<'ok' | 'gone' | 'unsettled'> => {
       const tmp = `${item.targetPath}.orgtree-recopy-${process.pid}.tmp`
-      let haveTarget = false
-      try { haveTarget = fs.lstatSync(item.targetPath).isFile() } catch { haveTarget = false }
       const discardTmp = () => { try { fs.unlinkSync(tmp) } catch { /* absent */ } }
-      let lastComplete = false
       for (let attempt = 1; attempt <= STABLE_COPY_ATTEMPTS; attempt++) {
         if (signal?.aborted) throw new Error('Data move cancelled')
+        if (attempt > 1 && retryMs > 0) await new Promise<void>(resolve => setTimeout(resolve, retryMs))
         let before: fs.Stats
         try {
           before = fs.lstatSync(item.sourcePath)
@@ -2251,22 +2259,18 @@ export async function copyDataRootWithVerify(
         try { after = fs.lstatSync(item.sourcePath) } catch (err) { if (errnoCode(err) !== 'ENOENT') throw err }
         if (!after) { discardTmp(); return 'gone' }
         const stable = after.size === before.size && after.mtimeMs === before.mtimeMs && copied === before.size
-        const complete = copied === after.size && (copied > 0 || after.size === 0)
-        if (stable || complete || !haveTarget) {
+        if (stable) {
           fs.renameSync(tmp, item.targetPath)
-          haveTarget = true
-          item.size = stable ? before.size : after.size
-          item.mtimeMs = stable ? before.mtimeMs : after.mtimeMs
+          item.size = before.size
+          item.mtimeMs = before.mtimeMs
           item.mode = before.mode
           item.copiedBytes = copied
-          lastComplete = stable
-          if (stable) return 'ok'
-        } else {
-          discardTmp()
+          return 'ok'
         }
+        discardTmp()
       }
       discardTmp()
-      return lastComplete ? 'ok' : 'unsettled'
+      return 'unsettled'
     }
 
     // Post-copy step meter: {stepLabel, stepDone, stepTotal}, throttled, each step ends done == total.
@@ -2455,6 +2459,11 @@ export async function copyDataRootWithVerify(
         }
         if (outcome === 'unsettled') unsettled.add(item.relPosix)
         else unsettled.delete(item.relPosix)
+        if (outcome === 'unsettled' && !prior) {
+          // A new file with no complete read is not written at all; its original stays in the old folder.
+          done += 1
+          continue
+        }
         manifest.set(item.relPosix, item)
         recopiedPaths.add(item.relPosix)
         copied.push(item.relPosix)
@@ -2506,39 +2515,70 @@ export async function copyDataRootWithVerify(
     // copies are "latest versions" and named; at most FINAL_DRAIN_ROUNDS more rounds follow.
     let round = 0
     let verifiedAll = false
+    let exitedByBound = false
+    let lastApplied: string[] = []
     const maxRounds = MAX_RECOPY_PASSES + FINAL_DRAIN_ROUNDS
+    const settle = async () => {
+      if (!watch.failed && settleMs > 0) await new Promise<void>(resolve => setTimeout(resolve, settleMs))
+    }
+    const hasChanges = (d: Delta) => d.changed.length > 0 || d.removed.length > 0 || d.newDirs.length > 0 || d.replacedDirs.length > 0
+    const applyRound = async (delta: Delta, final: boolean): Promise<string[]> => {
+      const applied = await applyDelta(delta, final ? 'Copying latest versions' : 'Copying changed files')
+      options.onRecopy?.(round, applied.copied, applied.removed)
+      const touched = [...applied.copied, ...applied.removed]
+      if (final) for (const rel of touched) changedDuringMove.add(rel)
+      if (verifiedAll) {
+        for (const rel of applied.copied) {
+          const item = manifest.get(rel)
+          if (item) await verifyItem(item)
+        }
+      }
+      return touched
+    }
     for (;;) {
       if (signal?.aborted) throw new Error('Data move cancelled')
       round += 1
       if (round <= MAX_RECOPY_PASSES) await options.beforeRescan?.(round)
-      if (!watch.failed && settleMs > 0) await new Promise<void>(resolve => setTimeout(resolve, settleMs))
+      await settle()
       const taken = watch.take()
       const mode = taken.overflow ? 'full' : 'watch'
       options.onCatchUpPass?.(round, mode)
       const delta = mode === 'full' ? await diffFull('Checking for changes') : await diffPaths(taken.paths, 'Checking for changes')
-      const changed = delta.changed.length > 0 || delta.removed.length > 0 || delta.newDirs.length > 0 || delta.replacedDirs.length > 0
-      if (changed) {
-        const final = round >= MAX_RECOPY_PASSES
-        const applied = await applyDelta(delta, final ? 'Copying latest versions' : 'Copying changed files')
-        options.onRecopy?.(round, applied.copied, applied.removed)
-        if (final) {
-          for (const rel of [...applied.copied, ...applied.removed]) changedDuringMove.add(rel)
-        }
-        if (verifiedAll) {
-          for (const rel of applied.copied) {
-            const item = manifest.get(rel)
-            if (item) await verifyItem(item)
-          }
-        }
+      if (hasChanges(delta)) {
+        lastApplied = await applyRound(delta, round >= MAX_RECOPY_PASSES)
         if (round < maxRounds) continue
+        exitedByBound = true
+      } else {
+        lastApplied = []
       }
       if (!verifiedAll) {
         if (signal?.aborted) throw new Error('Data move cancelled')
         await verifyAll()
         verifiedAll = true
-        if (round < maxRounds + 1) continue // one more take: writes that landed while verifying
+        if (!exitedByBound && round < maxRounds) continue // one more take: writes that landed while verifying
       }
       break
+    }
+
+    // Never silent (@coordinator-opus m18c648fd4c71): one last take after the loop, with no seam
+    // between it and the result. Whatever it holds is copied (stable reads only) and named, as is
+    // what the last bounded round applied; the old folder is then kept.
+    if (signal?.aborted) throw new Error('Data move cancelled')
+    await settle()
+    const lastTaken = watch.take()
+    const lastDelta = lastTaken.overflow ? await diffFull('Checking for changes') : await diffPaths(lastTaken.paths, 'Checking for changes')
+    const late = hasChanges(lastDelta)
+    const lateNames = new Set<string>([
+      ...lastDelta.changed.map(f => f.relPosix),
+      ...lastDelta.removed.map(f => f.relPosix),
+    ])
+    if (late) {
+      round += 1
+      await applyRound(lastDelta, true)
+    }
+    const sourceStillChanging = late || exitedByBound
+    if (sourceStillChanging) {
+      for (const rel of [...lastApplied, ...lateNames]) if (!unsettled.has(rel)) changedDuringMove.add(rel)
     }
     for (const rel of unsettled) changedDuringMove.delete(rel)
     for (const [relPosix, targetPath] of vanished) {
@@ -2575,6 +2615,7 @@ export async function copyDataRootWithVerify(
       recopiedPaths: [...recopiedPaths].sort(),
       changedDuringMove: [...changedDuringMove].sort(),
       unsettledPaths: [...unsettled].sort(),
+      sourceStillChanging,
     }
   }
 }
@@ -2911,8 +2952,20 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
     }
 
     let remainingPaths: string[] = skippedEntries.map(e => e.path)
-    if (options.deletePrevious && unsettledOldPaths.length > 0) {
-      appendDataLocationMoveLog(userData, 'old folder kept', `Not deleting ${oldRoot}: it holds the originals of files that could not be settled`)
+    const keepOldFolder = unsettledOldPaths.length > 0 || copied.sourceStillChanging
+    if (copied.sourceStillChanging) {
+      appendDataLocationMoveLog(
+        userData,
+        STILL_CHANGING_NOTE,
+        `The last check of ${oldRoot} still found changes; their latest copies are named above and the originals stay in ${oldRoot}`,
+      )
+    }
+    if (options.deletePrevious && keepOldFolder) {
+      appendDataLocationMoveLog(
+        userData,
+        'old folder kept',
+        `Not deleting ${oldRoot}: ${unsettledOldPaths.length > 0 ? 'it holds the originals of files that could not be settled' : STILL_CHANGING_NOTE}`,
+      )
     } else if (options.deletePrevious) {
       emit('cleaning', false, 'Deleting the previous data folder…', {
         filesCopied: copied.filesCopied,
@@ -2961,7 +3014,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
 
     const oldFolderDeleted = !fs.existsSync(oldRoot)
     const changedDuringMove = copied.changedDuringMove
-    if (skippedEntries.length > 0 || remainingPaths.length > 0 || changedDuringMove.length > 0 || unsettledOldPaths.length > 0) {
+    if (skippedEntries.length > 0 || remainingPaths.length > 0 || changedDuringMove.length > 0 || unsettledOldPaths.length > 0 || copied.sourceStillChanging) {
       await writeDataLocationMoveReport(userData, {
         movedAt,
         fromRoot: oldRoot,
@@ -2977,6 +3030,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
             }
           : {}),
         ...(unsettledOldPaths.length > 0 ? { unsettledDuringMove: unsettledOldPaths.slice(0, MAX_REPORTED_CHANGED_FILES) } : {}),
+        ...(copied.sourceStillChanging ? { oldFolderKeptBecauseChanging: true } : {}),
         pendingRestartNotice: true,
       })
     } else {

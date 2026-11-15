@@ -174,9 +174,16 @@ function unreadableCountLabel(entries: readonly DataLocationUnreadableEntry[] | 
 function ChangedDuringMoveList({ report }: { report: DataLocationLastMoveReport }) {
   const files = report.changedDuringMove ?? []
   const unsettled = report.unsettledDuringMove ?? []
-  if (files.length === 0 && unsettled.length === 0) return null
+  const keptBecauseChanging = report.oldFolderKeptBecauseChanging === true && unsettled.length === 0
+  if (files.length === 0 && unsettled.length === 0 && !keptBecauseChanging) return null
   const total = Math.max(report.changedDuringMoveTotal ?? 0, files.length)
   return <>
+    {keptBecauseChanging && (
+      <p>
+        Files were still changing when the move finished, so the previous folder{' '}
+        <code data-streamer-field="path">{report.fromRoot}</code> was kept with their originals.
+      </p>
+    )}
     {unsettled.length > 0 && <>
       <p>
         {unsettled.length === 1 ? '1 file' : `${unsettled.length} files`} could not be settled (they kept changing while being copied), so the previous folder{' '}
@@ -549,7 +556,7 @@ export function DataLocationSetting({ onDialogChange }: {
       ? activeReport.remainingPaths
       : activeReport.skippedEntries.map(e => e.path)
     : []
-  const showMoveReport = activeReport !== null && (reportPaths.length > 0 || (activeReport.changedDuringMove?.length ?? 0) > 0 || (activeReport.unsettledDuringMove?.length ?? 0) > 0)
+  const showMoveReport = activeReport !== null && (reportPaths.length > 0 || (activeReport.changedDuringMove?.length ?? 0) > 0 || (activeReport.unsettledDuringMove?.length ?? 0) > 0 || activeReport.oldFolderKeptBecauseChanging === true)
   const preflightUnreadable = preflight?.unreadableEntries ?? []
   const preflightUnreadableCount = preflightUnreadable.length
 

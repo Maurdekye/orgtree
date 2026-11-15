@@ -186,6 +186,8 @@ export interface DataLocationLastMoveReport {
   /** Files (their path in the kept previous folder) that never held still while copied: the
    *  previous folder is kept with their originals (R7 review). */
   unsettledDuringMove?: string[]
+  /** The last check still found changes: the previous folder was kept with their originals. */
+  oldFolderKeptBecauseChanging?: boolean
   pendingRestartNotice?: boolean
 }
 export interface DataLocationDeletePreviousResult {
