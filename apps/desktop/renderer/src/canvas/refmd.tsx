@@ -273,7 +273,10 @@ Map<string, MentionRef> | null {
  *  of docket items, and a multi-kilobyte attribute on a rendered description
  *  is a poor place for a cache. Absence can only cost one extra rebuild, so
  *  the record failing to be there is always safe. */
-const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; agents: Set<string> | null; live: boolean; wrap: boolean }>()
+const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; agents: Set<string> | null; live: boolean; wrap: boolean
+  /** the host's whole text when the scan found nothing AND it held no `@`:
+   *  the facts the plain-body exit in linkifyRefs needs (see there) */
+  plain?: string }>()
 
 function sameScan(host: HTMLElement, items: Map<string, MentionRef> | null,
   live: boolean, world: RefWorld): boolean {
@@ -291,10 +294,10 @@ function sameScan(host: HTMLElement, items: Map<string, MentionRef> | null,
 }
 
 function rememberScan(host: HTMLElement, items: Map<string, MentionRef> | null,
-  live: boolean, world: RefWorld): void {
+  live: boolean, world: RefWorld, plain?: string): void {
   const curAgents = world.agents instanceof Map ? new Set(world.agents.keys()) : null
   SCANNED.set(host, { names: new Set(items ? items.keys() : []), agents: curAgents, live,
-    wrap: objectMentionsWrap(host.ownerDocument) })
+    wrap: objectMentionsWrap(host.ownerDocument), ...(plain !== undefined ? { plain } : {}) })
 }
 
 /** everything one mention chip renders, for the cheap exit — the mirror of
@@ -421,6 +424,17 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     })
     if (same) return -1
     unlinkifyRefs(host)
+  } else {
+    // ⚠ THE PLAIN-BODY EXIT (4.6.1, refmdcheap.test.tsx). useRefMd runs this
+    // after EVERY render, and a body with no chips used to be walked and
+    // scanned again each time: every plain row of every desk, per re-render.
+    // Skipping is sound only on the same facts that produced "nothing": the
+    // same text, the same scan inputs (`sameScan`), and no `@` in it, because
+    // typed tokens and `@name` mentions are judged against the world, while
+    // bare docket names depend only on the names `sameScan` compares.
+    const prev = SCANNED.get(host)
+    if (prev?.plain !== undefined && prev.plain === host.textContent
+      && sameScan(host, items, live, world)) return -1
   }
   const texts: Text[] = []
   const walk = doc.createTreeWalker(host, 4 /* SHOW_TEXT */)
@@ -499,7 +513,8 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
   // found none" is the fact the next pass needs; without it a host with no
   // chips would be indistinguishable from one never scanned, and the exit
   // above would have nothing to compare when chips do appear.
-  rememberScan(host, items, live, world)
+  const text = host.textContent ?? ''
+  rememberScan(host, items, live, world, count === 0 && !text.includes('@') ? text : undefined)
   return count
 }
 
