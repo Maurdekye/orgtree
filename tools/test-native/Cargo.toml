@@ -1,0 +1,26 @@
+[package]
+name = "orgtree-test-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Test-only Windows helpers for the root tests (never shipped): lock holders, Job guardians, window probes"
+
+[[bin]]
+name = "orgtree-test-native"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+] }
+
+# its own workspace: never part of engine/rs, never packaged
+[workspace]
+
+[profile.dev]
+opt-level = 1
+debug = 0
