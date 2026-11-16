@@ -101,9 +101,48 @@ pub(crate) fn readable(p: &Presenter, raw: &str) -> Result<PathBuf> {
     Ok(canon)
 }
 
+/// Room left on the outbox's drive beyond the copy itself.
+pub(crate) const FREE_MARGIN: u64 = 64 * 1024 * 1024;
+
+/// The two things a copy asks of the machine, so tests can inject both: bytes free
+/// on the drive holding `path` (`None` = unknown, then no refusal) and the copy itself.
+#[derive(Debug)]
+pub(crate) struct CopyEnv {
+    pub free_space: fn(&Path) -> Option<u64>,
+    pub copy: fn(&Path, &Path) -> std::io::Result<u64>,
+}
+const REAL_ENV: CopyEnv = CopyEnv { free_space: free_bytes, copy: |from, to| std::fs::copy(from, to) };
+
+#[cfg(unix)]
+fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 { return None; }
+    Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
+}
+#[cfg(windows)]
+fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut avail = 0u64;
+    let ok = unsafe { windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(wide.as_ptr(), &mut avail, std::ptr::null_mut(), std::ptr::null_mut()) };
+    (ok != 0).then_some(avail)
+}
+#[cfg(not(any(unix, windows)))]
+fn free_bytes(_path: &Path) -> Option<u64> { None }
+
+fn gb(bytes: u64) -> String { format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0)) }
+
 /// Copy a checked file to a fresh outbox directory, even if the source is already in outbox.
+/// BLOCKING: the copy of a large file takes minutes, so async callers run this on a blocking thread.
 #[logged]
 pub(crate) fn snapshot(p: &Presenter, raw: &str, network: Option<&crate::net::AttachmentLimit>) -> Result<Value> {
+    snapshot_with(p, raw, network, &REAL_ENV)
+}
+
+#[logged]
+pub(crate) fn snapshot_with(p: &Presenter, raw: &str, network: Option<&crate::net::AttachmentLimit>, env: &CopyEnv) -> Result<Value> {
     let src = readable(p, raw)?;
     if !src.is_file() { refuse!(BadRequest, "attachment is not a file"); }
     let size = std::fs::metadata(&src)?.len();
@@ -122,18 +161,27 @@ pub(crate) fn snapshot(p: &Presenter, raw: &str, network: Option<&crate::net::At
     if !scope::path_within(&outbox.to_string_lossy(), &scratch.to_string_lossy()) {
         refuse!(Forbidden, "outbox escapes your working folder");
     }
+    // the copy needs `size` more bytes on the outbox's drive; refuse before writing any of it
+    if let Some(available) = (env.free_space)(&outbox) {
+        if available < size.saturating_add(FREE_MARGIN) {
+            refuse!(BadRequest, "{name} needs {} free in your working folder's drive; {} available", gb(size), gb(available));
+        }
+    }
     let folder = outbox.join(uid("delivery"));
     std::fs::create_dir(&folder)?;
     let dest = folder.join(&name);
-    std::fs::copy(&src, &dest)?;
-    let bytes = std::fs::metadata(&dest)?.len();
-    if let Some(limit) = network {
-        if let Err(e) = limit.check(bytes) {
-            std::fs::remove_file(&dest)?;
-            return Err(e);
-        }
+    // a copy or check that fails leaves neither a partial file nor its empty delivery folder
+    let result = (|| -> Result<Value> {
+        (env.copy)(&src, &dest)?;
+        let bytes = std::fs::metadata(&dest)?.len();
+        if let Some(limit) = network { limit.check(bytes)?; }
+        Ok(json!({ "name": name, "path": dest.to_string_lossy(), "bytes": bytes }))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&dest);
+        let _ = std::fs::remove_dir(&folder);
     }
-    Ok(json!({ "name": name, "path": dest.to_string_lossy(), "bytes": bytes }))
+    result
 }
 
 /// A markdown file presented by `path`: its text is the body, under the
@@ -331,7 +379,7 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
         }
     }
     drop(client);
-    // as in 3.x: an empty file is not delivered, and neither is one over 256 MB
+    // as in 3.x: an empty file is not delivered, and neither is one over the cap
     let src = readable(p, raw)?;
     if src.is_file() {
         let size = std::fs::metadata(&src)?.len();
@@ -339,10 +387,11 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
             refuse!(BadRequest, "{raw} is empty; nothing to send");
         }
         if size > SEND_MAX {
-            refuse!(BadRequest, "{raw} is {} MB, over the {} MB cap", size / (1024 * 1024), SEND_MAX / (1024 * 1024));
+            refuse!(BadRequest, "{raw} is {}, over the {} cap", gb(size), gb(SEND_MAX));
         }
     }
-    let copy = snapshot(p, raw, None)?;
+    // minutes of copying must not hold an engine worker
+    let copy = { let (p, raw) = (p.clone(), raw.to_string()); tokio::task::spawn_blocking(move || snapshot(&p, &raw, None)).await?? };
     let name = copy["name"].as_str().unwrap().to_string();
     let path = copy["path"].as_str().unwrap().to_string();
     let bytes = copy["bytes"].as_u64().unwrap() as i64;
@@ -385,5 +434,72 @@ mod requested_slug_tests {
         for args in [json!({ "slug": 7 }), json!({ "slug": ["a"] }), json!({ "slug": true })] {
             assert!(super::requested_slug(&args).unwrap_err().to_string().starts_with("slug is text"), "{args}");
         }
+    }
+}
+
+#[cfg(test)]
+mod send_file_copy_tests {
+    use super::*;
+
+    /// A scratch folder with one file in it, deleted on drop.
+    struct Fixture { root: PathBuf, presenter: Presenter }
+    impl Drop for Fixture { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.root); } }
+    fn fixture(bytes: &[u8]) -> Fixture {
+        let root = std::env::temp_dir().join(uid("sendcopy"));
+        let scratch = root.join("agent");
+        std::fs::create_dir_all(&scratch).unwrap();
+        std::fs::write(scratch.join("big.bin"), bytes).unwrap();
+        let presenter = Presenter { id: 1, name: "a".into(), may_present: true, scratch: scratch.clone(), dirs: vec![] };
+        Fixture { root, presenter }
+    }
+    fn deliveries(f: &Fixture) -> Vec<PathBuf> {
+        match std::fs::read_dir(f.presenter.scratch.join("outbox")) {
+            Ok(rd) => rd.map(|e| e.unwrap().path()).collect(),
+            Err(_) => vec![],
+        }
+    }
+    const PLENTY: fn(&Path) -> Option<u64> = |_| Some(u64::MAX);
+
+    #[test]
+    fn a_normal_small_send_is_unchanged() {
+        let f = fixture(b"hello");
+        let v = snapshot(&f.presenter, "big.bin", None).unwrap();
+        assert_eq!(v["name"], "big.bin");
+        assert_eq!(v["bytes"], 5);
+        assert_eq!(std::fs::read(v["path"].as_str().unwrap()).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn too_little_free_space_refuses_before_writing_anything() {
+        let f = fixture(&vec![7u8; 2048]);
+        let env = CopyEnv { free_space: |_| Some(FREE_MARGIN + 1024), copy: |_, _| panic!("must not copy") };
+        let err = snapshot_with(&f.presenter, "big.bin", None, &env).unwrap_err().to_string();
+        assert!(err.contains("big.bin needs") && err.contains("GB free in your working folder's drive") && err.contains("available"), "{err}");
+        assert!(deliveries(&f).iter().all(|d| std::fs::read_dir(d).map(|mut r| r.next().is_none()).unwrap_or(true)) && deliveries(&f).is_empty(), "no delivery folder left");
+    }
+
+    #[test]
+    fn exactly_enough_free_space_copies_and_unknown_free_space_is_not_a_refusal() {
+        let f = fixture(&vec![1u8; 2048]);
+        let ok = CopyEnv { free_space: |_| Some(2048 + FREE_MARGIN), copy: |a, b| std::fs::copy(a, b) };
+        assert_eq!(snapshot_with(&f.presenter, "big.bin", None, &ok).unwrap()["bytes"], 2048);
+        let unknown = CopyEnv { free_space: |_| None, copy: |a, b| std::fs::copy(a, b) };
+        assert_eq!(snapshot_with(&f.presenter, "big.bin", None, &unknown).unwrap()["bytes"], 2048);
+    }
+
+    #[test]
+    fn a_copy_that_fails_midway_removes_the_partial_file_and_its_folder() {
+        let f = fixture(&vec![1u8; 2048]);
+        let env = CopyEnv { free_space: PLENTY, copy: |_, to| { std::fs::write(to, b"partial")?; Err(std::io::Error::other("disk gone")) } };
+        let err = snapshot_with(&f.presenter, "big.bin", None, &env).unwrap_err().to_string();
+        assert!(err.contains("disk gone"), "{err}");
+        let left = deliveries(&f);
+        assert!(left.is_empty(), "a partial delivery was left: {left:?}");
+    }
+
+    #[test]
+    fn the_cap_message_reads_in_gb() {
+        assert_eq!(gb(32 * 1024 * 1024 * 1024), "32.0 GB");
+        assert_eq!(gb(1536 * 1024 * 1024), "1.5 GB");
     }
 }
