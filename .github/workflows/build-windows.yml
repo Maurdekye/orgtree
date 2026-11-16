@@ -38,9 +38,6 @@ jobs:
       # Toolchain pins = the local release PC (measured 2026-10-09).
       RUST_TOOLCHAIN: nightly-2025-12-12
       NODE_VERSION: 24.12.0
-      PYTHON_VERSION: 3.10.11
-      PIP_VERSION: 26.0.1
-      PIP_DISABLE_PIP_VERSION_CHECK: '1'
     steps:
       - name: Check out CI tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,21 +94,15 @@ jobs:
           cache: npm
           cache-dependency-path: src/package-lock.json
 
-      - name: Set up Python (host for runtime provisioning)
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Pin pip and install the Rust toolchain
+      - name: Install the Rust toolchain
         run: |
-          python -m pip install "pip==$env:PIP_VERSION"
           rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
           rustup default $env:RUST_TOOLCHAIN
-          node --version; npm --version; python --version; python -m pip --version
+          node --version; npm --version
           rustc -Vv; cargo -V
           if ($env:CARGO_TARGET_DIR) { throw 'CARGO_TARGET_DIR must be unset: packaging reads engine/rs/target' }
 
-      - name: Restore cargo registry and engine/custodian targets
+      - name: Restore cargo registry and engine target
         id: cache-cargo
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -120,8 +111,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             src/engine/rs/target
-            src/artifacts/postgres-provision/cargo
-          key: cargo-win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src/engine/rs/Cargo.lock', 'src/engine/native/pg-custodian/Cargo.lock') }}
+          key: cargo-win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src/engine/rs/Cargo.lock') }}
           restore-keys: cargo-win-${{ env.RUST_TOOLCHAIN }}-
 
       - name: Restore mail hub target
@@ -133,12 +123,12 @@ jobs:
           key: mailhub-win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src/engine/mailhub/Cargo.lock') }}
           restore-keys: mailhub-win-${{ env.RUST_TOOLCHAIN }}-
 
-      - name: Restore Python and PostgreSQL archives
+      - name: Restore the PostgreSQL archive
         id: cache-archives
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: src/.runtime-cache
-          key: runtime-archives-${{ hashFiles('src/tools/provision-runtime.py', 'src/tools/postgres-runtime-pin.json') }}
+          key: runtime-archives-${{ hashFiles('src/tools/postgres-runtime-pin.json') }}
 
       - name: Restore Electron and electron-builder downloads
         id: cache-electron
@@ -166,15 +156,12 @@ jobs:
         working-directory: src/engine/mailhub
         run: cargo build --release
 
-      - name: Provision the embedded Python runtime
+      # No Python runtime since 4.6.1: the installer's relaunch helper is the
+      # Rust orgtree-installer-relaunch.exe that cargo builds above, and
+      # pg-custodian.exe is no longer built or shipped.
+      - name: Provision PostgreSQL
         working-directory: src
-        env:
-          PIP_CONSTRAINT: ${{ github.workspace }}/ci/.github/ci/windows/runtime-constraints.txt
-        run: python tools/provision-runtime.py
-
-      - name: Provision PostgreSQL and build pg-custodian
-        working-directory: src
-        run: python tools/provision-postgres.py
+        run: node tools/provision-postgres.mjs
 
       - name: npm ci
         working-directory: src
@@ -191,7 +178,7 @@ jobs:
 
       # Saved before the launch smoke and even when a build step failed, so a
       # failing run still warms the next one (cold engine build: ~8 min).
-      - name: Save cargo registry and engine/custodian targets
+      - name: Save cargo registry and engine target
         if: always() && steps.cache-cargo.outcome == 'success' && steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -200,7 +187,6 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             src/engine/rs/target
-            src/artifacts/postgres-provision/cargo
           key: ${{ steps.cache-cargo.outputs.cache-primary-key }}
 
       - name: Save mail hub target
@@ -210,7 +196,7 @@ jobs:
           path: src/engine/mailhub/target
           key: ${{ steps.cache-mailhub.outputs.cache-primary-key }}
 
-      - name: Save Python and PostgreSQL archives
+      - name: Save the PostgreSQL archive
         if: always() && steps.cache-archives.outcome == 'success' && steps.cache-archives.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -285,7 +271,7 @@ jobs:
             src/release/*.json
             src/release/*.yml
             src/dist/build-info.json
-            src/engine/runtime/runtime-manifest.json
+            src/engine/postgres-runtime-manifest.json
             ${{ runner.temp }}/smoke/diagnostics/**
             ${{ runner.temp }}/smoke/*.txt
             ${{ runner.temp }}/smoke/*.log

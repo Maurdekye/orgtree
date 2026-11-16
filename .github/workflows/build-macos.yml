@@ -112,7 +112,7 @@ jobs:
           npm run build
 
       - name: PostgreSQL pin
-        run: echo "PG_SHA256=$(python3 -c "import json;print(json.load(open('.github/ci/macos/postgres-pin.json'))['sha256'])")" >> "$GITHUB_ENV"
+        run: echo "PG_SHA256=$(node -p "JSON.parse(require('fs').readFileSync('.github/ci/macos/postgres-pin.json','utf8')).sha256")" >> "$GITHUB_ENV"
 
       - name: PostgreSQL download cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

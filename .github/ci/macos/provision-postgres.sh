@@ -8,7 +8,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 download="$1"; out="$2"
-pin() { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])" "$here/postgres-pin.json" "$1"; }
+pin() { node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[process.argv[2]]' "$here/postgres-pin.json" "$1"; }
 url="$(pin url)"; bytes="$(pin bytes)"; sha="$(pin sha256)"
 zip="$download/$(basename "$url")"
 mkdir -p "$download"

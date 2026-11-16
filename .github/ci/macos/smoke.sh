@@ -24,7 +24,7 @@ ORGTREE_DATA="$tmp/engine-root" ORGTREE_V2_UI_DIR="$res/ui" ORGTREE_PG_BOOTSTRAP
 engine=$!
 port=""
 for _ in $(seq 1 180); do
-  port="$(grep -m1 '"type": *"ready"' "$tmp/engine-stdout.log" 2>/dev/null | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["port"])' 2>/dev/null)"
+  port="$(grep -m1 '"type": *"ready"' "$tmp/engine-stdout.log" 2>/dev/null | node -e 'let s = ""; process.stdin.on("data", d => { s += d }).on("end", () => console.log(JSON.parse(s).port))' 2>/dev/null)"
   [ -n "$port" ] && break
   kill -0 $engine 2>/dev/null || fail "engine exited before ready"
   sleep 1
@@ -42,7 +42,7 @@ ORGTREE_V2_DATA="$tmp/app-root" "$app/Contents/MacOS/Orgtree" >"$tmp/app.log" 2>
 appid=$!
 port=""
 for _ in $(seq 1 180); do
-  [ -f "$tmp/app-root/engine-port.json" ] && port="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["port"])' "$tmp/app-root/engine-port.json" 2>/dev/null)"
+  [ -f "$tmp/app-root/engine-port.json" ] && port="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).port' "$tmp/app-root/engine-port.json" 2>/dev/null)"
   # the app's engine guards its routes with the desktop token: any HTTP answer counts
   [ -n "$port" ] && [ "$(answers "$port")" != 000 ] && break
   kill -0 $appid 2>/dev/null || fail "app exited"

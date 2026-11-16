@@ -30,6 +30,8 @@
 # Usage: agent-tools-smoke.sh <orgtree-engine> <ui dir> <orgtree-fakecli> <logs dir>
 # AGENT_SMOKE_LANES (default "claude codex agy") picks the lanes.
 set -uo pipefail
+# JSON helpers (they were inline python3 snippets before 4.6.1)
+smokejson="$(cd "$(dirname "$0")" && pwd)/smoke-json.mjs"
 eng="$1" ui="$2" fake="$3" logs="$4"
 lanes="${AGENT_SMOKE_LANES:-claude codex agy}"
 leftovers="${AGENT_SMOKE_LEFTOVERS:-0}"
@@ -39,21 +41,9 @@ home="$work/home" bin="$work/bin" fdir="$work/fakecli" root="$work/Orgtree v2"
 mkdir -p "$home/.codex" "$bin" "$fdir" "$root"
 for cli in claude codex agy; do cp "$fake" "$bin/$cli" && chmod +x "$bin/$cli" || { echo "::error::cannot stage the fake CLI"; exit 1; }; done
 printf '{"oauthAccount":{"emailAddress":"smoke@example.com"}}\n' > "$home/.claude.json"
-python3 -c 'import base64,json,sys
-b = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
-json.dump({"OPENAI_API_KEY": None, "tokens": {"id_token": b({"alg": "none"}) + "." + b({"email": "smoke@example.com"}) + "."}},
-          open(sys.argv[1], "w"))' "$home/.codex/auth.json"
-python3 -c 'import json,sys
-hang = {"turns": [{"name": "spawn-and-hang", "steps": [{"spawn": "sleep 300"}, {"hang": True}]}]}
-finish = {"turns": [{"name": "spawn-and-finish", "steps": [{"spawn": "sleep 300"}, {"text": "Started it."}]}]}
-noshell = {"turns": [{"name": "shell", "steps": [
-    {"tool": "run_command", "args": {"CommandLine": "echo hi", "Cwd": "."}, "result": "hi"},
-    {"text": "I may not use the shell."}]}]}
-json.dump({"agents": {"left-retire": hang, "left-close": finish, "left-shutdown": hang, "tools-agy-noshell": noshell},
-           "default": {"turns": [{"name": "tool-smoke", "steps": [
-               {"tool": "orgtree_status", "args": {"status": "done", "summary": "agent tool smoke"}, "expect": "Status recorded"},
-               {"text": "OK."}]}]}}, open(sys.argv[1], "w"), indent=1)' "$fdir/scenario.json"
-hubport="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+node "$smokejson" codex-auth "$home/.codex/auth.json"
+node "$smokejson" fakecli-scenario "$fdir/scenario.json"
+hubport="$(node "$smokejson" free-port)"
 printf '{"version": 2, "port": %s, "bind": "127.0.0.1", "name": "smoke hub", "retention_days": null, "public_listener": false, "max_attachment_bytes": 1073741824}\n' \
   "$hubport" > "$root/mailhub-hosting.json"
 token="$(openssl rand -hex 32)"
@@ -75,11 +65,7 @@ start_engine() { # log suffix: engine<suffix>.out / .err
     "$eng" serve >"$logs/engine$1.out" 2>"$logs/engine$1.err" &
   pid=$! port=""
   for _ in $(seq 1 180); do
-    port="$(python3 -c 'import json,sys
-for l in open(sys.argv[1], errors="replace"):
-    try: m = json.loads(l)
-    except Exception: continue
-    if isinstance(m, dict) and m.get("type") == "ready": print(m["port"]); break' "$logs/engine$1.out" 2>/dev/null)"
+    port="$(node "$smokejson" ready-port "$logs/engine$1.out" 2>/dev/null)"
     [ -n "$port" ] && break
     kill -0 "$pid" 2>/dev/null || fail "engine exited before ready (see engine$1.err)"
     sleep 1
@@ -125,13 +111,7 @@ hire_and_wake() { # name tier [more hire fields, as ',"key":value']
   echo "hired $1 (tier $2) and sent it a message"
 }
 spawned_pid() { # agent: the pid of the child its fake CLI spawned, once logged
-  python3 -c 'import json,sys
-try:
-    for l in open(sys.argv[1], errors="replace"):
-        try: m = json.loads(l)
-        except Exception: continue
-        if m.get("kind") == "spawned" and m.get("child_pid"): print(m["child_pid"]); break
-except FileNotFoundError: pass' "$fdir/log/$1.jsonl" 2>/dev/null
+  node "$smokejson" spawned-pid "$fdir/log/$1.jsonl" 2>/dev/null
 }
 gone_within() { # pid seconds
   for _ in $(seq 1 "$2"); do kill -0 "$1" 2>/dev/null || return 0; sleep 1; done
@@ -142,13 +122,10 @@ hubs_before="$(ps -Ao pid=,command= | grep '[o]rgtree-mailhub' || true)"
 echo "== engine (packaged: $eng)"
 start_engine ""
 echo "--- lanes as the engine sees them (informational)"
-api GET /api/providers | python3 -c 'import json,sys
-d = json.load(sys.stdin)
-for k, v in (d.items() if isinstance(d, dict) else enumerate(d)):
-    if isinstance(v, dict): print(k, {x: v.get(x) for x in ("installed", "connected", "hire", "path", "version") if x in v})' \
+api GET /api/providers | node "$smokejson" providers-summary \
   || echo "(no provider summary)"
 
-org="$(api POST /api/orgs '{"name":"Tool Smoke","dirs":[],"net_autoconnect":false}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["slug"])')" \
+org="$(api POST /api/orgs '{"name":"Tool Smoke","dirs":[],"net_autoconnect":false}' | node "$smokejson" field slug)" \
   || fail "could not create an org"
 [ -n "$org" ] || fail "org create returned no slug"
 echo "org $org"
@@ -164,16 +141,7 @@ for _ in $(seq 1 240); do
   pending=0
   for lane in $lanes; do
     [ -s "$work/result-$lane" ] && continue
-    python3 -c 'import json,sys
-v = ""
-try:
-    for l in open(sys.argv[1], errors="replace"):
-        try: m = json.loads(l)
-        except Exception: continue
-        if m.get("kind") == "tool_result" and m.get("tool") == "orgtree_status":
-            v = "pass" if m.get("ok") is True and not m.get("is_error") else "fail: " + str(m.get("text"))[:300]
-except FileNotFoundError: pass
-if v: open(sys.argv[2], "w").write(v)' "$fdir/log/tools-$lane.jsonl" "$work/result-$lane" 2>/dev/null
+    node "$smokejson" status-verdict "$fdir/log/tools-$lane.jsonl" "$work/result-$lane" 2>/dev/null
     if [ -s "$work/result-$lane" ]; then echo "$lane: the fake CLI got the tool's answer: $(cat "$work/result-$lane")"; else pending=1; fi
   done
   [ "$pending" = 0 ] && break
@@ -200,19 +168,7 @@ if [ "$noshell" = 1 ]; then
   echo "--- an Antigravity agent without shell rights"
   verdict=""
   for _ in $(seq 1 120); do
-    verdict="$(python3 -c 'import json,re,sys
-hook = res = None
-try:
-    for l in open(sys.argv[1], errors="replace"):
-        try: m = json.loads(l)
-        except Exception: continue
-        if m.get("kind") == "hook" and m.get("event") == "PreToolUse" and m.get("tool") == "run_command": hook = m
-        if m.get("kind") == "tool_result" and m.get("tool") == "run_command": res = m
-except FileNotFoundError: pass
-if res is not None:
-    ok = (hook is not None and hook.get("decision") == "deny" and re.search("shell rights", str(hook.get("reason") or ""))
-          and res.get("denied") is True and re.search("denied by pre-tool hook", str(res.get("text") or "")))
-    print("pass" if ok else "fail: hook %s; result %s" % (json.dumps(hook)[:300], json.dumps(res)[:300]))' "$fdir/log/tools-agy-noshell.jsonl" 2>/dev/null)"
+    verdict="$(node "$smokejson" noshell-verdict "$fdir/log/tools-agy-noshell.jsonl" 2>/dev/null)"
     [ -n "$verdict" ] && break
     sleep 1
   done
