@@ -90,6 +90,12 @@ pub struct ProfileRelocationStats {
 
 #[logged]
 pub fn strip_verbatim_and_trailing(raw: &str) -> String {
+    strip_verbatim_and_trailing_quiet(raw)
+}
+
+/// The same, unlogged, for private link paths (`moved_path`).
+#[nolog]
+fn strip_verbatim_and_trailing_quiet(raw: &str) -> String {
     let trimmed = raw.trim();
     let plain = trimmed.strip_prefix(r"\\?\").unwrap_or(trimmed);
     // Keep a bare Windows drive root like `S:\` down to `S:` when matching
@@ -137,6 +143,12 @@ fn match_prefix_boundary<'a>(body: &'a str, from_clean: &str, case_insensitive: 
 /// Returns `None` when `value` is unrelated or already relocated to `to_clean`.
 #[logged]
 pub fn rewrite_path_str(value: &str, from_variants: &[String], to_clean: &str) -> Option<String> {
+    rewrite_path_quiet(value, from_variants, to_clean)
+}
+
+/// The same, unlogged, for private link paths (`moved_path`).
+#[nolog]
+fn rewrite_path_quiet(value: &str, from_variants: &[String], to_clean: &str) -> Option<String> {
     if value.is_empty() || to_clean.is_empty() {
         return None;
     }
@@ -434,8 +446,34 @@ fn unlink_reparse_or_symlink(path: &Path) {
 /// file and Markdown image routes use this only when the stored path is gone.
 /// Never maps a path with a `..` component. Paths are private: not logged.
 #[nolog]
-pub fn moved_path(_data_root: &Path, _raw: &str) -> Option<PathBuf> {
-    None
+pub fn moved_path(data_root: &Path, raw: &str) -> Option<PathBuf> {
+    let given = Path::new(raw);
+    if !given.is_absolute() || given.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return None;
+    }
+    let Ok(text) = std::fs::read_to_string(data_root.join(RECEIPT_REL_PATH)) else { return None };
+    let mut current = raw.to_string();
+    let mut changed = false;
+    for line in text.lines() {
+        let Ok(receipt) = serde_json::from_str::<Value>(line) else { continue };
+        let Some(to) = receipt["toRoot"].as_str() else { continue };
+        let mut from: Vec<String> = receipt["fromVariants"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(strip_verbatim_and_trailing_quiet)
+            .collect();
+        if let Some(root) = receipt["fromRoot"].as_str() {
+            from.push(strip_verbatim_and_trailing_quiet(root));
+        }
+        from.retain(|f| !f.is_empty());
+        if let Some(next) = rewrite_path_quiet(&current, &from, &strip_verbatim_and_trailing_quiet(to)) {
+            current = next;
+            changed = true;
+        }
+    }
+    changed.then(|| PathBuf::from(current))
 }
 
 #[logged]

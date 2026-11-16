@@ -1322,8 +1322,11 @@ fn resolve_link_path(data_root: &FsPath, scratch: &FsPath, raw: &str) -> Option<
     if let Ok(canon) = std::fs::canonicalize(&path) {
         return Some(crate::config::strip_verbatim(&canon));
     }
-    let _ = data_root;
-    None
+    if !PathBuf::from(raw).is_absolute() {
+        return None;
+    }
+    let moved = crate::data_relocate::moved_path(data_root, raw)?;
+    std::fs::canonicalize(moved).ok().map(|canon| crate::config::strip_verbatim(&canon))
 }
 
 /// Inside one of the folders the desk may link to.

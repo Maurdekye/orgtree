@@ -39,12 +39,23 @@ pub async fn get(State(e): State<Arc<Engine>>, Query(query): Query<ImageQuery>) 
 }
 
 async fn local_image(path: String, data_root: &Path) -> Result<Vec<u8>, StatusCode> {
-    let _ = data_root;
     if path.len() > 32_768 {
         return Err(StatusCode::URI_TOO_LONG);
     }
-    let path = local_image_path(&path)?;
-    let metadata = local_image_metadata(&path).await?;
+    let raw = path;
+    let path = local_image_path(&raw)?;
+    // A link written before a Data location move names the old root: only when
+    // that file is gone, the same relative path under the current root is tried,
+    // with the same checks (`data_relocate::moved_path` never maps `..`).
+    let (path, metadata) = match local_image_metadata(&path).await {
+        Err(StatusCode::NOT_FOUND) => {
+            let moved = crate::data_relocate::moved_path(data_root, &raw).ok_or(StatusCode::NOT_FOUND)?;
+            let moved = local_image_path(moved.to_str().ok_or(StatusCode::NOT_FOUND)?)?;
+            let metadata = local_image_metadata(&moved).await?;
+            (moved, metadata)
+        }
+        other => (path, other?),
+    };
     if metadata.len() > MAX_BYTES as u64 {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
