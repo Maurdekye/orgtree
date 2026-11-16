@@ -47,7 +47,8 @@ export function LiveFeedSetting() {
     if (!org) { setAgents([]); return }
     let live = true
     req<{ agents: string[] }>(`/api/app-settings/live-feed/agents?org=${encodeURIComponent(org)}`)
-      .then(r => { if (live) { setAgents(r.agents); setAgent(a => (r.agents.includes(a) ? a : r.agents[0] ?? '')) } })
+      // an answer without the list is an empty one: the update below runs outside this request's catch
+      .then(r => { const list = Array.isArray(r.agents) ? r.agents : []; if (live) { setAgents(list); setAgent(a => (list.includes(a) ? a : list[0] ?? '')) } })
       .catch(() => { if (live) setAgents([]) })
     return () => { live = false }
   }, [org])
