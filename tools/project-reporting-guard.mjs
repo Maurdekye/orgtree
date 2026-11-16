@@ -1,6 +1,8 @@
 // Scoped source guard for audited reporting entry points. Structural tree walks,
 // project features and the signed physical-parent peer-mail exception stay legal.
-// Run: node tools/project-reporting-guard.mjs --self-test
+// Run: node tools/project-reporting-guard.mjs --self-test [--json-output PATH]
+// This is the whole Rust-only source audit (it was tools/source-audits.py
+// --rust-only before 4.6.1).
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
@@ -93,5 +95,13 @@ if(process.argv.includes('--self-test')) {
   }
   assert.deepEqual(rawDecisions('domain/projects.rs','SELECT id FROM ot.agents WHERE parent_id IS NULL'),[])
 }
-console.log(JSON.stringify({guard:'project-reporting',contracts:contracts.length,scanned_files:sources.size,structural_exceptions:[...structural],rejected_mutants:rejected,passed:errors.length===0,errors},null,2))
+const report=JSON.stringify({guard:'project-reporting',contracts:contracts.length,scanned_files:sources.size,structural_exceptions:[...structural],rejected_mutants:rejected,passed:errors.length===0,errors},null,2)
+console.log(report)
+// --json-output PATH: the same receipt as a file (replaces tools/source-audits.py --rust-only --json-output, 4.6.1).
+const jsonOutput=process.argv.indexOf('--json-output')
+if(jsonOutput>0) {
+  const target=process.argv[jsonOutput+1]
+  if(!target) { console.error('--json-output needs a path'); process.exit(2) }
+  fs.writeFileSync(target,report+'\n')
+}
 process.exitCode=errors.length?1:0
