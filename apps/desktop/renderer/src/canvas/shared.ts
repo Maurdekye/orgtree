@@ -3115,10 +3115,10 @@ const normalizeAngleDest = (seg: string) =>
 const BARE_WIN_DEST = /\]\(([A-Za-z]:[\\/][^()<>\s]*)\)/g
 
 /** A local drive file URL is a valid Markdown target, but DOMPurify quite
- *  correctly removes `file:` from hrefs. Convert only the empty-authority,
- *  drive-letter form into the existing reveal-only Windows path before
+ *  correctly removes `file:` from hrefs. Convert only the empty-authority
+ *  form (a drive letter, or on Linux/macOS an absolute path) into the existing reveal-only path before
  *  sanitizing. Remote `file://host/...` and other file URLs stay unsupported. */
-const LOCAL_FILE_URI_DEST = /(^|[^!])\[([^\]\n]*)\]\((file:\/\/\/[A-Za-z]:\/[^()\s<>]*)\)/gi
+const LOCAL_FILE_URI_DEST = /(^|[^!])\[([^\]\n]*)\]\((file:\/\/\/[^()\s<>]*)\)/gi
 const normalizeLocalFileUri = (all: string, before: string, label: string,
                                dest: string) => {
   try {

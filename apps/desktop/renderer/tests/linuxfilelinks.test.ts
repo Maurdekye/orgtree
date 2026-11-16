@@ -87,14 +87,14 @@ test('§7 Windows: a POSIX-looking path stays exactly as written, and drive path
   try {
     assert.equal(posixFilePath('/home/u/f.md'), null)
     assert.equal(parse('[f](</home/u/f.md>)')!.getAttribute('data-local-path'), null)
-    assert.equal(parse('[f](<C:\Users\n\a b.exe>)')!.getAttribute('data-local-path'), 'C:\Users\n\a b.exe')
+    assert.equal(parse(String.raw`[f](<C:\Users\ncola\a b.exe>)`)!.getAttribute('data-local-path'), String.raw`C:\Users\ncola\a b.exe`)
   } finally { on(null) }
 })
 
 test('§8 Linux: Windows drive links keep working (unchanged)', () => {
   on('Linux x86_64')
   try {
-    assert.equal(parse('[f](<C:\Users\n\a b.exe>)')!.getAttribute('data-local-path'), 'C:\Users\n\a b.exe')
+    assert.equal(parse(String.raw`[f](<C:\Users\ncola\a b.exe>)`)!.getAttribute('data-local-path'), String.raw`C:\Users\ncola\a b.exe`)
   } finally { on(null) }
 })
 
