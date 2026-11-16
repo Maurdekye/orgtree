@@ -7,39 +7,84 @@ const names = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode (ACP)
 const registryIds: Record<string, string> = { claude: 'claude-code', codex: 'codex-cli' }
 export type HarnessSetup = { id: string; name: string; url: string; detected: boolean }
 
-function knownClaude() {
+// PRESENCE WITHOUT BLOCKING (@item:orgtree/nick-pc-4-6-0-desktop-main-process-stalls-input-f item 3): this scan was
+// 100-600 statSync calls (5 harnesses x every PATH folder x 4 extensions) on EVERY tray rebuild, at least every 5 s,
+// measured in Nick-PC's main-thread stall stacks. It is now asynchronous, and HarnessCache runs it at most every 5
+// minutes; the tray uses the engine's registry first (USER via @coordinator-opus mc30c3aeead90, choice B).
+const isFile = async (file?: string) => { try { return !!file && (await fs.promises.stat(file)).isFile() } catch { return false } }
+
+async function knownClaude(): Promise<string | undefined> {
   const profile = os.homedir()
   const candidates = [path.join(profile, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude')]
   if (process.platform === 'win32') candidates.push(path.join(
     process.env.APPDATA || path.join(profile, 'AppData', 'Roaming'), 'npm', 'claude.cmd'))
-  return candidates.find(file => { try { return fs.statSync(file).isFile() } catch { return false } })
+  for (const file of candidates) if (await isFile(file)) return file
+  return undefined
 }
 
-function knownMuse() {
+async function knownMuse(): Promise<string | undefined> {
   if (process.env.ORGTREE_MUSE_BIN) return process.env.ORGTREE_MUSE_BIN
   const dir = process.platform === 'win32'
     ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Programs', 'muse')
     : path.join(os.homedir(), '.local', 'bin')
-  try { return fs.readdirSync(dir).filter(n => n.startsWith('muse-bin-')).map(n => path.join(dir, n)).find(p => fs.statSync(p).isFile()) } catch { return undefined }
+  try {
+    for (const n of (await fs.promises.readdir(dir)).filter(n => n.startsWith('muse-bin-'))) if (await isFile(path.join(dir, n))) return path.join(dir, n)
+  } catch { /* no folder */ }
+  return undefined
 }
 
+export type HarnessRow = { id: keyof typeof HARNESS_LINKS; name: string; url: string; detected: boolean }
+
 /** Presence only. Never launches, logs in, installs, or contacts a provider. */
-export function detectHarnesses(searchPath = process.env.PATH ?? '', knownLocations: Partial<Record<keyof typeof HARNESS_LINKS, string>> = {
-  claude: knownClaude(),
-  codex: process.env.ORGTREE_CODEX,
-  muse: knownMuse(),
-  opencode: process.platform === 'win32' ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@opencode', 'cli', 'bin', 'opencode.exe') : undefined,
-  antigravity: process.env.ORGTREE_ANTIGRAVITY || (process.platform === 'win32'
-    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'agy', 'bin', 'agy.exe')
-    : path.join(os.homedir(), '.local', 'bin', 'agy')),
-}) {
+export async function detectHarnesses(searchPath = process.env.PATH ?? '', knownLocations?: Partial<Record<keyof typeof HARNESS_LINKS, string>>): Promise<HarnessRow[]> {
+  const known = knownLocations ?? {
+    claude: await knownClaude(),
+    codex: process.env.ORGTREE_CODEX,
+    muse: await knownMuse(),
+    opencode: process.platform === 'win32' ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@opencode', 'cli', 'bin', 'opencode.exe') : undefined,
+    antigravity: process.env.ORGTREE_ANTIGRAVITY || (process.platform === 'win32'
+      ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'agy', 'bin', 'agy.exe')
+      : path.join(os.homedir(), '.local', 'bin', 'agy')),
+  }
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
-  const exists = (file?: string) => { try { return !!file && fs.statSync(file).isFile() } catch { return false } }
-  return (Object.keys(HARNESS_LINKS) as (keyof typeof HARNESS_LINKS)[]).map(id => ({ id, name: names[id], url: HARNESS_LINKS[id],
-    detected: exists(knownLocations[id]) || searchPath.split(path.delimiter).filter(Boolean).some(dir => extensions.some(ext => {
-      try { return fs.statSync(path.join(dir.replace(/^"|"$/g, ''), (id === 'antigravity' ? 'agy' : id) + ext)).isFile() } catch { return false }
-    })),
-  }))
+  const dirs = searchPath.split(path.delimiter).filter(Boolean).map(dir => dir.replace(/^"|"$/g, ''))
+  const onPath = async (id: string) => {
+    for (const dir of dirs) for (const ext of extensions) if (await isFile(path.join(dir, (id === 'antigravity' ? 'agy' : id) + ext))) return true
+    return false
+  }
+  return Promise.all((Object.keys(HARNESS_LINKS) as (keyof typeof HARNESS_LINKS)[]).map(async id => ({ id, name: names[id], url: HARNESS_LINKS[id],
+    detected: await isFile(known[id]) || await onPath(id) })))
+}
+
+export const HARNESS_SCAN_MAX_AGE_MS = 5 * 60_000
+
+const undetected = (): HarnessRow[] => (Object.keys(HARNESS_LINKS) as (keyof typeof HARNESS_LINKS)[])
+  .map(id => ({ id, name: names[id], url: HARNESS_LINKS[id], detected: false }))
+
+/** The last presence scan, refreshed asynchronously at most every HARNESS_SCAN_MAX_AGE_MS. `onUpdate` runs when a
+ *  scan lands (the tray rebuilds then). Before the first scan every harness reads "not detected". */
+export class HarnessCache {
+  private rows: HarnessRow[] | null = null
+  private at = -Infinity
+  private running: Promise<HarnessRow[]> | null = null
+  constructor(private readonly onUpdate: () => void = () => {},
+    private readonly scan: () => Promise<HarnessRow[]> = () => detectHarnesses(),
+    private readonly now: () => number = Date.now,
+    private readonly maxAgeMs = HARNESS_SCAN_MAX_AGE_MS) {}
+  /** The cached rows, never waiting; `refresh` starts a scan when they are stale. */
+  current(refresh: boolean): HarnessRow[] {
+    if (refresh && !this.running && this.now() - this.at >= this.maxAgeMs) void this.refresh()
+    return this.rows ?? undetected()
+  }
+  /** Rows no older than the limit: the cache, or a scan's result. */
+  async fresh(): Promise<HarnessRow[]> {
+    return this.rows && this.now() - this.at < this.maxAgeMs ? this.rows : this.refresh()
+  }
+  refresh(): Promise<HarnessRow[]> {
+    this.running ??= this.scan().then(rows => { this.rows = rows; return rows }, () => this.rows ?? undetected())
+      .finally(() => { this.at = this.now(); this.running = null; try { this.onUpdate() } catch { /* the tray only */ } })
+    return this.running
+  }
 }
 
 /** Bounded, authenticated registry read. Old/offline engines use shell presence. */
@@ -65,7 +110,7 @@ export async function readHarnessRegistry(origin: string | null | undefined, tok
 }
 
 /** Stable registry order within detected/missing groups; setup is always clickable. */
-export function harnessSetupMenu(registry: HarnessSetup[] | null, fallback: ReturnType<typeof detectHarnesses>, open: (url: string) => unknown) {
+export function harnessSetupMenu(registry: HarnessSetup[] | null, fallback: HarnessRow[], open: (url: string) => unknown) {
   const rows = registry ? [...registry] : []
   for (const h of fallback) {
     const id = registryIds[h.id] || h.id

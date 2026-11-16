@@ -15,7 +15,7 @@
  *  it can never grow without bound. Best effort: a full disk or a missing
  *  data root never breaks a window. Pure apart from the filesystem (no
  *  electron import) so tests/window-events.test.mjs drives it. */
-import fs from 'node:fs'
+import { appendRotating, flushAppends } from './async-append'
 import path from 'node:path'
 
 export const WINDOW_EVENTS_LOG = path.join('diagnostics', 'desktop-windows.jsonl')
@@ -43,14 +43,12 @@ export class WindowEventLog {
     try {
       const file = this.file()
       if (!file) return
-      fs.mkdirSync(path.dirname(file), { recursive: true })
-      let size = 0
-      try { size = fs.statSync(file).size } catch { /* not there yet */ }
-      if (size > this.maxBytes) fs.renameSync(file, file + '.1')
       const line = { at: this.clock().toISOString(), window, kind: facts?.kind, org: facts?.org, ...what }
-      fs.appendFileSync(file, JSON.stringify(line) + '\n')
+      appendRotating(file, JSON.stringify(line) + '\n', this.maxBytes, 1)
     } catch { /* diagnostics never break the window they describe */ }
   }
+  /** Settles when every line recorded so far is on disk (the writes are queued off the main thread). */
+  flush(): Promise<void> { return flushAppends() }
 }
 
 /** Record one main window's native events. `facts` is asked at event time,

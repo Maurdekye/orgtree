@@ -16,16 +16,17 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }))
 
 let roots = 0
 const fresh = () => { const root = path.join(temp, `root-${++roots}`); fs.mkdirSync(root); return root }
-const lines = file => fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
+const settle = () => new StallLog({ file: () => undefined }).flush()   // the writes are queued off the main thread (async-append.ts)
+const lines = async file => { await settle(); return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : [] }
 const clockAt = t => () => new Date(t.now)
 
-test('the file is diagnostics/ui-stalls.jsonl and a record is one allowlisted v:1 line', () => {
+test('the file is diagnostics/ui-stalls.jsonl and a record is one allowlisted v:1 line', async () => {
   assert.equal(STALL_LOG, path.join('diagnostics', 'ui-stalls.jsonl'))
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-04T19:00:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t), app: () => '4.5.5-alpha.4 fa64d93' })
   log.write('renderer-loaf', { at_ms: Date.parse('2026-11-04T18:59:59Z'), ms: 912.34, unknown_key: 'dropped', loaf: { blocking: 800, scripts: [{ fn: 'busy', ms: 700, extra: 1 }] },
     ctx: { screen: 'nonsense', panel: 'docket', popout: null }, input: [{ type: 'weird', target: 'desk-composer' }], dropped: 2 }, { id: '7c0e4a89-787d-412d-a45b-ca83419549d8', org: true })
-  const [r] = lines(file)
+  const [r] = (await lines(file))
   assert.equal(r.v, 1); assert.equal(r.src, 'renderer-loaf'); assert.equal(r.at, '2026-11-04T18:59:59.000Z'); assert.equal(r.ms, 912.3)
   assert.equal(r.window, '7c0e4a89-787d-412d-a45b-ca83419549d8'); assert.equal(r.org_window, true); assert.equal(r.app, '4.5.5-alpha.4 fa64d93'); assert.equal(r.dropped, 2); assert.equal(r.truncated, false)
   assert.equal('unknown_key' in r, false, 'unknown keys are dropped')
@@ -34,7 +35,7 @@ test('the file is diagnostics/ui-stalls.jsonl and a record is one allowlisted v:
   assert.equal(r.input[0].type, 'other'); assert.equal(r.input[0].target, 'desk-composer')
 })
 
-test('ST3 paths, free strings and routes are redacted before anything is written', () => {
+test('ST3 paths, free strings and routes are redacted before anything is written', async () => {
   assert.equal(redactUrl('file:///C:/Users/x/AppData/Local/Programs/Orgtree/resources/app/x.js?v=1#frag'), 'app:/x.js')
   assert.equal(redactUrl('file:///C:/Users/x/AppData/.../app/x.js'), 'app:/x.js')
   assert.equal(redactUrl('http://127.0.0.1:5173/assets/a.js?q=1'), 'app:/assets/a.js')
@@ -49,37 +50,40 @@ test('ST3 paths, free strings and routes are redacted before anything is written
     fetch: [{ route: '/api/orgs/acme/agents/bob/mail?x=1', method: 'GET', age_ms: 5 }] })
   log.write('renderer-ping', { blocked_ms: 900, stacks: ['at busy (file:///C:/Users/x/AppData/.../app/x.js:10:5)\nat k (D:\\a\\b:1:1)', 'unavailable:no-api'] })
   log.write('main-lag', { lag_ms: 800, main_stack: 'unavailable:not-attempted' })
-  const [loaf, ping, lag] = lines(file)
+  const [loaf, ping, lag] = (await lines(file))
   assert.equal(loaf.loaf.scripts[0].url, 'app:/x.js'); assert.ok(loaf.loaf.scripts[0].fn.includes('<redacted:paths>'))
   assert.equal(loaf.fetch[0].route, '/api/orgs/<org>/agents/<id>/mail')
   assert.deepEqual(ping.stacks[0], ['at busy (app:/x.js:10:5)', 'at k (<redacted:paths>'])
   assert.equal(ping.stacks[1], 'unavailable:no-api'); assert.equal(lag.main_stack, 'unavailable:not-attempted')
+  await settle()
   assert.ok(!fs.readFileSync(file, 'utf8').includes('bob'), 'no name survives')
 })
 
-test('ST6 the writer allows 30 lines a minute and counts what it dropped on the next line', () => {
+test('ST6 the writer allows 30 lines a minute and counts what it dropped on the next line', async () => {
   const file = path.join(fresh(), STALL_LOG), t = { now: 1_800_000_000_000 }
   const log = new StallLog({ file: () => file, clock: clockAt(t) })
   for (let i = 0; i < 40; i++) { t.now += 1000; log.write('sync-ipc', { ms: 150, channel: 'c' + i }) }
-  assert.equal(lines(file).length, 30)
+  assert.equal((await lines(file)).length, 30)
   t.now += 120_000
   log.write('sync-ipc', { ms: 150, channel: 'later' })
-  const all = lines(file)
+  const all = (await lines(file))
   assert.equal(all.length, 31); assert.equal(all[30].dropped, 10); assert.equal(all[29].dropped, 0)
 })
 
-test('ST7 rotation keeps three files at most; an oversize record is truncated to 16 KB; a bad directory never throws', () => {
+test('ST7 rotation keeps three files at most; an oversize record is truncated to 16 KB; a bad directory never throws', async () => {
   const root = fresh(), file = path.join(root, STALL_LOG), t = { now: 1_800_000_000_000 }
   const log = new StallLog({ file: () => file, clock: clockAt(t), maxBytes: 2000 })
   for (let i = 0; i < 24; i++) { t.now += 5000; log.write('main-lag', { lag_ms: 800, main_stack: Array.from({ length: 6 }, (_, k) => `fn${i}_${k} (app:/a.js:${k}:1)`) }) }
+  await settle()
   const present = fs.readdirSync(path.dirname(file)).filter(n => n.startsWith('ui-stalls.jsonl')).sort()
   assert.deepEqual(present, ['ui-stalls.jsonl', 'ui-stalls.jsonl.1', 'ui-stalls.jsonl.2'])
   const big = path.join(fresh(), STALL_LOG)
   const log2 = new StallLog({ file: () => big, clock: clockAt({ now: 5 }) })
   log2.write('renderer-ping', { blocked_ms: 900, stacks: [Array.from({ length: 3000 }, (_, k) => 'fn' + k + ' (app:/' + 'a'.repeat(150) + '.js:1:' + k + ')'), 'x'.repeat(5000)] })
+  await settle()
   const raw = fs.readFileSync(big, 'utf8')
   assert.ok(Buffer.byteLength(raw) <= 16 * 1024 + 1, 'at most 16 KB: ' + raw.length)
-  const [r] = lines(big)
+  const [r] = (await lines(big))
   assert.equal(r.truncated, true); assert.ok(r.stacks[0].length <= 40, 'stacks are cut first (40 frames)')
   const blocker = path.join(fresh(), 'afile'); fs.writeFileSync(blocker, 'x')
   const bad = new StallLog({ file: () => path.join(blocker, 'sub', STALL_LOG) })
@@ -87,65 +91,66 @@ test('ST7 rotation keeps three files at most; an oversize record is truncated to
   assert.doesNotThrow(() => new StallLog({ file: () => undefined }).write('sync-ipc', {}))
 })
 
-test('ST15 v2 frame split, script starts, the all-scripts total and the GPU sample pass the allowlist (numbers only)', () => {
+test('ST15 v2 frame split, script starts, the all-scripts total and the GPU sample pass the allowlist (numbers only)', async () => {
   const file = path.join(fresh(), STALL_LOG)
   const log = new StallLog({ file: () => file })
   log.write('renderer-loaf', { ms: 613.6, loaf: { blocking: 0, render_at: 560.04, style_layout_at: 563, scripts_ms: 79.7, scripts_n: 12,
     scripts: [{ fn: 'O', ms: 23.1, at: 450.06, extra: 'x' }] },
   gpu: { cpu_pct: 87.25, window_ms: 5012, restarted: false, ws_mb: 412.4, pid: 4242, name: 'GPU D:\\Users\\bob' } })
-  const [r] = lines(file)
+  const [r] = (await lines(file))
   assert.equal(r.loaf.render_at, 560); assert.equal(r.loaf.style_layout_at, 563)
   assert.equal(r.loaf.scripts_ms, 79.7); assert.equal(r.loaf.scripts_n, 12); assert.equal(r.loaf.scripts[0].at, 450.1)
   assert.deepEqual(r.gpu, { cpu_pct: 87.3, window_ms: 5012, restarted: false, ws_mb: 412.4 }, 'pid and any string are dropped')
   log.write('renderer-loaf', { ms: 600, loaf: { render_at: null, style_layout_at: null } })
-  assert.equal(lines(file)[1].loaf.render_at, null, 'a frame without a rendering update keeps render_at null')
+  assert.equal((await lines(file))[1].loaf.render_at, null, 'a frame without a rendering update keeps render_at null')
   log.write('renderer-ping', { blocked_ms: 900, gpu: { cpu_pct: 3, window_ms: 4000, restarted: true } })
   log.write('main-lag', { lag_ms: 700, gpu: { cpu_pct: 1, window_ms: 4000, restarted: false } })
-  assert.deepEqual(lines(file)[2].gpu, { cpu_pct: 3, window_ms: 4000, restarted: true })
-  assert.deepEqual(lines(file)[3].gpu, { cpu_pct: 1, window_ms: 4000, restarted: false })
+  assert.deepEqual((await lines(file))[2].gpu, { cpu_pct: 3, window_ms: 4000, restarted: true })
+  assert.deepEqual((await lines(file))[3].gpu, { cpu_pct: 1, window_ms: 4000, restarted: false })
 })
 
-test('ST16 process-gone lines: the kind and reason are enums, the exit code a number, nothing else survives', () => {
+test('ST16 process-gone lines: the kind and reason are enums, the exit code a number, nothing else survives', async () => {
   const file = path.join(fresh(), STALL_LOG)
   const log = new StallLog({ file: () => file })
   log.write('process-gone', { kind: 'GPU', reason: 'crashed', exit_code: -1073741819, name: 'D:\\Users\\bob\\x', serviceName: 'bob@example.com' })
   log.write('process-gone', { kind: 'renderer', reason: 'oom', exit_code: 0 }, { id: '0725eca3-4932-4b2a-9788-c0e2cffecbdf', org: true })
   log.write('process-gone', { kind: 'Weird', reason: 'mystery' })
-  const [gpu, ren, odd] = lines(file)
+  const [gpu, ren, odd] = (await lines(file))
   assert.equal(gpu.src, 'process-gone'); assert.equal(gpu.kind, 'GPU'); assert.equal(gpu.reason, 'crashed'); assert.equal(gpu.exit_code, -1073741819)
   assert.equal('name' in gpu || 'serviceName' in gpu, false)
   assert.equal(ren.kind, 'renderer'); assert.equal(ren.org_window, true)
   assert.equal(odd.kind, 'other'); assert.equal(odd.reason, 'other')
+  await settle()
   assert.ok(!fs.readFileSync(file, 'utf8').includes('bob'))
 })
 
-test('ST17 the window id is the app-made UUID from window-events.jsonl, kept as is; anything else is dropped', () => {
+test('ST17 the window id is the app-made UUID from window-events.jsonl, kept as is; anything else is dropped', async () => {
   // v1 ran the id through the free-string detector, which reads a UUID as a secret: the alpha.5 records said
   // "window":"<redacted:secrets>", so a stall could not be matched to its window's events.
   const file = path.join(fresh(), STALL_LOG)
   const log = new StallLog({ file: () => file })
   log.write('renderer-loaf', { ms: 600 }, { id: '0725eca3-4932-4b2a-9788-c0e2cffecbdf', org: true })
   log.write('renderer-loaf', { ms: 600 }, { id: 'bob@example.com', org: false })
-  const [a, b] = lines(file)
+  const [a, b] = (await lines(file))
   assert.equal(a.window, '0725eca3-4932-4b2a-9788-c0e2cffecbdf')
   assert.equal('window' in b, false)
 })
 
-test('ST15 an attract record is allowlisted: event, kind, panel, why and numbers only; titles, ids and unknown keys never land', () => {
+test('ST15 an attract record is allowlisted: event, kind, panel, why and numbers only; titles, ids and unknown keys never land', async () => {
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-05T13:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t) })
   log.write('attract', { ev: 'step', kind: 'ticket', need_ms: 90000, dwell_ms: 90000.4, n: 3, panel: 'docket', owned: true,
     why: 'share', docket_pct: 12.4, title: 'Secret ticket title', slug: 'secret-slug', id: 'm-123' }, { id: '7c0e4a89-787d-412d-a45b-ca83419549d8', org: true })
   log.write('attract', { ev: 'surprise', kind: 'nonsense', panel: 'elsewhere', why: 'because' })
-  const [a, b] = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))   // the trace has its OWN file (coordinator ruling 2026-11-05)
-  assert.deepEqual(lines(file), [], 'and nothing of it lands in ui-stalls.jsonl')
+  const [a, b] = (await lines(path.join(path.dirname(file), 'ui-attract.jsonl')))   // the trace has its OWN file (coordinator ruling 2026-11-05)
+  assert.deepEqual((await lines(file)), [], 'and nothing of it lands in ui-stalls.jsonl')
   assert.equal(a.src, 'attract')
   assert.deepEqual([a.ev, a.kind, a.need_ms, a.dwell_ms, a.n, a.panel, a.owned, a.why, a.docket_pct], ['step', 'ticket', 90000, 90000.4, 3, 'docket', true, 'share', 12.4])
   assert.ok(!JSON.stringify(a).includes('ecret') && !JSON.stringify(a).includes('m-123'), 'no title, slug or id')
   assert.deepEqual([b.ev, b.kind, b.panel, b.why], ['other', 'other', 'other', 'other'], 'enum fields outside their list become other')
 })
 
-test('ST15b the release trigger, a touch, an adopt and the docket skip are allowlisted enums and booleans only', () => {
+test('ST15b the release trigger, a touch, an adopt and the docket skip are allowlisted enums and booleans only', async () => {
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-06T13:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t) })
   log.write('attract', { ev: 'release', via: 'wheel', title: 'Secret' })
@@ -153,7 +158,7 @@ test('ST15b the release trigger, a touch, an adopt and the docket skip are allow
   log.write('attract', { ev: 'adopt', panel: 'docket' })
   log.write('attract', { ev: 'skip', kind: 'attention', why: 'docket' })
   log.write('attract', { ev: 'release', via: 'a typed secret' })
-  const got = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))
+  const got = (await lines(path.join(path.dirname(file), 'ui-attract.jsonl')))
   assert.deepEqual(got.map(l => [l.ev, l.via, l.trusted, l.panel, l.why]), [
     ['release', 'wheel', undefined, undefined, undefined], ['touch', 'keydown', false, undefined, undefined],
     ['adopt', undefined, undefined, 'docket', undefined], ['skip', undefined, undefined, undefined, 'docket'], ['release', 'other', undefined, undefined, undefined],
@@ -161,37 +166,40 @@ test('ST15b the release trigger, a touch, an adopt and the docket skip are allow
   assert.ok(!JSON.stringify(got).includes('ecret'))
 })
 
-test('ST15c a docket open/close line keeps kind, action, path and count as enums and numbers only', () => {
+test('ST15c a docket open/close line keeps kind, action, path and count as enums and numbers only', async () => {
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-06T14:00:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t) })
   log.write('attract', { ev: 'docket', kind: 'team', action: 'open', path: 'restore', count: 2, title: 'Secret', slug: 'acme' })
   log.write('attract', { ev: 'docket', kind: 'agent', action: 'close', path: 'a typed secret', count: 1 })
-  const got = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))
+  const got = (await lines(path.join(path.dirname(file), 'ui-attract.jsonl')))
   assert.deepEqual(got.map(l => [l.ev, l.kind, l.action, l.path, l.count]), [['docket', 'team', 'open', 'restore', 2], ['docket', 'agent', 'close', 'other', 1]])
   assert.ok(!JSON.stringify(got).includes('ecret') && !JSON.stringify(got).includes('acme'))
 })
 
-test('ST15d a run-start close keeps reason run_start and a takeover stop keeps why takeover_stop; other values fall to other', () => {
+test('ST15d a run-start close keeps reason run_start and a takeover stop keeps why takeover_stop; other values fall to other', async () => {
   const file = path.join(fresh(), STALL_LOG), t = { now: Date.parse('2026-11-06T14:10:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t) })
   log.write('attract', { ev: 'docket', kind: 'org', action: 'close', path: 'attract', reason: 'run_start', count: 0 })
   log.write('attract', { ev: 'docket', kind: 'org', action: 'close', path: 'attract', reason: 'a typed secret', count: 0 })
   log.write('attract', { ev: 'stop', why: 'takeover_stop' })
-  const got = lines(path.join(path.dirname(file), 'ui-attract.jsonl'))
+  const got = (await lines(path.join(path.dirname(file), 'ui-attract.jsonl')))
   assert.deepEqual(got.map(l => [l.ev, l.reason, l.why]), [['docket', 'run_start', undefined], ['docket', 'other', undefined], ['stop', undefined, 'takeover_stop']])
   assert.ok(!JSON.stringify(got).includes('ecret'))
 })
 
-test('ST16 attract lines never crowd out freeze evidence: their own rate bucket, their own file with its own 1 MB x 2 rotation', () => {
+test('ST16 attract lines never crowd out freeze evidence: their own rate bucket, their own file with its own 1 MB x 2 rotation', async () => {
   const dir = fresh(), file = path.join(dir, STALL_LOG), attractFile = path.join(dir, 'diagnostics', 'ui-attract.jsonl'), t = { now: Date.parse('2026-11-05T14:50:00Z') }
   const log = new StallLog({ file: () => file, clock: clockAt(t), attractMaxBytes: 2000 })
   for (let i = 0; i < 100; i++) log.write('attract', { ev: 'step', kind: 'org', need_ms: 0, dwell_ms: 9000, n: i, docket_pct: 0 })
   log.write('renderer-loaf', { ms: 900 })
-  const stalls = lines(file)
+  const stalls = (await lines(file))
   assert.equal(stalls.length, 1, 'the freeze record still lands after 100 attract writes in a minute')
   assert.equal(stalls[0].src, 'renderer-loaf')
   assert.ok(stalls.every(l => l.src !== 'attract'), 'ui-stalls.jsonl carries no attract line')
+  await settle()
   assert.ok(fs.existsSync(attractFile), 'the attract file exists')
+  await settle()
   assert.ok(fs.existsSync(attractFile + '.1'), 'it rotated at its own cap')
+  await settle()
   assert.ok(!fs.existsSync(file + '.1'), 'and the freeze file did not rotate')
 })

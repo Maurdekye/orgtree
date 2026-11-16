@@ -8,7 +8,7 @@
 // spawn the installer proof already uses; no native module, no PowerShell).
 // The state machine below is pure apart from its injected list/prefs/apply, so
 // every transition is tested with a faked process list.
-import { execFile } from 'node:child_process'
+import { execFile } from './probe-host'
 
 /** Discord's own Streamer Mode list, read from its client by the liaison
  *  (docket item note, 2026-11-03 m3669936358cc): it matches the process path's

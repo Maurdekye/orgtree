@@ -19,8 +19,10 @@ import path from 'node:path'
 const MAIN = 'apps/desktop/main'
 const files = fs.readdirSync(MAIN).filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts')).sort()
 const read = f => fs.readFileSync(path.join(MAIN, f), 'utf8')
-/** comments out, strings kept: a rule quoted in a comment is not a call */
+/** comments out, and the contents of double-quoted strings: the source text of ANOTHER program (unixboot.ts's
+ *  APPIMAGE_HOST_JS) is not code of this process. The repo's import specifiers are single-quoted. */
 const code = f => read(f).replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' ')).replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
+  .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
 
 /** The launches that stay on main (choice A, approved by @coordinator-opus 2026-11-16 20:02Z): none runs from a timer. */
 const SPAWN_ON_MAIN = {

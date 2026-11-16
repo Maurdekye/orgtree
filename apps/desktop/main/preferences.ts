@@ -50,12 +50,54 @@ export class Preferences {
         && !Object.prototype.hasOwnProperty.call(normalized, 'visualThemeExplicit')) {
       normalized.visualThemeExplicit = true
     }
-    const next = { ...this.value, ...normalized }
-    fs.mkdirSync(path.dirname(this.file), { recursive: true })
-    const temp = this.file + '.tmp'
-    fs.writeFileSync(temp, JSON.stringify(next), { mode: 0o600 })
-    fs.renameSync(temp, this.file)
-    this.value = next
+    this.value = { ...this.value, ...normalized }
+    this.schedule()
     return this.get()
+  }
+
+  // THE WRITE, OFF THE MAIN THREAD (@item:orgtree/nick-pc-4-6-0-desktop-main-process-stalls-input-f item 6): every
+  // preference change wrote temp + rename synchronously; the streamer sample and the tray reach set() from timers. Now
+  // the live copy changes at once and the file follows: one async atomic write at a time, always of the latest value,
+  // so a burst of changes coalesces. flushSync() at before-quit writes anything still pending, so a quit loses nothing.
+  private dirty = false
+  private writing: Promise<void> | null = null
+  private schedule(): void {
+    this.dirty = true
+    this.writing ??= (async () => {
+      try {
+        while (this.dirty) {
+          this.dirty = false
+          const text = JSON.stringify(this.value), epoch = this.epoch
+          const temp = this.file + '.tmp-async'
+          try {
+            await fs.promises.mkdir(path.dirname(this.file), { recursive: true })
+            await fs.promises.writeFile(temp, text, { mode: 0o600 })
+            // flushSync has written the latest value: an older one must not land over it
+            if (this.epoch !== epoch) { await fs.promises.rm(temp, { force: true }); continue }
+            await fs.promises.rename(temp, this.file)
+            this.failed = false
+          } catch { /* the next change, or flushSync at quit, writes it again */ this.failed = true }
+        }
+      } finally { this.writing = null }
+    })()
+  }
+  private failed = false
+  private epoch = 0
+  /** Settles when the file holds the latest value (tests). */
+  async flush(): Promise<void> { while (this.writing) await this.writing }
+  /** before-quit: write the latest value now if a write is pending, in flight or failed. */
+  flushSync(): void {
+    // pending, in flight (the process may end before it lands) or failed: write the latest value now; a write already
+    // in flight that has not renamed yet stands down (its epoch is over); later changes are written as usual
+    if (!this.dirty && !this.writing && !this.failed) return
+    this.epoch++
+    try {
+      const next = this.value
+      fs.mkdirSync(path.dirname(this.file), { recursive: true })
+      const temp = this.file + '.tmp'
+      fs.writeFileSync(temp, JSON.stringify(next), { mode: 0o600 })
+      fs.renameSync(temp, this.file)
+      this.dirty = false; this.failed = false
+    } catch { /* nothing more to do at quit */ }
   }
 }

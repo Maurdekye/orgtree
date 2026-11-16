@@ -137,9 +137,11 @@ providerlogin._setAntigravitySpawnForTests((cmd, args, opts) => {
 // hand taskkill a done session's pid with no liveness check, and Windows
 // can have already recycled that number for an unrelated process).
 const taskkillSpawnCalls = []
-providerlogin._setTaskkillSpawnForTests((cmd, args, opts) => {
-  taskkillSpawnCalls.push({ cmd, args, opts })
-  return spawn(cmd, args, opts)
+// (the product runs taskkill in the probe host; this seam observes the call and runs a real one, then reports its end)
+providerlogin._setTaskkillForTests((cmd, args, done) => {
+  taskkillSpawnCalls.push({ cmd, args })
+  const child = spawn(cmd, args, { windowsHide: true, stdio: 'ignore' })
+  child.once('error', () => done()); child.once('exit', () => done())
 })
 
 // The real engine's launch.py wraps its WHOLE app in TokenGate, requiring
@@ -432,7 +434,8 @@ test('claude: cancelling a .cmd-wrapped login kills the WHOLE process tree, not 
   await eventually(async () => (await providerlogin.getProviderLoginStatus('claude')).phase === 'awaiting_code')
   const linesAtCancel = fs.readFileSync(heartbeat, 'utf8').trim().split('\n').length
   assert.ok(linesAtCancel >= 1, 'setup: the heartbeat fixture must actually be running before cancel')
-  providerlogin.cancelProviderLogin('claude', true)
+  // the quit path: cancels and waits for taskkill (it ran synchronously on main before; now in the probe host)
+  await providerlogin.stopProviderLoginsForQuit()
   // give taskkill a moment, then confirm the heartbeat has genuinely
   // stopped advancing — not just that the app's OWN bookkeeping moved on
   const linesAfterGrace = fs.readFileSync(heartbeat, 'utf8').trim().split('\n').length

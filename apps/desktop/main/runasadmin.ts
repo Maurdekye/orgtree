@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile } from './probe-host'
 import { randomBytes } from 'node:crypto'
 
 /** "Run Orgtree as administrator" — whether the background engine and the

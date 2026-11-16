@@ -20,23 +20,24 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }))
 
 let roots = 0
 const freshRoot = () => { const root = path.join(temp, `root-${++roots}`); fs.mkdirSync(root); return root }
-const lines = file => fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
+const settle = () => new WindowEventLog(() => undefined).flush()   // the writes are queued off the main thread (async-append.ts)
+const lines = async file => { await settle(); return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : [] }
 
-test('each event and each Orgtree action is one line with the time, the window and its organization', () => {
+test('each event and each Orgtree action is one line with the time, the window and its organization', async () => {
   const root = freshRoot(), file = path.join(root, WINDOW_EVENTS_LOG)
   const log = new WindowEventLog(() => file, undefined, () => new Date('2026-10-09T07:47:33.000Z'))
   log.record('w1', { kind: 'org', org: 'maurdekye-works' }, { action: 'reveal' })
   log.record('w1', { kind: 'org', org: 'maurdekye-works' }, { event: 'show' })
   log.record('w2', { kind: 'org', org: 'orgtree' }, { event: 'minimize' })
   assert.equal(WINDOW_EVENTS_LOG, path.join('diagnostics', 'desktop-windows.jsonl'))
-  assert.deepEqual(lines(file), [
+  assert.deepEqual((await lines(file)), [
     { at: '2026-10-09T07:47:33.000Z', window: 'w1', kind: 'org', org: 'maurdekye-works', action: 'reveal' },
     { at: '2026-10-09T07:47:33.000Z', window: 'w1', kind: 'org', org: 'maurdekye-works', event: 'show' },
     { at: '2026-10-09T07:47:33.000Z', window: 'w2', kind: 'org', org: 'orgtree', event: 'minimize' },
   ])
 })
 
-test('exactly minimize, restore, show, hide and focus are watched: nothing per frame', () => {
+test('exactly minimize, restore, show, hide and focus are watched: nothing per frame', async () => {
   assert.deepEqual([...WINDOW_EVENT_TYPES], ['minimize', 'restore', 'show', 'hide', 'focus'])
   const root = freshRoot(), file = path.join(root, WINDOW_EVENTS_LOG)
   const window = new EventEmitter()
@@ -48,23 +49,25 @@ test('exactly minimize, restore, show, hide and focus are watched: nothing per f
   facts = { kind: 'org', org: 'unity' }   // the Homepage bound an organization
   window.emit('minimize'); window.emit('restore'); window.emit('hide')
   window.emit('move'); window.emit('resize')
-  assert.deepEqual(lines(file).map(l => [l.event, l.kind, l.org]), [
+  assert.deepEqual((await lines(file)).map(l => [l.event, l.kind, l.org]), [
     ['show', 'homepage', undefined], ['focus', 'homepage', undefined],
     ['minimize', 'org', 'unity'], ['restore', 'org', 'unity'], ['hide', 'org', 'unity'],
   ], 'facts are read at event time')
 })
 
-test('the file is rotated past its cap, so it never grows without bound', () => {
+test('the file is rotated past its cap, so it never grows without bound', async () => {
   const root = freshRoot(), file = path.join(root, WINDOW_EVENTS_LOG)
   const log = new WindowEventLog(() => file, 400)
   for (let i = 0; i < 40; i++) log.record(`w${i}`, { kind: 'org', org: 'orgtree' }, { event: 'focus' })
+  await settle()
   assert.ok(fs.statSync(file).size <= 400 + 200, 'the live file stays near the cap')
+  await settle()
   assert.ok(fs.existsSync(file + '.1'), 'one previous file is kept')
   assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['desktop-windows.jsonl', 'desktop-windows.jsonl.1'], 'and only one')
-  assert.equal(lines(file).at(-1).window, 'w39', 'the newest line is in the live file')
+  assert.equal((await lines(file)).at(-1).window, 'w39', 'the newest line is in the live file')
 })
 
-test('best effort: no data root yet, or an unwritable one, never throws', () => {
+test('best effort: no data root yet, or an unwritable one, never throws', async () => {
   assert.doesNotThrow(() => new WindowEventLog(() => undefined).record('w1', undefined, { event: 'show' }))
   const root = freshRoot()
   fs.writeFileSync(path.join(root, 'diagnostics'), 'a file where the folder should be')
@@ -73,7 +76,8 @@ test('best effort: no data root yet, or an unwritable one, never throws', () => 
   assert.doesNotThrow(() => new WindowEventLog(() => { throw new Error('no root') }).record('w1', undefined, { event: 'hide' }))
 })
 
-test('main/index.ts logs every main window and each Orgtree cause before it acts', () => {
+test('main/index.ts logs every main window and each Orgtree cause before it acts', async () => {
+  await settle()
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   assert.match(main, /const windowEvents = new WindowEventLog\(\(\) =>\s*engineRestartOptions\?\.dataRoot && !dataMoveInFlight \? path\.join\(engineRestartOptions\.dataRoot, WINDOW_EVENTS_LOG\) : undefined\)/,
     'the log lives in the engine data root\'s diagnostics folder, and pauses while a Data location move copies it')

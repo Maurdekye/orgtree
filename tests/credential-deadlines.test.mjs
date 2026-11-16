@@ -43,8 +43,13 @@ async function fixture(t, mode) {
   const module = { exports: {} }
   const source = fs.readFileSync('apps/desktop/main/credential-bridge.ts', 'utf8')
   const code = transformSync(source, { loader: 'ts', format: 'cjs', target: 'es2022' }).code
+  // the bridge runs its helpers through the probe host (probe-host.ts: execFile's callback, stdin from `input`)
+  const probeHost = { execFile: (exe, args, { input, ...options }, done) => {
+    const child = native(exe, args, options, done)
+    child.stdin?.on('error', () => {}); if (input !== undefined) child.stdin?.end(input)
+  } }
   const builtin = {
-    'node:child_process': { execFile: native }, 'node:fs': fs, 'node:path': path,
+    './probe-host': probeHost, 'node:fs': fs, 'node:path': path,
     'node:os': { homedir: () => home },
     'node:net': { createServer: handler => net.createServer(socket => { handler(socket); pipeTimeouts.push(socket.timeout) }) },
   }

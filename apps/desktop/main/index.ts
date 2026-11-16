@@ -5,7 +5,7 @@ import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
 import { pickNativeFolder } from './folder-picker'
 import { watchRemoteFileDownloads, type SessionLike as DownloadSession } from './remote-downloads'
-import { app, BrowserWindow, WebContentsView, contentTracing, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, WebContentsView, contentTracing, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, MessageChannelMain, nativeImage, Notification, powerMonitor, screen, session, shell, Tray, utilityProcess } from 'electron'
 import { protectOpaqueDocument, protectOpaqueWindow } from './streamer-opaque'
 import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
 import { nativeScreenText } from '../../../packages/contracts/streamer'
@@ -15,7 +15,8 @@ import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { execFile, spawn as spawnProcess } from 'node:child_process'
+import { spawn as spawnProcess } from 'node:child_process'
+import { configureProbeHost, execFile, launchDetached, stopProbeHost } from './probe-host'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
 import { exeName, postgresLaunchOptions } from './postgres-runtime'
@@ -59,7 +60,7 @@ import { performClose } from './window-close'
 import { mailReadCloseGate, rendererMailReadFlushScript } from './mail-read-close'
 import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
-import { detectHarnesses, harnessSetupMenu, type HarnessSetup } from './harnesses'
+import { HarnessCache, harnessSetupMenu, type HarnessSetup } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
@@ -86,7 +87,7 @@ import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixt
 import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
-import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
+import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, stopProviderLoginsForQuit, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './traylist'
 import { readRemotes, remoteAliases, REMOTE_WINDOW_REFUSAL } from './remotes'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
@@ -1025,6 +1026,8 @@ else {
    *  announced, by the same dialog convention a failed update install uses -
    *  a restart that silently did nothing would leave the user unable to tell
    *  which of the two happened, and the next thing they do depends on it. */
+  // presence of harness CLIs on this machine, scanned off the main thread at most every 5 min (harnesses.ts)
+  const harnessCache = new HarnessCache(() => { if (tray) rebuildTray() })
   const restartEngine = async () => {
     const options = engineRestartOptions
     if (!options || engineRestartBlocked() || engine.restartInProgress) return
@@ -1125,7 +1128,8 @@ else {
         ...NOTIFICATION_OPTIONS.map(({ key, label }) => ({ label, type: 'checkbox' as const,
           checked: prefs[key], enabled: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })),
       ] },
-      { label: 'Harness setup', submenu: harnessSetupMenu(trayHarnesses, detectHarnesses(), url => shell.openExternal(url)) },
+      // the engine's registry first; the cached async presence scan fills in, refreshed only while there is no registry
+      { label: 'Harness setup', submenu: harnessSetupMenu(trayHarnesses, harnessCache.current(trayHarnesses === null), url => shell.openExternal(url)) },
       // Crash reports are collected locally and never uploaded; this is the
       // only way to get at one, and it is the user's own deliberate act.
       { id: 'crash-reports', label: 'Crash reports...', click: () => { void showCrashReports().catch(() => {}) } },
@@ -1253,8 +1257,7 @@ else {
       quitting = true
       if (poll) clearInterval(poll)
       trayPopupSeq++; closeTrayPopup()
-      cancelProviderLogin('claude', true)
-      cancelProviderLogin('codex', true)
+      await bounded(stopProviderLoginsForQuit(), PROVIDER_LOGIN_STOP_MS)
       quitComplete = true
       updateLog.record('installer-upgrade-complete')
       tray?.destroy()
@@ -1294,6 +1297,9 @@ else {
   // plus the usual margin — so `bounded` is the backstop it is meant to be
   // and not the thing that routinely ends the quit.
   const QUIT_ENGINE_TOTAL_MS = QUIT_STOP_BUDGET_MS + UPDATE_DEADLINES.marginMs
+  // The provider-login taskkills at quit: their own 5 s timeout plus a margin (formerly an execFileSync of up to 5 s on
+  // the main thread). They run beside the layout save and the engine stop, not after them.
+  const PROVIDER_LOGIN_STOP_MS = 6000
   // Linux: the folder holding the AppImage, which is what an update rewrites.
   const installDirectory = () => path.dirname(linuxAppImage ?? process.execPath)
   /** Resolved ONCE per run: both facts are properties of where this copy is
@@ -2082,8 +2088,8 @@ else {
     // teardown touches it. Antigravity is deliberately excluded — its
     // terminal is a detached, user-owned window by design (see
     // launchAntigravityTerminal's docstring) and must outlive the app.
-    cancelProviderLogin('claude', true)
-    cancelProviderLogin('codex', true)
+    // Their taskkills run in the probe host; the quit below waits for them (bounded).
+    const loginsStopped = bounded(stopProviderLoginsForQuit(), PROVIDER_LOGIN_STOP_MS)
     // Bounded for the same measured reason as the update path: executeJavaScript
     // does not settle on a busy or crashed renderer, and until quitComplete is
     // set this handler preventDefaults every further app.quit() — so an
@@ -2099,10 +2105,18 @@ else {
     // resurrect the app after the user explicitly quits.
     void bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
       .then(() => bounded(engine.stopForQuit(QUIT_STOP_BUDGET_MS), QUIT_ENGINE_TOTAL_MS))
+      .finally(() => loginsStopped)
       .finally(() => { quitComplete = true; tray?.destroy(); app.quit() })
   })
   app.whenReady().then(async () => {
+    // THE PROBE HOST first (probe-host.ts): every bounded program run of this process, the streamer verdict's process
+    // listing below included, goes to it, so process creation never blocks this thread
+    // (@item:orgtree/nick-pc-4-6-0-desktop-main-process-stalls-input-f).
+    configureProbeHost(() => utilityProcess.fork(path.join(__dirname, 'probe-host.cjs'), [], { serviceName: 'Orgtree probe host', stdio: 'ignore' }))
+    app.on('will-quit', () => stopProbeHost())
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
+    // preference writes are async (preferences.ts); whatever is still pending is written before the process ends
+    app.on('will-quit', () => preferences.flushSync())
     // Streamer mode while a streaming app (OBS, Streamlabs, XSplit) runs, decided
     // BEFORE any window exists, so nothing can paint unmasked first. Native
     // masking stays on (its default) until this first verdict is in.
@@ -2293,7 +2307,7 @@ else {
     handleApp('desktop:set-frame-theme', value => artifactThemes.set(value))
     handle('desktop:show', caller => revealWindow(caller))
     handleApp('desktop:quit', () => { app.quit() })
-    handleApp('desktop:harnesses', () => detectHarnesses())
+    handleApp('desktop:harnesses', () => harnessCache.fresh())
     handleOwner('desktop:notify', value => {
       if (!Notification.isSupported()) return false
       return notifications.notify(value, preferences.get())
@@ -2343,11 +2357,7 @@ else {
         if (!associationError) return ''
         if (process.platform !== 'win32') return associationError
         try {
-          await new Promise<void>((resolve, reject) => {
-            const child = spawnProcess('notepad.exe', [file], { detached: true, stdio: 'ignore' })
-            child.once('error', reject)
-            child.once('spawn', () => { child.unref(); resolve() })
-          })
+          if (await launchDetached('notepad.exe', [file]) === undefined) throw new Error('Notepad could not be started')
           return ''
         } catch (error) {
           return error instanceof Error ? error.message : associationError
@@ -2911,11 +2921,7 @@ else {
         if (!associationError) return ''
         if (process.platform !== 'win32') return associationError
         try {
-          await new Promise<void>((resolve, reject) => {
-            const child = spawnProcess('notepad.exe', [file], { detached: true, stdio: 'ignore' })
-            child.once('error', reject)
-            child.once('spawn', () => { child.unref(); resolve() })
-          })
+          if (await launchDetached('notepad.exe', [file]) === undefined) throw new Error('Notepad could not be started')
           return ''
         } catch (error) {
           return error instanceof Error ? error.message : associationError
@@ -3333,6 +3339,7 @@ else {
         // not cancelable; query-session-end can be cancelled and must not latch
         // the session. Snapshot all windows on the first final event only.
         window.on('session-end', () => {
+          preferences.flushSync()
           if (quitting) return
           captureOpenWindowsForShutdown()
           quitting = true
@@ -3638,11 +3645,11 @@ else {
       }
       // Not awaited: start-up must still reach the poll below (engine stats,
       // update checks) while nobody has dismissed this, e.g. on a fresh machine.
-      if (!process.argv.includes('--background')) void engine.harnesses().then(registry => {
+      if (!process.argv.includes('--background')) void engine.harnesses().then(async registry => {
         if (quitting || first.window.isDestroyed()) return
         // Engine discovery also knows native installs absent from desktop PATH.
         // The bounded registry read returns null for an old/offline engine.
-        if (!(registry ?? detectHarnesses()).some(h => h.detected)) return dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
+        if (!(registry ?? await harnessCache.fresh()).some(h => h.detected)) return dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
       }).catch(() => {})
       const refresh = async () => {
         if (quitting || installerUpgradeShutdown) return

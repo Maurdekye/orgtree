@@ -47,7 +47,7 @@ function fixture() {
     runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0, applyWindowIcon() {},
     startupKind: () => 'boot', updatesSupported: false, label: () => 'test',
     hubMenuItem: () => ({ id: 'mailhub-status' }), trayHarnesses: null,
-    harnessSetupMenu: () => [], detectHarnesses: () => [], NOTIFICATION_OPTIONS: [],
+    harnessSetupMenu: () => [], harnessCache: { current: () => [] }, NOTIFICATION_OPTIONS: [],
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {},
     loginPreference() {}, notifications: { configure() {} }, broadcastAll: e => events.push(e),
     setTimeout, console,

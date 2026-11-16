@@ -4,7 +4,7 @@
  *  enum become `other`, URLs and paths are shortened, and every other free string goes through the streamer detector
  *  (packages/contracts/streamer.ts) with ALL types on, whatever the user's switches say: the file outlives the screen.
  *  Pure apart from the filesystem (no electron import); tests/stall-log.test.mjs drives it. Best effort: never throws. */
-import fs from 'node:fs'
+import { appendRotating, flushAppends } from './async-append'
 import path from 'node:path'
 import { STREAMER_TYPE_LIST, sensitiveSpans } from '../../../packages/contracts/streamer'
 import type { StreamerType, StreamerTypes } from '../../../packages/contracts/streamer'
@@ -234,15 +234,9 @@ export class StallLog {
         dropped: (int(r.dropped) ?? 0) + gate.dropped, truncated: false,
         ...body(src, r),
       }, this.o.lineMax ?? STALL_LINE_MAX)
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      let size = 0
-      try { size = fs.statSync(target).size } catch { /* not there yet */ }
-      if (size > (attract ? this.o.attractMaxBytes ?? ATTRACT_MAX_BYTES : this.o.maxBytes ?? STALL_MAX_BYTES)) {
-        try { fs.rmSync(target + '.2', { force: true }) } catch { /* best effort */ }
-        try { fs.renameSync(target + '.1', target + '.2') } catch { /* no .1 yet */ }
-        fs.renameSync(target, target + '.1')
-      }
-      fs.appendFileSync(target, JSON.stringify(line) + '\n')
+      appendRotating(target, JSON.stringify(line) + '\n', attract ? this.o.attractMaxBytes ?? ATTRACT_MAX_BYTES : this.o.maxBytes ?? STALL_MAX_BYTES, 2)
     } catch { /* diagnostics never break the app they describe */ }
   }
+  /** Settles when every line written so far is on disk (the writes are queued off the main thread). */
+  flush(): Promise<void> { return flushAppends() }
 }

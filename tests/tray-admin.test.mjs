@@ -37,7 +37,7 @@ async function fixture(initial = false, { platform = 'win32', installed = true }
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {}, refreshTrayEpic() {},
     epicMuteTrayItem: () => ({}), label: () => 'Ready', updatesSupported: false,
     hubMenuItem: () => ({ label: 'Mail hub' }), NOTIFICATION_OPTIONS: [],
-    detectHarnesses: () => [], harnessSetupMenu: () => [], trayHarnesses: null,
+    harnessCache: { current: () => [] }, harnessSetupMenu: () => [], trayHarnesses: null,
     app: { quit() {} }, setTimeout, process: { platform }, setPreferences() {},
     handleApp: (name, fn) => { handlers[name] = fn },
     removePhoneFirewallRule() {}, addPhoneFirewallRule() {},

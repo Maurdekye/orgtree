@@ -1,6 +1,6 @@
 /** Main-process only. The native probe checks stamped process identities; an
  * HTTP timeout alone never becomes proof that a component died. */
-import {execFile} from 'node:child_process'
+import {execFile} from './probe-host'
 import type {CredentialBridge} from './credential-bridge'
 
 /** A failed native lifecycle command as the desktop records it: fixed words

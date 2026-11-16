@@ -16,7 +16,7 @@ const { detectHarnesses } = createRequire(import.meta.url)(out)
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
 for (const kind of ['native', 'npm', 'missing']) {
-  test(`desktop detects ${kind} Claude with empty PATH and a synthetic user profile`, t => {
+  test(`desktop detects ${kind} Claude with empty PATH and a synthetic user profile`, async t => {
     const profile = path.join(root, kind)
     const appdata = path.join(profile, 'AppData', 'Roaming')
     const localdata = path.join(profile, 'AppData', 'Local')
@@ -30,7 +30,7 @@ for (const kind of ['native', 'npm', 'missing']) {
     const previous = Object.fromEntries(Object.keys(values).map(k => [k, process.env[k]]))
     try {
       Object.assign(process.env, values)
-      assert.equal(detectHarnesses('').find(h => h.id === 'claude').detected,
+      assert.equal((await detectHarnesses('')).find(h => h.id === 'claude').detected,
         kind === 'native' || (kind === 'npm' && process.platform === 'win32'))
     } finally {
       for (const [key, value] of Object.entries(previous)) {
@@ -54,10 +54,10 @@ async function popup({ registry, local, background = false, closed = false }) {
     process: { argv: background ? ['--background'] : [] }, quitting: false,
     first: { window: { isDestroyed: () => closed } },
     engine: { harnesses: async () => { reads++; return registry } },
-    detectHarnesses: () => rows(local),
+    harnessCache: { fresh: async () => rows(local) },
     dialog: { showMessageBox: async (_window, message) => { messages.push(message.message) } },
   })
-  await new Promise(resolve => setImmediate(resolve))
+  for (let i = 0; i < 3; i++) await new Promise(resolve => setImmediate(resolve))   // the scan is awaited too
   return { messages, reads }
 }
 

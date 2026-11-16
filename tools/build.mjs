@@ -35,6 +35,10 @@ await bundle({ entryPoints: ['apps/desktop/main/index.ts'], outfile: 'dist/main/
     'ORGTREE-PRIVATE-ALPHA-BUILD:' + (privateAlpha ? 'enabled' : 'disabled')),
     __ORGTREE_UPDATE_FIXTURE__: JSON.stringify(
     'ORGTREE-UPDATE-FIXTURE-BUILD:' + (updateFixture ? 'enabled' : 'disabled')) } })
+// The probe host (main/probe-host-child.ts): the utilityProcess main/index.ts forks at ready; every bounded program
+// run of the desktop main process happens there, never on the main thread.
+await bundle({ entryPoints: ['apps/desktop/main/probe-host-child.ts'], outfile: 'dist/main/probe-host.cjs',
+  bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
 await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/preload/index.cjs',
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
 // Absolute, not relative: the backend serves this SAME index.html for every

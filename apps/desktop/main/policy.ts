@@ -7,6 +7,7 @@ import { isAppPath } from '../../../packages/contracts/ui-route'
 import { isStartupMode } from '../../../packages/contracts/desktop-window'
 import path from 'node:path'
 import fs from 'node:fs'
+import { execFile } from './probe-host'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 import type { DesktopIdentity } from './build-channel'
 
@@ -453,8 +454,7 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
     `$next=Split-Path $a;if($next -eq $a){break};$a=$next};` +
     `Write-Output ($me+'|'+$owner+'|'+($fileBad -join ',')+'|'+($dirBad -join ',')+'|'+($ancestorBad -join ';'))`
   return new Promise(resolve => {
-    // Lazy import keeps policy.ts loadable in bundled unit tests without electron.
-    import('node:child_process').then(({ execFile }) => {
+    {
       execFile(WINDOWS_POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true, env: windowsPowerShellEnv() },
         (error, stdout) => {
           if (error) return resolve({ ok: false, detail: `trust query failed: ${error.message.slice(0, 200)}` })
@@ -463,7 +463,7 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
           const [current, owner, fileBad, dirBad, ancestorBad] = parts
           resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad, path.dirname(file)))
         })
-    }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
+    }
   })
 }
 
@@ -513,7 +513,7 @@ export function verifyDataFolderTrust(dir: string): Promise<DescriptorOwner> {
     `$next=Split-Path $a;if($next -eq $a){break};$a=$next};` +
     `Write-Output ($me+'|'+$owner+'||'+($dirBad -join ',')+'|'+($ancestorBad -join ';'))`
   return new Promise(resolve => {
-    import('node:child_process').then(({ execFile }) => {
+    {
       execFile(WINDOWS_POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true, env: windowsPowerShellEnv() },
         (error, stdout) => {
           if (error) return resolve({ ok: false, detail: `trust query failed: ${error.message.slice(0, 200)}` })
@@ -522,7 +522,7 @@ export function verifyDataFolderTrust(dir: string): Promise<DescriptorOwner> {
           const [current, owner, fileBad, dirBad, ancestorBad] = parts
           resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad, resolvedDir))
         })
-    }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
+    }
   })
 }
 

@@ -146,13 +146,14 @@ test('TR6 the written file is gzip JSON with the canvas background and the stall
   assert.match(t.logged[0].file, /^[0-9TZ-]+\.json\.gz$/, 'a bare file name, no path')
 })
 
-test('TR7 stall-log: renderer-loaf keeps canvas_bg as an enum and a boolean; a stall-trace line keeps its numbers and file name only', () => {
+test('TR7 stall-log: renderer-loaf keeps canvas_bg as an enum and a boolean; a stall-trace line keeps its numbers and file name only', async () => {
   const file = path.join(fresh(), 'diagnostics', 'ui-stalls.jsonl')
   const log = new StallLog({ file: () => file, app: () => '4.6.1 abc1234' })
   log.write('renderer-loaf', { ms: 900, loaf: { blocking: 0 }, canvas_bg: { theme: 'ascii', webgl: true, extra: 'x' } }, { id: W, org: true })
   log.write('renderer-loaf', { ms: 900, loaf: { blocking: 0 }, canvas_bg: { theme: 'C:/Users/x', webgl: 'yes' } }, { id: W, org: true })
   log.write('stall-trace', { ms: 20000, file: '2026-11-15T10-00-00Z.json.gz', events: 5000, bytes: 12345, caught: true, canvas_bg: { theme: 'dots', webgl: false }, path: 'C:/Users/x/secret' })
   log.write('stall-trace', { ms: 1, file: '../../evil.json.gz' })
+  await log.flush()   // the writes are queued off the main thread (async-append.ts)
   const ls = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l))
   assert.deepEqual(ls[0].canvas_bg, { theme: 'ascii', webgl: true })
   assert.deepEqual(ls[1].canvas_bg, { theme: 'other' })
@@ -190,11 +191,12 @@ test('TR8 a failed capture leaves no empty file and writes one failed line; left
 
 })
 
-test('TR8b stall-log keeps a failed stall-trace line as two fields, nothing more', () => {
+test('TR8b stall-log keeps a failed stall-trace line as two fields, nothing more', async () => {
   const file = path.join(fresh(), 'diagnostics', 'ui-stalls.jsonl')
   const log = new StallLog({ file: () => file, app: () => '4.6.1 abc1234' })
   log.write('stall-trace', { ms: 20001, file: '2026-11-16T09-35-30Z.json.gz', failed: true, stage: 'process', err: 'C:/Users/x secret' })
   log.write('stall-trace', { ms: 20001, file: '2026-11-16T09-35-30Z.json.gz', failed: true, stage: 'C:/Users/x' })
+  await log.flush()   // the writes are queued off the main thread (async-append.ts)
   const ls = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l))
   assert.equal(ls[0].failed, true); assert.equal(ls[0].stage, 'process'); assert.equal(ls[0].file, '2026-11-16T09-35-30Z.json.gz')
   assert.equal(JSON.stringify(ls).includes('secret'), false)

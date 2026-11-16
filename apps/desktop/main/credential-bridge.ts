@@ -2,7 +2,7 @@
  * Nothing is persisted, exposed to renderer IPC, or looked up until requested. */
 import { createServer, type Server } from 'node:net'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile } from './probe-host'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -27,15 +27,21 @@ function lookupEnv(): NodeJS.ProcessEnv {
   env.GH_PROMPT_DISABLED = '1'
   return env
 }
-function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
+/** The first `<name>.exe` on PATH (credential-adapters folders skipped), checked without blocking: the credential
+ *  refresh tick reaches here (tests/main-thread-guard.test.mjs). */
+async function executable(name: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
   const search = Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] || ''
-  return search.split(path.delimiter).filter(dir => !dir.split(/[\\/]/).some(part => part.toLowerCase() === 'credential-adapters')).map(dir => path.join(dir, name + '.exe')).find(p => path.isAbsolute(p) && fs.existsSync(p))
+  for (const p of search.split(path.delimiter).filter(dir => !dir.split(/[\\/]/).some(part => part.toLowerCase() === 'credential-adapters')).map(dir => path.join(dir, name + '.exe'))) {
+    if (!path.isAbsolute(p)) continue
+    try { await fs.promises.access(p); return p } catch { /* not here */ }
+  }
+  return undefined
 }
 /** Coarse, secret-free failure code. Never carries tool stdout/stderr. */
 class LookupFailure extends Error { constructor(readonly code: string) { super(code) } }
 function run(tool: string, exe: string, args: string[], input: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = execFile(exe, args, {cwd: os.homedir(), env, windowsHide: true, timeout: LOOKUP_TIMEOUT_MS, maxBuffer: MAX, encoding: 'utf8'},
+    execFile(exe, args, {cwd: os.homedir(), env, windowsHide: true, timeout: LOOKUP_TIMEOUT_MS, maxBuffer: MAX, input},
       (error, stdout) => {
         if (!error) return resolve(stdout)
         const e = error as NodeJS.ErrnoException & {killed?: boolean; code?: string | number}
@@ -44,8 +50,6 @@ function run(tool: string, exe: string, args: string[], input: string, env: Node
           : typeof e.code === 'number' ? `${tool}-exit-${Math.max(-1, Math.min(255, e.code))}`
           : e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `${tool}-too-large` : `${tool}-failed`))
       })
-    child.stdin?.on('error', () => {})
-    child.stdin?.end(input)
   })
 }
 async function lookup(value: Record<string, unknown>): Promise<string> {
@@ -53,14 +57,14 @@ async function lookup(value: Record<string, unknown>): Promise<string> {
   if (!hostOK(value.host) || !safe(value.path ?? '') || !safe(value.username ?? '')) throw new LookupFailure('invalid-request')
   const env = lookupEnv()
   if (value.kind === 'gh') {
-    const gh = executable('gh', env); if (!gh) throw new LookupFailure('gh-missing')
+    const gh = await executable('gh', env); if (!gh) throw new LookupFailure('gh-missing')
     const token = (await run('gh', gh, ['auth', 'token', '--hostname', value.host], '', env)).trim()
     if (!token) throw new LookupFailure('gh-empty')
     if (!safe(token)) throw new LookupFailure('gh-malformed')
     return token
   }
   if (value.kind !== 'git') throw new LookupFailure('invalid-request')
-  const git = executable('git', env); if (!git) throw new LookupFailure('git-missing')
+  const git = await executable('git', env); if (!git) throw new LookupFailure('git-missing')
   const input = `protocol=https\nhost=${value.host}\n${value.path ? `path=${value.path}\n` : ''}${value.username ? `username=${value.username}\n` : ''}\n`
   const answer = await run('git', git, ['credential', 'fill'], input, env)
   const fields = new Map(answer.trim().split(/\r?\n/).map(line => {const at=line.indexOf('=');return [line.slice(0,at),line.slice(at+1)]}))

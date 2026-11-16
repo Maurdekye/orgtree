@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process'
+import { execFile, launchDetached } from './probe-host'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -89,10 +89,8 @@ export async function loginShellPath(shell = process.env.SHELL || '/bin/sh', hom
     PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TERM: 'dumb' }
   const script = `printf '${PATH_MARK}%s${PATH_MARK}' "$PATH"`
   const read = (flags: string) => new Promise<string>(resolve => {
-    const child = execFile(shell, [flags, script], { env, cwd: home || undefined, timeout: timeoutMs, killSignal: 'SIGKILL' },
+    execFile(shell, [flags, script], { env, cwd: home || undefined, timeout: timeoutMs, killSignal: 'SIGKILL', input: '' },
       (_error, stdout) => resolve(parseShellPath(String(stdout ?? ''))))
-    child.on('error', () => resolve(''))
-    child.stdin?.end()
   })
   const [login, interactive] = await Promise.all([read('-ilc'), read('-ic')])
   const seen = new Set<string>()
@@ -303,11 +301,8 @@ export const realIo: BootIo = {
   },
   remove: file => { fs.rmSync(file, { force: true }) },
   uid: () => process.getuid?.() ?? -1,
-  detach: c => {
-    const child = spawn(c.program, c.args, { detached: true, stdio: 'ignore', env: { ...childEnv(process.env), ...c.env } })
-    child.on('error', () => { /* the desktop starts its own engine instead */ })
-    child.unref()
-  },
+  // started by the probe host, detached; a failure is moot: the desktop starts its own engine instead
+  detach: c => { void launchDetached(c.program, c.args, { env: { ...childEnv(process.env), ...c.env } }) },
 }
 
 export interface BootOutcome {

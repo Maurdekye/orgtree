@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile, execFileText } from './probe-host'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -267,11 +267,13 @@ export async function writeDataLocationConfig(userData: string, config: DataLoca
 
 let cachedSelfCreatedStamp: string | null | undefined
 
-function queryWindowsProcessCreatedStamp(pid: number): string | null {
+/** The process's creation time as a FILETIME string, through the probe host (it took 0.3-3 s of the main thread as an
+ *  execFileSync; @item:orgtree/nick-pc-4-6-0-desktop-main-process-stalls-input-f item 5). */
+async function queryWindowsProcessCreatedStamp(pid: number): Promise<string | null> {
   if (process.platform !== 'win32') return null
   if (pid === process.pid && cachedSelfCreatedStamp !== undefined) return cachedSelfCreatedStamp
   try {
-    const out = execFileSync(
+    const out = (await execFileText(
       WINDOWS_POWERSHELL,
       [
         '-NoProfile',
@@ -279,8 +281,8 @@ function queryWindowsProcessCreatedStamp(pid: number): string | null {
         '-Command',
         `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($null -ne $p) { $p.StartTime.ToFileTimeUtc().ToString() }`,
       ],
-      { encoding: 'utf8', timeout: 5000, windowsHide: true, env: windowsPowerShellEnv() },
-    ).trim()
+      { timeout: 5000, windowsHide: true, env: windowsPowerShellEnv() },
+    )).trim()
     const stamp = /^\d+$/.test(out) ? out : null
     if (pid === process.pid) cachedSelfCreatedStamp = stamp
     return stamp
@@ -289,11 +291,11 @@ function queryWindowsProcessCreatedStamp(pid: number): string | null {
   }
 }
 
-export function writeMoveInProgressMarker(userData: string, sourceRoot: string, targetRoot: string): void {
+export async function writeMoveInProgressMarker(userData: string, sourceRoot: string, targetRoot: string): Promise<void> {
   fs.mkdirSync(userData, { recursive: true })
   const file = path.join(userData, DATA_MOVE_MARKER_FILE)
   const nowMs = Date.now()
-  const created = process.platform === 'win32' ? queryWindowsProcessCreatedStamp(process.pid) : null
+  const created = process.platform === 'win32' ? await queryWindowsProcessCreatedStamp(process.pid) : null
   const payload = JSON.stringify(
     {
       version: 1,
@@ -344,7 +346,7 @@ export function clearMoveInProgressMarker(userData: string): void {
   try { fs.unlinkSync(path.join(userData, DATA_MOVE_MARKER_FILE)) } catch { /* already absent */ }
 }
 
-export function hasActiveMoveInProgressMarker(userData: string, nowMs: number = Date.now()): boolean {
+export async function hasActiveMoveInProgressMarker(userData: string, nowMs: number = Date.now()): Promise<boolean> {
   try {
     const file = path.join(userData, DATA_MOVE_MARKER_FILE)
     const st = fs.lstatSync(file)
@@ -368,7 +370,7 @@ export function hasActiveMoveInProgressMarker(userData: string, nowMs: number = 
     }
     if (!processExists(raw.pid)) return false
     if (process.platform === 'win32' && typeof raw.created === 'string' && raw.created.length > 0) {
-      const actual = queryWindowsProcessCreatedStamp(raw.pid)
+      const actual = await queryWindowsProcessCreatedStamp(raw.pid)
       if (!actual || actual !== raw.created) return false
     }
     return true
@@ -2350,7 +2352,7 @@ export async function executeDataLocationMove(params: ExecuteDataLocationMovePar
     })
   }
 
-  writeMoveInProgressMarker(userData, oldRoot, newRoot)
+  await writeMoveInProgressMarker(userData, oldRoot, newRoot)
   const heartbeat = setInterval(() => { refreshMoveInProgressMarker(userData) }, MOVE_MARKER_HEARTBEAT_MS)
   heartbeat.unref?.()
   try {

@@ -1,4 +1,5 @@
-import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFile as hostExecFile } from './probe-host'
 import { open, unlink } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
@@ -134,9 +135,11 @@ export function _setAntigravitySpawnForTests(fn: typeof spawn): void { terminalS
 // measured on 2bf84b7): lets a test observe/count whether taskkill was
 // actually invoked — e.g. to prove the `exited` guard genuinely suppresses
 // it for a done session — without spawning a real `taskkill.exe`.
-// Production never calls the setter, so this is always the real `spawn`.
-let taskkillSpawn: typeof spawn = spawn
-export function _setTaskkillSpawnForTests(fn: typeof spawn): void { taskkillSpawn = fn }
+// Production never calls the setter: taskkill runs in the probe host
+// (probe-host.ts), never on the main thread, and `done` fires when it ends.
+type Taskkill = (cmd: string, args: string[], done: () => void) => void
+let taskkill: Taskkill = (cmd, args, done) => hostExecFile(cmd, args, { windowsHide: true, timeout: 5000 }, () => done())
+export function _setTaskkillForTests(fn: Taskkill): void { taskkill = fn }
 
 function launchAntigravityTerminal(exe: string): { started: boolean; error?: string } {
   return launchTerminal(exe, [])
@@ -285,7 +288,7 @@ class LoginSession {
     })
     this.proc.on('exit', code => { this.exited = true; void this.finish(code === 0) })
     this.proc.on('error', () => { this.exited = true; void this.finish(false) })
-    this.timer = setTimeout(() => { this.timedOut = true; this.cancel() }, TOTAL_TIMEOUT_MS)
+    this.timer = setTimeout(() => { this.timedOut = true; void this.cancel() }, TOTAL_TIMEOUT_MS)
   }
 
   private async finish(exitedClean: boolean): Promise<void> {
@@ -362,27 +365,24 @@ class LoginSession {
    *  is a no-op superset on a leaf process too, so this replaces plain
    *  kill() unconditionally rather than branching on whether THIS
    *  particular spawn happened to go through cmd. */
-  private killTree(waitForExit = false): void {
-    if (this.proc.pid == null || this.exited) return
+  /** Settles when taskkill has ended (at most its 5 s timeout). Quit awaits
+   *  it (stopProviderLoginsForQuit): a kill still running when Electron exits
+   *  can die with it. Formerly an execFileSync on the main thread. */
+  private killTree(): Promise<void> {
+    if (this.proc.pid == null || this.exited) return Promise.resolve()
     if (process.platform !== 'win32') {
       try { this.proc.kill() } catch { /* already gone */ }
-      return
+      return Promise.resolve()
     }
-    if (waitForExit) {
-      // Quit must wait for taskkill: a detached kill can die with Electron.
-      try { execFileSync('taskkill', ['/pid', String(this.proc.pid), '/t', '/f'],
-        { windowsHide: true, stdio: 'ignore', timeout: 5000 }) } catch { /* already exited or unavailable */ }
-      return
-    }
-    try {
-      taskkillSpawn('taskkill', ['/pid', String(this.proc.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' })
-        .on('error', () => { /* best effort — the process may already be gone */ })
-    } catch { /* already gone */ }
+    const pid = String(this.proc.pid)
+    return new Promise(resolve => {
+      try { taskkill('taskkill', ['/pid', pid, '/t', '/f'], resolve) } catch { resolve() /* best effort — the process may already be gone */ }
+    })
   }
 
-  cancel(waitForExit = false): void {
+  cancel(): Promise<void> {
     this.cancelSignal.abort()
-    this.killTree(waitForExit)
+    const killed = this.killTree()
     // ⚠ don't wait for the process's own 'exit' event to settle the
     // session (redteam-opus A5, measured): Windows can take a moment to
     // actually tear a killed process down, and until it does the session
@@ -391,6 +391,7 @@ class LoginSession {
     // guards on `this.done`, so the REAL exit event arriving later is a
     // harmless no-op; this makes cancel instant instead of eventual.
     void this.finish(false)
+    return killed
   }
 
   snapshot(): ProviderLoginStatus {
@@ -550,7 +551,18 @@ export function submitProviderLoginCode(provider: LoginProvider, code: string): 
   return session.snapshot()
 }
 
-export function cancelProviderLogin(provider: LoginProvider, waitForExit = false): ProviderLoginStatus {
+export function cancelProviderLogin(provider: LoginProvider): ProviderLoginStatus {
+  return cancelLogin(provider).status
+}
+
+/** Quit: cancel the Claude and Codex logins and settle when their taskkills have ended (each bounded by its 5 s
+ *  timeout), so no login is left an orphan. Antigravity's terminal is user-owned and outlives the app by design. */
+export async function stopProviderLoginsForQuit(): Promise<void> {
+  await Promise.all((['claude', 'codex'] as LoginProvider[]).map(p => cancelLogin(p).killed))
+}
+
+function cancelLogin(provider: LoginProvider): { status: ProviderLoginStatus; killed: Promise<void> } {
+  let killed: Promise<void> = Promise.resolve()
   const session = sessions.get(provider)
   if (session) {
     // ⚠ a session already `done` (redteam-opus, measured on 2bf84b7) has
@@ -561,7 +573,7 @@ export function cancelProviderLogin(provider: LoginProvider, waitForExit = false
     // regardless; the `exited` guard inside `killTree()` already covers
     // this, but skipping `cancel()` entirely here is a second, cheaper
     // belt that needs no process-exit timing to be correct.
-    if (session.snapshot().phase !== 'done') session.cancel(waitForExit)
+    if (session.snapshot().phase !== 'done') killed = session.cancel()
     // ⚠ freed IMMEDIATELY (redteam-opus A5, measured), not left for a
     // later `startProviderLogin` to find via its own `phase === 'done'`
     // check — without this a cancel-then-retry within the same tick sees
@@ -585,7 +597,7 @@ export function cancelProviderLogin(provider: LoginProvider, waitForExit = false
     // makes for the same provider.
     pending.delete(provider)
   }
-  return publishStatus(provider, { phase: 'idle', ok: null, timedOut: false, output: '', ageMs: 0 })
+  return { status: publishStatus(provider, { phase: 'idle', ok: null, timedOut: false, output: '', ageMs: 0 }), killed }
 }
 
 /** Test-only: drop all session state between cases without a process restart. */

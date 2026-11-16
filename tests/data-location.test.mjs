@@ -1110,7 +1110,7 @@ test('F-5: .data-move-in-progress.json records created + startedAtMs, expires ol
   const nextTarget = path.join(dir, 'MoveMarkerTarget')
 
   // 1. writeMoveInProgressMarker writes startedAtMs (and created on Windows).
-  datalocation.writeMoveInProgressMarker(userData, defaultData, nextTarget)
+  await datalocation.writeMoveInProgressMarker(userData, defaultData, nextTarget)
   const markerFile = path.join(userData, '.data-move-in-progress.json')
   const markerDoc = JSON.parse(fs.readFileSync(markerFile, 'utf8'))
   assert.equal(markerDoc.version, 1)
@@ -1120,11 +1120,11 @@ test('F-5: .data-move-in-progress.json records created + startedAtMs, expires ol
     assert.equal(typeof markerDoc.created, 'string')
     assert.ok(markerDoc.created.length > 5, 'Windows marker must record FILETIME creation stamp')
   }
-  assert.equal(datalocation.hasActiveMoveInProgressMarker(userData), true)
+  assert.equal(await datalocation.hasActiveMoveInProgressMarker(userData), true)
 
   // Expired startedAtMs (> 6h) is ignored.
   assert.equal(
-    datalocation.hasActiveMoveInProgressMarker(userData, markerDoc.startedAtMs + 7 * 3600 * 1000),
+    await datalocation.hasActiveMoveInProgressMarker(userData, markerDoc.startedAtMs + 7 * 3600 * 1000),
     false,
     'expired move marker must be ignored',
   )
@@ -1136,7 +1136,7 @@ test('F-5: .data-move-in-progress.json records created + startedAtMs, expires ol
       JSON.stringify({ version: 1, pid: process.pid, created: '1', startedAtMs: Date.now() }),
     )
     assert.equal(
-      datalocation.hasActiveMoveInProgressMarker(userData),
+      await datalocation.hasActiveMoveInProgressMarker(userData),
       false,
       'recycled PID with mismatched created stamp must be ignored',
     )
@@ -2004,14 +2004,14 @@ test('R6: a move waits for the old folder\'s writers, copies each file as it is 
   // 3. The move marker stays active past six hours while its desktop keeps beating.
   {
     const { dir, userData, defaultData } = makeSandbox()
-    datalocation.writeMoveInProgressMarker(userData, defaultData, path.join(dir, 'LongMove'))
+    await datalocation.writeMoveInProgressMarker(userData, defaultData, path.join(dir, 'LongMove'))
     const markerFile = path.join(userData, '.data-move-in-progress.json')
     const doc = JSON.parse(fs.readFileSync(markerFile, 'utf8'))
     assert.equal(typeof doc.heartbeatAtMs, 'number')
     const later = doc.startedAtMs + 7 * 3600 * 1000
-    assert.equal(datalocation.hasActiveMoveInProgressMarker(userData, later), false, 'no heartbeat for 7 h: stale')
+    assert.equal(await datalocation.hasActiveMoveInProgressMarker(userData, later), false, 'no heartbeat for 7 h: stale')
     assert.equal(datalocation.refreshMoveInProgressMarker(userData, later - 60 * 1000), true)
-    assert.equal(datalocation.hasActiveMoveInProgressMarker(userData, later), true, 'a recent heartbeat keeps a 7-hour move guarded')
+    assert.equal(await datalocation.hasActiveMoveInProgressMarker(userData, later), true, 'a recent heartbeat keeps a 7-hour move guarded')
     const refreshed = JSON.parse(fs.readFileSync(markerFile, 'utf8'))
     assert.equal(refreshed.startedAtMs, doc.startedAtMs, 'the start stays recorded')
 

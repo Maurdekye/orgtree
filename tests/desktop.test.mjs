@@ -13,43 +13,50 @@ async function load(name) {
   return req(out)
 }
 const policy = await load('policy'), { Preferences } = await load('preferences'), { detectHarnesses } = await load('harnesses'), { NotificationGate } = await load('notifications')
+// preference writes are async (preferences.ts): a read of the file or a reload waits for every instance's pending write
+const instances = new Set()
+class TestPreferences extends Preferences { constructor(file) { super(file); instances.add(this) } }
+const settleAll = async () => { for (const p of instances) await p.flush() }
+const reload = async file => { await settleAll(); return new TestPreferences(file) }
 
 const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyTerminalFailures: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
 
-test('notification preferences migrate safely and every independent choice survives restart', () => {
+test('notification preferences migrate safely and every independent choice survives restart', async () => {
   const file = path.join(temp, 'notifications.json')
   fs.writeFileSync(file, JSON.stringify({ routineNotifications: true, visualTheme: 'codex' }))
-  const prefs = new Preferences(file)
+  const prefs = (await reload(file))
   for (const [key, value] of Object.entries(defaults)) assert.equal(prefs.get()[key], key === 'notifyAllMail' ? true : value)
   for (const [key, value] of Object.entries(defaults)) {
     prefs.set({ [key]: !value })
-    assert.equal(new Preferences(file).get()[key], !value)
+    assert.equal((await reload(file)).get()[key], !value)
+    await settleAll()
     const bytes = fs.readFileSync(file, 'utf8')
     assert.throws(() => prefs.set({ [key]: 'true' }), /Invalid/)
+    await settleAll()
     assert.equal(fs.readFileSync(file, 'utf8'), bytes)
   }
   prefs.set({ notifyAllMail: false })
-  assert.equal(new Preferences(file).get().notifyAllMail, false, 'explicit off wins over legacy opt-in')
-  assert.equal(new Preferences(file).get().visualTheme, 'codex')
+  assert.equal((await reload(file)).get().notifyAllMail, false, 'explicit off wins over legacy opt-in')
+  assert.equal((await reload(file)).get().visualTheme, 'codex')
 
   // Unconfigured settings default All mail to off and global Notifications to on
   const unconfiguredFile = path.join(temp, 'unconfigured-notifications.json')
   fs.writeFileSync(unconfiguredFile, JSON.stringify({}))
-  const fresh = new Preferences(unconfiguredFile)
+  const fresh = (await reload(unconfiguredFile))
   assert.equal(fresh.get().notifyAllMail, false, 'All mail is off by default when unconfigured')
   assert.equal(fresh.get().notificationsEnabled, true, 'global Notifications switch defaults on')
 
   // Turning global switch off preserves specific toggles across reload, and turning it back on restores them
   fresh.set({ notifyQuestions: false, notifyUrgentMail: true, notifyAllMail: true, notifyDocuments: true })
   fresh.set({ notificationsEnabled: false })
-  const reloaded = new Preferences(unconfiguredFile)
+  const reloaded = (await reload(unconfiguredFile))
   assert.equal(reloaded.get().notificationsEnabled, false)
   assert.equal(reloaded.get().notifyQuestions, false, 'preserved specific toggle when global off')
   assert.equal(reloaded.get().notifyUrgentMail, true, 'preserved specific toggle when global off')
   assert.equal(reloaded.get().notifyAllMail, true, 'preserved specific toggle when global off')
   assert.equal(reloaded.get().notifyDocuments, true, 'preserved specific toggle when global off')
   reloaded.set({ notificationsEnabled: true })
-  const restored = new Preferences(unconfiguredFile)
+  const restored = (await reload(unconfiguredFile))
   assert.equal(restored.get().notificationsEnabled, true)
   assert.equal(restored.get().notifyQuestions, false)
   assert.equal(restored.get().notifyUrgentMail, true)
@@ -57,24 +64,24 @@ test('notification preferences migrate safely and every independent choice survi
   assert.equal(restored.get().notifyDocuments, true)
 })
 
-test('preferences default close-to-tray/login and retain explicit off across reload', () => {
-  const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
+test('preferences default close-to-tray/login and retain explicit off across reload', async () => {
+  const file = path.join(temp, 'prefs.json'), prefs = (await reload(file))
   assert.deepEqual(prefs.get(), { ...defaults, visualTheme: 'claude', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { ...defaults, visualTheme: 'claude', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
+  assert.deepEqual((await reload(file)).get(), { ...defaults, visualTheme: 'claude', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
   // first-run setup completion persists like any preference and reloads
   assert.equal(prefs.set({ onboarded: true }).onboarded, true)
-  assert.equal(new Preferences(file).get().onboarded, true)
+  assert.equal((await reload(file)).get().onboarded, true)
   assert.throws(() => prefs.set({ onboarded: 'yes' }), /Invalid preference/)
   // ⚠ RESTORING IS THE DEFAULT (settled behavior): an ordinary launch
   // reopens what was open, and starting at a fresh Homepage is the
   // alternative the user opts into.
   assert.equal(prefs.get().startupMode, 'restore')
   assert.equal(prefs.set({ startupMode: 'homepage' }).startupMode, 'homepage')
-  assert.equal(new Preferences(file).get().startupMode, 'homepage')
+  assert.equal((await reload(file)).get().startupMode, 'homepage')
   for (const bad of ['', 'Restore', 'fresh', true, 1, null, {}])
     assert.throws(() => prefs.set({ startupMode: bad }), /Invalid startup mode/, String(bad))
-  assert.equal(new Preferences(file).get().startupMode, 'homepage', 'a rejected value changes nothing')
+  assert.equal((await reload(file)).get().startupMode, 'homepage', 'a rejected value changes nothing')
   for (const bad of [[], null, { startAtLogin: 'false' }, { token: true }, { toString: true }]) assert.throws(() => prefs.set(bad))
   assert.equal(policy.closeAction(false, false), 'hide')
   assert.equal(policy.closeAction(true, false), 'quit')
@@ -82,19 +89,19 @@ test('preferences default close-to-tray/login and retain explicit off across rel
   assert.equal(policy.closeAction(true, false, 1), 'hide', 'closing main cannot quit while another view remains')
   assert.equal(policy.closeAction(true, false, 0), 'quit', 'last visible view honors preference')
 })
-test('resolved v2 root refuses v1 root and overlap before any engine import', () => {
+test('resolved v2 root refuses v1 root and overlap before any engine import', async () => {
   const old = path.join(temp, 'v1'); fs.mkdirSync(old)
   const next = path.join(temp, 'v2')
   assert.equal(policy.validateDataRoot(next, old), path.join(fs.realpathSync.native(temp), 'v2'))
   for (const bad of [old, path.join(old, 'child'), temp, 'relative']) assert.throws(() => policy.validateDataRoot(bad, old))
 })
-test('readiness validates protocol, pid, port, exact absolute root; other log lines ignored', () => {
+test('readiness validates protocol, pid, port, exact absolute root; other log lines ignored', async () => {
   const ready = { type: 'ready', protocol: 1, port: 1234, pid: 44, dataRootId: temp }
   assert.deepEqual(policy.parseReady(JSON.stringify(ready), temp, 44), ready)
   assert.equal(policy.parseReady('arbitrary log line', temp, 44), null)
   for (const delta of [{ protocol: 2 }, { pid: 45 }, { port: 0 }, { port: 65536 }, { port: '1234' }, { dataRootId: path.join(temp, 'other') }, { dataRootId: '.' }]) assert.throws(() => policy.parseReady(JSON.stringify({ ...ready, ...delta }), temp, 44))
 })
-test('auth covers HTTP WS assets and strips credentials on all other destinations', () => {
+test('auth covers HTTP WS assets and strips credentials on all other destinations', async () => {
   const origin = 'http://127.0.0.1:4321'
   for (const url of [origin + '/api/orgs', origin + '/assets/index.js', 'ws://127.0.0.1:4321/api/orgs/test/ws']) assert.equal(policy.scopedHeaders({}, url, origin, 'secret')[policy.TOKEN_HEADER], 'secret')
   for (const url of ['http://127.0.0.1:4322/', 'http://localhost:4321/', 'https://example.com/', 'http://evil@127.0.0.1:4321/', 'file:///x', 'https://127.0.0.1:4321/']) assert.deepEqual(policy.scopedHeaders({ 'x-orgtree-desktop-token': 'old', Accept: '*/*' }, url, origin, 'secret'), { Accept: '*/*' })
@@ -106,20 +113,20 @@ test('auth covers HTTP WS assets and strips credentials on all other destination
   for (const url of ['http://example.com/path?q=1#top', 'https://docs.example.test/']) assert.equal(policy.externalHttpUrl(url), true)
   for (const url of ['about:blank', 'file:///tmp/x', 'javascript:alert(1)', 'data:text/html,hi', 'mailto:test@example.com', 'https://user:pass@example.com/']) assert.equal(policy.externalHttpUrl(url), false)
 })
-test('harness detection has positive fixture and never executes it', () => {
+test('harness detection has positive fixture and never executes it', async () => {
   const name = process.platform === 'win32' ? 'codex.cmd' : 'codex'
   fs.writeFileSync(path.join(temp, name), 'must never execute')
-  const rows = detectHarnesses(temp, {})
+  const rows = (await detectHarnesses(temp, {}))
   assert.equal(rows.find(r => r.id === 'codex').detected, true)
   assert.equal(rows.find(r => r.id === 'claude').detected, false)
   assert.equal(rows.length, 5)
   assert.equal(rows.find(r => r.id === 'antigravity').detected, false)
   fs.writeFileSync(path.join(temp, process.platform === 'win32' ? 'agy.exe' : 'agy'), 'presence only')
-  assert.equal(detectHarnesses(temp, {}).find(r => r.id === 'antigravity').detected, true, 'actual AGY executable name')
-  assert.equal(detectHarnesses('', { antigravity: path.join(temp, name) }).find(r => r.id === 'antigravity').detected, true, 'known native install location outside PATH')
+  assert.equal((await detectHarnesses(temp, {})).find(r => r.id === 'antigravity').detected, true, 'actual AGY executable name')
+  assert.equal((await detectHarnesses('', { antigravity: path.join(temp, name) })).find(r => r.id === 'antigravity').detected, true, 'known native install location outside PATH')
 })
 
-test('native notification defaults are attention-only, with validated identity dedup', () => {
+test('native notification defaults are attention-only, with validated identity dedup', async () => {
   const gate = new NotificationGate(), base = { id: 'n1', org: 'org', title: 'Title', body: 'Body', kind: 'routine' }
   assert.equal(gate.take(base, defaults), null)
   assert.ok(gate.take(base, { ...defaults, notifyAllMail: true }))
@@ -134,88 +141,94 @@ test('native notification defaults are attention-only, with validated identity d
 })
 
 
-test('all themes persist; invalid themes reject atomically and old preferences migrate', () => {
+test('all themes persist; invalid themes reject atomically and old preferences migrate', async () => {
   const file = path.join(temp, 'theme-prefs.json')
   fs.writeFileSync(file, JSON.stringify({startAtLogin:false,exitOnClose:true}))
-  const prefs = new Preferences(file)
+  const prefs = (await reload(file))
   assert.equal(prefs.get().visualTheme, 'claude')
   const freshFile = path.join(temp, 'fresh.json'), legacyNeutral = path.join(temp, 'legacy-neutral.json'), legacyCodex = path.join(temp, 'legacy-codex.json')
   fs.writeFileSync(legacyNeutral, JSON.stringify({visualTheme:'orgtree'}))
   fs.writeFileSync(legacyCodex, JSON.stringify({visualTheme:'codex'}))
-  assert.equal(new Preferences(freshFile).get().visualThemeExplicit, false)
-  assert.equal(new Preferences(legacyNeutral).get().visualThemeExplicit, true)
+  assert.equal((await reload(freshFile)).get().visualThemeExplicit, false)
+  assert.equal((await reload(legacyNeutral)).get().visualThemeExplicit, true)
   fs.writeFileSync(path.join(temp, 'legacy-unset.json'), JSON.stringify({visualTheme:'orgtree',visualThemeExplicit:false}))
-  assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
+  assert.equal((await reload(path.join(temp, 'legacy-unset.json'))).get().visualThemeExplicit, false)
   for (const visualTheme of ['custom:#b6bdc8','claude','codex','antigravity','openrouter','langserver']) {
     prefs.set({visualTheme})
-    assert.deepEqual(new Preferences(file).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false,startupMode:'restore'})
+    assert.deepEqual((await reload(file)).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false,startupMode:'restore'})
   }
+  await settleAll()
   const bytes = fs.readFileSync(file, 'utf8')
   for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {
     assert.throws(() => prefs.set({startAtLogin:true, visualTheme}))
+    await settleAll()
     assert.equal(fs.readFileSync(file, 'utf8'), bytes)
   }
 })
 
 
-test('contrast choices persist independently, migrate old files to Charcoal and reject invalid writes atomically', () => {
+test('contrast choices persist independently, migrate old files to Charcoal and reject invalid writes atomically', async () => {
   const file = path.join(temp, 'contrast-prefs.json')
   fs.writeFileSync(file, JSON.stringify({visualTheme:'custom:#8435cf', startAtLogin:false}))
-  const prefs = new Preferences(file)
+  const prefs = (await reload(file))
   assert.equal(prefs.get().contrastTheme, 'charcoal')
   for (const contrastTheme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
     prefs.set({contrastTheme})
-    const restored = new Preferences(file).get()
+    const restored = (await reload(file)).get()
     assert.equal(restored.contrastTheme, contrastTheme)
     assert.equal(restored.visualTheme, 'custom:#8435cf')
     assert.equal(restored.visualThemeExplicit, true)
     assert.equal(restored.startAtLogin, false)
   }
   prefs.set({visualTheme:'codex'})
-  assert.equal(new Preferences(file).get().contrastTheme, 'obsidian-black')
+  assert.equal((await reload(file)).get().contrastTheme, 'obsidian-black')
+  await settleAll()
   const bytes = fs.readFileSync(file, 'utf8'), previous = prefs.get()
   for (const contrastTheme of ['unknown', '', true, null, {}, '__proto__']) {
     assert.throws(() => prefs.set({visualTheme:'claude', contrastTheme}), /Invalid contrast theme/)
+    await settleAll()
     assert.equal(fs.readFileSync(file, 'utf8'), bytes)
     assert.deepEqual(prefs.get(), previous)
   }
-  const fresh = new Preferences(path.join(temp, 'contrast-only-prefs.json'))
+  const fresh = (await reload(path.join(temp, 'contrast-only-prefs.json')))
   fresh.set({contrastTheme:'light'})
   assert.equal(fresh.get().visualThemeExplicit, false, 'choosing brightness does not pin the detected accent')
 })
 
-test('agent coloring defaults to providers, persists both choices, and never changes theme or contrast', () => {
+test('agent coloring defaults to providers, persists both choices, and never changes theme or contrast', async () => {
   const file = path.join(temp, 'agent-color-prefs.json')
   fs.writeFileSync(file, JSON.stringify({visualTheme:'custom:#8435cf', contrastTheme:'solarized-light', visualThemeExplicit:true}))
-  const prefs = new Preferences(file)
+  const prefs = (await reload(file))
   assert.equal(prefs.get().agentColorSource, 'provider')
   for (const agentColorSource of ['organization', 'provider']) {
     prefs.set({agentColorSource})
-    const restored = new Preferences(file).get()
+    const restored = (await reload(file)).get()
     assert.equal(restored.agentColorSource, agentColorSource)
     assert.equal(restored.visualTheme, 'custom:#8435cf')
     assert.equal(restored.contrastTheme, 'solarized-light')
   }
+  await settleAll()
   const bytes = fs.readFileSync(file, 'utf8'), original = prefs.get()
   for (const agentColorSource of ['unknown', '', true, null, {}, '__proto__']) {
     assert.throws(() => prefs.set({visualTheme:'claude', agentColorSource}), /Invalid agent color source/)
+    await settleAll()
     assert.equal(fs.readFileSync(file, 'utf8'), bytes)
     assert.deepEqual(prefs.get(), original)
   }
-  const fresh = new Preferences(path.join(temp, 'agent-colors-only.json'))
+  const fresh = (await reload(path.join(temp, 'agent-colors-only.json')))
   fresh.set({agentColorSource:'organization'})
   assert.equal(fresh.get().visualThemeExplicit, false)
 })
 
-test('automatic updates default on for old preferences and explicit off survives reload', () => {
+test('automatic updates default on for old preferences and explicit off survives reload', async () => {
   const file = path.join(temp, 'automatic-prefs.json')
   fs.writeFileSync(file, JSON.stringify({ startAtLogin: false }))
-  const prefs = new Preferences(file)
+  const prefs = (await reload(file))
   assert.equal(prefs.get().automaticUpdates, true)
   assert.equal(prefs.get().startAtLogin, false)
   prefs.set({ automaticUpdates: false })
-  assert.equal(new Preferences(file).get().automaticUpdates, false)
+  assert.equal((await reload(file)).get().automaticUpdates, false)
   assert.throws(() => prefs.set({ automaticUpdates: 'false' }), /Invalid preference/)
   prefs.set({ automaticUpdates: true })
-  assert.equal(new Preferences(file).get().automaticUpdates, true)
+  assert.equal((await reload(file)).get().automaticUpdates, true)
 })
