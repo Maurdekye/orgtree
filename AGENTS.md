@@ -188,6 +188,16 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 ## Engine and desktop invariants
 
+- AGY's silent check (`AGY_CLI_CDE_AUTH_ACTION=check`) never reads AGY's FILE
+  sign-in (`~/.gemini/antigravity-cli/antigravity-oauth-token`, used off Windows
+  without a D-Bus session, e.g. the standalone container): it answers signed out.
+  For the default sign-in with that file the guard stamps the file's metadata
+  and validates with `agy models` (exact measured shapes only; the measured
+  "Please sign in" line is exempt from the prompt monitor there and only there);
+  60 s pass cache; no email, constant catalog principal. See
+  [file sign-in](docs/rust-engine/antigravity-background-auth.md#file-sign-in-linux-without-a-keyring-2026-11-16).
+  [verified: `providers/agy_auth.rs`, AGY 1.5.9 measured 2026-11-16]
+
 - Chat audio is click-to-load; video opens on render, paused; maximize needs
   the `fullscreen` grant in `main/windows.ts`. Capped at256MiB, streamed only
   after file authorization, ranges bounded to the opened size. Keep image

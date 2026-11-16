@@ -168,7 +168,11 @@ HTTP routes have user authority; `orgtree_accounts` also exposes add/list/identi
 
 In Docker, login must run inside the derived container as its user. Keep the
 account profiles under `/data`; the supplied compose file does not persist
-`/home/orgtree`. Antigravity's Linux headless/keyring login is unverified.
+`/home/orgtree`. Antigravity signs in with `docker exec -it <container> agy`
+(Google OAuth, paste the code); without D-Bus it keeps a file sign-in on the
+data volume, which the engine validates with `agy models` (no account email
+shown; profiles refused on Linux; one account per engine). The agents image
+installs a pinned `agy` on the first start (`AGY_INSTALL=off` skips it).
 Source inspection establishes the profile matching, not successful native
 browser completion. The checkout's `docs/standalone-engine.md` gives the
 operator recipes and their current verification limits.

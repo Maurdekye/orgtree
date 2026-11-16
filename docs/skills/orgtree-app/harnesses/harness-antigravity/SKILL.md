@@ -131,6 +131,16 @@ that genuinely isolates them.
 A transient launch-check failure gets at most one bounded retry; an actual
 auth refusal or profile-isolation refusal is not converted into success.
 
+Off Windows without a desktop keyring (the standalone engine's container), AGY
+keeps the default sign-in in `~/.gemini/antigravity-cli/antigravity-oauth-token`,
+which its silent check does not read. The engine then checks that sign-in with
+`agy models` instead: rows pass; the exact "Please sign in" reply waits for a
+later silent recheck; an OAuth prompt or an unknown reply holds until the file
+changes. A pass is reused for 60 s. No account email is shown, registered
+profiles are refused there, and an hourly token refresh replaces an agent's AGY
+process at its next turn. Source: `providers/agy_auth.rs` (`uses_file_token`,
+`models_verdict`); `docs/rust-engine/antigravity-background-auth.md`.
+
 A running AGY keeps the login it started with and can save that login back over
 a newer sign-in. So when the default sign-in changes to a different account,
 Orgtree restarts the Antigravity processes still on the old login: idle ones at

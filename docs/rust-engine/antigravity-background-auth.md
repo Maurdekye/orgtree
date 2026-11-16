@@ -51,11 +51,56 @@ terminated. Agent refusal is posted before process EOF so it is not mistaken
 for a network retry. Ordinary model JSON discussing sign-in is not an auth
 signal. Native child Jobs are used where available.
 
-Non-Windows has no verified credential metadata detector in this change. It
+Non-Windows has no verified credential metadata detector in this change
+(except AGY's file sign-in, below in "File sign-in"). It
 still performs the silent check before every launch. After refusal, it permits
 only silent revalidation after at least five minutes; actual usage/model/turn
 commands remain forbidden until a check succeeds (coordinator, 2026-10-14).
 This platform path is source-reviewed, not measured against a real CLI here.
+
+## File sign-in (Linux without a keyring, 2026-11-16)
+
+Measured on AGY 1.5.9 in the standalone agents image (docket
+`antigravity-agents-on-a-headless-engine-subscrip`): with no D-Bus session the
+CLI logs "Using file-based token storage because no D-Bus session bus detected"
+and keeps the sign-in in `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+Fresh processes are signed in from it, and AGY refreshes it in place hourly
+(rewriting the file). But the silent check (`AGY_CLI_CDE_AUTH_ACTION=check`)
+never opens that file (strace): it exits 1 with no output, the measured
+signed-out answer, so the guard refused every hire and turn.
+
+For the default sign-in off Windows (and in the rig's fake home on any
+platform), when that file exists (`uses_file_token`):
+
+- The stamp is the file's modification time and size (never its contents);
+  without the file the platform keeps the old constant stamp and the silent
+  check. Latches therefore follow the file: a refresh or a new sign-in releases
+  them, as a new credential does on Windows.
+- The check is `agy models` (`models_check_command`, 20 s, the same lock,
+  configure() environment, API-key variables removed, before/after stamp).
+  `models_verdict` accepts only the measured shapes: exit 0 with `<id>` TAB
+  `<label>` rows passes; exit 0 with exactly the measured line "Error: Please
+  sign in to view available models. Launch the CLI without arguments to sign
+  in." is a `refused` latch (silent revalidation as above); any other reply, a
+  non-zero exit, or an OAuth prompt is `untrusted` until the file changes.
+  Timeouts and spawn failures stay transient and write no latch.
+- The generic prompt monitor treats "please sign in" as an OAuth prompt, so the
+  validation's capture uses `models_prompt`, which exempts only that exact
+  measured line (complete or still arriving); anything after it is still a
+  prompt and is killed and latched.
+- A pass is cached for the same stamp for 60 s (`FILE_PASS_TTL`); a latch or a
+  new stamp ends it. Refusals are never cached.
+- `agy models` names no account: the catalog identity is the constant
+  `FILE_PRINCIPAL`, so no email is shown and an account switch is not detected
+  (sign out, sign in, restart). An hourly refresh changes the stamp, so warm
+  reuse replaces an agent's AGY process at its next turn.
+- Profile logins and Windows are unchanged (profiles stay refused on Linux).
+
+Proofs: units `agy_file_*` in `providers/agy_auth.rs`; rig
+`tools/rig/proofs/agy-file-token.mjs` (fake `agy models` answers
+`agy-auth.json` `"models"`: `signed_out`, `prompt`, `unknown`). The rig runs on
+Windows with the fake home's token file; the real Linux behaviour is the
+measured probe above.
 
 ## Transient wake checks (2026-10-17)
 

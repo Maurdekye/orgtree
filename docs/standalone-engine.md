@@ -106,7 +106,7 @@ requires it.
 | Tag | What it is |
 | --- | --- |
 | `<version>`, `latest` | The plain engine. Provider CLIs are not included. |
-| `<version>-agents`, `latest-agents` | The same engine plus what agents need inside the container: Codex, Claude Code (pinned; installed on the first start), Node.js, ssh/git, python3 and the Docker CLI. See [the agents image](#the-agents-image). |
+| `<version>-agents`, `latest-agents` | The same engine plus what agents need inside the container: Codex, Claude Code and the Antigravity CLI (both pinned; installed on the first start), Node.js, ssh/git, python3 and the Docker CLI. See [the agents image](#the-agents-image). |
 
 `latest` and `latest-agents` follow stable releases only; alphas and betas have
 only their version tags. Each release also attaches both images as files with
@@ -299,6 +299,7 @@ newest stable release) is the same image with what agents need to run inside it
 | The same engine binary and PostgreSQL 17 | built on the release's plain image |
 | Codex CLI (`codex`) | pinned per release; root-owned, so it cannot update itself |
 | Claude Code (`claude`) | pinned per release, installed on the first start (below); auto-update off (`DISABLE_AUTOUPDATER=1`) |
+| Antigravity CLI (`agy`) | pinned per release, installed on the first start (below); auto-update off (`AGY_CLI_DISABLE_AUTO_UPDATE=true`) |
 | Node.js 22 and npm | for the CLIs' npm packages |
 | OpenSSH client, git | `git clone git@github.com:...` works: GitHub's host keys are preinstalled, other hosts are accepted on first use (`StrictHostKeyChecking accept-new`) and a changed key is refused |
 | python3, curl, the Docker CLI | for a Docker daemon, mount its socket (below) |
@@ -316,6 +317,15 @@ containers on the same volume, reuse it. If the install fails, the log says so,
 the engine starts without Claude Code (Codex and API-key accounts still work)
 and the next start tries again. A new image version installs its own pinned
 version on its first start.
+
+**The Antigravity CLI is installed on the first start too.** Its terms grant no
+redistribution, so the image carries only the pinned version and the SHA-256 of
+Google's Linux x64 release tarball (image label `dev.orgtree.agy.version`). The
+first start downloads that tarball from the CLI's GitHub release (about 100 MB),
+checks the SHA-256 and unpacks `agy` into `/data/agent-tools/agy` on the data
+volume; later starts and new containers on the same volume reuse it. A failed
+download is reported, the engine starts without Antigravity and the next start
+tries again. To skip it, start the container with `-e AGY_INSTALL=off`.
 
 **HOME is `/data/home`**, on the data volume, so the default `~/.claude`,
 `~/.codex`, `~/.ssh` and `~/.gitconfig` survive a new container. Put SSH keys in
@@ -573,10 +583,46 @@ env -u META_API_KEY \
 ```
 
 Muse imported-folder registration is deliberately unsupported; create the managed
-row first. Antigravity uses its own interactive `agy` entry point; a working
-headless Linux/keyring login has not been established by this verification.
-OpenCode currently serves isolated OpenRouter/local-server routes, rather than
+row first. OpenCode currently serves isolated OpenRouter/local-server routes, rather than
 adopting an unrelated native subscription login.
+
+### Antigravity
+
+The Antigravity CLI has no separate login command: start it with no arguments
+in an interactive terminal, as the engine's user, and sign in there. In the
+agents image:
+
+```sh
+docker exec -it orgtree-engine agy
+```
+
+Choose **1. Google OAuth**. There is no browser in the container, so it prints a
+`https://accounts.google.com/...` link: open it in your own browser and sign in
+with the Google account whose Antigravity subscription the agents should use.
+Google then shows a page on `antigravity.google` with an authorization code: paste
+it at "paste the authorization code below" and press Enter. Answer any first-run
+questions, then leave with `/exit` (or Ctrl+D twice). Nothing needs forwarding.
+
+Without a desktop keyring (no D-Bus session, as in the container), the CLI keeps
+this sign-in in a file, `~/.gemini/antigravity-cli/antigravity-oauth-token`; in
+the agents image that is on the data volume, so it survives a restart and a new
+container, and the CLI refreshes it by itself about every hour. Measured with
+Antigravity CLI 1.5.9 on 2026-11-16: a real sign-in, a container restart, a
+refresh and an agent turn run by the engine. To sign out, run `/logout` in the
+same terminal.
+
+The engine checks such a file sign-in with `agy models` (the CLI's own sign-in
+check does not read the file). Limits of the file sign-in:
+
+- The engine does not learn the account's email address, so the provider card
+  shows Antigravity connected without one.
+- Only the default sign-in works this way: a registered Antigravity
+  subscription account with its own folder is refused on Linux. Use one
+  Antigravity account per engine.
+- To switch the container to another Google account, sign out, sign in with the
+  other account and restart the container.
+- Each refresh rewrites the file, so an agent's Antigravity process is replaced at
+  its next turn after a refresh; the conversation continues.
 
 For Docker, run these login commands through SSH plus `docker exec -it` inside
 your derived container as its `orgtree` user. Use managed profiles under `/data`:
