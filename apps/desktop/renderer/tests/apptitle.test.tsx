@@ -74,7 +74,8 @@ test('every visible app title reads exactly Orgtree — no case drift, no spark 
   assert.match(app, /<h1>Orgtree\r?\n/, 'the sidebar title')
   assert.equal([...app.matchAll(/<h2>Orgtree<\/h2>/g)].length, 2,
     'both native window headers (home and fallback orgbar)')
-  assert.match(app, /\$\{tree\.name\} — Orgtree` : 'Orgtree'/, 'the tab title')
+  // 4.6.0 remote org: a remote organization's tab adds ' · <engine name>' before the same suffix.
+  assert.match(app, /\$\{tree\.name\}(?:\$\{remoteName \? ` · \$\{remoteName\}` : ''\})? — Orgtree` : 'Orgtree'/, 'the tab title')
   assert.doesNotMatch(app, /<h[12]>[^<]*orgtree/,
     'no lowercase orgtree remains in a visible heading')
   assert.doesNotMatch(app, /<h1><SparkIcon/, 'the sidebar spark glyph is gone')
