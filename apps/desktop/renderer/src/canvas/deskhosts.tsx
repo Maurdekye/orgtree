@@ -204,14 +204,8 @@ export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: 
       if (org === slug && node?.generation === generation) desks.popout(deskIdentity(slug, node), popoutDesk(node), null, undefined, false)
     }
   }, [desks, map, slug, treeSlug, popoutDesk, restoreAllowed])
-  // a window whose agent is gone or has a new generation closes with it
-  useEffect(() => {
-    if (treeSlug !== slug) return
-    for (const key of [...desks.windows.keys()]) {
-      const [, id, generation] = JSON.parse(key) as [string, string, number]
-      if (map.get(id)?.generation !== generation) desks.closeWindow(key)
-    }
-  }, [desks, map, slug, treeSlug])
+  // a window whose agent is gone or has a new generation STAYS, as the old desk with the identity notice (DeskView
+  // `stale`): its draft went into the agent's message history, and the user closes the window when done with it
   return <DeskMapReady.Provider value={treeSlug === slug}><DeskContext.Provider value={desks}>{children}
     <DeskWindows desks={desks} map={map} slug={slug} propsFor={popoutDesk} /></DeskContext.Provider></DeskMapReady.Provider>
 }
@@ -223,10 +217,13 @@ function DeskWindows({ desks, map, slug, propsFor }: {
   return <>{[...desks.windows].map(([key, win]) => {
     const { props, box } = win
     const [org, id, generation] = JSON.parse(key) as [string, string, number]
-    const node = map.get(id)
-    const base = node && (propsFor?.(node) ?? props)
-    if (org !== slug || node?.generation !== generation || !base) return null
-    return <PopoutDesk key={key} desks={desks} winKey={key} win={win} box={box} props={{ ...base, node, map, eligible: true,
+    const current = map.get(id)
+    // the agent moved on (a new generation, or gone): the window keeps the desk it showed, now stale
+    const stale = current?.generation !== generation
+    const node = stale ? props?.node : current
+    const base = node && (stale ? props : propsFor?.(node) ?? props)
+    if (org !== slug || !node || !base) return null
+    return <PopoutDesk key={key} desks={desks} winKey={key} win={win} box={box} stale={stale} props={{ ...base, node, map, eligible: true,
       claim: undefined, borrow: undefined, openIn: undefined, temporaryPlacement: undefined, onPoppedOut: undefined }} />
   })}</>
 }
@@ -237,8 +234,8 @@ function DeskWindows({ desks, map, slug, propsFor }: {
  * from; one the last session left open is reopened by MovableSurface itself, from its saved row. Closing the
  * window, or its Return, ends this view; the places in the main window kept their own desks all along.
  */
-function PopoutDesk({ desks, winKey, win, props, box }: {
-  desks: Desks; winKey: string; win: Win; props: DeskChatProps; box: Box | null
+function PopoutDesk({ desks, winKey, win, props, box, stale }: {
+  desks: Desks; winKey: string; win: Win; props: DeskChatProps; box: Box | null; stale: boolean
 }) {
   const [dock, setDock] = useState<HTMLElement | null>(null)
   return <div hidden ref={setDock}>
@@ -255,11 +252,11 @@ function PopoutDesk({ desks, winKey, win, props, box }: {
           desks.closeWindow(winKey)
         }
       }}>
-      <PopoutDeskBody desks={desks} winKey={winKey} win={win} props={props} />
+      <PopoutDeskBody desks={desks} winKey={winKey} win={win} props={props} stale={stale} />
     </MovableSurface>}
   </div>
 }
-function PopoutDeskBody({ desks, winKey, win, props }: { desks: Desks; winKey: string; win: Win; props: DeskChatProps }) {
+function PopoutDeskBody({ desks, winKey, win, props, stale }: { desks: Desks; winKey: string; win: Win; props: DeskChatProps; stale: boolean }) {
   const surface = useSurface()
   useLayoutEffect(() => {
     if (!win.fresh || !surface || surface.detached) return
@@ -272,7 +269,7 @@ function PopoutDeskBody({ desks, winKey, win, props }: { desks: Desks; winKey: s
     props.toast([surface.error])
     desks.closeWindow(winKey)
   }, [desks, winKey, props, surface?.error])
-  return <DeskView desks={desks} deskKey={winKey} props={props} window />
+  return <DeskView desks={desks} deskKey={winKey} props={props} window stale={stale} />
 }
 
 /** A desk's own pop-out control: this place's desk opens in a window of its own, or the window this desk is in
@@ -314,7 +311,9 @@ export function DeskSlot(outer: DeskChatProps) {
   if (!mapReady) return <InDesksPlace bare={props.bare}>Loading organization...</InDesksPlace>
   if (!desks || isMobile || typeof props.node.generation !== 'number'
     || !Number.isSafeInteger(props.node.generation) || props.node.generation < 0) return <OwnedDeskChat {...props} />
-  return <DeskView desks={desks} deskKey={deskIdentity(props.slug, props.node)} props={props} />
+  const current = props.map?.get(props.node.id)
+  return <DeskView desks={desks} deskKey={deskIdentity(props.slug, props.node)} props={props}
+    stale={!!props.map && current?.generation !== props.node.generation} />
 }
 
 /**
@@ -322,9 +321,12 @@ export function DeskSlot(outer: DeskChatProps) {
  * place is on screen. Off screen it renders nothing at all and mounts when it comes back: a desk nobody can see is
  * never mounted (design-461; the mount-cost budget agreed with @desk-freeze-opus).
  */
-function DeskView({ desks, deskKey, props, window: inWindow = false }: {
+function DeskView({ desks, deskKey, props, window: inWindow = false, stale = false }: {
   desks: Desks; deskKey: string; props: DeskChatProps; window?: boolean
+  /** this desk's agent has moved on (a new generation, or gone): the old desk stays, read-only, with the notice */
+  stale?: boolean
 }) {
+  const [dismissed, setDismissed] = useState(false)
   const id = useRef({}).current
   const anchor = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
@@ -353,9 +355,22 @@ function DeskView({ desks, deskKey, props, window: inWindow = false }: {
   const used = () => desks.touch(deskKey, id)
   return <div className="desk-slot" ref={anchor} data-desk-slot={deskKey}
     onPointerDownCapture={used} onFocusCapture={used}>
-    {props.eligible !== false && <DeskViewContext.Provider value={control.current}>
-      <OwnedDeskChat {...props} />
+    {props.eligible !== false && !(stale && dismissed) && <DeskViewContext.Provider value={control.current}>
+      {/* docked, the old desk can be closed; in a window, its window's Close does that */}
+      {stale && !inWindow && <div className="popout-draft-recovery"><button onClick={() => setDismissed(true)}>Close old desk</button></div>}
+      {stale && <StaleIdentityNotice generation={props.node.generation} />}
+      <OwnedDeskChat {...props} staleIdentity={stale || props.staleIdentity} />
     </DeskViewContext.Provider>}
+  </div>
+}
+
+/** The draft stranded by an identity change is SAVED, not copied: it goes into this agent's sent-message history
+ *  and comes back with Up in the message box (desk.tsx). So the notice reads the same in every place. */
+function StaleIdentityNotice({ generation }: { generation: number | undefined }) {
+  return <div className="popout-error" role="status">
+    This agent's identity changed. This draft belongs to generation {generation}.
+    It will not be sent to the new generation; it is kept in this agent's
+    message history, so press Up in the message box to bring it back.
   </div>
 }
 
