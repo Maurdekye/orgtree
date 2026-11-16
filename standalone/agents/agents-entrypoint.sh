@@ -9,6 +9,8 @@
 # next start tries again. The same goes for the Antigravity CLI (agy) with
 # AGY_INSTALL=first-start: the pinned release tarball from GitHub, checked
 # against the image's SHA-256, unpacked into /data/agent-tools/agy.
+# AGY_INSTALL is an image ENV (not in agents.env), so `docker run -e
+# AGY_INSTALL=off` skips it.
 set -uo pipefail
 . /opt/orgtree/agents.env
 mkdir -p "$HOME" 2>/dev/null || true

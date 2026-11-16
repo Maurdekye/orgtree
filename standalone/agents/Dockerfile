@@ -66,8 +66,8 @@ RUN set -eux; \
     fi; \
     # Antigravity: only a link to where the first start unpacks the pinned release
     ln -s /data/agent-tools/agy/antigravity /usr/local/bin/agy; \
-    printf 'CLAUDE_CODE_VERSION=%s\nCODEX_VERSION=%s\nCLAUDE_CODE_INSTALL=%s\nAGY_VERSION=%s\nAGY_SHA256=%s\nAGY_INSTALL=%s\n' \
-      "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" "$CLAUDE_CODE_INSTALL" "$AGY_VERSION" "$AGY_SHA256" "$AGY_INSTALL" > /opt/orgtree/agents.env; \
+    printf 'CLAUDE_CODE_VERSION=%s\nCODEX_VERSION=%s\nCLAUDE_CODE_INSTALL=%s\nAGY_VERSION=%s\nAGY_SHA256=%s\n' \
+      "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" "$CLAUDE_CODE_INSTALL" "$AGY_VERSION" "$AGY_SHA256" > /opt/orgtree/agents.env; \
     rm -rf /root/.npm /tmp/*; \
     mkdir -p /data/home; chown -R orgtree:orgtree /data
 # The same package-level description as the plain image: GHCR shows the
@@ -94,6 +94,7 @@ ENV HOME=/data/home \
     DISABLE_AUTOUPDATER=1 \
     AGY_CLI_DISABLE_AUTO_UPDATE=true \
     AGY_VERSION=${AGY_VERSION} \
+    AGY_INSTALL=${AGY_INSTALL} \
     NPM_CONFIG_UPDATE_NOTIFIER=false
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 CMD ["orgtree-healthcheck"]
 ENTRYPOINT ["orgtree-agents-entrypoint"]
