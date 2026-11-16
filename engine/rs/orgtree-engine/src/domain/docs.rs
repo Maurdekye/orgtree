@@ -16,8 +16,8 @@ use crate::util::uid;
 
 pub const MARKDOWN_MAX: usize = 64 * 1024;
 pub const HTML_MAX: u64 = 4 * 1024 * 1024;
-/// The largest file `orgtree_send_file` delivers (3.x `_SENDFILE_MAX`).
-pub const SEND_MAX: u64 = 256 * 1024 * 1024;
+/// The largest file `orgtree_send_file` delivers: 32 GiB (USER 2026-11-16 mcca6534eeb16; 3.x had 256 MiB).
+pub const SEND_MAX: u64 = 32 * 1024 * 1024 * 1024;
 /// A presentation's title is at most this many characters (3.x).
 const TITLE_MAX: usize = 120;
 
@@ -357,6 +357,17 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     Ok((format!("Presented \"{title}\" to the user (id {id}, mention {reference}; pass the id as `replaces` to update this card)."), card))
 }
 
+/// An empty file is not delivered, nor is one over SEND_MAX.
+pub(crate) fn check_send_size(raw: &str, size: u64) -> Result<()> {
+    if size == 0 {
+        refuse!(BadRequest, "{raw} is empty; nothing to send");
+    }
+    if size > SEND_MAX {
+        refuse!(BadRequest, "{raw} is {}, over the {} limit", gb(size), gb(SEND_MAX));
+    }
+    Ok(())
+}
+
 /// `orgtree_send_file`. Returns (text, chip card).
 #[logged]
 pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, args: &Value) -> Result<(String, Value)> {
@@ -382,15 +393,8 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
     // as in 3.x: an empty file is not delivered, and neither is one over the cap
     let src = readable(p, raw)?;
     if src.is_file() {
-        let size = std::fs::metadata(&src)?.len();
-        if size == 0 {
-            refuse!(BadRequest, "{raw} is empty; nothing to send");
-        }
-        if size > SEND_MAX {
-            refuse!(BadRequest, "{raw} is {}, over the {} cap", gb(size), gb(SEND_MAX));
-        }
+        check_send_size(raw, std::fs::metadata(&src)?.len())?;
     }
-    // minutes of copying must not hold an engine worker
     let copy = { let (p, raw) = (p.clone(), raw.to_string()); tokio::task::spawn_blocking(move || snapshot(&p, &raw, None)).await?? };
     let name = copy["name"].as_str().unwrap().to_string();
     let path = copy["path"].as_str().unwrap().to_string();
@@ -495,6 +499,16 @@ mod send_file_copy_tests {
         assert!(err.contains("disk gone"), "{err}");
         let left = deliveries(&f);
         assert!(left.is_empty(), "a partial delivery was left: {left:?}");
+    }
+
+    #[test]
+    fn the_send_cap_is_32_gib_at_the_boundary_with_no_real_file() {
+        assert_eq!(SEND_MAX, 32 * 1024 * 1024 * 1024);
+        assert!(check_send_size("f", 1).is_ok());
+        assert!(check_send_size("f", SEND_MAX).is_ok(), "exactly the cap is allowed");
+        let over = check_send_size("f.bin", SEND_MAX + 1).unwrap_err().to_string();
+        assert!(over.contains("f.bin") && over.contains("GB") && over.contains("limit"), "{over}");
+        assert!(check_send_size("e", 0).unwrap_err().to_string().contains("empty"));
     }
 
     #[test]

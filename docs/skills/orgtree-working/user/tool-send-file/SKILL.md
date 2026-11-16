@@ -25,7 +25,7 @@ Minimal call:
 {"path":"out/export.csv"}
 ```
 
-The file must be regular, nonempty and at most **256 MiB**. A directory refuses; create an archive first if that is the requested deliverable. Canonical containment checks use scratch/effectively held roots including organization/shared/team workspaces and ancestor clamps. A symlink to an ungranted location is not file authority.
+The file must be regular, nonempty and at most **32 GiB** (the copy runs off the engine's main threads, is refused up front with the needed and available space if the working folder's drive is short, and a failed copy leaves no partial file). A directory refuses; create an archive first if that is the requested deliverable. Canonical containment checks use scratch/effectively held roots including organization/shared/team workspaces and ancestor clamps. A symlink to an ungranted location is not file authority.
 
 Folder resolution has no fixed nesting-depth cutoff. It retains the complete ancestor clamps and all reachable live descendant-project folders, without duplicating a folder through a cycle. Cyclic or incomplete ancestry refuses folder authority. These rules are shared with presentation-file and logo-file reads; their own file-size and format checks still apply.
 

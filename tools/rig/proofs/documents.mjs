@@ -98,7 +98,7 @@ export default async function (rig) {
     Object.fromEntries(Object.entries(bad).map(([k, r]) => [k, r.ok ? 'ok' : r.text?.slice(0, 90)])))
   fs.writeFileSync(path.join(scratch('pia'), 'empty.txt'), '')
   const big = path.join(scratch('pia'), 'huge.bin')
-  const fd = fs.openSync(big, 'w'); fs.ftruncateSync(fd, 257 * 1024 * 1024); fs.closeSync(fd)
+  const fd = fs.openSync(big, 'w'); fs.ftruncateSync(fd, 32 * 1024 * 1024 * 1024 + 1024 * 1024); fs.closeSync(fd)
   const before = rig.one(`SELECT count(*)::int AS n FROM ot.deliveries`).n
   const empty = await tool('pia', 'send_file', { path: 'empty.txt' })
   const huge = await tool('pia', 'send_file', { path: 'huge.bin' })
@@ -107,8 +107,8 @@ export default async function (rig) {
     const f = path.join(scratch('pia'), 'outbox', d, 'huge.bin')
     if (fs.existsSync(f)) fs.rmSync(f, { force: true })
   }
-  p.check('pia: an empty file and a file over 256 MB are refused, as in 3.x, and nothing is delivered', !empty.ok && /empty/.test(empty.text ?? '')
-    && !huge.ok && /256 MB/.test(huge.text ?? '') && rig.one(`SELECT count(*)::int AS n FROM ot.deliveries`).n === before,
+  p.check('pia: an empty file and a file over the 32 GB limit are refused, as in 3.x, and nothing is delivered', !empty.ok && /empty/.test(empty.text ?? '')
+    && !huge.ok && /32\.0 GB/.test(huge.text ?? '') && rig.one(`SELECT count(*)::int AS n FROM ot.deliveries`).n === before,
   { empty: empty.text?.slice(0, 120), huge: huge.text?.slice(0, 120) })
   const longTitle = 'T'.repeat(200)
   const lt = await tool('pia', 'present', { title: longTitle, body: 'short' })

@@ -1403,16 +1403,30 @@ pub async fn file(
             } else { "Media preview unavailable; download the file instead" })
         });
     }
-    let bytes = tokio::fs::read(&canon).await.map_err(|_| ApiError::not_found("that file could not be read"))?;
-    let mime = mime_guess::from_path(&canon).first_or_octet_stream();
+    stream_download(&canon).await
+}
+
+/// The file as a STREAMED body: a delivery can be tens of GB, so it is never read
+/// whole into memory. Length comes from the opened handle, and the body is bounded
+/// to it even if a writer grows the file afterwards.
+#[nolog]
+async fn stream_download(canon: &FsPath) -> ApiResult<Response> {
+    use tokio::io::AsyncReadExt;
+    let file = tokio::fs::File::open(canon).await.map_err(|_| ApiError::not_found("that file could not be read"))?;
+    let meta = file.metadata().await.map_err(|_| ApiError::not_found("that file could not be read"))?;
+    if !meta.is_file() { return Err(ApiError::not_found("that file could not be read")); }
+    let len = meta.len();
+    let mime = mime_guess::from_path(canon).first_or_octet_stream();
     let name = canon.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::with_capacity(file.take(len), 64 * 1024));
     Ok((
         [
             (header::CONTENT_TYPE, mime.to_string()),
+            (header::CONTENT_LENGTH, len.to_string()),
             (header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", name.replace('"', ""))),
             (header::CACHE_CONTROL, "no-cache".to_string()),
         ],
-        bytes,
+        body,
     )
         .into_response())
 }
@@ -1815,5 +1829,41 @@ mod moved_link_tests {
         std::fs::remove_dir_all(now).unwrap();
         std::fs::remove_dir_all(elsewhere).unwrap();
         std::fs::remove_dir_all(PathBuf::from(&old).parent().unwrap()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod stream_download_tests {
+    use super::*;
+    use http_body_util::BodyExt;
+
+    fn temp_file(bytes: &[u8]) -> PathBuf {
+        let p = std::env::temp_dir().join(uid("dl")).with_extension("bin");
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    /// A delivery is served as a stream: the body is not an in-memory buffer (a known exact
+    /// size would mean it was read whole), yet carries the right bytes, length and headers.
+    #[tokio::test]
+    async fn a_download_is_streamed_not_read_whole() {
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        let f = temp_file(&data);
+        let r = stream_download(&f).await.unwrap();
+        assert_eq!(r.headers()[header::CONTENT_LENGTH], data.len().to_string());
+        assert_eq!(r.headers()[header::CACHE_CONTROL], "no-cache");
+        assert!(r.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().starts_with("inline; filename=\""));
+        assert!(axum::body::HttpBody::size_hint(r.body()).exact().is_none(), "the body was buffered, not streamed");
+        let got = r.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(got.as_ref(), data.as_slice());
+        let _ = std::fs::remove_file(&f);
+    }
+
+    #[tokio::test]
+    async fn a_missing_file_or_a_folder_is_not_found() {
+        let r = stream_download(&std::env::temp_dir().join(uid("nope"))).await;
+        assert!(r.is_err());
+        let d = std::env::temp_dir();
+        assert!(stream_download(&d).await.is_err(), "a folder is not a download");
     }
 }
