@@ -75,7 +75,11 @@ export class Preferences {
             // flushSync has written the latest value: an older one must not land over it
             if (this.epoch !== epoch) { await fs.promises.rm(temp, { force: true }); continue }
             await fs.promises.rename(temp, this.file)
-            this.failed = false
+            // flushSync ran while this rename was in flight, so the older value may have landed over the newer one
+            // (@rig-sol-b m7eafa4cbd300): put the latest back now. Only in the quit window; synchronous because the
+            // process is about to end.
+            if (this.epoch !== epoch) this.writeLatestSync()
+            else this.failed = false
           } catch { /* the next change, or flushSync at quit, writes it again */ this.failed = true }
         }
       } finally { this.writing = null }
@@ -91,6 +95,10 @@ export class Preferences {
     // in flight that has not renamed yet stands down (its epoch is over); later changes are written as usual
     if (!this.dirty && !this.writing && !this.failed) return
     this.epoch++
+    this.writeLatestSync()
+  }
+  /** the one synchronous write (quit only; tests/main-thread-guard.test.mjs lists its lines) */
+  private writeLatestSync(): void {
     try {
       const next = this.value
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
@@ -98,6 +106,6 @@ export class Preferences {
       fs.writeFileSync(temp, JSON.stringify(next), { mode: 0o600 })
       fs.renameSync(temp, this.file)
       this.dirty = false; this.failed = false
-    } catch { /* nothing more to do at quit */ }
+    } catch { this.failed = true /* nothing more to do at quit */ }
   }
 }
