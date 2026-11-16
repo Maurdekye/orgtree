@@ -1,8 +1,9 @@
 // Keep Node-driven test rigs off the operator's real mail hub.
 //
-// The Node twin of tests/hub_isolation.py — read that file's docstring for
-// the defect (fixture organisations of a test rig registered on the live hub)
-// and the three routes that lead there:
+// The Node twin of the retired tests/hub_isolation.py (removed in 4.6.1; read its
+// docstring with `git show d8b1bc1:tests/hub_isolation.py`) for the defect
+// (fixture organisations of a test rig registered on the live hub) and the three
+// routes that lead there:
 //   1. an inherited ORGTREE_LOCAL_HUB_ADDRESS naming the live hub;
 //   2. a fresh root with no mailhub-hosting.json, whose hub asks for the live
 //      port 7370 and then names the LIVE hub, which answered /healthz, as its own;
