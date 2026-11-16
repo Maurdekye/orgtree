@@ -4,6 +4,9 @@
 //! A clean silent refusal is revalidated silently (check mode only): on a
 //! user's forced read and on a bounded cadence, because a token refreshed in
 //! place by the user's own AGY keeps the credential metadata unchanged.
+//! AGY's file sign-in (off Windows without a session keyring, e.g. a
+//! container; see [`uses_file_token`]) is validated by `agy models` instead,
+//! because the silent check never reads that file (measured 2026-11-16).
 //!
 //! Extra Antigravity accounts (4.4.0, docket `antigravity-multi-account-
 //! support-via-isolated-p`): a registered Antigravity subscription row that is
@@ -114,6 +117,10 @@ pub struct AuthGate {
     // The last account a passing check NAMED for the default sign-in, kept
     // across unnamed and signed-out answers. Never logged or persisted.
     named: Mutex<Option<Principal>>,
+    // The default sign-in's last PASSING file-token validation (`agy models`)
+    // and when: reused for FILE_PASS_TTL while the stamp is unchanged. Only a
+    // pass is cached, never a refusal; a latch or a new stamp ends it.
+    file_pass: Mutex<Option<(Stamp, std::time::Instant)>>,
     #[cfg(test)]
     catalog_test_metadata: Mutex<Option<Result<Option<Stamp>, Failure>>>,
 }
@@ -253,9 +260,58 @@ fn system_stamp() -> Result<Option<Stamp>, Failure> {
 #[cfg(not(windows))]
 #[nolog]
 fn system_stamp() -> Result<Option<Stamp>, Failure> {
-    // No guessed keyring target on other platforms. Their silent check still
-    // guards launches; a periodic check can observe external sign-in there.
-    Ok(Some(Stamp(0)))
+    // AGY's file token store (no session keyring, e.g. a container): its
+    // metadata, never its contents. Otherwise no guessed keyring target: the
+    // silent check still guards launches; a periodic check can observe an
+    // external sign-in there.
+    match crate::rig::home_dir().map(|h| file_token_stamp(&h)).transpose()?.flatten() {
+        Some(stamp) => Ok(Some(stamp)),
+        None => Ok(Some(Stamp(0))),
+    }
+}
+
+/// Where AGY keeps its sign-in when it uses file storage instead of a
+/// keyring: measured on AGY 1.5.9 in a Linux container without a D-Bus
+/// session bus ("Using file-based token storage because no D-Bus session bus
+/// detected"), 2026-11-16.
+#[nolog]
+fn file_token_path(home: &Path) -> PathBuf {
+    home.join(".gemini").join("antigravity-cli").join("antigravity-oauth-token")
+}
+
+/// The file token's metadata (modification time and size, never its
+/// contents) as a stamp; None when there is no such file. A change detector
+/// only: AGY rewrites the file at a sign-in, a sign-out and an hourly refresh.
+#[nolog]
+fn file_token_stamp(home: &Path) -> Result<Option<Stamp>, Failure> {
+    let m = match std::fs::metadata(file_token_path(home)) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(Failure::Unavailable),
+    };
+    if !m.is_file() { return Ok(None); }
+    let t = m.modified().ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64).unwrap_or(0);
+    // FNV-1a over time and size; never 0 (0 is the no-detector stamp)
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in t.to_le_bytes().into_iter().chain(m.len().to_le_bytes()) { h ^= b as u64; h = h.wrapping_mul(0x0100_0000_01b3); }
+    Ok(Some(Stamp(h | 1)))
+}
+
+/// Whether a login's sign-in is AGY's file token, validated by `agy models`
+/// instead of the silent check: AGY 1.5.9's `AGY_CLI_CDE_AUTH_ACTION=check`
+/// never reads that file (measured with strace, 2026-11-16), so it answers
+/// "signed out" for a valid file sign-in. The default sign-in only, off
+/// Windows (the rig's fake home on any platform). Windows and every profile
+/// login keep the silent check unchanged.
+#[nolog]
+fn uses_file_token(login: &Login) -> bool {
+    file_token_applies(login, crate::rig::home_dir().as_deref(), cfg!(windows), crate::rig::active())
+}
+
+#[nolog]
+fn file_token_applies(login: &Login, home: Option<&Path>, windows: bool, rig: bool) -> bool {
+    if *login != Login::Primary || (windows && !rig) { return false; }
+    home.is_some_and(|h| file_token_path(h).is_file())
 }
 
 #[nolog]
@@ -364,7 +420,7 @@ fn latch_of(engine: &Engine, login: &Login, stamp: Stamp) -> Option<(Refusal, Sy
 fn holding(engine: &Engine, login: &Login, stamp: Stamp) -> Option<Refusal> {
     let (kind, at) = latch_of(engine, login, stamp)?;
     let age = at.elapsed().unwrap_or_default();
-    if !cfg!(windows) && !crate::rig::active() {
+    if !cfg!(windows) && !crate::rig::active() && !uses_file_token(login) {
         // No verified metadata detector on this platform. Revalidate silently
         // at most every five minutes; never allow the actual command first.
         return (age < CADENCE_RECHECK).then_some(kind);
@@ -442,7 +498,10 @@ pub fn refuse_for(engine: &Engine, login: &Login, stamp: Stamp, kind: Refusal) {
     if metadata_for(engine, login).ok().flatten() != Some(stamp) { return; }
     let gate = &engine.providers.agy_auth;
     match login {
-        Login::Primary => *gate.refused.lock().unwrap_or_else(|p| p.into_inner()) = Some((stamp, kind, SystemTime::now())),
+        Login::Primary => {
+            *gate.refused.lock().unwrap_or_else(|p| p.into_inner()) = Some((stamp, kind, SystemTime::now()));
+            *gate.file_pass.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        }
         Login::Profile { id, .. } => { gate.profiles.lock().unwrap_or_else(|p| p.into_inner()).insert(id.clone(), (stamp, kind, SystemTime::now())); }
     }
     // The file contains only last-write metadata and the refusal kind, never
@@ -530,7 +589,14 @@ pub fn configure(cmd: &mut Command) {
 
 #[nolog]
 fn capture(cmd: Command, timeout: Duration) -> BoxFuture<'static, Result<Output, Failure>> {
-    Box::pin(capture_inner(cmd, timeout))
+    Box::pin(capture_inner(cmd, timeout, auth_prompt))
+}
+
+/// `capture` with its own prompt test (the file validation's `agy models`
+/// prints a known signed-out line that the generic test reads as a prompt).
+#[nolog]
+fn capture_with(cmd: Command, timeout: Duration, prompt: fn(&[u8]) -> bool) -> BoxFuture<'static, Result<Output, Failure>> {
+    Box::pin(capture_inner(cmd, timeout, prompt))
 }
 
 /// Only fixed stage names and failure classes; never process output or OS
@@ -542,13 +608,13 @@ fn check_failure(stage: &'static str, failure: Failure) -> Failure {
 }
 
 #[nolog]
-async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Failure> {
+async fn capture_inner(mut cmd: Command, timeout: Duration, prompt: fn(&[u8]) -> bool) -> Result<Output, Failure> {
     let mut child = cmd.spawn().map_err(|_| check_failure("spawn", Failure::Unavailable))?;
     let job = crate::winproc::child_job(&child);
     drop(child.stdin.take());
     let stdout = child.stdout.take().ok_or_else(|| check_failure("stdout_pipe", Failure::Unavailable))?;
     let stderr = child.stderr.take().ok_or_else(|| check_failure("stderr_pipe", Failure::Unavailable))?;
-    async fn read(mut stream: impl tokio::io::AsyncRead + Unpin, stage: &'static str) -> Result<Vec<u8>, Failure> {
+    async fn read(mut stream: impl tokio::io::AsyncRead + Unpin, stage: &'static str, prompt: fn(&[u8]) -> bool) -> Result<Vec<u8>, Failure> {
         let mut all = Vec::new();
         let mut buf = vec![0u8; 4096];
         loop {
@@ -556,12 +622,12 @@ async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Fa
             if n == 0 { return Ok(all); }
             all.extend_from_slice(&buf[..n]);
             // Scan each line (including an unfinished prompt with no newline).
-            if all.split(|b| *b == b'\n').any(auth_prompt) { return Err(Failure::SignedOut); }
+            if all.split(|b| *b == b'\n').any(prompt) { return Err(Failure::SignedOut); }
             if all.len() > 4 * 1024 * 1024 { return Err(Failure::OutputLimit); }
         }
     }
     let result = tokio::time::timeout(timeout, async {
-        let (stdout, stderr, status) = tokio::try_join!(read(stdout, "stdout_read"), read(stderr, "stderr_read"), async {
+        let (stdout, stderr, status) = tokio::try_join!(read(stdout, "stdout_read", prompt), read(stderr, "stderr_read", prompt), async {
             child.wait().await.map_err(|_| check_failure("wait_exit", Failure::Unavailable))
         })?;
         Ok(Output { status, stdout, stderr })
@@ -667,6 +733,101 @@ fn check_command(exe: &Path, login: &Login) -> Command {
     cmd
 }
 
+/// How long a passing file-token validation is reused for the same stamp.
+const FILE_PASS_TTL: Duration = Duration::from_secs(60);
+/// The name a file sign-in's catalog identity is keyed by: `agy models`
+/// names no account, and a constant keeps the catalog and warm processes
+/// stable across hourly refreshes (a different account needs a restart).
+const FILE_PRINCIPAL: &str = "antigravity file sign-in";
+
+/// What `agy models` says about a file sign-in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verdict { Pass, SignedOut, Untrusted }
+
+/// Measured on AGY 1.5.9 (2026-11-16, Linux container): signed in, exit 0,
+/// the "Fetching available models..." banner and `<id>` TAB `<label>` rows;
+/// signed out, exit 0, the banner and "Error: Please sign in to view available
+/// models. Launch the CLI without arguments to sign in." (no OAuth started).
+/// Only those two shapes are known; anything else is untrusted.
+#[nolog]
+fn models_verdict(output: &Output) -> Verdict {
+    const BANNER: &str = "Fetching available models...";
+    if !output.status.success() { return Verdict::Untrusted; }
+    let lines = |b: &[u8]| String::from_utf8_lossy(b).lines().map(str::trim).filter(|l| !l.is_empty() && *l != BANNER)
+        .map(str::to_string).collect::<Vec<_>>();
+    let (out, err) = (lines(&output.stdout), lines(&output.stderr));
+    let all: Vec<&String> = out.iter().chain(err.iter()).collect();
+    if all.len() == 1 && all[0] == MODELS_SIGNED_OUT { return Verdict::SignedOut; }
+    let row = |l: &String| l.split_once('\t').is_some_and(|(id, label)| !id.is_empty() && !id.contains(' ') && !label.trim().is_empty());
+    if err.is_empty() && !out.is_empty() && out.iter().all(row) { Verdict::Pass } else { Verdict::Untrusted }
+}
+
+/// AGY 1.5.9's measured signed-out reply line of `agy models`.
+const MODELS_SIGNED_OUT: &str = "Error: Please sign in to view available models. Launch the CLI without arguments to sign in.";
+
+/// The prompt test of the file validation: the generic one, except the
+/// measured signed-out line (complete, or still arriving), which
+/// `models_verdict` reads as a clean refusal. Anything more is a prompt.
+#[nolog]
+fn models_prompt(line: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(line);
+    let t = text.trim();
+    if t.starts_with("Error:") && MODELS_SIGNED_OUT.starts_with(t) { return false; }
+    auth_prompt(line)
+}
+
+/// The validation command for a file sign-in: `agy models`, from the probe
+/// folder, never on an API key.
+#[nolog]
+fn models_check_command(engine: &Engine, exe: &Path, login: &Login) -> Command {
+    let dir = engine.cfg.path("diagnostics").join("agy-probe");
+    let _ = std::fs::create_dir_all(&dir);
+    let mut cmd = Command::new(exe);
+    configure(&mut cmd);
+    cmd.arg("models").current_dir(dir);
+    for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "AGY_ADC_AUTH"] { cmd.env_remove(key); }
+    login.apply(&mut cmd);
+    cmd
+}
+
+/// Whether a passing file validation for this stamp is still fresh.
+#[nolog]
+fn file_pass_fresh(engine: &Engine, stamp: Stamp) -> bool {
+    pass_fresh(*engine.providers.agy_auth.file_pass.lock().unwrap_or_else(|p| p.into_inner()), stamp, std::time::Instant::now())
+}
+
+#[nolog]
+fn pass_fresh(cached: Option<(Stamp, std::time::Instant)>, stamp: Stamp, now: std::time::Instant) -> bool {
+    cached.is_some_and(|(s, at)| s == stamp && now.saturating_duration_since(at) < FILE_PASS_TTL)
+}
+
+/// A file sign-in (see [`uses_file_token`]): `agy models` instead of the
+/// silent check, with the same lock, latches and metadata edges.
+#[nolog]
+async fn file_preflight(engine: &Engine, exe: &Path, login: &Login, stamp: Stamp) -> Result<(Stamp, Option<String>), Failure> {
+    let who = Some(FILE_PRINCIPAL.to_string());
+    if !file_pass_fresh(engine, stamp) {
+        let output = capture_with(models_check_command(engine, exe, login), Duration::from_secs(20), models_prompt).await;
+        match output.as_ref().map(models_verdict) {
+            Ok(Verdict::Pass) => {}
+            // The measured signed-out reply: safe to ask again silently later.
+            Ok(Verdict::SignedOut) => { refuse_for(engine, login, stamp, Refusal::Refused); return Err(Failure::SignedOut) }
+            // An auth prompt (the capture stopped it) or a reply this guard
+            // does not know: nothing runs until the token file changes.
+            Ok(Verdict::Untrusted) | Err(Failure::SignedOut) => { refuse_for(engine, login, stamp, Refusal::Untrusted); return Err(Failure::SignedOut) }
+            Err(e) => return Err(*e),
+        }
+        if metadata_for(engine, login).map_err(|e| check_failure("metadata_after_check", e))? != Some(stamp) {
+            return Err(check_failure("metadata_changed_during_check", Failure::Unavailable));
+        }
+        *engine.providers.agy_auth.file_pass.lock().unwrap_or_else(|p| p.into_inner()) = Some((stamp, std::time::Instant::now()));
+    }
+    release(engine, login);
+    record_catalog_identity(engine, stamp, who.as_deref());
+    connected(engine, true);
+    Ok((stamp, who))
+}
+
 #[nolog]
 async fn preflight_inner(engine: &Engine, exe: &Path, login: &Login) -> Result<(Stamp, Option<String>), Failure> {
     let _check = engine.providers.agy_auth.check.lock().await;
@@ -684,6 +845,7 @@ async fn preflight_inner(engine: &Engine, exe: &Path, login: &Login) -> Result<(
     if let Some(kind) = holding(engine, login, stamp) {
         return Err(if kind == Refusal::NotIsolated { Failure::NotIsolated } else { Failure::SignedOut });
     }
+    if uses_file_token(login) { return file_preflight(engine, exe, login, stamp).await; }
     let result = capture(check_command(exe, login), Duration::from_secs(8)).await;
     match result {
         Ok(output) if check_passed(&output) => {
@@ -931,6 +1093,92 @@ mod tests {
         std::fs::write(home.join(".gemini").join("jetski-standalone-oauth-token"), b"xyz").unwrap();
         assert_ne!(profile_stamp(&home).unwrap(), Some(first), "a replaced token is a new credential");
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// AGY 1.5.9's `agy models` replies, measured in a Linux container
+    /// (2026-11-16): only the signed-in rows pass; only the exact signed-out
+    /// line is a clean refusal; anything else is untrusted.
+    #[test]
+    fn agy_file_models_verdict_accepts_measured_replies_only() {
+        let rows = b"Fetching available models...\ngemini-4-carbon-medium\tGemini 4 Carbon (Medium)\ngemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)\n";
+        assert_eq!(models_verdict(&output(0, rows, b"")), Verdict::Pass);
+        assert_eq!(models_verdict(&output(0, b"Fetching available models...\r\ngemini-4-argon-low\tGemini 4 Argon (Low)\r\n", b"")), Verdict::Pass, "CRLF");
+        let signed_out = b"Fetching available models...\nError: Please sign in to view available models. Launch the CLI without arguments to sign in.\n";
+        assert_eq!(models_verdict(&output(0, signed_out, b"")), Verdict::SignedOut);
+        assert_eq!(models_verdict(&output(0, b"Fetching available models...\n",
+            b"Error: Please sign in to view available models. Launch the CLI without arguments to sign in.\r\n")), Verdict::SignedOut);
+        assert_eq!(models_verdict(&output(0, b"Fetching available models...\n", b"")), Verdict::Untrusted, "no rows names no sign-in");
+        assert_eq!(models_verdict(&output(1, rows, b"")), Verdict::Untrusted, "a failed exit never passes");
+        assert_eq!(models_verdict(&output(1, signed_out, b"")), Verdict::Untrusted, "nor is it the measured refusal");
+        assert_eq!(models_verdict(&output(0, rows, b"warning: something\n")), Verdict::Untrusted);
+        assert_eq!(models_verdict(&output(0, b"Authentication required. Please visit the URL to log in:\n", b"")), Verdict::Untrusted);
+        assert_eq!(models_verdict(&output(0, b"gemini-4-carbon-medium\tGemini 4 Carbon\nsome other line\n", b"")), Verdict::Untrusted);
+        assert_eq!(models_verdict(&output(0, &[signed_out.as_slice(), b"gemini-x\tX\n"].concat(), b"")), Verdict::Untrusted);
+        assert_eq!(models_verdict(&output(0, b"Error: Please sign in to view available models. Waiting for authentication\n", b"")), Verdict::Untrusted);
+    }
+
+    /// The validation's prompt test lets only the measured signed-out line through.
+    #[test]
+    fn agy_file_models_prompt_exempts_only_the_measured_signed_out_line() {
+        assert!(!models_prompt(b"Error: Please sign in to view available models. Launch the CLI without arguments to sign in."));
+        assert!(!models_prompt(b"Error: Please sign in to view available models. Launch the CLI without arguments to sign in.\r"));
+        assert!(!models_prompt(b"Error: Please sign in"), "the line while it arrives");
+        assert!(!models_prompt(b"Fetching available models..."));
+        assert!(!models_prompt(b"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)"));
+        assert!(models_prompt(b"Authentication required. Please visit the URL to log in:"));
+        assert!(models_prompt(b"Waiting for authentication (timeout 30s)..."));
+        assert!(models_prompt(b"Please sign in at https://accounts.google.com/o/oauth2/auth?x"));
+        assert!(models_prompt(b"Error: Please sign in to view available models. Waiting for authentication"),
+            "an OAuth step after it is still a prompt");
+    }
+
+    /// The file token's stamp: its path, its metadata only, never 0.
+    #[test]
+    fn agy_file_token_stamp_follows_the_token_file_metadata() {
+        let home = std::env::temp_dir().join(format!("orgtree-agy-file-{}", crate::util::random_hex(6)));
+        assert_eq!(file_token_stamp(&home).unwrap(), None, "no folder: no file sign-in");
+        let dir = home.join(".gemini").join("antigravity-cli");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(home.join(".gemini").join("antigravity-oauth-token"), b"x").unwrap();
+        assert_eq!(file_token_stamp(&home).unwrap(), None, "only the measured path counts");
+        std::fs::create_dir_all(dir.join("antigravity-oauth-token")).unwrap();
+        assert_eq!(file_token_stamp(&home).unwrap(), None, "a folder is not a token");
+        std::fs::remove_dir(dir.join("antigravity-oauth-token")).unwrap();
+        std::fs::write(dir.join("antigravity-oauth-token"), b"{}").unwrap();
+        let first = file_token_stamp(&home).unwrap().expect("a token file is a sign-in");
+        assert_ne!(first, Stamp(0), "0 stays the no-detector stamp");
+        assert_eq!(file_token_stamp(&home).unwrap(), Some(first), "unchanged metadata, same stamp");
+        std::fs::write(dir.join("antigravity-oauth-token"), b"{\"refreshed\":1}").unwrap();
+        assert_ne!(file_token_stamp(&home).unwrap(), Some(first), "a rewritten token is a new stamp");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Which sign-ins `agy models` validates: the default one with a token
+    /// file, off Windows (or in the rig). Windows and profiles keep the check.
+    #[test]
+    fn agy_file_token_applies_to_the_default_sign_in_off_windows_only() {
+        let home = std::env::temp_dir().join(format!("orgtree-agy-file-{}", crate::util::random_hex(6)));
+        let profile = Login::Profile { id: "google-2".into(), home: home.clone() };
+        assert!(!file_token_applies(&Login::Primary, Some(&home), false, false), "no token file: the silent check");
+        std::fs::create_dir_all(home.join(".gemini").join("antigravity-cli")).unwrap();
+        std::fs::write(file_token_path(&home), b"{}").unwrap();
+        assert!(file_token_applies(&Login::Primary, Some(&home), false, false));
+        assert!(!file_token_applies(&Login::Primary, Some(&home), true, false), "Windows is unchanged");
+        assert!(file_token_applies(&Login::Primary, Some(&home), true, true), "the rig's fake home, any platform");
+        assert!(!file_token_applies(&profile, Some(&home), false, false), "a profile keeps the silent check");
+        assert!(!file_token_applies(&Login::Primary, None, false, false));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Only a pass is cached, for the same stamp and at most 60 s.
+    #[test]
+    fn agy_file_pass_cache_is_per_stamp_and_bounded() {
+        let t0 = std::time::Instant::now();
+        assert!(!pass_fresh(None, Stamp(5), t0));
+        assert!(pass_fresh(Some((Stamp(5), t0)), Stamp(5), t0 + Duration::from_secs(59)));
+        assert!(!pass_fresh(Some((Stamp(5), t0)), Stamp(5), t0 + FILE_PASS_TTL), "expires at 60 s");
+        assert!(!pass_fresh(Some((Stamp(5), t0)), Stamp(7), t0), "a new stamp is a new validation");
+        assert_eq!(FILE_PASS_TTL, Duration::from_secs(60));
     }
 
     #[test]
