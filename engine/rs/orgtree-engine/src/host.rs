@@ -122,8 +122,9 @@ fn packaged_postgres() -> Result<Vec<(String, String)>, String> {
     if !dir.join("..").join("app.asar").is_file() {
         return Ok(Vec::new());
     }
-    // macOS and Linux: no custodian; the engine runs PostgreSQL from beside
-    // itself, as the desktop's own launch does (engine.ts)
+    // The engine runs PostgreSQL from beside itself on every platform, as the
+    // desktop's own launch does (engine.ts). Windows no longer ships or checks
+    // pg-custodian.exe (4.6.1): nothing ever read ORGTREE_PG_CUSTODIAN.
     if cfg!(not(windows)) {
         let bin = dir.join("postgresql").join("bin");
         if !bin.join("postgres").is_file() {
@@ -134,15 +135,13 @@ fn packaged_postgres() -> Result<Vec<(String, String)>, String> {
             ("ORGTREE_PG_BOOTSTRAP".into(), "1".into()),
         ]);
     }
-    let custodian = dir.join("pg-custodian.exe");
     let bin = dir.join("postgresql").join("bin");
-    for f in [custodian.clone(), bin.join("postgres.exe"), bin.join("pg_ctl.exe"), bin.join("initdb.exe"), bin.join("psql.exe"), bin.join("pg_controldata.exe")] {
+    for f in [bin.join("postgres.exe"), bin.join("pg_ctl.exe"), bin.join("initdb.exe"), bin.join("psql.exe"), bin.join("pg_controldata.exe")] {
         if !f.is_file() {
             return Err(format!("packaged PostgreSQL executable is missing: {}", f.display()));
         }
     }
     Ok(vec![
-        ("ORGTREE_PG_CUSTODIAN".into(), custodian.to_string_lossy().to_string()),
         ("ORGTREE_P03_PG_BIN".into(), bin.to_string_lossy().to_string()),
         ("ORGTREE_PG_BOOTSTRAP".into(), "1".into()),
     ])
