@@ -49,7 +49,7 @@ export default async function (rig) {
   const tool = (name, t, args) => rig.tool(name, `orgtree_${t}`, args)
   const tryApi = (method, route, body) => rig.api(method, route, body).then(json => ({ ok: true, json }),
     e => ({ ok: false, status: e.status, detail: String(e.body?.detail ?? e.message).slice(0, 200) }))
-  const idOf = text => (text ?? '').match(/\(id (d[0-9a-z]+)/)?.[1]
+  const idOf = text => (text ?? '').match(/\(id ([0-9a-z][0-9a-z-]*)/)?.[1]
 
   // ---------------------------------------------------------------- pia presents
   const md = '# Plan\n\nStep one, then step two.\n'
