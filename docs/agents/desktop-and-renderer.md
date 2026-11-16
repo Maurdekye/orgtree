@@ -3341,3 +3341,19 @@ USER 2026-11-15 mbf1f1ca2cfe9 item 3: "allow any popped out desk to be turned in
 [decided: user 2026-11-15 mbf1f1ca2cfe9, m4492aff12953; verified: `attention/deskwindows.tsx`, `attention/AgentDeskPanel.tsx`, `tests/attentiondeskwindow.test.tsx`]
 
 [decided: user 2026-11-15; coordinator m0aa310a36f67 provisional defaults; verified: `canvas/deskhosts.tsx`, `draftstore.ts`, `canvas/desk.tsx`, `tests/deskviews.test.tsx`]
+
+## Local file links on Linux and macOS (2026-11-16, 4.6.1)
+
+USER 2026-11-16 md4343645e6d2 (@item:orgtree/linux-clicking-a-file-link-opens-the-browser-at-h): on Linux a file link
+opened the browser at the engine's own address, because only Windows paths were recognised and an unnormalised
+path-absolute href resolves against the app's origin.
+
+- `shared.ts` `posixFilePath` recognises an absolute POSIX path (and `file:///…` URLs, through `normalizeLocalFileUri`)
+  as a local file OFF Windows only; the link and image passes set `data-local-path` and `href="#"` exactly as for
+  `C:\` paths. It is not a route: `/`, `/index.html`, `/o/<org>` (`isAppPath`), `/api/…` and `//host` never match.
+  Windows keeps its own behaviour; a click still only reveals (never launches) the file.
+- GUARD: `policy.ts` `opensInBrowser` (used by `windows.ts` `routeExternal` and the window-open handler) is false
+  for the engine's own origin, so such a link can never open the browser at 127.0.0.1:<port>.
+- Platform comes from `navigator.platform`; tests set it through `setLinkPlatformForTests`.
+
+[verified: `tests/linuxfilelinks.test.ts` (9), `windowslinks`, `toolfilelinks`, `images` unchanged]
