@@ -190,7 +190,7 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true',
         'opens on Providers')
-      assert.equal(tabs[8]!.getAttribute('aria-selected'), 'false')
+      assert.equal(tabs[9]!.getAttribute('aria-selected'), 'false')
       assert.equal(view.el.querySelector('#app-settings-panel-providers')!.hasAttribute('hidden'), false)
       await inAct(async () => {
         tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', {
@@ -211,10 +211,10 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[8]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[8])
+      assert.equal(tabs[9]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[9])
       // two steps back from About: Keyboard shortcuts, then Developer
-      for (const at of [8, 7]) {
+      for (const at of [9, 8]) {
         await inAct(async () => {
           tabs[at]!.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'ArrowLeft', bubbles: true,
@@ -223,8 +223,8 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
         assert.equal(tabs[at - 1]!.getAttribute('aria-selected'), 'true')
         assert.equal(document.activeElement, tabs[at - 1])
       }
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[6])
+      assert.equal(tabs[7]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[7])
       const last = view.el.querySelector('#app-settings-panel-developer')!
       assert.equal(last.hasAttribute('hidden'), false)
       // the engine debug view's toggle lives here, and is off by default
