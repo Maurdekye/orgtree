@@ -8,7 +8,7 @@ import { clearProviderDiscovery } from '../src/api'
 import { setMuseProvider, setOpenRouterTiers, setLangServerTiers } from '../src/canvas/shared'
 import { resetStaffingOptionsForTests } from '../src/canvas/staffingoptions'
 import { bumpLive, flushLive } from '../src/livebus'
-import type { OrgAccountLane, ProviderInfo, ProvidersPayload, TreePayload } from '../src/types'
+import type { AccountRegistryRow, OrgAccountLane, ProviderInfo, ProvidersPayload, TreePayload } from '../src/types'
 
 const noop = () => {}
 const samples = { claude: 'opus', openai: 'sol', google: 'hydrogen', muse: 'wonder',
@@ -46,6 +46,7 @@ const tokens = (scope: ParentNode, id: keyof typeof samples) =>
 async function fixture(t: TestContext, surface: 'canvas' | 'quickchat', options: {
   lanes?: (slug: string) => Promise<Response> | Response
   providers?: ProvidersPayload
+  accounts?: AccountRegistryRow[]
 } = {}) {
   const oldFetch = globalThis.fetch
   clearProviderDiscovery(); resetStaffingOptionsForTests(); localStorage.clear()
@@ -68,7 +69,7 @@ async function fixture(t: TestContext, surface: 'canvas' | 'quickchat', options:
       : url.includes('staffing-options') ? { tiers: Object.values(samples).map(tier => ({
           tier, seat: 2, efforts: ['high'], accounts: [], default_ok: true,
         })), loading: false, stale: false, errors: [], at: 0, generation: 0 }
-      : url.includes('accounts') ? { accounts: [] }
+      : url.includes('accounts') ? { accounts: options.accounts ?? [] }
       : url.includes('charters') ? { charters: [] }
       : { ok: true, tiers: [], entries: [], items: [], documents: [], refs: [], live: [], pending_mail: [] })
   })
@@ -119,6 +120,23 @@ for (const surface of ['canvas', 'quickchat'] as const) {
       const buttons = tokens(f.scope(), id)
       assert.ok(buttons.length > 0, `${id} remains visible`)
       assert.ok(buttons.every(b => b.disabled === (id === 'openai')), `${id} existing sign-in gate`)
+    }
+  })
+
+  test(`${surface}: a signed-in registered account offers Claude and Codex when the engine counts only its own sign-in`, async t => {
+    // USER 2026-11-16 m8e3f9351113b: on a remote organization the Quick chat model tokens stayed greyed "as though
+    // not signed in" while the canvas hire tokens were offered. An engine before 4.6.0 says `signed_out` by its own
+    // sign-in alone; the window counts the accounts it is given (`providersWithAccounts`), on every hire surface.
+    const old = payload()
+    old.providers = old.providers.map(p => p.id === 'claude' || p.id === 'openai'
+      ? { ...p, status: { installed: true, connected: false }, hire_enabled: false, hire_reason: 'signed_out',
+          reason: `${p.id} is installed but not signed in`, user_enabled: true } : p)
+    const account = (id: string, provider: string) => ({ id, provider, label: '', identity: {}, auth: 'authenticated',
+      tint_ordinal: 0, enabled: true, bound: [] }) as unknown as AccountRegistryRow
+    const f = await fixture(t, surface, { providers: old, accounts: [account('claude-2', 'claude'), account('openai-1', 'openai')] })
+    for (const id of ids) {
+      assert.ok(tokens(f.scope(), id).length > 0, `${id} is shown`)
+      assert.ok(tokens(f.scope(), id).every(b => !b.disabled), `${id} is offered`)
     }
   })
 
