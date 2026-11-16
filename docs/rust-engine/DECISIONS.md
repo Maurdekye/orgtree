@@ -2637,6 +2637,14 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       location / Quit instead of creating an empty database; installer scripts and `host.rs` refuse while
       `.data-move-in-progress.json` names a live PID. Contract:
       [app-runtime-desktop](../skills/orgtree-app/app-settings/app-runtime-desktop/SKILL.md#data-location).
+    - **Links in older transcript rows (4.6.1, after the 4.6.0 move to S: left transcript images and videos
+      broken, USER 2026-11-16 21:18Z m954c1bb3afc5; fix chosen 21:32Z md3980e6eb0a4):** `ot.convo` rows keep the
+      absolute paths they had when written (mail attachments, `send_file` cards, tool file chips, Markdown image
+      links). They are not rewritten. Instead the file route (`nodes::file`) and `/api/markdown-image` resolve a
+      missing path that sits under a previous data root to the same relative path under the current one
+      (`data_relocate::moved_path`, which reads every receipt in `diagnostics/data-relocation.jsonl` in order, so
+      moves in a row chain). The mapped path then gets the same root, authorization and component checks. A path
+      that still exists is used as it is; one with a `..` component is never mapped; mapped paths are not logged.
     - **Writer quiescence (R6, after the 4.6.0-alpha.5 243 GB move failed verification on
       `credential-broker.log` +222 B):** the move writes its marker, stops the engine, then waits up to 60 s for
       the read-only `orgtree-engine core-control quiesce <oldRoot>` to report every other writer gone (engine,
