@@ -11,20 +11,44 @@
 //!                          the remaining arguments, exit with its exit code
 //!   can-open PID           print "opened" or "refused <error>" for
 //!                          OpenProcess(SYNCHRONIZE) on PID (instrument control)
+//!   alive PID              print "alive" while PID has not exited, else "gone"
+//!   hold-lock ROOT [SECS]  hold ROOT\.desktop-engine.lock, print "held", release
+//!                          after SECS (default 120), print "released"
+//!   guardian ...           private: the synthetic engine's Job guardian
+//!
+//! Copied or named `orgtree-engine-stub.exe`, the image IS the synthetic engine
+//! the desktop supervisor tests spawn (see lifetime.rs and tests/engine-stub.mjs).
+
+#[cfg(windows)]
+mod lifetime;
 
 fn usage() -> ! {
-    eprintln!("usage: orgtree-test-native <lockdown|without-debug EXE ARGS...|can-open PID>");
+    eprintln!("usage: orgtree-test-native <lockdown|without-debug EXE ARGS...|can-open PID|alive PID|hold-lock ROOT [SECS]>");
     std::process::exit(2)
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(windows)]
+    {
+        if args.first().map(String::as_str) == Some("guardian") {
+            std::process::exit(lifetime::guardian(&args[1..]));
+        }
+        let stem = std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()));
+        if stem.as_deref() == Some("orgtree-engine-stub") {
+            std::process::exit(lifetime::engine_stub());
+        }
+    }
     let Some(command) = args.first() else { usage() };
     let rest = &args[1..];
     let code = match command.as_str() {
         "lockdown" => win::lockdown(),
         "without-debug" => win::without_debug(rest),
         "can-open" => win::can_open(rest),
+        #[cfg(windows)]
+        "alive" => lifetime::alive(rest),
+        #[cfg(windows)]
+        "hold-lock" => lifetime::hold_lock(rest),
         _ => usage(),
     };
     std::process::exit(code);
