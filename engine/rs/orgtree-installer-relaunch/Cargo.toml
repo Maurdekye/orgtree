@@ -1,0 +1,20 @@
+[package]
+name = "orgtree-installer-relaunch"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Post-Setup relaunch helper for an accepted Windows upgrade (GUI subsystem, no console)"
+
+[[bin]]
+name = "orgtree-installer-relaunch"
+path = "src/main.rs"
+
+# windows-sys only, at the version engine/rs already locks: this helper must
+# stay a small, dependency-light image that Setup can start by ShellExecute.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }

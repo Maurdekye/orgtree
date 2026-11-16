@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["orgtree-engine", "orgtree-logged"]
+members = ["orgtree-engine", "orgtree-logged", "orgtree-installer-relaunch"]
 
 [workspace.package]
 edition = "2021"
