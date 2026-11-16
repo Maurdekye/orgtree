@@ -9,6 +9,7 @@
 // TR5 retention: three files at most, oldest out
 // TR6 the written file: gzip JSON with the canvas background and both stalls, and one stall-trace log line
 // TR7 stall-log: renderer-loaf keeps canvas_bg as an enum + boolean; a stall-trace line is allowlisted
+// TR8 a failed capture leaves no empty file and writes one failed line; leftovers of a cut-off run are cleared
 // Run: node --test tests/stall-trace.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -158,4 +159,44 @@ test('TR7 stall-log: renderer-loaf keeps canvas_bg as an enum and a boolean; a s
   assert.equal(ls[2].src, 'stall-trace'); assert.equal(ls[2].file, '2026-11-15T10-00-00Z.json.gz'); assert.equal(ls[2].events, 5000); assert.equal(ls[2].caught, true)
   assert.equal(JSON.stringify(ls[2]).includes('secret'), false)
   assert.equal(ls[3].file, undefined, 'a file name that is not a bare trace name is dropped')
+})
+
+test('TR8 a failed capture leaves no empty file and writes one failed line; leftovers of a cut-off run are cleared', async () => {
+  // 4.6.1-alpha.1 left an empty 2026-11-16T09-35-30Z.json.gz and no log line
+  const root = fresh(), out = path.join(root, TRACE_DIR, 'b.json.gz')
+  await assert.rejects(processTrace(path.join(root, 'missing-raw.json'), out, { v: 1, app: 'x', armed_by: {}, caught: null, canvas_bg: null }))
+  assert.equal(fs.existsSync(out), false, 'a failed processing removes its partial output')
+
+  for (const stage of ['stop', 'process']) {
+    const { t, deps, run } = rig({ dir: path.join(fresh(), TRACE_DIR) })
+    if (stage === 'stop') deps.tracing.stop = async () => { throw new Error('stop failed') }
+    else deps.process = async () => { throw new Error('read failed') }
+    const tr = new StallTracer(deps)
+    await tr.onStall('renderer-loaf', waiting(), W); await run(20_001)
+    assert.equal(t.logged.length, 1, `one line when ${stage} fails`)
+    assert.equal(t.logged[0].failed, true)
+    assert.equal(t.logged[0].stage, stage)
+    assert.match(t.logged[0].file, /^[0-9TZ-]+\.json\.gz$/)
+    assert.equal(JSON.stringify(t.logged[0]).includes('failed:') || JSON.stringify(t.logged[0]).includes('read failed'), false, 'no error text')
+  }
+
+  // a run cut off mid-capture (app quit) leaves an empty file or a raw recording: the next prune removes both
+  const dir = path.join(fresh(), TRACE_DIR); fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, '2026-11-16T09-35-30Z.json.gz'), '')
+  fs.writeFileSync(path.join(dir, '.raw-2026-11-16T09-35-30Z.json'), '{}')
+  fs.writeFileSync(path.join(dir, '2026-11-16T09-38-30Z.json.gz'), 'x')
+  pruneTraces(dir, 3)
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['2026-11-16T09-38-30Z.json.gz'])
+
+})
+
+test('TR8b stall-log keeps a failed stall-trace line as two fields, nothing more', () => {
+  const file = path.join(fresh(), 'diagnostics', 'ui-stalls.jsonl')
+  const log = new StallLog({ file: () => file, app: () => '4.6.1 abc1234' })
+  log.write('stall-trace', { ms: 20001, file: '2026-11-16T09-35-30Z.json.gz', failed: true, stage: 'process', err: 'C:/Users/x secret' })
+  log.write('stall-trace', { ms: 20001, file: '2026-11-16T09-35-30Z.json.gz', failed: true, stage: 'C:/Users/x' })
+  const ls = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l))
+  assert.equal(ls[0].failed, true); assert.equal(ls[0].stage, 'process'); assert.equal(ls[0].file, '2026-11-16T09-35-30Z.json.gz')
+  assert.equal(JSON.stringify(ls).includes('secret'), false)
+  assert.equal(ls[1].stage, 'other', 'stage is an enum')
 })
