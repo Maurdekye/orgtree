@@ -28,6 +28,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { build } from 'esbuild'
+import { stubEngine } from './engine-stub.mjs'
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-v3-conversion-'))
 const req = createRequire(import.meta.url)
@@ -152,38 +153,34 @@ test('3e. f1: a conversion that keeps reporting still stops at the absolute cap'
   assert.equal(engine.conversionFailure, '')
 })
 
-let python = ''
-if (process.platform === 'win32') python = execFileSync('python', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).trim()
-const skip = process.platform !== 'win32' ? 'INERT: the fake engine is driven with the Windows python' : false
+const skip = process.platform !== 'win32' ? 'INERT: the fake engine is the Windows test-native stub' : false
 
+// A fake engine: the test-native stub without a guardian (tests/engine-stub.mjs),
+// running `script` (JavaScript, inside an async function) and then
+// lingering 2 s, as the earlier generated launch.py did.
 function fakeEngine(script) {
   const directory = fs.mkdtempSync(path.join(temp, 'engine-'))
   const dataRoot = path.join(directory, 'data')
   fs.mkdirSync(dataRoot)
-  fs.writeFileSync(path.join(directory, 'launch.py'), `import os,sys,time,json
-root=os.environ['ORGTREE_DATA']
-seq=[0]
-def progress(phase):
-    seq[0]+=1
-    print(json.dumps(dict(type='startup-progress',protocol=1,pid=os.getpid(),dataRootId=root,sequence=seq[0],phase=phase)),flush=True)
-def ready():
-    print(json.dumps(dict(type='ready',protocol=1,pid=os.getpid(),dataRootId=root,port=23011)),flush=True)
+  const { binary } = stubEngine({ directory, guardian: false, script: `;(async () => {
 ${script}
-time.sleep(2)
-`)
-  return { directory, dataRoot }
+await sleep(2000)
+process.exit(0)
+})()
+` })
+  return { binary, directory, dataRoot }
 }
-const options = (f, extra) => ({ python, directory: f.directory, dataRoot: f.dataRoot, forbiddenRoot: path.join(temp, 'v1'),
+const options = (f, extra) => ({ binary: f.binary, directory: f.directory, dataRoot: f.dataRoot, forbiddenRoot: path.join(temp, 'v1'),
   uiDirectory: temp, timeoutMs: 1500, ...extra })
 
 test('2b. a conversion step longer than the ordinary window succeeds; the window event opens and closes', { skip }, async () => {
   const f = fakeEngine(`progress('database-up')
 progress('database-convert: copying acme (1 of 2)')
-time.sleep(3)
+await sleep(3000)
 progress('database-convert: copying beta (2 of 2)')
-time.sleep(3)
+await sleep(3000)
 progress('api-loaded')
-ready()`)
+ready(23011)`)
   const engine = new Engine()
   const phases = []
   engine.on('conversion', phase => phases.push(phase))
@@ -195,16 +192,16 @@ ready()`)
 
 test('2c. negative control: the same 3 s silence in an ordinary phase still times out', { skip }, async () => {
   const f = fakeEngine(`progress('database-up')
-time.sleep(3)
-ready()`)
+await sleep(3000)
+ready(23011)`)
   const engine = new Engine()
   await assert.rejects(engine.start(options(f, { conversionWindowMs: 6000 })), /did not become ready in time/)
 })
 
 test('1b. a conversion-failed line ends the start with the reason, not a lock refusal', { skip }, async () => {
   const f = fakeEngine(`progress('database-convert: copying acme (1 of 1)')
-print(json.dumps(dict(type='refused',code='conversion-failed',reason='acme could not be read back. Nothing was changed. Log: C:/d/conversion/1')),flush=True)
-sys.exit(1)`)
+say({ type: 'refused', code: 'conversion-failed', reason: 'acme could not be read back. Nothing was changed. Log: C:/d/conversion/1' })
+process.exit(1)`)
   const engine = new Engine()
   const phases = []
   engine.on('conversion', phase => phases.push(phase))

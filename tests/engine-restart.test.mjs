@@ -3,7 +3,7 @@
 //
 // That constraint is the whole shape of this file. A real restart here would
 // kill the agents running under the live engine, so every process this file
-// starts is a SANDBOXED FIXTURE: a throwaway launch.py in a temp directory,
+// starts is a SANDBOXED FIXTURE: a throwaway engine stub in a temp directory,
 // with its own data root, its own guardian and its own port — the same rig
 // startup-engine.test.mjs already uses. Nothing here reads ORGTREE_DATA, and
 // nothing here can reach the installed application's root.
@@ -24,7 +24,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { alive, stubEngine } from './engine-stub.mjs'
 import { createRequire } from 'node:module'
 import { build } from 'esbuild'
 
@@ -156,7 +156,7 @@ function instrumented({ stopped = true, released = true, start = async () => {} 
   engine.start = async options => { calls.start++; return start(options) }
   return { engine, calls }
 }
-const OPTIONS = { python: 'py', directory: 'dir', dataRoot: 'root', forbiddenRoot: 'v1', uiDirectory: 'ui' }
+const OPTIONS = { directory: 'dir', dataRoot: 'root', forbiddenRoot: 'v1', uiDirectory: 'ui' }
 
 test('an attached background engine is refused, and nothing is stopped or started', async () => {
   const { engine, calls } = instrumented()
@@ -219,54 +219,40 @@ test('every caller of a joined attempt is told the truth about its failure', asy
 //
 // A REAL engine process, in a temp data root of its own. Never the live one.
 
-let python = ''
-if (process.platform === 'win32') python = execFileSync('python', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).trim()
 const windowsOnly = process.platform !== 'win32' ? 'INERT: the real guardian requires Windows' : false
 
-/** A sandbox engine. `mode: 'ready'` announces readiness, answers the
- *  authenticated shutdown route by exiting, and records every launch; `mode:
- *  'fail'` dies before readiness, which is what a broken restart looks like. */
+/** A sandbox engine (the test-native stub with a real Job guardian and root
+ *  lock, tests/engine-stub.mjs). `mode: 'ready'` announces readiness, answers
+ *  the authenticated shutdown route by exiting, and records every launch;
+ *  `mode: 'fail'` dies before readiness, which is what a broken restart looks like. */
 function fixture(mode, directory = fs.mkdtempSync(path.join(temp, 'fixture-'))) {
   const dataRoot = path.join(directory, 'data')
   if (!fs.existsSync(dataRoot)) fs.mkdirSync(dataRoot)
-  const source = `import os,sys,time,json,threading
-from pathlib import Path
-sys.path.insert(0,${JSON.stringify(process.cwd())})
-from engine.process_lifetime import arm_process_lifetime
-from engine.startup_progress import StartupProgress
-from http.server import BaseHTTPRequestHandler,HTTPServer
-root=Path(os.environ['ORGTREE_DATA'])
-progress=StartupProgress(root)
-guardian=arm_process_lifetime(root,parent_pid=int(os.environ['ORGTREE_V2_PARENT_PID']))
-progress.report('lifetime-owned')
-def record(what):
-    with open(root/'launches.log','a') as f: f.write('%d %s\\n'%(os.getpid(),what))
-if ${JSON.stringify(mode)} == 'fail':
-    record('exited-before-ready')
-    sys.exit(3)
-class Handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        self.send_response(200); self.send_header('content-type','application/json'); self.end_headers()
-        self.wfile.write(b'{"accepted":true}')
-        threading.Thread(target=lambda:(time.sleep(.2),os._exit(0))).start()
-    def log_message(self,*a): pass
-server=HTTPServer(('127.0.0.1',0),Handler)
-threading.Thread(target=server.serve_forever,daemon=True).start()
-record('ready')
-print(json.dumps(dict(type='ready',protocol=1,pid=os.getpid(),dataRootId=str(root),port=server.server_address[1],guardianPid=guardian)),flush=True)
-time.sleep(120)
-`
-  fs.writeFileSync(path.join(directory, 'launch.py'), source)
-  return { python, directory, dataRoot, forbiddenRoot: path.join(directory, 'v1'), uiDirectory: directory, timeoutMs: 20000 }
+  const { binary } = stubEngine({ directory, script: `progress('lifetime-owned')
+const record = what => fs.appendFileSync(path.join(ROOT, 'launches.log'), PID + ' ' + what + '\\n')
+if (${JSON.stringify(mode)} === 'fail') {
+  record('exited-before-ready')
+  process.exit(3)
+}
+const server = http.createServer((request, response) => {
+  if (request.method !== 'POST') { response.statusCode = 501; response.end(); return }
+  response.writeHead(200, { 'content-type': 'application/json' })
+  response.end('{"accepted":true}')
+  setTimeout(() => process.exit(0), 200)
+})
+server.listen(0, '127.0.0.1', () => {
+  record('ready')
+  ready(server.address().port, { guardianPid: GUARDIAN })
+})
+setTimeout(() => process.exit(0), 120000)
+` })
+  return { binary, directory, dataRoot, forbiddenRoot: path.join(directory, 'v1'), uiDirectory: directory, timeoutMs: 20000 }
 }
 
 const launches = options => {
   const file = path.join(options.dataRoot, 'launches.log')
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean) : []
 }
-const alive = pid => execFileSync(python, ['-c',
-  `import ctypes;h=ctypes.windll.kernel32.OpenProcess(0x100000,False,${pid});print('alive' if h and ctypes.windll.kernel32.WaitForSingleObject(h,0)==258 else 'gone')`],
-  { encoding: 'utf8' }).trim() === 'alive'
 
 async function teardown(engine, options) {
   const child = engine.child

@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { build } from 'esbuild'
 import { createRequire } from 'node:module'
+import { lockHolder, stubEngine } from './engine-stub.mjs'
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-attach-test-'))
 const req = createRequire(import.meta.url)
@@ -15,12 +16,11 @@ async function load(name) {
   return req(out)
 }
 const policy = await load('policy'), { Engine, ENGINE_REFUSED } = await load('engine')
-// Two tests below start a stand-in engine: this node binary running a JavaScript
-// file named launch.py. It must start as plain node. tests/run.mjs preloads the
-// assertion guard into every test process with NODE_OPTIONS=--import=..., a child
-// inherits that, and with an --import node sends the entry file through its module
-// loader, which refuses the .py name (ERR_UNKNOWN_FILE_EXTENSION). The stand-in
-// then ends before its first line. Nothing else this file starts reads NODE_OPTIONS.
+// Two tests below start a stand-in engine: the test-native engine stub
+// (tests/engine-stub.mjs) running a JavaScript fixture with this node binary.
+// The stub starts that fixture without NODE_OPTIONS, so the assertion-guard
+// preload tests/run.mjs sets never reaches it. Nothing else this file starts
+// reads NODE_OPTIONS either.
 delete process.env.NODE_OPTIONS
 
 const forbidden = path.join(temp, 'v1'); fs.mkdirSync(forbidden)
@@ -177,13 +177,13 @@ test('only the root-owned refusal code parses; everything else fails fast', () =
 })
 
 test('a refused spawn is distinguishable and the same engine can then attach (boot race recovery)', async () => {
-  // node runs the stub "launch.py" (its content is JavaScript; the engine
-  // only cares about the absolute interpreter path and the stdout protocol).
+  // The engine stub runs a JavaScript fixture (the engine only cares about
+  // the binary path and the stdout protocol).
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-refused-'))
-  fs.writeFileSync(path.join(directory, 'launch.py'),
-    `console.log(JSON.stringify({ type: 'refused', code: 'root-owned', reason: 'another engine owns this data root; inspect .desktop-engine-status.json' }))`)
+  const { binary } = stubEngine({ directory, guardian: false,
+    script: `say({ type: 'refused', code: 'root-owned', reason: 'another engine owns this data root; inspect .desktop-engine-status.json' })` })
   const engine = trusting(new Engine())
-  const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
+  const options = { binary, directory, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
   await assert.rejects(engine.start(options), error => error.message.startsWith(ENGINE_REFUSED) && /owns this data root/.test(error.message))
   // The lost race resolves by attaching once the winning host publishes.
   const { server, port } = await identityServer((request, response) => {
@@ -520,17 +520,14 @@ test('a lost attachment recovers by re-attaching to the republished host with it
 
 test('recovery falls back to a managed spawn when no host republishes, and stays recoverable when nothing works', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-spawnstub-'))
-  fs.writeFileSync(path.join(directory, 'launch.py'), `
-    const http = require('node:http')
+  const { binary } = stubEngine({ directory, guardian: false, script: `
     const srv = http.createServer((request, response) => {
       if (request.method === 'POST' && request.url === '/api/desktop/shutdown') { response.end('{}'); process.exit(0) }
       response.statusCode = 404; response.end()
     })
-    srv.listen(0, '127.0.0.1', () => {
-      console.log(JSON.stringify({ type: 'ready', protocol: 1, port: srv.address().port, pid: process.pid, dataRootId: process.env.ORGTREE_DATA }))
-    })
-  `)
-  const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
+    srv.listen(0, '127.0.0.1', () => ready(srv.address().port))
+  ` })
+  const options = { binary, directory, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
   const engine = trusting(new Engine())
   engine.managed = false // simulate a previously attached engine that was lost
   const outcome = await engine.recoverAttached(options)
@@ -545,7 +542,7 @@ test('recovery falls back to a managed spawn when no host republishes, and stays
 
   const broken = trusting(new Engine())
   broken.managed = false
-  const failed = await broken.recoverAttached({ ...options, python: path.join(directory, 'missing.exe') })
+  const failed = await broken.recoverAttached({ ...options, binary: path.join(directory, 'missing.exe') })
   assert.equal(failed, 'failed')
   assert.equal(broken.managed, false, 'a failed recovery must remain recoverable next poll')
   assert.equal(broken.status.state, 'stopped')
@@ -565,10 +562,8 @@ test('a replaceable ancestor is refused, measured with actual ACLs', async () =>
 })
 
 test('the update stop also demands the guardian tree release the root lock', async () => {
-  // Windows paths drop straight into python raw strings; no escaping games.
-  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(3);l.close();print('released',flush=True)`
   const { spawn } = await import('node:child_process')
-  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
+  const holder = spawn(...lockHolder(realRoot, 3), { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   await new Promise((resolve, reject) => {
     holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
     holder.on('exit', () => reject(new Error('lock holder died early')))
@@ -597,9 +592,8 @@ test('a busy engine (probes fail, tree signals alive) is never declared dead', a
   // Real held root lock + present descriptor = the tree is alive; HTTP
   // failures alone must not flip the attachment to stopped (opus: HTTP can
   // only prove ALIVE — the lock and descriptor own the death verdict).
-  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(4);l.close()`
   const { spawn } = await import('node:child_process')
-  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
+  const holder = spawn(...lockHolder(realRoot, 4), { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   await new Promise((resolve, reject) => {
     holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
     holder.on('exit', () => reject(new Error('lock holder died early')))
@@ -652,9 +646,8 @@ test('guardianReleased: cannot-look is never released (empty, missing, unlocked,
   assert.equal(engine.guardianReleased(''), false, 'empty path must refuse')
   assert.equal(engine.guardianReleased(path.join(realRoot, 'no-such.lock')), false, 'missing file must refuse')
   assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'a real existing UNLOCKED file answers released')
-  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(2);l.close()`
   const { spawn } = await import('node:child_process')
-  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
+  const holder = spawn(...lockHolder(realRoot, 2), { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   await new Promise((resolve, reject) => {
     holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
     holder.on('exit', () => reject(new Error('holder died early')))
@@ -757,7 +750,7 @@ test('Windows: a folder another account can change ends the wait at once, and th
     // the all-users start: the boot task runs the engine and the window attaches
     const waiting = trusting(new Engine())
     waiting.trustCheck = async () => aboveIt
-    const started = waiting.start({ binary: process.execPath, python: '', directory: temp, uiDirectory: temp, dataRoot, forbiddenRoot: forbidden,
+    const started = waiting.start({ binary: process.execPath, directory: temp, uiDirectory: temp, dataRoot, forbiddenRoot: forbidden,
       launchBackground: async () => 'boot' }).then(() => 'started', error => error.message)
     let timer
     const outcome = await Promise.race([started, new Promise(resolve => { timer = setTimeout(() => resolve('still waiting after 5 s'), 5000) })])

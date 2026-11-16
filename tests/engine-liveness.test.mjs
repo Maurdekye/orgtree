@@ -18,7 +18,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { alive, stubEngine } from './engine-stub.mjs'
 import { createRequire } from 'node:module'
 import { build } from 'esbuild'
 
@@ -93,7 +93,7 @@ test('one answer resets the watch, and the silence counts from that answer', () 
 // ---------------------------------------------------------- the decision
 
 const fakeChild = (pid = 4242) => ({ pid, exitCode: null, signalCode: null })
-const OPTIONS = { python: 'py', directory: 'dir', dataRoot: 'root', forbiddenRoot: 'v1', uiDirectory: 'ui' }
+const OPTIONS = { directory: 'dir', dataRoot: 'root', forbiddenRoot: 'v1', uiDirectory: 'ui' }
 
 /** An Engine whose managed child is `child`, with every phase that would
  *  touch a process replaced by a recorder. Its watch is already HUNG. */
@@ -240,49 +240,34 @@ test('the probe accepts only the engine itself: another pid or root is a failure
 
 // -------------------------------------------------------- the real thing
 
-let python = ''
-if (process.platform === 'win32') python = execFileSync('python', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).trim()
 const windowsOnly = process.platform !== 'win32' ? 'INERT: the real guardian requires Windows' : false
 
 /** A sandbox engine that answers its liveness route `answers` times and then
- *  hangs: its one server thread sleeps inside the handler, so every later
- *  request waits forever while the process and its root lock live on. */
+ *  hangs: every later request waits forever while the process and its root
+ *  lock live on. The test-native stub owns the real Job guardian and root
+ *  lock (tests/engine-stub.mjs). */
 function fixture(answers) {
   const directory = fs.mkdtempSync(path.join(temp, 'fixture-'))
   const dataRoot = path.join(directory, 'data')
   fs.mkdirSync(dataRoot)
-  const source = `import os,sys,time,json,threading
-from pathlib import Path
-sys.path.insert(0,${JSON.stringify(repo)})
-from engine.process_lifetime import arm_process_lifetime
-from engine.startup_progress import StartupProgress
-from http.server import BaseHTTPRequestHandler,HTTPServer
-root=Path(os.environ['ORGTREE_DATA'])
-progress=StartupProgress(root)
-guardian=arm_process_lifetime(root,parent_pid=int(os.environ['ORGTREE_V2_PARENT_PID']))
-progress.report('lifetime-owned')
-with open(root/'launches.log','a') as f: f.write('%d\\n'%os.getpid())
-served=[0]
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        served[0]+=1
-        if served[0]>${answers}: time.sleep(3600)
-        body=json.dumps(dict(protocol=1,pid=os.getpid(),dataRootId=str(root))).encode()
-        self.send_response(200); self.send_header('content-type','application/json'); self.send_header('content-length',str(len(body))); self.end_headers()
-        self.wfile.write(body)
-    def log_message(self,*a): pass
-server=HTTPServer(('127.0.0.1',0),Handler)
-threading.Thread(target=server.serve_forever,daemon=True).start()
-print(json.dumps(dict(type='ready',protocol=1,pid=os.getpid(),dataRootId=str(root),port=server.server_address[1],guardianPid=guardian)),flush=True)
-time.sleep(120)
-`
-  fs.writeFileSync(path.join(directory, 'launch.py'), source)
-  return { python, directory, dataRoot, forbiddenRoot: path.join(directory, 'v1'), uiDirectory: directory, timeoutMs: 20000 }
+  const { binary } = stubEngine({ directory, script: `progress('lifetime-owned')
+fs.appendFileSync(path.join(ROOT, 'launches.log'), PID + '\\n')
+let served = 0
+const server = http.createServer((request, response) => {
+  // One server thread in the Python original: once it hangs, every later
+  // request (any method) waits forever too.
+  if (served >= ${answers}) return // hang: never answer again
+  if (request.method !== 'GET') { response.statusCode = 501; response.end(); return }
+  served += 1
+  const body = JSON.stringify({ protocol: 1, pid: PID, dataRootId: ROOT })
+  response.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) })
+  response.end(body)
+})
+server.listen(0, '127.0.0.1', () => ready(server.address().port, { guardianPid: GUARDIAN }))
+setTimeout(() => process.exit(0), 120000)
+` })
+  return { binary, directory, dataRoot, forbiddenRoot: path.join(directory, 'v1'), uiDirectory: directory, timeoutMs: 20000 }
 }
-
-const alive = pid => execFileSync(python, ['-c',
-  `import ctypes;h=ctypes.windll.kernel32.OpenProcess(0x100000,False,${pid});print('alive' if h and ctypes.windll.kernel32.WaitForSingleObject(h,0)==258 else 'gone')`],
-  { encoding: 'utf8' }).trim() === 'alive'
 
 test('a REAL managed engine that stops answering is ended and replaced by a live one', { skip: windowsOnly, timeout: 90000 }, async () => {
   const engine = new Engine(), options = fixture(2)

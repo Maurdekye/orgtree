@@ -19,6 +19,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { build } from 'esbuild'
 import { createRequire } from 'node:module'
+import { lockHolder, stubEngine } from './engine-stub.mjs'
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-quit-test-'))
 const req = createRequire(import.meta.url)
@@ -88,8 +89,7 @@ async function attached(port) {
  *  hung suite instead of the failure it is. */
 const holders = []
 async function holdRootLock() {
-  const script = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(120);l.close()`
-  const holder = spawn('python', ['-c', script], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
+  const holder = spawn(...lockHolder(realRoot, 120), { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   holders.push(holder)
   holder.unref()
   await new Promise((resolve, reject) => {
@@ -193,27 +193,19 @@ test('the force is refused when the root has moved on: newer descriptor, or rele
 
 // ---------------------------------------------------------- managed engine
 // A real child process, spawned exactly as the desktop spawns one: the
-// stand-in "launch.py" is JavaScript and the "python" is this node binary
-// (the same trick attach.test.mjs uses for the recovery spawn).
-//
-// The stand-in must start as plain node. tests/run.mjs preloads the assertion
-// guard into every test process with NODE_OPTIONS=--import=..., and a child
-// inherits that. With an --import, node sends the entry file through its
-// module loader, which refuses a file named launch.py
-// (ERR_UNKNOWN_FILE_EXTENSION): the stand-in ends before its first line and
-// the engine reports "Python engine exited before readiness". Nothing else
-// this file starts reads NODE_OPTIONS.
+// test-native engine stub (tests/engine-stub.mjs) running a JavaScript fixture
+// with this node binary, inside a kill-on-close Job of the stub's own, so
+// ending the stub ends the fixture (the same stub attach.test.mjs uses for
+// the recovery spawn). The stub starts the fixture without NODE_OPTIONS.
+// Nothing else this file starts reads NODE_OPTIONS.
 delete process.env.NODE_OPTIONS
 const stubDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-quit-stub-'))
-fs.writeFileSync(path.join(stubDirectory, 'launch.py'), `
-  const http = require('node:http')
+const { binary: stubBinary } = stubEngine({ directory: stubDirectory, guardian: false, script: `
   const srv = http.createServer((request, response) => { response.statusCode = 404; response.end() })
-  srv.listen(0, '127.0.0.1', () => {
-    console.log(JSON.stringify({ type: 'ready', protocol: 1, port: srv.address().port, pid: process.pid, dataRootId: process.env.ORGTREE_DATA }))
-  })
+  srv.listen(0, '127.0.0.1', () => ready(srv.address().port))
   setInterval(() => {}, 1000)   // never leaves on its own
-`)
-const managedOptions = { directory: stubDirectory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: stubDirectory }
+` })
+const managedOptions = { binary: stubBinary, directory: stubDirectory, dataRoot, forbiddenRoot: forbidden, uiDirectory: stubDirectory }
 const running = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 // Every stub child this file starts, so a leg that FAILS to stop one cannot
 // hold the test runner open on its stdio for ever — a hang reads as an
@@ -311,8 +303,7 @@ test('a budget too small for everything still forces, PROVES it, and is honoured
 // The before-quit handler cannot be exercised without a real Electron app, so
 // what it CALLS is asserted against the source, the way updater-wiring.test.mjs
 // asserts the update path's. The behaviour behind it is checked for real by
-// tests/quit_engine_probe.mjs, which drives this same Engine at a real boot
-// host, a real guardian and a real job object.
+// the managed-engine legs above, against the test-native engine stub.
 test('a quit is wired to stopForQuit, and the update path keeps its own stop', () => {
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   const handler = main.slice(main.indexOf("app.on('before-quit'"))
