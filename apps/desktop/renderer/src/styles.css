@@ -662,7 +662,9 @@ main {
 /* one pop-out, in the title bar: the borrowed desk's header keeps its own out of
    sight here (the desk is moved in without a re-render, so its `hidePopout`
    prop alone was measured not to remove it) */
-.tempdesk-glance .cc-head-right > .popout-button { display: none; }
+.tempdesk-glance .cc-head-right > .popout-button:not(.attention-toggle) { display: none; }
+/* ...but not the attention toggle, which only shares the header icons' look (USER 2026-11-16 m8b8870396e4b:
+   the floating desk converts in place; the Session 0 capture measured it hidden by the rule above) */
 /* the wrapper the modal measures from; the desk lays out as the panel's child */
 .tempdesk-host { display: contents; }
 /* THE PINNED DESK'S LOOK (user 2026-09-29): the same frame as `.pinwin` — a

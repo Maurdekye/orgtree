@@ -4073,7 +4073,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               m4492aff12953: an icon next to the pin and pop-out buttons; 2026-11-16 m8b8870396e4b: pins and the
               floating desk convert in place): a plain desk becomes an attention desk where it is, and pressed, an
               attention desk becomes a plain desk again (attention/deskwindows.tsx) */}
-          {(deskView?.inWindow || attentionWindow || onMakeAttention) && <button type="button" className="popout-button"
+          {(deskView?.inWindow || attentionWindow || onMakeAttention) && <button type="button" className="popout-button attention-toggle"
             aria-pressed={!!attentionWindow}
             aria-label={attentionWindow ? 'Make plain desk' : 'Make attention desk'}
             title={attentionWindow ? 'Make plain desk' : 'Make attention desk'}
