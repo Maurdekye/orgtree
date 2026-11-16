@@ -90,12 +90,6 @@ const DEFAULT_MAX_AGE_DAYS = 7
 
 const RENDERER_TESTS = path.join(REPO, 'apps', 'desktop', 'renderer', 'tests')
 
-// Mirrors FAILURE_PHASES in tools/run-python-verification.py. Every other phase
-// it reports — `pass`, `skip` — is a module that did not fail.
-const PYTHON_FAILURE_PHASES = new Set([
-  'assertion_failure', 'import_failure', 'teardown_failure', 'execution_failure', 'cleanup_error',
-])
-
 const SUITES = {
   'node-root': {
     title: 'Root/main-process suite',
@@ -107,37 +101,6 @@ const SUITES = {
       { what: 'tests/disruptive/*.test.mjs', why: 'separate `npm run test:disruptive` target; not part of `npm test`' },
       { what: 'tests/*.test.ps1', why: 'PowerShell boot/installer probes; not run by any node runner' },
       { what: 'tools/test-*.mjs', why: 'Electron/native probes needing a display and a built app' },
-    ],
-  },
-  'python-backend': {
-    title: 'Python backend suite',
-    description: 'tools/run-python-verification.py over tests/test_*.py — a fresh interpreter and a fresh ORGTREE_DATA per module',
-    command: 'python tools/run-python-verification.py tests/test_*.py',
-    kind: 'python-verification',
-    // MODULE-LEVEL, not test-level. The sanctioned runner reports one verdict
-    // per module because it gives each one its own process and data root; that
-    // isolation is the reason the suite is trustworthy at all, and it is not
-    // worth trading for finer reporting. Recorded as `granularity` so nobody
-    // reads a module verdict as a test verdict.
-    granularity: 'module',
-    // ⚠ SEQUENTIAL, AND `--concurrency` DOES NOT APPLY TO IT. The runner takes
-    // every module in ONE spawn and walks them in order, giving each its own
-    // interpreter and its own ORGTREE_DATA — the isolation the suite's
-    // trustworthiness rests on. `runPythonSuite` therefore never received the
-    // concurrency argument, but the flag was still accepted, still documented
-    // as "test-file concurrency", and still written into the baseline's
-    // machine provenance as though it described the run.
-    //
-    // MEASURED 2026-09-18 on a 16-core box, same tree, same 188 modules:
-    // `compare --suite python-backend` took 11m15s at the default 4 and
-    // 11m10s at 12. Identical, because the flag reaches nothing. Saying so is
-    // the fix here; making the suite parallel is a change to the isolation
-    // property and is not one to make in passing.
-    sequential: 'one module at a time, each in its own interpreter and data root',
-    files: () => listFiles(path.join(REPO, 'tests'), name => /^test_.*\.py$/.test(name)),
-    excluded: [
-      { what: 'tests/*.py not matching test_*.py', why: 'helpers and probes, not unittest modules' },
-      { what: 'engine tests run any other way', why: 'running them without the runner\'s isolated ORGTREE_DATA produces mass spurious errors — measured: 18 errors in a module that passes cleanly under the runner' },
     ],
   },
   renderer: {
@@ -447,97 +410,7 @@ async function runSuite(suiteName, options) {
   if (options.filter) targets = targets.filter(f => relative(f).includes(options.filter))
   if (!targets.length) throw new Error(`suite ${suiteName} matched no files${options.filter ? ` for filter "${options.filter}"` : ''}`)
   if (suite.kind === 'spawn-ndjson') return runSpawnedSuite(suiteName, targets, options)
-  if (suite.kind === 'python-verification') return runPythonSuite(suiteName, targets, options)
   return runNodeTestSuite(suiteName, targets, options)
-}
-
-/**
- * Run the Python backend modules through the repository's own verification
- * runner.
- *
- * Reusing it rather than calling unittest directly is not politeness: each
- * module needs a fresh interpreter and a fresh ORGTREE_DATA, and without that
- * isolation the results are garbage — a module that passes cleanly under the
- * runner reports eighteen errors when run bare. A baseline built on the bare
- * invocation would record twenty spurious failures and teach every reader to
- * ignore it.
- */
-async function runPythonSuite(suiteName, targets, { timeout }) {
-  const started = Date.now()
-  const receiptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-baseline-py-'))
-  const receipt = path.join(receiptDir, 'receipt.json')
-  const modules = targets.map(relative)
-
-  const args = [
-    path.join(HERE, 'run-python-verification.py'),
-    '--repo-root', REPO,
-    '--json-output', receipt,
-    ...(timeout ? ['--timeout', String(Math.round(timeout / 1000))] : []),
-    ...modules,
-  ]
-  const spawned = spawnSync('python', args, {
-    cwd: REPO, encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024,
-  })
-
-  if (!fs.existsSync(receipt)) {
-    fs.rmSync(receiptDir, { recursive: true, force: true })
-    throw new Error(
-      `${suiteName}: the runner exited ${spawned.status} and wrote no receipt.\n` +
-      `${(spawned.stderr || spawned.stdout || spawned.error?.message || '').slice(-2000)}`,
-    )
-  }
-  const parsed = JSON.parse(fs.readFileSync(receipt, 'utf8'))
-  fs.rmSync(receiptDir, { recursive: true, force: true })
-
-  const outcomes = (parsed.modules ?? []).map(record => {
-    const file = record.module ?? relative(record.module_path) ?? '(unknown module)'
-    // Module granularity: the "test" name says so rather than pretending to
-    // name a case the runner never reported.
-    const name = `(whole module: ${record.phase})`
-    // ⚠ Use the runner's OWN definition of failure, not "anything that is not
-    // pass". Its non-failing phases include `skip`, and a module that skipped
-    // one case is a module that passed. Reading those as failures put five
-    // green modules into this baseline as known failures on the first run —
-    // and a baseline with false entries in it teaches people to ignore it,
-    // which is worse than having none.
-    const failed = PYTHON_FAILURE_PHASES.has(record.phase)
-    const message = failed ? firstLine(lastMeaningfulLine(record.stderr ?? '')) : null
-    return {
-      id: testId(suiteName, file, '(whole module)'),
-      suite: suiteName,
-      file,
-      test: name,
-      status: failed ? 'failed' : record.phase === 'skip' || record.phase === 'skipped' ? 'skipped' : 'passed',
-      kind: 'leaf',
-      failure_type: failed ? record.phase : null,
-      // The runner's own tolerate-list key, so a baseline entry can be fed
-      // straight back to it as `--baseline`.
-      failure_id: record.failure_id ?? null,
-      error: message,
-      error_digest: message ? digest(message) : null,
-      duration_ms: Math.round(record.duration_ms ?? 0),
-    }
-  })
-
-  return {
-    suite: suiteName,
-    runner: SUITES[suiteName].command,
-    granularity: 'module',
-    duration_ms: Date.now() - started,
-    files: modules,
-    exit_status: spawned.status,
-    outcomes: outcomes.sort((a, b) => a.id.localeCompare(b.id)),
-  }
-}
-
-/** Python tracebacks end with the line that actually says what went wrong. */
-function lastMeaningfulLine(stderr) {
-  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean)
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (/^(OK|Ran \d+ tests?|-{5,}|={5,}|FAILED \()/.test(lines[i])) continue
-    return lines[i]
-  }
-  return stderr.slice(0, 200)
 }
 
 /**
@@ -1582,8 +1455,8 @@ common flags
   --filter <substring>     only files whose path contains this. A baseline recorded
                            with a filter is stored as PARTIAL and says so everywhere.
   --concurrency <n>        test-file concurrency (default 4; recorded in the baseline).
-                           Does NOT apply to python-backend, which is sequential
-                           by design; 'show' says which suites ignore it.
+                           A suite registered as sequential ignores it, and
+                           'show' says so.
   --timeout <ms>           per-test timeout (default 120000)
   --no-confirm             skip the re-run of failing files that separates flaky from stable
   --json                   machine-readable output

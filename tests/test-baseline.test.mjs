@@ -520,7 +520,7 @@ function showBaselineFixture(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const baselineFile = path.join(dir, 'baseline.json')
   const baseline = baselineFixture()
-  baseline.suites = Object.fromEntries(['node-root', 'python-backend', 'renderer'].map(name => [name, {
+  baseline.suites = Object.fromEntries(['node-root', 'renderer'].map(name => [name, {
     title: `${name} fixture`,
     description: 'Synthetic metadata for show; no suite is executed.',
     runner: 'fixture',
@@ -551,7 +551,6 @@ for (const name of ['node', 'python', 'renderer-x']) {
         `a command that ran nothing claimed no new failures:\n${stdout}\n${stderr}`)
       // and it names the real ones, so the next thing the reader types is right
       assert.match(stderr, /node-root/)
-      assert.match(stderr, /python-backend/)
       assert.match(stderr, /renderer/)
     })
   }
@@ -559,7 +558,6 @@ for (const name of ['node', 'python', 'renderer-x']) {
 
 test('the refusal suggests the registered name the typo was reaching for', () => {
   assert.match(runTool(['compare', '--suite', 'node']).stderr, /did you mean: node-root\?/)
-  assert.match(runTool(['compare', '--suite', 'python']).stderr, /did you mean: python-backend\?/)
 })
 
 test('a valid suite name is still accepted — the guard refuses typos, not work', () => {
@@ -582,10 +580,8 @@ test('show --suite actually narrows the output instead of ignoring the flag', t 
   const one = filtered.stdout
   const all = unfiltered.stdout
   assert.match(one, /── node-root/)
-  assert.doesNotMatch(one, /── python-backend/)
   assert.doesNotMatch(one, /── renderer/)
-  assert.match(all, /── python-backend/, 'the unfiltered form must still show everything')
-  assert.match(all, /── renderer/)
+  assert.match(all, /── renderer/, 'the unfiltered form must still show everything')
 })
 
 test('a comparison that executes zero suites is never reported as clean', async t => {
@@ -629,21 +625,5 @@ test('the verdict names the suites it actually covers', async t => {
   assert.match(human, /VERDICT: no new failures in 1 suite\(s\): node-root\./)
 })
 
-test('show says which suites ignore --concurrency', t => {
-  // `--concurrency` is accepted by every subcommand, documented as "test-file
-  // concurrency", and written into the baseline's machine provenance — but
-  // runPythonSuite never received it, so for the one suite slow enough to make
-  // anybody reach for the flag it did nothing at all. Measured 2026-09-18:
-  // 11m15s at 4 and 11m10s at 12, identical. Same family as this file's other
-  // cases — a flag accepted, plausible output, and no correspondence between
-  // them — so the tool says so rather than leaving it to a stopwatch.
-  const baselineFile = showBaselineFixture(t)
-  const { status, stdout } = runTool(['show', '--baseline', baselineFile, '--suite', 'python-backend'])
-  assert.equal(status, 0)
-  assert.match(stdout, /runs SEQUENTIALLY/)
-  assert.match(stdout, /--concurrency does not apply/)
-  // and the suites that DO honour it must not claim otherwise
-  const parallel = runTool(['show', '--baseline', baselineFile, '--suite', 'node-root'])
-  assert.equal(parallel.status, 0, parallel.stderr)
-  assert.doesNotMatch(parallel.stdout, /--concurrency does not apply/)
-})
+// 'show says which suites ignore --concurrency' covered python-backend, the only
+// sequential suite; it went with that suite in 4.6.1.
