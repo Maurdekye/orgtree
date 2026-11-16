@@ -6,7 +6,8 @@
   "handoff": {
     "purpose": "Successor and reviewer entry point for reproducible checks",
     "working_tree_policy": "Run commands from the checkout named by the receipt; resolve candidate_ref with git rev-parse and retain the full result in the docket evidence. A recipe cannot embed the SHA of the commit that contains it.",
-    "receipt_tool": "tools/verification-receipt.py",
+    "receipt_tool": null,
+    "receipt_tool_retired": "4.6.1: tools/verification-receipt.py and its Python backend closure were removed with the Python runtime; record the full candidate SHA, the exact commands and their logs in the docket evidence instead",
     "last_verified": "2026-09-13"
   },
   "suites": [
@@ -29,22 +30,14 @@
       "covers": "real Electron/native probes where the platform boundary is in scope"
     },
     {
-      "area": "backend",
-      "runner": "python -m unittest",
-      "command": "python -m unittest tests.test_work_evidence_receipts tests.test_python_verification_runner",
-      "covers": "receipt schema, isolated Python runner, and failure classification"
-    },
-    {
       "area": "quality guards",
-      "runner": "node --test plus the Python runner",
-      "command": "node --test tests/portal-fixture.test.mjs tests/benchmark-controls.test.mjs tests/w07-acceptance-isolation.test.mjs",
-      "covers": "fixture cleanup, benchmark negative controls, and acceptance isolation"
+      "runner": "node --test",
+      "command": "node --test tests/portal-fixture.test.mjs tests/benchmark-controls.test.mjs",
+      "covers": "fixture cleanup and benchmark negative controls"
     }
   ],
   "guards": [
-    { "name": "renderer timeout/concurrency", "source": "apps/desktop/renderer/tests/run.mjs", "command": "ORGTREE_TEST_CONCURRENCY=4 node apps/desktop/renderer/tests/run.mjs --reps 1" },
-    { "name": "receipt provenance", "source": "tools/verification-receipt.py", "command": "python tools/verification-receipt.py --repo-root <checkout> --candidate <full-sha> -- <command>" },
-    { "name": "acceptance isolation", "source": "tests/acceptance/isolation.mjs", "command": "node --test tests/w07-acceptance-isolation.test.mjs" }
+    { "name": "renderer timeout/concurrency", "source": "apps/desktop/renderer/tests/run.mjs", "command": "ORGTREE_TEST_CONCURRENCY=4 node apps/desktop/renderer/tests/run.mjs --reps 1" }
   ],
   "controls": [
     { "name": "fixture teardown", "status": "executed", "command": "node --test tests/portal-fixture.test.mjs", "negative_control": "failed assertion followed by a fresh fixture" },

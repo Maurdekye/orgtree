@@ -15,8 +15,7 @@ unexecuted check.
 | Root/desktop | Node's built-in runner | `node --test tests/notifications.test.mjs tests/taskbarattention.test.mjs tests/icon-assets.test.mjs` | Main-process notification lifecycle and native/icon source guards |
 | Renderer | `apps/desktop/renderer/tests/run.mjs` | `node apps/desktop/renderer/tests/run.mjs pendingattention notifydelivery notificationsettings` | Real bundled renderer paths for attention, delivery, and preferences |
 | Native | Electron probe scripts under `tools/` | `node tools/test-popout-header-regions.mjs; node tools/test-taskbar-native.mjs` | Platform-bound behavior that cannot be established by jsdom |
-| Backend | Python unittest and receipt tools | `python -m unittest tests.test_work_evidence_receipts tests.test_python_verification_runner` | Receipt provenance, isolated data roots, and failure classification |
-| Quality guards | Root runner plus acceptance isolation tests | `node --test tests/portal-fixture.test.mjs tests/benchmark-controls.test.mjs tests/w07-acceptance-isolation.test.mjs` | Fixture cleanup, negative controls, and disposable acceptance roots |
+| Quality guards | Root runner | `node --test tests/portal-fixture.test.mjs tests/benchmark-controls.test.mjs` | Fixture cleanup and negative controls (the 3.x acceptance harness and its isolation test were retired in 4.6.1) |
 
 The renderer runner accepts bare filename filters and may be split into several
 batches. Keep `ORGTREE_TEST_CONCURRENCY=4` and its timeout/job limits unless a
@@ -43,12 +42,9 @@ instead of producing a flattering benchmark.
 
 ## Receipts and safe Git inspection
 
-For a check against a peer's tree, use the portable receipt tool with an explicit
-checkout and a full candidate SHA:
-
-```text
-python tools/verification-receipt.py --repo-root <checkout> --candidate <full-sha> -- <command>
-```
+For a check against a peer's tree, record the explicit checkout, the full
+candidate SHA, the exact command and its output. (The Python receipt tool,
+`tools/verification-receipt.py`, was removed with the Python runtime in 4.6.1.)
 
 A short SHA is suitable for a heading or a human message, but it is not a stable
 provenance key. Resolve it with `git rev-parse --verify <short>^{commit}` and
