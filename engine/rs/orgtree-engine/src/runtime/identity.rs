@@ -487,8 +487,8 @@ fn codex_sandbox_short(dirs: &[(String, bool)]) -> String {
         let shown = &repos[..repos.len().min(CODEX_GIT_NAMED_MAX)];
         format!(" (in your scope: {})", shown.iter().map(|r| format!("`{r}`")).collect::<Vec<_>>().join(", "))
     };
-    let helper = if repos.iter().any(|r| std::path::Path::new(r).join("tools").join("worktree.py").exists()) {
-        " `python tools/worktree.py add <name>` needs it too; only `verify` does not."
+    let helper = if repos.iter().any(|r| std::path::Path::new(r).join("tools").join("worktree.mjs").exists()) {
+        " `node tools/worktree.mjs add <name>` needs it too; only `verify` does not."
     } else { "" };
     format!(
         "Sandbox: codex's OS sandbox denies writes to every `.git` that existed when your turn started{named}, \
@@ -815,10 +815,10 @@ fn codex_sandbox(dirs: &[(String, bool)]) -> String {
          A WORKTREE IS THE COMMON CASE, so expect the denial and ask for the elevated retry on the FIRST attempt \
          rather than after a failure. ",
     );
-    if let Some(helper) = repos.iter().find(|r| std::path::Path::new(r).join("tools").join("worktree.py").exists()) {
+    if let Some(helper) = repos.iter().find(|r| std::path::Path::new(r).join("tools").join("worktree.mjs").exists()) {
         s.push_str(&format!(
             "That repository ships a helper that places the worktree where dependencies resolve and tells you \
-             whether they actually did — `python tools/worktree.py add <name>` from `{helper}`, with `remove` and \
+             whether they actually did — `node tools/worktree.mjs add <name>` from `{helper}`, with `remove` and \
              `verify` alongside it. Prefer it over composing the raw command yourself. ⚠ It runs `git worktree add` \
              internally, so it is NOT a way around the denial above and needs the same elevated retry on the first \
              attempt; only `verify` is read-only and needs no escalation at all. "

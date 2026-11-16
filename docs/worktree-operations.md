@@ -11,7 +11,7 @@
 to set up:
 
 ```powershell
-python tools/worktree.py add my-ticket
+node tools/worktree.mjs add my-ticket
 cd E:\Libraries\Desktop\orgtree\.worktrees\my-ticket
 npm test
 ```
@@ -30,7 +30,7 @@ banned](#why-the-junction-is-banned).
 ## Creating a worktree
 
 ```powershell
-python tools/worktree.py add <name> [--base main] [--branch <branch>] [--dry-run]
+node tools/worktree.mjs add <name> [--base main] [--branch <branch>] [--dry-run]
 ```
 
 The worktree is placed at `<repository root>/.worktrees/<name>` and the branch
@@ -56,7 +56,7 @@ whether the suites can run. You can ask the same question about an existing
 worktree at any time:
 
 ```powershell
-python tools/worktree.py verify E:\path\to\worktree
+node tools/worktree.mjs verify E:\path\to\worktree
 ```
 
 This reports the exact directory the dependencies come from, every path it
@@ -65,7 +65,7 @@ looked at on the way up, and whether that directory is a link.
 ## Removing a worktree
 
 ```powershell
-python tools/worktree.py remove E:\path\to\worktree [--force] [--accept-unscanned] [--dry-run]
+node tools/worktree.mjs remove E:\path\to\worktree [--force] [--accept-unscanned] [--dry-run]
 ```
 
 Before removing anything, `remove` scans the worktree for symlinks and
@@ -148,7 +148,7 @@ root, which is why that is the default and the junction is opt-in.
 - otherwise it still requires `--accept-shared-dependencies`, in as many words.
 
 ```powershell
-python tools/worktree.py setup E:\path\to\checkout `
+node tools/worktree.mjs setup E:\path\to\checkout `
   --dependency-source E:\path\to\main\node_modules `
   --accept-shared-dependencies --apply
 ```
@@ -169,7 +169,7 @@ total/hidden/omitted counts. A filter changes visibility only; it never removes
 a row.
 
 ```powershell
-python tools/worktree.py inventory E:\path\to\repository
+node tools/worktree.mjs inventory E:\path\to\repository
 ```
 
 ## Rename repair
@@ -187,8 +187,8 @@ there": it walks a root **without following a single link**, selects the
 hazardous shape, and writes a plan that `cleanup-apply` executes.
 
 ```powershell
-python tools/worktree.py cleanup-scan  "<root>" > plan.json
-python tools/worktree.py cleanup-apply plan.json --confirm
+node tools/worktree.mjs cleanup-scan  "<root>" > plan.json
+node tools/worktree.mjs cleanup-apply plan.json --confirm
 ```
 
 Read `plan.json` before applying it. Nothing is unlinked by the scan.
@@ -271,7 +271,7 @@ history (77/75, and 81 in the original report) were undercounts.
 Cleanup is two-phase. First produce a preview with exact paths:
 
 ```powershell
-python tools/worktree.py cleanup-preview E:\path\to\checkout node_modules
+node tools/worktree.mjs cleanup-preview E:\path\to\checkout node_modules
 ```
 
 ⚠ `cleanup-preview` takes an `owned` list at the API level and the CLI does not
