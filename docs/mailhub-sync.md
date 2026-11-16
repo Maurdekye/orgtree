@@ -39,12 +39,12 @@ only to the standalone distribution.
    submodule pointer (plus any adapter/UI work the change needs). A new
    upstream commit never changes an existing Orgtree build: the pin is the
    review boundary.
-3. `tests/test_mailhub_repo.py` enforces the whole arrangement in Orgtree's
-   own test run: the submodule must be present, clean, and exactly at the
-   pin; no second tracked copy of hub-server logic may exist; and the PINNED
-   product's own characterization suites are executed against the embedded
-   checkout, so drift between "the hub upstream" and "the hub Orgtree ships"
-   fails the build rather than shipping.
+3. `node tools/check-mailhub-repo.mjs` enforces the arrangement in Orgtree:
+   the submodule must be present, clean, and exactly at the pin, and no
+   second tracked copy of hub-server logic may exist. (Until 4.6.1 its Python
+   predecessor, `tests/test_mailhub_repo.py`, also ran the pinned submodule's
+   own hubtool suites; those are Python and now run in orgtree-mailhub's own
+   checks, since Orgtree no longer carries Python.)
 
 Manual source copying and build-time fetching of an unpinned revision are
 not synchronization paths. There is nothing to copy: the submodule IS the
@@ -73,7 +73,7 @@ source, and packaging refuses anything else (below).
 Same two steps, faster: fix and verify in `orgtree-mailhub` (its suites +
 `tools/verify-docker.py`), then land the Orgtree pointer update. If Orgtree
 cannot wait for upstream review, the fix STILL lands upstream first —
-the pin move is one commit and `test_mailhub_repo.py` refuses local edits
+the pin move is one commit and `tools/check-mailhub-repo.mjs` refuses local edits
 under the pin (`+` or dirty submodule states fail), so there is no faster
 path that leaves the two distributions consistent, which is the point.
 
@@ -81,7 +81,7 @@ path that leaves the two distributions consistent, which is the point.
 
 - `git clone --recurse-submodules` (or `git submodule update --init` after
   a plain clone) is part of the documented setup; a checkout without the
-  submodule fails `test_mailhub_repo.py` and packaging preflight with
+  submodule fails `tools/check-mailhub-repo.mjs` and packaging preflight with
   instructions rather than building a hubless app.
 - The standalone repository clones and runs independently:
   `docker compose up` per its README, verified end to end by its own
