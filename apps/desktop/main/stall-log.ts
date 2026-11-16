@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { STREAMER_TYPE_LIST, sensitiveSpans } from '../../../packages/contracts/streamer'
 import type { StreamerType, StreamerTypes } from '../../../packages/contracts/streamer'
-import { RateCap, STALL_CANVAS_BGS, STALL_PANELS, STALL_SCREENS, STALL_SRCS } from '../../../packages/contracts/stall'
+import { RateCap, STALL_CANVAS_BGS, STALL_PANELS, STALL_SCREENS, STALL_SRCS, STALL_WARMUP_OUTCOMES } from '../../../packages/contracts/stall'
 import type { StallSrc } from '../../../packages/contracts/stall'
 
 export const STALL_LOG = path.join('diagnostics', 'ui-stalls.jsonl')
@@ -159,6 +159,8 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
       caught: bool(r.caught), canvas_bg: canvasBg(r.canvas_bg ?? undefined),
       failed: bool(r.failed), stage: r.stage === undefined ? undefined : oneOf(r.stage, ['stop', 'process']) })
   }
+  // the shader warm-up (main/shader-warmup.ts): its outcome and two durations; never an error text
+  if (src === 'shader-warmup') return compact({ outcome: oneOf(r.outcome, STALL_WARMUP_OUTCOMES), window_ms: num(r.window_ms) })
   if (src === 'renderer-ping' || src === 'renderer-unresponsive') {
     return compact({ blocked_ms: num(r.blocked_ms), stacks: arr(r.stacks, 2).map(stack), ipc: ipc(), ctx: r.ctx === undefined ? undefined : context(r.ctx), gpu: gpu(r.gpu) })
   }

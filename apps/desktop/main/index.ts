@@ -65,6 +65,7 @@ import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
 import { STALL_LOG, StallLog } from './stall-log'
 import { StallTracer, TRACE_DIR, processTrace } from './stall-trace'
+import { startShaderWarmup } from './shader-warmup-window'
 import { GpuSampler, IpcTracker, LazyStackWorker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
 import type { IpcLike } from './stall-probe'
 import { MAIN_STACK_WORKER_SOURCE } from './stall-worker-source'
@@ -2113,6 +2114,9 @@ else {
     void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())
     refreshTaskbar([])
+    // 4.6.1: compile the desk/node GPU shaders once, offscreen, while the user is idle (main/shader-warmup.ts)
+    startShaderWarmup({ uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer'),
+      log: line => stallLog.write('shader-warmup', line) })
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
     tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })

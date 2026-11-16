@@ -7,8 +7,11 @@ export const STALL_RATE_PER_MIN = 30
 /** a stall is a long animation frame (or a main-loop tick) of at least this many ms; shorter ones only count */
 export const STALL_MIN_MS = 500
 
-export const STALL_SRCS = ['renderer-loaf', 'renderer-ping', 'renderer-unresponsive', 'main-lag', 'sync-ipc', 'process-gone', 'attract', 'stall-trace'] as const
+export const STALL_SRCS = ['renderer-loaf', 'renderer-ping', 'renderer-unresponsive', 'main-lag', 'sync-ipc', 'process-gone', 'attract', 'stall-trace', 'shader-warmup'] as const
 export type StallSrc = typeof STALL_SRCS[number]
+
+/** what a `shader-warmup` line may say happened (main/shader-warmup.ts) */
+export const STALL_WARMUP_OUTCOMES = ['skipped-warm', 'skipped-no-gpu', 'gave-up-busy', 'done', 'deadline', 'failed', 'stopped'] as const
 
 /** what `canvas_bg.theme` may say: the mounted canvas background (contracts/canvas-background.ts), or none on screen */
 export const STALL_CANVAS_BGS = ['dots', 'line-grid', 'hex-dots', 'hex-lines', 'checkerboard', 'square-tiles', 'triangle-tiles', 'hex-tiles', 'ascii', 'none'] as const
