@@ -3,24 +3,11 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { requireTestNative } from './native-test-bins.mjs'
 
 if (process.platform !== 'win32') throw Error('INERT: Windows native hit testing is required')
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-pin-hit-'))
 fs.copyFileSync('apps/desktop/renderer/src/styles.css', path.join(root, 'styles.css'))
-fs.writeFileSync(path.join(root, 'hit.py'), `import ctypes, json, sys
-from ctypes import wintypes
-user = ctypes.WinDLL('user32', use_last_error=True)
-user.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
-user.SendMessageTimeoutW.restype = wintypes.LPARAM
-answer = []
-for point in json.loads(sys.argv[2]):
-    result = ctypes.c_size_t()
-    packed = (int(point['x']) & 65535) | ((int(point['y']) & 65535) << 16)
-    if not user.SendMessageTimeoutW(int(sys.argv[1]), 0x84, 0, packed, 2, 2000, ctypes.byref(result)):
-        raise ctypes.WinError(ctypes.get_last_error())
-    answer.append(result.value)
-print(json.dumps(answer))
-`)
 fs.writeFileSync(path.join(root, 'probe.cjs'), `
 const {app, BrowserWindow, screen} = require('electron')
 const {spawn} = require('node:child_process')
@@ -44,7 +31,7 @@ app.whenReady().then(async () => {
     const relative = relativePoints || await w.webContents.executeJavaScript('Array.from(document.querySelectorAll("#handle,#close,#content")).map(e=>{const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})')
     const points = relative.map(point => screen.dipToScreenPoint({x:Math.round(point.x+bounds.x),y:Math.round(point.y+bounds.y)}))
     return new Promise((resolve,reject) => {
-      const child = spawn(process.env.ORGTREE_PROBE_PYTHON || 'python', [path.join(root,'hit.py'), hwnd, JSON.stringify(points)], {windowsHide:true})
+      const child = spawn(process.env.ORGTREE_TEST_NATIVE_EXE, ['nc-hittest', hwnd, JSON.stringify(points)], {windowsHide:true})
       let out='', err=''; child.stdout.on('data', b=>out+=b); child.stderr.on('data', b=>err+=b)
       child.on('error',reject); child.on('exit', code=>code ? reject(Error(err)) : resolve(JSON.parse(out)))
     })
@@ -66,7 +53,7 @@ app.whenReady().then(async () => {
   w.destroy(); app.quit()
 }).catch(e=>{console.error(e);app.exit(1)})
 `)
-const env = {...process.env, ORGTREE_PIN_HIT_PROBE:root}
+const env = {...process.env, ORGTREE_PIN_HIT_PROBE:root, ORGTREE_TEST_NATIVE_EXE: requireTestNative()}
 delete env.ELECTRON_RUN_AS_NODE
 const child = spawn(process.env.ORGTREE_HISTORY_ELECTRON || createRequire(import.meta.url)('electron'), [path.join(root,'probe.cjs')], {env,windowsHide:true,stdio:'inherit'})
 const timer = setTimeout(()=>{child.kill();process.exitCode=1}, 25000)

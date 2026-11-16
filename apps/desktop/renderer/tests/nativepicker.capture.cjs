@@ -75,165 +75,9 @@ const within = async (p, ms, what) => {
 // Helper strictly scoped to targetPid: inspects whether Electron's dialog.showOpenDialog
 // creates an owned #32770 dialog HWND in Session 0, captures it via PrintWindow if created,
 // and closes ONLY that targetPid #32770 HWND via PostMessageW(WM_CLOSE).
-const HWND_PROBE_PY = `import ctypes, json, struct, sys, time
-from ctypes import wintypes
-
-target_pid = int(sys.argv[1])
-owner_hwnd = int(sys.argv[2])
-bmp_path = sys.argv[3]
-deadline = time.monotonic() + 2.5
-
-user32 = ctypes.WinDLL('user32', use_last_error=True)
-gdi32 = ctypes.WinDLL('gdi32', use_last_error=True)
-
-WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-GW_OWNER = 4
-GWL_STYLE = -16
-WS_VISIBLE = 0x10000000
-WM_CLOSE = 0x0010
-PW_RENDERFULLCONTENT = 0x00000002
-
-class RECT(ctypes.Structure):
-    _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long), ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
-
-class BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [
-        ('biSize', wintypes.DWORD), ('biWidth', wintypes.LONG), ('biHeight', wintypes.LONG),
-        ('biPlanes', wintypes.WORD), ('biBitCount', wintypes.WORD), ('biCompression', wintypes.DWORD),
-        ('biSizeImage', wintypes.DWORD), ('biXPelsPerMeter', wintypes.LONG), ('biYPelsPerMeter', wintypes.LONG),
-        ('biClrUsed', wintypes.DWORD), ('biClrImportant', wintypes.DWORD),
-    ]
-
-def class_name(hwnd):
-    buf = ctypes.create_unicode_buffer(256)
-    user32.GetClassNameW(hwnd, buf, 256)
-    return buf.value
-
-def win_text(hwnd):
-    buf = ctypes.create_unicode_buffer(512)
-    user32.GetWindowTextW(hwnd, buf, 512)
-    return buf.value
-
-def find_owned_dialog():
-    found = []
-    @WNDENUMPROC
-    def cb(hwnd, _lp):
-        pid = wintypes.DWORD(0)
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value != target_pid or int(hwnd) == owner_hwnd:
-            return True
-        cname = class_name(hwnd)
-        if cname == '#32770':
-            found.append(int(hwnd))
-        return True
-    user32.EnumWindows(cb, 0)
-    return found[0] if found else None
-
-def capture_bmp(hwnd, out_file):
-    rc = RECT()
-    if not user32.GetWindowRect(hwnd, ctypes.byref(rc)):
-        return {'captured': False, 'reason': 'GetWindowRect failed'}
-    w = max(0, rc.right - rc.left)
-    h = max(0, rc.bottom - rc.top)
-    if w <= 0 or h <= 0:
-        return {'captured': False, 'reason': f'empty rect {w}x{h}'}
-    hdc_win = user32.GetWindowDC(hwnd)
-    hdc_mem = gdi32.CreateCompatibleDC(hdc_win)
-    hbmp = gdi32.CreateCompatibleBitmap(hdc_win, w, h)
-    old = gdi32.SelectObject(hdc_mem, hbmp)
-    ok_pw = bool(user32.PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT))
-    if not ok_pw:
-        ok_pw = bool(user32.PrintWindow(hwnd, hdc_mem, 0))
-    bmi = BITMAPINFOHEADER()
-    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmi.biWidth = w
-    bmi.biHeight = -h
-    bmi.biPlanes = 1
-    bmi.biBitCount = 32
-    bmi.biCompression = 0
-    buf_len = w * h * 4
-    pixels = ctypes.create_string_buffer(buf_len)
-    scan = gdi32.GetDIBits(hdc_mem, hbmp, 0, h, pixels, ctypes.byref(bmi), 0)
-    gdi32.SelectObject(hdc_mem, old)
-    gdi32.DeleteObject(hbmp)
-    gdi32.DeleteDC(hdc_mem)
-    user32.ReleaseDC(hwnd, hdc_win)
-    raw = pixels.raw
-    non_black = 0
-    for i in range(0, len(raw), 4):
-        if raw[i] != 0 or raw[i+1] != 0 or raw[i+2] != 0:
-            non_black += 1
-    total_px = max(1, w * h)
-    # Write bottom-up 32bpp BMP for nativeImage
-    bmi_up = BITMAPINFOHEADER()
-    bmi_up.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmi_up.biWidth = w
-    bmi_up.biHeight = h
-    bmi_up.biPlanes = 1
-    bmi_up.biBitCount = 32
-    bmi_up.biCompression = 0
-    bmi_up.biSizeImage = buf_len
-    rows = [raw[row*w*4:(row+1)*w*4] for row in range(h)]
-    bottom_up = b''.join(reversed(rows))
-    bfOffBits = 14 + ctypes.sizeof(BITMAPINFOHEADER)
-    bfSize = bfOffBits + buf_len
-    header = struct.pack('<2sIHHI', b'BM', bfSize, 0, 0, bfOffBits)
-    with open(out_file, 'wb') as f:
-        f.write(header)
-        f.write(bytes(bmi_up))
-        f.write(bottom_up)
-    return {
-        'captured': True,
-        'printWindowOk': ok_pw,
-        'scanLines': int(scan),
-        'width': w,
-        'height': h,
-        'nonBlackPixels': non_black,
-        'nonBlackRatio': round(non_black / total_px, 4),
-    }
-
-t0 = time.monotonic()
-dlg = None
-while time.monotonic() < deadline:
-    dlg = find_owned_dialog()
-    if dlg is not None:
-        break
-    time.sleep(0.05)
-
-if dlg is None:
-    print(json.dumps({'hwndCreated': False, 'elapsedMs': round((time.monotonic() - t0) * 1000, 1)}))
-    sys.exit(0)
-
-# Give Session 0 COM dialog 180ms to populate controls before PrintWindow.
-time.sleep(0.18)
-pid_check = wintypes.DWORD(0)
-user32.GetWindowThreadProcessId(dlg, ctypes.byref(pid_check))
-if pid_check.value != target_pid:
-    print(json.dumps({'hwndCreated': False, 'reason': 'PID mismatch guard tripped'}))
-    sys.exit(0)
-
-owner = int(user32.GetWindow(dlg, GW_OWNER))
-style = user32.GetWindowLongW(dlg, GWL_STYLE)
-rc = RECT()
-user32.GetWindowRect(dlg, ctypes.byref(rc))
-cap = capture_bmp(dlg, bmp_path)
-title = win_text(dlg)
-cname = class_name(dlg)
-user32.PostMessageW(dlg, WM_CLOSE, 0, 0)
-print(json.dumps({
-    'hwndCreated': True,
-    'hwnd': dlg,
-    'pid': pid_check.value,
-    'className': cname,
-    'title': title,
-    'ownerHwnd': owner,
-    'ownerMatchesWin': owner == owner_hwnd,
-    'wsVisibleStyleBit': bool(style & WS_VISIBLE),
-    'rect': {'left': rc.left, 'top': rc.top, 'right': rc.right, 'bottom': rc.bottom},
-    'capture': cap,
-    'elapsedMs': round((time.monotonic() - t0) * 1000, 1),
-}))
-`
+// The probe is the test-only tools/test-native helper (`owned-dialog`; it was an inline hwnd_probe.py).
+const testNative = process.env.ORGTREE_TEST_NATIVE || path.join(repo, 'tools', 'test-native', 'target', 'debug', 'orgtree-test-native.exe')
+if (!fs.existsSync(testNative)) throw Error('orgtree-test-native.exe is not built: cargo build --manifest-path tools/test-native/Cargo.toml, or set ORGTREE_TEST_NATIVE')
 
 async function bundleAssets() {
   const esbuild = require(path.join(deps, 'esbuild'))
@@ -311,7 +155,6 @@ contextBridge.exposeInMainWorld('orgtreeDesktop', {
     '<!doctype html><html lang="en"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\' data: blob:;"><link rel="stylesheet" href="probe.css"><body style="margin:0"><div id="root"></div><script src="probe.js"></script></body></html>',
     'utf8',
   )
-  fs.writeFileSync(path.join(out, 'hwnd_probe.py'), HWND_PROBE_PY, 'utf8')
   return [...reactRoots]
 }
 
@@ -338,7 +181,7 @@ async function clickAt(win, x, y) {
 
 function probeRealOsDialog(ownerHwndInt, bmpFile, pngFile) {
   return new Promise((resolve) => {
-    const child = spawn('python', [path.join(out, 'hwnd_probe.py'), String(process.pid), String(ownerHwndInt), bmpFile], {
+    const child = spawn(testNative, ['owned-dialog', String(process.pid), String(ownerHwndInt), bmpFile], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })

@@ -4,9 +4,10 @@ import {createRequire} from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import {requireTestNative} from './native-test-bins.mjs'
 if(process.platform!=='win32')throw Error('INERT: Windows shell required')
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'orgtree-taskbar-'))
-const helper=path.resolve('tests/native-shell-properties.py'),icon=path.resolve('apps/desktop/assets/orgtree-eye.ico')
+const helper=requireTestNative(),icon=path.resolve('apps/desktop/assets/orgtree-eye.ico')
 await build({stdin:{contents:`
 import {app,BrowserWindow,nativeImage} from 'electron'
 import {appUserModelId,configureTaskbar} from './apps/desktop/main/taskbar'
@@ -18,7 +19,7 @@ app.whenReady().then(async()=>{
  assert.equal(appUserModelId(true),'com.maurdekye.orgtree')
  const w=new BrowserWindow({show:false,icon:${JSON.stringify(icon)}})
  const hwnd=w.getNativeWindowHandle().readBigUInt64LE().toString()
- const read=()=>new Promise((resolve,reject)=>{const p=spawn('python',[${JSON.stringify(helper)},hwnd],{windowsHide:true});let s='',e='';p.stdout.on('data',x=>s+=x);p.stderr.on('data',x=>e+=x);p.on('error',reject);p.on('exit',code=>code?reject(Error(e)):resolve(JSON.parse(s)))})
+ const read=()=>new Promise((resolve,reject)=>{const p=spawn(${JSON.stringify(helper)},['shell-properties',hwnd],{windowsHide:true});let s='',e='';p.stdout.on('data',x=>s+=x);p.stderr.on('data',x=>e+=x);p.on('error',reject);p.on('exit',code=>code?reject(Error(e)):resolve(JSON.parse(s)))})
  const before=await read();assert.notEqual(before['5'],'com.maurdekye.orgtree','control has no shell identity')
  assert.equal(nativeImage.createFromPath(${JSON.stringify(icon)}).isEmpty(),false)
  configureTaskbar(w,process.execPath,${JSON.stringify(icon)},'com.maurdekye.orgtree.native-test')

@@ -15,12 +15,15 @@
 //!   hold-lock ROOT [SECS]  hold ROOT\.desktop-engine.lock, print "held", release
 //!                          after SECS (default 120), print "released"
 //!   guardian ...           private: the synthetic engine's Job guardian
+//!   nc-hittest, shell-properties, owned-dialog: window probes (window.rs)
 //!
 //! Copied or named `orgtree-engine-stub.exe`, the image IS the synthetic engine
 //! the desktop supervisor tests spawn (see lifetime.rs and tests/engine-stub.mjs).
 
 #[cfg(windows)]
 mod lifetime;
+#[cfg(windows)]
+mod window;
 
 fn usage() -> ! {
     eprintln!("usage: orgtree-test-native <lockdown|without-debug EXE ARGS...|can-open PID|alive PID|hold-lock ROOT [SECS]>");
@@ -49,6 +52,12 @@ fn main() {
         "alive" => lifetime::alive(rest),
         #[cfg(windows)]
         "hold-lock" => lifetime::hold_lock(rest),
+        #[cfg(windows)]
+        "nc-hittest" => window::nc_hittest(rest),
+        #[cfg(windows)]
+        "shell-properties" => window::shell_properties(rest),
+        #[cfg(windows)]
+        "owned-dialog" => window::owned_dialog(rest),
         _ => usage(),
     };
     std::process::exit(code);

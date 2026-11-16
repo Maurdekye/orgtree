@@ -54,20 +54,9 @@ const within = async (p, ms, what) => {
   }
 }
 
-fs.writeFileSync(path.join(out, 'hit.py'), `import ctypes, json, sys
-from ctypes import wintypes
-user = ctypes.WinDLL('user32', use_last_error=True)
-user.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
-user.SendMessageTimeoutW.restype = wintypes.LPARAM
-answer = []
-for point in json.loads(sys.argv[2]):
-    result = ctypes.c_size_t()
-    packed = (int(point['x']) & 65535) | ((int(point['y']) & 65535) << 16)
-    if not user.SendMessageTimeoutW(int(sys.argv[1]), 0x84, 0, packed, 2, 2000, ctypes.byref(result)):
-        raise ctypes.WinError(ctypes.get_last_error())
-    answer.append(result.value)
-print(json.dumps(answer))
-`)
+// WM_NCHITTEST at screen points: the test-only tools/test-native helper (it was an inline hit.py).
+const testNative = process.env.ORGTREE_TEST_NATIVE || path.join(repo, 'tools', 'test-native', 'target', 'debug', 'orgtree-test-native.exe')
+if (!fs.existsSync(testNative)) throw Error('orgtree-test-native.exe is not built: cargo build --manifest-path tools/test-native/Cargo.toml, or set ORGTREE_TEST_NATIVE')
 
 async function bundle() {
   const esbuild = require(path.join(deps, 'esbuild'))
@@ -241,8 +230,8 @@ app.whenReady().then(async () => {
       }))
       return new Promise((resolve, reject) => {
         const py = spawn(
-          process.env.ORGTREE_PROBE_PYTHON || 'python',
-          [path.join(out, 'hit.py'), hwnd, JSON.stringify(screenPts)],
+          testNative,
+          ['nc-hittest', hwnd, JSON.stringify(screenPts)],
           { windowsHide: true },
         )
         let stdout = ''
@@ -250,7 +239,7 @@ app.whenReady().then(async () => {
         py.stdout.on('data', (b) => { stdout += b })
         py.stderr.on('data', (b) => { stderr += b })
         py.on('error', reject)
-        py.on('exit', (code) => (code ? reject(Error(stderr || `hit.py exited ${code}`)) : resolve(JSON.parse(stdout))))
+        py.on('exit', (code) => (code ? reject(Error(stderr || `nc-hittest exited ${code}`)) : resolve(JSON.parse(stdout))))
       })
     }
 
