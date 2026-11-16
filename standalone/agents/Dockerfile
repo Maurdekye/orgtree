@@ -6,6 +6,10 @@
 #     the entrypoint installs exactly that version from npm on the first start
 #     (CLAUDE_CODE_INSTALL=first-start). CLAUDE_CODE_INSTALL=image puts it in
 #     the image instead, for a publisher whose Anthropic terms allow that;
+#   - the Antigravity CLI (agy), pinned: NEVER in the image (its terms grant no
+#     redistribution). The entrypoint downloads exactly the pinned release
+#     tarball from GitHub on the first start, checks its SHA-256 and unpacks it
+#     onto the data volume (AGY_INSTALL=first-start; AGY_INSTALL=off skips it);
 #   - Node.js (for the CLIs' npm packages), the OpenSSH client with a
 #     git-over-ssh default, python3, curl and the Docker CLI;
 #   - auto-update off for both CLIs, and a healthcheck that needs no Node.js.
@@ -23,6 +27,10 @@ USER root
 ARG CLAUDE_CODE_VERSION=2.1.322
 ARG CODEX_VERSION=0.167.1
 ARG CLAUDE_CODE_INSTALL=first-start
+# agy 1.5.9, agy_cli_linux_x64.tar.gz (glibc), sha256 from the GitHub release's digest
+ARG AGY_VERSION=1.5.9
+ARG AGY_SHA256=8b1f5e56779f2434a0af36f1b715a8392a084de550f8c68bc79821f95fabf3fa
+ARG AGY_INSTALL=first-start
 # Node.js and npm from the official image (Debian's nodejs is 20; Claude Code needs 22+)
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
@@ -56,7 +64,10 @@ RUN set -eux; \
     else \
       ln -s /data/agent-tools/claude-code/node_modules/.bin/claude /usr/local/bin/claude; \
     fi; \
-    printf 'CLAUDE_CODE_VERSION=%s\nCODEX_VERSION=%s\nCLAUDE_CODE_INSTALL=%s\n' "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" "$CLAUDE_CODE_INSTALL" > /opt/orgtree/agents.env; \
+    # Antigravity: only a link to where the first start unpacks the pinned release
+    ln -s /data/agent-tools/agy/antigravity /usr/local/bin/agy; \
+    printf 'CLAUDE_CODE_VERSION=%s\nCODEX_VERSION=%s\nCLAUDE_CODE_INSTALL=%s\nAGY_VERSION=%s\nAGY_SHA256=%s\nAGY_INSTALL=%s\n' \
+      "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" "$CLAUDE_CODE_INSTALL" "$AGY_VERSION" "$AGY_SHA256" "$AGY_INSTALL" > /opt/orgtree/agents.env; \
     rm -rf /root/.npm /tmp/*; \
     mkdir -p /data/home; chown -R orgtree:orgtree /data
 # The same package-level description as the plain image: GHCR shows the
@@ -67,16 +78,22 @@ LABEL org.opencontainers.image.title="orgtree-engine (agents)" \
       org.opencontainers.image.documentation="https://github.com/Maurdekye/orgtree/blob/main/docs/standalone-engine.md#the-orgtree-engine-package" \
       dev.orgtree.claude-code.version="${CLAUDE_CODE_VERSION}" \
       dev.orgtree.claude-code.install="${CLAUDE_CODE_INSTALL}" \
-      dev.orgtree.codex.version="${CODEX_VERSION}"
+      dev.orgtree.codex.version="${CODEX_VERSION}" \
+      dev.orgtree.agy.version="${AGY_VERSION}" \
+      dev.orgtree.agy.install="${AGY_INSTALL}"
 USER orgtree
 # HOME on the data volume: the default ~/.claude, ~/.codex, ~/.ssh and
-# ~/.gitconfig survive a new container. Auto-update off for both CLIs.
+# ~/.gitconfig survive a new container, and so does Antigravity's file
+# sign-in (~/.gemini/antigravity-cli; no D-Bus here, so agy keeps it in a
+# file). Auto-update off for the CLIs.
 ENV HOME=/data/home \
     ORGTREE_CLAUDE_BIN=/usr/local/bin/claude \
     ORGTREE_CODEX_BIN=/usr/local/bin/codex-native \
     CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION} \
     CODEX_VERSION=${CODEX_VERSION} \
     DISABLE_AUTOUPDATER=1 \
+    AGY_CLI_DISABLE_AUTO_UPDATE=true \
+    AGY_VERSION=${AGY_VERSION} \
     NPM_CONFIG_UPDATE_NOTIFIER=false
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 CMD ["orgtree-healthcheck"]
 ENTRYPOINT ["orgtree-agents-entrypoint"]
