@@ -23,7 +23,7 @@ import { composerKeyHint, type EnterKeyBehavior } from '../composerkeys'
 import { subscribeProviderLogin } from '../../../../../packages/contracts/provider-login-feed'
 import { PROVIDER_THEME_PRESETS } from '../../../../../packages/contracts/visual-theme'
 import type {
-  AccountUsage, ProviderInfo, ProvidersPayload, RuntimeSettingsPayload,
+  AccountRegistryRow, AccountUsage, ProviderInfo, ProvidersPayload, RuntimeSettingsPayload,
   TierStanding, ToastFn, UsageCredits, UsageLimit,
 } from '../types'
 import {
@@ -59,7 +59,7 @@ import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setLangServerTiers, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
-  legacyMark, optInLegacyHidden, orderProviderTiers, TIER_LETTER, tierLabel,
+  legacyMark, optInLegacyHidden, orderProviderTiers, providersWithAccounts, TIER_LETTER, tierLabel,
   setChartLayout, useAgyModelsRefresh, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
@@ -981,7 +981,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           <ProviderHeaderText provider={p} />
           <span className='set-head-right'>
             <button className="acct-secondary-btn" aria-label="Add secondary account" onClick={() => setAddAccount(p.id as AccountProvider)}>Add account</button>
-            {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}
+            {p.status.installed && p.user_enabled !== false && !providersWithAccounts([p], registry.rows as AccountRegistryRow[])[0]!.hire_enabled && <span className='acct-preview-tag'>preview</span>}
             <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
           </span>
         </div>
