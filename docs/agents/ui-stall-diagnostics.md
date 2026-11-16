@@ -35,6 +35,10 @@ Item `hang-every-time-a-new-desk-loads-especially-whil`. Code: `apps/desktop/mai
 - **Reading:** open the `.json.gz` (gunzip it first) in Perfetto or `about://tracing`; look at the GPU process's and the compositor's slices across the caught frame's wall time.
 - **Measured cost** (Session 0, software GL, 60 fps synthetic page, 2026-11-15): frame mean 16.67 ms with and without tracing (p95 16.7 to 16.8 ms); CPU of all app processes 3.8 % to 4.0 %; a 10 s capture was 55 MB raw and 2.7 MB gzipped, filtered in 5.4 s with no main-thread lag; start 29 ms, stop 1.9 s.
 
+## GPU shader cache (4.6.1)
+
+- **Electron 44.11.3 keeps Skia's compiled shaders between launches** in `<userData>/GrShaderCache` (Electron 44.4.4, electron/electron#54161; 44.2.0 named no such folder). The 4.6.1-alpha.1 trace `2026-11-16T09-38-30Z` had desk and window loads waiting 0.3 to 1.4 s in `RasterDecoderImpl::DoEndRasterCHROMIUM::Flush` while ANGLE compiled 23 new programs. Measured 2026-11-16 on a private desktop, NVIDIA GPU, scratch userData, a 36-tile page of desk effects: 44.11.3 run 2 stored 3 of 51 programs (longest flush 21 ms, run 1 269 ms); 44.2.0 stored 51 both runs (258 ms). A trace with `GrShaderCache::store` inside each long flush on every start means the cache is not being kept. Tile raster stays on the GPU (USER 2026-11-16 09:43:35Z: no CPU raster).
+
 ## How to read a stall
 
 **Waiting vs working (v2).** `loaf.blocking` 0 means no task, rendering included, reached 50 ms: the renderer's main thread was free. If `scripts_ms` is also small next to `ms`, the frame waited on frame delivery (GPU process, compositor, OS), which no renderer entry sees; then read `gpu.cpu_pct` and look for a `process-gone` line. `render_at` near `ms` with a small `ms - render_at` puts the time before rendering; script `at` offsets show whether the scripts were spread out or bunched (alpha.5 10:22Z: 613 ms, blocking 0, 80 ms of scripts, v1 could not say more).
