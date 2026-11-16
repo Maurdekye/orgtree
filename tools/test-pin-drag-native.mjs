@@ -39,8 +39,14 @@ app.whenReady().then(async () => {
   const got = await hit()
   console.log('Pinned modal native hit results:', JSON.stringify(got))
   assert.deepEqual(got, [1,1,1], 'pinned panel handle, close and content must be HTCLIENT')
-  const baseline = html.replace(/\\r\\n/g, '\\n').replace('.overlay.overlay-pinned .modalpin-win,\\n.overlay.overlay-pinned .modalpin-win * { -webkit-app-region: no-drag; }', '')
-  assert.notEqual(baseline, html, 'positive control must remove the actual pinned-panel exclusion')
+  // The control removes the CURRENT exclusion rule (the panel's own box only,
+  // styles.css) and proves it did: comparing with the unnormalized page would
+  // pass on line endings alone.
+  const rule = '.overlay.overlay-pinned .modalpin-win { -webkit-app-region: no-drag; }'
+  const normalized = html.replace(/\\r\\n/g, '\\n')
+  assert.equal(normalized.split(rule).length, 2, 'the pinned-panel exclusion rule must appear exactly once')
+  const baseline = normalized.replace(rule, '')
+  assert.ok(!baseline.includes(rule), 'positive control must remove the actual pinned-panel exclusion')
   await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(baseline))
   await pause()
   const old = await hit()
