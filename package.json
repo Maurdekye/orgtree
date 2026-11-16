@@ -43,7 +43,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "electron": "44.2.0",
+    "electron": "44.11.3",
     "electron-builder": "26.15.3",
     "esbuild": "^0.28.1",
     "typescript": "7.0.2",
