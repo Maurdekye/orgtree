@@ -48,9 +48,14 @@ await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/pr
 // ORGTREE_STALL_FIXTURE=busy compiles the stall tooling's test-only busy hook in (rig proof RP1); a normal build defines '' and drops it
 await renderer({ root: 'apps/desktop/renderer', base: '/',
   define: { __ORGTREE_STALL_FIXTURE__: JSON.stringify(process.env.ORGTREE_STALL_FIXTURE === 'busy' ? 'busy' : '') },
-  // two pages: the app, and the offscreen shader warm-up scene (main/shader-warmup.ts)
-  build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true,
-    rollupOptions: { input: { index: path.resolve('apps/desktop/renderer/index.html'), 'shader-warmup': path.resolve('apps/desktop/renderer/shader-warmup.html') } } } })
+  build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true } })
+// The offscreen shader warm-up scene (main/shader-warmup.ts) is a SEPARATE build into the same folder,
+// never a second input of the one above: a shared chunk would load React ahead of main.tsx's
+// crashReporter and stallhook imports, whose whole point is to run first (measured 2026-11-16).
+await renderer({ root: 'apps/desktop/renderer', base: '/',
+  define: { __ORGTREE_STALL_FIXTURE__: JSON.stringify('') },
+  build: { outDir: path.resolve('dist/renderer'), emptyOutDir: false,
+    rollupOptions: { input: path.resolve('apps/desktop/renderer/shader-warmup.html') } } })
 // The favicon is also used by the packaged UI. Keep one SVG source beside the
 // Windows ICO and copy it into Vite's output rather than maintaining a duplicate.
 fs.mkdirSync('dist/renderer/assets', { recursive: true })

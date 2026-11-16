@@ -11,7 +11,7 @@
 // SW5 stop (quit) mid-run destroys the window and writes no marker; a failed load ends it too
 // SW6 the session serves only plain UI files under the UI folder, from the warm-up origin
 // SW7 the stall log keeps a shader-warmup line as an outcome enum and durations, never error text
-// SW8 the page: built as its own Vite input, its entry mounts the scene, and its done title matches the main side
+// SW8 the page: its own Vite build after the app's (no shared chunk), its entry mounts the scene, its done title matches
 // Run: node --test tests/shader-warmup.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -202,10 +202,15 @@ test('SW7 the stall log keeps an outcome enum and durations, never error text', 
   assert.equal(lines[1].outcome, 'other')
 })
 
-test('SW8 the page is its own Vite input, mounts the scene, and its done title matches', () => {
+test('SW8 the page is its own Vite build, mounts the scene, and its done title matches', () => {
   const b = fs.readFileSync('tools/build.mjs', 'utf8')
-  assert.match(b, /'shader-warmup': path\.resolve\('apps\/desktop\/renderer\/shader-warmup\.html'\)/)
-  assert.match(b, /index: path\.resolve\('apps\/desktop\/renderer\/index\.html'\)/, 'the app page stays an input')
+  // its own Vite build after the app's, into the same folder: no chunk shared with the app's entry
+  const calls = b.split('await renderer(').slice(1).map(c => c.slice(0, c.indexOf('} })') + 4))
+  assert.equal(calls.length, 2)
+  assert.doesNotMatch(calls[0], /rollupOptions|shader-warmup/, 'the app build is unchanged')
+  assert.match(calls[0], /emptyOutDir: true/)
+  assert.match(calls[1], /emptyOutDir: false/, 'the second build keeps the app')
+  assert.match(calls[1], /input: path\.resolve\('apps\/desktop\/renderer\/shader-warmup\.html'\)/)
   assert.match(fs.readFileSync('apps/desktop/renderer/shader-warmup.html', 'utf8'), /src="\/src\/shaderwarmup-main\.tsx"/)
   assert.match(fs.readFileSync('apps/desktop/renderer/src/shaderwarmup-main.tsx', 'utf8'), /mountShaderWarmup\(document\.getElementById\('root'\)!\)/)
   const scene = fs.readFileSync('apps/desktop/renderer/src/shaderwarmup.tsx', 'utf8')
