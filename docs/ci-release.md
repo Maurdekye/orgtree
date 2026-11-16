@@ -504,11 +504,9 @@ makes a release.
 The release tool is unchanged and still builds everything locally.
 
 1. On a Windows PC with the pinned toolchains below, run the one-time
-   provisioning:
-   - `python tools/provision-runtime.py`, with
-     `PIP_CONSTRAINT=.github/ci/windows/runtime-constraints.txt` so the Python
-     runtime gets the same package versions;
-   - `python tools/provision-postgres.py`.
+   provisioning: `node tools/provision-postgres.mjs`. (Since 4.6.1 there is no
+   Python runtime to provision; an older v1 PostgreSQL payload converts with
+   `node tools/provision-postgres.mjs --rewrite-manifest`.)
 2. Build the engine and the mail hub:
    ```
    cd engine/rs && ORGTREE_RELEASE_BUILD=1 ORGTREE_BUILD_COMMIT=<short sha> cargo build --release
@@ -529,9 +527,7 @@ them exactly:
 |---|---|---|
 | Rust | nightly-2025-12-12 (rustc 1.94.0-nightly f52090008) | `build-windows.yml`, `build-macos.yml`, `build-linux.yml`, `build-standalone.yml` |
 | Node / npm | 24.12.0 / 11.6.2 | the same three |
-| Python (host, for provisioning) | 3.10.11 with pip 26.0.1 | `build-windows.yml` |
-| Python runtime packages | the exact versions of the 4.0.1 runtime | `.github/ci/windows/runtime-constraints.txt` |
-| Embedded Python / PostgreSQL (Windows) | 3.13.15 / 18.6-4, by SHA-256 | `tools/provision-runtime.py`, `tools/postgres-runtime-pin.json` |
+| PostgreSQL (Windows) | 18.6-4, by SHA-256 | `tools/postgres-runtime-pin.json` |
 | PostgreSQL (macOS) | EDB's 18.6-4 binaries zip, by SHA-256 | `.github/ci/macos/postgres-pin.json` |
 | PostgreSQL (Linux) | 18.6, built from the upstream source tarball, by SHA-256 | `.github/ci/linux/build-postgres.sh` |
 | Electron / electron-builder | from `package-lock.json` | `package-lock.json` |
@@ -543,6 +539,9 @@ The Linux build uses Ubuntu 22.04, the oldest supported runner, so the AppImage
 should run on Ubuntu 22.04 and newer (it needs at least 22.04's glibc; inferred).
 
 ## How a CI build compares with the hand-built 4.0.1
+
+> Historical (4.0.1): the Python runtime and `pg-custodian.exe` named below no
+> longer ship (4.6.1, [Python removal](python-removal.md)).
 
 Run 37926248008 rebuilt the tag `v4.0.1` in CI and compared every file with the
 published release. Its report is that run's `orgtree-windows-compare` artifact.

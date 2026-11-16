@@ -40,23 +40,14 @@ or `npm install` through a junction to another checkout. The following must be
 available before the command starts:
 
 - Node.js and npm, with the lockfile dependencies installed in that worktree.
-- A provisioned app-local Windows runtime under `engine/runtime/`. The embedded
-  runtime must include `python.exe`, `python313.zip`, `python313._pth`,
-  `runtime-manifest.json`, and the complete dependency set under
-  `Lib/site-packages` (the location `python313._pth` names). The `._pth` must
-  also name `../backend` and `../mailhub`: a `._pth` interpreter ignores
-  `PYTHONPATH`, so those entries are the only way the packaged engine and the
-  bundled mail hub are importable — 2.1.6-beta.0 shipped a mail hub that could
-  not start because `../mailhub` was missing, and the preflight now refuses
-  such a runtime. Provision it with
-  `npm run runtime:provision`, or stage an already-provisioned runtime into
-  this private worktree with
-  `npm run runtime:stage -- --from <provisioned-checkout>`. Do not copy the
-  runtime by hand: the 2.1.4-RC4 installer shipped unstartable because a hand
-  copy landed `site-packages` one directory above where the interpreter looks,
-  and nothing checked. The staging command validates the source layout,
-  refuses links, and requires byte-identical tree digests; the preflight and
-  the release command refuse a runtime whose layout is wrong either way.
+- The release engine executables, built by `ORGTREE_RELEASE_BUILD=1 cargo build --release`
+  in `engine/rs` (`orgtree-engine.exe`, `orgtree-credential-broker.exe` and the
+  post-Setup relaunch helper `orgtree-installer-relaunch.exe`) and by
+  `cargo build --release` in `engine/mailhub` (`orgtree-mailhub.exe`).
+- The PostgreSQL payload, provisioned with `npm run postgres:provision`
+  (`node tools/provision-postgres.mjs`): `engine/postgresql/` and its v2
+  `engine/postgres-runtime-manifest.json`. Since 4.6.1 there is no embedded
+  Python runtime to provision or stage ([Python removal](python-removal.md)).
 - A checked-in `docs/release-notes-<version>.md` file with non-empty content.
 - A package version and both `package-lock.json` version surfaces that already
   equal the explicit target version. This command does not edit `package.json`
@@ -146,7 +137,7 @@ stale advice and has been corrected with it.
 The build uses the existing `npm run package:win` path and always forwards
 `--publish never` to electron-builder. Credentials in `GH_TOKEN`, a logged-in
 `gh` CLI, or the package's GitHub configuration do not change this default.
-The existing package preflight still checks the complete engine/runtime/UI
+The existing package preflight still checks the complete engine/UI
 input set, release channel, build commit, clean tree, and build input hashes.
 
 Successful output is under the ignored `release/` directory:
@@ -181,32 +172,32 @@ checks `latest.yml`'s version, updater path, installer size, and base64 SHA-512
 against the staged installer. It verifies the packaged resource hashes and the
 build identity before writing the candidate manifest.
 
-The command also verifies the packaged runtime as an installed-shaped payload
-(added after 2.1.4-RC4 shipped a broken layout):
+The command also verifies the packaged engine as an installed-shaped payload
+(since 4.6.1 it ships no Python runtime; see [Python removal](python-removal.md)):
 
-- the `release/win-unpacked/resources/engine/runtime` tree must pass the
-  complete layout check — `Lib/site-packages` present, no stray top-level
-  `site-packages`, and a `<name>-<version>.dist-info` for every dependency in
-  `runtime-manifest.json`;
-- that tree must be byte-identical (file-by-file SHA-256 digest, excluding
-  `__pycache__`) to the checkout's provisioned `engine/runtime`;
-- the payload's own `python.exe` must import the representative backend
-  dependencies (`fastapi`, `pydantic`, `uvicorn`, `starlette`, `websockets`,
-  `httpx`, `PIL`, `psutil`) with each module resolving inside the payload,
-  from a neutral working directory with `PYTHONPATH`/`PYTHONHOME` scrubbed;
+- `release/win-unpacked/resources/engine` must hold exactly the shipped entries:
+  `orgtree-engine.exe`, `orgtree-credential-broker.exe`,
+  `orgtree-installer-relaunch.exe`, `orgtree-mailhub.exe`,
+  `postgres-runtime-manifest.json` and `postgresql/`. Anything else (an
+  `engine/runtime` Python tree, `*.py` sources, `backend/`,
+  `pg-custodian.exe`) is refused by name;
+- each of those files must be byte-identical to the build output it was copied
+  from, and the PostgreSQL tree must match its manifest, which must match the
+  checkout's;
+- the packaged `orgtree-engine.exe` must start and report the release version;
 - the built installer's own payload is then extracted (with the dependency
   tree's 7-Zip; the installer is never executed) and must carry the identical
-  runtime tree and pass the same import probe.
+  engine payload.
 
 ## Manifest rules
 
-`engine-hashes.json` is a flat object containing every tracked
-`engine/**/*.py` path except `engine/runtime/**`. Values hash the on-disk bytes
-(including the repository's CRLF line endings), not Git's normalized blob. It
-is serialized with sorted keys, two-space indentation, CRLF line endings, and a
-final newline. Therefore, when no engine source bytes change, the generated
-manifest is byte-identical to the predecessor's manifest; this invariant is
-fixture-tested.
+`engine-hashes.json` is a flat object mapping each packaged engine file
+(`engine/orgtree-engine.exe`, `engine/orgtree-credential-broker.exe`,
+`engine/orgtree-installer-relaunch.exe`, `engine/orgtree-mailhub.exe`,
+`engine/postgres-runtime-manifest.json`, sorted) to the SHA-256 of the build
+output it is copied from. (Until 4.6.0 it hashed the tracked `engine/**/*.py`
+sources, which shipped as-is.) It is serialized with sorted keys, two-space
+indentation, CRLF line endings, and a final newline.
 
 `packaged-hashes.json` has this exact top-level order and schema:
 
@@ -217,25 +208,25 @@ fixture-tested.
   "files": {
     "app.asar": "<sha256>",
     "build-info.json": "<sha256>",
-    "engine/runtime/python.exe": "<sha256>",
-    "engine/runtime/runtime-manifest.json": "<sha256>"
+    "engine/orgtree-engine.exe": "<sha256>",
+    "engine/orgtree-credential-broker.exe": "<sha256>",
+    "engine/orgtree-installer-relaunch.exe": "<sha256>",
+    "engine/orgtree-mailhub.exe": "<sha256>",
+    "engine/postgres-runtime-manifest.json": "<sha256>"
   },
-  "runtime": {
-    "sitePackages": "Lib/site-packages",
-    "files": "<count of files under engine/runtime, excluding __pycache__>",
-    "sha256": "<digest over every runtime file's path and sha256, sorted>",
-    "imports": ["fastapi", "pydantic", "uvicorn", "starlette", "websockets", "httpx", "PIL", "psutil"],
-    "python": "<interpreter version the probe reported>",
-    "payload": { "files": "<count>", "sha256": "<digest>", "imported": true }
+  "engine": {
+    "files": "<count of shipped engine files>",
+    "sha256": "<digest over every shipped engine file's path and sha256, sorted>",
+    "version": "<the version the packaged orgtree-engine.exe reported>",
+    "postgresManifestSha256": "<sha256 of the PostgreSQL manifest>",
+    "payload": { "files": "<count>", "sha256": "<digest>", "version": "<version>" }
   },
   "installerSha256": "<sha256>"
 }
 ```
 
-The `runtime` section records the complete packaged runtime tree — count and
-digest over every file, the configured package location, and the imports the
-payload actually performed — so a manifest can no longer hash four loose files
-and vouch for a tree whose packages sit where the interpreter never looks.
+The `engine` section records the verified engine payload (until 4.6.0 this
+section was `runtime`, the embedded Python tree's digest).
 `verifyLocalCandidate` recomputes the digest from the staged
 `win-unpacked/resources` tree and refuses a mismatch.
 
@@ -309,8 +300,8 @@ quitting through a dedicated bounded graceful-only engine shutdown path; the
 helper waits for the exact recorded executable to exit before file replacement.
 
 Waiting for `Orgtree.exe` is not on its own enough, and 2.1.3-RC4 is why. The
-engine runs from `<InstallDir>\resources\engine\runtime\python.exe` and starts
-its own agent and MCP subprocesses, none of which is named `Orgtree.exe`, so
+engine ran (3.x) from `<InstallDir>\resources\engine\runtime\python.exe` and started
+its own agent and MCP subprocesses (the Rust engine does too), none of which is named `Orgtree.exe`, so
 none of them was detected, asked to close, or verified as gone — while a
 running image is exactly what Windows will not let the installer replace. The
 helper therefore also waits for the whole installation tree: every process
@@ -502,12 +493,14 @@ and staged/public installer name into those separate actions.
 The handoff's verifier command is intentionally read-only:
 
 ```powershell
-python tools/verify-installed-runtime.py `
-  --repo-root <checkout> `
-  --data-root <isolated-data-root> `
-  --runtime-root <installed-resources-engine-runtime> `
-  --json-output <receipt.json>
+& "<install-dir>\resources\engine\orgtree-engine.exe" --version
+Get-FileHash -Algorithm SHA256 "<install-dir>\resources\engine\orgtree-engine.exe", "<install-dir>\resources\engine\orgtree-installer-relaunch.exe"
 ```
+
+It expects the release version and the hashes recorded in `packaged-hashes.json`,
+and no `<install-dir>\resources\engine\runtime` folder (the Python runtime an
+older install carried). It starts neither the engine nor the app. (Until 4.6.0
+this was `tools/verify-installed-runtime.py`.)
 
 For a desktop-owned engine, the endpoint and token must come from the desktop
 launch handshake. A persisted port file is not an identity proof. A successful

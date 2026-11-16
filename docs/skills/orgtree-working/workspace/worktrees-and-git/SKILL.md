@@ -41,7 +41,7 @@ When Codex reports a `.git` write denied by its OS sandbox, follow the delivered
 
 ## Remove only a finished owned worktree
 
-Check ownership, active references, uncommitted/unmerged work and the resolved absolute target before removal. Use the repository's `tools/worktree.py remove <absolute-path>` helper when available: it checks escaping links and refuses incomplete scans. Do not add force or scan-waiver flags to make a refusal disappear. Do not run recursive deletion against a junction or an unchecked computed path.
+Check ownership, active references, uncommitted/unmerged work and the resolved absolute target before removal. Use the repository's `node tools/worktree.mjs remove <absolute-path>` helper when available: it checks escaping links and refuses incomplete scans. Do not add force or scan-waiver flags to make a refusal disappear. Do not run recursive deletion against a junction or an unchecked computed path.
 
 Leave an assigned worktree in place while its review or integration still needs it. Hand off the exact commits through [reviews and landing](../reviews-and-landing/SKILL.md).
 
