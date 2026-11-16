@@ -63,7 +63,9 @@ app.whenReady().then(async()=>{
       await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type,x,y,button:type==='mouseMoved'?'none':'left',clickCount:type==='mouseMoved'?0:1})
   }
   const button=name=>`button[aria-label=${JSON.stringify(name)}]`
-  const load=async hash=>{await win.loadFile(page,{hash});await until('document.querySelector("#root")?.childElementCount>0','the probe page never rendered')}
+  // A hash-only change is a same-document navigation and would leave the old
+  // scene mounted: each scene starts from a blank document and shows its hash.
+  const load=async hash=>{await win.loadURL('about:blank');await win.loadFile(page,{hash});await until(`location.hash===${JSON.stringify('#'+hash)}&&document.querySelector("#root")?.childElementCount>0`,'the probe page never rendered scene '+hash)}
   const result={errors:[],session:sessionId}
   try{
     await load('attention')
