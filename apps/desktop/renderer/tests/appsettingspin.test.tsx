@@ -66,6 +66,8 @@ const server = (async (input: RequestInfo | URL) => {
   if (path === '/api/providers') return json({ providers: [] })
   if (path === '/api/accounts') return json({ accounts: [] })
   if (path === '/api/app-settings/runtime') return json({ max_concurrent_turns: 16 })
+  // Runtime > Live feed asks for the first organization's live agents (2026-11-06)
+  if (path === '/api/app-settings/live-feed/agents') return json({ agents: [] })
   return json({})
 }) as unknown as typeof fetch
 

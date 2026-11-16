@@ -109,8 +109,9 @@ test('§1 no footer close button renders under ANY App settings tab', async (t) 
   // the latter absorbing the standalone window the removed sidebar opened;
   // Developer (the engine debug view) followed on 2026-09-26, and Harnesses
   // (the supported-harness list) on 2026-10-13, and Keyboard shortcuts on
-  // 2026-10-14.
-  assert.equal(tabs.length, 9, 'every App settings tab renders')
+  // 2026-10-14, and Streaming on 2026-11-04. Remote access shows only on a
+  // computer that can share, which this fixture is not.
+  assert.equal(tabs.length, 10, 'every App settings tab renders')
   for (const tab of tabs) {
     await inAct(async () => { tab.click(); await flush(6) })
     assert.deepEqual(footerCloses().map(b => b.className), [],

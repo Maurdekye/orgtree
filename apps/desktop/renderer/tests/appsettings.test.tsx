@@ -182,7 +182,9 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
       // follows Providers (coordinator ruling 2026-10-13); Keyboard shortcuts
       // (2026-10-14) sits before About.
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Harnesses', 'Runtime', 'Display', 'Default org settings',
+        // Streaming joined after Display on 2026-11-04. Remote access shows only on a computer that can share
+        // (accounts.tsx `sharing`), which this fixture is not.
+        ['Providers', 'Harnesses', 'Runtime', 'Display', 'Streaming', 'Default org settings',
           'Mail hub', 'Developer', 'Keyboard shortcuts', 'About'])
       assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')

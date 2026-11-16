@@ -7,7 +7,7 @@ const W = window as unknown as Window & typeof globalThis
 
 type Seen = { method: string; path: string; body: Record<string, unknown> | null }
 
-function stub(seen: Seen[], opts: { state?: 'off' | 'listening' | 'error'; tokens?: unknown[] } = {}) {
+function stub(seen: Seen[], opts: { state?: 'off' | 'listening' | 'error'; tokens?: unknown[]; agents?: unknown } = {}) {
   let enabled = opts.state !== 'off'
   let port = 47830
   let tokens = opts.tokens ?? []
@@ -27,7 +27,7 @@ function stub(seen: Seen[], opts: { state?: 'off' | 'listening' | 'error'; token
       }
       return new Response(JSON.stringify({ live_feed_enabled: enabled, live_feed_port: port, live_feed_status: status() }))
     }
-    if (path === '/api/app-settings/live-feed/agents') return new Response(JSON.stringify({ agents: ['A', 'B'] }))
+    if (path === '/api/app-settings/live-feed/agents') return new Response(JSON.stringify('agents' in opts ? opts.agents : { agents: ['A', 'B'] }))
     if (path === '/api/orgs') return new Response(JSON.stringify([{ slug: 'o1', name: 'One', nodes: 1, live: 1, created: null }]))
     if (path === '/api/app-settings/live-feed/tokens' && method === 'GET') return new Response(JSON.stringify({ tokens }))
     if (path === '/api/app-settings/live-feed/tokens' && method === 'POST') {
@@ -81,6 +81,21 @@ test('the port field validates and saves', async t => {
   await inAct(() => { save.click() }); await flush()
   assert.deepEqual(seen.filter(s => s.method === 'PUT').at(-1)?.body, { live_feed_port: 50123 })
   assert.match(q('Live feed status').textContent ?? '', /:50123\//)
+})
+
+test('an answer without an agents list is an empty list: the group still renders', async () => {
+  // a 200 without the field threw inside a state update, outside the request's catch, and took App settings down with it
+  for (const body of [{}, { agents: null }, { agents: 'pending' }]) {
+    const seen: Seen[] = []
+    const restore = stub(seen, { agents: body })
+    const view = await mountView(<LiveFeedSetting />, el => el)
+    try {
+      await inAct(async () => { await flush(10) })
+      assert.ok(seen.some(s => s.path === '/api/app-settings/live-feed/agents'), 'the agents were asked for')
+      assert.ok(q('Live feed status'), 'the group is still there: ' + JSON.stringify(body))
+      assert.equal(q<HTMLSelectElement>('Token agent').options.length, 0)
+    } finally { await view.unmount(); restore() }
+  }
 })
 
 test('an error status says it retries', async t => {
