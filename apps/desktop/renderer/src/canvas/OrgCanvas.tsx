@@ -41,6 +41,7 @@ import { agentFocusHistory, NavigationDeskMemory, orgNavigationTarget, type OrgD
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { AttentionDeskWindows } from '../attention/deskwindows'
+import type { AttentionPanelProps } from '../attention/deskwindows'
 import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
 import { tierEffortLevels, useSpentHireTiers } from './staffingoptions'
@@ -2698,6 +2699,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView}
     onPopout={() => openProjectDesk(n.id, true)}
     onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id) ? () => dismissRetiredAgent(n.id) : undefined} />
+  // WHAT AN ATTENTION DESK DRAWS WITH, wherever it is (attention/deskwindows.tsx): a window of its own, a desk pin or
+  // the floating desk (USER 2026-11-16 m8b8870396e4b, "convert in place"). Desktop only, like pins and windows.
+  const attentionPanel: AttentionPanelProps | undefined = isMobile ? undefined : { slug, tree, op, toast, map, posOf,
+    deskExtras: { compactAt: tree.compact_at, maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,
+      onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView, onJump: centerOn },
+    projectDesk: projectDeskOf }
   // (each reader's own copy of these routes is made where it is rendered:
   // a reference to anything but a document closes that reader if centred)
 
@@ -5061,7 +5068,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
           onLineage={(id) => toggleLineage(id)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
-          projectDesk={projectDeskOf}
+          projectDesk={projectDeskOf} attention={attentionPanel}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
             && shownRetired.has(id) ? dismissRetiredAgent(id) : undefined} />
       )}
@@ -5504,7 +5511,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onJump: (id) => { setTempDeskId(null); centerOn(id) },
           onLineage: () => toggleLineage(tempDeskId),
           onConfig: () => toggleConfig(tempDeskId),
-        }} />
+        }} attention={attentionPanel} />
     )}
     {/* THE ORG SLOT — a sibling of the viewport, inside this host's providers.
         Outside the viewport so it escapes the pan/zoom transform and so its
@@ -5514,10 +5521,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         because the world hands it focus when the canvas goes away. */}
     {/* attention desks in windows of their own (attention/deskwindows.tsx, 4.6.1): the Attention view's agent desk
         with the same routes the org slot gives it */}
-    {!isMobile && <AttentionDeskWindows slug={slug} tree={tree} op={op} toast={toast} map={map} posOf={posOf}
-      deskExtras={{ compactAt: tree.compact_at, maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,
-        onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView, onJump: centerOn }}
-      projectDesk={projectDeskOf} />}
+    {attentionPanel && <AttentionDeskWindows {...attentionPanel} />}
     {renderOrgSlot && <div className="org-slot" ref={slotRef} tabIndex={-1}
       style={slotBox ? { left: slotBox.x, top: slotBox.y, width: slotBox.w, height: slotBox.h } : undefined}>
       {renderOrgSlot({

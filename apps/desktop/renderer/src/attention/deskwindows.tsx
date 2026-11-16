@@ -98,6 +98,26 @@ export function windowFrame(w: Window | null | undefined): Box | null {
 }
 
 type PanelProps = Omit<AgentDeskPanelProps, 'eligible' | 'claim' | 'attentionDraft' | 'selection'>
+/** what an attention desk needs from its host: the Attention view's agent desk without its selection */
+export type AttentionPanelProps = PanelProps
+
+/**
+ * THE ATTENTION DESK OF ONE PLACE: the Attention view's own agent desk (`AgentDeskPanel`) with a selection of its
+ * own, and the header toggle pressed (`AttentionWindowContext`). Shared by every place that can be an attention desk:
+ * a window of its own (below), a desk pin (pins.tsx) and the floating desk (tempdesk.tsx), so all of them look and
+ * work the same (USER 2026-11-16 m8b8870396e4b: "convert in place").
+ */
+export function AttentionDeskBody({ panel, agent, select, makePlain }: {
+  panel: PanelProps; agent: string | null; select: (id: string) => void; makePlain: () => void
+}) {
+  // an agent of this organization switches this place; anything else (the eye) goes where the canvas sends it
+  const jump = panel.deskExtras?.onJump
+  const onJump = (id: string) => { if (id !== USER && panel.map.has(id)) select(id); else jump?.(id) }
+  const deskExtras = WINDOW_LINKS_STAY_IN_WINDOW ? { ...panel.deskExtras, onJump } : panel.deskExtras
+  return <AttentionWindowContext.Provider value={{ makePlain }}>
+    <AgentDeskPanel {...panel} deskExtras={deskExtras} selection={{ agent, select }} />
+  </AttentionWindowContext.Provider>
+}
 
 /** every attention-desk window of this organization (rendered inside its `DeskHosts`, beside the canvas) */
 export function AttentionDeskWindows(props: PanelProps) {
@@ -139,7 +159,6 @@ function AttentionDeskWindowBody({ win, panel }: { win: AttentionDeskWindow; pan
     closeAttentionDeskWindow(panel.slug, win.id)
   }, [surface?.error, panel, win.id])
   const select = useCallback((id: string) => setAttentionDeskWindowAgent(panel.slug, win.id, id), [panel.slug, win.id])
-  const selection = { agent: win.agent, select }
   const deskNow = useDeskActionsNow(panel.slug)
   // back to a plain desk window on the agent it shows, over the frame it is in now
   const makePlain = () => {
@@ -147,11 +166,5 @@ function AttentionDeskWindowBody({ win, panel }: { win: AttentionDeskWindow; pan
     if (node && node.kind !== 'project') deskNow(node).requestPopout(windowFrame(surface?.document.defaultView))
     closeAttentionDeskWindow(panel.slug, win.id)
   }
-  // an agent of this organization switches this window; anything else (the eye) goes where the canvas sends it
-  const jump = panel.deskExtras?.onJump
-  const onJump = (id: string) => { if (id !== USER && panel.map.has(id)) select(id); else jump?.(id) }
-  const deskExtras = WINDOW_LINKS_STAY_IN_WINDOW ? { ...panel.deskExtras, onJump } : panel.deskExtras
-  return <AttentionWindowContext.Provider value={{ makePlain }}>
-    <AgentDeskPanel {...panel} deskExtras={deskExtras} selection={selection} />
-  </AttentionWindowContext.Provider>
+  return <AttentionDeskBody panel={panel} agent={win.agent} select={select} makePlain={makePlain} />
 }

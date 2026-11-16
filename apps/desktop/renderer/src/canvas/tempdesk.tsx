@@ -34,7 +34,7 @@
 //     (`agent-desk-glance:<id>`); the host holds one id, so opening a second
 //     agent's replaces the first. Several centred desks would only stack.
 //   · NOTHING SAVED, as above: the frame runs `transient`.
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DeskChat } from './desk'
 import { DeskModalShell } from './deskshell'
@@ -45,6 +45,8 @@ import type { CanvasNode } from './shared'
 import { useOverlayRoot } from '../popout'
 import { instanceKind } from '../modalkinds'
 import type { PinRect } from './pins'
+import { AttentionDeskBody, openAttentionDeskWindow } from '../attention/deskwindows'
+import type { AttentionPanelProps } from '../attention/deskwindows'
 
 /** the temporary desk's storage-shaped identity; nothing is stored under it */
 export const DESK_GLANCE_KIND = 'agent-desk-glance'
@@ -58,6 +60,10 @@ export interface TempDeskProps {
   /** the canonical desk's own props, from the host — the same ones the canvas's
    *  desks get. This panel adds none of its own and stubs nothing. */
   desk: Omit<DeskChatProps, 'node' | 'borrow' | 'bare'>
+  /** what it draws with as an ATTENTION DESK (USER 2026-11-16 m8b8870396e4b, "convert in place"): the desk header's
+   *  attention toggle turns this frame into the Attention view's agent desk, with the agents list, and back.
+   *  Absent, there is no toggle. */
+  attention?: AttentionPanelProps
 }
 
 /**
@@ -73,8 +79,14 @@ export interface TempDeskProps {
  *  · portaled to the overlay root, so it lands in the right document when the
  *    canvas itself is inside a popped-out window.
  */
-export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
+export function TempDeskModal({ node, close, onPin, desk, attention }: TempDeskProps) {
   const overlayRoot = useOverlayRoot()
+  // as an attention desk its agents list picks the agent it shows, and back to plain it stays on that one. Nothing
+  // is saved: the floating desk itself is transient.
+  const [current, setCurrent] = useState(node.id)
+  const [asAttention, setAsAttention] = useState(false)
+  const shown = desk.map.get(current) ?? node
+  const attentionAgent = asAttention && attention ? shown.id : null
   const host = useRef<HTMLDivElement | null>(null)
   const actions = useDeskActionsNow(desk.slug)
   // the frame's panel, measured before the desk leaves it for a real window
@@ -88,22 +100,32 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
     // border and the tier + bold name in the bar. It closes by its X (USER
     // 2026-10-29 me188f67b3944), the backdrop or Escape; the desk's own header
     // does not repeat the name (styles.css) or the pop-out (`hidePopout`).
-    <DeskModalShell kind={instanceKind(DESK_GLANCE_KIND, node.id)} title={`${node.id} · desk`}
-      nodeId={node.id} generation={node.generation} tier={node.tier}
-      panel={'tempdesk-panel tempdesk-glance prov-' + providerOf(node.tier ?? '')} close={close}
-      pinElsewhere={onPin}
+    <DeskModalShell kind={instanceKind(DESK_GLANCE_KIND, node.id)} title={`${shown.id} · desk`}
+      nodeId={shown.id} generation={shown.generation} tier={shown.tier}
+      panel={'tempdesk-panel tempdesk-glance prov-' + providerOf(shown.tier ?? '')} close={close}
+      // an attention desk is pinned or popped out as itself only from a window of its own: here the frame keeps it
+      // (and the host's pin is for the agent it opened on)
+      pinElsewhere={attentionAgent || shown !== node ? undefined : onPin}
       glance={{
         label: `${node.id} · desk, opened temporarily`,
         // THE POP-OUT HANDS OVER: the desk window opens over this panel's box
         // and this modal closes once that window is open (design-461 question
         // 2: a temporary place goes with it). A blocked window changes nothing.
-        popElsewhere: () => actions(node).requestPopout(sourceBox(), close),
+        popElsewhere: () => {
+          if (!attentionAgent) { actions(shown).requestPopout(sourceBox(), close); return }
+          // as an attention desk it goes on as one, in a window of its own over this frame
+          openAttentionDeskWindow(desk.slug, attentionAgent, sourceBox()); close()
+        },
       }}>
       <div ref={host} className="tempdesk-host">
         {/* `borrow` names this place as the floating desk (deskhosts.tsx).
             `bare` renders the desk 1:1 rather than counter-scaled into a
             canvas card, which is what a modal wants. */}
-        <DeskChat {...desk} node={node} borrow bare hidePopout temporaryPlacement={{ sourceBox, onPopout: close }} />
+        {attentionAgent && attention
+          ? <AttentionDeskBody panel={attention} agent={attentionAgent} select={setCurrent}
+            makePlain={() => setAsAttention(false)} />
+          : <DeskChat {...desk} node={shown} borrow bare hidePopout temporaryPlacement={{ sourceBox, onPopout: close }}
+            onMakeAttention={attention && shown.kind !== 'project' ? () => setAsAttention(true) : undefined} />}
       </div>
     </DeskModalShell>,
     overlayRoot)

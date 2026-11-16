@@ -45,6 +45,8 @@ import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import { DeskChat } from './desk'
+import { AttentionDeskBody } from '../attention/deskwindows'
+import type { AttentionPanelProps } from '../attention/deskwindows'
 import { AgentName } from './identity'
 import { pinSnapOn, providerOf, TIER_LETTER, usePinSnap } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
@@ -71,6 +73,10 @@ export interface Pin {
    *  rectangle at the original viewport dimensions. A geometry gesture clears
    *  this; other viewport sizes use the ordinary clamp. Persist the placement. */
   initialPlacement?: { client: PinRect; viewport: { w: number; h: number } | null }
+  /** AN ATTENTION PIN (USER 2026-11-16 m8b8870396e4b, "convert in place"): the window shows the Attention view's
+   *  agent desk, with the agents list, on `id`; picking another agent re-keys the pin (`switchPinAgent`), so it
+   *  stays one pin per agent, keeps its rectangle, and comes back as an attention pin after a restart */
+  attention?: true
 }
 
 /** a window smaller than this is not a usable desk; mosaic (stage 2) must
@@ -186,6 +192,7 @@ export const readPins = (slug: string): Pin[] => {
       if (Array.isArray(arr)) {
         const pins = arr.filter(isPin)
         out = pins.map((p) => ({ id: p.id, rect: { ...p.rect }, z: p.z,
+          ...((p as { attention?: unknown }).attention === true ? { attention: true as const } : {}),
           ...(p.initialPlacement && isRect(p.initialPlacement.client)
             && (p.initialPlacement.viewport === null || (Number.isFinite(p.initialPlacement.viewport?.w)
               && Number.isFinite(p.initialPlacement.viewport?.h))) ? { initialPlacement: p.initialPlacement } : {}),
@@ -266,6 +273,21 @@ export const renamePin = (slug: string, from: string, to: string): boolean => {
   })))
   return true
 }
+/** make the pin of `id` an attention pin, or a plain one again; its rectangle and stacking stay */
+export const setPinAttention = (slug: string, id: string, on: boolean): void => {
+  const pins = readPins(slug)
+  const pin = pins.find((p) => p.id === id)
+  if (!pin || !!pin.attention === on) return
+  writePins(slug, pins.map((p) => {
+    if (p.id !== id) return p
+    const { attention: _old, ...rest } = p
+    return on ? { ...rest, attention: true as const } : rest
+  }))
+}
+/** an attention pin's agents list picked `to`: the same window, now on `to`. Refused (false) when `to` already has a
+ *  pin of its own, which the caller raises instead: a pin is one agent's. */
+export const switchPinAgent = (slug: string, from: string, to: string): boolean =>
+  from === to || renamePin(slug, from, to)
 export const removePin = (slug: string, id: string): void => {
   const pins = readPins(slug)
   if (!pins.some((p) => p.id === id)) return
@@ -400,6 +422,9 @@ export interface PinLayerProps {
   onDismiss?: (id: string) => void
   /** a pinned PROJECT's body: its project desk, bare (projectdesk.tsx) */
   projectDesk?: (node: CanvasNode) => ReactNode
+  /** what an ATTENTION PIN draws with (the Attention view's agent desk, attention/deskwindows.tsx). Absent, no pin
+   *  offers the attention toggle (mobile has no pins anyway) */
+  attention?: AttentionPanelProps
 }
 
 /** The viewport's PADDING box, in px. Pinned windows are absolutely positioned
@@ -511,7 +536,7 @@ const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
 function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
   compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef, onDismiss,
-  projectDesk }:
+  projectDesk, attention }:
   PinLayerProps & { pin: Pin; node: CanvasNode; vp: { w: number; h: number } | null
     onUnpin: (id: string, from: PinRect) => void }) {
   // the in-flight gesture's rect lives in component state (one render per
@@ -774,11 +799,16 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
         </button>
       </div>
       <div className="pinwin-body">
-        {node.kind === 'project' && projectDesk ? projectDesk(node) : <DeskChat bare node={node} map={map} op={op} slug={slug} toast={toast}
+        {/* an attention pin: the same window, the Attention view's agent desk in it (USER 2026-11-16 m8b8870396e4b) */}
+        {pin.attention && attention && node.kind !== 'project' ? <AttentionDeskBody panel={attention} agent={pin.id}
+          select={(to) => { if (!switchPinAgent(slug, pin.id, to)) { toast([`${to} is already pinned`]); showPin(slug, to, vp) } }}
+          makePlain={() => setPinAttention(slug, pin.id, false)} />
+        : node.kind === 'project' && projectDesk ? projectDesk(node) : <DeskChat bare node={node} map={map} op={op} slug={slug} toast={toast}
           compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onLineage={() => onLineage(pin.id)} onConfig={() => onConfig(pin.id)}
           onJump={onJump} openIn="pin" onPoppedOut={POP_OUT_MOVES_PIN ? () => removePin(slug, pin.id) : undefined}
+          onMakeAttention={attention ? () => setPinAttention(slug, pin.id, true) : undefined}
           onDismiss={onDismiss ? () => onDismiss(pin.id) : undefined} />}
       </div>
     </div>

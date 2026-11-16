@@ -1814,7 +1814,7 @@ export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   && p.staleIdentity === n.staleIdentity && p.bare === n.bare && p.compact === n.compact
   && p.eligible === n.eligible
   && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc
-  && p.onDismiss === n.onDismiss)
+  && p.onDismiss === n.onDismiss && !!p.onMakeAttention === !!n.onMakeAttention)
 
 export interface DeskChatProps {
   staleIdentity?: boolean
@@ -1892,6 +1892,10 @@ export interface DeskChatProps {
    *  places that always show their agent's desk, a card and the Attention desk,
    *  pass none and keep it). */
   onPoppedOut?: () => void
+  /** THIS PLACE CAN BECOME AN ATTENTION DESK WHERE IT IS (USER 2026-11-16 m8b8870396e4b, "convert in place"): a desk
+   *  pin and the floating desk pass it, and their header gets the attention toggle a desk window has. Absent, only
+   *  a desk window (`DeskViewContext.inWindow`) offers it. */
+  onMakeAttention?: () => void
   /** The temporary host supplies its outer frame, measured before adoption. */
   temporaryPlacement?: {
     sourceBox: () => { x: number; y: number; w: number; h: number } | null
@@ -2191,7 +2195,7 @@ function ctxTargetElement(root: Element | null,
 function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineageProp, onConfig: configProp,
   onRecenter, onJump, maxTop, pxc, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
-  staleIdentity = false, onDismiss, hidePopout = false, eligible = true }: DeskChatProps) {
+  staleIdentity = false, onDismiss, hidePopout = false, eligible = true, onMakeAttention }: DeskChatProps) {
   const node = useNodeMetadata(slug, baseNode)
   const enterKey = useComposerEnter()
   const [urgentMail,setUrgentMail]=useState<UrgentAgentMail | undefined>()
@@ -4065,15 +4069,16 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           && (v !== 'files' || deskFilesVisible(view,readerAvailability))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
-          {/* the ATTENTION TOGGLE of a desk in a window of its own (USER 2026-11-15 m4492aff12953: an icon next to
-              the pin and pop-out buttons): a plain desk window becomes an attention desk, and pressed, an attention
-              desk window becomes a plain desk again (attention/deskwindows.tsx) */}
-          {(deskView?.inWindow || attentionWindow) && <button type="button" className="popout-button"
+          {/* the ATTENTION TOGGLE of a desk in a window of its own, a desk pin or the floating desk (USER 2026-11-15
+              m4492aff12953: an icon next to the pin and pop-out buttons; 2026-11-16 m8b8870396e4b: pins and the
+              floating desk convert in place): a plain desk becomes an attention desk where it is, and pressed, an
+              attention desk becomes a plain desk again (attention/deskwindows.tsx) */}
+          {(deskView?.inWindow || attentionWindow || onMakeAttention) && <button type="button" className="popout-button"
             aria-pressed={!!attentionWindow}
             aria-label={attentionWindow ? 'Make plain desk' : 'Make attention desk'}
             title={attentionWindow ? 'Make plain desk' : 'Make attention desk'}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); if (attentionWindow) attentionWindow.makePlain(); else deskView?.toAttention() }}>
+            onClick={(e) => { e.stopPropagation(); if (attentionWindow) attentionWindow.makePlain(); else if (onMakeAttention) onMakeAttention(); else deskView?.toAttention() }}>
             <ViewListIcon fontSize="inherit" /></button>}
           {deskView
             ? !(hidePopout && !deskView.inWindow) && <DeskPopoutButton control={deskView} />
