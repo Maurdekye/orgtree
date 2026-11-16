@@ -424,4 +424,4 @@ export function useDeskActionsNow(slug: string):
 /** The card is laid out as the focused desk (desk-sized, head hidden) while its desk is open, popped out or not:
  *  every place shows the desk now, the card included (4.6.1). Before, a card whose desk was in another window went
  *  back to its normal face (@item:orgtree/x-is-in-another-window-placeholder-covers-parts-o). */
-export const cardIsDeskLayout = (deskOpen: boolean, pinnedFocus: boolean): boolean => deskOpen || pinnedFocus
+export const cardIsDeskLayout = (deskOpen: boolean): boolean => deskOpen

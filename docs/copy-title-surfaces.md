@@ -22,7 +22,7 @@ arbitrary words in prose to names in the current org.
 | Focused, switchboard, pinned, detached and compact desk headers | `canvas/desk.tsx`, `.cc-head-left`, `AgentName` | Shared fallback. Focused and bare desk variants tested; the bare renderer is shared by switchboard, pinned and compact desks. |
 | Superior/report jump cards | `canvas/desk.tsx`, `NavChip` | Shared fallback; agent copy tested, human switchboard target excluded. |
 | Pinned agent window title/name | `canvas/pins.tsx`, `.pinwin-title` | Existing Show on canvas/Unpin menu gains copy; pin and navigation remain unchanged. |
-| Pinned/elsewhere desk placeholders | `canvas/pins.tsx`, `PinnedPlaceholder`; `canvas/deskhosts.tsx`, `RegisteredSlot` | Shared fallback; pinned placeholder tested, elsewhere text uses the same explicit identity. |
+| Desk-loading notice (4.6.1: no pinned/elsewhere placeholder) | `canvas/deskhosts.tsx`, `InDesksPlace` | Shared fallback with the same explicit identity. |
 | Lineage generation entries and prior-generation identity | `canvas/desk.tsx`, `LineagePanel`, prior transcript notice | Shared fallback; generation IDs retained. Actual lineage rows tested. |
 | Retired pile/live team stack picker entries | `canvas/modals.tsx`, `PilePicker` | Shared fallback; both pile kinds tested without choosing a front agent. |
 | Agent configuration, inbox, lineage, docket and presentation window bars | `canvas/modalpin.tsx`, `PinFrame` using `restore.agent` | Existing window menu gains copy of the agent ID, without the surface suffix. Each actual modal tested. |

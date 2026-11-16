@@ -413,8 +413,8 @@ Original section: Unsectioned integration notes. Source lines 241–250.
 
 <!-- preserved:e-068a98ce034aef18 -->
 - Card shortcuts (Show agent card shortcuts) are never drawn over a desk: a
-  project card drops its row while its desk is open or its pinned placeholder
-  shows, as an agent card does. The hire strips stay on both desks (user spec:
+  project card drops its row while its desk is open, as an agent card does
+  (4.6.1: a pinned card at desk zoom shows its desk, with no placeholder). The hire strips stay on both desks (user spec:
   the desk keeps its hire chips). The project row is docket, mail, presented
   (always, as its tab), team, slots, listeners; the last three follow
   `projectDeskTabs()`, the desk's own tab rule, so card and desk cannot

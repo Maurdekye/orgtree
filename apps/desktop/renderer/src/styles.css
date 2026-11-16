@@ -8507,10 +8507,9 @@ label.set-row { cursor: pointer; }
   color: var(--agent-accent-text, var(--accent)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: none;
 }
-/* Both holders do one job: stand in the desk's box on a card while the desk
-   itself is somewhere else — pinned to the window, or popped out. Same box,
-   same clip, same fade. */
-.pin-holder, .desk-elsewhere-holder {
+/* The holder stands in the desk's box on a card before the org's tree has
+   loaded (deskhosts.tsx InDesksPlace). */
+.desk-elsewhere-holder {
   position: absolute; inset: 2px; z-index: 2; overflow: hidden;
   background: var(--panel); border-radius: 1.5px;
   animation: deskfade .28s ease-out;
@@ -8520,28 +8519,13 @@ label.set-row { cursor: pointer; }
 /* a card whose desk is in another window wears its normal face (cards.tsx
    cardIsDeskLayout), so the chip sits in the body UNDER the header rows */
 .sq:not(.desk) .desk-elsewhere-holder { top: 58px; }   /* .sq > .desk-slot (display: contents) > holder: a descendant, never a child */
-.pin-placeholder {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 4px; cursor: pointer;
-  color: var(--dim); text-align: center;
-  /* world-scaled like the desk: 900px virtual → 120px card interior */
-  width: 900px; height: 900px; transform: scale(0.13333); transform-origin: 0 0;
-  font-size: 40px;
-}
-.pin-placeholder:hover { color: var(--ink-strong); background: var(--panel-2, var(--panel)); }
-.pin-placeholder-glyph { font-size: 120px; color: var(--agent-accent-text, var(--accent)); }
-.pin-placeholder b { font-size: 56px; color: var(--ink-strong); }
-.pin-placeholder-btn {
-  margin-top: 24px; padding: 12px 36px; border-radius: 12px; font-size: 40px;
-  border: 3px solid var(--accent); color: var(--agent-accent-text, var(--accent));
-}
 
 /* The popped-out desk's sign, in the desk's place on a card.
    ⚠ THE COUNTER-SCALE IS THE POINT. A card's desk is authored at 900px and
    scaled into the 120px interior (.desk-inner); a notice that replaces it
    and does NOT do the same renders at the CAMERA's scale instead — 7.5x
    oversized, wrapped, with its buttons outside the card (user report
-   2026-09-11). Unlike .pin-placeholder beside it, this follows --desk-dpi,
+   2026-09-11). This follows --desk-dpi,
    so the reader's text-size dial moves it with the desk text it replaces.
    Scoped to .desk-elsewhere because the same .popout-placeholder markup is
    also the popped-out window's own notice and the .popout-notices HUD, and

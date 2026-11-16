@@ -33,7 +33,6 @@ import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
 import { ProjectActivity, ProjectDesk, projectDeskTabs, ProjectLastActivity } from './projectdesk'
 import type { ProjectDeskTab } from './projectdesk'
-import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import { scratchFolderAction } from '../scratch-folder'
@@ -64,8 +63,6 @@ interface ProjectSquareProps {
   lod: 'mini' | 'norm'
   /** the camera is on it: the card is its project desk (user 2026-10-17 19:38Z) */
   focused?: boolean
-  /** its desk is a pinned window: the card holds the placeholder */
-  pinnedFocus?: boolean
   /** its desk is pinned (the menu then offers Desk as a pinned window) */
   pinned?: boolean
   /** the menu's Focus: walk the camera to its desk */
@@ -117,7 +114,7 @@ interface ProjectSquareProps {
   onDragCancel: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
 }
 
-export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
+export function ProjectSquare({ node, pos, lod, focused, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onTeam, onSettings, onDocket, onOpenDoc, onOpenGallery,
   onOpenTemporary, onPopout, onDismiss, retiredCount = 0, onRetired, fold, onToggleFold, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
@@ -149,17 +146,16 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
-  // the shortcuts give way to the open desk and to the pinned desk's
-  // placeholder, as an agent card's do (user 2026-10-20 09:23Z: they stayed
+  // the shortcuts give way to the open desk, as an agent card's do (user 2026-10-20 09:23Z: they stayed
   // drawn, hover-revealed, over the desk)
-  const shortcuts = showShortcuts && !deskOpen && !pinnedFocus
+  const shortcuts = showShortcuts && !deskOpen
   // Team, Slots and Listeners shortcuts exactly while the desk offers those
   // tabs (user 2026-10-20 09:24Z)
   const deskTabs: ProjectDeskTab[] = shortcuts ? projectDeskTabs(node, map ?? new Map()) : []
   const cardRef = useRef<HTMLDivElement>(null)
   const [nameHover, setNameHover] = useState(false)
   const [nameFocus, setNameFocus] = useState(false)
-  const farEligible = lod === 'mini' && !focused && !pinnedFocus
+  const farEligible = lod === 'mini' && !focused
   const farReveal = useFarZoomReveal(farEligible, farEligible && (nameHover || nameFocus))
   // The card carries the same folder-then-name group as the floating plate, as
   // an agent card carries its own: hidden while the plate shows, it is the CSS
@@ -266,13 +262,13 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
           {farIcon}<span className="sq-far-name">{node.id}</span>
         </span></span>}
       </>) : (
-        <CardFace fit={!deskOpen && !pinnedFocus}>
+        <CardFace fit={!deskOpen}>
           <div className="sq-head project-head">
             <div className="sq-title">
               <span className="project-mark" style={theme?.color ? { color: theme.color } : undefined} {...agentTooltipProps(node.id, true)}>
                 <ProjectIconGlyph theme={theme} />
               </span>
-              <CardName text={node.id} hovered={nameHover && !deskOpen && !pinnedFocus} {...agentTooltipProps(node.id)} />
+              <CardName text={node.id} hovered={nameHover && !deskOpen} {...agentTooltipProps(node.id)} />
             </div>
             <div className="sq-meta project-meta">
               <ProjectActivity node={node} />
@@ -391,9 +387,6 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
         <ProjectDesk node={node} slug={slug} tree={tree!} map={map ?? new Map()} toast={toast} refs={refs!}
           op={op} onJump={onJump} onConfig={onSettings} onPin={onPin} onPopout={onPopout} onOpenDoc={onOpenDoc}
           onDismiss={onDismiss} />
-      )}
-      {pinnedFocus && !deskOpen && onShowPin && (
-        <div className="pin-holder"><PinnedPlaceholder id={node.id} onShow={onShowPin} /></div>
       )}
       {/* Own-only chips (user 2026-10-20 18:58Z), replacing the 2026-10-17 subtree rule. */}
       {lod !== 'mini' && !deskOpen && (node.documents?.length ?? 0) > 0 && onOpenDoc && (

@@ -418,7 +418,7 @@ agents under the project".
   windows their menu entries open; Listeners has no window, so it opens the temporary desk (the
   menu's Desk) on its Listeners tab, or walks to the desk where no temporary desk is offered.
   Like an agent card's, the buttons show while the card is hovered; a waiting count keeps the
-  mailbox showing; and none is drawn over the open desk or the pinned desk's placeholder, while
+  mailbox showing; and none is drawn over the open desk (4.6.1: a pinned card shows it too), while
   the hire strips stay, as on an agent desk. The quiet age shares the state word's font; an idle
   activity chip keeps no spinner slot (coordinator visual review 2026-10-17 23:25Z).
 - **Team presentations** [user 2026-10-17 22:47Z; 2026-10-18 07:19Z–07:22Z]: the agent menu's

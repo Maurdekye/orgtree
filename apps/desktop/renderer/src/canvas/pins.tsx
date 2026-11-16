@@ -43,7 +43,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
-import { agentNavProps } from './agentnav'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import { DeskChat } from './desk'
 import { AgentName } from './identity'
@@ -341,7 +340,7 @@ const subscribePulse = (fn: () => void) => {
 const usePulse = (slug: string, id: string): number =>
   useSyncExternalStore(subscribePulse, () => pulses.get(`${slug}/${id}`) ?? 0)
 
-/** "show window" — the card placeholder's click. Raise, pull the window back
+/** "show window" (the card menu, a jump to a pinned agent). Raise, pull the window back
  *  inside the viewport (a window the user resized off-screen or that another
  *  window covers would otherwise appear to do nothing on raise), and flash.
  *  Never unpins. */
@@ -794,26 +793,5 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
       ))}
     </div>
     </>
-  )
-}
-
-/** what a pinned agent's CARD shows in the desk's place when the camera
- *  would otherwise have focused it (user ruling: never a second desk).
- *  The whole surface is the click target; clicking raises and flashes the
- *  window and never unpins — unpinning silently behind a click that reads
- *  as "show me this" would throw away a hand-arranged position with no undo. */
-export function PinnedPlaceholder({ id, onShow }: { id: string; onShow: () => void }) {
-  return (
-    <div className="pin-placeholder" data-copy-agent-name={id} {...agentNavProps(id, true)}
-      role="button" tabIndex={0}
-      title={`${id}'s desk is open as a pinned window — click to show it`}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => { e.stopPropagation(); onShow() }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onShow() } }}>
-      <PushPinIcon className="pin-placeholder-glyph" />
-      <b>pinned</b>
-      <span>this desk is open as a window</span>
-      <span className="pin-placeholder-btn">show window</span>
-    </div>
   )
 }

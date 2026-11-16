@@ -66,7 +66,6 @@ import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
 import { CardName } from './cardname'
 import { FarZoomName, useFarZoomReveal } from './farzoomname'
-import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
 import { firstUseName, useFirstUse } from './firstuse'
 import { peekStaffingOptions, tierEffortLevels, useSpentHireTiers } from './staffingoptions'
@@ -1488,15 +1487,10 @@ interface NodeSquareProps {
   /** FR-3: this desk is open as a pinned screen-space window (pins.tsx).
    *  The card wears a marker at every zoom. */
   pinned?: boolean
-  /** FR-3: the camera would have focused this card, but its desk is pinned —
-   *  render the placeholder in the desk's place, NEVER a second desk (user
-   *  ruling 2026-09-04, "pinned means pinned"). Mutually exclusive with
-   *  `focused`: OrgCanvas derives both from one nearest-card search. */
-  pinnedFocus?: boolean
   /** FR-3: the desk header's pin button — absent hides it (mobile, and
    *  every desk that is not the canvas desk: switchboard panels, the sheet) */
   onPin?: () => void
-  /** FR-3: the placeholder's click — raise, un-strand and flash the window */
+  /** FR-3: raise, un-strand and flash the pinned window (the card menu's "Desk as a pinned window") */
   onShowPin?: () => void
   /** "Open desk" (modal) — the host opens the modal (tempdesk.tsx). Takes
    *  the id because the same handler serves this card and the Agents List row,
@@ -1644,7 +1638,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onTeam, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, onNewProject, onNewProjectAt, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
-  mapMode, deskEligible = true, dogs, oneShotDogs, slotHolds, pinned, pinnedFocus, onPin, onShowPin,
+  mapMode, deskEligible = true, dogs, oneShotDogs, slotHolds, pinned, onPin, onShowPin,
   onOpenTemporary,
   onDismiss, retiredCount = 0, onRetired, fold, onToggleFold }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
@@ -1655,7 +1649,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // Active speed, never a queued preference: unknown running evidence is silent.
   const activeFast = supportsFast && (node.busy
     ? node.fast_mode_current === true : node.scope?.fast_mode === true)
-  const focused = cardIsDeskLayout(!!deskOpen, !!pinnedFocus)
+  const focused = cardIsDeskLayout(!!deskOpen)
   // pile fronts zoom on a plain CENTER click (user spec) — track the
   // pointer-down point so a drag's trailing click doesn't re-zoom
   const downAt = useRef<Pt | null>(null)
@@ -2188,13 +2182,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           onOpenDoc={onOpenDoc}
           onPin={onPin}
           onDismiss={onDismiss} />
-      )}
-      {/* FR-3: the desk is a pinned window — the desk's place holds a
-          placeholder, and there is no second DeskChat anywhere in this card */}
-      {pinnedFocus && !deskOpen && onShowPin && (
-        <div className="pin-holder">
-          <PinnedPlaceholder id={node.id} onShow={onShowPin} />
-        </div>
       )}
       {/* user ruling: chips are NEVER disabled by the node's own free credits —
           a user hire §4.6-cascades, granting the chain whatever it lacks.

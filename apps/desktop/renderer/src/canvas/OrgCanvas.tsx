@@ -2524,14 +2524,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (attentionDeskOut) revealSurface(attentionDeskOut)
       return
     }
-    // ⚠ A PINNED AGENT'S DESTINATION IS ITS WINDOW, NOT ITS CARD. The card
-    // renders a placeholder while the agent is pinned (`pinnedFocusId`), so
-    // gliding there lands the reader on the placeholder while the real chat
-    // sits somewhere else, unraised. Raise it instead — the same `showPin`
-    // the placeholder and the switchboard tab already call.
-    // …unless the reader ASKED FOR THE CANVAS. Then the placeholder is the
-    // point: it is the card's designed pinned state, it says where the agent
-    // sits in the org, and the window stays open and unraised behind it.
+    // A PINNED AGENT'S DESTINATION IS ITS WINDOW: it is already on screen, so
+    // a jump raises it (the same `showPin` the switchboard tab calls) rather
+    // than moving the camera. …unless the reader ASKED FOR THE CANVAS: then
+    // the glide lands on the card, which shows the same live desk (4.6.1).
     if (!onCanvas && pinnedIdsRef.current.has(id)) {
       showPin(slug, id, vpSizeNow())
       return
@@ -3567,17 +3563,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
 
   // ------------------------------------------------------- focus (the desk)
-  // `nearestId` is the card the camera is on; `focusId` is the desk that
-  // OPENS. They differ in exactly one case — FR-3, user ruling 2026-09-04,
-  // "PINNED MEANS PINNED": a pinned node's desk lives in its screen-space
-  // window and NOWHERE ELSE, so the camera landing on its card opens nothing
-  // (the card shows a placeholder — see `pinnedFocusId` below). Two mounted
-  // desks for one node would share one `orgtree-draft-<slug>-<nid>` composer
-  // key and silently fight over it.
-  //   Deliberately NOT "skip pinned ids in the nearest search" (as the plan
-  // first sketched): at desk zoom the focus radius is 1.6 cards, so skipping
-  // would hand focus to the pinned card's NEIGHBOUR while the camera sits
-  // squarely on the pinned card — zooming into A would open B's desk.
+  // `nearestId` is the card the camera is on, and its desk OPENS there even
+  // while the agent is pinned: 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9 item 2,
+  // "it should always show in both locations at once; on the canvas, in a
+  // pinned / popped out desk") replaces FR-3's "pinned means pinned"
+  // placeholder. The views share one draft (deskhosts.tsx), so two mounted
+  // desks no longer fight over the composer key.
+  //   Pinned ids are deliberately NOT skipped in the nearest search: at desk
+  // zoom the focus radius is 1.6 cards, so skipping would hand focus to the
+  // pinned card's NEIGHBOUR — zooming into A would open B's desk.
   const nearestId = useMemo(() => {
     if (view.z < Z_DESK) return null
     const vp = viewportRef.current?.getBoundingClientRect()
@@ -3630,15 +3624,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // leave this memo holding a verdict computed against the old free space.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, target, hidden, pins])
-  const pinnedFocusId = nearestId && pinnedIds.has(nearestId) ? nearestId : null
-  const focusId = pinnedFocusId ? null : nearestId
+  const focusId = nearestId
   focusRef.current = focusId
   useEffect(() => () => setButtonAgent(slug, null), [slug])
   // the camera's desk is published when it CHANGES, not on every tree refresh:
   // a re-publish of the same desk would claim it was focused again, over a
   // pinned desk the user has used since (review-sol 2026-10-01, the canvas
   // menu's "Focus last desk" reads this selection)
-  const camId = pinnedFocusId ?? focusId
+  const camId = focusId
   const camDesk = camId && map.get(camId)?.tier ? camId : null
   useEffect(() => {
     // Animated intermediate desks are not visits. Overview preserves memory.
@@ -3798,7 +3791,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   /** the desk header's pin button: detach this desk into a window placed
    *  exactly over the card it came from — the camera does not move, and the
-   *  card underneath turns into the placeholder on the same frame */
+   *  card underneath keeps showing the same live desk */
   const pinDesk = (id: string): boolean => {
     const at = cardRectOf(id)
     if (!at) return false
@@ -4880,7 +4873,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             ? <ProjectSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} fold={foldInfo.get(n.id)} onToggleFold={() => toggleFold(n.id)} key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
               focused={n.id === focusId && !worldHidden && !projectDesks.ids.includes(n.id)}
-              pinnedFocus={n.id === pinnedFocusId}
               pinned={pinnedIds.has(n.id)}
               onFocus={() => centerOn(n.id)}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
@@ -4913,9 +4905,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             : <NodeSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} fold={foldInfo.get(n.id)} onToggleFold={() => toggleFold(n.id)} key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
               quickChatDefaults={tree.quick_chat}
               deskEligible={!worldHidden}
-              /* FR-3: the camera is on this card but its desk is a pinned
-                 window — placeholder instead of a (second) desk */
-              pinnedFocus={n.id === pinnedFocusId}
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}

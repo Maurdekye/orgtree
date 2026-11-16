@@ -47,7 +47,7 @@ edge nearest the pointer. **Show agent card shortcuts** controls the icon row
 under the name, which does not draw over an opened desk. Token appearance and
 seat-cost tooltips are explained in [draft hires](../draft-hires/SKILL.md).
 
-At far zoom the card becomes a tier/state locator; shortcut hit targets are removed. Selecting it navigates to the agent. At desk zoom the desk's own header replaces the overview chrome, and a desk already hosted elsewhere can show a placeholder. See [pinned windows](../pinned-windows/SKILL.md) and [agent desk](../../desk/agent-desk/SKILL.md) for those surfaces.
+At far zoom the card becomes a tier/state locator; shortcut hit targets are removed. Selecting it navigates to the agent. At desk zoom the desk's own header replaces the overview chrome, and the desk shows there even while it is also pinned or popped out: every place shows the same live desk. See [pinned windows](../pinned-windows/SKILL.md) and [agent desk](../../desk/agent-desk/SKILL.md) for those surfaces.
 
 ## Identity tooltips
 
