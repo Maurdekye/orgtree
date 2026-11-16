@@ -20,6 +20,9 @@
 //! CLI does (`<id>` TAB `<label>` rows after a banner): `agy-models.txt` in the
 //! fake's folder verbatim (an empty file: signed out, no rows), else the
 //! registry measured 2026-10-01 without the conditional Gemini 4 models.
+//! `agy-auth.json` `"models"` scripts AGY 1.5.9's file sign-in answers
+//! (measured 2026-11-16): `"signed_out"` (the banner and "Error: Please sign
+//! in ..."), `"prompt"` (an OAuth prompt that never ends) or `"unknown"`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -514,6 +517,21 @@ pub fn run(raw: &[String]) -> i32 {
 
 /// `agy models`: the registry rows, and a log naming the fetch.
 fn models(raw: &[String]) -> i32 {
+    auth_log(if raw.iter().any(|a| a == "--log-file") { "models_catalog" } else { "models" });
+    match auth_fixture().1["models"].as_str() {
+        Some("signed_out") => {
+            println!("Fetching available models...\nError: Please sign in to view available models. Launch the CLI without arguments to sign in.");
+            return 0;
+        }
+        Some("prompt") => {
+            print!("Authentication required. Please visit the URL to log in:\nOr, paste the authorization code here and press Enter:");
+            let _ = std::io::stdout().flush();
+            std::thread::sleep(Duration::from_secs(60));
+            return 1;
+        }
+        Some("unknown") => { println!("something this guard has never seen"); return 0; }
+        _ => {}
+    }
     const MEASURED: &str = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n\
                             gemini-3.1-pro-high\tGemini 3.1 Pro (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n";
     let dir = std::env::var("ORGTREE_FAKECLI_DIR").ok().filter(|s| !s.is_empty()).map(PathBuf::from);
