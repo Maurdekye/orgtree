@@ -156,7 +156,8 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
   }
   if (src === 'stall-trace') {
     return compact({ file: typeof r.file === 'string' && TRACE_FILE.test(r.file) ? r.file : undefined, events: int(r.events), bytes: int(r.bytes),
-      caught: bool(r.caught), canvas_bg: canvasBg(r.canvas_bg ?? undefined) })
+      caught: bool(r.caught), canvas_bg: canvasBg(r.canvas_bg ?? undefined),
+      failed: bool(r.failed), stage: r.stage === undefined ? undefined : oneOf(r.stage, ['stop', 'process']) })
   }
   if (src === 'renderer-ping' || src === 'renderer-unresponsive') {
     return compact({ blocked_ms: num(r.blocked_ms), stacks: arr(r.stacks, 2).map(stack), ipc: ipc(), ctx: r.ctx === undefined ? undefined : context(r.ctx), gpu: gpu(r.gpu) })

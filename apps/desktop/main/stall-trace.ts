@@ -90,9 +90,14 @@ export function filterTraceLine(line: string): string | null {
 /** keep the newest `keep` *.json.gz files in `dir` (by modification time) */
 export function pruneTraces(dir: string, keep = TRACES_KEPT): void {
   try {
-    const files = fs.readdirSync(dir).filter(f => /^[0-9TZ-]+\.json\.gz$/.test(f))
-      .map(f => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t)
-    for (const { f } of files.slice(keep)) fs.rmSync(path.join(dir, f), { force: true })
+    const names = fs.readdirSync(dir)
+    // a run cut off mid-capture (the app quit) leaves its raw recording or an empty file: neither is a trace
+    for (const f of names) if (/^\.raw-[0-9TZ-]+\.json$/.test(f)) fs.rmSync(path.join(dir, f), { force: true })
+    const files = names.filter(f => /^[0-9TZ-]+\.json\.gz$/.test(f))
+      .map(f => { const st = fs.statSync(path.join(dir, f)); return { f, t: st.mtimeMs, empty: st.size === 0 } })
+    for (const { f } of files.filter(x => x.empty)) fs.rmSync(path.join(dir, f), { force: true })
+    const kept = files.filter(x => !x.empty).sort((a, b) => b.t - a.t)
+    for (const { f } of kept.slice(keep)) fs.rmSync(path.join(dir, f), { force: true })
   } catch { /* best effort */ }
 }
 
@@ -124,6 +129,9 @@ export async function processTrace(raw: string, out: string, meta: TraceMeta): P
   }
   try {
     await pipeline(Readable.from(body()), zlib.createGzip({ level: 6 }), fs.createWriteStream(out))
+  } catch (error) {
+    try { fs.rmSync(out, { force: true }) } catch { /* best effort */ }   // never leave a partial or empty trace
+    throw error
   } finally {
     try { fs.rmSync(raw, { force: true }) } catch { /* best effort */ }
   }
@@ -188,13 +196,18 @@ export class StallTracer {
     const c = this.capture
     if (!c || c.stopping) return
     c.stopping = true
+    const name = `${stamp(c.started)}.json.gz`
+    let stage: 'stop' | 'process' = 'stop'
     try {
-      const name = `${stamp(c.started)}.json.gz`
       const raw = await this.d.tracing.stop(path.join(c.dir, `.raw-${stamp(c.started)}.json`))
       const ms = this.d.now() - c.started
+      stage = 'process'
       const { events, bytes } = await this.d.process(raw, path.join(c.dir, name), c.meta)
       pruneTraces(c.dir)
       this.d.log({ ms, file: name, events, bytes, caught: c.meta.caught !== null, canvas_bg: c.meta.canvas_bg })
-    } catch { /* best effort */ } finally { this.capture = null }
+    } catch {
+      // one line says a capture was lost and where it stopped; no error text (it can carry paths)
+      try { pruneTraces(c.dir); this.d.log({ ms: this.d.now() - c.started, file: name, failed: true, stage, caught: c.meta.caught !== null }) } catch { /* best effort */ }
+    } finally { this.capture = null }
   }
 }
