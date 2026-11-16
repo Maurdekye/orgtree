@@ -9,6 +9,9 @@
 !engine/rs/orgtree-engine/**
 !engine/rs/orgtree-logged/
 !engine/rs/orgtree-logged/**
+# A workspace member: cargo loads every member to build any one of them.
+!engine/rs/orgtree-installer-relaunch/
+!engine/rs/orgtree-installer-relaunch/**
 !engine/docs/
 !engine/docs/charters/
 !engine/docs/charters/**

@@ -19,6 +19,9 @@ WORKDIR /src
 COPY engine/rs/Cargo.toml engine/rs/Cargo.lock engine/rs/
 COPY engine/rs/orgtree-logged engine/rs/orgtree-logged
 COPY engine/rs/orgtree-engine engine/rs/orgtree-engine
+# A workspace member (the Windows relaunch helper, not built here): cargo
+# loads every member to build any one of them.
+COPY engine/rs/orgtree-installer-relaunch engine/rs/orgtree-installer-relaunch
 # Rust embeds templates/charters and the Changelog's release list with
 # include_str!, and build.rs embeds the complete glossary and each stable
 # release's notes. These are build inputs even though no UI is bundled.
