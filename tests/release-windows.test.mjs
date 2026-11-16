@@ -6,6 +6,8 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
   CANONICAL_ASSET_NAMES,
+  PACKAGED_ENGINE_ENTRIES,
+  PACKAGED_ENGINE_FILES,
   PACKAGED_HASH_FILES,
   assertBuildProvenance,
   assertCleanReleaseTree,
@@ -20,6 +22,8 @@ import {
   hashFile,
   installerAssetName,
   installerSourceName,
+  packagedEngineDigest,
+  packagedEngineRecord,
   parseLatestYml,
   parseReleaseArgs,
   publishRelease,
@@ -33,10 +37,10 @@ import {
   validReleaseVersion,
   validateLatestYml,
   verifyPublicRelease,
-  verifyInstallerPayloadRuntime,
+  verifyInstallerPayloadEngine,
+  verifyPackagedEngine,
 } from '../tools/release-windows.mjs'
-import { REPRESENTATIVE_RUNTIME_IMPORTS, runtimeTreeDigest } from '../tools/runtime-layout.mjs'
-import { POSTGRES_PIN, POSTGRES_REQUIRED } from '../tools/postgres-layout.mjs'
+import { POSTGRES_PIN, POSTGRES_REQUIRED, POSTGRES_SCHEMA } from '../tools/postgres-layout.mjs'
 
 function fixtureRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-fixture-'))
@@ -57,30 +61,131 @@ function responseJson(value, status = 200) {
   return { status, ok: status >= 200 && status < 300, json: async () => value }
 }
 
-test('installer payload rejects self-consistent stale PostgreSQL with unchanged Python', t => {
-  const root = fixtureRoot()
-  t.after(() => removeFixture(root))
-  const engine = path.join(root, 'fixture-engine')
+/** A v2 PostgreSQL payload (manifest + postgresql/**) under `engine`.
+ *  Returns a `save` that rewrites the manifest after `files` is edited. */
+function postgresFixture(engine) {
   const files = {}
   for (const name of POSTGRES_REQUIRED) {
     const data = Buffer.from(name)
     put(engine, name, data)
     files[name] = { bytes: data.length, sha256: sha256Bytes(data) }
   }
-  const postgres = { schema: 'orgtree.postgres-runtime/v1', archive: POSTGRES_PIN,
-    custodian: { features: [], sources: {} }, files }
-  const save = () => put(engine, 'postgres-runtime-manifest.json', JSON.stringify(postgres))
-  const expectedPostgresManifestSha256 = hashFile(save())
-  const runtime = path.join(engine, 'runtime')
-  put(runtime, 'python.exe', 'fixture-python')
-  put(runtime, 'python313.zip', 'fixture-stdlib')
-  put(runtime, 'python313._pth', 'python313.zip\n.\nLib/site-packages\n../mailhub\nimport site\n')
-  put(runtime, 'runtime-manifest.json', JSON.stringify({ dependencies: [{ name: 'fixture', version: '1' }] }))
-  put(runtime, 'Lib/site-packages/fixture-1.dist-info/METADATA', 'fixture')
-  const expectedDigest = runtimeTreeDigest(runtime)
+  const manifest = { schema: POSTGRES_SCHEMA, archive: POSTGRES_PIN, files }
+  const save = () => put(engine, 'postgres-runtime-manifest.json', JSON.stringify(manifest))
+  save()
+  return { manifest, save }
+}
+
+/** The engine build outputs at their source locations, as cargo leaves them,
+ *  plus the provisioned PostgreSQL payload. */
+function engineSourceFixture(root) {
+  const postgres = postgresFixture(path.join(root, 'engine'))
+  for (const [packaged, source] of Object.entries(PACKAGED_ENGINE_FILES)) {
+    if (packaged !== source) put(root, source, Buffer.from(`built:${packaged}`))
+  }
+  return postgres
+}
+
+/** Copy the build outputs where package.json build.extraResources puts them. */
+function packageEngine(root, resources) {
+  for (const [packaged, source] of Object.entries(PACKAGED_ENGINE_FILES)) {
+    put(resources, packaged, fs.readFileSync(path.join(root, ...source.split('/'))))
+  }
+  fs.cpSync(path.join(root, 'engine', 'postgresql'), path.join(resources, 'engine', 'postgresql'), { recursive: true })
+}
+
+/** spawnSync stand-in: answers `orgtree-engine.exe --version` and records it. */
+function versionProbe(output, calls = []) {
+  return (exe, args) => {
+    assert.equal(path.basename(exe), 'orgtree-engine.exe')
+    assert.deepEqual(args, ['--version'])
+    calls.push(exe)
+    return { status: 0, stdout: `${output}\r\n`, stderr: '' }
+  }
+}
+
+test('package.json ships exactly the engine files release verification checks, and no Python', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+  const resources = pkg.build.extraResources
+  const engineEntry = resources.find(entry => entry.from === 'engine' && entry.to === 'engine')
+  assert.deepEqual(engineEntry.filter, ['postgresql/**/*', 'postgres-runtime-manifest.json'])
+  for (const [packaged, source] of Object.entries(PACKAGED_ENGINE_FILES)) {
+    if (packaged === source) continue
+    assert.ok(resources.some(entry => entry.from === source && entry.to === packaged), `${source} -> ${packaged} is packaged`)
+  }
+  const engineTargets = resources.filter(entry => String(entry.to).startsWith('engine'))
+  assert.deepEqual(engineTargets.map(entry => entry.to).sort(),
+    ['engine', ...Object.keys(PACKAGED_ENGINE_FILES).filter(file => file !== 'engine/postgres-runtime-manifest.json')].sort(),
+    'nothing else is packaged under resources/engine')
+  assert.equal(JSON.stringify(resources).match(/runtime\/|backend|\.py\b|pg-custodian|pg_migrations/g), null)
+  assert.deepEqual(PACKAGED_ENGINE_ENTRIES.sort(), [
+    'orgtree-credential-broker.exe', 'orgtree-engine.exe', 'orgtree-installer-relaunch.exe',
+    'orgtree-mailhub.exe', 'postgres-runtime-manifest.json', 'postgresql'])
+  assert.equal(pkg.scripts['postgres:provision'], 'node tools/provision-postgres.mjs')
+  for (const name of Object.keys(pkg.scripts)) assert.doesNotMatch(pkg.scripts[name], /python|runtime:/i, name)
+})
+
+test('the packaged engine must be byte-identical to the build outputs, carry no Python, and report the release', t => {
+  const root = fixtureRoot()
+  t.after(() => removeFixture(root))
+  engineSourceFixture(root)
+  const resources = path.join(root, 'resources')
+  packageEngine(root, resources)
+  const calls = []
+  const verify = (output = 'orgtree-engine 2.1.2') => verifyPackagedEngine({
+    root, resources, version: '2.1.2', spawnSyncImpl: versionProbe(output, calls) })
+  const result = verify()
+  assert.equal(result.engineVersion, 'orgtree-engine 2.1.2')
+  assert.deepEqual(result.digest, packagedEngineDigest(resources))
+  assert.equal(result.digest.files, Object.keys(PACKAGED_ENGINE_FILES).length)
+  assert.equal(result.postgresManifestSha256, hashFile(path.join(resources, 'engine', 'postgres-runtime-manifest.json')))
+  assert.deepEqual(calls, [path.join(resources, 'engine', 'orgtree-engine.exe')])
+
+  // A development build, or one from another version, is not this release.
+  assert.throws(() => verify('orgtree-engine 2.1.2 (dev)'), /development build/)
+  assert.throws(() => verify('orgtree-engine 2.1.1'), /reports "orgtree-engine 2\.1\.1", expected "orgtree-engine 2\.1\.2"/)
+
+  // A stale relaunch helper in the package is named, with both hashes.
+  const relaunch = path.join(resources, 'engine', 'orgtree-installer-relaunch.exe')
+  fs.writeFileSync(relaunch, 'stale helper')
+  assert.throws(() => verify(), /Packaged engine\/orgtree-installer-relaunch\.exe differs from the built engine\/rs\/target\/release\/orgtree-installer-relaunch\.exe/)
+  fs.copyFileSync(path.join(root, 'engine/rs/target/release/orgtree-installer-relaunch.exe'), relaunch)
+  fs.rmSync(relaunch)
+  assert.throws(() => verify(), /packaged resources\/engine orgtree-installer-relaunch\.exe/)
+  fs.copyFileSync(path.join(root, 'engine/rs/target/release/orgtree-installer-relaunch.exe'), relaunch)
+  assert.equal(verify().engineVersion, 'orgtree-engine 2.1.2')
+
+  // The retired Python payload, in any of its old shapes, is refused by name.
+  put(path.join(resources, 'engine', 'runtime'), 'Lib/site.py', 'old interpreter')
+  assert.throws(() => verify(), /still carries runtime\/, the retired embedded Python runtime/)
+  fs.rmSync(path.join(resources, 'engine', 'runtime'), { recursive: true })
+  put(resources, 'engine/service_host.py', 'old host')
+  assert.throws(() => verify(), /still carries Python engine source service_host\.py/)
+  fs.rmSync(path.join(resources, 'engine', 'service_host.py'))
+  put(resources, 'engine/pg-custodian.exe', 'old custodian')
+  assert.throws(() => verify(), /unexpected entry pg-custodian\.exe/)
+  fs.rmSync(path.join(resources, 'engine', 'pg-custodian.exe'))
+
+  // The PostgreSQL manifest that shipped must be the source's.
+  const packagedManifest = path.join(resources, 'engine', 'postgres-runtime-manifest.json')
+  const manifest = JSON.parse(fs.readFileSync(packagedManifest, 'utf8'))
+  fs.writeFileSync(packagedManifest, JSON.stringify(manifest, null, 1))
+  assert.throws(() => verify(), /Packaged PostgreSQL differs from source/)
+})
+
+test('installer payload rejects a self-consistent stale PostgreSQL or engine', t => {
+  const root = fixtureRoot()
+  t.after(() => removeFixture(root))
+  engineSourceFixture(root)
+  const resources = path.join(root, 'resources')
+  packageEngine(root, resources)
+  const engine = path.join(resources, 'engine')
+  const expectedPostgresManifestSha256 = hashFile(path.join(engine, 'postgres-runtime-manifest.json'))
+  const expectedDigest = packagedEngineDigest(resources)
   const installer = put(root, 'fixture.exe', 'fixture-installer')
   put(root, `node_modules/electron-winstaller/vendor/7z-${process.arch === 'arm64' ? 'arm64' : 'x64'}.exe`, 'fixture-7z')
-  let extractions = 0, imports = 0
+  let extractions = 0, probes = 0
+  let reported = 'orgtree-engine 2.1.2'
   const spawnSyncImpl = (exe, args) => {
     if (args[0] === 'x') {
       extractions++
@@ -89,26 +194,51 @@ test('installer payload rejects self-consistent stale PostgreSQL with unchanged 
       else fs.cpSync(engine, path.join(output, 'resources', 'engine'), { recursive: true })
       return { status: 0, stdout: '', stderr: '' }
     }
-    assert.equal(path.basename(exe), 'python.exe')
-    imports++
-    return { status: 0, stdout: JSON.stringify({ ok: true, python: 'fixture', modules: {} }), stderr: '' }
+    assert.equal(path.basename(exe), 'orgtree-engine.exe')
+    assert.ok(exe.startsWith(path.join(root, 'extracted')), 'the probe runs the EXTRACTED payload engine')
+    probes++
+    return { status: 0, stdout: reported, stderr: '' }
   }
-  const verify = (expected = expectedPostgresManifestSha256) => verifyInstallerPayloadRuntime({
+  const verify = (expected = expectedPostgresManifestSha256) => verifyInstallerPayloadEngine({
     root, installer, workDir: path.join(root, 'extracted'), expectedDigest,
-    expectedPostgresManifestSha256: expected, spawnSyncImpl,
+    expectedPostgresManifestSha256: expected, version: '2.1.2', spawnSyncImpl,
   })
-  assert.equal(verify().postgresManifestSha256, expectedPostgresManifestSha256)
-  assert.deepEqual([extractions, imports], [2, 1])
-  // The stale payload remains internally consistent and has identical Python.
-  const stale = Buffer.from('stale-custodian')
-  put(engine, 'pg-custodian.exe', stale)
-  postgres.files['pg-custodian.exe'] = { bytes: stale.length, sha256: sha256Bytes(stale) }
-  save()
-  assert.deepEqual(runtimeTreeDigest(runtime), expectedDigest)
+  const ok = verify()
+  assert.equal(ok.postgresManifestSha256, expectedPostgresManifestSha256)
+  assert.equal(ok.engineVersion, 'orgtree-engine 2.1.2')
+  assert.deepEqual(ok.digest, expectedDigest)
+  assert.deepEqual([extractions, probes], [2, 1])
+  assert.equal(fs.existsSync(path.join(root, 'extracted')), false, 'the extraction is removed')
+
+  // A stale payload PostgreSQL that is internally consistent, with an
+  // identical engine, is still refused against the verified manifest.
+  const postgres = JSON.parse(fs.readFileSync(path.join(engine, 'postgres-runtime-manifest.json'), 'utf8'))
+  const stale = Buffer.from('stale-extension')
+  put(engine, 'postgresql/lib/stale.dll', stale)
+  postgres.files['postgresql/lib/stale.dll'] = { bytes: stale.length, sha256: sha256Bytes(stale) }
+  put(engine, 'postgres-runtime-manifest.json', JSON.stringify(postgres))
+  assert.deepEqual(packagedEngineDigest(resources).hashes['engine/orgtree-engine.exe'], expectedDigest.hashes['engine/orgtree-engine.exe'])
   assert.throws(() => verify(), /Installer payload PostgreSQL differs/)
-  assert.deepEqual([extractions, imports], [4, 1])
   assert.throws(() => verify(null), /Installer payload PostgreSQL differs/)
-  assert.deepEqual([extractions, imports], [6, 1])
+  assert.equal(probes, 1, 'nothing is run from a refused payload')
+  fs.rmSync(path.join(engine, 'postgresql/lib/stale.dll'))
+  delete postgres.files['postgresql/lib/stale.dll']
+  fs.copyFileSync(path.join(root, 'engine', 'postgres-runtime-manifest.json'), path.join(engine, 'postgres-runtime-manifest.json'))
+
+  // A payload engine file that differs from the verified win-unpacked one.
+  put(engine, 'orgtree-credential-broker.exe', 'other broker')
+  assert.throws(() => verify(), /Installer payload engine differs from the verified packaged engine \(engine\/orgtree-credential-broker\.exe\)/)
+  fs.copyFileSync(path.join(root, 'engine/rs/target/release/orgtree-credential-broker.exe'), path.join(engine, 'orgtree-credential-broker.exe'))
+
+  // The retired Python runtime in the payload.
+  put(path.join(engine, 'runtime'), 'Lib/site.py', 'old interpreter')
+  assert.throws(() => verify(), /installer payload resources\/engine still carries runtime\//)
+  fs.rmSync(path.join(engine, 'runtime'), { recursive: true })
+
+  reported = 'orgtree-engine 2.1.2 (dev)'
+  assert.throws(() => verify(), /installer payload orgtree-engine\.exe is a development build/)
+  reported = 'orgtree-engine 2.1.2'
+  assert.equal(verify().engineVersion, 'orgtree-engine 2.1.2')
 })
 
 function responseBytes(bytes, status = 200) {
@@ -127,35 +257,30 @@ test('manifest JSON serialization is deterministic CRLF with a final newline', (
   assert.equal(output.replaceAll('\r\n', '').includes('\n'), false)
 })
 
-test('engine-hashes uses tracked on-disk Python bytes and excludes runtime', () => {
+test('engine-hashes records every packaged engine file from its build output', () => {
   const root = fixtureRoot()
   try {
-    const first = put(root, 'engine/z.py', Buffer.from('z\r\n'))
-    put(root, 'engine/a.py', Buffer.from('a\r\n'))
-    put(root, 'engine/runtime/ignored.py', Buffer.from('runtime\r\n'))
-    const hashes = deriveEngineHashes({
-      root,
-      gitFiles: 'engine/z.py\r\nengine/runtime/ignored.py\r\nengine/a.py\r\n',
-    })
-    assert.deepEqual(Object.keys(hashes), ['engine/a.py', 'engine/z.py'])
-    assert.equal(hashes['engine/z.py'], hashFile(first))
-    assert.equal(hashes['engine/a.py'], sha256Bytes(Buffer.from('a\r\n')))
+    engineSourceFixture(root)
+    const hashes = deriveEngineHashes({ root })
+    assert.deepEqual(Object.keys(hashes), Object.keys(PACKAGED_ENGINE_FILES).sort())
+    for (const [packaged, source] of Object.entries(PACKAGED_ENGINE_FILES)) {
+      assert.equal(hashes[packaged], hashFile(path.join(root, ...source.split('/'))), packaged)
+    }
+    assert.equal(hashes['engine/orgtree-installer-relaunch.exe'], sha256Bytes(Buffer.from('built:engine/orgtree-installer-relaunch.exe')))
+    fs.rmSync(path.join(root, 'engine/rs/target/release/orgtree-installer-relaunch.exe'))
+    assert.throws(() => deriveEngineHashes({ root }), /engine build output engine\/rs\/target\/release\/orgtree-installer-relaunch\.exe/)
   } finally {
     removeFixture(root)
   }
 })
 
-test('unchanged engine sources produce byte-identical manifests', () => {
+test('unchanged engine build outputs produce byte-identical manifests', () => {
   const previous = fixtureRoot()
   const current = fixtureRoot()
   try {
-    for (const root of [previous, current]) {
-      put(root, 'engine/a.py', Buffer.from('a\r\n'))
-      put(root, 'engine/z.py', Buffer.from('z\r\n'))
-    }
-    const gitFiles = 'engine/z.py\r\nengine/a.py\r\n'
-    const previousText = serializeJson(deriveEngineHashes({ root: previous, gitFiles }), { sortKeys: true })
-    const currentText = serializeJson(deriveEngineHashes({ root: current, gitFiles }), { sortKeys: true })
+    for (const root of [previous, current]) engineSourceFixture(root)
+    const previousText = serializeJson(deriveEngineHashes({ root: previous }), { sortKeys: true })
+    const currentText = serializeJson(deriveEngineHashes({ root: current }), { sortKeys: true })
     assert.equal(currentText, previousText)
   } finally {
     removeFixture(previous)
@@ -169,20 +294,22 @@ test('packaged-hashes preserves the proven schema and insertion order', () => {
     const resources = path.join(root, 'resources')
     for (const relative of PACKAGED_HASH_FILES) put(resources, relative, Buffer.from(relative))
     const installer = put(root, 'Orgtree Setup 2.1.2.exe', Buffer.from('installer'))
-    const runtime = {
-      sitePackages: 'Lib/site-packages', files: 2, sha256: 'f'.repeat(64),
-      imports: ['fastapi'], python: '3.13.15',
-      payload: { files: 2, sha256: 'f'.repeat(64), imported: true },
-    }
-    const result = derivePackagedHashes({ resources, installer, commit: 'a'.repeat(40), version: '2.1.2', runtime })
-    // The runtime section sits between the proven four-file map and the
-    // installer hash: the complete-tree record added after 2.1.4-RC4 shipped
-    // a manifest that vouched for a payload whose packages the interpreter
-    // could not see.
-    assert.deepEqual(Object.keys(result), ['commit', 'version', 'files', 'runtime', 'installerSha256'])
+    const digest = packagedEngineDigest(resources)
+    const engine = packagedEngineRecord(
+      { digest, engineVersion: 'orgtree-engine 2.1.2', postgresManifestSha256: 'e'.repeat(64) },
+      { digest, engineVersion: 'orgtree-engine 2.1.2' })
+    const result = derivePackagedHashes({ resources, installer, commit: 'a'.repeat(40), version: '2.1.2', engine })
+    // The engine section sits between the resource hash map and the
+    // installer hash, where the 2.1.4-RC4 complete-runtime record used to be.
+    assert.deepEqual(Object.keys(result), ['commit', 'version', 'files', 'engine', 'installerSha256'])
+    assert.deepEqual(PACKAGED_HASH_FILES, ['app.asar', 'build-info.json', ...Object.keys(PACKAGED_ENGINE_FILES)])
     assert.deepEqual(Object.keys(result.files), PACKAGED_HASH_FILES)
-    assert.deepEqual(result.runtime, runtime)
+    assert.deepEqual(result.engine, {
+      files: digest.files, sha256: digest.sha256, version: 'orgtree-engine 2.1.2', postgresManifestSha256: 'e'.repeat(64),
+      payload: { files: digest.files, sha256: digest.sha256, version: 'orgtree-engine 2.1.2' },
+    })
     assert.equal(result.files['app.asar'], sha256Bytes(Buffer.from('app.asar')))
+    assert.equal(result.files['engine/orgtree-installer-relaunch.exe'], sha256Bytes(Buffer.from('engine/orgtree-installer-relaunch.exe')))
     assert.equal(result.installerSha256, sha256Bytes(Buffer.from('installer')))
     const encoded = serializeJson(result)
     assert.equal(encoded.startsWith('{\r\n  "commit"'), true)
@@ -213,7 +340,7 @@ test('staging renames updater assets by copying and validates latest.yml', () =>
     ].join('\r\n')
     put(releaseDir, 'latest.yml', Buffer.from(latest))
     put(resources, 'build-info.json', Buffer.from('{"version":"2.1.2"}\r\n'))
-    const engineHashes = { 'engine/a.py': sha256Bytes(Buffer.from('a')) }
+    const engineHashes = { 'engine/orgtree-engine.exe': sha256Bytes(Buffer.from('a')) }
     const packagedHashes = { commit: 'b'.repeat(40), version: '2.1.2', files: {}, installerSha256: sha256Bytes(installerBytes) }
     const staged = stageCanonicalAssets({ root, releaseDir, version: '2.1.2', engineHashes, packagedHashes })
     assert.equal(fs.existsSync(installer), true, 'the spaced source installer remains')
@@ -270,8 +397,7 @@ test('release notes must be present, non-empty, and tracked', () => {
   }
 })
 
-test('candidate orchestration builds, stages, verifies, and writes the handoff without mutation', async () => {
-  const root = fixtureRoot()
+async function orchestrateCandidate(root, { afterPackage = () => {} } = {}) {
   const version = '2.1.2'
   const commit = 'f'.repeat(40)
   const packageJson = {
@@ -281,123 +407,147 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
       publish: [{ provider: 'github', owner: 'Maurdekye', repo: 'orgtree', releaseType: 'release' }],
     },
   }
-  try {
-    put(root, 'package.json', Buffer.from(JSON.stringify(packageJson)))
-    put(root, 'package-lock.json', Buffer.from(JSON.stringify({ version, packages: { '': { version } } })))
-    put(root, 'docs/release-notes-2.1.2.md', Buffer.from('# Release\n'))
-    put(root, 'engine/a.py', Buffer.from('print("fixture")\r\n'))
+  put(root, 'package.json', Buffer.from(JSON.stringify(packageJson)))
+  put(root, 'package-lock.json', Buffer.from(JSON.stringify({ version, packages: { '': { version } } })))
+  put(root, 'docs/release-notes-2.1.2.md', Buffer.from('# Release\n'))
+  // The prerequisites are the engine build outputs and a PostgreSQL payload
+  // that matches its v2 manifest byte for byte, so the fixture carries real
+  // ones rather than placeholder bytes. There is no Python runtime.
+  engineSourceFixture(root)
+  for (const relative of [
+    'dist/renderer/index.html',
+    'node_modules/electron/package.json',
+    'node_modules/electron-builder/package.json',
+  ]) put(root, relative, Buffer.from(relative))
+
+  const gitExec = (command, args) => {
+    assert.equal(command, 'git')
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return root + '\n'
+    if (args[0] === 'rev-parse') return commit + '\n'
+    if (args[0] === 'status') return ''
+    if (args[0] === 'ls-files' && args[1] === '--error-unmatch') return args.at(-1) + '\n'
+    throw new Error(`unexpected git fixture call: ${args.join(' ')}`)
+  }
+  const gitProbe = (_command, args) => ({ status: args[0] === 'show-ref' ? 1 : 2 })
+  const externalCalls = []
+  const runExternal = (command, args) => {
+    externalCalls.push([command, args])
+    const resources = path.join(root, 'release', 'win-unpacked', 'resources')
+    const inputHashes = {}
     for (const relative of [
-      'engine/launch.py',
-      'engine/backend/orgtree/api.py',
-      'engine/runtime/python.exe',
-      'engine/runtime/python313.zip',
+      ...Object.values(PACKAGED_ENGINE_FILES),
       'dist/renderer/index.html',
-      'node_modules/electron/package.json',
-      'node_modules/electron-builder/package.json',
-    ]) put(root, relative, Buffer.from(relative))
-    // The prerequisites now include the COMPLETE runtime layout, so the
-    // fixture carries a real-shaped one rather than placeholder bytes.
-    put(root, 'engine/runtime/python313._pth', Buffer.from('python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../mailhub\r\n../../\r\nimport site\r\n'))
-    put(root, 'engine/runtime/runtime-manifest.json', Buffer.from(JSON.stringify({
-      python: '3.13.15', dependencies: [{ name: 'fastapi', version: '0.141.1' }],
-    })))
-    put(root, 'engine/runtime/Lib/site-packages/fastapi-0.141.1.dist-info/METADATA', Buffer.from('meta'))
+    ]) inputHashes[relative] = hashFile(path.join(root, ...relative.split('/')))
+    put(root, 'dist/build-info.json', Buffer.from(JSON.stringify({
+      version, channel: 'release', commit, dirty: false, sha256: inputHashes,
+    }) + '\n'))
+    put(root, 'release/win-unpacked/resources/build-info.json', fs.readFileSync(path.join(root, 'dist/build-info.json')))
+    put(root, 'release/win-unpacked/resources/app.asar', Buffer.from('resource:app.asar'))
+    packageEngine(root, resources)
+    afterPackage(resources)
+    const installerBytes = Buffer.from('fixture installer')
+    put(root, 'release/Orgtree Setup 2.1.2.exe', installerBytes)
+    put(root, 'release/Orgtree Setup 2.1.2.exe.blockmap', Buffer.from('fixture blockmap'))
+    put(root, 'release/latest.yml', Buffer.from([
+      `version: ${version}`,
+      'files:',
+      `  - url: ${installerAssetName(version)}`,
+      `    sha512: ${sha512Bytes(installerBytes)}`,
+      `    size: ${installerBytes.length}`,
+      `path: ${installerAssetName(version)}`,
+      `sha512: ${sha512Bytes(installerBytes)}`,
+      '',
+    ].join('\r\n')))
+  }
 
-    const gitExec = (command, args) => {
-      assert.equal(command, 'git')
-      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return root + '\n'
-      if (args[0] === 'rev-parse') return commit + '\n'
-      if (args[0] === 'status') return ''
-      if (args[0] === 'ls-files' && args[1] === '--error-unmatch') return args.at(-1) + '\n'
-      if (args[0] === 'ls-files' && args[1] === '--' && args[2] === 'engine') return 'engine/a.py\n'
-      throw new Error(`unexpected git fixture call: ${args.join(' ')}`)
-    }
-    const gitProbe = (_command, args) => ({ status: args[0] === 'show-ref' ? 1 : 2 })
-    const externalCalls = []
-    const runExternal = (command, args) => {
-      externalCalls.push([command, args])
-      const releaseDir = path.join(root, 'release')
-      const resources = path.join(releaseDir, 'win-unpacked', 'resources')
-      const inputHashes = {}
-      for (const relative of [
-        'engine/launch.py',
-        'engine/runtime/python.exe',
-        'engine/runtime/python313._pth',
-        'engine/runtime/runtime-manifest.json',
-        'dist/renderer/index.html',
-      ]) inputHashes[relative] = hashFile(path.join(root, ...relative.split('/')))
-      put(root, 'dist/build-info.json', Buffer.from(JSON.stringify({
-        version, channel: 'release', commit, dirty: false, sha256: inputHashes,
-      }) + '\n'))
-      put(root, 'release/win-unpacked/resources/build-info.json', fs.readFileSync(path.join(root, 'dist/build-info.json')))
-      for (const relative of PACKAGED_HASH_FILES.filter(file => file !== 'build-info.json')) {
-        put(root, `release/win-unpacked/resources/${relative}`, Buffer.from(`resource:${relative}`))
-      }
-      const installerBytes = Buffer.from('fixture installer')
-      put(root, 'release/Orgtree Setup 2.1.2.exe', installerBytes)
-      put(root, 'release/Orgtree Setup 2.1.2.exe.blockmap', Buffer.from('fixture blockmap'))
-      put(root, 'release/latest.yml', Buffer.from([
-        `version: ${version}`,
-        'files:',
-        `  - url: ${installerAssetName(version)}`,
-        `    sha512: ${sha512Bytes(installerBytes)}`,
-        `    size: ${installerBytes.length}`,
-        `path: ${installerAssetName(version)}`,
-        `sha512: ${sha512Bytes(installerBytes)}`,
-        '',
-      ].join('\r\n')))
-    }
+  const engineChecks = []
+  const result = await produceWindowsRelease({ version, publish: false }, {
+    root,
+    execFileSync: gitExec,
+    spawnSync: gitProbe,
+    runExternal,
+    fetch: async () => responseJson({}, 404),
+    // The real packaged/payload engine verifiers run orgtree-engine.exe and
+    // 7-Zip; the orchestration fixture proves they are INVOKED with the real
+    // build outputs and that their digest flows into the manifest. Their own
+    // behavior is covered by the verifyPackagedEngine and
+    // verifyInstallerPayloadEngine tests above.
+    verifyPackagedEngine: ({ root: checkedRoot, resources, version: checkedVersion }) => {
+      engineChecks.push(['packaged', checkedRoot, resources, checkedVersion])
+      return { digest: packagedEngineDigest(resources), postgresManifestSha256: 'a'.repeat(64), engineVersion: `orgtree-engine ${checkedVersion}` }
+    },
+    verifyInstallerPayloadEngine: ({ installer, expectedDigest, expectedPostgresManifestSha256, version: checkedVersion }) => {
+      assert.equal(expectedPostgresManifestSha256, 'a'.repeat(64))
+      engineChecks.push(['payload', installer, checkedVersion])
+      return { digest: expectedDigest, postgresManifestSha256: expectedPostgresManifestSha256, engineVersion: `orgtree-engine ${checkedVersion}` }
+    },
+    runVerification: async () => ({
+      schema: 'orgtree.windows-release-verification/v1', profile: 'focused-release-v1',
+      candidate: commit, sourceFingerprint: 'sha256:fixture', sourceFiles: ['tools/release-windows.mjs'],
+      commands: [{ gate: 'source', command: ['node', '--test', 'tests/release-windows.test.mjs'] }],
+      results: [{ gate: 'source', status: 0, durationMs: 1 }], durationMs: 1, green: true,
+      fingerprint: 'sha256:fixture-receipt',
+    }),
+  })
+  return { result, version, commit, externalCalls, engineChecks }
+}
 
-    const runtimeChecks = []
-    const result = await produceWindowsRelease({ version, publish: false }, {
-      root,
-      execFileSync: gitExec,
-      spawnSync: gitProbe,
-      runExternal,
-      fetch: async () => responseJson({}, 404),
-      // The real packaged/payload runtime verifiers run interpreters and
-      // 7-Zip; the orchestration fixture proves they are INVOKED with the
-      // real build outputs and that their digest flows into the manifest.
-      // Their own behavior is covered by tests/runtime-layout.test.mjs.
-      verifyPackagedRuntime: ({ root: checkedRoot, resources }) => {
-        runtimeChecks.push(['packaged', checkedRoot, resources])
-        return { digest: runtimeTreeDigest(path.join(resources, 'engine', 'runtime')), postgresManifestSha256: 'a'.repeat(64), probe: { python: '3.13.15' } }
-      },
-      verifyInstallerPayloadRuntime: ({ installer, expectedDigest, expectedPostgresManifestSha256 }) => {
-        assert.equal(expectedPostgresManifestSha256, 'a'.repeat(64))
-        runtimeChecks.push(['payload', installer])
-        return { digest: expectedDigest, probe: { python: '3.13.15' } }
-      },
-      runVerification: async () => ({
-        schema: 'orgtree.windows-release-verification/v1', profile: 'focused-release-v1',
-        candidate: commit, sourceFingerprint: 'sha256:fixture', sourceFiles: ['tools/release-windows.mjs'],
-        commands: [{ gate: 'source', command: ['node', '--test', 'tests/release-windows.test.mjs'] }],
-        results: [{ gate: 'source', status: 0, durationMs: 1 }], durationMs: 1, green: true,
-        fingerprint: 'sha256:fixture-receipt',
-      }),
-    })
+test('candidate orchestration builds, stages, verifies, and writes the handoff without mutation', async () => {
+  const root = fixtureRoot()
+  try {
+    const { result, version, commit, externalCalls, engineChecks } = await orchestrateCandidate(root)
     const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'))
     const handoff = JSON.parse(fs.readFileSync(result.handoffPath, 'utf8'))
     assert.deepEqual(manifest.artifacts.map(record => record.name), CANONICAL_ASSET_NAMES(version))
     assert.equal(manifest.publication.state, 'candidate-only')
     assert.equal(handoff.commit, commit)
-    assert.equal(handoff.runtimeVerification.readOnly, true)
     assert.equal(manifest.verification.candidate, commit)
     assert.equal(manifest.verification.profile, 'focused-release-v1')
     assert.equal(externalCalls.length, 1)
     const npm = resolveNpmInvocation()
     assert.deepEqual(externalCalls[0][1], [...npm.args, 'run', 'package:win', '--', '--publish', 'never'])
-    // Both installed-shaped payload checks ran, against the build outputs,
-    // and the complete-runtime record reached the staged manifest.
-    assert.deepEqual(runtimeChecks.map(check => check[0]), ['packaged', 'payload'])
-    assert.equal(runtimeChecks[0][2], path.join(root, 'release', 'win-unpacked', 'resources'))
-    assert.match(runtimeChecks[1][1], /Orgtree Setup 2\.1\.2\.exe$/)
+    // Both installed-shaped payload checks ran, against the build outputs and
+    // for this version, and the engine record reached the staged manifest.
+    assert.deepEqual(engineChecks.map(check => check[0]), ['packaged', 'payload'])
+    assert.equal(engineChecks[0][2], path.join(root, 'release', 'win-unpacked', 'resources'))
+    assert.equal(engineChecks[0][3], version)
+    assert.match(engineChecks[1][1], /Orgtree Setup 2\.1\.2\.exe$/)
+    const resources = path.join(root, 'release', 'win-unpacked', 'resources')
     const stagedPackaged = JSON.parse(fs.readFileSync(path.join(result.uploadDir, 'packaged-hashes.json'), 'utf8'))
-    assert.equal(stagedPackaged.runtime.sitePackages, 'Lib/site-packages')
-    assert.equal(stagedPackaged.runtime.payload.imported, true)
-    assert.deepEqual(stagedPackaged.runtime.imports, REPRESENTATIVE_RUNTIME_IMPORTS)
+    const digest = packagedEngineDigest(resources)
+    assert.equal(stagedPackaged.runtime, undefined, 'no Python runtime record')
+    assert.deepEqual(stagedPackaged.engine, {
+      files: digest.files, sha256: digest.sha256, version: 'orgtree-engine 2.1.2', postgresManifestSha256: 'a'.repeat(64),
+      payload: { files: digest.files, sha256: digest.sha256, version: 'orgtree-engine 2.1.2' },
+    })
+    const stagedEngine = JSON.parse(fs.readFileSync(path.join(result.uploadDir, 'engine-hashes.json'), 'utf8'))
+    assert.deepEqual(stagedEngine, deriveEngineHashes({ root }))
+    for (const relative of Object.keys(PACKAGED_ENGINE_FILES)) assert.equal(stagedPackaged.files[relative], stagedEngine[relative], relative)
+    // The handoff's installed check is the engine and relaunch helper, read only.
+    assert.equal(handoff.runtimeVerification, undefined)
+    assert.equal(handoff.engineVerification.readOnly, true)
+    assert.equal(handoff.engineVerification.expected.engineVersion, 'orgtree-engine 2.1.2')
+    assert.equal(handoff.engineVerification.expected.relaunchHelperSha256, stagedEngine['engine/orgtree-installer-relaunch.exe'])
+    assert.equal(handoff.engineVerification.expected.engineSha256, stagedEngine['engine/orgtree-engine.exe'])
+    assert.match(handoff.engineVerification.commands[0], /orgtree-engine\.exe" --version$/)
+    assert.doesNotMatch(JSON.stringify(handoff), /python|verify-installed-runtime/i)
   } finally {
     removeFixture(root)
+  }
+})
+
+test('candidate verification refuses a packaged engine file that is not the build output', async () => {
+  for (const file of ['engine/orgtree-installer-relaunch.exe', 'engine/orgtree-engine.exe']) {
+    const root = fixtureRoot()
+    try {
+      // The verifiers are stubbed to agree with whatever was packaged, so
+      // this is the candidate check's own built = shipped comparison.
+      await assert.rejects(orchestrateCandidate(root, {
+        afterPackage: resources => put(resources, file, Buffer.from('stale from an earlier build')),
+      }), new RegExp(`Packaged ${file.replaceAll('.', '\\.')} differs from the build output`))
+    } finally {
+      removeFixture(root)
+    }
   }
 })
 
@@ -577,7 +727,7 @@ test('public release verification downloads every canonical asset and checks tag
   ].join('\n')
   const contents = new Map([
     ['build-info.json', Buffer.from(JSON.stringify({ version, channel: 'release', commit, dirty: false }) + '\n')],
-    ['engine-hashes.json', Buffer.from('{"engine/a.py":"hash"}\n')],
+    ['engine-hashes.json', Buffer.from('{"engine/orgtree-engine.exe":"hash"}\n')],
     ['latest.yml', Buffer.from(latestText)],
     [installerAssetName(version), installerBytes],
     [`${installerAssetName(version)}.blockmap`, Buffer.from('blockmap')],

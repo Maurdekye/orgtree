@@ -287,6 +287,37 @@ test('build provenance and real ASAR payload checks detect version drift, fixtur
   assert.throws(() => assertPrivateBuildInfo(info, { root, candidate }), /changed/)
 })
 
+test('build-info engine build outputs are checked at their packaged location', async t => {
+  // build.mjs stamps the engine payload where cargo leaves it
+  // (engine/rs/target/release/...); the package carries it at
+  // resources/engine/. Reading the stamp's path inside resources found nothing.
+  const root = fixture(t)
+  const main = PRIVATE_ALPHA_MARKER + '\nORGTREE-UPDATE-FIXTURE-BUILD:disabled'
+  put(root, 'dist/main/index.cjs', main)
+  const built = { 'engine/rs/target/release/orgtree-installer-relaunch.exe': 'relaunch helper',
+    'engine/mailhub/target/release/orgtree-mailhub.exe': 'mail hub', 'engine/postgres-runtime-manifest.json': '{}' }
+  for (const [relative, bytes] of Object.entries(built)) put(root, relative, bytes)
+  const info = { version: VERSION, channel: 'private-alpha', candidate, commit: candidate, dirty: false,
+    sha256: { 'dist/main/index.cjs': sha256Bytes(main),
+      ...Object.fromEntries(Object.entries(built).map(([relative, bytes]) => [relative, sha256Bytes(bytes)])) } }
+  put(root, 'dist/build-info.json', JSON.stringify(info))
+  const source = path.join(root, 'app')
+  put(source, 'package.json', JSON.stringify({ version: VERSION }))
+  put(source, 'dist/main/index.cjs', main)
+  const resources = path.join(root, 'resources')
+  put(resources, 'build-info.json', JSON.stringify(info))
+  put(resources, 'engine/orgtree-installer-relaunch.exe', 'relaunch helper')
+  put(resources, 'engine/orgtree-mailhub.exe', 'mail hub')
+  put(resources, 'engine/postgres-runtime-manifest.json', '{}')
+  await createPackage(source, path.join(resources, 'app.asar'))
+  uncacheAll()
+  assert.equal(assertPrivateBuildInfo(info, { root, candidate }), info)
+  assert.equal(verifyPrivateResources({ root, resources, info }).packageVersion, VERSION)
+  put(resources, 'engine/orgtree-installer-relaunch.exe', 'stale helper')
+  assert.throws(() => verifyPrivateResources({ root, resources, info }),
+    /Packaged build input differs: engine\/rs\/target\/release\/orgtree-installer-relaunch\.exe/)
+})
+
 test('updater manifest checks include nested stable, beta, alpha, and app feeds', t => {
   const root = fixture(t)
   for (const name of ['latest.yml', 'beta.yml', 'alpha.yml', 'latest-linux.yml', 'app-update.yaml']) {

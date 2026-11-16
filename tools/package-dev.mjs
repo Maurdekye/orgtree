@@ -16,14 +16,12 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 import { assertPackageInputsPresent } from './preflight-lib.mjs'
-import { assertRuntimeLayout } from './runtime-layout.mjs'
 import { assertPostgresRuntime } from './postgres-layout.mjs'
 import { devBuildInfo, devPackagingConfig } from './dev-build.mjs'
 
 assertPackageInputsPresent()
-// Same complete-layout rule as the release preflight: a dev installer with
-// packages outside Lib/site-packages installs an app that cannot start.
-assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' })
+// Same payload rule as the release preflight: a dev installer whose
+// PostgreSQL differs from its manifest installs an app that cannot start.
 assertPostgresRuntime('engine', { sourceRoot: process.cwd() })
 const info = JSON.parse(fs.readFileSync('dist/build-info.json', 'utf8'))
 const dev = devBuildInfo(info)

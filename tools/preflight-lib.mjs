@@ -2,14 +2,26 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { assertPublicReleaseAllowed, PRIVATE_ALPHA_MARKER } from './private-alpha-policy.mjs'
 
-/** Everything a packaged build cannot function without. Shared by the release
- *  preflight and the development packaging path: an installer of either channel
- *  with a missing engine or runtime installs an app that cannot start. */
-export const REQUIRED_PACKAGE_INPUTS = ['engine/runtime/python.exe', 'engine/runtime/python313.zip', 'engine/runtime/runtime-manifest.json', 'dist/renderer/index.html']
+/** Everything a packaged build cannot function without, with how to produce
+ *  it. Shared by the release preflight and the development packaging path: an
+ *  installer of either channel with a missing engine, relaunch helper, mail hub
+ *  or PostgreSQL payload installs an app that cannot start (or, without the
+ *  relaunch helper, one Setup cannot hand back to the user). Since 4.6.1 none
+ *  of it is Python: package.json build.extraResources ships exactly these
+ *  engine files and the PostgreSQL tree the manifest describes. */
+export const PACKAGE_INPUT_SOURCES = {
+  'engine/rs/target/release/orgtree-engine.exe': 'Build it with ORGTREE_RELEASE_BUILD=1 cargo build --release in engine/rs.',
+  'engine/rs/target/release/orgtree-credential-broker.exe': 'cargo build --release in engine/rs builds it with the engine.',
+  'engine/rs/target/release/orgtree-installer-relaunch.exe': 'cargo build --release in engine/rs builds it with the engine.',
+  'engine/mailhub/target/release/orgtree-mailhub.exe': 'Build it with cargo build --release in engine/mailhub.',
+  'engine/postgres-runtime-manifest.json': 'Provision PostgreSQL with npm run postgres:provision.',
+  'dist/renderer/index.html': 'Build the UI with npm run build.',
+}
+export const REQUIRED_PACKAGE_INPUTS = Object.keys(PACKAGE_INPUT_SOURCES)
 
 export function assertPackageInputsPresent(io = fs) {
   for (const file of REQUIRED_PACKAGE_INPUTS) {
-    if (!io.existsSync(file)) throw new Error('Package is incomplete: ' + file + '. Provision the runtime and integrate the real engine first.')
+    if (!io.existsSync(file)) throw new Error('Package is incomplete: ' + file + '. ' + PACKAGE_INPUT_SOURCES[file])
   }
 }
 

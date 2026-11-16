@@ -10,11 +10,12 @@ import {
   PRIVATE_ALPHA_MARKER, privateAlphaConfig,
 } from './private-alpha-policy.mjs'
 import {
-  assertCleanReleaseTree, assertLockfileVersion, assertReleaseVerification,
-  deriveEngineHashes, hashFile, serializeJson, sha256Bytes, verifyPackagedRuntime,
+  assertCleanReleaseTree, assertLockfileVersion, assertPackagedEngineLayout, assertReleaseVerification,
+  deriveEngineHashes, hashFile, PACKAGED_ENGINE_FILES, packagedEngineDigest, probeEngineVersion,
+  serializeJson, sha256Bytes, verifyPackagedEngine,
 } from './release-windows.mjs'
 import { assertMailhubSubmodule, REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
-import { assertRuntimeLayout, assertRuntimeImports, bundledSevenZip, runtimeTreeDigest } from './runtime-layout.mjs'
+import { bundledSevenZip } from './seven-zip.mjs'
 import { assertPostgresRuntime } from './postgres-layout.mjs'
 import { runVerification } from './release-verification.mjs'
 
@@ -118,6 +119,10 @@ export function assertNoUpdateMetadata(directory) {
   }
 }
 
+// build-info records the engine payload at its BUILD location
+// (engine/rs/target/release/...); the package carries it at resources/engine/.
+const PACKAGED_FROM_SOURCE = new Map(Object.entries(PACKAGED_ENGINE_FILES).map(([packaged, source]) => [source, packaged]))
+
 export function verifyPrivateResources({ root, resources, info, engineHashes = {}, extractFile = require('@electron/asar').extractFile }) {
   const archive = path.join(resources, 'app.asar')
   assertLocalPath(root, archive)
@@ -131,7 +136,7 @@ export function verifyPrivateResources({ root, resources, info, engineHashes = {
   for (const [relative, expected] of Object.entries(info.sha256)) {
     const bytes = relative.startsWith('dist/')
       ? extractFile(archive, relative.split('/').join(path.sep))
-      : fs.readFileSync(path.join(resources, relative))
+      : fs.readFileSync(path.join(resources, PACKAGED_FROM_SOURCE.get(relative) ?? relative))
     if (sha256Bytes(bytes) !== expected) fail(`Packaged build input differs: ${relative}`)
     if (relative.startsWith('dist/renderer/')) {
       const ui = path.join(resources, 'ui', relative.slice('dist/renderer/'.length))
@@ -177,13 +182,16 @@ export function verifyPrivateInstaller({ root, installer, resources, info, engin
   const extracted = path.join(payload, 'resources')
   const verified = verifyPrivateResources({ root, resources: extracted, info, engineHashes })
   if (verified.appAsarSha256 !== hashFile(path.join(resources, 'app.asar'))) fail('Installer app.asar differs from win-unpacked')
-  const expected = runtimeTreeDigest(path.join(resources, 'engine/runtime'))
-  const actual = runtimeTreeDigest(path.join(extracted, 'engine/runtime'))
-  if (actual.sha256 !== expected.sha256 || actual.files !== expected.files) fail('Installer runtime differs from win-unpacked')
-  assertRuntimeLayout(path.join(extracted, 'engine/runtime'))
+  assertPackagedEngineLayout(path.join(extracted, 'engine'), 'installer payload resources/engine')
+  const expected = packagedEngineDigest(resources)
+  const actual = packagedEngineDigest(extracted)
+  if (actual.sha256 !== expected.sha256 || actual.files !== expected.files) {
+    const changed = Object.keys(actual.hashes).filter(file => actual.hashes[file] !== expected.hashes[file])
+    fail(`Installer engine differs from win-unpacked: ${changed.join(', ')}`)
+  }
   assertPostgresRuntime(path.join(extracted, 'engine'))
-  const probe = assertRuntimeImports(path.join(extracted, 'engine/runtime'))
-  return { ...verified, productVersion: VERSION, runtime: actual, python: probe.python, installerExecuted: false }
+  const engineVersion = probeEngineVersion(path.join(extracted, 'engine', 'orgtree-engine.exe'), { label: 'installer payload orgtree-engine.exe' })
+  return { ...verified, productVersion: VERSION, engine: { files: actual.files, sha256: actual.sha256 }, engineVersion, installerExecuted: false }
 }
 
 export function privateArtifactRecord(file) {
@@ -239,7 +247,7 @@ export function privateAlphaPlan(build) {
   return { version: VERSION, channel: CHANNEL, mode: 'plan-only', config: privateAlphaConfig(build),
     build: ['node', 'tools/build.mjs', '--private-alpha'],
     package: ['electron-builder', '--win', 'nsis', '--x64', '--config', 'dist/electron-builder-private-alpha.json', '--publish', 'never'],
-    required: ['clean dedicated worktree', 'exact candidate combined-review approval', 'private dependencies and provisioned runtime'],
+    required: ['clean dedicated worktree', 'exact candidate combined-review approval', 'private dependencies, built engine and provisioned PostgreSQL'],
     publication: false, installerExecuted: false }
 }
 
@@ -257,7 +265,6 @@ export async function buildPrivateAlpha(options, dependencies = {}) {
   const pkg = json(path.join(root, 'package.json'))
   assertLockfileVersion(pkg.version, json(path.join(root, 'package-lock.json')))
   assertLocalPath(root, path.join(root, 'node_modules'), { directory: true })
-  assertRuntimeLayout(path.join(root, 'engine/runtime'))
   assertPostgresRuntime(path.join(root, 'engine'), { sourceRoot: root })
   for (const file of REQUIRED_PACKAGE_INPUTS.filter(file => !file.startsWith('dist/'))) assertLocalPath(root, path.join(root, file))
   assertLocalPath(root, path.join(root, 'dist'), { directory: true, absent: true })
@@ -282,9 +289,9 @@ export async function buildPrivateAlpha(options, dependencies = {}) {
   assertPrivateBuildInfo(info, { root, candidate })
   assertNoUpdateMetadata(output)
   const resources = path.join(output, 'win-unpacked/resources')
-  const engineHashes = deriveEngineHashes({ root, gitFiles: git(['ls-files', '--', 'engine']) })
+  const engineHashes = deriveEngineHashes({ root })
   verifyPrivateResources({ root, resources, info, engineHashes })
-  const runtime = verifyPackagedRuntime({ root, resources })
+  const packagedEngine = verifyPackagedEngine({ root, resources })
   const installer = path.join(output, INSTALLER)
   assertLocalPath(root, installer)
   const payload = verifyPrivateInstaller({ root, installer, resources, info, engineHashes })
@@ -292,7 +299,7 @@ export async function buildPrivateAlpha(options, dependencies = {}) {
   writeJson(path.join(output, 'engine-hashes.json'), engineHashes)
   const names = [INSTALLER, 'engine-hashes.json', 'source-verification.json']
   const artifacts = names.map(name => privateArtifactRecord(path.join(output, name)))
-  const manifest = makePrivateManifest({ candidate, artifacts, approval, verification, payload: { ...payload, packagedRuntime: runtime.digest } })
+  const manifest = makePrivateManifest({ candidate, artifacts, approval, verification, payload: { ...payload, packagedEngine: { files: packagedEngine.digest.files, sha256: packagedEngine.digest.sha256 } } })
   writeJson(path.join(output, 'private-alpha-manifest.json'), manifest)
   const manifestRecord = privateArtifactRecord(path.join(output, 'private-alpha-manifest.json'))
   writeJson(path.join(output, 'private-alpha-receipt.json'), { schema: 'orgtree.private-alpha-receipt/v1',

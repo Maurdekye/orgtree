@@ -41,8 +41,8 @@ const compilerPath = path.resolve(compiler)
 
 if (!fs.existsSync(compilerPath)) throw new Error('INERT: NSIS compiler unavailable; set ORGTREE_MAKENSIS')
 
-// Located by walking UPWARD: engine/runtime is gitignored, so a linked worktree
-// has none of its own and a plain join made the cross-process cases skip there.
+// The cargo-built helper (tools/native-test-bins.mjs: ORGTREE_RELAUNCH_HELPER
+// or the cargo target directory).
 const helperExe = relaunchHelperPath()
 
 function nsisFunction(name) {

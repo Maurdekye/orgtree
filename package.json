@@ -24,9 +24,7 @@
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
     "test:electron": "node tools/test-electron.mjs",
-    "runtime:provision": "python tools/provision-runtime.py",
-    "runtime:stage": "node tools/stage-runtime.mjs",
-    "postgres:provision": "python tools/provision-postgres.py"
+    "postgres:provision": "node tools/provision-postgres.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -71,17 +69,8 @@
         "from": "engine",
         "to": "engine",
         "filter": [
-          "*",
-          "backend/**/*",
-          "docs/**/*",
-          "hub/**/*",
-          "native/**/*",
           "postgresql/**/*",
-          "runtime/**/*",
-          "!**/__pycache__/**",
-          "!native/**/target/**",
-          "!rs/**",
-          "!mailhub/**"
+          "postgres-runtime-manifest.json"
         ]
       },
       {
@@ -99,11 +88,6 @@
       {
         "from": "engine/mailhub/target/release/orgtree-mailhub.exe",
         "to": "engine/orgtree-mailhub.exe"
-      },
-      {
-        "from": "tools/rig/fixtures/pg_migrations_32",
-        "to": "engine/backend/orgtree/pg_migrations",
-        "filter": ["**/*.sql"]
       },
       {
         "from": "dist/renderer",

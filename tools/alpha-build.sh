@@ -3,7 +3,7 @@
 # mail hub, then runs `npm run package:win`, all in a detached build worktree
 # on D:, under the machine-wide build lock and queue (team charter). E: is old
 # and slow: here it holds only the git object store, the one-time seed of the
-# untracked runtime inputs (SEED) and the copy of the finished installer
+# untracked PostgreSQL payload (SEED) and the copy of the finished installer
 # (DOWNLOADS).
 #
 #   bash tools/alpha-build.sh <version> "<output file name>" [<git ref>]
@@ -33,7 +33,7 @@
 #   TD        [/s/orgtree/work/cargo-target/$ME]  cargo target folder (an inherited CARGO_TARGET_DIR is ignored)
 #   REPO      [/s/orgtree/orgtree]  the repository WT belongs to
 #   SEED      [/s/orgtree/orgtree/.worktrees/rust-engine]  provisioned checkout, read only
-#             while WT has no engine/runtime or no PostgreSQL payload yet
+#             while WT has no PostgreSQL payload yet
 #   DOWNLOADS [/s/orgtree/artifacts]
 #   TMPD      [/s/orgtree/work/tmp/$ME]  TEMP/TMP for npm and electron-builder
 #   LOG       [<orgtree scratch>/$ME/build-<version>.log, else $TD/build-<version>.log]
@@ -56,14 +56,17 @@ place() {
   echo "placed $2 sha256 $a"
 }
 
-# every byte against the manifest, the manifest against the pinned archive,
-# the custodian sources against git (tools/postgres-layout.mjs)
+# every byte against the manifest, the manifest against the pinned archive
+# (tools/postgres-layout.mjs; the v2 manifest records PostgreSQL alone)
 check_pg() {
   (cd "$WT" && node -e "import(require('url').pathToFileURL(require('path').resolve('tools/postgres-layout.mjs'))).then(m => console.log('PostgreSQL payload verified:', JSON.stringify(m.assertPostgresRuntime(process.argv[1], { sourceRoot: '.' })))).catch(e => { console.error(e.message); process.exit(1) })" "$(cygpath -w "$1")")
 }
 
-check_runtime() {
-  (cd "$WT" && node -e "import(require('url').pathToFileURL(require('path').resolve('tools/runtime-layout.mjs'))).then(m => { m.assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' }); console.log('engine/runtime layout verified') }).catch(e => { console.error(e.message); process.exit(1) })")
+# a payload provisioned before 4.6.1 has a v1 manifest that also records
+# pg-custodian.exe: rewrite it to v2 in place, after checking every
+# engine/postgresql file against the v1 records (tools/provision-postgres.mjs)
+rewrite_pg() {
+  (cd "$WT" && node -e "import(require('url').pathToFileURL(require('path').resolve('tools/provision-postgres.mjs'))).then(m => console.log('PostgreSQL manifest:', JSON.stringify(m.rewriteManifest({ root: process.argv[1] })))).catch(e => { console.error(e.message); process.exit(1) })" "$(cygpath -w "$1")")
 }
 
 # build.mjs leaves a missing input out of the hash list without a word, so
@@ -74,8 +77,8 @@ check_build_info() {
 const fs = require('fs'), crypto = require('crypto')
 const [version, commit, hubCommit] = process.argv.slice(1)
 const info = JSON.parse(fs.readFileSync('dist/build-info.json', 'utf8'))
-const need = ['dist/main/index.cjs', 'engine/mailhub/target/release/orgtree-mailhub.exe', 'engine/runtime/python.exe',
-  'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json', 'engine/postgres-runtime-manifest.json', 'engine/pg-custodian.exe']
+const need = ['dist/main/index.cjs', 'engine/rs/target/release/orgtree-engine.exe', 'engine/rs/target/release/orgtree-credential-broker.exe',
+  'engine/rs/target/release/orgtree-installer-relaunch.exe', 'engine/mailhub/target/release/orgtree-mailhub.exe', 'engine/postgres-runtime-manifest.json']
 const bad = []
 if (info.version !== version) bad.push('version ' + info.version)
 if (info.channel !== 'release') bad.push('channel ' + info.channel)
@@ -150,27 +153,25 @@ prep() {
     done
   fi
 
-  # The untracked runtime inputs, once per worktree: staged from SEED with
-  # their own checks, never linked (a link would read them from E: forever).
-  if [ ! -e "$WT/engine/runtime" ]; then
-    echo "SEED engine/runtime from $(cygpath -m "$SEED") $(stamp)"
-    (cd "$WT" && node tools/stage-runtime.mjs --from "$(cygpath -w "$SEED")") || return 1
-  fi
-  check_runtime || return 1
+  # The untracked PostgreSQL payload, once per worktree: staged from SEED with
+  # its own checks, never linked (a link would read it from E: forever). Since
+  # 4.6.1 it is the whole untracked input: no Python runtime, no pg-custodian.exe.
   local f pg=0
-  for f in postgresql pg-custodian.exe postgres-runtime-manifest.json; do [ -e "$WT/engine/$f" ] && pg=$((pg + 1)); done
-  if [ $pg = 1 ] || [ $pg = 2 ]; then
-    echo "partial PostgreSQL payload in $WT/engine: remove postgresql, pg-custodian.exe and postgres-runtime-manifest.json to reseed"
+  for f in postgresql postgres-runtime-manifest.json; do [ -e "$WT/engine/$f" ] && pg=$((pg + 1)); done
+  if [ $pg = 1 ]; then
+    echo "partial PostgreSQL payload in $WT/engine: remove postgresql and postgres-runtime-manifest.json to reseed"
     return 1
   fi
   if [ $pg = 0 ]; then
     echo "SEED PostgreSQL payload from $(cygpath -m "$SEED") $(stamp)"
-    local stage="$TMPD/pg-seed"
-    rm -rf "$stage" && mkdir -p "$stage" || return 1
-    cp -r "$SEED/engine/postgresql" "$stage/" && cp "$SEED/engine/pg-custodian.exe" "$SEED/engine/postgres-runtime-manifest.json" "$stage/" || return 1
+    local seed="$TMPD/pg-seed" stage="$TMPD/pg-seed/engine"
+    rm -rf "$seed" && mkdir -p "$stage" || return 1
+    cp -r "$SEED/engine/postgresql" "$stage/" && cp "$SEED/engine/postgres-runtime-manifest.json" "$stage/" || return 1
+    rewrite_pg "$seed" || return 1
     check_pg "$stage" || return 1
-    mv "$stage/postgresql" "$stage/pg-custodian.exe" "$stage/postgres-runtime-manifest.json" "$WT/engine/" && rmdir "$stage" || return 1
+    mv "$stage/postgresql" "$stage/postgres-runtime-manifest.json" "$WT/engine/" && rm -rf "$seed" || return 1
   fi
+  rewrite_pg "$WT" || return 1
   check_pg "$WT/engine" || return 1
 
   (cd "$WT" && node -e "
@@ -179,7 +180,7 @@ for (const p of process.argv.slice(1)) {
   if (!fs.existsSync(p)) continue
   const real = fs.realpathSync.native(p)
   if (real.toLowerCase() !== path.resolve(p).toLowerCase()) { console.error('not a real folder of the build worktree: ' + p + ' -> ' + real); process.exit(1) }
-}" node_modules engine engine/runtime engine/postgresql engine/mailhub engine/rs dist release) || return 1
+}" node_modules engine engine/postgresql engine/mailhub engine/rs dist release) || return 1
 
   # nothing an earlier build left may reach this package
   rm -rf "${WT:?}/release" || return 1

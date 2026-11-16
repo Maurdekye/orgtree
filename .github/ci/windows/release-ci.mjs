@@ -4,8 +4,9 @@
  * Runs the packaging half of `npm run release:windows -- <version>` against a
  * SOURCE checkout, using that checkout's OWN tools/release-windows.mjs exports,
  * so an old tag builds with the release code it shipped with. Prerequisites
- * (engine, runtime, PostgreSQL payload, node_modules) are provisioned by the
- * workflow before this runs.
+ * (the Rust engine and mail hub builds, the PostgreSQL payload, node_modules)
+ * are provisioned by the workflow before this runs. Since 4.6.1 nothing here
+ * involves Python: the packaged engine is verified by its executables.
  *
  * Deliberately NOT done here:
  *  - the test gate (tools/release-verification.mjs): its baseline refuses a
@@ -48,7 +49,6 @@ async function main() {
   const root = fs.realpathSync(path.resolve(args.source))
   const out = path.resolve(args.out)
   const rel = await import(pathToFileURL(path.join(root, 'tools', 'release-windows.mjs')).href)
-  const { REPRESENTATIVE_RUNTIME_IMPORTS } = await import(pathToFileURL(path.join(root, 'tools', 'runtime-layout.mjs')).href)
 
   for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'ELECTRON_RUN_AS_NODE']) {
     if (process.env[name]) throw new Error(`${name} must not be set in the build environment`)
@@ -94,33 +94,26 @@ async function main() {
   })
 
   step('Engine hashes')
-  const engineHashes = rel.deriveEngineHashes({ root, gitFiles: git(root, ['ls-files', '--', 'engine']) })
-  console.log(`${Object.keys(engineHashes).length} tracked engine Python sources`)
+  const engineHashes = rel.deriveEngineHashes({ root })
+  console.log(`${Object.keys(engineHashes).length} engine build outputs`)
 
-  step('Packaged runtime (win-unpacked)')
-  const packagedRuntime = rel.verifyPackagedRuntime({ root, resources })
-  console.log(`runtime ${packagedRuntime.digest.files} files ${packagedRuntime.digest.sha256}`)
+  step('Packaged engine (win-unpacked)')
+  const packagedEngine = rel.verifyPackagedEngine({ root, resources, version })
+  console.log(`${packagedEngine.engineVersion}: ${packagedEngine.digest.files} files ${packagedEngine.digest.sha256}`)
 
-  step('Installer payload runtime (extracted, not executed)')
-  const payloadRuntime = rel.verifyInstallerPayloadRuntime({
-    root, installer,
-    workDir: path.join(releaseDir, 'payload-runtime-check'),
-    expectedDigest: packagedRuntime.digest,
-    expectedPostgresManifestSha256: packagedRuntime.postgresManifestSha256,
+  step('Installer payload engine (extracted; only orgtree-engine.exe --version is run)')
+  const payloadEngine = rel.verifyInstallerPayloadEngine({
+    root, installer, version,
+    workDir: path.join(releaseDir, 'payload-engine-check'),
+    expectedDigest: packagedEngine.digest,
+    expectedPostgresManifestSha256: packagedEngine.postgresManifestSha256,
   })
-  console.log(`payload runtime ${payloadRuntime.digest.files} files ${payloadRuntime.digest.sha256}`)
+  console.log(`payload ${payloadEngine.engineVersion}: ${payloadEngine.digest.files} files ${payloadEngine.digest.sha256}`)
 
   step('Packaged hashes and staging')
   const packagedHashes = rel.derivePackagedHashes({
     resources, installer, commit: head, version,
-    runtime: {
-      sitePackages: 'Lib/site-packages',
-      files: packagedRuntime.digest.files,
-      sha256: packagedRuntime.digest.sha256,
-      imports: [...REPRESENTATIVE_RUNTIME_IMPORTS],
-      python: packagedRuntime.probe.python,
-      payload: { files: payloadRuntime.digest.files, sha256: payloadRuntime.digest.sha256, imported: true },
-    },
+    engine: rel.packagedEngineRecord(packagedEngine, payloadEngine),
   })
   const staged = rel.stageCanonicalAssets({ root, releaseDir, version, engineHashes, packagedHashes })
 

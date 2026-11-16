@@ -60,12 +60,12 @@ const RELEASE = [
   // release is verified, so it is release tooling, and the lesson of `ed152e5`
   // is that release tooling whose own tests are not in this gate can break them
   // and still be waved through green.
-  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs', 'tests/test-baseline.test.mjs']],
+  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs', 'tests/release-verification.test.mjs', 'tests/test-baseline.test.mjs']],
 
 ]
 const INSTALLER = [
   ['installer', ['node', '--test', 'tests/installer-elevation.test.mjs', 'tests/installer-upgrade.test.mjs']],
-  ['release', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs', 'tests/runtime-layout.test.mjs']],
+  ['release', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs']],
 ]
 
 const VERSION_PATHS = new Set(['package.json', 'package-lock.json'])
@@ -76,9 +76,8 @@ const RELEASE_PATHS = [
   /^docs\/private-alpha-packaging\.md$/,
   /^tools\/release-windows\.mjs$/,
   /^tools\/release-verification\.mjs$/,
-  /^tools\/runtime-layout\.mjs$/,
-  /^tools\/stage-runtime\.mjs$/,
-  /^tools\/verification-receipt\.py$/,
+  // The installer-payload extraction both release paths verify through.
+  /^tools\/seven-zip\.mjs$/,
   // Release tooling since the full profile started running it. Note what is
   // deliberately ABSENT: `docs/test-baseline.json`, the acquittal list itself.
   // Editing that decides which failures the gate forgives, so it stays
@@ -86,11 +85,8 @@ const RELEASE_PATHS = [
   // file that could otherwise be used to wave a failure through.
   /^tools\/test-baseline\.mjs$/,
   /^tests\/test-baseline\.test\.mjs$/,
-  /^engine\/backend\/orgtree\/workevidence\.py$/,
   /^tests\/release-windows\.test\.mjs$/,
-  /^tests\/runtime-layout\.test\.mjs$/,
   /^tests\/release-verification\.test\.mjs$/,
-  /^tests\/test_work_evidence_receipts\.py$/,
   /^docs\/windows-release\.md$/,
   // The guide to the baseline the full profile now runs on, classified
   // alongside the release documentation above it for the same reason.

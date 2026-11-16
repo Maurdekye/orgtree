@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { assertMailhubSubmodule, assertNoUpdateFixture, assertPackageInputsPresent, assertReleaseProvenance } from './preflight-lib.mjs'
-import { assertRuntimeLayout } from './runtime-layout.mjs'
 import { assertPostgresRuntime, assertVcRuntimeMinimum } from './postgres-layout.mjs'
 
 assertPackageInputsPresent()
@@ -38,14 +37,12 @@ assertPackageInputsPresent()
   if (!/^orgtree-mailhub \d/.test(version)) throw new Error(`${hub} is not the mail hub binary (${version})`)
   console.log('Mail hub present:', version)
 }
-// The complete package layout, not just file existence: 2.1.4-RC4 passed the
-// input list with its site-packages staged one level above where the
-// interpreter's ._pth looks, and shipped an app that could not start.
-assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' })
+// The PostgreSQL payload byte for byte against its manifest, not just file
+// existence. (Since 4.6.1 there is no embedded Python runtime to check.)
 assertPostgresRuntime('engine', { sourceRoot: process.cwd() })
 // Setup's Visual C++ runtime minimum (tools/vc-runtime.ps1) must cover the toolset that built this payload.
 console.log('PostgreSQL payload within Setup\'s Visual C++ runtime minimum:', JSON.stringify(assertVcRuntimeMinimum('engine')))
-console.log('Standalone engine/runtime/UI inputs present; runtime package layout verified')
+console.log('Standalone engine, relaunch helper, mail hub, PostgreSQL and UI inputs present; PostgreSQL payload verified')
 
 const info = JSON.parse(fs.readFileSync('dist/build-info.json', 'utf8'))
 // Before provenance, because this one is about what the artifact CAN DO rather

@@ -67,9 +67,12 @@ try {
 } catch { /* preflight fails the package when the submodule is absent. */ }
 const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html',
   ...fs.readdirSync('dist/renderer/assets').map(name => 'dist/renderer/assets/' + name),
+  // The engine payload (package.json build.extraResources), recorded so the
+  // release preflight refuses one rebuilt after this stamp.
+  'engine/rs/target/release/orgtree-engine.exe', 'engine/rs/target/release/orgtree-credential-broker.exe',
+  'engine/rs/target/release/orgtree-installer-relaunch.exe',
   'engine/mailhub/target/release/orgtree-mailhub.exe',
-  'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json',
-  'engine/postgres-runtime-manifest.json', 'engine/pg-custodian.exe']
+  'engine/postgres-runtime-manifest.json']
 // Every build starts as the release channel; `npm run package:dev` rewrites
 // this file with channel 'dev' and a commit-stamped version before packing.
 // Rebuilding always resets it, so a development stamp cannot leak forward into

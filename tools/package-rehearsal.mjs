@@ -23,7 +23,8 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { devBuildInfo, devPackagingConfig, DEV_APP_ID } from './dev-build.mjs'
-import { assertRuntimeLayout } from './runtime-layout.mjs'
+import { assertPackageInputsPresent } from './preflight-lib.mjs'
+import { assertPostgresRuntime } from './postgres-layout.mjs'
 import {
   assertNotElevated, assertRehearsalComposition, assertRehearsalTarget,
   DEFAULT_REHEARSAL_OUT, installedRootsFromRegistry, REHEARSAL_UPDATER_CACHE,
@@ -82,8 +83,10 @@ if (dev.channel !== 'dev') throw new Error('the rehearsal build must be the dev 
 if (!dev.version.includes('-dev.')) throw new Error('the rehearsal version must be a dev version')
 fs.writeFileSync('dist/build-info.json', JSON.stringify(dev, null, 2) + '\n')
 
-// The runtime has to be staged or the packaged app cannot start its engine.
-assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' })
+// The engine, relaunch helper, mail hub and PostgreSQL payload have to be built
+// and provisioned, or the packaged app cannot start its engine.
+assertPackageInputsPresent()
+assertPostgresRuntime('engine', { sourceRoot: process.cwd() })
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
 const config = devPackagingConfig(pkg.build, dev.version)

@@ -26,6 +26,22 @@ test('release selector keeps release-only changes focused', () => {
   assert.equal(plan.gates.find(gate => gate.gate === 'artifact').reuse, true)
 })
 
+test('the release gate runs only test files that exist, and classifies the payload extraction as release tooling', () => {
+  // tests/runtime-layout.test.mjs and its tools went with the embedded Python
+  // runtime (4.6.1); a gate still naming them would fail every release.
+  for (const files of [['tools/release-windows.mjs'], ['tools/installer-upgrade.ps1']]) {
+    for (const check of selectReleaseVerification(files).checks) {
+      for (const arg of check.command.filter(value => /^tests\/.*\.test\.mjs$/.test(value))) {
+        assert.ok(fs.existsSync(arg), `${check.gate} runs ${arg}, which does not exist`)
+      }
+    }
+  }
+  assert.equal(classifyReleaseChanges(['tools/seven-zip.mjs']).area, 'release')
+  for (const gone of ['tools/runtime-layout.mjs', 'tools/stage-runtime.mjs', 'tests/runtime-layout.test.mjs']) {
+    assert.equal(classifyReleaseChanges([gone]).area, 'full', `${gone} is no longer release tooling`)
+  }
+})
+
 test('installer changes retain release safety checks without escalating to the full suite', () => {
   const classification = classifyReleaseChanges(['tools/installer-upgrade.ps1'])
   assert.equal(classification.area, 'installer')
@@ -414,5 +430,5 @@ test('verification runner captures hidden child options, commands, and measured 
   // -I, which ignores PYTHONPATH. Pinned here so a "simplification" back to
   // `-m unittest` fails a test instead of silently un-verifying every release.
   assert.equal(calls.some(call => call.args.includes('unittest')), false,
-    'a release gate is running a bare `python -m unittest`; route it through tools/run-python-verification.py')
+    'a release gate is running `python -m unittest`; the release gate has had no Python lane since 4.6.1')
 })

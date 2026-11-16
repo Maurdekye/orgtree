@@ -98,11 +98,26 @@ test('release preflight refuses a dev-channel build outright', () => {
 })
 
 test('packaging preflight still demands the standalone inputs', () => {
-  assert.deepEqual(REQUIRED_PACKAGE_INPUTS.slice(0, 3), ['engine/runtime/python.exe', 'engine/runtime/python313.zip', 'engine/runtime/runtime-manifest.json'])
+  // Since 4.6.1 the standalone inputs are the Rust engine, its credential
+  // broker, the post-Setup relaunch helper, the mail hub and the PostgreSQL
+  // payload: no embedded Python runtime.
+  assert.deepEqual(REQUIRED_PACKAGE_INPUTS, [
+    'engine/rs/target/release/orgtree-engine.exe',
+    'engine/rs/target/release/orgtree-credential-broker.exe',
+    'engine/rs/target/release/orgtree-installer-relaunch.exe',
+    'engine/mailhub/target/release/orgtree-mailhub.exe',
+    'engine/postgres-runtime-manifest.json',
+    'dist/renderer/index.html',
+  ])
   const present = new Set(REQUIRED_PACKAGE_INPUTS)
   assertPackageInputsPresent({ existsSync: file => present.has(file) })
-  present.delete('engine/runtime/python.exe')
-  assert.throws(() => assertPackageInputsPresent({ existsSync: file => present.has(file) }), /Package is incomplete: engine\/runtime\/python\.exe/)
+  present.delete('engine/rs/target/release/orgtree-installer-relaunch.exe')
+  assert.throws(() => assertPackageInputsPresent({ existsSync: file => present.has(file) }),
+    /Package is incomplete: engine\/rs\/target\/release\/orgtree-installer-relaunch\.exe\. cargo build --release in engine\/rs builds it/)
+  present.add('engine/rs/target/release/orgtree-installer-relaunch.exe')
+  present.delete('engine/postgres-runtime-manifest.json')
+  assert.throws(() => assertPackageInputsPresent({ existsSync: file => present.has(file) }),
+    /Package is incomplete: engine\/postgres-runtime-manifest\.json\. Provision PostgreSQL with npm run postgres:provision/)
 })
 
 test('packaged dev channel is a third identity, fully distinct from the release', () => {

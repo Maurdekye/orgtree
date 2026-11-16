@@ -8,6 +8,7 @@
  * credentials being present in the environment.
  */
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -16,10 +17,7 @@ import { REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
 import { recordFullyGatedBuild, runVerification } from './release-verification.mjs'
 import { assertPublicReleaseAllowed } from './private-alpha-policy.mjs'
 import { assertPostgresRuntime } from './postgres-layout.mjs'
-import {
-  assertRuntimeImports, assertRuntimeLayout, extractInstallerEngine,
-  REPRESENTATIVE_RUNTIME_IMPORTS, RuntimeLayoutError, runtimeTreeDigest,
-} from './runtime-layout.mjs'
+import { extractInstallerEngine, SevenZipError } from './seven-zip.mjs'
 
 export const RELEASE_MANIFEST_SCHEMA = 'orgtree.windows-release/v1'
 export const HANDOFF_SCHEMA = 'orgtree.windows-installation-handoff/v1'
@@ -45,14 +43,35 @@ export const CANONICAL_ASSET_NAMES = version => [
 export const installerSourceName = version => `Orgtree Setup ${version}.exe`
 export const installerAssetName = version => `Orgtree-Setup-${version}.exe`
 
-// These are the resource files hashed by packaged-hashes.json in the 2.1.1
-// release. Keep the list explicit: changing the schema must be a deliberate
-// release-tooling change, not an accidental consequence of package contents.
+// What resources/engine ships since 4.6.1, keyed by packaged location, with
+// the build output each one is copied from (package.json build.extraResources;
+// tests/release-windows.test.mjs pins the two against each other). The
+// PostgreSQL tree under postgresql/ is vouched for by its own manifest
+// (tools/postgres-layout.mjs), which is the last entry here.
+export const PACKAGED_ENGINE_FILES = {
+  'engine/orgtree-engine.exe': 'engine/rs/target/release/orgtree-engine.exe',
+  'engine/orgtree-credential-broker.exe': 'engine/rs/target/release/orgtree-credential-broker.exe',
+  'engine/orgtree-installer-relaunch.exe': 'engine/rs/target/release/orgtree-installer-relaunch.exe',
+  'engine/orgtree-mailhub.exe': 'engine/mailhub/target/release/orgtree-mailhub.exe',
+  'engine/postgres-runtime-manifest.json': 'engine/postgres-runtime-manifest.json',
+}
+
+// Everything resources/engine may contain: the files above and the PostgreSQL
+// directory. Anything else (an engine/runtime Python tree, *.py sources,
+// backend/, pg-custodian.exe) is a packaging regression and is refused by name.
+export const PACKAGED_ENGINE_ENTRIES = [
+  ...Object.keys(PACKAGED_ENGINE_FILES).map(file => file.slice('engine/'.length)),
+  'postgresql',
+]
+
+// These are the resource files hashed by packaged-hashes.json. Keep the list
+// explicit: changing the schema must be a deliberate release-tooling change,
+// not an accidental consequence of package contents. (Until 4.6.0 the engine
+// entries were the embedded Python runtime's interpreter and manifest.)
 export const PACKAGED_HASH_FILES = [
   'app.asar',
   'build-info.json',
-  'engine/runtime/python.exe',
-  'engine/runtime/runtime-manifest.json',
+  ...Object.keys(PACKAGED_ENGINE_FILES),
 ]
 
 export const RELEASE_USAGE = `Usage:
@@ -446,87 +465,150 @@ function assertPackagePrerequisites(root) {
   for (const relative of REQUIRED_PACKAGE_INPUTS.filter(file => file !== 'dist/renderer/index.html')) {
     requireRegularFile(nativeRelative(root, relative), `package prerequisite ${relative}`)
   }
-  requireRegularFile(nativeRelative(root, 'engine/runtime/python313._pth'), 'package prerequisite engine/runtime/python313._pth')
-  // The COMPLETE runtime package layout, not just the interpreter files: the
-  // 2.1.4-RC4 worktree carried site-packages one level up from where the
-  // ._pth looks, every prerequisite above still existed, and the broken tree
-  // went straight into the payload. Refuse before spending build time.
-  assertRuntimeLayoutOrFail(nativeRelative(root, 'engine/runtime'), 'source engine/runtime')
+  // The PostgreSQL payload is checked byte for byte against its manifest
+  // before spending build time, not merely found to exist.
+  assertSourcePostgres(root)
   const nodeModules = nativeRelative(root, 'node_modules')
   requireRealDirectory(nodeModules, 'private node_modules')
   requireRegularFile(path.join(nodeModules, 'electron', 'package.json'), 'Electron dependency')
   requireRegularFile(path.join(nodeModules, 'electron-builder', 'package.json'), 'electron-builder dependency')
 }
 
-function assertRuntimeLayoutOrFail(runtimeDir, label) {
+function postgresOrFail(engineDirectory, label, options) {
   try {
-    return assertRuntimeLayout(runtimeDir, { label })
+    return assertPostgresRuntime(engineDirectory, options)
   } catch (error) {
-    if (error instanceof RuntimeLayoutError) fail(error.message)
-    throw error
+    if (error instanceof ReleaseError) throw error
+    fail(`${label}: ${error.message}`)
   }
 }
 
+function assertSourcePostgres(root) {
+  return postgresOrFail(nativeRelative(root, 'engine'), 'Source PostgreSQL payload', { sourceRoot: root })
+}
+
 /**
- * Verify the PACKAGED runtime — the win-unpacked payload electron-builder
- * compresses into the installer — as an installed-shaped tree:
- *  - complete layout (dist-info set vs runtime-manifest, no stray
- *    site-packages, Lib/site-packages present);
- *  - byte-identity with the source checkout's provisioned runtime, so a
- *    staging or packaging step that moved/dropped anything is named;
- *  - a real import probe: the payload's own python.exe imports the
- *    representative backend dependencies from inside the payload.
+ * Refuse anything in a packaged `resources/engine` beyond what 4.6.1 ships:
+ * the engine executables, the PostgreSQL manifest and its `postgresql/` tree.
+ * The retired embedded Python runtime is named explicitly, because a stale
+ * package.json filter or a hand-staged worktree would bring it back silently.
  */
-export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSync }) {
-  const sourcePostgres = assertPostgresRuntime(path.join(root, 'engine'), { sourceRoot: root })
-  const packagedPostgres = assertPostgresRuntime(path.join(resources, 'engine'))
+export function assertPackagedEngineLayout(engineDirectory, label) {
+  requireRealDirectory(engineDirectory, label)
+  const allowed = new Set(PACKAGED_ENGINE_ENTRIES)
+  for (const entry of fs.readdirSync(engineDirectory, { withFileTypes: true })) {
+    if (allowed.has(entry.name)) continue
+    if (entry.name === 'runtime') fail(`${label} still carries runtime/, the retired embedded Python runtime; 4.6.1 ships no Python`)
+    if (/\.pyw?$/i.test(entry.name) || entry.name === 'backend') fail(`${label} still carries Python engine source ${entry.name}; 4.6.1 ships no Python`)
+    fail(`${label} carries an unexpected entry ${entry.name}; package.json build.extraResources must ship only ${PACKAGED_ENGINE_ENTRIES.join(', ')}`)
+  }
+  for (const relative of Object.keys(PACKAGED_ENGINE_FILES)) {
+    requireRegularFile(path.join(engineDirectory, relative.slice('engine/'.length)), `${label} ${relative.slice('engine/'.length)}`)
+  }
+  requireRealDirectory(path.join(engineDirectory, 'postgresql'), `${label} postgresql`)
+}
+
+/** A deterministic digest of the shipped engine files under `resources`:
+ *  each packaged path and its SHA-256, in PACKAGED_ENGINE_FILES order. */
+export function packagedEngineDigest(resources) {
+  const hash = crypto.createHash('sha256')
+  const hashes = {}
+  for (const relative of Object.keys(PACKAGED_ENGINE_FILES)) {
+    const file = nativeRelative(resources, relative)
+    requireRegularFile(file, `packaged ${relative}`)
+    hashes[relative] = hashFile(file)
+    hash.update(`${relative}\n${hashes[relative]}\n`)
+  }
+  return { files: Object.keys(hashes).length, sha256: hash.digest('hex'), hashes }
+}
+
+/** Run `orgtree-engine.exe --version` from a neutral working directory. The
+ *  release build prints exactly `orgtree-engine <version>`; a development
+ *  build appends ` (dev)` and is refused. */
+export function probeEngineVersion(exe, { version = null, label, spawnSyncImpl = spawnSync } = {}) {
+  requireRegularFile(exe, label)
+  const result = spawnSyncImpl(exe, ['--version'], { cwd: os.tmpdir(), encoding: 'utf8', windowsHide: true, timeout: 60000 })
+  if (result.error) fail(`Could not start ${label} ${exe}: ${result.error.message}`)
+  const output = String(result.stdout || '').trim()
+  if (result.status !== 0) fail(`${label} --version failed (exit ${result.status ?? 'unknown'}): ${output || String(result.stderr || '').trim()}`)
+  if (/\(dev\)/.test(output)) fail(`${label} is a development build (${output}); rebuild it with ORGTREE_RELEASE_BUILD=1`)
+  if (version ? output !== `orgtree-engine ${version}` : !/^orgtree-engine \d+\.\d+\.\d+\S*$/.test(output)) {
+    fail(`${label} reports ${JSON.stringify(output)}, expected ${version ? `"orgtree-engine ${version}"` : 'a release "orgtree-engine <version>"'}`)
+  }
+  return output
+}
+
+/**
+ * Verify the PACKAGED engine — the win-unpacked payload electron-builder
+ * compresses into the installer — against what was built:
+ *  - resources/engine holds exactly the shipped entries (no Python runtime);
+ *  - every engine executable, the relaunch helper and the PostgreSQL manifest
+ *    are byte-identical to the build outputs they were copied from, so a
+ *    packaging step that shipped a stale or missing binary is named;
+ *  - the PostgreSQL tree matches its manifest, and that manifest the source's;
+ *  - the packaged orgtree-engine.exe starts and reports the release version.
+ */
+export function verifyPackagedEngine({ root, resources, version = null, spawnSyncImpl = spawnSync }) {
+  const engineDirectory = path.join(resources, 'engine')
+  assertPackagedEngineLayout(engineDirectory, 'packaged resources/engine')
+  const sourcePostgres = assertSourcePostgres(root)
+  const packagedPostgres = postgresOrFail(engineDirectory, 'Packaged PostgreSQL payload')
   if (sourcePostgres.manifestSha256 !== packagedPostgres.manifestSha256) fail('Packaged PostgreSQL differs from source')
-  const packagedRuntime = path.join(resources, 'engine', 'runtime')
-  assertRuntimeLayoutOrFail(packagedRuntime, 'packaged engine/runtime')
-  const sourceDigest = runtimeTreeDigest(nativeRelative(root, 'engine/runtime'))
-  const packagedDigest = runtimeTreeDigest(packagedRuntime)
-  if (sourceDigest.sha256 !== packagedDigest.sha256 || sourceDigest.files !== packagedDigest.files) {
-    fail(`Packaged runtime tree differs from the provisioned source runtime `
-      + `(source ${sourceDigest.files} files ${sourceDigest.sha256}, packaged ${packagedDigest.files} files ${packagedDigest.sha256}); `
-      + 'the payload would not run what was provisioned')
+  const digest = packagedEngineDigest(resources)
+  for (const [packaged, source] of Object.entries(PACKAGED_ENGINE_FILES)) {
+    const sourceFile = nativeRelative(root, source)
+    requireRegularFile(sourceFile, `built ${source}`)
+    const built = hashFile(sourceFile)
+    if (built !== digest.hashes[packaged]) {
+      fail(`Packaged ${packaged} differs from the built ${source} (packaged ${digest.hashes[packaged]}, built ${built}); the payload would not run what was built`)
+    }
   }
-  let probe
-  try {
-    probe = assertRuntimeImports(packagedRuntime, { spawnSyncImpl })
-  } catch (error) {
-    if (error instanceof RuntimeLayoutError) fail(error.message)
-    throw error
-  }
-  return { digest: packagedDigest, postgresManifestSha256: packagedPostgres.manifestSha256, probe }
+  const engineVersion = probeEngineVersion(path.join(engineDirectory, 'orgtree-engine.exe'),
+    { version, label: 'packaged orgtree-engine.exe', spawnSyncImpl })
+  return { digest, postgresManifestSha256: packagedPostgres.manifestSha256, engineVersion }
 }
 
 /**
- * Verify the runtime inside the BUILT INSTALLER's own payload — the bytes a
+ * Verify the engine inside the BUILT INSTALLER's own payload — the bytes a
  * user's machine receives — without executing the installer: extract
- * `app-64.7z` with the dependency tree's 7-Zip, require the identical tree
- * digest, and run the import probe against the extracted interpreter.
+ * `app-64.7z` with the dependency tree's 7-Zip, require the same entries,
+ * the identical engine digest and PostgreSQL manifest as the verified
+ * win-unpacked payload, and the extracted orgtree-engine.exe's version.
  */
-export function verifyInstallerPayloadRuntime({ root, installer, workDir, expectedDigest, expectedPostgresManifestSha256, spawnSyncImpl = spawnSync }) {
-  let extracted
+export function verifyInstallerPayloadEngine({ root, installer, workDir, expectedDigest, expectedPostgresManifestSha256, version = null, spawnSyncImpl = spawnSync }) {
   try {
-    extracted = extractInstallerEngine({ root, installer, workDir, spawnSyncImpl })
-    assertRuntimeLayoutOrFail(extracted.runtime, 'installer payload engine/runtime')
-    const postgres = assertPostgresRuntime(extracted.engine)
+    const extracted = extractInstallerEngine({ root, installer, workDir, spawnSyncImpl })
+    assertPackagedEngineLayout(extracted.engine, 'installer payload resources/engine')
+    const postgres = postgresOrFail(extracted.engine, 'Installer payload PostgreSQL')
     if (!expectedPostgresManifestSha256 || postgres.manifestSha256 !== expectedPostgresManifestSha256) {
       fail('Installer payload PostgreSQL differs from the verified packaged PostgreSQL manifest')
     }
-    const digest = runtimeTreeDigest(extracted.runtime)
-    if (expectedDigest && (digest.sha256 !== expectedDigest.sha256 || digest.files !== expectedDigest.files)) {
-      fail(`Installer payload runtime differs from the verified packaged runtime `
-        + `(payload ${digest.files} files ${digest.sha256}, expected ${expectedDigest.files} files ${expectedDigest.sha256})`)
+    const digest = packagedEngineDigest(path.dirname(extracted.engine))
+    if (!expectedDigest || digest.sha256 !== expectedDigest.sha256 || digest.files !== expectedDigest.files) {
+      const changed = Object.keys(digest.hashes).filter(file => digest.hashes[file] !== expectedDigest?.hashes?.[file])
+      fail(`Installer payload engine differs from the verified packaged engine (${changed.join(', ') || 'no verified digest'}); `
+        + `payload ${digest.files} files ${digest.sha256}, expected ${expectedDigest?.files ?? 'none'} files ${expectedDigest?.sha256 ?? 'none'}`)
     }
-    const probe = assertRuntimeImports(extracted.runtime, { spawnSyncImpl })
-    return { digest, postgresManifestSha256: postgres.manifestSha256, probe }
+    const engineVersion = probeEngineVersion(path.join(extracted.engine, 'orgtree-engine.exe'),
+      { version, label: 'installer payload orgtree-engine.exe', spawnSyncImpl })
+    return { digest, postgresManifestSha256: postgres.manifestSha256, engineVersion }
   } catch (error) {
-    if (error instanceof RuntimeLayoutError) fail(error.message)
+    if (error instanceof SevenZipError) fail(error.message)
     throw error
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true })
+  }
+}
+
+/** The packaged-hashes.json `engine` section: the verified win-unpacked
+ *  engine digest and version, and the installer payload's matching digest. */
+export function packagedEngineRecord(packaged, payload) {
+  return {
+    files: packaged.digest.files,
+    sha256: packaged.digest.sha256,
+    version: packaged.engineVersion,
+    postgresManifestSha256: packaged.postgresManifestSha256,
+    payload: { files: payload.digest.files, sha256: payload.digest.sha256, version: payload.engineVersion },
   }
 }
 
@@ -534,7 +616,6 @@ function assertAllPackageInputs(root) {
   for (const relative of REQUIRED_PACKAGE_INPUTS) {
     requireRegularFile(nativeRelative(root, relative), `package prerequisite ${relative}`)
   }
-  requireRegularFile(nativeRelative(root, 'engine/runtime/python313._pth'), 'package prerequisite engine/runtime/python313._pth')
 }
 
 export function assertBuildProvenance(info, { root, head, porcelain, version }) {
@@ -555,26 +636,23 @@ export function assertBuildProvenance(info, { root, head, porcelain, version }) 
   return info
 }
 
-export function deriveEngineHashes({ root, gitFiles, hash = hashFile }) {
-  const tracked = gitFiles
-    .split(/\r?\n/)
-    .map(value => value.trim())
-    .filter(Boolean)
-    .map(value => value.replaceAll('\\', '/'))
-  const sources = [...new Set(tracked)]
-    .filter(file => file.endsWith('.py') && !file.startsWith('engine/runtime/'))
-    .sort()
-  if (!sources.length) fail('No tracked engine Python sources were found for engine-hashes.json')
+/** engine-hashes.json: what the engine payload must contain, from the BUILD
+ *  OUTPUTS rather than the package — each packaged engine path (sorted) and
+ *  the SHA-256 of the file it is copied from. Until 4.6.0 this hashed the
+ *  tracked engine Python sources, which shipped as-is; since 4.6.1 the engine
+ *  ships compiled, so the build outputs are what the payload is held to. */
+export function deriveEngineHashes({ root, hash = hashFile }) {
   const result = {}
-  for (const relative of sources) {
-    const file = resolveInside(root, relative, 'engine source')
-    requireRegularFile(file, `engine source ${relative}`)
-    result[relative] = hash(file)
+  for (const packaged of Object.keys(PACKAGED_ENGINE_FILES).sort()) {
+    const source = PACKAGED_ENGINE_FILES[packaged]
+    const file = resolveInside(root, source, 'engine build output')
+    requireRegularFile(file, `engine build output ${source}`)
+    result[packaged] = hash(file)
   }
   return result
 }
 
-export function derivePackagedHashes({ resources, installer, commit, version, hash = hashFile, runtime = null }) {
+export function derivePackagedHashes({ resources, installer, commit, version, hash = hashFile, engine = null }) {
   const files = {}
   for (const relative of PACKAGED_HASH_FILES) {
     const file = nativeRelative(resources, relative)
@@ -586,12 +664,11 @@ export function derivePackagedHashes({ resources, installer, commit, version, ha
     commit,
     version,
     files,
-    // The COMPLETE packaged runtime tree, not four loose files: count and
-    // digest over every file under engine/runtime plus the interpreter's
-    // configured package location and the imports the payload proved. A
-    // manifest without this section vouched for the RC4 payload whose
-    // site-packages sat where the interpreter never looks.
-    ...(runtime ? { runtime } : {}),
+    // The verified engine payload: digest over the shipped engine files, the
+    // version the packaged orgtree-engine.exe reported, the PostgreSQL
+    // manifest, and the installer payload's own matching digest. (Until 4.6.0
+    // this section was `runtime`, the embedded Python tree's digest.)
+    ...(engine ? { engine } : {}),
     installerSha256: hash(installer),
   }
 }
@@ -744,20 +821,32 @@ export function verifyLocalCandidate({ root, manifest, uploadDir, resources, eng
     requireRegularFile(file, `packaged resource ${relative}`)
     if (hashFile(file) !== expected) fail(`Packaged resource hash mismatch: ${relative}`)
   }
-  // The runtime section must describe the packaged tree as it sits on disk
+  // The engine section must describe the packaged engine as it sits on disk
   // right now — recomputed here, not trusted from the earlier derivation.
-  if (!packaged.runtime || packaged.runtime.sitePackages !== 'Lib/site-packages') {
-    fail('packaged-hashes.json does not record the complete runtime package layout')
+  assertPackagedEngineLayout(path.join(resources, 'engine'), 'packaged resources/engine')
+  if (!packaged.engine || typeof packaged.engine !== 'object') {
+    fail('packaged-hashes.json does not record the verified engine payload')
   }
-  const packagedRuntimeDigest = runtimeTreeDigest(path.join(resources, 'engine', 'runtime'))
-  if (packaged.runtime.files !== packagedRuntimeDigest.files || packaged.runtime.sha256 !== packagedRuntimeDigest.sha256) {
-    fail('packaged-hashes.json runtime digest does not match the packaged runtime tree')
+  const packagedDigest = packagedEngineDigest(resources)
+  if (packaged.engine.files !== packagedDigest.files || packaged.engine.sha256 !== packagedDigest.sha256) {
+    fail('packaged-hashes.json engine digest does not match the packaged engine files')
   }
-  if (JSON.stringify(packaged.runtime.imports) !== JSON.stringify(REPRESENTATIVE_RUNTIME_IMPORTS)) {
-    fail('packaged-hashes.json does not record the representative runtime import set')
+  if (packaged.engine.payload?.files !== packagedDigest.files || packaged.engine.payload?.sha256 !== packagedDigest.sha256) {
+    fail('packaged-hashes.json does not record an installer payload engine identical to the packaged engine')
+  }
+  const expectedVersion = `orgtree-engine ${manifest.version}`
+  if (packaged.engine.version !== expectedVersion || packaged.engine.payload.version !== expectedVersion) {
+    fail(`packaged-hashes.json engine version is ${JSON.stringify(packaged.engine.version)} (payload ${JSON.stringify(packaged.engine.payload.version)}), expected "${expectedVersion}"`)
   }
   const actualEngine = readJson(path.join(uploadDir, 'engine-hashes.json'), 'engine-hashes.json')
-  if (JSON.stringify(actualEngine) !== JSON.stringify(engineHashes)) fail('engine-hashes.json does not match the source checkout')
+  if (JSON.stringify(actualEngine) !== JSON.stringify(engineHashes)) fail('engine-hashes.json does not match the engine build outputs')
+  // Built = shipped: every packaged engine file is the build output
+  // engine-hashes.json recorded for it.
+  for (const relative of Object.keys(PACKAGED_ENGINE_FILES)) {
+    if (actualEngine[relative] !== packaged.files[relative]) {
+      fail(`Packaged ${relative} differs from the build output ${PACKAGED_ENGINE_FILES[relative]} recorded in engine-hashes.json`)
+    }
+  }
   return {
     buildInfo, packaged,
     latest: parseLatestYml(
@@ -1031,7 +1120,7 @@ function makeManifest({ root, releaseDir, uploadDir, version, commit, notes, eng
   }
 }
 
-function makeHandoff({ root, releaseDir, manifest, publishedUrl = null }) {
+function makeHandoff({ root, releaseDir, manifest, packagedHashes, publishedUrl = null }) {
   return {
     schema: HANDOFF_SCHEMA,
     version: manifest.version,
@@ -1046,15 +1135,29 @@ function makeHandoff({ root, releaseDir, manifest, publishedUrl = null }) {
       uac: 'The coordinator handles any requested all-users elevation and installer preflight.',
       restart: 'The coordinator performs the desktop restart only after installation succeeds.',
     },
-    runtimeVerification: {
+    // After installation: the installed engine and the post-Setup relaunch
+    // helper are present, byte-identical to this candidate, and the engine
+    // reports this release. Nothing here starts the engine or the app.
+    engineVerification: {
       owner: 'coordinator',
       readOnly: true,
-      command: 'python tools/verify-installed-runtime.py --repo-root <checkout> --data-root <isolated-data-root> --runtime-root <installed-resources-engine-runtime> --json-output <receipt.json>',
-      expected: { version: manifest.version, commit: manifest.commit, installerSha256: manifest.installer.sha256 },
+      commands: [
+        '& "<install-dir>\\resources\\engine\\orgtree-engine.exe" --version',
+        'Get-FileHash -Algorithm SHA256 "<install-dir>\\resources\\engine\\orgtree-engine.exe", "<install-dir>\\resources\\engine\\orgtree-installer-relaunch.exe"',
+      ],
+      expected: {
+        version: manifest.version,
+        commit: manifest.commit,
+        installerSha256: manifest.installer.sha256,
+        engineVersion: `orgtree-engine ${manifest.version}`,
+        engineSha256: packagedHashes.files['engine/orgtree-engine.exe'],
+        relaunchHelperSha256: packagedHashes.files['engine/orgtree-installer-relaunch.exe'],
+      },
+      absent: ['<install-dir>\\resources\\engine\\runtime'],
     },
     boundaries: [
       'This release command does not install, launch, stop, restart, or deploy Orgtree.',
-      'The installed-runtime verifier is read-only and must receive endpoint/token from the desktop launch handshake when needed.',
+      'The installed-engine check is read-only: it runs only orgtree-engine.exe --version and hashes files.',
       'Do not infer live verification from a successful package or publication check.',
     ],
   }
@@ -1163,31 +1266,24 @@ export async function produceWindowsRelease(options, dependencies = {}) {
   const buildInfo = readJson(path.join(root, 'dist', 'build-info.json'), 'dist/build-info.json')
   const afterBuildStatus = gitStatus(root, execFileSyncImpl)
   assertBuildProvenance(buildInfo, { root, head, porcelain: afterBuildStatus, version: options.version })
-  const engineHashes = deriveEngineHashes({ root, gitFiles: gitText(root, ['ls-files', '--', 'engine'], execFileSyncImpl) })
-  // Installed-shaped payload checks (2.1.4-RC4 regression): the win-unpacked
-  // payload's runtime must be complete, byte-identical to the provisioned
-  // source runtime, and able to import the backend's dependencies with its
-  // own interpreter — and then the BUILT INSTALLER's payload must carry that
-  // exact tree and import the same set, extracted, never executed.
-  const packagedRuntime = (dependencies.verifyPackagedRuntime || verifyPackagedRuntime)({ root, resources, spawnSyncImpl })
-  const payloadRuntime = (dependencies.verifyInstallerPayloadRuntime || verifyInstallerPayloadRuntime)({
+  const engineHashes = deriveEngineHashes({ root })
+  // Installed-shaped payload checks: the win-unpacked engine must hold
+  // exactly the shipped files, byte-identical to the build outputs, with a
+  // release orgtree-engine.exe — and then the BUILT INSTALLER's payload must
+  // carry that exact engine, extracted, never executed.
+  const packagedEngine = (dependencies.verifyPackagedEngine || verifyPackagedEngine)({ root, resources, version: options.version, spawnSyncImpl: spawnSyncImpl })
+  const payloadEngine = (dependencies.verifyInstallerPayloadEngine || verifyInstallerPayloadEngine)({
     root,
     installer,
-    workDir: path.join(releaseDir, 'payload-runtime-check'),
-    expectedDigest: packagedRuntime.digest,
-    expectedPostgresManifestSha256: packagedRuntime.postgresManifestSha256,
-    spawnSyncImpl,
+    workDir: path.join(releaseDir, 'payload-engine-check'),
+    expectedDigest: packagedEngine.digest,
+    expectedPostgresManifestSha256: packagedEngine.postgresManifestSha256,
+    version: options.version,
+    spawnSyncImpl: spawnSyncImpl,
   })
   const packagedHashes = derivePackagedHashes({
     resources, installer, commit: head, version: options.version,
-    runtime: {
-      sitePackages: 'Lib/site-packages',
-      files: packagedRuntime.digest.files,
-      sha256: packagedRuntime.digest.sha256,
-      imports: [...REPRESENTATIVE_RUNTIME_IMPORTS],
-      python: packagedRuntime.probe.python,
-      payload: { files: payloadRuntime.digest.files, sha256: payloadRuntime.digest.sha256, imported: true },
-    },
+    engine: packagedEngineRecord(packagedEngine, payloadEngine),
   })
   const staged = stageCanonicalAssets({ root, releaseDir, version: options.version, engineHashes, packagedHashes })
   const manifest = makeManifest({
@@ -1211,13 +1307,13 @@ export async function produceWindowsRelease(options, dependencies = {}) {
   const manifestPath = path.join(releaseDir, 'release-manifest.json')
   const handoffPath = path.join(releaseDir, 'installation-handoff.json')
   writeJson(manifestPath, manifest, false)
-  writeJson(handoffPath, makeHandoff({ root, releaseDir, manifest }), false)
+  writeJson(handoffPath, makeHandoff({ root, releaseDir, manifest, packagedHashes }), false)
 
   if (options.publish) {
     const published = await publishRelease({ root, manifest, notes, repository, uploadDir: staged.uploadDir, runExternal, runGit, fetchImpl, spawnSyncImpl })
     manifest.publication = { requested: true, state: 'published', url: published.url, verification: published.verification }
     writeJson(manifestPath, manifest, false)
-    writeJson(handoffPath, makeHandoff({ root, releaseDir, manifest, publishedUrl: published.url }), false)
+    writeJson(handoffPath, makeHandoff({ root, releaseDir, manifest, packagedHashes, publishedUrl: published.url }), false)
   }
   return { manifest, manifestPath, handoffPath, uploadDir: staged.uploadDir }
 }
