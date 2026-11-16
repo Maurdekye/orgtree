@@ -1,2 +1,2 @@
 @echo off
-python "%~dp0fake_claude_auth_login.py" %*
+node "%~dp0fake_claude_auth_login.cjs" %*

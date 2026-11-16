@@ -11,7 +11,7 @@ import { createRequire } from 'node:module'
 // Sign in to a provider CLI from the app (D-231) — the process/handshake
 // contract now lives in apps/desktop/main/providerlogin.ts (moved out of
 // the Python engine: see its module docstring for why). Every case here
-// spawns a FIXTURE CLI double (tests/fixtures/fake_*_login.py) via a real
+// spawns a FIXTURE CLI double (tests/fixtures/fake_*_login.cjs) via a real
 // child process, never the real claude/codex binaries: no real login is
 // started, no real browser opens, no real credential is touched. Success
 // verification is checked against a LOCAL mock `/api/providers` server
@@ -108,8 +108,8 @@ test('native push reports a failed start to an existing subscriber', async () =>
 })
 
 const REPO = path.resolve('tests/fixtures')
-const CLAUDE_FIXTURE = path.join(REPO, 'fake_claude_auth_login.py')
-const CODEX_FIXTURE = path.join(REPO, 'fake_codex_login.py')
+const CLAUDE_FIXTURE = path.join(REPO, 'fake_claude_auth_login.cjs')
+const CODEX_FIXTURE = path.join(REPO, 'fake_codex_login.cjs')
 const CLAUDE_CMD_FIXTURE = path.join(REPO, 'fake_claude_auth_login.cmd')
 // never a real path a real `cmd /c start` would try to launch — the
 // antigravity spawn seam below is always substituted before this runs, so
@@ -397,7 +397,7 @@ test('claude: a .cmd-resolved path (the common real shape — global npm install
 })
 
 test('claude: cancelling a .cmd-wrapped login kills the WHOLE process tree, not just the cmd.exe wrapper (owned cmd child-tree, coordinator review)', async () => {
-  // ⚠ CANNOT use CLAUDE_CMD_FIXTURE/fake_claude_auth_login.py for this one:
+  // ⚠ CANNOT use CLAUDE_CMD_FIXTURE/fake_claude_auth_login.cjs for this one:
   // measured directly (throwaway script, not this suite) that killing only
   // the wrapping cmd.exe still lets that fixture finish normally and write
   // its config — NOT because the grandchild survived unkilled, but because
@@ -410,21 +410,20 @@ test('claude: cancelling a .cmd-wrapped login kills the WHOLE process tree, not 
   // only a real kill (of it specifically, not just its parent) can stop.
   const heartbeat = path.join(temp, 'treekill-heartbeat.txt')
   fs.writeFileSync(heartbeat, '')
-  const pyPath = path.join(temp, 'treekill_fixture.py')
-  fs.writeFileSync(pyPath, [
-    'import os, sys, time',
-    'sys.stdout.write(f"pid:{os.getpid()}\\n")',
-    'sys.stdout.write("Visit https://example.invalid/authorize?state=fixture in your browser to continue.\\n")',
-    'sys.stdout.write("Paste code here if prompted > ")',
-    'sys.stdout.flush()',
-    `marker = r"${heartbeat}"`,
-    'for i in range(150):',   // ~30s of heartbeats — well beyond this test's own window
-    '    with open(marker, "a") as f:',
-    '        f.write(str(i) + "\\n")',
-    '    time.sleep(0.2)',
+  const jsPath = path.join(temp, 'treekill_fixture.cjs')
+  fs.writeFileSync(jsPath, [
+    "const fs = require('node:fs')",
+    "fs.writeSync(1, 'pid:' + process.pid + '\\n')",
+    "fs.writeSync(1, 'Visit https://example.invalid/authorize?state=fixture in your browser to continue.\\n')",
+    "fs.writeSync(1, 'Paste code here if prompted > ')",
+    `const marker = ${JSON.stringify(heartbeat)}`,
+    // ~30s of heartbeats — well beyond this test's own window
+    'let i = 0',
+    "const beat = () => { fs.appendFileSync(marker, String(i) + '\\n'); if (++i < 150) setTimeout(beat, 200) }",
+    'beat()',
   ].join('\n'))
   const cmdPath = path.join(temp, 'treekill_fixture.cmd')
-  fs.writeFileSync(cmdPath, `@echo off\r\npython "${pyPath}" %*\r\n`)
+  fs.writeFileSync(cmdPath, `@echo off\r\nnode "${jsPath}" %*\r\n`)
 
   const state = freshState(); state.claude.path = cmdPath
   await new Promise(resolve => handle.server.close(resolve))

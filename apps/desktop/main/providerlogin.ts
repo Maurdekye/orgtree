@@ -75,9 +75,9 @@ export function asLoginProvider(value: unknown): LoginProvider {
   return value as LoginProvider
 }
 
-/** The argv for spawning `exe` — a `.py` path (the test double,
- *  tests/providerlogin.test.mjs) runs under `python`, the same test-double
- *  convention the Python side already uses (`codex_argv`/`_login_argv`).
+/** The argv for spawning `exe` — a `.cjs` path (the test doubles in
+ *  tests/fixtures, tests/providerlogin.test.mjs) runs under `node`, as the
+ *  `.py` doubles ran under `python` before 4.6.1.
  *
  *  ⚠ `.cmd`/`.bat` (redteam-opus A2, measured on a real machine): Node's
  *  `child_process.spawn` REFUSES to exec a `.CMD`/`.BAT` file directly on
@@ -94,7 +94,7 @@ export function asLoginProvider(value: unknown): LoginProvider {
  *  never the free-form, possibly-multiline agent prompts that make
  *  `supervisor._claude_argv` avoid `cmd /c` for TURN spawns. */
 function resolveArgv(exe: string, extra: string[]): string[] {
-  if (exe.toLowerCase().endsWith('.py')) return ['python', exe, ...extra]
+  if (exe.toLowerCase().endsWith('.cjs')) return ['node', exe, ...extra]
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(exe)) return ['cmd', '/c', exe, ...extra]
   return [exe, ...extra]
 }
