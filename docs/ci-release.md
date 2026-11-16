@@ -147,6 +147,13 @@ gh release edit vX -R Maurdekye/orgtree --draft=false --prerelease --latest=fals
 
 Publishing starts the **verify-release** workflow. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feeds (`latest.yml` and, from the first release that has it, `latest-linux.yml` with its embedded blockmap) and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
 
+**Required after every stable publish** (4.6.0 was published without it, so
+4.6.1-alpha.1 showed no 4.6.0 in its Changelog):
+
+1. Add the release to `docs/releases.json` ([below](#add-it-to-the-changelog)),
+   commit it on `main` and carry the commit into every open development line.
+2. Run `node --test tests/release-list.test.mjs` on each of those lines.
+
 ### Add it to the Changelog
 
 The in-app Changelog lists the releases in `docs/releases.json`, dated by
