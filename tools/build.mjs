@@ -48,7 +48,9 @@ await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/pr
 // ORGTREE_STALL_FIXTURE=busy compiles the stall tooling's test-only busy hook in (rig proof RP1); a normal build defines '' and drops it
 await renderer({ root: 'apps/desktop/renderer', base: '/',
   define: { __ORGTREE_STALL_FIXTURE__: JSON.stringify(process.env.ORGTREE_STALL_FIXTURE === 'busy' ? 'busy' : '') },
-  build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true } })
+  // two pages: the app, and the offscreen shader warm-up scene (main/shader-warmup.ts)
+  build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true,
+    rollupOptions: { input: { index: path.resolve('apps/desktop/renderer/index.html'), 'shader-warmup': path.resolve('apps/desktop/renderer/shader-warmup.html') } } } })
 // The favicon is also used by the packaged UI. Keep one SVG source beside the
 // Windows ICO and copy it into Vite's output rather than maintaining a duplicate.
 fs.mkdirSync('dist/renderer/assets', { recursive: true })
@@ -65,7 +67,7 @@ try {
   // orgtree-mailhub revision the pinned submodule ships (mail-hub ticket)
   mailhubCommit = execFileSync('git', ['-C', 'engine/mailhub', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 } catch { /* preflight fails the package when the submodule is absent. */ }
-const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html',
+const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'dist/renderer/shader-warmup.html',
   ...fs.readdirSync('dist/renderer/assets').map(name => 'dist/renderer/assets/' + name),
   // The engine payload (package.json build.extraResources), recorded so the
   // release preflight refuses one rebuilt after this stamp.
