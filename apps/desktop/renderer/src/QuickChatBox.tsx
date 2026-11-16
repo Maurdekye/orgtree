@@ -25,7 +25,7 @@ import type { ComposerObject } from './canvas/composerobjects'
 import { sendLinkedReply } from './events/reply'
 import { useAppFeed, useAppRead } from './appfeed'
 import { useOrgHireProviders } from './orghire'
-import { getProviders, sendMessage, uploadFile } from './api'
+import { getAccountRegistry, getProviders, sendMessage, uploadFile } from './api'
 import { ActiveAgentsFilter, AgentTray, SwitchboardMark, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
 import { TierChip, nodeTierOf } from './canvas/identity'
@@ -38,7 +38,7 @@ import { hireAccount } from './canvas/hireaccount'
 import { agentNavProps } from './canvas/agentnav'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
-  agentSuperior, draftOpeningGrant, ALL_TIER_SEAT, hireOf, tierLabel, type CanvasNode,
+  agentSuperior, draftOpeningGrant, ALL_TIER_SEAT, hireOf, providersWithAccounts, tierLabel, type CanvasNode,
 } from './canvas/shared'
 import { AttachIcon, ExpandMoreIcon, SendIcon } from './icons'
 import {
@@ -121,14 +121,17 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const memo = useMemo(() => readQuickChat(slug, JSON.parse(defaultsKey)), [slug, defaultsKey, tick])
   const providers = useAppRead('providers', getProviders)
+  // a signed-in registered account makes Claude and Codex hirable, as on the canvas (`providersWithAccounts`)
+  const accounts = useAppRead('accounts', getAccountRegistry)
   const orgHireProviders = useOrgHireProviders(slug)
   const { version: feedVersion } = useAppFeed()
   const hires = useMemo(() => {
-    const of = (id: string) => hireOf(providers?.providers.find(p => p.id === id),
+    const entries = providersWithAccounts(providers?.providers ?? [], accounts?.accounts)
+    const of = (id: string) => hireOf(entries.find(p => p.id === id),
       providers?.checking === false && ['claude', 'openai', 'google'].includes(id), orgHireProviders?.has(id))
     return { claudeHire: of('claude'), codexHire: of('openai'), antigravityHire: of('google'),
       openrouterHire: of('openrouter'), langserverHire: of('langserver'), museHire: of('muse') }
-  }, [providers, orgHireProviders])
+  }, [providers, orgHireProviders, accounts])
   const nodes = useMemo(() => treeNodes(tree), [tree])
   const live = useMemo(() => [...nodes.values()]
     .filter(n => n.state === 'live').map(n => n.id), [nodes])
