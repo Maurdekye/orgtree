@@ -22,6 +22,7 @@ import { renderHtmlResponses } from './htmlresponse'
 import { desktop } from '../desktop'
 import { remoteHere } from '../remotehere'
 import { localFileTitle } from './localfile'
+import { isAppPath } from '../../../../../packages/contracts/ui-route'
 import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
 import { newHireIndex, type NewHirePosition } from '../hireposition'
@@ -3077,6 +3078,27 @@ export function winFilePath(href: string): string | null {
   return m ? `${m[1]!}:\\${m[2]!.replace(/\//g, '\\')}` : null
 }
 
+/** Absolute POSIX (Linux, macOS) local files are links too, but ONLY off Windows:
+ *  there a leading-slash path is a plausible file, while on Windows it never
+ *  was one and stays exactly as written (USER 2026-11-16 md4343645e6d2,
+ *  @item:orgtree/linux-clicking-a-file-link-opens-the-browser-at-h). A
+ *  path-absolute href that stays un-normalized resolves against the app's own
+ *  origin, so on Linux a click used to open the browser at the engine's address.
+ *  A click still only REVEALS the file (same ruling as the Windows links). */
+let platformOverride: string | null = null
+/** tests only: pretend to be another desktop ('Win32', 'Linux x86_64', 'MacIntel'), null to restore */
+export const setLinkPlatformForTests = (p: string | null) => { platformOverride = p }
+const onWindows = (): boolean =>
+  /Win/i.test(platformOverride ?? (typeof navigator !== 'undefined' ? (navigator.platform || navigator.userAgent || '') : ''))
+
+/** `dest` (already percent-decoded) as a native POSIX path, or null: it must be
+ *  absolute, not `//host…`, not one of the app's own routes (`/`, `/index.html`,
+ *  `/o/<org>`) and not the engine's `/api/` space. */
+export function posixFilePath(dest: string): string | null {
+  if (onWindows() || !/^\/[^/\0]/.test(dest) || /^\/api\//.test(dest) || isAppPath(dest)) return null
+  return dest
+}
+
 /** `](<C:\a b\c.exe>)` → `](</C:/a b/c.exe>)`, leaving a non-Windows
  *  destination (a URL, a POSIX path, a relative file) exactly as written. */
 const normalizeAngleDest = (seg: string) =>
@@ -3104,7 +3126,7 @@ const normalizeLocalFileUri = (all: string, before: string, label: string,
     if (url.protocol !== 'file:' || url.hostname || url.username || url.password
       || url.port || url.search || url.hash) return all
     const path = decodeURIComponent(url.pathname)
-    const href = winFileHref(path)
+    const href = winFileHref(path) ?? posixFilePath(path)
     return href === null ? all : `${before}[${label}](<${href}>)`
   } catch {
     return all
@@ -3308,7 +3330,7 @@ const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: bool
     const raw = img.getAttribute('src') ?? ''
     let src = raw
     try { src = decodeURIComponent(raw) } catch { /* malformed % — keep raw */ }
-    const localPath = winFilePath(src)
+    const localPath = winFilePath(src) ?? posixFilePath(src)
     let fallbackHref = raw
     let blockedSource = !raw
     if (localPath) {
@@ -3396,7 +3418,7 @@ const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: bool
     // layer comes back off, and a malformed % keeps the raw text rather than
     // throwing the whole render away.
     try { href = decodeURIComponent(raw) } catch { /* malformed % — keep raw */ }
-    const native = winFilePath(href)
+    const native = winFilePath(href) ?? posixFilePath(href)
     if (native === null) return
     a.setAttribute('data-local-path', native)
     a.setAttribute('class', `${a.getAttribute('class') ?? ''} local-file`.trim())

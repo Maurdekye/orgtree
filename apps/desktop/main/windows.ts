@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell, type Session } from 'electron'
 import { createServer, type AddressInfo } from 'node:net'
 import { attachEditMenu } from './editmenu'
-import { externalHttpUrl, hubchatChatUrl, isHoldingUrl, remoteHeaders, scopedHeaders, trustedUiUrl } from './policy'
+import { hubchatChatUrl, isHoldingUrl, opensInBrowser, remoteHeaders, scopedHeaders, trustedUiUrl } from './policy'
 
 /** Origin/token sources may be live getters: after a boot-engine recovery the
  *  desktop re-attaches with a NEW per-boot token (usually the same origin,
@@ -413,7 +413,7 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
   const routeExternal = (url: string): boolean => {
     const origin = live(liveOrigin), current = window.webContents.getURL()
     const trustedDocument = trustedUiUrl(current, origin) || (!isMain && current === 'about:blank')
-    if (!trustedDocument || trustedUiUrl(url, origin) || artifactUrl(url, origin) || !(externalHttpUrl(url) || hubchatChatUrl(url))) return false
+    if (!trustedDocument || trustedUiUrl(url, origin) || artifactUrl(url, origin) || !(opensInBrowser(url, origin) || hubchatChatUrl(url))) return false
     try { void Promise.resolve(openExternal(url)).catch(() => {}) } catch { /* browser launch failure must not break the renderer */ }
     return true
   }
@@ -434,7 +434,7 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     }
     const current = window.webContents.getURL()
     const trustedDocument = trustedUiUrl(current, origin) || (!isMain && current === 'about:blank')
-    if (trustedDocument && !trustedUiUrl(url, origin) && !artifactUrl(url, origin) && (externalHttpUrl(url) || hubchatChatUrl(url))) {
+    if (trustedDocument && !trustedUiUrl(url, origin) && !artifactUrl(url, origin) && (opensInBrowser(url, origin) || hubchatChatUrl(url))) {
       try { void Promise.resolve(openExternal(url)).catch(() => {}) } catch { /* browser launch failure must not break the renderer */ }
       return { action: 'deny' }
     }

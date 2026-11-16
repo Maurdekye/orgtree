@@ -715,6 +715,14 @@ export function externalHttpUrl(value: string): boolean {
   } catch { return false }
 }
 
+/** May `url` be handed to the user's browser? An http(s) address, EXCEPT the app's
+ *  own engine origin: a link to it that is not an app route (for example the
+ *  `http://127.0.0.1:<port>/home/u/x.md` a Linux file path became) must never
+ *  open the browser at the engine's web UI (USER 2026-11-16 md4343645e6d2). */
+export function opensInBrowser(value: string, origin: string): boolean {
+  return externalHttpUrl(value) && !engineUrl(value, origin)
+}
+
 /** A Hubchat desktop deep link (`hubchat://chat?to=@net:...`) opened by a
  *  HubContactChip when Hubchat is installed on this PC. */
 export function hubchatChatUrl(value: string): boolean {
