@@ -1,5 +1,36 @@
 # Desktop and renderer
 
+## No program launch or timer-driven disk wait on the desktop main thread (2026-11-16, 4.6.1)
+
+@item:orgtree/nick-pc-4-6-0-desktop-main-process-stalls-input-f, USER 2026-11-16 16:30:53Z m8fe70e62fc2c "Full scope +
+guard". Nick-PC's main thread stalled 0.5-30 s (input frozen, animations running) with stacks in child_process from
+timers. Even an asynchronous execFile blocks the calling thread for the whole CreateProcess call, antivirus scanning
+included.
+
+- THE PROBE HOST: every bounded program run of the desktop main process goes through `main/probe-host.ts` (same
+  callback as node's execFile, plus `launchDetached`) to ONE utilityProcess, `main/probe-host-child.ts` (bundled to
+  `dist/main/probe-host.cjs` by tools/build.mjs, forked first thing at ready). Covered: the 2 s core-control status
+  (still the native command: it judges process liveness and must answer when the engine's HTTP is dead), the streamer
+  tasklist, credential helpers, registry/PowerShell queries, taskkill, notepad and Unix detached launches. Callers keep
+  their timeouts; a dead host fails its requests with code `EPROBEHOST` and the next request forks a new one (at most
+  once a second); a hung one is bounded at timeout + 2 s. In plain node (tests, CI tools) requests run in process.
+- FOUR LAUNCHES STAY ON MAIN (@coordinator-opus mc30c3aeead90, choice A): the engine `serve` child, the interactive
+  provider login (and the Antigravity terminal beside it), the AppImage relaunch before exit and the updater handoff.
+  They own a live child, run once per user action, never from a timer, and import `spawn` only.
+- No sync spawn anywhere: the data-move marker's process-time query and the quit-time provider-login taskkill are
+  async (quit awaits the taskkill, bounded 6 s, beside the engine stop).
+- Harness presence: the tray uses the engine registry first; `HarnessCache` keeps an async scan, refreshed at most
+  every 5 minutes, and rebuilds the tray when it lands (choice B). It was 100-600 statSync calls per tray rebuild.
+- Logs and preferences: the stall log and the window-events log append through one serial async queue per file
+  (`main/async-append.ts`, same rotation); preferences change live at once and are written async, coalesced to the
+  latest value, with one `flushSync` at will-quit and session-end.
+- GUARD: tests/main-thread-guard.test.mjs fails if any other main module imports child_process, if execFileSync /
+  spawnSync / execSync appears, or if a timer-reached module does sync fs outside its listed lines.
+- MEASURED (Electron 44.2.0, Session 0, fixture S:/orgtree/build/desk-parity-opus/ph/lagfix, not product code): the real
+  2 s core-control tick and 5 s streamer sample for 60 s with every process creation busy-waiting 1500 ms on its
+  thread, real MainLagProbe (500 ms threshold): base 42c3d3d 35 and 37 main stalls (max 2153 ms; 53.7 s of 61.5 s
+  blocked in the second run); this change 0 and 0.
+
 ## A panel pinned in a popped-out window stays in that window (2026-11-13, 4.5.13)
 
 A presentation reader opened from a popped-out desk's header card opened in that window, and pinning it made it
