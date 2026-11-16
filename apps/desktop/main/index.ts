@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
-import { exeName, postgresLaunchOptions, writeEnginePaths } from './postgres-runtime'
+import { exeName, postgresLaunchOptions } from './postgres-runtime'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar, icoFromPng } from './taskbar'
@@ -2510,7 +2510,6 @@ else {
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
         binary: rustEngine && fs.existsSync(rustEngine) ? rustEngine : undefined,
-        python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
         customDataRoot: false,
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
@@ -2608,7 +2607,6 @@ else {
         }
         coreLifecycle.start()
       }
-      if (app.isPackaged && !engineOptions.binary) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
       // macOS and Linux: the installed release registers that host itself (a

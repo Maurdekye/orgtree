@@ -360,7 +360,7 @@ test('fixture spawn audit keeps release Windows helpers hidden and diagnostics c
   const files = [
     'apps/desktop/renderer/tests/run.mjs', 'tests/attach.test.mjs',
     'tests/installer-elevation.test.mjs', 'tests/quit-stop.test.mjs',
-    'tests/quit_engine_probe.mjs', 'tools/test-upgrade-close-boundary.mjs',
+    'tools/test-upgrade-close-boundary.mjs',
   ]
   for (const relative of files) {
     const source = fs.readFileSync(path.resolve(relative), 'utf8')

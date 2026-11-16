@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import {recordManagedExit} from './core-exit-log'
-import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
+import { exeName } from './postgres-runtime'
 import { canonicalPath, isLocalAbsoluteDataPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, unsafeDescriptorMessage, validateDataRoot, verifyDataFolderTrust, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
 
@@ -63,11 +63,12 @@ import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 import { readHarnessRegistry } from './harnesses'
 
-export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
+export interface EngineOptions { directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
   /** True when `dataRoot` comes from a custom `data-location.json` folder (enforces pre-spawn reparse + DACL trust). */
   customDataRoot?: boolean
-  /** Orgtree 4: the Rust engine executable. When set it is started instead of
-   *  the Python engine, with the same environment and launch handshake. */
+  /** The Rust engine executable (resources/engine/orgtree-engine.exe, or
+   *  ORGTREE_ENGINE_BIN in development). Required to start a managed engine;
+   *  4.6.1 removed the interpreter fallback. */
   binary?: string
   /** Windows: start the background engine where it belongs (sessionlaunch.ts):
    *  the boot task, in Session 0 (decision 94), after which this engine attaches,
@@ -353,12 +354,7 @@ export class Engine extends EventEmitter {
     }
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     const binary = options.binary
-    if (binary) {
-      if (!path.isAbsolute(binary) || !fs.existsSync(binary)) throw new Error(`The Orgtree engine is missing: ${binary}`)
-    } else {
-      if (!path.isAbsolute(options.python) || !fs.existsSync(options.python)) throw new Error('Python runtime is missing. Configure ORGTREE_V2_PYTHON for development.')
-      if (!fs.existsSync(path.join(options.directory, 'launch.py'))) throw new Error('Python engine has not been packaged')
-    }
+    if (!binary || !path.isAbsolute(binary) || !fs.existsSync(binary)) throw new Error(`The Orgtree engine is missing: ${binary || '(not configured; set ORGTREE_ENGINE_BIN for development)'}`)
     fs.mkdirSync(root, { recursive: true })
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
@@ -387,7 +383,7 @@ export class Engine extends EventEmitter {
     // UNREADABLE_TASKS): no engine of this desktop's own, the reason shown,
     // and Start engine in the tray (invariant 1).
     let launched: 'boot' | 'managed' = 'managed'
-    if (binary && options.launchBackground) {
+    if (options.launchBackground) {
       try { launched = await options.launchBackground() }
       catch (error) {
         this.state({ state: 'unavailable', message: error instanceof Error ? error.message : 'The background engine could not be started.' })
@@ -401,10 +397,10 @@ export class Engine extends EventEmitter {
       this.stopping = false
       return
     }
-    const env = { ...process.env, ...(binary ? {} : postgresRuntimeEnvironment(options.directory, options.packagedPostgres)),
+    const env = { ...process.env,
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
-      ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
-    if (binary && process.platform === 'win32') Object.assign(env, {ORGTREE_CORE_MODE: 'managed'})
+      ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid) }
+    if (process.platform === 'win32') Object.assign(env, {ORGTREE_CORE_MODE: 'managed'})
     // Never inherit a v1 backend port or root selector.
     delete env['ORGTREE_PORT' as keyof typeof env]
     // Fresh bootstrap is an installed-app capability, never inherited from a
@@ -413,16 +409,14 @@ export class Engine extends EventEmitter {
     if (options.bootstrapPostgres) Object.assign(env, { ORGTREE_PG_BOOTSTRAP: '1' })
     // The Rust engine finds PostgreSQL beside itself; a development build may
     // point it elsewhere with ORGTREE_P03_PG_BIN.
-    if (binary && !(env as NodeJS.ProcessEnv).ORGTREE_P03_PG_BIN) {
+    if (!(env as NodeJS.ProcessEnv).ORGTREE_P03_PG_BIN) {
       const bin = path.join(path.dirname(binary), 'postgresql', 'bin')
       if (fs.existsSync(path.join(bin, exeName('postgres')))) Object.assign(env, { ORGTREE_P03_PG_BIN: bin })
     }
-    const child = binary
-      // libuv puts non-detached Windows children in its kill-on-parent-close
-      // job. The managed core owns its own child job and must survive this
-      // desktop; retaining pipes/ChildProcess still supports graceful Quit.
-      ? spawn(binary, ['serve'], { cwd: path.dirname(binary), env, windowsHide: true, detached: process.platform === 'win32', stdio: 'pipe' })
-      : spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
+    // libuv puts non-detached Windows children in its kill-on-parent-close
+    // job. The managed core owns its own child job and must survive this
+    // desktop; retaining pipes/ChildProcess still supports graceful Quit.
+    const child = spawn(binary, ['serve'], { cwd: path.dirname(binary), env, windowsHide: true, detached: process.platform === 'win32', stdio: 'pipe' })
     this.child = child
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
     child.on('exit', () => this.childExited(child))
@@ -492,7 +486,7 @@ export class Engine extends EventEmitter {
               // A final buffered line may arrive AFTER process exit. Refusals
               // still describe the failed start; readiness cannot revive it.
               if (child.exitCode !== null || child.signalCode !== null) {
-                void finish(new Error('Python engine exited before readiness')); return
+                void finish(new Error('The engine exited before readiness')); return
               }
               this.endpoint = `http://127.0.0.1:${ready.port}`
               this.watchLiveness(child, realRoot)
@@ -503,12 +497,12 @@ export class Engine extends EventEmitter {
       }
       resetDeadline()
       child.stdout.on('data', onData)
-      child.once('error', () => finish(new Error('Python engine could not start')))
+      child.once('error', () => finish(new Error('The engine could not start')))
       // `exit` can precede the last stdout data. Rejecting there removes
       // onData and loses a root-owned refusal, so the caller never enters
       // attachWithRetry. `close` follows stdio drainage. The silence timer
       // still bounds a pipe held open by a descendant.
-      child.once('close', () => finish(new Error('Python engine exited before readiness')))
+      child.once('close', () => finish(new Error('The engine exited before readiness')))
     })
   }
 
