@@ -16,6 +16,7 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { resetConvos } from '../src/convo'
 import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
+import { TempDeskModal } from '../src/canvas/tempdesk'
 import { USER } from '../src/canvas/shared'
 import type { CanvasNode, OpFn } from '../src/canvas/shared'
 import { AttentionDeskWindows, attentionDeskWindows, forgetAttentionDeskWindows, openAttentionDeskWindow } from '../src/attention/deskwindows'
@@ -140,4 +141,44 @@ test('Make plain desk turns it back into a plain desk window on the agent it sho
   assert.equal(attentionDesk(win), false, 'no agents drawer any more')
   assert.equal(deskAgent(win), 'beta', 'the desk is the agent it was showing')
   assert.deepEqual(attentionDeskWindows(SLUG), [], 'it is no longer an attention desk window')
+})
+
+// USER 2026-11-16 m4d497ccd862e on 4.6.1-alpha.1: "i dont see the attention convert button anywhere on pinned or
+// floating desks"; m8b8870396e4b chose A: the floating desk (Open -> Desk) converts in its own frame.
+const floatingScene = () => <CurrentOrg.Provider value={SLUG}>
+  <DeskHosts map={map} slug={SLUG} popoutDesk={(node) => ({ node, map, op, slug: SLUG, toast: noop })}>
+    <TempDeskModal node={alpha} close={noop} desk={{ map, op, slug: SLUG, toast: noop }}
+      attention={{ slug: SLUG, tree, map, op, toast: noop }} />
+  </DeskHosts>
+</CurrentOrg.Provider>
+const floating = () => document.querySelector('.tempdesk-panel') as HTMLElement | null
+
+test('the floating desk becomes an attention desk in its own frame, switches its agent, and turns back', async (t) => {
+  const s = stage(t)
+  const v = await mountView(floatingScene(), (el) => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(8) })
+  const panel = floating()
+  assert.ok(panel, 'control: the floating desk is open')
+  assert.equal(panel!.querySelector('.attn-agents-toggle'), null, 'control: no agents drawer yet')
+  const toggle = panel!.querySelector('.cc-head-right button.popout-button[aria-label="Make attention desk"]')
+  assert.ok(toggle, 'the floating desk has the same header toggle')
+  assert.equal(toggle!.getAttribute('aria-pressed'), 'false')
+  await click(toggle)
+  assert.equal(floating(), panel, 'the same frame, not a new one')
+  assert.ok(panel!.querySelector('.attn-agents-toggle'), 'it has the agents drawer')
+  assert.equal(deskAgent(panel!), 'alpha', 'on the agent it was showing')
+  assert.equal(s.open().length, 0, 'no window was opened')
+  assert.deepEqual(attentionDeskWindows(SLUG), [], 'and no attention-desk window recorded')
+  await click(panel!.querySelector('.attn-agents-toggle'))
+  await click(panel!.querySelector('[data-attn-agent="beta"]'))
+  assert.equal(deskAgent(panel!), 'beta', 'its drawer switched its desk')
+  assert.match(panel!.textContent ?? '', /beta/, 'and its title follows')
+  assert.equal(attentionLayout(SLUG).agent, null, 'the main Attention desk was not switched')
+  const pressed = panel!.querySelector('button[aria-label="Make plain desk"]')
+  assert.ok(pressed, 'the same icon, pressed')
+  assert.equal(pressed!.getAttribute('aria-pressed'), 'true')
+  await click(pressed)
+  assert.equal(panel!.querySelector('.attn-agents-toggle'), null, 'a plain desk again')
+  assert.equal(deskAgent(panel!), 'beta', 'on the agent it shows')
 })

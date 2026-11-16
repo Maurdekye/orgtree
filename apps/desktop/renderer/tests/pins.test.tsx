@@ -813,6 +813,58 @@ uiTest('§B3 a pinned card at desk zoom shows the live desk as well as its pin',
   assert.equal(desksFor(el, 'cto'), 1, 'cto, off camera, is its window only')
 })
 
+// USER 2026-11-16 m4d497ccd862e on 4.6.1-alpha.1: "i dont see the attention convert button anywhere on pinned or
+// floating desks"; m8b8870396e4b chose A, convert in place: a pin keeps its position and size and gains the
+// agents list, and pressing again makes it a plain desk.
+uiTest('§B4 a pinned desk becomes an attention desk where it is, switches its agent, and turns back', async ({ mount }) => {
+  const { el, viewport } = await mountCanvas(mount, ['ceo', 'cto'])
+  await settle(2500)
+  const w = await pinFromDesk(el, viewport, 'cto')
+  const r0 = winRect(w)
+  assert.equal(w.querySelector('.attn-agents-toggle'), null, 'control: a plain pin has no agents drawer')
+  const toggle = w.querySelector<HTMLButtonElement>('button.popout-button[aria-label="Make attention desk"]')
+  assert.ok(toggle, 'the pinned desk has a "Make attention desk" toggle in its header')
+  assert.equal(toggle!.getAttribute('aria-pressed'), 'false')
+  assert.equal(el.querySelector('.desk-over button[aria-label="Make attention desk"]'), null,
+    'a canvas card desk has no toggle')
+  await inAct(() => { toggle!.click() }); await flush()
+  const a = pinWin(el, 'cto')
+  assert.ok(a, 'still one pinned window, on cto')
+  assert.ok(a!.querySelector('.attn-agents-toggle'), "it has the Attention desk's agents drawer")
+  assert.deepEqual(winRect(a!), r0, 'in the same position and size')
+  assert.equal(stored().length, 1)
+  assert.equal((stored()[0] as { attention?: boolean }).attention, true, 'remembered as an attention pin')
+  const pressed = a!.querySelector<HTMLButtonElement>('button.popout-button[aria-label="Make plain desk"]')
+  assert.ok(pressed, 'the same header icon, now to make it a plain desk')
+  assert.equal(pressed!.getAttribute('aria-pressed'), 'true')
+  // its drawer switches THIS pin's agent
+  await inAct(() => { (a!.querySelector('.attn-agents-toggle') as HTMLElement).click() }); await flush()
+  const row = a!.querySelector('[data-attn-agent="ceo"]') as HTMLElement | null
+  assert.ok(row, 'control: the drawer lists ceo')
+  await inAct(() => { row!.click() }); await flush()
+  const b = pinWin(el, 'ceo')
+  assert.ok(b, 'the pin now shows ceo')
+  assert.equal(pinWin(el, 'cto'), null)
+  assert.deepEqual(winRect(b!), r0, 'and has not moved')
+  assert.deepEqual(stored().map((p) => [p.id, (p as { attention?: boolean }).attention]), [['ceo', true]])
+  // back to a plain pin on the agent it shows
+  await inAct(() => { (b!.querySelector('button[aria-label="Make plain desk"]') as HTMLElement).click() }); await flush()
+  const c = pinWin(el, 'ceo')
+  assert.ok(c, 'still pinned')
+  assert.equal(c!.querySelector('.attn-agents-toggle'), null, 'no agents drawer any more')
+  assert.deepEqual(winRect(c!), r0)
+  assert.equal((stored()[0] as { attention?: boolean }).attention, undefined, 'a plain pin again')
+})
+
+uiTest('§B4b an attention pin comes back as one after a reload', async ({ mount }) => {
+  const { el, viewport } = await mountCanvas(mount, ['ceo', 'cto'])
+  await settle(2500)
+  const w = await pinFromDesk(el, viewport, 'cto')
+  await inAct(() => { (w.querySelector('button[aria-label="Make attention desk"]') as HTMLElement).click() }); await flush()
+  forgetPins('mine')
+  assert.equal(readPins('mine')[0]?.attention, true, 'storage holds the attention flag')
+})
+
 uiTest('§B5 drag and resize are 1:1 with the pointer in viewport px, and commit once', async ({ mount }) => {
   const { el, viewport } = await mountCanvas(mount, ['ceo', 'cto'])
   await settle(2500)
