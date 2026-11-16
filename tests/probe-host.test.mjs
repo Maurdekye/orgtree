@@ -130,3 +130,27 @@ test('a preference change is live at once; the file follows coalesced, and flush
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).exitOnClose, true, 'a change after the flush is still written')
   assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['desktop-settings.json'], 'no temp file is left')
 })
+
+// BOUNCE 2026-11-16 (@rig-sol-b m7eafa4cbd300, measured): an async write whose rename was ALREADY issued when flushSync
+// ran landed after it and put the older value back on disk, while the live copy kept the newer one. Every I/O succeeds.
+test('a quit-time flush is not undone by an async rename already in flight', async t => {
+  const file = path.join(temp, 'prefs-race', 'desktop-settings.json')
+  const prefs = new Preferences(file)
+  const realRename = fs.promises.rename
+  let release, entered
+  const reached = new Promise(r => { entered = r })
+  fs.promises.rename = async (from, to) => {
+    if (String(from).endsWith('.tmp-async') && !release) { const held = new Promise(r => { release = r }); entered(); await held }
+    return realRename(from, to)
+  }
+  t.after(() => { fs.promises.rename = realRename })
+  prefs.set({ notifyQuestions: false })
+  await reached                                   // the old write has issued its rename and is held there
+  prefs.set({ notifyUrgentMail: false })
+  prefs.flushSync()
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).notifyUrgentMail, false, 'control: the flush wrote the newer value')
+  release()
+  await prefs.flush()
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).notifyUrgentMail, false, 'the older rename did not put the old value back')
+  assert.equal(prefs.get().notifyUrgentMail, false)
+})
