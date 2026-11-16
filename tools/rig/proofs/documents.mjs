@@ -58,13 +58,15 @@ export default async function (rig) {
   const doc = did && await tryApi('GET', `/api/orgs/${rig.org}/documents/${did}`)
   p.check('pia: a markdown document is presented and the user reads it back', pr.ok && doc?.ok && (doc.json?.body ?? doc.json?.document?.body) === md,
     { text: pr.text, doc })
+  // the tool names a presentation by its public slug; the table's canonical key is uid
+  const canonUid = did && rig.one(`SELECT uid FROM ot.documents WHERE slug = '${did}'`)?.uid
   const re = await tool('pia', 'present', { title: 'The plan, revised', body: '# Plan\n\nRevised.\n', replaces: did })
   const rows = rig.sql(`SELECT uid, title FROM ot.documents WHERE node_name = 'pia' ORDER BY id`)
-  p.check('pia: replaces updates the same card instead of adding one', re.ok && rows.length === 1 && rows[0].uid === did
+  p.check('pia: replaces updates the same card instead of adding one', re.ok && rows.length === 1 && !!canonUid && rows[0].uid === canonUid
     && rows[0].title === 'The plan, revised', rows)
   fs.writeFileSync(path.join(scratch('pia'), 'mock.html'), '<!doctype html><html><body><p>Mockup</p></body></html>')
   const html = await tool('pia', 'present', { title: 'Mockup', path: 'mock.html' })
-  const hrow = rig.one(`SELECT format FROM ot.documents WHERE uid = '${idOf(html.text)}'`)
+  const hrow = rig.one(`SELECT format FROM ot.documents WHERE slug = '${idOf(html.text)}'`)
   p.check('pia: an .html mockup from her folder is presented as html', html.ok && hrow?.format === 'html', { text: html.text, hrow })
   const refusals = {
     noTitle: await tool('pia', 'present', { body: 'x' }),
@@ -112,7 +114,7 @@ export default async function (rig) {
   { empty: empty.text?.slice(0, 120), huge: huge.text?.slice(0, 120) })
   const longTitle = 'T'.repeat(200)
   const lt = await tool('pia', 'present', { title: longTitle, body: 'short' })
-  const ltRow = rig.one(`SELECT title FROM ot.documents WHERE uid = '${idOf(lt.text)}'`)
+  const ltRow = rig.one(`SELECT title FROM ot.documents WHERE slug = '${idOf(lt.text)}'`)
   p.check('pia: a title is clipped to 120 characters, as in 3.x', lt.ok && ltRow?.title?.length === 120, ltRow?.title?.length)
 
   // ---------------------------------------------------------------- max: no audience
