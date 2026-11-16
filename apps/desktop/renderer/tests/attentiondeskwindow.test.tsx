@@ -14,6 +14,8 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { resetConvos } from '../src/convo'
 import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
 import { TempDeskModal } from '../src/canvas/tempdesk'
@@ -26,6 +28,7 @@ import { openSurfaces, resetActionDocument } from '../src/windowlife'
 import { endWindowExit } from '../src/windowlayout'
 import type { TreePayload } from '../src/types'
 
+declare const __SRC_DIR__: string
 const SLUG = 'attn-windows-org'
 const noop = () => {}
 const op: OpFn = async () => ({})
@@ -181,4 +184,35 @@ test('the floating desk becomes an attention desk in its own frame, switches its
   await click(pressed)
   assert.equal(panel!.querySelector('.attn-agents-toggle'), null, 'a plain desk again')
   assert.equal(deskAgent(panel!), 'beta', 'on the agent it shows')
+})
+
+// BOUNCE 2026-11-16 (@rig-sol-b, Session 0 capture of the real Open > Desk menu): the floating desk's toggle was in
+// the DOM but hidden, because styles.css hides the borrowed desk's own pop-out there by the shared `.popout-button`
+// class. jsdom has no layout, but it cascades the real stylesheet: the toggle must stay displayed while the desk's
+// own pop-out stays hidden (the frame's title bar carries the one pop-out).
+test("the floating desk shows its attention toggle under the real stylesheet, and still hides the desk's own pop-out", async (t) => {
+  stage(t)
+  const style = document.createElement('style')
+  style.textContent = readFileSync(join(__SRC_DIR__, 'styles.css'), 'utf8')
+  document.head.appendChild(style)
+  t.after(() => style.remove())
+  const v = await mountView(floatingScene(), (el) => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(8) })
+  const panel = floating()
+  assert.ok(panel?.closest('.tempdesk-glance'), 'control: the floating desk sits in the glance frame the rule targets')
+  const head = panel!.querySelector('.cc-head-right')!
+  const toggle = head.querySelector('button[aria-label="Make attention desk"]') as HTMLElement | null
+  assert.ok(toggle, 'the toggle is there')
+  assert.notEqual(getComputedStyle(toggle!).display, 'none', 'the attention toggle is displayed on the floating desk')
+  // the desk's own pop-out: absent here (hidePopout), but a moved-in desk keeps it (the rule's own comment), so a
+  // plain header pop-out beside the toggle must still be hidden by the rule
+  const own = document.createElement('button'); own.className = 'popout-button'; own.setAttribute('aria-label', 'Pop out')
+  head.appendChild(own)
+  assert.equal(getComputedStyle(own).display, 'none', "control: the desk's own pop-out stays hidden in the floating desk")
+  own.remove()
+  await click(toggle)
+  const pressed = panel!.querySelector('button[aria-label="Make plain desk"]') as HTMLElement | null
+  assert.ok(pressed, 'the pressed toggle is there')
+  assert.notEqual(getComputedStyle(pressed!).display, 'none', 'the pressed toggle is displayed too')
 })
