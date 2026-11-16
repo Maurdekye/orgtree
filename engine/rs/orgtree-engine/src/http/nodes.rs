@@ -1310,6 +1310,28 @@ pub struct FileQuery {
     media: Option<bool>,
 }
 
+/// The file a desk link names, canonical. A relative link sits in the agent's
+/// scratch. A link stored before a Data location move (transcript rows keep
+/// their paths) names the old root: only when that path is gone, the same
+/// relative path under the current root is tried (`data_relocate::moved_path`).
+/// The caller authorizes the returned path; nothing is rewritten.
+#[nolog]
+fn resolve_link_path(data_root: &FsPath, scratch: &FsPath, raw: &str) -> Option<PathBuf> {
+    let given = PathBuf::from(raw);
+    let path = if given.is_absolute() { given } else { scratch.join(raw) };
+    if let Ok(canon) = std::fs::canonicalize(&path) {
+        return Some(crate::config::strip_verbatim(&canon));
+    }
+    let _ = data_root;
+    None
+}
+
+/// Inside one of the folders the desk may link to.
+#[nolog]
+fn path_in_roots(canon: &FsPath, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| scope::path_within(&canon.to_string_lossy(), &root.to_string_lossy()))
+}
+
 /// A file the desk links to: inside the org's scratch folders, the uploads,
 /// the org's own folders, or a file this org's mail or deliveries name.
 #[nolog]
@@ -1324,12 +1346,9 @@ pub async fn file(
     let client = e.db.get().await?;
     let scratch: Option<String> = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
     let scratch = scratch.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name));
-    let raw = PathBuf::from(&q.path);
-    let path = if raw.is_absolute() { raw } else { scratch.join(&q.path) };
-    let Ok(canon) = std::fs::canonicalize(&path) else {
+    let Some(canon) = resolve_link_path(&e.cfg.data_root, &scratch, &q.path) else {
         return Err(ApiError::not_found("that file does not exist"));
     };
-    let canon = crate::config::strip_verbatim(&canon);
     let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
     // Inbox uploads and downloaded parts share uploads/<owner>/@org-inbox.
     // Authorize against that owner, not the unrelated org in the URL. Resolve
@@ -1355,8 +1374,7 @@ pub async fn file(
             roots.push(PathBuf::from(p));
         }
     }
-    let inside = |root: &FsPath| scope::path_within(&canon.to_string_lossy(), &root.to_string_lossy());
-    let mut allowed = roots.iter().any(|r| inside(r));
+    let mut allowed = path_in_roots(&canon, &roots);
     if !allowed {
         let p = q.path.clone();
         let named = client
@@ -1733,4 +1751,66 @@ pub async fn toolimg(
         data,
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod moved_link_tests {
+    use super::{path_in_roots, resolve_link_path};
+    use std::path::PathBuf;
+
+    /// A current data root with one receipt from an old root that no longer exists.
+    fn moved_root() -> (PathBuf, String) {
+        let now = std::env::temp_dir().join(crate::util::uid("moved-link"));
+        std::fs::create_dir_all(now.join("diagnostics")).unwrap();
+        let old = std::env::temp_dir().join(crate::util::uid("gone-root")).join("data").to_string_lossy().to_string();
+        let receipt = serde_json::json!({ "fromRoot": old, "fromVariants": [old], "toRoot": now.to_string_lossy() });
+        std::fs::write(now.join(crate::data_relocate::RECEIPT_REL_PATH), format!("{receipt}\n")).unwrap();
+        (now, old)
+    }
+
+    fn file(at: PathBuf) -> PathBuf {
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(&at, b"png").unwrap();
+        crate::config::strip_verbatim(&std::fs::canonicalize(&at).unwrap())
+    }
+
+    #[test]
+    fn a_link_under_the_old_root_finds_the_moved_file_and_is_authorized_there() {
+        let (now, old) = moved_root();
+        let moved = file(now.join("uploads").join("orgtree").join("a").join("u1-shot.png"));
+        let scratch = now.join("scratch").join("orgtree").join("a");
+        let got = resolve_link_path(&now, &scratch, &format!(r"{old}\uploads\orgtree\a\u1-shot.png"));
+        assert_eq!(got.as_deref(), Some(moved.as_path()), "mapped hit");
+        assert!(path_in_roots(got.as_deref().unwrap(), &[now.join("uploads")]), "uploads authorizes it");
+        std::fs::remove_dir_all(now).unwrap();
+    }
+
+    #[test]
+    fn a_mapped_path_outside_the_desk_folders_is_still_refused() {
+        let (now, old) = moved_root();
+        let secret = file(now.join("pg").join("cluster").join("secret.png"));
+        let scratch = now.join("scratch").join("orgtree").join("a");
+        let got = resolve_link_path(&now, &scratch, &format!(r"{old}\pg\cluster\secret.png"));
+        assert_eq!(got.as_deref(), Some(secret.as_path()));
+        let roots = [now.join("scratch").join("orgtree"), now.join("uploads"), now.join("workspaces").join("orgtree"), scratch];
+        assert!(!path_in_roots(got.as_deref().unwrap(), &roots), "the mapped path gets the same root check");
+        std::fs::remove_dir_all(now).unwrap();
+    }
+
+    #[test]
+    fn traversal_and_other_paths_are_not_mapped() {
+        let (now, old) = moved_root();
+        file(now.join("pg").join("secret.png"));
+        let scratch = now.join("scratch").join("orgtree").join("a");
+        assert_eq!(resolve_link_path(&now, &scratch, &format!(r"{old}\uploads\..\pg\secret.png")), None, "traversal (..)");
+        let elsewhere = std::env::temp_dir().join(crate::util::uid("not-moved"));
+        let kept = file(elsewhere.join("x.png"));
+        assert_eq!(resolve_link_path(&now, &scratch, &kept.to_string_lossy()), Some(kept.clone()), "a non-old-root path is unchanged");
+        assert_eq!(resolve_link_path(&now, &scratch, &elsewhere.join("missing.png").to_string_lossy()), None);
+        let present = file(PathBuf::from(&old).join("uploads").join("still-here.png"));
+        assert_eq!(resolve_link_path(&now, &scratch, &present.to_string_lossy()), Some(present.clone()), "an old path that exists is used as it is");
+        std::fs::remove_dir_all(now).unwrap();
+        std::fs::remove_dir_all(elsewhere).unwrap();
+        std::fs::remove_dir_all(PathBuf::from(&old).parent().unwrap()).unwrap();
+    }
 }

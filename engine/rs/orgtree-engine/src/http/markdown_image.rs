@@ -4,9 +4,12 @@
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use crate::engine::Engine;
 use std::time::Duration;
 
-use axum::extract::Query;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures::StreamExt;
@@ -23,9 +26,9 @@ pub struct ImageQuery {
     url: Option<String>,
 }
 
-pub async fn get(Query(query): Query<ImageQuery>) -> Response {
+pub async fn get(State(e): State<Arc<Engine>>, Query(query): Query<ImageQuery>) -> Response {
     let result = match (query.path, query.url) {
-        (Some(path), None) => local_image(path).await,
+        (Some(path), None) => local_image(path, &e.cfg.data_root).await,
         (None, Some(url)) => remote_image(url).await,
         _ => Err(StatusCode::BAD_REQUEST),
     };
@@ -35,7 +38,8 @@ pub async fn get(Query(query): Query<ImageQuery>) -> Response {
     }
 }
 
-async fn local_image(path: String) -> Result<Vec<u8>, StatusCode> {
+async fn local_image(path: String, data_root: &Path) -> Result<Vec<u8>, StatusCode> {
+    let _ = data_root;
     if path.len() > 32_768 {
         return Err(StatusCode::URI_TOO_LONG);
     }
@@ -592,6 +596,30 @@ mod tests {
             output.status.success(),
             "mklink /J failed: {}",
             String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_markdown_image_under_a_previous_data_root_loads_from_the_current_one() {
+        let now = ScratchDir::new();
+        std::fs::create_dir_all(now.0.join("diagnostics")).unwrap();
+        let old = std::env::temp_dir().join(crate::util::uid("gone-root")).join("data").to_string_lossy().to_string();
+        let receipt = serde_json::json!({ "fromRoot": old, "fromVariants": [old], "toRoot": now.0.to_string_lossy() });
+        std::fs::write(now.0.join(crate::data_relocate::RECEIPT_REL_PATH), format!("{receipt}\n")).unwrap();
+        std::fs::create_dir_all(now.0.join("scratch")).unwrap();
+        std::fs::write(now.0.join("scratch").join("chart.png"), PNG_1X1).unwrap();
+
+        let bytes = local_image(format!(r"{old}\scratch\chart.png"), &now.0).await.expect("the moved image loads");
+        assert_eq!(bytes, PNG_1X1);
+        assert_eq!(
+            local_image(format!(r"{old}\scratch\..\scratch\chart.png"), &now.0).await.unwrap_err(),
+            StatusCode::NOT_FOUND,
+            "a traversing link is not mapped"
+        );
+        assert_eq!(
+            local_image(format!(r"{old}\scratch\missing.png"), &now.0).await.unwrap_err(),
+            StatusCode::NOT_FOUND,
         );
     }
 

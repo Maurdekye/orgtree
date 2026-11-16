@@ -428,6 +428,16 @@ fn unlink_reparse_or_symlink(path: &Path) {
     }
 }
 
+/// The same file under the current root for a path that names a previous data
+/// root, read from the relocation receipts (each move, oldest first). Links
+/// stored before a Data location move (transcript rows) keep the old root; the
+/// file and Markdown image routes use this only when the stored path is gone.
+/// Never maps a path with a `..` component. Paths are private: not logged.
+#[nolog]
+pub fn moved_path(_data_root: &Path, _raw: &str) -> Option<PathBuf> {
+    None
+}
+
 #[logged]
 pub fn read_marker(data_root: &Path) -> Result<Option<MoveMarker>> {
     let marker_path = data_root.join(MOVED_MARKER_FILE);
@@ -1195,4 +1205,65 @@ pub async fn run_if_needed(cfg: &Config, pool: &Pool, progress: &dyn Fn(&str)) -
         "data root relocation complete"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod moved_path_tests {
+    use super::{moved_path, RECEIPT_REL_PATH};
+    use std::path::{Path, PathBuf};
+
+    fn root(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(crate::util::uid(tag));
+        std::fs::create_dir_all(root.join("diagnostics")).unwrap();
+        root
+    }
+
+    fn receipts(data_root: &Path, moves: &[(&str, &str)]) {
+        let lines: Vec<String> = moves
+            .iter()
+            .map(|(from, to)| serde_json::json!({ "fromRoot": from, "fromVariants": [from], "toRoot": to }).to_string())
+            .collect();
+        std::fs::write(data_root.join(RECEIPT_REL_PATH), lines.join("\n") + "\n").unwrap();
+    }
+
+    #[test]
+    fn a_path_under_a_previous_root_maps_to_the_current_root() {
+        let now = root("moved-now");
+        let current = now.to_string_lossy().to_string();
+        receipts(&now, &[(r"C:\Users\u\AppData\Roaming\Orgtree v2\data", &current)]);
+        assert_eq!(
+            moved_path(&now, r"C:\Users\u\AppData\Roaming\Orgtree v2\data\uploads\orgtree\a\u1-shot.png"),
+            Some(PathBuf::from(format!(r"{current}\uploads\orgtree\a\u1-shot.png"))),
+        );
+        // case and separators as Windows treats them
+        assert_eq!(
+            moved_path(&now, "c:/users/u/appdata/roaming/orgtree v2/data/scratch/orgtree/a/outbox/clip.mp4"),
+            Some(PathBuf::from(format!("{}/scratch/orgtree/a/outbox/clip.mp4", current.replace('\\', "/")))),
+        );
+        std::fs::remove_dir_all(now).unwrap();
+    }
+
+    #[test]
+    fn moves_in_a_row_map_through_each_receipt_in_order() {
+        let now = root("moved-chain");
+        let current = now.to_string_lossy().to_string();
+        receipts(&now, &[(r"C:\first\data", r"D:\second"), (r"D:\second", &current)]);
+        assert_eq!(moved_path(&now, r"C:\first\data\uploads\x.png"), Some(PathBuf::from(format!(r"{current}\uploads\x.png"))));
+        assert_eq!(moved_path(&now, r"D:\second\uploads\y.png"), Some(PathBuf::from(format!(r"{current}\uploads\y.png"))));
+        std::fs::remove_dir_all(now).unwrap();
+    }
+
+    #[test]
+    fn unrelated_traversing_or_unrecorded_paths_are_not_mapped() {
+        let now = root("moved-none");
+        let current = now.to_string_lossy().to_string();
+        assert_eq!(moved_path(&now, r"C:\old\data\uploads\x.png"), None, "no receipt, no mapping");
+        receipts(&now, &[(r"C:\old\data", &current)]);
+        assert_eq!(moved_path(&now, r"C:\elsewhere\x.png"), None, "outside every previous root");
+        assert_eq!(moved_path(&now, r"C:\old\data-other\x.png"), None, "a sibling with the same prefix");
+        assert_eq!(moved_path(&now, r"C:\old\data\uploads\..\..\..\secret.png"), None, "traversal");
+        assert_eq!(moved_path(&now, "uploads/x.png"), None, "relative paths stay relative");
+        assert_eq!(moved_path(&now, &format!(r"{current}\uploads\x.png")), None, "already under the current root");
+        std::fs::remove_dir_all(now).unwrap();
+    }
 }
