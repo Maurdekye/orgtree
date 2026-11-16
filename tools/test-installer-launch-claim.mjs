@@ -11,7 +11,7 @@
 // no idea whether it caused a second one.
 //
 // The replacement is a file that cannot be created twice: CreateFileW with
-// CREATE_NEW on the NSIS side, O_CREAT | O_EXCL on the Python side, against the
+// CREATE_NEW on the NSIS side and on the Rust helper's side, against the
 // same path. This harness runs BOTH sides against ONE claim and requires that
 // the winner is decided once, that the loser launches nothing, and that a claim
 // which cannot be made at all is a refusal rather than a licence.
@@ -29,7 +29,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
-import { locateEngineRuntime } from './runtime-layout.mjs'
+import { relaunchHelperPath, RELAUNCH_HELPER_MISSING } from './native-test-bins.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const source = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
@@ -43,7 +43,7 @@ if (!fs.existsSync(compilerPath)) throw new Error('INERT: NSIS compiler unavaila
 
 // Located by walking UPWARD: engine/runtime is gitignored, so a linked worktree
 // has none of its own and a plain join made the cross-process cases skip there.
-const engineRuntime = locateEngineRuntime(root, { marker: 'pythonw.exe' })
+const helperExe = relaunchHelperPath()
 
 function nsisFunction(name) {
   // The functions live INSIDE customFinishPage, so both the header and the
@@ -175,31 +175,26 @@ console.log('PASS an inherited launch identity is kept rather than re-derived')
 // BOTH SIDES, ONE CLAIM. This is the part a single-language test cannot show:
 // the helper and the installer must be using the same primitive on the same
 // file, or the "exactly once" property is two separate stories.
-if (!engineRuntime) {
-  console.log('SKIP cross-process cases: no provisioned engine runtime; set ORGTREE_ENGINE_RUNTIME')
+if (!helperExe) {
+  console.log('SKIP cross-process cases: ' + RELAUNCH_HELPER_MISSING)
 } else {
-  const helper = path.join(root, 'tools/installer-relaunch.py')
-  const pythonw = path.join(engineRuntime, 'pythonw.exe')
   const launchMarker = path.join(temp, 'helper-launched.txt')
   const target = path.join(temp, 'fake application.cmd')
   fs.writeFileSync(target, `@echo launched>>"${launchMarker}"\r\n@exit 0\r\n`)
 
   function runHelper(name, claim) {
-    const staging = fs.mkdtempSync(path.join(temp, `${name}-`))
-    const script = path.join(staging, 'installer-relaunch.py')
-    fs.copyFileSync(helper, script)
     // Process id 4 is the System process. It is deliberately NOT used here:
     // this case is about ownership, so the helper is given its own process id,
     // which it can always open a handle on and which never exits — the wait is
     // cut short by a tiny timeout instead. Ownership is decided before the wait.
-    // The ready marker is deliberately kept OUTSIDE the staged directory here:
-    // the helper removes that directory as it exits, which would take the
-    // marker with it and leave this harness unable to tell "never acknowledged"
+    // The ready marker is deliberately kept OUTSIDE any installer staging
+    // directory here: the helper removes such a directory as it exits, which
+    // would take the marker with it and leave this harness unable to tell "never acknowledged"
     // from "acknowledged and then cleaned up". In production the installer
     // reads the marker while the helper is still waiting, which the behavioural
     // sections in tests/installer-upgrade.test.mjs exercise.
     const ready = path.join(temp, `${name}-ready.txt`)
-    const ran = spawnSync(pythonw, [script, String(process.pid), target, ready, claim], {
+    const ran = spawnSync(helperExe, [String(process.pid), target, ready, claim], {
       windowsHide: true, encoding: 'utf8', timeout: 60000,
       env: { ...process.env, ORGTREE_RELAUNCH_LOG_DIR: temp, ORGTREE_RELAUNCH_TIMEOUT_MS: '300' },
     })
@@ -223,11 +218,8 @@ if (!engineRuntime) {
   // already exited is a different case, and conflating the two is exactly the
   // "reservation with no live owner" confusion this round is about.
   const helperHeld = path.join(temp, 'helper-held.launch-claim')
-  const heldStaging = fs.mkdtempSync(path.join(temp, 'helper-holds-'))
-  const heldScript = path.join(heldStaging, 'installer-relaunch.py')
-  fs.copyFileSync(helper, heldScript)
   const heldReady = path.join(temp, 'helper-holds-ready.txt')
-  const holder = spawn(pythonw, [heldScript, String(process.pid), target, heldReady, helperHeld], {
+  const holder = spawn(helperExe, [String(process.pid), target, heldReady, helperHeld], {
     windowsHide: true, stdio: 'ignore',
     env: { ...process.env, ORGTREE_RELAUNCH_LOG_DIR: temp, ORGTREE_RELAUNCH_TIMEOUT_MS: '30000' },
   })

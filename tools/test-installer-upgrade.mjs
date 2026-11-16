@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { locateEngineRuntime } from './runtime-layout.mjs'
+import { relaunchHelperPath, RELAUNCH_HELPER_MISSING } from './native-test-bins.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const source = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
@@ -184,7 +184,6 @@ ${welcome}
 Var installMode
 Function .onInit
   InitPluginsDir
-  File /oname=$PLUGINSDIR\\installer-relaunch.py "${path.join(root, 'tools/installer-relaunch.py')}"
 FunctionEnd
 Section
   # Simulate the stale NSIS error flag left by a failed probe immediately
@@ -213,16 +212,19 @@ const [prepared, preparedDir] = fs.readFileSync(preparationMarker, 'utf8').trim(
 assert.equal(prepared, '1', `compiled helper preparation failed in packaged path: ${preparedDir}`)
 assert.ok(preparedDir.includes('OrgtreeInstallerRelaunch-'), `unexpected helper directory: ${preparedDir}`)
 assert.ok(preparedDir.startsWith(preparationTemp), `helper directory escaped the configured temp path: ${preparedDir}`)
-assert.ok(fs.existsSync(path.join(preparedDir, 'installer-relaunch.py')), 'compiled fixture did not copy the helper')
+assert.ok(fs.existsSync(preparedDir), 'compiled fixture did not create the staging directory')
+// Nothing executable is staged in %TEMP% any more: the helper runs from $INSTDIR.
+assert.deepEqual(fs.readdirSync(preparedDir), [], 'the staging directory must hold nothing but the later ready marker')
 fs.rmSync(preparedDir, { recursive: true, force: true })
 console.log('PASS compiled NSIS helper extraction/preparation path')
 
 // Keep a compiled control using the pre-fix instruction sequence. A failed
 // optional FileOpen leaves NSIS's Error flag set; without the two local
-// ClearErrors calls, the old routine reports failure despite successful copy.
+// ClearErrors call, the old routine reports failure despite a successful
+// CreateDirectory.
 const legacyFinish = finish
   .replace(/      # Filesystem instructions[\s\S]*?      ClearErrors\r?\n(?=      CreateDirectory)/, '')
-  .replace(/      ClearErrors\r?\n(?=      CopyFiles)/, '')
+assert.notEqual(legacyFinish, finish, 'the legacy control could not remove the ClearErrors; its anchor moved')
 const legacyMarker = path.join(temp, 'legacy helper preparation marker.txt')
 const legacyNsi = preparationFixture(
   legacyFinish,
@@ -250,7 +252,7 @@ console.log('PASS compiled regression reproduces stale NSIS Errors before the fi
 // `$1 != 0` test walked that success into "(error ok)" — so this coverage
 // refuses to stub the plugin: it compiles the repository's real dispatch
 // function against electron-builder's own StdUtils.dll, lets it start the
-// real installer-relaunch.py helper, and watches the helper launch the
+// real orgtree-installer-relaunch.exe helper, and watches the helper launch the
 // (fixture) executable exactly once after the installer process exits.
 const stdUtilsPlugins = (() => {
   if (process.env.ORGTREE_NSIS_PLUGINS) return path.resolve(process.env.ORGTREE_NSIS_PLUGINS)
@@ -275,24 +277,16 @@ const dispatchTemp = path.join(temp, 'dispatch temp with spaces')
 fs.mkdirSync(dispatchTemp)
 const dispatchEnv = { ...process.env, TEMP: dispatchTemp, TMP: dispatchTemp }
 
-// The relaunch host is the application's OWN pythonw.exe, read out of the
-// installed tree, so the fixture needs an $INSTDIR that looks installed. The
-// runtime is provisioned rather than committed (engine/runtime is gitignored),
-// so it is located rather than assumed, and it is LINKED rather than copied —
-// a directory junction needs no privileges and no 100 MB of duplication.
-//
-// This junction is a throwaway inside the harness temp directory. It is not a
-// node_modules link: nothing installs through it, and it is removed with the
-// temp tree.
-// Located by walking UPWARD: engine/runtime is gitignored, so a linked worktree
-// has none of its own and a plain join made this harness INERT there.
-const runtimeSource = locateEngineRuntime(root, { marker: 'pythonw.exe' })
-if (!runtimeSource) {
-  throw new Error('INERT: no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME')
-}
+// The relaunch host is the application's OWN orgtree-installer-relaunch.exe,
+// read out of the installed tree, so the fixture needs an $INSTDIR that looks
+// installed. The helper is a cargo build output (engine/rs), so it is located
+// rather than assumed, and COPIED into the throwaway install root (a few
+// hundred KB) inside the harness temp directory, removed with the temp tree.
+const helperSource = relaunchHelperPath()
+if (!helperSource) throw new Error('INERT: ' + RELAUNCH_HELPER_MISSING)
 const installRoot = path.join(temp, 'fixture install root')
 fs.mkdirSync(path.join(installRoot, 'resources', 'engine'), { recursive: true })
-fs.symlinkSync(runtimeSource, path.join(installRoot, 'resources', 'engine', 'runtime'), 'junction')
+fs.copyFileSync(helperSource, path.join(installRoot, 'resources', 'engine', 'orgtree-installer-relaunch.exe'))
 
 // THIS HARNESS MUST NOT OPEN A WINDOW, AND SAYING SO IN A COMMENT WAS NOT
 // ENOUGH. It used to dispatch console-subsystem powershell.exe from its raw
@@ -333,9 +327,9 @@ function assertWindowlessTarget(exe) {
 }
 
 // The raw probe dispatches the SAME host production dispatches — the fixture's
-// own pythonw.exe — rather than a console-subsystem stand-in.
+// own orgtree-installer-relaunch.exe — rather than a console-subsystem stand-in.
 const probeHost = assertWindowlessTarget(
-  path.join(installRoot, 'resources', 'engine', 'runtime', 'pythonw.exe'))
+  path.join(installRoot, 'resources', 'engine', 'orgtree-installer-relaunch.exe'))
 
 function dispatchFixture(finishMacro, executable, resultMarker, launchTarget) {
   return `Unicode true
@@ -369,9 +363,8 @@ Var installMode
 Var rawToken
 Function .onInit
   InitPluginsDir
-  File /oname=$PLUGINSDIR\\installer-relaunch.py "${path.join(root, 'tools/installer-relaunch.py')}"
   # The dispatch reads its host out of the installed tree, so the fixture has to
-  # look like one: $INSTDIR\\resources\\engine\\runtime\\pythonw.exe must exist
+  # look like one: $INSTDIR\\resources\\engine\\orgtree-installer-relaunch.exe must exist
   # or the real function refuses to schedule anything, which is the guard this
   # fixture is not trying to exercise.
   StrCpy $INSTDIR "${installRoot.replaceAll('\\', '\\\\')}"
@@ -380,7 +373,7 @@ Section
   # Raw plugin contract, no stubs: the same call shape production uses. This
   # records what the DLL actually answers so the routing below is checked
   # against evidence rather than against an assumed convention.
-  # ⚠ THE TARGET IS THE FIXTURE'S OWN pythonw.exe, AND THAT IS LOAD-BEARING.
+  # ⚠ THE TARGET IS THE FIXTURE'S OWN RELAUNCH HELPER, AND THAT IS LOAD-BEARING.
   # This probe used to dispatch powershell.exe to keep its reading comparable
   # with the 2.1.4-RC4 evidence, and it flashed a console on every run:
   # ShellExecute allocates one for a console-subsystem image, which is the very
@@ -389,11 +382,11 @@ Section
   # answers is a property of the DISPATCH, not of the target's subsystem — so
   # the historical target bought nothing and cost a visible window. This now
   # dispatches the same GUI-subsystem host production dispatches, which is also
-  # the one .onInit already guarantees exists. The "-c pass" argument starts a
-  # runtime that immediately exits. The subsystem is read out of the PE header before this
+  # the one .onInit already guarantees exists. With no arguments the helper
+  # logs "expected an installer process id" to the harness TEMP and exits 2. The subsystem is read out of the PE header before this
   # fixture is compiled (see assertWindowlessTarget), so a target that regresses
   # to a console image is a test FAILURE rather than another flash.
-  \${StdUtils.ExecShellAsUser} $rawToken "${probeHost.replaceAll('\\', '\\\\')}" "open" "-c pass"
+  \${StdUtils.ExecShellAsUser} $rawToken "${probeHost.replaceAll('\\', '\\\\')}" "open" ""
   Call orgtreePrepareUpgradeRelaunch
   StrCpy $OrgUpgradeExe "${launchTarget}"
   Call orgtreeDispatchUpgradeRelaunch

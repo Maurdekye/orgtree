@@ -184,6 +184,7 @@ for (const p of process.argv.slice(1)) {
   # nothing an earlier build left may reach this package
   rm -rf "${WT:?}/release" || return 1
   rm -f "$WT/engine/rs/target/release/orgtree-engine.exe" "$WT/engine/rs/target/release/orgtree-credential-broker.exe" \
+    "$WT/engine/rs/target/release/orgtree-installer-relaunch.exe" \
     "$WT/engine/mailhub/target/release/orgtree-mailhub.exe" || return 1
   echo "PREP-OK $(stamp)"
 }
@@ -198,6 +199,7 @@ build() {
   local out="$TD/release" eng="$WT/engine/rs/target/release" hub="$WT/engine/mailhub/target/release" v
   (cd "$WT/engine/rs" && cargo build --release --locked -j 2) || { echo "BUILD-FAILED engine $(stamp)"; return 1; }
   place "$out/orgtree-engine.exe" "$eng/orgtree-engine.exe" && place "$out/orgtree-credential-broker.exe" "$eng/orgtree-credential-broker.exe" \
+    && place "$out/orgtree-installer-relaunch.exe" "$eng/orgtree-installer-relaunch.exe" \
     || { echo "BUILD-FAILED engine-copy $(stamp)"; return 1; }
   v=$("$eng/orgtree-engine.exe" --version | tr -d '\r')
   [ "$v" = "orgtree-engine $VERSION" ] || { echo "the engine says \"$v\", not \"orgtree-engine $VERSION\" (a release build)"; echo "BUILD-FAILED engine-version $(stamp)"; return 1; }
@@ -221,8 +223,9 @@ build() {
   local res="$WT/release/win-unpacked/resources/engine"
   [ "$(sha "$res/orgtree-engine.exe")" = "$(sha "$eng/orgtree-engine.exe")" ] \
     && [ "$(sha "$res/orgtree-credential-broker.exe")" = "$(sha "$eng/orgtree-credential-broker.exe")" ] \
+    && [ "$(sha "$res/orgtree-installer-relaunch.exe")" = "$(sha "$eng/orgtree-installer-relaunch.exe")" ] \
     && [ "$(sha "$res/orgtree-mailhub.exe")" = "$(sha "$hub/orgtree-mailhub.exe")" ] \
-    || { echo "the packaged engine, credential broker or mail hub differs from the one just built (stale, or re-signed by electron-builder)"; echo "BUILD-FAILED payload $(stamp)"; return 1; }
+    || { echo "the packaged engine, credential broker, relaunch helper or mail hub differs from the one just built (stale, or re-signed by electron-builder)"; echo "BUILD-FAILED payload $(stamp)"; return 1; }
   echo "PAYLOAD-OK $(stamp) the packaged engine, credential broker and mail hub are the ones just built"
   local inst="$WT/release/Orgtree Setup $VERSION.exe"
   ls -la "$WT"/release/*.exe

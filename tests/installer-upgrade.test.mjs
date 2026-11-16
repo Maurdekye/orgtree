@@ -4,12 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { spawn, spawnSync } from 'node:child_process'
-import { locateEngineRuntime } from '../tools/runtime-layout.mjs'
+import { relaunchHelperPath, testNativePath, RELAUNCH_HELPER_MISSING, TEST_NATIVE_MISSING } from '../tools/native-test-bins.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
 const helper = fs.readFileSync(path.join(root, 'tools/installer-upgrade.ps1'), 'utf8')
-const relaunch = fs.readFileSync(path.join(root, 'tools/installer-relaunch.py'), 'utf8')
+const relaunch = fs.readFileSync(path.join(root, 'engine/rs/orgtree-installer-relaunch/src/main.rs'), 'utf8')
 
 // IMAGE_SUBSYSTEM values from the PE optional header. Only these two matter
 // here: a GUI-subsystem image is started by ShellExecute with no console, a
@@ -50,23 +50,20 @@ function systemPath(nsisPath) {
     nsisPath.replace(/^\$SYSDIR\\/, '').replace(/\\/g, path.sep))
 }
 
-// The relaunch host now lives inside the INSTALLED tree, so there is no
-// installed copy to read in a source checkout. The provisioned runtime is the
-// same build that gets packaged into it (engine/runtime is gitignored, so it is
-// located rather than assumed). Everything that depends on it SKIPS with a
-// reason when it is absent — a missing runtime is an environment limit, not a
-// silent pass.
-// Located by walking UPWARD, not joined onto this checkout: a linked worktree
-// carries no engine/runtime of its own, so a plain join made every case below
-// skip for every agent working under the worktree rule.
-const engineRuntime = locateEngineRuntime(root, { marker: 'pythonw.exe' })
+// The relaunch helper lives inside the INSTALLED tree, so there is no
+// installed copy to read in a source checkout. The cargo build of
+// engine/rs/orgtree-installer-relaunch is the same image that gets packaged
+// into it. Everything that depends on it SKIPS with a reason when it is not
+// built — an unbuilt helper is an environment limit, not a silent pass. The
+// unreadable-process cases also need the test-only tools/test-native helpers.
+const helperExe = relaunchHelperPath()
+const testNative = testNativePath()
 
 // Resolves whatever build/installer.nsh names as the relaunch host onto a file
 // this checkout can actually read.
 function hostPath(nsisPath) {
   if (nsisPath.startsWith('$SYSDIR\\')) return systemPath(nsisPath)
-  const installed = nsisPath.match(/^\$INSTDIR\\resources\\engine\\runtime\\(.+)$/)
-  if (installed && engineRuntime) return path.join(engineRuntime, installed[1])
+  if (nsisPath === '$INSTDIR\\resources\\engine\\orgtree-installer-relaunch.exe' && helperExe) return helperExe
   throw new Error(`cannot resolve the relaunch host ${nsisPath} in a source checkout`)
 }
 const app = fs.readFileSync(path.join(root, 'apps/desktop/main/index.ts'), 'utf8')
@@ -169,24 +166,27 @@ test('successful interactive upgrades skip Finish and relaunch once after instal
   assert.match(installer, /!macro customFinishPage[\s\S]*?!define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre[\s\S]*?!insertmacro MUI_PAGE_FINISH/)
   assert.match(installer, /Function orgtreeUpgradeFinishPagePre[\s\S]*?\$OrgUpgradeSelected == "1"[\s\S]*?Call orgtreeScheduleUpgradeRelaunch[\s\S]*?\$OrgUpgradeRelaunchReady == "1"[\s\S]*?Abort/)
   assert.match(installer, /System::Call 'kernel32::GetCurrentProcessId\(\) i \.r0'/)
-  assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.py.*\$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker"/)
+  assert.match(installer, /\$OrgUpgradeRelaunchArgs '\$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker"/)
   assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$OrgUpgradeRelaunchHost"/)
-  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchHost "\$INSTDIR\\resources\\engine\\runtime\\pythonw\.exe"/)
+  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchHost "\$INSTDIR\\resources\\engine\\orgtree-installer-relaunch\.exe"/)
   assert.match(installer, /\$OrgUpgradeRelaunchScheduled == "1"/)
-  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.py" \$OrgUpgradeRelaunchDir/)
-  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?ClearErrors\r?\n\s+CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?ClearErrors\r?\n\s+CopyFiles \/SILENT/)
-  assert.match(installer, /"\$OrgUpgradeRelaunchDir\\installer-relaunch\.py"/)
+  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?ClearErrors\r?\n\s+CreateDirectory \$OrgUpgradeRelaunchDir/)
+  // The helper is the installed image, run from $INSTDIR: nothing executable
+  // is staged in %TEMP%, where AppLocker's default rules refuse to run it.
+  // Instructions only: comments may name the retired Python host.
+  assert.doesNotMatch(installer.split(/\r?\n/).filter(line => !/^\s*#/.test(line)).join('\n'),
+    /installer-relaunch\.py|pythonw\.exe|CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch/)
   // Wait strictly before launch, and exactly one launch site. These anchor on
   // the CALLS, not the definitions, and they are line-ending agnostic: a
   // literal '\n' anchor silently finds nothing in a normal CRLF checkout, which
   // is an assertion that passes by not looking.
-  const wait = relaunch.search(/^\s*outcome = wait_on\(handle, pid, timeout_ms\)\s*$/m)
-  const launch = relaunch.search(/^\s*launch\(executable\)\s*$/m)
+  const wait = relaunch.search(/^\s*let outcome = waiter\.wait\(pid, timeout\);\s*$/m)
+  const launch = relaunch.search(/^\s*if let Err\(error\) = launch\(executable\) \{\s*$/m)
   assert.ok(wait >= 0, 'the helper must call the wait; the anchor found no call at all')
   assert.ok(launch > wait, 'the app must start only after the installer-exit wait')
-  assert.equal((relaunch.match(/^\s*launch\(executable\)$/gm) ?? []).length, 1, 'the helper has one launch site')
-  assert.equal((relaunch.match(/^\s*subprocess\.Popen\($/gm) ?? []).length, 1, 'the helper starts exactly one process')
-  assert.match(relaunch, /shutil\.rmtree\(directory, ignore_errors=True\)/)
+  assert.equal((relaunch.match(/\blaunch\(executable\)/g) ?? []).length, 1, 'the helper has one launch site')
+  assert.equal((relaunch.match(/\.spawn\(\)/g) ?? []).length, 1, 'the helper starts exactly one process')
+  assert.match(relaunch, /fs::remove_dir_all\(directory\)/)
 })
 
 test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch', () => {
@@ -211,15 +211,17 @@ test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch'
 
 test('all-users elevation carries a user-owned helper across the UAC boundary', () => {
   const prepared = installer.indexOf('Function orgtreePrepareUpgradeRelaunch')
-  const copy = installer.indexOf('CopyFiles /SILENT "$PLUGINSDIR\\installer-relaunch.py" $OrgUpgradeRelaunchDir')
+  const staging = installer.indexOf('CreateDirectory $OrgUpgradeRelaunchDir')
   const call = installer.indexOf('Call orgtreePrepareUpgradeRelaunch')
   const elevation = installer.indexOf('!insertmacro UAC_RunElevated')
-  assert.ok(prepared >= 0 && copy > prepared && call >= 0 && call < elevation, 'helper staging is called before all-users elevation')
+  assert.ok(prepared >= 0 && staging > prepared && call >= 0 && call < elevation, 'helper staging is called before all-users elevation')
   assert.match(installer, /StrCpy \$OrgUpgradeRelaunchDir "\$TEMP\\OrgtreeInstallerRelaunch-\$0"/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
-  assert.match(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch\.py/)
-  assert.match(relaunch, /shutil\.rmtree\(directory, ignore_errors=True\)/)
+  assert.doesNotMatch(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch/)
+  // The helper removes only the installer's own staging directory.
+  assert.match(relaunch, /const STAGING_PREFIX: &str = "orgtreeinstallerrelaunch-";/)
+  assert.match(relaunch, /fs::remove_dir_all\(directory\)/)
 })
 
 // The console regression guard. This is the thing that will silently come back:
@@ -231,7 +233,7 @@ test('all-users elevation carries a user-owned helper across the UAC boundary', 
 // caused the incident.
 test('the upgrade relaunch dispatch never targets a console-subsystem host', {
   skip: process.platform !== 'win32' ? 'Windows only'
-    : !engineRuntime ? 'no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME'
+    : !helperExe ? RELAUNCH_HELPER_MISSING
     : false,
 }, () => {
   // EVERY dispatch, not the first one. There are two now — the relaunch helper's
@@ -433,10 +435,10 @@ test('the retained Finish page carries a real launch action, under the original 
   // reasons are told apart by the error code rather than collapsed.
   assert.match(installer, /Function orgtreeClaimUpgradeLaunch[\s\S]*?kernel32::CreateFileW\(w r9, i 0x40000000, i 0, p 0, i 1, i 0x80, p 0\) p \.r8 \? e/)
   assert.match(installer, /Function orgtreeClaimUpgradeLaunch[\s\S]*?\$7 == 80[\s\S]*?StrCpy \$OrgUpgradeLaunchOwned "other"/)
-  assert.match(relaunch, /os\.O_CREAT \| os\.O_EXCL \| os\.O_WRONLY/,
-    'the helper must claim with the same exclusive-create primitive')
+  assert.match(relaunch, /OpenOptions::new\(\)\.write\(true\)\.create_new\(true\)\.open\(claim\)/,
+    'the helper must claim with the same exclusive-create primitive (CREATE_NEW)')
   // Both sides must name the SAME file, or the claim decides nothing.
-  assert.match(installer, /\$OrgUpgradeRelaunchArgs '"\$OrgUpgradeRelaunchDir\\installer-relaunch\.py" \$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker" "\$OrgUpgradeRelaunchClaim"'/)
+  assert.match(installer, /\$OrgUpgradeRelaunchArgs '\$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker" "\$OrgUpgradeRelaunchClaim"'/)
   // THE IDENTITY IS PER INVOCATION, NOT PER PROCESS ID. The claim file outlives
   // the run that made it and Windows reuses process ids, so a pid-derived name
   // lets an unrelated later install resolve a claim whose owner died weeks ago
@@ -468,7 +470,7 @@ test('the retained Finish page carries a real launch action, under the original 
   // The old protocol must be gone on BOTH sides, not merely unused on one.
   assert.doesNotMatch(installer, /relaunch-withdrawn|orgtreeWithdrawUpgradeRelaunch/,
     'the check-then-act withdrawal was replaced by the claim; leaving it behind gives two arbiters')
-  assert.doesNotMatch(relaunch, /relaunch-withdrawn|def cancelled/)
+  assert.doesNotMatch(relaunch, /relaunch-withdrawn|fn cancelled/)
 
   // A MESSAGE MAY NOT PROMISE A CONTROL THAT IS NOT THERE. This is the guard on
   // the defect itself: the old text said to use Finish on a page that could
@@ -487,27 +489,29 @@ test('the retained Finish page carries a real launch action, under the original 
 test('the relaunch helper waits on a process handle and never guesses', () => {
   // No WMI, no COM, no script host: the dependencies that could not report
   // their own absence are gone.
-  assert.doesNotMatch(relaunch, /winmgmts|Win32_Process|ActiveXObject|WScript|win32com/)
-  assert.match(relaunch, /kernel32\.OpenProcess\(SYNCHRONIZE, False, pid\)/)
-  assert.match(relaunch, /kernel32\.WaitForSingleObject\(handle, timeout_ms\)/)
+  // Code only: the doc comment explains why WMI was retired.
+  assert.doesNotMatch(relaunch.split(/\r?\n/).filter(line => !/^\s*\/\//.test(line)).join('\n'),
+    /winmgmts|Win32_Process|ActiveXObject|WScript|\bwmi\b/i)
+  assert.match(relaunch, /OpenProcess\(PROCESS_SYNCHRONIZE, 0, pid\)/)
+  assert.match(relaunch, /WaitForSingleObject\(handle, timeout_ms\)/)
 
   // Three answers, three outcomes, and only one of them may launch.
-  assert.match(relaunch, /if result == WAIT_OBJECT_0:\r?\n\s*return EXITED/)
-  assert.match(relaunch, /if result == WAIT_TIMEOUT:[\s\S]*?return STILL_RUNNING/)
-  assert.match(relaunch, /return UNREADABLE/)
-  assert.match(relaunch, /if outcome == STILL_RUNNING:\r?\n\s*release_claim\(claim\)\r?\n\s*return EXIT_STILL_RUNNING/)
-  assert.match(relaunch, /if outcome != EXITED:[\s\S]*?release_claim\(claim\)\r?\n\s*return EXIT_UNREADABLE/)
+  assert.match(relaunch, /if result == WAIT_OBJECT_0 \{\r?\n\s*return Waited::Exited;/)
+  assert.match(relaunch, /if result == WAIT_TIMEOUT \{[\s\S]*?return Waited::StillRunning;/)
+  assert.match(relaunch, /Waited::Unreadable\r?\n/)
+  assert.match(relaunch, /if outcome == Waited::StillRunning \{\r?\n\s*release_claim\(claim\);\r?\n\s*return EXIT_STILL_RUNNING;/)
+  assert.match(relaunch, /if outcome != Waited::Exited \{[\s\S]*?release_claim\(claim\);\r?\n\s*return EXIT_UNREADABLE;/)
   // OWNING THE LAUNCH AND PERFORMING IT ARE DIFFERENT THINGS. Every path that
   // ends without a launch gives the claim back, or it leaves a reservation with
   // no live owner and the installer reads that as "something else is starting".
-  assert.match(relaunch, /release_claim\(claim\)\r?\n\s*return EXIT_LAUNCH_FAILED/)
-  assert.doesNotMatch(relaunch, /release_claim\(claim\)\r?\n\s*record\("started/,
+  assert.match(relaunch, /release_claim\(claim\);\r?\n\s*return EXIT_LAUNCH_FAILED;/)
+  assert.doesNotMatch(relaunch, /release_claim\(claim\);\r?\n\s*record\(&format!\("started/,
     'a completed launch keeps its claim: that file is the record of this invocation')
-  assert.match(relaunch, /def release_claim\(claim\)[\s\S]*?os\.remove\(claim\)/)
+  assert.match(relaunch, /fn release_claim\(claim: &str\)[\s\S]*?fs::remove_file\(claim\)/)
   // A process id that does not exist at all is the one failure that IS an exit:
   // OpenProcess answers ERROR_INVALID_PARAMETER for it, and nothing else.
-  assert.match(relaunch, /if error == ERROR_INVALID_PARAMETER:[\s\S]*?return None, EXITED/)
-  assert.equal((relaunch.match(/return (?:None, )?EXITED/g) ?? []).length, 2,
+  assert.match(relaunch, /if error == ERROR_INVALID_PARAMETER \{[\s\S]*?return Acquired::Exited;/)
+  assert.equal((relaunch.match(/return (?:Acquired|Waited)::Exited;/g) ?? []).length, 2,
     'only "no such process" and a signalled handle may count as an exit')
 
   // ⚠ ORDER: THE HANDLE, THEN THE ACKNOWLEDGEMENT. The installer reads the
@@ -515,40 +519,46 @@ test('the relaunch helper waits on a process handle and never guesses', () => {
   // knowing whether this helper can wait at all gives away the user's fallback
   // on a promise that may not be keepable — OpenProcess can still be refused,
   // and a marker that has been read cannot be withdrawn by deleting the file.
-  const acquiring = relaunch.search(/^\s*handle, status = acquire\(pid\)\s*$/m)
-  const ready = relaunch.search(/^\s*announce_ready\(marker\)\s*$/m)
-  const waiting = relaunch.search(/^\s*outcome = wait_on\(handle, pid, timeout_ms\)\s*$/m)
+  const acquiring = relaunch.search(/^\s*let status = waiter\.acquire\(pid\);\s*$/m)
+  const ready = relaunch.search(/^\s*announce_ready\(marker\);\s*$/m)
+  const waiting = relaunch.search(/^\s*let outcome = waiter\.wait\(pid, timeout\);\s*$/m)
   assert.ok(acquiring >= 0, 'the helper must acquire the handle in its own step')
   assert.ok(ready > acquiring, 'the handle must be acquired BEFORE the acknowledgement is published')
   assert.ok(waiting > ready, 'the acknowledgement must precede the wait, or the installer waits out the upgrade')
   // And an unreadable acquisition must return before the acknowledgement, not
   // merely skip the launch later.
-  assert.match(relaunch, /handle, status = acquire\(pid\)\r?\n\s*if status == UNREADABLE:[\s\S]*?return EXIT_UNREADABLE/)
+  assert.match(relaunch, /let status = waiter\.acquire\(pid\);\r?\n\s*if status == Acquired::Unreadable \{[\s\S]*?return EXIT_UNREADABLE;/)
 
   // HANDLE, THEN OWNERSHIP, THEN ACKNOWLEDGEMENT. Each step is a promise the
   // helper must already be able to keep before it makes it, and the
   // acknowledgement is the one that costs the user their fallback.
-  const claiming = relaunch.search(/^\s*ownership = claim_launch\(claim\)\s*$/m)
+  const claiming = relaunch.search(/^\s*let ownership = claim_launch\(claim\);\s*$/m)
   assert.ok(claiming > acquiring, 'ownership must be taken after the handle is in hand')
   assert.ok(ready > claiming, 'the claim must be settled BEFORE the acknowledgement is published')
-  assert.match(relaunch, /ownership != OWNED:[\s\S]*?return EXIT_OWNED_ELSEWHERE if ownership == OWNED_ELSEWHERE else EXIT_UNCLAIMABLE/)
+  assert.match(relaunch, /if ownership != Ownership::Owned \{\r?\n\s*return if ownership == Ownership::OwnedElsewhere \{ EXIT_OWNED_ELSEWHERE \} else \{ EXIT_UNCLAIMABLE \};/)
   // And no second look before launching: re-reading ownership at launch time
   // would be the check-then-act race the claim exists to remove.
-  const launching = relaunch.search(/^\s*launch\(executable\)\s*$/m)
+  const launching = relaunch.search(/^\s*if let Err\(error\) = launch\(executable\) \{\s*$/m)
   assert.ok(launching > waiting, 'the launch must follow the wait')
-  assert.equal((relaunch.match(/^\s*ownership = claim_launch\(claim\)\s*$/gm) ?? []).length, 1,
+  // Product code only: the unit tests below #[cfg(test)] exercise the claim too.
+  assert.equal((relaunch.split('#[cfg(test)]')[0].match(/claim_launch\(claim\)/g) ?? []).length, 1,
     'ownership is claimed at exactly one place and never re-checked')
 })
 
 // BEHAVIOURAL. The sections above read the source; these RUN the exact helper
-// under the exact host the installer names. Nothing here is an installer: the
+// image the installer names. Nothing here is an installer: the
 // "installer" is a throwaway process that sleeps, the "application" is a
 // one-line script that appends to a file, and the host is GUI-subsystem, so no
 // window appears at any point.
-const relaunchHelper = path.join(root, 'tools/installer-relaunch.py')
 const helperSkip = process.platform !== 'win32' ? 'Windows only'
-  : !engineRuntime ? 'no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME'
+  : !helperExe ? RELAUNCH_HELPER_MISSING
   : false
+// The unreadable-process cases need the test-only helpers too; without them
+// they FAIL (they ran everywhere while they used Python), never skip.
+function requireTestNative() {
+  if (!testNative) throw new Error(TEST_NATIVE_MISSING)
+  return testNative
+}
 
 // The launch is DETACHED, so the helper's own exit does not mean the launched
 // process has run yet. Wait for the launch to be observable, then keep waiting
@@ -574,18 +584,17 @@ function discard(directory) {
 }
 
 function helperCase(name) {
-  // Each case gets its own copy of the helper, because the helper deletes its
-  // own directory on the way out — which is itself part of the contract.
+  // Each case gets its own staging directory named the way the installer names
+  // it, because the helper removes that directory on the way out — which is
+  // itself part of the contract.
   const base = fs.mkdtempSync(path.join(os.tmpdir(), `orgtree-relaunch-${name}-`))
-  const staged = path.join(base, 'staged helper')
+  const staged = path.join(base, 'OrgtreeInstallerRelaunch-' + name)
   fs.mkdirSync(staged)
-  const script = path.join(staged, 'installer-relaunch.py')
-  fs.copyFileSync(relaunchHelper, script)
   const launchMarker = path.join(base, 'launched.txt')
   const target = path.join(base, 'fake application.cmd')
   fs.writeFileSync(target, `@echo launched>>"${launchMarker}"\r\n@exit 0\r\n`)
   return {
-    base, script, target, launchMarker,
+    base, staged, target, launchMarker,
     ready: path.join(staged, 'relaunch-started.txt'),
     // BESIDE the staged directory, never inside it — the helper deletes that
     // directory as it exits, and an ownership record that vanishes when one
@@ -617,21 +626,7 @@ function livingProcess(ms) {
 // the helper waited out the 60 s timeout instead of refusing. Resolves to the
 // child once its DACL is in place; the caller kills it.
 function unreadableProcess() {
-  const lockdown = [
-    'import ctypes, sys, time',
-    'from ctypes import wintypes',
-    'a = ctypes.WinDLL("advapi32", use_last_error=True)',
-    'k = ctypes.WinDLL("kernel32", use_last_error=True)',
-    'a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)',
-    'a.SetKernelObjectSecurity.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p)',
-    'k.GetCurrentProcess.restype = wintypes.HANDLE',
-    'sd = ctypes.c_void_p()',
-    'if not a.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P", 1, ctypes.byref(sd), None): sys.exit(10)',
-    'if not a.SetKernelObjectSecurity(k.GetCurrentProcess(), 4, sd): sys.exit(11)',
-    'sys.stdout.write("locked\\n"); sys.stdout.flush()',
-    'time.sleep(120)',
-  ].join('\n')
-  const child = spawn(path.join(engineRuntime, 'python.exe'), ['-c', lockdown], {
+  const child = spawn(requireTestNative(), ['lockdown'], {
     windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   })
   return new Promise((resolve, reject) => {
@@ -644,28 +639,11 @@ function unreadableProcess() {
 // SeDebugPrivilege. That privilege opens any process whatever its DACL, and a
 // test runner can inherit it enabled (measured: agent shells started by an
 // elevated engine hold it), which makes every process readable and turns the
-// unreadable cases into a 60 s wait. The host switches it off in its own token
-// and then runs the unchanged helper script as __main__.
-function runHelperWithoutDebug(script, args, options) {
-  const host = [
-    'import ctypes, runpy, sys',
-    'from ctypes import wintypes',
-    'class LUID(ctypes.Structure): _fields_ = [("Low", wintypes.DWORD), ("High", wintypes.LONG)]',
-    'class TP(ctypes.Structure): _fields_ = [("Count", wintypes.DWORD), ("Luid", LUID), ("Attr", wintypes.DWORD)]',
-    'a = ctypes.WinDLL("advapi32", use_last_error=True)',
-    'k = ctypes.WinDLL("kernel32", use_last_error=True)',
-    'k.GetCurrentProcess.restype = wintypes.HANDLE',
-    'a.OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))',
-    'a.AdjustTokenPrivileges.argtypes = (wintypes.HANDLE, wintypes.BOOL, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p)',
-    'token = wintypes.HANDLE()',
-    'if not a.OpenProcessToken(k.GetCurrentProcess(), 0x20 | 0x8, ctypes.byref(token)): sys.exit(12)',
-    'tp = TP(1, LUID(), 0)',
-    'if not a.LookupPrivilegeValueW(None, "SeDebugPrivilege", ctypes.byref(tp.Luid)): sys.exit(13)',
-    'if not a.AdjustTokenPrivileges(token, False, ctypes.byref(tp), 0, None, None): sys.exit(14)',
-    'sys.argv = sys.argv[1:]',
-    'runpy.run_path(sys.argv[0], run_name="__main__")',
-  ].join('\n')
-  return runHelper(path.join(engineRuntime, 'pythonw.exe'), ['-c', host, script, ...args], options)
+// unreadable cases into a 60 s wait. The test-native host switches it off in
+// its own token and runs the unchanged helper as its child, which inherits
+// that token.
+function runHelperWithoutDebug(args, options) {
+  return runHelper(requireTestNative(), ['without-debug', helperExe, ...args], options)
 }
 
 function runHelper(host, args, options) {
@@ -676,11 +654,10 @@ test('the relaunch helper starts the application exactly once, after the install
   skip: helperSkip, timeout: 60000,
 }, async () => {
   const each = helperCase('waits')
-  const host = path.join(engineRuntime, 'pythonw.exe')
   const installer = livingProcess(4000)
   try {
     const started = Date.now()
-    const helper = spawn(host, [each.script, String(installer.pid), each.target, each.ready, each.claim], {
+    const helper = spawn(helperExe, [String(installer.pid), each.target, each.ready, each.claim], {
       windowsHide: true, stdio: 'ignore', env: each.env,
     })
 
@@ -700,7 +677,7 @@ test('the relaunch helper starts the application exactly once, after the install
     assert.ok(elapsed >= 3000, `the helper returned after ${elapsed}ms, so it cannot have waited out the installer`)
     assert.equal(await settledLaunches(each, 1), 1,
       `the application must be started exactly once: ${each.logText()}`)
-    assert.ok(!fs.existsSync(path.dirname(each.script)), 'the helper must remove its own staged copy')
+    assert.ok(!fs.existsSync(each.staged), 'the helper must remove the installer\'s staging directory')
   } finally {
     installer.kill()
     discard(each.base)
@@ -714,7 +691,7 @@ test('an unreadable installer state never becomes an observed exit', { skip: hel
   const each = helperCase('unreadable')
   const installer = await unreadableProcess()
   try {
-    const run = runHelperWithoutDebug(each.script,
+    const run = runHelperWithoutDebug(
       [String(installer.pid), each.target, each.ready, each.claim], { env: each.env })
     assert.equal(run.status, 3,
       `an unreadable state must report its own exit code, not success: ${each.logText()}`)
@@ -749,14 +726,13 @@ test('two helpers racing for one launch produce exactly one launch', {
   const each = helperCase('race')
   const installerProcess = livingProcess(2500)
   try {
-    const host = path.join(engineRuntime, 'pythonw.exe')
     // Same claim, same stand-in installer, same target: the only thing that can
     // separate them is the claim itself.
-    const contenders = ['a', 'b'].map(tag => spawn(host,
+    const contenders = ['a', 'b'].map(tag => spawn(helperExe,
       // The acknowledgement markers go BESIDE the staged directory: the winner
       // deletes that directory as it exits, which would take its own marker
       // with it and make "acknowledged" indistinguishable from "never did".
-      [each.script, String(installerProcess.pid), each.target, path.join(each.base, `ready-${tag}.txt`), each.claim],
+      [String(installerProcess.pid), each.target, path.join(each.base, `ready-${tag}.txt`), each.claim],
       { windowsHide: true, stdio: 'ignore', env: each.env }))
 
     const codes = await Promise.all(contenders.map(child =>
@@ -797,8 +773,8 @@ test('a helper that owns the launch but gives up releases it again', {
     // an acknowledgement fails while the claim itself succeeds — the shape
     // queue-drain reproduced.
     const unwritable = path.join(each.base, 'no-such-directory', 'relaunch-started.txt')
-    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, String(installer.pid), each.target, unwritable, each.claim],
+    const run = runHelper(helperExe,
+      [String(installer.pid), each.target, unwritable, each.claim],
       { env: { ...each.env, ORGTREE_RELAUNCH_TIMEOUT_MS: '400' } })
 
     assert.equal(run.status, 4, `the wait timed out, which is its own exit code: ${each.logText()}`)
@@ -823,8 +799,8 @@ test('a launch that cannot be claimed is refused, not guessed at', { skip: helpe
   await new Promise(resolve => installerProcess.on('exit', resolve))
   try {
     const impossible = path.join(each.base, 'no-such-directory', 'relaunch.launch-claim')
-    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, String(installerProcess.pid), each.target, each.ready, impossible], { env: each.env })
+    const run = runHelper(helperExe,
+      [String(installerProcess.pid), each.target, each.ready, impossible], { env: each.env })
 
     assert.equal(run.status, 7,
       `an unestablished claim has its own exit code and is not success: ${each.logText()}`)
@@ -838,33 +814,27 @@ test('a launch that cannot be claimed is refused, not guessed at', { skip: helpe
   }
 })
 
-// NEGATIVE CONTROL for the section above. Restore the reviewed behaviour — an
-// unreadable state counted as an exit — in a copy of the helper, and the same
-// run must launch the application over a process it never observed exiting. If
-// this control stops reproducing, the section above proves nothing.
+// INSTRUMENT CONTROL for the section above. The helper is compiled, so its
+// source cannot be mutated here the way the Python helper was; what this
+// proves instead is that the unreadable case really poses the question: the
+// same OpenProcess(SYNCHRONIZE), from a token without SeDebugPrivilege, is
+// REFUSED for the locked stand-in and GRANTED for an ordinary process. If the
+// first half stops answering "refused", the section above proves nothing. The
+// helper's own answer to each OpenProcess result is pinned by the source
+// checks in 'the relaunch helper waits on a process handle and never guesses'.
 test('the unreadable-state guard is measuring something', { skip: helperSkip, timeout: 60000 }, async () => {
-  const each = helperCase('unreadable-control')
+  const native = requireTestNative()
   const installer = await unreadableProcess()
+  const ordinary = livingProcess(30000)
   try {
-    // Line-ending agnostic on purpose: a literal '\n' anchor does not match a
-    // normal CRLF checkout, so the mutation silently does nothing and the
-    // control passes by being inert — the exact failure mode a control exists
-    // to rule out. The replacement targets the refusal inside acquire(), which
-    // is the answer the pre-fix helper did not have.
-    const original = fs.readFileSync(each.script, 'utf8')
-    const defective = original.replace(/return None, UNREADABLE(\r?\n)/, 'return None, EXITED$1')
-    assert.notEqual(defective, original,
-      'the control could not restore the pre-fix answer; its anchor moved')
-    fs.writeFileSync(each.script, defective)
-
-    const run = runHelperWithoutDebug(each.script,
-      [String(installer.pid), each.target, each.ready, each.claim], { env: each.env })
-    assert.equal(run.status, 0, 'CONTROL IS BROKEN: the pre-fix answer was expected to report success')
-    assert.equal(await settledLaunches(each, 1), 1,
-      'CONTROL IS BROKEN: the pre-fix answer was expected to launch over an unobserved installer')
+    const locked = spawnSync(native, ['without-debug', native, 'can-open', String(installer.pid)], { encoding: 'utf8', windowsHide: true, timeout: 30000 })
+    assert.equal(locked.status, 0, `the probe itself failed: ${locked.stderr}`)
+    assert.match(locked.stdout, /^refused 5\b/m, 'CONTROL IS BROKEN: the locked stand-in is readable, so the unreadable case is not unreadable')
+    const open = spawnSync(native, ['without-debug', native, 'can-open', String(ordinary.pid)], { encoding: 'utf8', windowsHide: true, timeout: 30000 })
+    assert.match(open.stdout, /^opened\b/m, 'CONTROL IS BROKEN: the probe cannot open even an ordinary process')
   } finally {
     installer.kill()
-    discard(each.base)
+    ordinary.kill()
   }
 })
 
@@ -872,8 +842,8 @@ test('an installer that outlives the wait is reported, not overtaken', { skip: h
   const each = helperCase('timeout')
   const installer = livingProcess(30000)
   try {
-    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, String(installer.pid), each.target, each.ready, each.claim],
+    const run = runHelper(helperExe,
+      [String(installer.pid), each.target, each.ready, each.claim],
       { env: { ...each.env, ORGTREE_RELAUNCH_TIMEOUT_MS: '400' } })
     assert.equal(run.status, 4, `a timed-out wait has its own exit code: ${each.logText()}`)
     assert.equal(each.launches(), 0,
@@ -892,8 +862,8 @@ test('an already-finished installer is launched for immediately, and bad argumen
   const gone = livingProcess(1)
   await new Promise(resolve => gone.on('exit', resolve))
   try {
-    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [finished.script, String(gone.pid), finished.target, finished.ready, finished.claim], { env: finished.env })
+    const run = runHelper(helperExe,
+      [String(gone.pid), finished.target, finished.ready, finished.claim], { env: finished.env })
     assert.equal(run.status, 0, `an installer that has already exited is not an error: ${finished.logText()}`)
     assert.equal(await settledLaunches(finished, 1), 1, 'the application must still be started exactly once')
   } finally {
@@ -902,8 +872,8 @@ test('an already-finished installer is launched for immediately, and bad argumen
 
   const bad = helperCase('bad-arguments')
   try {
-    const noPid = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [bad.script, 'not-a-pid', bad.target], { env: bad.env })
+    const noPid = runHelper(helperExe,
+      ['not-a-pid', bad.target], { env: bad.env })
     assert.equal(noPid.status, 2, 'an unusable process id must be refused')
     assert.equal(bad.launches(), 0, 'nothing may be launched from unusable arguments')
     assert.match(bad.logText(), /is not a number/)

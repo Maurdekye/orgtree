@@ -93,6 +93,10 @@
         "to": "engine/orgtree-credential-broker.exe"
       },
       {
+        "from": "engine/rs/target/release/orgtree-installer-relaunch.exe",
+        "to": "engine/orgtree-installer-relaunch.exe"
+      },
+      {
         "from": "engine/mailhub/target/release/orgtree-mailhub.exe",
         "to": "engine/orgtree-mailhub.exe"
       },

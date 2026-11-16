@@ -22,6 +22,13 @@ assertPackageInputsPresent()
   if (!fs.existsSync(broker)) throw new Error('Package is incomplete: ' + broker + '. cargo build --release builds it with the engine.')
   console.log('Credential broker present:', broker)
 }
+// The post-Setup relaunch helper (engine/rs/orgtree-installer-relaunch) ships
+// beside it; build/installer.nsh refuses to skip Finish without it.
+{
+  const relaunch = 'engine/rs/target/release/orgtree-installer-relaunch.exe'
+  if (!fs.existsSync(relaunch)) throw new Error('Package is incomplete: ' + relaunch + '. cargo build --release builds it with the engine.')
+  console.log('Relaunch helper present:', relaunch)
+}
 // Mail hub v2 ships as resources/engine/orgtree-mailhub.exe beside the
 // engine (src/mailhub.rs `hub_binary`): the pinned submodule's release build.
 {

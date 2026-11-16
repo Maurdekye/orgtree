@@ -115,14 +115,10 @@ Var pid
     # only to NSIS's private temporary plugin directory.
     InitPluginsDir
     File /oname=$PLUGINSDIR\installer-upgrade.ps1 "${PROJECT_DIR}\tools\installer-upgrade.ps1"
-    # Loaded by the upgrade-only finish hook and launched under the original
-    # user token; it waits for this installer process to exit before starting
-    # the replaced application. It is run by the application's own pythonw.exe
-    # because the dispatch is a ShellExecute, which allocates a console for any
-    # console-subsystem target — see orgtreeDispatchUpgradeRelaunch.
-    !ifndef HIDE_RUN_AFTER_FINISH
-      File /oname=$PLUGINSDIR\installer-relaunch.py "${PROJECT_DIR}\tools\installer-relaunch.py"
-    !endif
+    # The upgrade-only relaunch helper is not staged here: it is the installed
+    # application's own orgtree-installer-relaunch.exe, a GUI-subsystem image
+    # under $INSTDIR, launched under the original user token after the files
+    # are extracted — see orgtreeDispatchUpgradeRelaunch.
 
     # An elevated inner instance is a BRAND NEW installer process. It re-runs
     # onInit and every page from the beginning and knows nothing about the
@@ -955,8 +951,8 @@ orgtreeSilentElevateDone:
     # on: that has a window between the read and the launch, and an earlier
     # version of this file lost exactly that race. CreateFileW with CREATE_NEW
     # cannot succeed twice, so the kernel decides once and the loser knows.
-    # tools/installer-relaunch.py claims the same path with O_CREAT | O_EXCL,
-    # which is the same NTFS operation from the other side.
+    # orgtree-installer-relaunch.exe (engine/rs/orgtree-installer-relaunch)
+    # claims the same path with CREATE_NEW too, from the other side.
     #
     # $OrgUpgradeLaunchOwned answers "1" (this process owns the launch), "other"
     # (somebody else got there first) or "" (ownership could not be established
@@ -1065,24 +1061,30 @@ orgtreeSilentElevateDone:
       # have reported that it could not run. The dispatch would answer "ok", the
       # Finish page would be skipped, and nothing would start or be logged.
       #
-      # pythonw.exe is the runtime this application already ships and already
-      # needs in order to run at all, so on a machine where a relaunch means
-      # anything it is present — and unlike a policy switch, its absence is a
-      # FILE that can be checked, which is what the guard below does before this
-      # process commits to skipping the Finish page. It is GUI-subsystem, so no
-      # console is ever created, and it reaches the real Win32 process APIs, so
-      # the helper waits on a handle instead of interrogating WMI.
+      # orgtree-installer-relaunch.exe ships with this application (it replaced
+      # the bundled pythonw.exe + installer-relaunch.py in 4.6.1), so on a
+      # machine where a relaunch means anything it is present — and unlike a
+      # policy switch, its absence is a FILE that can be checked, which is what
+      # the guard below does before this process commits to skipping the Finish
+      # page. It is GUI-subsystem, so no console is ever created, and it reaches
+      # the real Win32 process APIs, so it waits on a handle instead of
+      # interrogating WMI.
+      #
+      # ⚠ IT RUNS FROM $INSTDIR, NEVER FROM $TEMP. AppLocker's default
+      # executable rules allow Program Files and refuse %TEMP%, which is why
+      # pythonw.exe lived here too. The staging directory under $TEMP holds only
+      # the ready marker, and the helper removes it as it exits.
       #
       # tests/installer-upgrade.test.mjs reads the PE subsystem byte of the
       # executable this line names and fails if it is console-subsystem, so a
       # regression here is caught without running an installer.
-      StrCpy $OrgUpgradeRelaunchHost "$INSTDIR\resources\engine\runtime\pythonw.exe"
+      StrCpy $OrgUpgradeRelaunchHost "$INSTDIR\resources\engine\orgtree-installer-relaunch.exe"
       ${ifNot} ${FileExists} "$OrgUpgradeRelaunchHost"
         # Checked BEFORE the dispatch, because the only thing worse than not
         # relaunching is skipping the Finish page and then not relaunching: the
         # user is left with no application and no button that would have started
         # one. Falling through leaves the normal Finish page in place.
-        !insertmacro OrgLog "relaunch-host-missing" "no runtime host at [$OrgUpgradeRelaunchHost]; leaving the Finish page and its Run Orgtree action in place instead of scheduling a relaunch"
+        !insertmacro OrgLog "relaunch-host-missing" "no relaunch helper at [$OrgUpgradeRelaunchHost]; leaving the Finish page and its Run Orgtree action in place instead of scheduling a relaunch"
         Return
       ${endif}
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
@@ -1092,7 +1094,7 @@ orgtreeSilentElevateDone:
       # action claims, because a claim only decides anything if both parties
       # name the same file.
       Call orgtreeResolveUpgradeLaunchClaim
-      StrCpy $OrgUpgradeRelaunchArgs '"$OrgUpgradeRelaunchDir\installer-relaunch.py" $0 "$OrgUpgradeExe" "$OrgUpgradeRelaunchReadyMarker" "$OrgUpgradeRelaunchClaim"'
+      StrCpy $OrgUpgradeRelaunchArgs '$0 "$OrgUpgradeExe" "$OrgUpgradeRelaunchReadyMarker" "$OrgUpgradeRelaunchClaim"'
       ${StdUtils.ExecShellAsUser} $1 "$OrgUpgradeRelaunchHost" "open" "$OrgUpgradeRelaunchArgs"
       # StdUtils.ExecShellAsUser answers with a TOKEN, not an exit code —
       # testing it against 0 is the 2.1.4-RC4 field failure: the call
@@ -1195,12 +1197,6 @@ orgtreeSilentElevateDone:
       # extraction into a destructive-looking preparation failure.
       ClearErrors
       CreateDirectory $OrgUpgradeRelaunchDir
-      ${if} ${Errors}
-        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK
-        Return
-      ${endif}
-      ClearErrors
-      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.py" $OrgUpgradeRelaunchDir
       ${if} ${Errors}
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK
         Return
