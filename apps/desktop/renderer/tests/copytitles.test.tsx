@@ -17,7 +17,7 @@ import { MailList, NodeInboxModal } from '../src/canvas/mail'
 import { AgentDocketModal } from '../src/canvas/agentdocket'
 import { AskCard } from '../src/canvas/asks'
 import { PinFrame, forgetModalOpenCache, forgetModalPins } from '../src/canvas/modalpin'
-import { PinLayer, PinnedPlaceholder, addPin, forgetPins, readPins } from '../src/canvas/pins'
+import { PinLayer, addPin, forgetPins, readPins } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
 import { RefChip, resolveRef } from '../src/canvas/reflinks'
 import type { RefWorld } from '../src/canvas/reflinks'
@@ -156,9 +156,8 @@ ui('Focused desk, switchboard/pinned/mobile desk headers and jump cards', async 
   }
   const nav = await mount(<NavChip n={n} dir="down" onJump={BAD} />)
   await copy(nav.el.querySelector('.desk-nav-chip')!, 'Copy mention')
-  const placeholder = await mount(<PinnedPlaceholder id={n.id} onShow={BAD} />)
-  await copy(placeholder.el.querySelector('.pin-placeholder')!, 'Copy mention')
-  assert.deepEqual(writes, ['@worker', '@worker', '@worker', '@worker'])
+  // the pinned card's placeholder is gone (4.6.1: the card shows the live desk, covered above)
+  assert.deepEqual(writes, ['@worker', '@worker', '@worker'])
 })
 
 ui('Lineage rows and live/retired pile picker entries', async ({ mount, writes }) => {

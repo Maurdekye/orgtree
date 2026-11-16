@@ -47,10 +47,10 @@ function node(): CanvasNode {
 // z .24 is the desktop wheel's zoom-out clamp (OrgCanvas), i.e. the "maximum
 // zoom" of the report; .8 is an ordinary one.
 function cardElement(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: [] },
-    focused = false, pinnedFocus = false) {
+    focused = false) {
   const nd = node()
   return (
-    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={focused} pinnedFocus={pinnedFocus}
+    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={focused}
       dragging={false} isDrop={false} seats={seats} codexHire={hire}
       antigravityHire={hire} claudeHire={hire}
       map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
@@ -133,14 +133,15 @@ test('at normal zoom the existing in-card reveal is untouched', async (t) => {
   assert.equal(view.el.querySelector('.sq-far-ghost'), null)
 })
 
-for (const target of ['normal zoom', 'open desk', 'pinned desk'] as const) {
+// a pinned desk's card at desk zoom is an open desk too since 4.6.1 (no placeholder): 'open desk' covers it
+for (const target of ['normal zoom', 'open desk'] as const) {
   test(`a revealed mini name disappears immediately on switching to ${target}`, async (t) => {
     const view = await card('mini')
     t.after(() => view.unmount())
     await hover(view.el)
     assert.equal(!!view.el.querySelector('.sq-far-ghost.on'), true, 'positive reveal control')
     await view.render(cardElement(target === 'normal zoom' ? 'norm' : 'mini', undefined,
-      target === 'open desk', target === 'pinned desk'))
+      target === 'open desk'))
     assert.equal(!!view.el.querySelector('.sq-far-ghost'), false, 'no mini overlay during the new presentation')
     assert.equal(view.el.querySelector('.sq')!.classList.contains('far-ghosted'), false)
     await view.render(cardElement('mini'))

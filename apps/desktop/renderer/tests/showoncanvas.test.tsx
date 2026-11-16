@@ -266,7 +266,8 @@ uiTest('§1 Show on canvas lands the camera where focusing the agent would, with
   })
 
 // ==========================================================================
-uiTest('§2 …and the card it lands on shows its pinned placeholder, not a second desk',
+// 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9 item 2): the card shows the live desk as well as the pin, no placeholder
+uiTest('§2 …and the card it lands on shows the same live desk as the pin',
   async ({ host, viewport, pin }) => {
     await pin('worker')
     await panAway(viewport)
@@ -275,14 +276,10 @@ uiTest('§2 …and the card it lands on shows its pinned placeholder, not a seco
     await rightClick(title)
     await pick('Show on canvas')
 
-    assert.ok(host.querySelector('.pin-holder'),
-      'the camera arrived but the card is not showing the pinned placeholder')
-    // ⚠ `.sq.desk` is the card's LAYOUT class and the placeholder wears it
-    // too (cards.tsx: `focused = deskOpen || !!pinnedFocus`). A mounted desk
-    // is `.desk-over`, and THAT is what must not exist twice.
-    assert.equal(host.querySelectorAll('.sq.desk:not(.user) .desk-over').length, 0,
-      'a SECOND desk mounted for a pinned agent — "pinned means pinned" (two '
-      + 'DeskChats for one node share a composer key and fight over it)')
+    assert.equal(host.querySelector('.pin-holder, .pin-placeholder'), null,
+      'the card shows no "open as a window" placeholder')
+    assert.equal(host.querySelectorAll('.sq.desk:not(.user) .desk-over').length, 1,
+      'the camera arrived and the card shows the live desk')
     assert.equal(readPins(SLUG).length, 1, 'the pinned window must stay open')
   })
 

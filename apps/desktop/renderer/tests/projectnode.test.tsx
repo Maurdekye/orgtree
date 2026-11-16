@@ -337,7 +337,7 @@ test('§2e with "Show agent card shortcuts" on, the project card has the agent\'
   assert.deepEqual(opened, ['docket', 'inbox', 'presented:website'])
 })
 
-test('§2f a pinned project norm card wears the pinned class and badge in its meta row, and keeps its placeholder when focused (#34)', async (t) => {
+test('§2f a pinned project norm card wears the pinned class and badge in its meta row, and keeps its badge when focused, with no placeholder (#34; 4.6.1)', async (t) => {
   const unpinned = await square(project())
   t.after(() => unpinned.unmount())
   const sqUnpinned = unpinned.el.querySelector<HTMLElement>('.sq.project')!
@@ -358,11 +358,12 @@ test('§2f a pinned project norm card wears the pinned class and badge in its me
   assert.equal(sqPinned.querySelector('.project-header-badges .pinbadge'), null, 'not placed inside .project-header-badges')
 
   const focusedPinned = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
-    pinned pinnedFocus dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={8}
+    pinned focused dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={8}
     hire={{ claudeHire: offer }} seats={seats} onHire={noop} onInbox={noop} onNewProject={noop}
     onShowPin={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
   t.after(() => focusedPinned.unmount())
-  assert.ok(focusedPinned.el.querySelector('.sq.project.pinned .pin-holder'), 'focused pinned project keeps its placeholder')
+  assert.equal(focusedPinned.el.querySelector('.pin-holder, .pin-placeholder'), null,
+    'focused pinned project draws no "open as a window" placeholder (4.6.1: it shows its desk)')
   assert.ok(focusedPinned.el.querySelector('.sq.project.pinned .sq-meta.project-meta .badge.pinbadge'),
     'focused pinned project keeps its pinned badge')
 })

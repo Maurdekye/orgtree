@@ -741,10 +741,11 @@ uiTest('§B1 pin: the desk becomes a screen-space window over the card it left',
     `window at (${r.x},${r.y}) but the card was at (${before.x},${before.y})`)
   assert.equal(r.w, Math.max(PIN_DESK_DEFAULT_W, before.w))
   assert.equal(r.h, Math.max(PIN_DESK_DEFAULT_H, before.h))
-  // the canvas desk is gone; the card shows the placeholder; ONE desk exists
-  assert.equal(el.querySelector('.desk-over'), null, 'no canvas desk remains after pinning')
-  assert.ok(el.querySelector('.sq .pin-holder .pin-placeholder'), 'the card shows the pinned placeholder')
-  assert.equal(desksFor(el, 'cto'), 1)
+  // 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9 item 2): EVERY PLACE SHOWS THE LIVE DESK. The camera is still on cto,
+  // so its card keeps the live desk too: two views, no placeholder
+  assert.ok(el.querySelector('.desk-over'), 'the canvas desk stays open under the pin')
+  assert.equal(el.querySelector('.pin-placeholder'), null, 'the card shows no "open as a window" placeholder')
+  assert.equal(desksFor(el, 'cto'), 2, 'cto shows in the pin AND on its card')
   assert.ok(w!.querySelector('.desk-body .cc-name'), 'the window hosts the desk')
   assert.ok(!w!.querySelector('.cc-pin'), 'a pinned window offers no pin button of its own')
   // persisted, with the stage-2 seam
@@ -780,13 +781,15 @@ uiTest('§B2 the canvas moves underneath: pan and zoom leave the window where it
   const card = screenRectOf(el, posAny(el, 'cto'))
   assert.ok(Math.abs(card.x - r0.x) > 50 || Math.abs(card.y - r0.y) > 50,
     'positive control: the card moved on screen while the window stayed')
-  // and the placeholder is gone below desk zoom: the card is a plain card again
+  // below desk zoom the card is a plain card: the pin is cto's only desk
   assert.equal(el.querySelector('.pin-placeholder'), null)
   assert.ok(el.querySelector('.sq.pinned .pinbadge'), 'the card wears the pinned marker at any zoom')
   assert.equal(desksFor(el, 'cto'), 1)
 })
 
-uiTest('§B3 PINNED MEANS PINNED: zooming onto a pinned card never opens a second desk', async ({ mount }) => {
+// 4.6.1 replaces FR-3 "PINNED MEANS PINNED" (USER 2026-11-15 mbf1f1ca2cfe9 item 2: "it should always show in both
+// locations at once; on the canvas, in a pinned / popped out desk"). §B4 (the placeholder's click) went with it.
+uiTest('§B3 a pinned card at desk zoom shows the live desk as well as its pin', async ({ mount }) => {
   const { el, viewport } = await mountCanvas(mount, ['ceo', 'cto'])
   await settle(2500)
   await pinFromDesk(el, viewport, 'cto')
@@ -794,51 +797,20 @@ uiTest('§B3 PINNED MEANS PINNED: zooming onto a pinned card never opens a secon
   for (let i = 0; i < 6; i++) await inAct(() => { viewport.dispatchEvent(wheel(200, 200, 300)) })
   await flush()
   assert.ok(cam(el).z < Z_DESK, 'positive control: zoomed out below desk zoom')
+  assert.equal(desksFor(el, 'cto'), 1, 'positive control: away from the card, the pin is the only view')
   await zoomOnto(el, viewport, 'cto')
   assert.ok(cam(el).z >= Z_DESK, 'positive control: back at desk zoom, centred on cto')
-  // the ruling
-  assert.equal(el.querySelector('.desk-over'), null, 'no canvas desk opened for the pinned agent')
-  assert.equal(desksFor(el, 'cto'), 1,
-    'exactly ONE live desk for cto — a second one would share its composer draft key')
-  assert.equal(el.querySelectorAll('textarea').length, 1, 'exactly one composer in the whole canvas')
-  const ph = el.querySelector('.sq .pin-placeholder') as HTMLElement | null
-  assert.ok(ph, 'the card shows the placeholder in the desk\'s place')
-  assert.match(ph!.textContent ?? '', /pinned/)
-  assert.match(ph!.textContent ?? '', /show window/)
-  // the placeholder's card wears the desk layout (no world-scaled head)
-  assert.ok(ph!.closest('.sq.desk'), 'the placeholder card takes the desk layout')
+  assert.ok(el.querySelector('.sq .desk-over'), 'the card opened its live desk')
+  assert.equal(el.querySelector('.pin-placeholder'), null, 'no "open as a window" placeholder')
+  assert.doesNotMatch(el.textContent ?? '', /open as a window|show window/)
+  assert.equal(desksFor(el, 'cto'), 2, 'two live views of cto: the pin and the card')
+  assert.equal(el.querySelectorAll('textarea').length, 2, 'each view has its composer')
   // a SECOND agent is unaffected: its desk opens normally
   for (let i = 0; i < 6; i++) await inAct(() => { viewport.dispatchEvent(wheel(200, 200, 300)) })
   await flush()
   await focusDesk(el, viewport, 'ceo')
   assert.equal(desksFor(el, 'ceo'), 1)
-  assert.equal(desksFor(el, 'cto'), 1, 'cto still has exactly its window')
-})
-
-uiTest('§B4 the placeholder click raises and flashes the window, never unpins', async ({ mount }) => {
-  const { el, viewport } = await mountCanvas(mount, ['ceo', 'cto'])
-  await settle(2500)
-  await pinFromDesk(el, viewport, 'cto')
-  for (let i = 0; i < 6; i++) await inAct(() => { viewport.dispatchEvent(wheel(200, 200, 300)) })
-  await flush()
-  await pinFromDesk(el, viewport, 'ceo')   // pinned last → on top
-  assert.equal(pinWin(el, 'ceo')!.dataset.z, '1'); assert.equal(pinWin(el, 'cto')!.dataset.z, '0')
-  for (let i = 0; i < 6; i++) await inAct(() => { viewport.dispatchEvent(wheel(200, 200, 300)) })
-  await flush()
-  await zoomOnto(el, viewport, 'cto')
-  const ph = el.querySelector('.pin-placeholder') as HTMLElement
-  assert.ok(ph, 'cto shows its placeholder')
-  const c0 = cam(el)
-  await inAct(() => { ph.click() })
-  await flush()
-  assert.ok(pinWin(el, 'cto'), 'cto is STILL pinned after the click')
-  assert.equal(stored().length, 2, 'nothing was unpinned')
-  assert.equal(pinWin(el, 'cto')!.dataset.z, '1', 'cto was raised to the top')
-  assert.equal(pinWin(el, 'ceo')!.dataset.z, '0')
-  assert.ok(pinWin(el, 'cto')!.classList.contains('flash'), 'the window flashes')
-  assert.deepEqual(cam(el), c0, 'the click did not pan the canvas')
-  await advance(800)
-  assert.ok(!pinWin(el, 'cto')!.classList.contains('flash'), 'the flash is a pulse, not a state')
+  assert.equal(desksFor(el, 'cto'), 1, 'cto, off camera, is its window only')
 })
 
 uiTest('§B5 drag and resize are 1:1 with the pointer in viewport px, and commit once', async ({ mount }) => {

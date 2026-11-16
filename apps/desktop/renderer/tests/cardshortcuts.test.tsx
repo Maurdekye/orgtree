@@ -91,11 +91,11 @@ function shortcutsOn(t: TestContext, on = true) {
 }
 
 /** A project card the canvas would draw, every route recorded in `log`. */
-function projectCard(nd: CanvasNode, o: { focused?: boolean; pinnedFocus?: boolean; tree?: TreePayload;
+function projectCard(nd: CanvasNode, o: { focused?: boolean; tree?: TreePayload;
   log?: string[]; temporary?: boolean } = {}) {
   const log = o.log ?? []
   return <AgentSurfaceRoutesProvider value={{ open: (kind, id) => { log.push(`open:${kind}:${id}`) }, show: noop }}>
-    <ProjectSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={o.focused} pinnedFocus={o.pinnedFocus}
+    <ProjectSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={o.focused}
       dragging={false} isDrop={false} op={op} slug="org" toast={noop} zoom={o.focused ? 8 : 2}
       tree={o.tree ?? treeWith()} map={projectMap(nd)} refs={refs}
       hire={{ claudeHire: offer }} seats={seats} onHire={noop} onNewProject={noop}
@@ -144,20 +144,8 @@ test('§1a with shortcuts on, an open project desk draws no shortcut row; closin
   assert.deepEqual(shortcuts(view.el).slice(0, 2), ['docket', 'mail'], 'with its docket and mailbox first')
 })
 
-test('§1b the pinned desk\'s placeholder hides a project card\'s shortcuts, as an agent card\'s', async (t) => {
-  serve(t)
-  shortcutsOn(t)
-  const log: string[] = []
-  const view = await mountView(projectCard(project(), { pinnedFocus: true, log }), (el) => el)
-  t.after(() => view.unmount())
-  assert.ok(card(view.el).querySelector('.pin-holder'), 'the placeholder holds the pinned desk\'s place')
-  assert.equal(row(view.el) === null, true, 'no shortcut row over the placeholder')
-  // the control: an agent card in the same state
-  const agent = await mountView(agentCard(agentNode(), { pinnedFocus: true }), (el) => el)
-  t.after(() => agent.unmount())
-  assert.ok(card(agent.el).querySelector('.pin-holder'), 'control: the agent card holds its placeholder')
-  assert.equal(row(agent.el) === null, true, 'control: and draws no shortcut row')
-})
+// §1b (the pinned desk's placeholder hides the shortcuts) retired with the placeholder in 4.6.1: a focused
+// pinned card shows its desk, which §1c covers.
 
 test('§1c the rule it follows: an agent desk draws no shortcut row; both desks keep their hire strips', async (t) => {
   serve(t)
@@ -291,11 +279,11 @@ function agentNode(extra: Partial<CanvasNode> = {}): CanvasNode {
 }
 const report = (state: string) => agentNode({ id: 'helper', title: 'helper', parent: 'lead', state } as never)
 
-function agentCard(nd: CanvasNode, o: { reports?: CanvasNode[]; focused?: boolean; pinnedFocus?: boolean;
+function agentCard(nd: CanvasNode, o: { reports?: CanvasNode[]; focused?: boolean;
   log?: string[] } = {}) {
   const log = o.log ?? []
   const map = new Map<string, CanvasNode>([[nd.id, nd], ...(o.reports ?? []).map((r) => [r.id, r] as [string, CanvasNode])])
-  return <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={!!o.focused} pinnedFocus={o.pinnedFocus}
+  return <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={!!o.focused}
     dragging={false} isDrop={false} seats={seats} claudeHire={offer} map={map} op={op} slug="org" toast={noop}
     pxc={1} zoom={o.focused ? 8 : 2} compactAt={0.8} maxTop={100} cascadeAlloc
     onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}

@@ -100,9 +100,8 @@ test('stylesheet: chip bounds, z-order and pointer pass-through', () => {
 // 4.6.1 (USER 2026-11-15 mbf1f1ca2cfe9): a desk shows in every place at once, so a card whose desk is also in a
 // window keeps showing it, and no place draws the "open elsewhere" notice any more.
 test('a focused card is laid out as the desk whether or not its desk is also in a window', () => {
-  assert.equal(cardIsDeskLayout(true, false), true, 'the open desk keeps the desk layout')
-  assert.equal(cardIsDeskLayout(false, true), true, 'a pinned desk placeholder is unchanged')
-  assert.equal(cardIsDeskLayout(false, false), false)
+  assert.equal(cardIsDeskLayout(true), true, 'the open desk keeps the desk layout')
+  assert.equal(cardIsDeskLayout(false), false, 'and only the open desk: no pinned placeholder takes it any more')
   const cards = readFileSync(joinPath(__SRC_DIR__, 'canvas', 'cards.tsx'), 'utf8')
   assert.match(cards, /const focused = cardIsDeskLayout\(/, 'the card derives its layout from that rule')
   assert.doesNotMatch(cards, /useDeskElsewhere/, 'the card no longer asks whether its desk is elsewhere')
