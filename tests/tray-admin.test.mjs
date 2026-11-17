@@ -31,7 +31,7 @@ async function fixture(initial = false, { platform = 'win32', installed = true }
   const ctx = {
     Menu, trayMenu: undefined, trayMenuOpen: false,
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { this.menu = menu } },
-    runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0,
+    runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0, startupFailure: undefined, showStartupFailure: async () => ({ response: 0 }),
     BrowserWindow: { getAllWindows: () => [] }, applyWindowIcon() {},
     preferences: { get: () => ({ startAtLogin: true }) }, startupKind: () => 'boot', startupChanging: false,
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {}, refreshTrayEpic() {},

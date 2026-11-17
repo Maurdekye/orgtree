@@ -52,7 +52,7 @@ function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
     nativeStreamerOn: () => streamer, setNativeStreamer: on => { streamer = on }, closeTrayPopup() {},
     adminState: null, adminChanging: false, refreshRunAsAdministrator: undefined, changeRunAsAdministrator: undefined,
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { this.menu = menu } },
-    runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0,
+    runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0, startupFailure: undefined, showStartupFailure: async () => ({ response: 0 }),
     BrowserWindow: { getAllWindows: () => [] }, applyWindowIcon() {},
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {},
     refreshTrayEpic() {}, epicMuteTrayItem: () => ({ id: 'epic-mute' }),

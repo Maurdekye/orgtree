@@ -67,6 +67,7 @@ import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-e
 import { STALL_LOG, StallLog } from './stall-log'
 import { StallTracer, TRACE_DIR, processTrace } from './stall-trace'
 import { startShaderWarmup } from './shader-warmup-window'
+import { recordStartupFailure, reportStartupFailure } from './startup-failure'
 import { GpuSampler, IpcTracker, LazyStackWorker, MainLagProbe, MainStackStore, PingWatchdog, stallSwitches, stallWatchEnabled, trackIpc, withStackPolicy } from './stall-probe'
 import type { IpcLike } from './stall-probe'
 import { MAIN_STACK_WORKER_SOURCE } from './stall-worker-source'
@@ -276,6 +277,9 @@ else {
     noLink: true,
   }
   let trayMenu: rawMenu | undefined
+  // set when start-up failed (main/startup-failure.ts): the tray says so and can show the error again
+  let startupFailure: string | undefined
+  const showStartupFailure = (detail: string) => dialog.showMessageBox({ type: 'error', message: 'Orgtree could not start its engine.', detail })
   let trayMenuOpen = false
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
   /** The discard confirmation has been answered for this shutdown, or a
@@ -1072,7 +1076,8 @@ else {
     if (admin) { admin.checked = adminState?.enabled ?? false; admin.enabled = !!adminState?.available && !adminChanging }
     refreshTrayEpic(trayMenu, prefs)
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
-    tray.setToolTip(`Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
+    tray.setToolTip(startupFailure ? 'Orgtree could not start - right-click for the error'
+      : `Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
     // Without update support (dev-channel install, unpackaged development)
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
@@ -1091,6 +1096,8 @@ else {
     // running (with its port, and whether it is exposed beyond this
     // computer), stopped, or the start error the hosting panel shows.
     trayMenu = Menu.buildFromTemplate([
+      ...(startupFailure ? [{ id: 'startup-error', label: 'Orgtree could not start: show the error',
+        click: () => { void showStartupFailure(startupFailure ?? '').catch(() => {}) } }, { type: 'separator' as const }] : []),
       ...updateRows,
       { type: 'separator' },
       hubMenuItem(),
@@ -3879,7 +3886,12 @@ else {
       startPoll()
       void refresh()
     } catch (error) {
-      await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not start its engine.', detail: error instanceof Error ? error.message : 'Unknown startup error' })
+      await reportStartupFailure(error, {
+        // the box below has no parent and can sit unseen (Session 0, behind windows): the data folder keeps the reason
+        record: message => recordStartupFailure(engineRestartOptions?.dataRoot ?? path.join(app.getPath('userData'), 'data'), message),
+        markTray: message => { startupFailure = message; rebuildTray() },
+        show: showStartupFailure,
+      })
       // A startup failure is not a manual Quit and cannot take down peers.
       if (!coreLifecycle) app.quit()
     }
