@@ -354,7 +354,7 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   // a read-only list of every key Orgtree binds (user 2026-10-14: in Settings
   // only). Placed after the user's own list, before About, so that order is
   // unchanged.
-  { id: 'shortcuts', label: 'Keyboard shortcuts' },
+  { id: 'shortcuts', label: 'Controls' },   // 'Keyboard shortcuts' until USER 2026-11-17 m0713cad4efde
   // About: what is actually running. The v3 shell removes the sidebar that
   // used to carry the version badge and the repository link, so this is their
   // home. It was "General" until 2026-09-29, when its one setting (the startup

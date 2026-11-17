@@ -181,7 +181,8 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('shell/menu.tsx'), R('canvas/contextmenu.tsx')] },
       { keys: ['Escape'], action: 'Close the tray pop-up', sources: ['main/index.ts'] },
     ] },
-    { title: 'Controls', items: [
+    // not 'Controls': that is the tab's own name since 2026-11-17
+    { title: 'Other controls', items: [
       { keys: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'], action: 'Move the logo crop square',
         note: 'With the crop square or a corner handle focused', sources: [R('canvas/SquareCrop.tsx')] },
       { keys: ['Shift+ArrowLeft', 'Shift+ArrowUp'], action: 'Shrink the logo crop square',
@@ -210,6 +211,38 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
   ]
 }
 
+/** The canvas's mouse gestures, shown first in App settings > Controls (USER 2026-11-17 11:37:50Z
+ *  m0713cad4efde: "document all these canvas mouse controls in the keyboard controls menu, and rename it to
+ *  just \"controls\""). The key scan cannot see a gesture, so each row names a `marker` that a file in
+ *  `sources` must still contain (tests/shortcuts.test.tsx). */
+export interface MouseControl {
+  gesture: string
+  action: string
+  note?: string
+  sources: string[]
+  marker: string
+}
+export const MOUSE_CONTROLS: MouseControl[] = [
+  { gesture: 'Click', action: 'Open the desk of an agent, project or the switchboard',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: 'a plain click → walk to the desk' },
+  { gesture: 'Middle click', action: 'Open the desk of an agent, project or the switchboard',
+    note: 'Even over its buttons and links', sources: [R('canvas/OrgCanvas.tsx')], marker: 'middleClickRef.current(e, target)' },
+  { gesture: 'Double middle click', action: 'Fit the whole org', note: 'Anywhere on the canvas',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: 'DOUBLE_MIDDLE_MS' },
+  { gesture: 'Drag', action: 'Pan the canvas', note: 'On empty canvas',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: 'background pan' },
+  { gesture: 'Middle drag', action: 'Pan the canvas', note: 'From anywhere, desks and pinned windows too',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: 'middlePanPointer.current = e.pointerId' },
+  { gesture: 'Wheel', action: 'Zoom at the pointer', note: 'Over a desk it scrolls the desk instead',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: "addEventListener('wheel', onWheel" },
+  { gesture: 'Drag', action: 'Move an agent and its team under another agent', note: 'Drop it on the new superior',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: 'dropTargetAt(toWorld(e), id)' },
+  { gesture: 'Drag', action: 'Reorder an agent among its siblings', note: 'Drop it between two of them',
+    sources: [R('canvas/OrgCanvas.tsx')], marker: 'ReorderMarker' },
+  { gesture: 'Right-click', action: 'Open the menu of an agent, project or link',
+    sources: [R('canvas/contextmenu.tsx')], marker: 'contextmenu' },
+]
+
 /** Bindings the scan finds that are not shown: each only gives a widget the
  *  keyboard behaviour any button, form or scroller already has. Listed so the
  *  test can tell them from a forgotten shortcut. */
@@ -233,10 +266,10 @@ export const BUILTIN: (Shortcut & { why: string })[] = [
     why: 'native scrolling; the desk only notes which way you scrolled',
     sources: [R('canvas/desk.tsx')] },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape'],
-    action: 'Arrow keys on a credit grant', why: 'same control as the Controls row; vertical arrows mirror horizontal',
+    action: 'Arrow keys on a credit grant', why: 'same control as the Other controls row; vertical arrows mirror horizontal',
     sources: [R('canvas/creditgrant.tsx')] },
   { keys: ['ArrowUp', 'ArrowDown'], action: 'Vertical arrows on the effort level',
-    why: 'mirror the horizontal arrows of the Controls row', sources: [R('canvas/effortbar.tsx')] },
+    why: 'mirror the horizontal arrows of the Other controls row', sources: [R('canvas/effortbar.tsx')] },
   { keys: ['Space'], action: 'Choose a recipient',
     why: 'typeahead leaves Space to the list, where it picks the option', sources: [R('canvas/docket.tsx')] },
   { keys: ['ArrowDown'], action: 'Open the Orgtree menu', why: 'standard menu-button behaviour',
