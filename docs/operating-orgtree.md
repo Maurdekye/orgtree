@@ -56,6 +56,12 @@ confirm whether an interrupted tool finished its external action.
 
 ## Updates and background operation
 
+If Orgtree itself cannot start (the desktop, not just the background engine), it writes one `startup-failed` line with the message to `diagnostics/desktop-engine-exits.jsonl` in the data folder, then shows the error. The tray icon's tooltip reads "Orgtree could not start - right-click for the error", and the first row of its menu, "Orgtree could not start: show the error", shows the message again, so a failed start that happened behind other windows or in Session 0 is not silent.
+
+Orgtree keeps the program launches it needs for status checks, credential helpers and similar queries in a separate background worker, and saves settings in the background, so a slow antivirus scan or disk cannot freeze its windows (typing and scrolling stay responsive).
+
+The first time after an install, an Orgtree update or a graphics-driver update, Orgtree prepares the graphics card's shader cache once: 15 seconds after launch, once you have been idle for 5 seconds, it draws a sample canvas in a window that is never shown, then closes it. Later launches skip it. Set `ORGTREE_SHADER_WARMUP=0` to turn it off.
+
 Right-click Orgtree's **system-tray icon** to check for updates, see download progress and choose **Update now** when the download is ready. The update can be completed from that menu.
 
 **Automatic updates** are on by default where the installation supports unattended updates. Turn them off in the tray menu or **App settings > Runtime** to stop background checks and idle installation. Manual update controls remain available. A download already in progress may finish; an installation already started completes.

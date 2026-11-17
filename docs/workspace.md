@@ -78,7 +78,7 @@ Pin a desk to keep it in screen space while navigating the canvas. Drag its titl
 
 Many other panels can also be pinned or opened in a separate window: settings, mail, docket, presentations, project slots and listeners. A panel belonging to one target opens for that target. Opening another agent's Team, for example, can leave the first agent's Team beside it. Opening the same target again raises its existing surface. Placement is remembered per organization and target, within the saved-history limit.
 
-**Open in new window** moves the canonical surface; it does not create an independent conversation. **Pop in / Return to main window** brings it back. A desk already hosted elsewhere can show a placeholder with **Show**. Read a native window's Close action as dismissal/return according to the surface, not as a promise to save an unfinished form. At the homepage, App settings and Usage are centered because there is no organization's canvas to pin them to.
+**Open in new window** moves the canonical surface; it does not create an independent conversation. **Pop in / Return to main window** brings it back. A desk open in several places (the canvas card, a pin, the Attention view, a window of its own) shows live in every one of them at once, with one unsent draft per agent; there is no "open elsewhere" placeholder. Read a native window's Close action as dismissal/return according to the surface, not as a promise to save an unfinished form. At the homepage, App settings and Usage are centered because there is no organization's canvas to pin them to.
 
 ## Triage attention
 
