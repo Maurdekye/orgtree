@@ -41,8 +41,8 @@ export function remoteFeed(t: TestContext, next: (url: string, init?: RequestIni
   t.after(() => { Object.assign(globals, saved) })
   let seq = 1
   return {
-    /** open the feed and push the connection list */
-    async remotes(list: RemoteView[], here?: RemoteView) {
+    /** open the feed and push the connection list; `values`: more pushed values of that engine */
+    async remotes(list: RemoteView[], here?: RemoteView, values: Record<string, unknown> = {}) {
       await inAct(() => flush(8))
       assert.ok(sockets.length >= 1, 'the app feed opened its socket')
       const socket = sockets[sockets.length - 1]!
@@ -50,7 +50,8 @@ export function remoteFeed(t: TestContext, next: (url: string, init?: RequestIni
       seq += 1
       // `here`: this window is one of that connection's (the composed feed's `remote_link`)
       await inAct(() => socket.frame({ type: 'app_runtime', epoch, seq,
-        values: { remotes: { epoch, seq, value: list }, ...(here ? { remote_link: { epoch, seq, value: here } } : {}) } }))
+        values: { remotes: { epoch, seq, value: list }, ...(here ? { remote_link: { epoch, seq, value: here } } : {}),
+          ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { epoch, seq, value }])) } }))
       await inAct(() => flush(4))
     },
   }
