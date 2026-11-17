@@ -396,3 +396,24 @@ test('§7.3 wide empty-files action opens the existing picker without creating a
     assert.equal(pops().options === null, true)
   } finally { await done() }
 })
+
+// Desk-load hang (4.6.1-alpha.3): the row measured (getComputedStyle + a rect per control: a forced
+// style and layout pass) after EVERY render, and Quick chat re-renders with every tree the feed
+// publishes. QN1: a re-render that changes nothing in the row does not measure; a change still does.
+test('QN1 a re-render that changes nothing in the row does not measure it; a changed row still refits', async () => {
+  box.width = 900
+  const { view, done } = await quick()
+  try {
+    const proto = (window as unknown as { Element: { prototype: object } }).Element.prototype as unknown as { getBoundingClientRect: () => DOMRect }
+    const rect = proto.getBoundingClientRect
+    let reads = 0
+    proto.getBoundingClientRect = function (this: Element) { if (this.matches('.quickchat')) reads++; return rect.call(this) }
+    try {
+      for (let i = 0; i < 20; i++) await view.render(<QuickChat slug="narrow" tree={{ ...tree } as TreePayload} op={async () => ({})} toast={() => {}} onHired={() => {}} />)
+      await inAct(async () => { await flush(4) })
+      assert.equal(reads, 0, `20 renders that change nothing measured the row ${reads} times`)
+      await resize(roomOf(view) - 20)
+      assert.equal(has(view.el, '.quickchat-options'), true, 'positive control: a real squeeze still collapses the row')
+    } finally { proto.getBoundingClientRect = rect }
+  } finally { await done() }
+})
