@@ -1316,13 +1316,22 @@ mod draft_hire_preference_tests {
         assert_eq!(sc, json!({}), "no other tier gets a version written");
     }
 
+    /// Luna writes no version for a new hire; Sol and Astra write 6.2 (USER 2026-11-17 md06e7aabe0e3), as Fable 5.2.
     #[test]
     fn draft_hire_preferences_omission_and_explicit_inheritance() {
         for req in [json!({}),json!({"model_version":"","session":"signed-in","auto_cheap_compact":{}})] {
             let mut sc = req;
-            normalize_hire_preferences("sol", &mut sc).unwrap();
+            normalize_hire_preferences("luna", &mut sc).unwrap();
             assert_eq!(sc, json!({}));
         }
+        for tier in ["sol", "astra"] {
+            let mut sc = json!({});
+            normalize_hire_preferences(tier, &mut sc).unwrap();
+            assert_eq!(sc, json!({"model_version": "6.2"}), "{tier}");
+        }
+        let mut sc = json!({"model_version": "6.1"});
+        normalize_hire_preferences("sol", &mut sc).unwrap();
+        assert_eq!(sc, json!({"model_version": "6.1"}), "an explicit older version stays");
     }
 
     #[test]

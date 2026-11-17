@@ -540,13 +540,13 @@ mod effort_tests {
         }
     }
 
-    /// Fable costs 8 credits (USER 2026-11-13 md539ddd936f9); Wonder Full and Astra keep their seats of 10.
+    /// Fable costs 8 credits (USER 2026-11-13 md539ddd936f9); Wonder Full keeps its seat of 10. Astra 6.2 seats at 8
+    /// by the input-price rule (2026-11-17).
     #[test]
     fn fable_costs_eight_credits() {
         assert_eq!(seat_price("fable"), 8.0);
-        for unchanged in ["wonder-full", "astra"] {
-            assert_eq!(seat_price(unchanged), 10.0, "{unchanged}");
-        }
+        assert_eq!(seat_price("wonder-full"), 10.0);
+        assert_eq!(seat_price("astra"), 8.0);
     }
 
     /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
