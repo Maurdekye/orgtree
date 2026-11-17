@@ -6815,12 +6815,7 @@
    ],
    "writer": "providers-sol",
    "status": "fixed",
-   "ui_labels": [
-    {
-     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "Show legacy models (Gemini Pro, Gemini Flash)"
-    }
-   ],
+   "ui_labels": [],
    "key_sources": [
     {
      "key": "api:providers/{id}/enabled",
@@ -6838,6 +6833,11 @@
     }
    ],
    "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "component": "ShowLegacyModelsToggle",
+     "label": "'Show legacy models (Gemini Pro, Gemini Flash' + (carbon ? ', Gemini Argon' : '') + ')'"
+    },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "component": "ProviderSwitch",

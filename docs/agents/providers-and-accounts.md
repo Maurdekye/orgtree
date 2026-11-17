@@ -43,6 +43,7 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
   name. A saved template with a Flash seat has that seat blocked until a current model is picked, as one with a Gemini
   Pro seat always had. [decided: user 2026-11-13 md16909f83245 "Now"; verified: `providers/catalog.rs`,
   `domain/staffing/menu_availability_tests.rs`, `domain/templates.rs` tests]
+  When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
 - **The built-in Antigravity team** is Hydrogen for the coordinator, redteam and curator and Carbon for the
   implementer; Quick chat starts on Hydrogen. Carbon is conditional: where agy does not list it only the implementer
   blocks until another model is picked. [decided: user 2026-11-13 mb720ed1d4d06; verified:
@@ -129,6 +130,8 @@ legacy tier is marked legacy); coordinator 2026-10-26 (fix in 4.5.0); verified:
 `canvas/agentmenu.tsx`, `canvas/shared.ts`, `providers/mod.rs`,
 `domain/staffing.rs`]
 
+When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
+
 ## GPT-6.1 Terra (2026-10-26)
 
 The `terra` tier is current again: it defaults to `gpt-6.1-terra` (Codex CLI
@@ -149,6 +152,8 @@ write one (only the desktop's scope route does). This replaces the Terra half of
 ruling. [decided: user 2026-10-26 18:19Z "get 4.4.6 out with this", "make sure
 to take terra out of the legacy models checkbox"; verified: `providers/catalog.rs`,
 `runtime/actor.rs`, `canvas/shared.ts`, `canvas/accounts.tsx`]
+
+When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
 
 ## Native limit fallback (2026-10-24)
 
