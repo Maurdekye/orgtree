@@ -4,19 +4,17 @@
 //
 // SW1 the window is never seen: offscreen rendering, not shown, no taskbar, no focus, sandboxed, no preload;
 //     its own persistent partition (in-memory sessions persist no shaders), storage cleared after
-// SW2 skip: the same key (app, Chromium, GPU) with GrShaderCache present runs nothing; a new key or a missing cache runs;
-//     software raster skips, read at the skip check (after the delay), never at app ready
-// SW3 timing: nothing before the launch delay; waits for the user to be idle; gives up while they stay busy
-// SW4 the end: the scene's done title destroys the window and writes the marker; the deadline destroys it and writes none
-// SW5 stop (quit) mid-run destroys the window and writes no marker; a failed load ends it too
+// SW2 software raster skips, read after the GPU process is up (after the delay), never at app ready
+// SW3 timing: nothing before the launch delay; waits for the user to be idle (capped: SW13)
+// SW4 the end: the scene's done title destroys the window; so does the deadline
+// SW5 stop (quit) mid-run destroys the window; a failed load ends it too
 // SW6 the session serves only plain UI files under the UI folder, from the warm-up origin
 // SW7 the stall log keeps a shader-warmup line as an outcome enum and durations, never error text
 // SW8 the page: its own Vite build after the app's (no shared chunk), its entry mounts the scene, its done title matches
-// SW9 a cache folder recreated since the marker (Chromium wiped it; measured on the user's 4.6.1-alpha.2 at 2026-11-16 21:03Z)
-//     runs again: the marker records the folder's creation time; an older marker without it runs once
+// SW9 (4.6.2) no marker: nothing reads or writes shader-warmup.json any more (SW12)
 // SW10 it can finish on a slow-compiling GPU: 4.6.1-alpha.3 hit the 8 s deadline (compiles of 200-850 ms each);
 //     the deadline is 45 s and the scene moves to the next desk only once frames are quick again
-// SW11 every outcome line records the cache folder's creation time and size, so the next reset is measured
+// SW11 every line records the cache folder's creation time and size, so a reset is measured
 // Run: node --test tests/shader-warmup.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -31,15 +29,15 @@ const bundle = path.join(temp, 'shader-warmup.cjs'), logBundle = path.join(temp,
 await build({ entryPoints: ['apps/desktop/main/shader-warmup.ts'], outfile: bundle, bundle: true, platform: 'node', format: 'cjs' })
 await build({ entryPoints: ['apps/desktop/main/stall-log.ts'], outfile: logBundle, bundle: true, platform: 'node', format: 'cjs' })
 const req = createRequire(import.meta.url)
-const { ShaderWarmup, WARMUP_WINDOW_OPTIONS, WARMUP_DONE_TITLE, WARMUP_ORIGIN, warmupKey, warmupFile } = req(bundle)
+const { ShaderWarmup, WARMUP_WINDOW_OPTIONS, WARMUP_DONE_TITLE, WARMUP_ORIGIN, warmupFile } = req(bundle)
 const { StallLog } = req(logBundle)
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }))
 
-const OPTS = { delayMs: 15_000, idleS: 5, retryMs: 10_000, giveUpMs: 60_000, deadlineMs: 8_000 }
-const PARTS = { app: '4.6.1', chrome: '146.0', vendor: 4318, device: 7, driver: '32.0.15' }
+const OPTS = { delayMs: 15_000, idleS: 5, retryMs: 10_000, idleWaitMs: 60_000, deadlineMs: 8_000 }
 const tick = () => new Promise(r => setImmediate(r))
 
 function rig({ marker = null, cache = true, birth = 1_000, idle = [60], load = 'ok', gpu = [true] } = {}) {
+  let reads = 0
   let now = 0, seq = 0
   const timers = new Map(), logs = [], windows = [], writes = []
   const idles = [...idle]
@@ -49,8 +47,10 @@ function rig({ marker = null, cache = true, birth = 1_000, idle = [60], load = '
     clearTimeout: id => timers.delete(id),
     idleSeconds: () => (idles.length > 1 ? idles.shift() : idles[0]),
     gpuRasters: () => (gpu.length > 1 ? gpu.shift() : gpu[0]),
-    keyParts: async () => PARTS,
-    readMarker: async () => marker,
+    gpuReady: async () => {},
+    // the 4.6.1 marker deps stay in the rig: nothing may call them (SW9, SW12)
+    keyParts: async () => ({ app: '4.6.1', chrome: '146.0', vendor: 4318, device: 7, driver: '32.0.15' }),
+    readMarker: async () => { reads++; return marker },
     writeMarker: async text => { writes.push(text) },
     cacheInfo: async () => (cache ? { birth, bytes: 10_548_908 } : null),
     createWindow: () => {
@@ -74,7 +74,7 @@ function rig({ marker = null, cache = true, birth = 1_000, idle = [60], load = '
     }
     now = end; await tick()
   }
-  return { deps, advance, logs, windows, writes, timers, get now() { return now } }
+  return { deps, advance, logs, windows, writes, timers, get now() { return now }, get reads() { return reads } }
 }
 
 test('SW1 the window is never seen: offscreen, not shown, no taskbar, no focus, sandboxed, no preload', () => {
@@ -99,28 +99,22 @@ test('SW1 the window is never seen: offscreen, not shown, no taskbar, no focus, 
   assert.match(glue, /setPermissionRequestHandler\(\(_wc, _permission, done\) => done\(false\)\)/, 'clipboard and every other permission refused')
 })
 
-test('SW2 skip on the same key with the cache present; run on a new key or a missing cache', async () => {
-  const key = warmupKey(PARTS)
-  assert.equal(key, '4.6.1|146.0|4318|7|32.0.15')
-  const same = rig({ marker: JSON.stringify({ key, cache_birth: 1_000 }) })
-  const w1 = new ShaderWarmup(same.deps, OPTS)
-  const o1 = w1.start(); await same.advance(OPTS.delayMs)
-  assert.equal(await o1, 'skipped-warm'); assert.equal(same.windows.length, 0)
+test('SW2 software raster skips, read after the GPU process is up; a GPU or a missing cache runs', async () => {
   const soft = rig({ gpu: [false] })
   const ws = new ShaderWarmup(soft.deps, OPTS); const os = ws.start(); await soft.advance(OPTS.delayMs)
   assert.equal(await os, 'skipped-no-gpu'); assert.equal(soft.windows.length, 0)
   const glue = fs.readFileSync('apps/desktop/main/shader-warmup-window.ts', 'utf8')
   assert.equal((glue.match(/getGPUFeatureStatus\(\)/g) || []).length, 1)
   assert.match(glue, /gpuRasters: \(\) => \{\s*const status = app\.getGPUFeatureStatus\(\)/, 'read when asked, not when started')
-  for (const [name, r] of [['new driver', rig({ marker: JSON.stringify({ key: key.replace('32.0.15', '33.0') }) })],
-    ['cache deleted', rig({ marker: JSON.stringify({ key, cache_birth: 1_000 }), cache: false })], ['no marker', rig()], ['garbled marker', rig({ marker: '{' })]]) {
+  assert.match(glue, /gpuReady: async \(\) => \{ await app\.getGPUInfo\('basic'\) \}/, 'the GPU info waits for the GPU process')
+  for (const [name, r] of [['cache present', rig()], ['cache deleted', rig({ cache: false })]]) {
     const w = new ShaderWarmup(r.deps, OPTS); w.start(); await r.advance(OPTS.delayMs)
     assert.equal(r.windows.length, 1, name)
     w.stop()
   }
 })
 
-test('SW3 timing: nothing before the delay, waits for idle, gives up while the user stays busy', async () => {
+test('SW3 timing: nothing before the delay, waits for idle', async () => {
   const r = rig({ idle: [0, 1, 2, 30] })
   const w = new ShaderWarmup(r.deps, OPTS); w.start()
   await r.advance(OPTS.delayMs - 1)
@@ -132,13 +126,10 @@ test('SW3 timing: nothing before the delay, waits for idle, gives up while the u
   await r.advance(OPTS.retryMs)
   assert.equal(r.windows.length, 1, 'idle: runs')
   w.stop()
-  const busy = rig({ idle: [0] })
-  const wb = new ShaderWarmup(busy.deps, OPTS); const ob = wb.start()
-  await busy.advance(OPTS.giveUpMs + OPTS.retryMs)
-  assert.equal(await ob, 'gave-up-busy'); assert.equal(busy.windows.length, 0); assert.equal(busy.timers.size, 0, 'no timer left behind')
+  assert.equal(r.timers.size, 0, 'no timer left behind')
 })
 
-test('SW4 done destroys the window and writes the marker; the deadline destroys it and writes none', async () => {
+test('SW4 done destroys the window; so does the deadline', async () => {
   const r = rig()
   const w = new ShaderWarmup(r.deps, OPTS); const o = w.start()
   await r.advance(OPTS.delayMs)
@@ -149,8 +140,8 @@ test('SW4 done destroys the window and writes the marker; the deadline destroys 
   win.title(WARMUP_DONE_TITLE)
   assert.equal(await o, 'done')
   assert.equal(win.destroyed, true)
-  assert.deepEqual(r.writes.map(t => JSON.parse(t).key), [warmupKey(PARTS)])
-  assert.deepEqual(r.logs.map(l => l.outcome), ['done'], 'one outcome line, even though destroying fires the window\'s own gone')
+  assert.deepEqual(r.writes, [], 'no marker')
+  assert.deepEqual(r.logs.map(l => l.outcome), ['started', 'done'], 'one outcome line, even though destroying fires the window\'s own gone')
   assert.equal(r.timers.size, 0, 'the deadline timer is cleared')
 
   const slow = rig()
@@ -158,10 +149,10 @@ test('SW4 done destroys the window and writes the marker; the deadline destroys 
   await slow.advance(OPTS.delayMs + OPTS.deadlineMs)
   assert.equal(await os, 'deadline')
   assert.equal(slow.windows[0].destroyed, true)
-  assert.deepEqual(slow.writes, [], 'a cut-off scene runs again next launch')
+  assert.deepEqual(slow.logs.map(l => l.outcome), ['started', 'deadline'])
 })
 
-test('SW5 stop mid-run destroys the window and writes no marker; a failed load ends it', async () => {
+test('SW5 stop mid-run destroys the window; a failed load ends it', async () => {
   const r = rig()
   const w = new ShaderWarmup(r.deps, OPTS); const o = w.start()
   await r.advance(OPTS.delayMs)
@@ -207,7 +198,7 @@ test('SW7 the stall log keeps an outcome enum and durations, never error text', 
   assert.equal(JSON.stringify(lines).includes('secret'), false)
   assert.equal(lines[1].outcome, 'other')
   // SW11: the cache folder's creation time (an ISO time, nothing else) and its size
-  log.write('shader-warmup', { outcome: 'skipped-warm', ms: 15000, cache_birth: '2026-11-16T21:03:02.000Z', cache_bytes: 10548908 })
+  log.write('shader-warmup', { outcome: 'started', ms: 15000, cache_birth: '2026-11-16T21:03:02.000Z', cache_bytes: 10548908 })
   log.write('shader-warmup', { outcome: 'done', ms: 15000, cache_birth: 'C:\\Users\\someone\\GrShaderCache', cache_bytes: 'big' })
   log.write('shader-warmup', { outcome: 'done', ms: 15000, cache_birth: null, cache_bytes: null })
   await log.flush()
@@ -237,19 +228,13 @@ test('SW8 the page is its own Vite build, mounts the scene, and its done title m
   assert.equal((main.match(/startShaderWarmup\(/g) || []).length, 1, 'started once, from app ready')
 })
 
-test('SW9 a recreated cache folder runs again; the marker records the folder creation time', async () => {
-  const key = warmupKey(PARTS)
-  for (const [name, marker, birth, runs] of [
-    ['same folder', { key, cache_birth: 1_000 }, 1_000, false],
-    ['folder recreated since', { key, cache_birth: 1_000 }, 5_000, true],
-    ['marker from before SW9', { key }, 1_000, true]]) {
-    const r = rig({ marker: JSON.stringify(marker), birth })
-    const w = new ShaderWarmup(r.deps, OPTS); const o = w.start(); await r.advance(OPTS.delayMs)
-    assert.equal(r.windows.length, runs ? 1 : 0, name)
-    if (!runs) { assert.equal(await o, 'skipped-warm', name); continue }
-    r.windows[0].title(WARMUP_DONE_TITLE); assert.equal(await o, 'done', name)
-    assert.deepEqual(JSON.parse(r.writes[0]).cache_birth, birth, name + ': the marker names the folder it warmed')
-  }
+test('SW9 no marker: nothing reads or writes shader-warmup.json any more', async () => {
+  const r = rig({ marker: JSON.stringify({ key: '4.6.1|146.0|4318|7|32.0.15', cache_birth: 1_000 }) })
+  const w = new ShaderWarmup(r.deps, OPTS); const o = w.start(); await r.advance(OPTS.delayMs)
+  r.windows[0].title(WARMUP_DONE_TITLE); assert.equal(await o, 'done')
+  assert.equal(r.reads, 0, 'the marker is not read'); assert.deepEqual(r.writes, [], 'nor written')
+  const glue = fs.readFileSync('apps/desktop/main/shader-warmup-window.ts', 'utf8')
+  assert.doesNotMatch(glue, /shader-warmup\.json|WARMUP_MARKER|readMarker|writeMarker/)
 })
 
 test('SW10 a slow-compiling GPU can finish: 45 s deadline, desks advance on quick frames', async () => {
@@ -261,14 +246,15 @@ test('SW10 a slow-compiling GPU can finish: 45 s deadline, desks advance on quic
   assert.doesNotMatch(scene, /await wait\(step\)/)
 })
 
-test('SW11 every outcome line records the cache folder creation time and size', async () => {
-  const key = warmupKey(PARTS)
-  const skip = rig({ marker: JSON.stringify({ key, cache_birth: 1_000 }) })
-  const ws = new ShaderWarmup(skip.deps, OPTS); const os = ws.start(); await skip.advance(OPTS.delayMs); await os
-  assert.equal(skip.logs[0].cache_birth, new Date(1_000).toISOString()); assert.equal(skip.logs[0].cache_bytes, 10_548_908)
+test('SW11 every line records the cache folder creation time and size', async () => {
+  const warm = rig()
+  const ww = new ShaderWarmup(warm.deps, OPTS); const ow = ww.start(); await warm.advance(OPTS.delayMs)
+  warm.windows[0].title(WARMUP_DONE_TITLE); await ow
+  for (const l of warm.logs) { assert.equal(l.cache_birth, new Date(1_000).toISOString(), l.outcome); assert.equal(l.cache_bytes, 10_548_908, l.outcome) }
   const none = rig({ cache: false })
   const wn = new ShaderWarmup(none.deps, OPTS); const on = wn.start(); await none.advance(OPTS.delayMs)
   none.windows[0].title(WARMUP_DONE_TITLE); await on
+  assert.equal(none.logs[0].outcome, 'started')
   assert.equal(none.logs[0].cache_birth, null, 'no cache folder yet'); assert.equal(none.logs[0].cache_bytes, null)
 })
 
@@ -280,11 +266,10 @@ test('SW11 every outcome line records the cache folder creation time and size', 
 // SW12 a warm cache with a matching marker still runs (no skipped-warm)
 // SW13 a busy user: it runs at the idle cap, never gives up; the started line says it did not wait for idle
 // SW14 every run logs a started line when the window opens, then its outcome
-const CAP = { delayMs: 15_000, idleS: 5, retryMs: 5_000, idleWaitMs: 30_000, giveUpMs: 30_000, deadlineMs: 45_000 }
+const CAP = { delayMs: 15_000, idleS: 5, retryMs: 5_000, idleWaitMs: 30_000, deadlineMs: 45_000 }
 
 test('SW12 a warm cache with a matching marker still runs: cached programs cost again in every app run', async () => {
-  const key = warmupKey?.(PARTS)
-  const r = rig({ marker: JSON.stringify({ key, cache_birth: 1_000 }), birth: 1_000 })
+  const r = rig({ marker: JSON.stringify({ key: '4.6.1|146.0|4318|7|32.0.15', cache_birth: 1_000 }), birth: 1_000 })
   const w = new ShaderWarmup(r.deps, CAP); const o = w.start(); await r.advance(CAP.delayMs)
   assert.equal(r.windows.length, 1, 'the warm-up runs although the disk cache is warm')
   r.windows[0].title(WARMUP_DONE_TITLE)

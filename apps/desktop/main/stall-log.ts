@@ -162,7 +162,8 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
   }
   // the shader warm-up (main/shader-warmup.ts): its outcome and two durations; never an error text
   // and the GrShaderCache folder's creation time (an ISO time only) and size: a changed time between launches is a wiped cache
-  if (src === 'shader-warmup') return compact({ outcome: oneOf(r.outcome, STALL_WARMUP_OUTCOMES), window_ms: num(r.window_ms),
+  // started lines also say whether the user was idle (false: it ran at the idle cap)
+  if (src === 'shader-warmup') return compact({ outcome: oneOf(r.outcome, STALL_WARMUP_OUTCOMES), idle: bool(r.idle), window_ms: num(r.window_ms),
     cache_birth: r.cache_birth === null ? null : typeof r.cache_birth === 'string' && ISO_TIME.test(r.cache_birth) ? r.cache_birth : undefined,
     cache_bytes: r.cache_bytes === null ? null : num(r.cache_bytes) })
   if (src === 'renderer-ping' || src === 'renderer-unresponsive') {

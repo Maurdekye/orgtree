@@ -1,10 +1,10 @@
 // shader-warmup-window.ts - the Electron side of main/shader-warmup.ts: the never-shown offscreen
-// window, its own session that serves only the UI's files, and the skip marker.
+// window and its own session that serves only the UI's files.
 // Kept apart from index.ts so the main-process edit there is one call.
 import { app, BrowserWindow, powerMonitor, session } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { ShaderWarmup, WARMUP_DEFAULTS, WARMUP_MARKER, WARMUP_ORIGIN, WARMUP_PATH, WARMUP_TYPES as TYPES, WARMUP_WINDOW_OPTIONS, warmupFile, type WarmupOptions, type WarmupOutcome } from './shader-warmup'
+import { ShaderWarmup, WARMUP_DEFAULTS, WARMUP_ORIGIN, WARMUP_PATH, WARMUP_TYPES as TYPES, WARMUP_WINDOW_OPTIONS, warmupFile, type WarmupOptions, type WarmupOutcome } from './shader-warmup'
 
 // ⚠ "persist:" IS REQUIRED. Chromium never writes shaders compiled for an off-the-record (in-memory)
 // session to GrShaderCache: measured 2026-11-16, an in-memory warm-up left the next launch compiling
@@ -31,7 +31,7 @@ function warmupSession(uiDirectory: string): Electron.Session {
   return ses
 }
 
-/** Start the warm-up (once per launch). Off with ORGTREE_SHADER_WARMUP=0; skipped when the GPU does not raster. */
+/** Start the warm-up (on every launch). Off with ORGTREE_SHADER_WARMUP=0; skipped when the GPU does not raster. */
 export function startShaderWarmup(o: { uiDirectory: string; log: (line: Record<string, unknown>) => void; options?: WarmupOptions }): ShaderWarmup | null {
   if (process.env.ORGTREE_SHADER_WARMUP === '0') return null
   const userData = app.getPath('userData')
@@ -44,13 +44,7 @@ export function startShaderWarmup(o: { uiDirectory: string; log: (line: Record<s
       const status = app.getGPUFeatureStatus()
       return String(status.gpu_compositing).startsWith('enabled') && String(status.rasterization).startsWith('enabled')
     },
-    keyParts: async () => {
-      const info = await app.getGPUInfo('basic') as { gpuDevice?: { vendorId?: number; deviceId?: number; driverVersion?: string; active?: boolean }[] }
-      const gpu = info.gpuDevice?.find(d => d.active) ?? info.gpuDevice?.[0]
-      return { app: app.getVersion(), chrome: process.versions.chrome, vendor: gpu?.vendorId, device: gpu?.deviceId, driver: gpu?.driverVersion }
-    },
-    readMarker: () => fs.promises.readFile(path.join(userData, WARMUP_MARKER), 'utf8').catch(() => null),
-    writeMarker: text => fs.promises.writeFile(path.join(userData, WARMUP_MARKER), text),
+    gpuReady: async () => { await app.getGPUInfo('basic') },
     cacheInfo: async () => {
       const dir = path.join(userData, 'GrShaderCache')
       const st = await fs.promises.stat(dir).catch(() => null)

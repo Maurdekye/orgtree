@@ -14,10 +14,15 @@
 // The compiled shaders land in the same cache the org windows then read. The window is
 // destroyed when the scene says done, or at the deadline, whichever comes first.
 //
-// SKIP. A marker in userData records the key it ran for (app version, Chromium version, GPU
-// vendor/device/driver) and the creation time of the GrShaderCache folder it warmed. Same key and
-// the same folder: nothing runs. A folder recreated since (Chromium wiped it: measured on the
-// user's 4.6.1-alpha.2, 2026-11-16 21:03Z, cause not reproduced) runs again.
+// EVERY LAUNCH (4.6.2). A warm disk cache is not enough: on the user's 4.6.2-alpha.1 (trace of
+// 2026-11-17 18:53Z) every program was a GrShaderCache HIT (44 loads, no store) and each first use
+// in the new app run still blocked the GPU main thread 0.5-1 s. So it runs on every launch and no
+// longer skips on a marker. Programs live in the GPU process, so the warm-up's window warms them for
+// the org windows too.
+//
+// IDLE, CAPPED. After the launch settle it waits for the user to be idle, but at most idleWaitMs
+// (30 s): the user of 4.6.2-alpha.1 stayed busy, the warm-up waited 5.5 min, and the canvas stalled
+// 16 times meanwhile. A run at the cap moves those hitches into the first minute after launch.
 //
 // DEADLINE. 45 s, not 8: on the user's GPU each compile takes 200-850 ms and 4.6.1-alpha.3's
 // warm-up was cut off at 8 s. The scene itself moves on only once frames are quick again.
@@ -27,7 +32,6 @@
 
 import path from 'node:path'
 
-export const WARMUP_MARKER = 'shader-warmup.json'
 export const WARMUP_PATH = '/shader-warmup.html'
 export const WARMUP_DONE_TITLE = 'orgtree-shader-warmup:done'
 
@@ -45,10 +49,6 @@ export function warmupFile(uiDirectory: string, url: string): string | null {
   const root = path.resolve(uiDirectory), file = path.resolve(root, rel)
   return file.startsWith(root + path.sep) && WARMUP_TYPES[path.extname(file).toLowerCase()] ? file : null
 }
-
-export type WarmupKeyParts = { app: string; chrome: string; vendor?: number; device?: number; driver?: string }
-export const warmupKey = (k: WarmupKeyParts): string =>
-  [k.app, k.chrome, k.vendor ?? '?', k.device ?? '?', k.driver ?? '?'].join('|')
 
 /** What the window is created with: the only options the warm-up ever uses. */
 export const WARMUP_WINDOW_OPTIONS = {
@@ -72,12 +72,11 @@ export type WarmupDeps = {
   clearTimeout(handle: unknown): void
   /** seconds since the user's last input, system-wide (powerMonitor.getSystemIdleTime) */
   idleSeconds(): number
-  /** the GPU rasters (feature status). Read after keyParts, never at app ready: Chromium reports
+  /** the GPU rasters (feature status). Read after gpuReady, never at app ready: Chromium reports
    *  every feature as software until its GPU process has started (measured 2026-11-16) */
   gpuRasters(): boolean
-  keyParts(): Promise<WarmupKeyParts>
-  readMarker(): Promise<string | null>
-  writeMarker(text: string): Promise<void>
+  /** resolves once the GPU process is up (reading the GPU info waits for it) */
+  gpuReady(): Promise<void>
   /** the GrShaderCache folder's creation time (ms) and size in bytes, or null when there is none */
   cacheInfo(): Promise<{ birth: number; bytes: number } | null>
   /** a never-shown offscreen window on its own in-memory session that serves only the UI files */
@@ -93,15 +92,15 @@ export type WarmupOptions = {
   idleS: number
   /** time between idle checks */
   retryMs: number
-  /** give up when the user was never idle within this long (they warm it by using the app) */
-  giveUpMs: number
+  /** after the delay, wait at most this long for the user to be idle, then run anyway */
+  idleWaitMs: number
   /** the window is destroyed this long after it was created, done or not */
   deadlineMs: number
 }
 
-export const WARMUP_DEFAULTS: WarmupOptions = { delayMs: 15_000, idleS: 5, retryMs: 10_000, giveUpMs: 10 * 60_000, deadlineMs: 45_000 }
+export const WARMUP_DEFAULTS: WarmupOptions = { delayMs: 15_000, idleS: 5, retryMs: 5_000, idleWaitMs: 30_000, deadlineMs: 45_000 }
 
-export type WarmupOutcome = 'skipped-warm' | 'skipped-no-gpu' | 'gave-up-busy' | 'done' | 'deadline' | 'failed' | 'stopped'
+export type WarmupOutcome = 'skipped-no-gpu' | 'done' | 'deadline' | 'failed' | 'stopped'
 
 export class ShaderWarmup {
   private timer: unknown = null
@@ -116,7 +115,7 @@ export class ShaderWarmup {
 
   start(): Promise<WarmupOutcome> {
     this.started = this.deps.now()
-    // everything waits for the launch to settle first, the skip check included (its log line needs the data folder)
+    // everything waits for the launch to settle first, the GPU check included (its log line needs the data folder)
     this.timer = this.deps.setTimeout(() => { this.timer = null; void this.decide() }, this.opts.delayMs)
     return this.outcome
   }
@@ -129,16 +128,19 @@ export class ShaderWarmup {
     this.finish('stopped')
   }
 
-  /** what the skip check saw of the cache folder; every outcome line carries it (null: no folder) */
+  /** what the start saw of the cache folder; every line carries it (null: no folder) */
   private cache: { birth: number; bytes: number } | null | undefined = undefined
 
   private finish(o: WarmupOutcome, extra: Record<string, unknown> = {}): void {
     if (this.settled) return
     this.settled = true
-    const cache = this.cache === undefined ? {} : this.cache === null ? { cache_birth: null, cache_bytes: null }
-      : { cache_birth: new Date(this.cache.birth).toISOString(), cache_bytes: this.cache.bytes }
-    this.deps.log({ outcome: o, ms: this.deps.now() - this.started, ...cache, ...extra })
+    this.deps.log({ outcome: o, ms: this.deps.now() - this.started, ...this.cacheFields(), ...extra })
     this.resolve(o)
+  }
+
+  private cacheFields(): Record<string, unknown> {
+    return this.cache === undefined ? {} : this.cache === null ? { cache_birth: null, cache_bytes: null }
+      : { cache_birth: new Date(this.cache.birth).toISOString(), cache_bytes: this.cache.bytes }
   }
 
   private close(): void {
@@ -148,32 +150,32 @@ export class ShaderWarmup {
   }
 
   private async decide(): Promise<void> {
-    let key: string
     try {
-      // keyParts first: reading the GPU info waits for the GPU process, after which the feature status is real
-      key = warmupKey(await this.deps.keyParts())
+      // the GPU process first: once it is up, the feature status is real
+      await this.deps.gpuReady()
       // GPU only (USER 2026-11-16 09:43:35Z: no CPU raster): with software raster there is nothing to warm
       if (!this.deps.gpuRasters()) return this.finish('skipped-no-gpu')
-      const [marker, cache] = await Promise.all([this.deps.readMarker(), this.deps.cacheInfo()])
-      this.cache = cache
-      const seen = marker ? readMarker(marker) : null
-      if (cache && seen && seen.key === key && seen.birth === cache.birth) return this.finish('skipped-warm')
+      this.cache = await this.deps.cacheInfo()
     } catch (e) { return this.finish('failed', { error: String(e) }) }
     if (this.stopped) return
-    this.whenIdle(key)
+    this.whenIdle(this.deps.now() + this.opts.idleWaitMs)
   }
 
-  private whenIdle(key: string): void {
+  /** run once the user is idle, or at the cap regardless */
+  private whenIdle(cap: number): void {
     this.timer = null
     if (this.stopped) return
-    if (this.deps.idleSeconds() >= this.opts.idleS) return void this.run(key)
-    if (this.deps.now() - this.started >= this.opts.giveUpMs) return this.finish('gave-up-busy')
-    this.timer = this.deps.setTimeout(() => this.whenIdle(key), this.opts.retryMs)
+    if (this.deps.idleSeconds() >= this.opts.idleS) return void this.run(true)
+    const left = cap - this.deps.now()
+    if (left <= 0) return void this.run(false)
+    this.timer = this.deps.setTimeout(() => this.whenIdle(cap), Math.min(this.opts.retryMs, left))
   }
 
-  private async run(key: string): Promise<void> {
+  private async run(idle: boolean): Promise<void> {
     let w: WarmupWindow
     try { w = this.window = this.deps.createWindow() } catch (e) { return this.finish('failed', { error: String(e) }) }
+    // a line when every run starts: a visible window's stalls while it runs are its own
+    this.deps.log({ outcome: 'started', idle, ms: this.deps.now() - this.started, ...this.cacheFields() })
     const t0 = this.deps.now()
     let ended = false
     const end = (o: WarmupOutcome, extra: Record<string, unknown> = {}) => {
@@ -183,24 +185,13 @@ export class ShaderWarmup {
       if (this.timer !== null) { this.deps.clearTimeout(this.timer); this.timer = null }
       this.close()
       const done = () => this.finish(o, { window_ms: this.deps.now() - t0, ...extra })
-      // only a scene that ran to its end marks the cache warm; a cut-off one runs again next launch
       if (o !== 'done') return done()
       // the folder it warmed: a new run's cache may only appear during the scene, so read it again now
-      this.deps.cacheInfo().catch(() => null).then(cache => {
-        this.cache = cache
-        return this.deps.writeMarker(JSON.stringify({ key, cache_birth: cache?.birth ?? null, at: new Date(this.deps.now()).toISOString() }))
-      }).then(done, e => this.finish('failed', { error: String(e) }))
+      void this.deps.cacheInfo().catch(() => null).then(cache => { this.cache = cache }).then(done)
     }
     w.onTitle(title => { if (title === WARMUP_DONE_TITLE) end('done') })
     w.onGone(() => end('failed', { error: 'window gone' }))
     this.timer = this.deps.setTimeout(() => end('deadline'), this.opts.deadlineMs)
     try { await w.loadURL(this.deps.url) } catch (e) { end('failed', { error: String(e) }) }
   }
-}
-
-function readMarker(text: string): { key: string; birth: number | null } | null {
-  try {
-    const m = JSON.parse(text) as { key?: unknown; cache_birth?: unknown }
-    return typeof m.key === 'string' ? { key: m.key, birth: typeof m.cache_birth === 'number' ? m.cache_birth : null } : null
-  } catch { return null }
 }
