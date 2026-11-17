@@ -84,7 +84,7 @@ mention of where else an account is used); the feed is made for the member.
 
 | Route | What a member is answered | What to weigh |
 | --- | --- | --- |
-| `/api/app/records`, `/api/app/ws` | its own app feed: the list rows and summaries of its organizations, and the values `providers` and `accounts` | threat 13 |
+| `/api/app/records`, `/api/app/ws` | its own app feed: the list rows and summaries of its organizations, and the values `providers`, `accounts` and the usage readings (`appfeed.rs` `MEMBER_VALUES`, through `shown::hide`; 4.6.2) | threat 13 |
 | `/api/providers` | each provider and whether it can be used on this computer | it says which AI services the owner is signed in to |
 | `/api/accounts` | the accounts by id and provider | no address; the ids are the names the owner gave them |
 | `/api/harnesses` | which agent programs this computer has, and their versions | |

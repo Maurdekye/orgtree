@@ -801,9 +801,18 @@ security boundary against a member.
   beyond the organization; anything else goes in `REFUSED` unless a computer that was let in must
   read it, and then its answer holds nothing of the owner's that a window has no use for (no e-mail
   address, no other organization): courtesy, not secrecy.
-- Still in `REFUSED` among the reads: usage, the model servers, OpenRouter, the changelog and the
-  organization list (`GET /api/orgs`: a member's list is its app feed). A window of a hosted
-  organization shows those pages without their figures until each answer has been looked at.
+- Still in `REFUSED` among the reads: the usage routes (they read the provider again: refreshing
+  is the owner's), the model servers, OpenRouter, the changelog and the organization list
+  (`GET /api/orgs`: a member's list is its app feed). A window of a hosted organization shows those
+  pages without their figures until each answer has been looked at; the Usage panel's figures come
+  from the app feed (below), and its Refresh buttons answer "This belongs to <computer>."
+- **Usage (4.6.2, USER 2026-11-17 m1b95cceba206 "Show all members").** A member is sent the owner's
+  usage values, the same readings the owner's own Usage panel and badge show. Before, its Usage panel
+  waited forever for a value that never came (USER mb356fe1b5546). The panel now says "Usage could
+  not be loaded: …" when a read fails or is refused in any window, and in a member window of an owner
+  before 4.6.2 that the owner sends no usage. Residual: a provider's error text inside a reading
+  (a CLI's message) can name a path on the owner's computer; it is shown as it is, like other
+  answers a member reads.
 
 ### What a member is sent
 
@@ -825,8 +834,11 @@ agents on the hosting computer can learn whose account they run under.
 
 **The app feed of a member** (`appfeed::Audience::Member`, decided from the token's scope): the
 registry, the summaries, the notices and the working counts of the organizations it may open now
-(given to it, switch on) and of no other; of this computer's values only `MEMBER_VALUES` (`providers`
-and `accounts`), each through `hide`. It is never among the windows a frame is broadcast to: what it
+(given to it, switch on) and of no other; of this computer's values only `MEMBER_VALUES` (`providers`,
+`accounts`, and the usage values: the four provider lanes `usage`, `codex_usage`,
+`antigravity_usage`, `muse_usage` with their `*_peek`, `registered_usage`, `openrouter_keys_usage`,
+`openrouter_usage_peek` and `langserver_usage`), each through `hide`. Not sent: model-server
+configuration (`langservers`) and the OpenRouter document (`openrouter`). It is never among the windows a frame is broadcast to: what it
 gets is made for it (`to_members`, `member_frames`, `member_value`). When what a member may open
 changes (a switch, an organization given), `lifecycle::publish` tells the feed and each member's
 sockets are sent their registry and what they see of it again, on the connection they have. A member

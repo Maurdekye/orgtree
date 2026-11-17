@@ -22,6 +22,8 @@ Claude retries after HTTP 429 wait at least one minute and back off to 2 minutes
 
 Muse Refresh remains visible, dimmed and disabled because Muse supplies observations during/after turns rather than an independent fresh query. At landed source `4447424`, its last-good reading survives engine restarts with the original observation date. After a reported reset, the card shows `reset; awaiting reading` without a percentage bar or badge; the original reset/date remain visible and capacity is unknown. The exact retention/freshness contract lives in `orgtree-usage-windows` (orgtree-working › accounts). Source: `apps/desktop/renderer/src/canvas/accounts.tsx:255`, `apps/desktop/renderer/src/usagerefreshpolicy.ts`, `engine/rs/orgtree-engine/src/usage.rs:638`.
 
+In a window of an organization another desktop shares with you, Usage shows that desktop's readings (both on 4.6.2 or later; account e-mail addresses are hidden) and its Refresh buttons answer "This belongs to <computer>." An owner before 4.6.2 sends none, and the panel says so. Whenever nothing can be shown because a read failed or was refused, the panel says "Usage could not be loaded:" with the reason rather than waiting.
+
 ## Usage history
 
 The compact header and its period controls stay sticky above the charts while you scroll; the filters occupy their own row. The initial period is seven days; buttons offer 24 hours, 7, 30 and 90 days. Provider, Account, Window and Model scope filters narrow the displayed series. Account choices include the provider name before the account name. Each chart is one account/window/model-scope series, grouped by account, with its own percent or monetary units.

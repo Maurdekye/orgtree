@@ -123,7 +123,7 @@ From Orgtree 4.6.0 a desktop can let other computers that run Orgtree open one o
 
 **Adding a computer is like giving it SSH access to yours.** A computer you add can do in the organization what you can, and the organization's agents run on your computer with your account's rights. Through them it can run commands and read or change any file your account can, outside the organization too. So add only computers, and people, you would trust with your whole computer.
 
-The list of organizations decides what the other computer's window shows, and its window cannot change your app-wide settings. Both keep its work in the organizations you shared. Neither is a wall around the rest of your computer.
+The list of organizations decides what the other computer's window shows, and its window cannot change your app-wide settings. Its **Usage** panel shows your accounts' usage (from 4.6.2 on both computers), without your e-mail addresses; refreshing it is left to you. Both keep its work in the organizations you shared. Neither is a wall around the rest of your computer.
 
 ### On the computer that has the organization
 
