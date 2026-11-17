@@ -1695,3 +1695,57 @@ async fn the_private_network_is_chosen_without_tailscale() {
     let (_, view) = host.owner("GET", "/api/remote-access/orgs/galaxy?fresh=1", None).await;
     assert!(refusal(&view).is_some_and(|why| why.starts_with("This computer has no private network address")), "{view}");
 }
+
+/// USER 2026-11-17 m1b95cceba206 "Show all members": a computer that was let in reads the owner's usage
+/// (the Usage panel and its badge), through the same filter as its other values. Nothing else widens:
+/// model-server configuration, the OpenRouter document and every usage ROUTE (they probe) stay the owner's.
+#[tokio::test]
+async fn a_member_is_sent_the_owners_usage_values_and_no_more_of_the_app() {
+    let root = Root::new();
+    let host = Host::start(&root).await;
+    let galaxy = host.shared(7, "galaxy");
+    let (_id, token) = host.let_in(&galaxy, PC).await;
+    let app = &host.engine.app;
+    crate::providers::set_agy_email(&host.engine, "sam@example.com");
+    let lane = |email: &str| json!({ "available": true, "email": email, "label": email,
+        "limits": [{ "kind": "weekly", "percent": 46.0, "resets_at": "2026-11-23T20:00:00Z" }] });
+    let usage_keys = ["antigravity_usage", "antigravity_usage_peek", "codex_usage", "codex_usage_peek", "langserver_usage",
+        "muse_usage", "muse_usage_peek", "openrouter_keys_usage", "openrouter_usage_peek", "registered_usage", "usage", "usage_peek"];
+    for key in usage_keys {
+        let value = match key {
+            "registered_usage" => json!({ "claude-5": { "account": "claude-5", "label": "sam@example.com", "limits": [], "standing": { "auth": "ok" } } }),
+            "openrouter_keys_usage" => json!({ "openrouter-1": { "account": "openrouter-1", "name": "Key one", "limits": [] } }),
+            "langserver_usage" => json!({ "ls1": { "available": true, "limits": [] } }),
+            _ => lane("sam@example.com"),
+        };
+        app.set_value(key, value);
+    }
+    app.set_value("langservers", json!({ "servers": [{ "id": "ls1", "base_url": "http://10.0.0.5:8080" }] }));
+    app.set_value("openrouter", json!({ "keys": [{ "id": "openrouter-1" }] }));
+    app.set_value("providers", json!({ "providers": [] }));
+
+    let mut theirs = Value::Null;
+    for _ in 0..300 {
+        let (status, body) = host.door("GET", "/api/app/records", &token, None).await;
+        assert_eq!(status, 200, "{body}");
+        theirs = body;
+        if keys_of(&theirs["runtime"]["values"]).len() > 1 { break; }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let mut expected: Vec<String> = usage_keys.iter().map(|k| k.to_string()).collect();
+    expected.push("providers".to_string());
+    expected.sort();
+    assert_eq!(keys_of(&theirs["runtime"]["values"]), expected, "the usage values and providers, no langservers or openrouter: {theirs}");
+    let values = &theirs["runtime"]["values"];
+    assert_eq!(values["usage"]["value"]["limits"][0]["percent"], 46.0, "the figures themselves: {values}");
+    let text = theirs.to_string();
+    assert!(!text.contains("@example.com"), "no address of the owner's in its usage: {text}");
+    assert!(!text.contains("10.0.0.5"), "no model-server configuration: {text}");
+
+    // the usage routes read the provider again (force) or the owner's store: a member is still refused
+    for path in ["/api/usage", "/api/usage?force=true", "/api/codex/usage", "/api/accounts/claude-5/usage?force=true", "/api/accounts/usage",
+        "/api/openrouter/keys/usage", "/api/langservers"] {
+        let (status, body) = host.door("GET", path, &token, None).await;
+        assert_eq!(status, 403, "{path} stays the owner's: {body}");
+    }
+}
