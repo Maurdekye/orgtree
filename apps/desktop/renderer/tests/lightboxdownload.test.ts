@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {openLightbox,closeLightbox} from '../src/canvas/lightbox'
 
-for(const fail of [false,true])test(`lightbox download uses the owning document and ${fail?'shows HTTP failure':'saves authenticated bytes without closing the viewer'}`,async()=>{
+for(const fail of [false,true])test(`lightbox download uses the owning document and ${fail?'shows HTTP failure':'starts a native download without closing the viewer'}`,async()=>{
   const dom=new JSDOM('<html><body></body></html>',{url:'http://localhost/'}),owner=dom.window.document
   const fetchBefore=globalThis.fetch,createBefore=window.URL.createObjectURL,revokeBefore=window.URL.revokeObjectURL,timeoutBefore=window.setTimeout
   const create=owner.createElement.bind(owner),saved:{owner:Document;href:string;name:string}[]=[],calls:string[]=[]
@@ -17,7 +17,7 @@ for(const fail of [false,true])test(`lightbox download uses the owning document 
   try{
     openLightbox('data:image/png;base64,AA==',{name:'example.png',download:'/api/orgs/fixture/nodes/maker/file?path=example.png'},owner)
     capture=true;(owner.querySelector('.lb-dl') as HTMLAnchorElement).click();await flush(4)
-    assert.equal(calls.length,1,'the raw viewer anchor must use the authenticated main-realm helper')
+    assert.equal(calls.length,1,'one pre-check request, no body read')
     assert.ok(owner.querySelector('.lb-overlay'),'downloading does not dismiss the viewer')
     if(fail){assert.equal(saved.length,0);assert.match(owner.querySelector('[role="alert"]')?.textContent??'',/403/)}
     else{assert.equal(saved.length,1);assert.equal(saved[0].owner,owner);assert.equal(saved[0].name,'example.png');assert.equal(saved[0].href,'blob:http://localhost/lightbox');assert.equal(await payload!.text(),'RC POINTER P\n')}

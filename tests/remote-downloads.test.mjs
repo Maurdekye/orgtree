@@ -53,7 +53,7 @@ const news = (contents) => contents.sent.map(([channel, event]) => {
 })
 
 test('only the Files route of this app\'s own engine is a Files download', () => {
-  for (const url of [FILE, `${ORIGIN}/api/orgs/a-b/nodes/_shared/scratch-files/file?scope=shared`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files/file`]) {
+  for (const url of [FILE, `${ORIGIN}/api/orgs/a-b/nodes/_shared/scratch-files/file?scope=shared`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/file?path=big.bin`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files/file`]) {
     assert.equal(isFilesDownload(url, ORIGIN), true, url)
   }
   for (const url of [
@@ -127,7 +127,7 @@ test('only the window that began a download can stop it, and only while it runs'
 test('every other download is left alone, and a closed window is told nothing', () => {
   const { downloads, window, item, start } = rig()
   const contents = window(7)
-  const other = item(`${ORIGIN}/api/orgs/galaxy/nodes/lead/file?path=report.pdf`, 'report.pdf', 10)
+  const other = item(`${ORIGIN}/api/orgs/galaxy/nodes/lead/documents/report.pdf`, 'report.pdf', 10)
   start(other, contents)
   assert.deepEqual([other.dialog, Object.keys(other.listeners), news(contents)], [null, [], []])
   assert.equal(downloads.cancel('dl-1', 7), false)
