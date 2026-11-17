@@ -114,10 +114,24 @@ mod tests {
         assert!(!hire_enabled(&st,"sol",&serde_json::json!({"model_version":"6","fast_mode":false}),&settings).unwrap());
     }
 
+    /// A Sol hire that names no version is 6.2, so its speed is 6.2's; a seat that exists with no version is 6.1.
+    #[test]
+    fn an_unversioned_sol_hire_takes_6_2_speed_support_and_an_existing_seat_keeps_6_1() {
+        let mut st = State::default();
+        st.codex_fast_modes.insert("gpt-6.1-sol".into(), "priority".into());
+        assert!(supported(&st, "sol", None), "an existing unpinned seat runs 6.1");
+        assert!(hire_enabled(&st, "sol", &json!({"fast_mode": true}), &json!({})).is_err(), "a new hire is 6.2");
+        assert!(validate_defaults(&st, &json!({"sol": true})).is_err());
+        st.codex_fast_modes.insert("gpt-6.2-sol".into(), "priority".into());
+        assert!(hire_enabled(&st, "sol", &json!({"fast_mode": true}), &json!({})).unwrap());
+        assert!(validate_defaults(&st, &json!({"sol": true})).is_ok());
+    }
+
     #[test]
     fn fast_tools_hire_validation_and_stale_defaults() {
         let mut st=State::default();
         st.codex_fast_modes.insert("gpt-6.1-sol".into(),"priority".into());
+        st.codex_fast_modes.insert("gpt-6.2-sol".into(),"priority".into());
         let settings=json!({"default_fast_mode":{"sol":true,"haiku":true}});
         assert!(hire_enabled(&st,"sol",&json!({}),&settings).unwrap());
         assert!(!hire_enabled(&st,"sol",&json!({"fast_mode":false}),&settings).unwrap());

@@ -1502,9 +1502,19 @@ mod model_version_tests {
         assert_eq!(row["display_versions"][version], expected);
     }
 
+    /// Astra 6.2 is what a NEW hire gets and what the tier row names; 6 stays what a seat with no version runs.
     #[test]
-    fn astra_names_version_six_in_the_provider_payload() {
-        assert_named_version("astra", "6", "ChatGPT Astra 6");
+    fn astra_row_names_6_2_for_a_new_hire_and_keeps_version_six() {
+        let astra = catalog::tier("astra").unwrap();
+        assert_eq!(catalog::display_name(astra, Some("6")).as_deref(), Some("ChatGPT Astra 6"));
+        assert_eq!(catalog::model_for("astra", None), "gpt-6-astra");
+        let row = tier_rows(catalog::OPENAI, false).into_iter().find(|r| r["tier"] == "astra").unwrap();
+        assert_eq!(row["model"], "gpt-6.2-astra");
+        assert_eq!(row["display_name"], "ChatGPT Astra 6.2");
+        assert_eq!(row["display_versions"]["6"], "ChatGPT Astra 6");
+        assert_eq!(row["display_versions"]["6.2"], "ChatGPT Astra 6.2");
+        assert_eq!(row["legacy_version"], "6", "what blank means on a seat that exists");
+        assert_eq!(row["seat"], 8.0);
     }
 
     #[test]
@@ -1624,8 +1634,11 @@ mod conditional_tests {
 
         let sol = super::tier_rows(super::catalog::OPENAI, false).into_iter()
             .find(|row| row["tier"] == "sol").unwrap();
-        assert_eq!(sol["display_name"], "ChatGPT Sol 6.1");
+        assert_eq!(sol["display_name"], "ChatGPT Sol 6.2", "what a new hire gets");
+        assert_eq!(sol["model"], "gpt-6.2-sol");
+        assert_eq!(sol["display_versions"]["6.1"], "ChatGPT Sol 6.1");
         assert_eq!(sol["display_versions"]["6"], "ChatGPT Sol 6");
+        assert_eq!(sol["legacy_version"], "6.1", "what blank means on a seat that exists");
 
         let muse = super::tier_rows(super::catalog::MUSE, false).into_iter()
             .find(|row| row["tier"] == "wonder-full").unwrap();

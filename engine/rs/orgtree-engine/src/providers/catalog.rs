@@ -632,11 +632,43 @@ mod effort_tests {
         assert_eq!(t.context, Some(1_000_000));
     }
 
+    /// Sol 6.2 and Astra 6.2 (USER 2026-11-17 md06e7aabe0e3 "lets focus on getting thoee into a release"): NEW hires
+    /// get 6.2; a seat with no saved version keeps the model it runs today (Sol 6.1, Astra 6), as Fable 5.2 did.
+    /// IDs measured by Codex 0.166.0 model/list on both OpenAI accounts. Seats by the input-price rule (OpenAI API
+    /// rates fetched by @coordinator-opus 2026-11-17): Sol $2 -> 2, Astra $8 -> 8.
+    #[test]
+    fn sol_and_astra_6_2_are_the_new_hire_default_and_unpinned_seats_stay() {
+        for (name, old, old_model, new_model, older) in [
+            ("sol", "6.1", "gpt-6.1-sol", "gpt-6.2-sol", &["6.2", "6.1", "6", "5.6"][..]),
+            ("astra", "6", "gpt-6-astra", "gpt-6.2-astra", &["6.2", "6"][..]),
+        ] {
+            let t = tier(name).unwrap();
+            assert_eq!(t.versions.iter().map(|(k, _)| *k).collect::<Vec<_>>(), older, "{name}");
+            assert_eq!(t.model, old_model, "{name}: no saved version still means {old}");
+            assert_eq!(model_for(name, None), old_model, "{name}");
+            assert_eq!(model_for(name, Some("6.2")), new_model, "{name}");
+            assert_eq!(model_for(name, Some(old)), old_model, "{name}");
+            assert_eq!(new_hire_version(t), Some("6.2"), "{name}");
+            assert_eq!(new_hire_model(t), new_model, "{name}");
+            assert_eq!(legacy_version(t), Some(old), "{name}");
+        }
+        assert_eq!(model_for("sol", Some("6")), "gpt-6-sol");
+        assert_eq!(model_for("sol", Some("5.6")), "gpt-5.6-sol");
+        assert_eq!(new_hire_display_name(tier("sol").unwrap()).as_deref(), Some("ChatGPT Sol 6.2"));
+        assert_eq!(new_hire_display_name(tier("astra").unwrap()).as_deref(), Some("ChatGPT Astra 6.2"));
+        assert_eq!(display_name(tier("astra").unwrap(), None).as_deref(), Some("ChatGPT Astra 6"));
+        let (sol, astra) = (tier("sol").unwrap(), tier("astra").unwrap());
+        assert_eq!((sol.seat, sol.prices), (2.0, Some((2.0, 0.10, 10.0))));
+        assert_eq!((astra.seat, astra.prices), (8.0, Some((8.0, 0.40, 40.0))));
+    }
+
     /// The picker's blank option on an EXISTING seat names the legacy default (Fable: 5.1), only where it differs.
     #[test]
     fn the_legacy_version_is_named_only_where_blank_differs_from_the_latest() {
         assert_eq!(legacy_version(tier("fable").unwrap()), Some("5.1"));
-        for t in TIERS.iter().filter(|t| t.tier != "fable") {
+        assert_eq!(legacy_version(tier("sol").unwrap()), Some("6.1"));
+        assert_eq!(legacy_version(tier("astra").unwrap()), Some("6"));
+        for t in TIERS.iter().filter(|t| !["fable", "sol", "astra"].contains(&t.tier)) {
             assert_eq!(legacy_version(t), None, "{}", t.tier);
         }
     }
@@ -644,7 +676,7 @@ mod effort_tests {
     /// Only a tier whose latest version is not its default gets an explicit version for a new hire.
     #[test]
     fn no_other_tier_writes_a_version_for_a_new_hire() {
-        for t in TIERS.iter().filter(|t| t.tier != "fable") {
+        for t in TIERS.iter().filter(|t| !["fable", "sol", "astra"].contains(&t.tier)) {
             assert_eq!(new_hire_version(t), None, "{}", t.tier);
             assert_eq!(new_hire_model(t), t.model, "{}", t.tier);
         }
