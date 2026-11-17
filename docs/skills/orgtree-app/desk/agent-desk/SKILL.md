@@ -93,7 +93,7 @@ slotchips.tsx); the two group names follow the user's 2026-10-22 07:38Z ruling.
 | Retire / dissolve | A live agent without live children offers retire; one with live children offers dissolve, each with confirmation. Native hover tooltips explain that retirement stops/archives the agent, dissolution includes its whole team, reserved credits are freed, and history/files are kept. |
 | Rehire / dismiss | Retired desk actions; dismiss hides that retired view, rehire is a lifecycle operation. |
 | Gear | Opens this agent's settings. |
-| Pin, pop-out/window controls | Change the viewing surface rather than starting a different agent. |
+| Pin, pop-out/window controls | Change the viewing surface rather than starting a different agent. A popped-out desk's header wraps onto a second row until it is wide enough (about 706 px) to hold its status banner and the window controls on one row, so nothing runs under them (4.6.2). |
 
 The metadata row mixes header badges (MCP readiness, cache forecast, audiences, cost, queued-message count and separately reported status) with state badges (halt, freeze/limit, held slots and serving-account/route information). Queued account, model, effort and fast mode state badges describe pending configuration separately. Distinguish current versus “last” route/account evidence.
 

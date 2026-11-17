@@ -60,7 +60,7 @@ If Orgtree itself cannot start (the desktop, not just the background engine), it
 
 Orgtree keeps the program launches it needs for status checks, credential helpers and similar queries in a separate background worker, and saves settings in the background, so a slow antivirus scan or disk cannot freeze its windows (typing and scrolling stay responsive).
 
-The first time after an install, an Orgtree update or a graphics-driver update, Orgtree prepares the graphics card's shader cache once: 15 seconds after launch, once you have been idle for 5 seconds, it draws a sample canvas in a window that is never shown, then closes it. Later launches skip it. Set `ORGTREE_SHADER_WARMUP=0` to turn it off.
+On every launch Orgtree prepares the graphics card's shaders before you first switch desks: 15 seconds after launch, once you have been idle for 5 seconds (or 30 seconds later at the latest, even if you are busy), it draws a sample canvas in a window that is never shown, then closes it. Set `ORGTREE_SHADER_WARMUP=0` to turn it off.
 
 Right-click Orgtree's **system-tray icon** to check for updates, see download progress and choose **Update now** when the download is ready. The update can be completed from that menu.
 

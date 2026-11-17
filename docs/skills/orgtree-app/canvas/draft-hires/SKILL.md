@@ -25,6 +25,8 @@ open desk; the desk keeps the strip on the edge nearest the pointer. They are
 separate from the icon row controlled by **Show agent card shortcuts**, which
 does not draw over an opened desk.
 
+The side (coworker) hire columns of an agent or project card stand off the card and exist only while it is hovered. Transparent hover areas fill the gap, so moving the pointer from the card toward a column keeps it open; a project card has them at mini and normal zoom (4.6.2), not on its desk.
+
 An agent's top hire strip opens a superior draft above that exact agent,
 including a top-level agent directly under the user. Hire preserves this
 insertion target when undo history is enabled or disabled; the new superior
