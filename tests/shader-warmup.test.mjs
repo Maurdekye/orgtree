@@ -271,3 +271,56 @@ test('SW11 every outcome line records the cache folder creation time and size', 
   none.windows[0].title(WARMUP_DONE_TITLE); await on
   assert.equal(none.logs[0].cache_birth, null, 'no cache folder yet'); assert.equal(none.logs[0].cache_bytes, null)
 })
+
+// 4.6.2-alpha.1 (user's log 2026-11-17 18:52:52-18:58:25Z): the disk cache HIT (trace 18-53-37Z: 44 GrShaderCache
+// loads, no store) and still each first use of a cached program blocked the GPU main thread 0.5-1 s, so a warm disk
+// cache warms nothing in a new app run. And the user stayed busy: the warm-up waited 5.5 min for idle, while 16
+// stalls of 0.5-3.3 s hit the canvas. @coordinator-opus m3513f02140e1: run on every launch, after the 15 s settle,
+// with an idle wait capped at about 30 s, then run regardless; a line at launch and at the outcome.
+// SW12 a warm cache with a matching marker still runs (no skipped-warm)
+// SW13 a busy user: it runs at the idle cap, never gives up; the started line says it did not wait for idle
+// SW14 every run logs a started line when the window opens, then its outcome
+const CAP = { delayMs: 15_000, idleS: 5, retryMs: 5_000, idleWaitMs: 30_000, giveUpMs: 30_000, deadlineMs: 45_000 }
+
+test('SW12 a warm cache with a matching marker still runs: cached programs cost again in every app run', async () => {
+  const key = warmupKey?.(PARTS)
+  const r = rig({ marker: JSON.stringify({ key, cache_birth: 1_000 }), birth: 1_000 })
+  const w = new ShaderWarmup(r.deps, CAP); const o = w.start(); await r.advance(CAP.delayMs)
+  assert.equal(r.windows.length, 1, 'the warm-up runs although the disk cache is warm')
+  r.windows[0].title(WARMUP_DONE_TITLE)
+  assert.equal(await o, 'done')
+})
+
+test('SW13 a busy user: it runs at the idle cap and never gives up', async () => {
+  const r = rig({ idle: [0] })
+  const w = new ShaderWarmup(r.deps, CAP); const o = w.start()
+  await r.advance(CAP.delayMs + CAP.idleWaitMs - 1)
+  assert.equal(r.windows.length, 0, 'still waiting for idle inside the cap')
+  await r.advance(1)
+  assert.equal(r.windows.length, 1, `runs at ${CAP.delayMs + CAP.idleWaitMs} ms although the user never went idle`)
+  assert.deepEqual(r.logs.map(l => [l.outcome, l.idle]), [['started', false]])
+  r.windows[0].title(WARMUP_DONE_TITLE)
+  assert.equal(await o, 'done')
+  const { WARMUP_DEFAULTS } = req(bundle)
+  assert.ok(WARMUP_DEFAULTS.idleWaitMs <= 30_000, `the idle wait is capped at about 30 s (${WARMUP_DEFAULTS.idleWaitMs})`)
+})
+
+test('SW14 every run logs a started line when the window opens, then its outcome', async () => {
+  const r = rig({ idle: [0, 30] })
+  const w = new ShaderWarmup(r.deps, CAP); const o = w.start()
+  await r.advance(CAP.delayMs)
+  assert.deepEqual(r.logs, [], 'nothing logged before it starts')
+  await r.advance(CAP.retryMs)
+  assert.equal(r.windows.length, 1)
+  assert.deepEqual(r.logs.map(l => [l.outcome, l.idle, l.ms]), [['started', true, CAP.delayMs + CAP.retryMs]])
+  await r.advance(CAP.deadlineMs)
+  assert.equal(await o, 'deadline')
+  assert.deepEqual(r.logs.map(l => l.outcome), ['started', 'deadline'])
+  // the stall log keeps the started line and its idle flag
+  const file = path.join(temp, 'sw14.jsonl')
+  const log = new StallLog({ file: () => file, app: () => '4.6.2-test', clock: () => new Date('2026-11-17T19:00:00Z') })
+  log.write('shader-warmup', { outcome: 'started', ms: 45000, idle: false })
+  await log.flush()
+  const line = JSON.parse(fs.readFileSync(file, 'utf8').trim())
+  assert.equal(line.outcome, 'started'); assert.equal(line.idle, false)
+})
