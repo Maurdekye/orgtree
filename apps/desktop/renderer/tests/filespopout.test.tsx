@@ -28,14 +28,14 @@ test('Escape closes only the owning lightbox before a detached surface stops key
   } finally {closeLightbox(doc);closeLightbox(document);other.window.close()}
 })
 
-for (const selector of ['.agent-file-name','.agent-file-download']) test(`Files ${selector} fetches in the main realm and saves a Blob in the owning document`, async () => {
+for (const selector of ['.agent-file-name','.agent-file-download']) test(`Files ${selector} starts a native download in the owning document, never buffering a Blob`, async () => {
   const other = new JSDOM('<html><body><div id="files"></div></body></html>',{url:'http://localhost/'})
-  const owner = other.window.document, calls:string[] = [], saved:{url:string;name:string;owner:Document}[] = []
+  const owner = other.window.document, calls:string[] = [], methods:(string|undefined)[] = [], saved:{url:string;name:string;owner:Document}[] = []
   const originalFetch = globalThis.fetch, originalCreate = window.URL.createObjectURL, originalRevoke = window.URL.revokeObjectURL
   const originalTimeout = window.setTimeout, create = owner.createElement.bind(owner)
   let blob:Blob|undefined
-  globalThis.fetch = (async url => {
-    calls.push(String(url))
+  globalThis.fetch = (async (url,init) => {
+    calls.push(String(url));if(String(url).includes('/file?'))methods.push(init?.method)
     return String(url).includes('/files') ? new Response(JSON.stringify({node:'maker',next_cursor:null,files:[{
       delivery_id:'one',name:'example.txt',path:'C:/snapshot/example.txt',bytes:13,at:'2026-10-25T00:00:00Z',note:null,
     }]}),{headers:{'Content-Type':'application/json'}}) : new Response('RC POINTER P\n',{headers:{'Content-Type':'text/plain'}})
@@ -53,10 +53,10 @@ for (const selector of ['.agent-file-name','.agent-file-download']) test(`Files 
       return element
     }) as typeof owner.createElement
     await inAct(async()=>{(owner.querySelector(selector) as HTMLAnchorElement).click();await flush(4)})
-    assert.equal(calls.filter(url=>url.includes('/file?')).length,1,'a native HTTP download is replaced with authenticated main-realm fetch')
-    assert.deepEqual(saved.map(s=>({url:s.url,name:s.name})),[{url:'blob:http://localhost/owned-file',name:'example.txt'}])
+    assert.deepEqual(methods,['HEAD'],'one HEAD pre-check, the file body is never fetched into the page')
+    assert.deepEqual(saved.map(s=>({url:s.url,name:s.name})),[{url:'http://localhost/api/orgs/fixture/nodes/maker/file?path=C%3A%2Fsnapshot%2Fexample.txt',name:'example.txt'}],'a native download of the engine route')
     assert.equal(saved[0].owner,owner)
-    assert.equal(await blob!.text(),'RC POINTER P\n','exact downloaded bytes survive the bridge')
+    assert.equal(blob,undefined,'no Blob of the file is made')
   } finally {
     owner.createElement=create;await view.unmount();globalThis.fetch=originalFetch
     window.URL.createObjectURL=originalCreate;window.URL.revokeObjectURL=originalRevoke;window.setTimeout=originalTimeout
