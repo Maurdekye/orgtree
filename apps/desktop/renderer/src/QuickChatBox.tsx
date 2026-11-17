@@ -184,8 +184,19 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     sizes.observe(root)
     return () => sizes.disconnect()
   }, [fit])
-  // also after every render: the row's own width follows the model, the superior's name and the typed name
-  useLayoutEffect(fit)
+  // also when the row's own content changes: its width follows the model, the superior's name and the
+  // typed name. NOT after every render: each measure is a forced style and layout pass, and Quick chat
+  // re-renders with every tree the feed publishes (4.6.1-alpha.3 desk-load hang). A mutation callback is
+  // a microtask after React's commit, so the refit still lands before paint.
+  useLayoutEffect(fit, [fit, text, compact])
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const Mutation = root?.ownerDocument.defaultView?.MutationObserver
+    if (!root || !Mutation) return
+    const changes = new Mutation(fit)
+    changes.observe(root, { subtree: true, childList: true, characterData: true })
+    return () => changes.disconnect()
+  }, [fit])
   // a pop-over anchored in the row (or the dropdown) does not outlive the switch
   useEffect(() => { setPop(null) }, [compact])
   const fileRef = useRef<HTMLInputElement | null>(null)
