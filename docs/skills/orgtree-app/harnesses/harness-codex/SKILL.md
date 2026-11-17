@@ -70,6 +70,8 @@ Approval requests are answered from current scope. With Disabled by Orgtree off 
 
 ## Models and effort
 
+Sol offers versions 6.2, 6.1, 6 and 5.6; Astra offers 6.2 and 6 (4.6.2, user 2026-11-17). A NEW Sol or Astra hire that names no version is pinned to 6.2; a seat that already exists with no saved version keeps meaning Sol 6.1 or Astra 6, and a rehire keeps the seat's stored version, as for Fable 5.2. Both 6.2 models need an account whose `model/list` offers them (Codex CLI 0.166.0 lists both); Fast is their `priority` service tier, and Sol 6.2's extra `ultrafast` tier is not offered. New Astra seats cost 8.
+
 Use the account/model discovery offer and `supportedReasoningEfforts`; no universal level list establishes entitlement for every model. Native level names can include `none` and `minimal`. Saved levels clamp to an offered level without rewriting the setting. Effort travels with `turn/start`; an in-flight change applies at the next turn, not through Claude's live-control method. A completed model reroute is recorded rather than assumed to preserve the requested model.
 
 ## Gotchas and workarounds
