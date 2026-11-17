@@ -369,6 +369,13 @@ export function ProjectSquare({ node, pos, lod, focused, pinned, onFocus, onShow
           zoom={zoom} expanded={expandedHire === 'b'} onToggleExpanded={() => toggle('b')}
           onProject={onNewProject} />
       )}
+      {/* the agent card's transparent hover bridges (cards.tsx, styles.css .hsof-bridge): the coworker columns stand off
+          the card and exist only while it is hovered, so without them they vanished as the pointer crossed the gap (USER
+          2026-11-17 m75a0b53834c2, at mini zoom). Mini only: norm and desk stay as they were (@coordinator-opus). */}
+      {node.state === 'live' && onSpawnSide && lod === 'mini' && !deskOpen && <>
+        <div className="hsof-bridge bridge-l" aria-hidden="true" />
+        <div className="hsof-bridge bridge-r" aria-hidden="true" />
+      </>}
       {node.state === 'live' && onSpawnSide && (['left', 'right'] as const).map((s) => (
         <SpawnChips key={s} side={s} onSpawn={(t) => onSpawnSide(t, s)} seats={seats}
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
