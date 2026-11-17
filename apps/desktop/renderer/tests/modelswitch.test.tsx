@@ -91,7 +91,7 @@ const options = (el: HTMLElement) =>
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
 
-for (const [tier, version] of [['astra', '6'], ['pro', '3.1']]) {
+for (const [tier, version] of [['pro', '3.1']]) {
   configTest(`${tier} does not offer a picker for its single model version`, async (mount) => {
     const previous = MODEL_VERSIONS[tier]
     // Exercise the one-entry guard even if the renderer omits this catalog entry.
@@ -109,8 +109,9 @@ for (const [tier, version] of [['astra', '6'], ['pro', '3.1']]) {
   })
 }
 
+// Sol 6.2 and Astra 6.2 (USER 2026-11-17 md06e7aabe0e3) lead their tiers' versions; Astra seats at 8 ($8 input)
 for (const [tier, seat, latest, older] of [
-  ['sol', 2, '6.1', ['6', '5.6']], ['terra', 1, '6.1', ['5.6']],
+  ['sol', 2, '6.2', ['6.1', '6', '5.6']], ['astra', 8, '6.2', ['6']], ['terra', 1, '6.1', ['5.6']],
   ['luna', 0.1, '6', ['5.6']]] as const) {
   configTest(`${tier} offers ${latest} by default and older versions inside one tier`, async (mount) => {
     const { el, ops } = await mount({ node: { ...node(tier), seat },
@@ -120,14 +121,15 @@ for (const [tier, seat, latest, older] of [
     assert.equal(option(el, `gpt-6-${tier}`), undefined)
     assert.match(option(el, tier).textContent ?? '', new RegExp(`seat ${seat}`))
     assert.equal(CODEX_TIER_SEAT[tier], seat)
+    const oldest = older[older.length - 1]
     const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
-      .find((s) => [...s.options].some((o) => o.textContent === `${tier} 5.6`))!
+      .find((s) => [...s.options].some((o) => o.textContent === `${tier} ${oldest}`))!
     assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
       [['', `latest (${latest})`], [latest, `${tier} ${latest}`],
         ...older.map((v) => [v, `${tier} ${v}`])])
     const { act } = await import('react')
     await act(async () => {
-      versions.value = '5.6'
+      versions.value = oldest
       versions.dispatchEvent(new Event('change', { bubbles: true }))
     })
     const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
@@ -141,7 +143,7 @@ for (const [tier, seat, latest, older] of [
     }
     try { await act(async () => { save.click() }) }
     finally { globalThis.fetch = originalFetch }
-    assert.equal(saved[0]?.model_version, '5.6')
+    assert.equal(saved[0]?.model_version, oldest)
     assert.equal(ops.some((o) => o.op === 'switch_model'), false)
   })
 }
@@ -296,7 +298,7 @@ configTest('the switch lists every provider family with its ledger seats',
       ['fable', 'fable · seat 10'], ['opus', 'opus · seat 4'],
       ['sonnet', 'sonnet · seat 2'], ['haiku', 'haiku · seat 1'],
       // terra is current again (GPT-6.1 Terra, terra.test)
-      ['astra', 'astra · seat 10'], ['sol', 'sol · seat 2'],
+      ['astra', 'astra · seat 8'], ['sol', 'sol · seat 2'],
       ['terra', 'terra · seat 1'], ['luna', 'luna · seat 0.1'],
       // pro is an opt-in legacy tier, hidden by default (legacypro.test)
       ['hydrogen', 'hydrogen · seat 1'],
