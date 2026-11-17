@@ -41,7 +41,7 @@ app-wide user preference for ordinary new agents and projects.
 - [orgtree-app-default-org-settings](app-default-org-settings/SKILL.md): Default org settings: values new organizations start with (also the standalone form).
 - [orgtree-app-remote-access](app-remote-access/SKILL.md): Remote access: letting other computers that run Orgtree open an organization of this desktop; the switch in Org settings > Connections, Add a computer, and App settings > Remote access.
 - [orgtree-app-developer](app-developer/SKILL.md): Developer: the engine debug view and verbose engine logging, and the logs folder.
-- [orgtree-app-keyboard-shortcuts](app-keyboard-shortcuts/SKILL.md): Keyboard shortcuts: the read-only list of bindings.
+- [orgtree-app-keyboard-shortcuts](app-keyboard-shortcuts/SKILL.md): Controls (formerly Keyboard shortcuts): the read-only list of canvas mouse gestures and key bindings.
 - [orgtree-app-about](app-about/SKILL.md): About: version, engine commit, update check.
 
 Provider, harness, account and hub controls have their own sections: [providers](../providers/SKILL.md) and [mail hub](../mailhub/SKILL.md). Existing organization values are under [org settings](../org-settings/SKILL.md); one agent’s configuration is under [agent settings](../agent-settings/SKILL.md).

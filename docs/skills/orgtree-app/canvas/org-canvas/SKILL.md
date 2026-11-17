@@ -12,6 +12,8 @@ The canvas fills the available organization window, including at fractional disp
 
 Drag the background with the primary button to pan. Middle-button drag pans from anywhere on the visible canvas, including a desk's header, transcript or composer, presentation cards, the org mailbox tile and pinned frames. It moves the canvas camera, leaving the desk's scroll and a pinned frame's placement unchanged. It does not open a link or select text; left and right buttons keep their usual actions. A popped-out desk has no canvas to pan.
 
+A still middle click on an agent, project or the switchboard opens its desk as a click does, even over the node's buttons and links; on empty canvas or a pinned window it does nothing. A double middle click anywhere on the canvas fits the whole org, as the HUD's full-view button does. App settings > [Controls](../../app-settings/app-keyboard-shortcuts/SKILL.md#canvas-mouse) lists every canvas mouse gesture.
+
 The wheel over canvas space zooms about the cursor; over a modal, desk, agent tray or pinned window it stays a scrolling gesture. Move the pointer out of the desk before trying to zoom the canvas. Narrow windows retain this desktop layout; see [narrow layout](../../app-shell/mobile-layout/SKILL.md) before assuming a mobile sheet or touch-only navigation mode.
 
 The bottom-left HUD offers switchboard, full view, zoom in and zoom out. Off-screen neighbor chips jump to their agents; a hidden retiree is revealed when navigated to. Far zoom uses reduced locator cards rather than shrinking every desk control into an interactive target. The current layout and appearance choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).

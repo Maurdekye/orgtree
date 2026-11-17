@@ -1,13 +1,13 @@
 ---
 name: orgtree-app-keyboard-shortcuts
-description: Find the app's keyboard bindings, their focus conditions and the effect of the Enter-key preference.
+description: Find the app's canvas mouse gestures and keyboard bindings, their focus conditions and the effect of the Enter-key preference.
 ---
 
 Up: [orgtree-app-settings](../SKILL.md)
 
-# Keyboard shortcuts
+# Controls
 
-The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. It groups the app's bindings and reflects the current Display → Typing → Enter key preference. No setting is saved by reading it. Suggest this page when the user wants faster navigation or needs to understand a key's focus-dependent action. Agents explain these actions; they do not operate the user's settings.
+The Controls settings tab (named Keyboard shortcuts before 4.6.2) is a reference, not a key-rebinding editor. It opens with the canvas mouse gestures, then groups the app's key bindings and reflects the current Display → Typing → Enter key preference. No setting is saved by reading it. Suggest this page when the user wants faster navigation or needs to understand a key's focus-dependent action. Agents explain these actions; they do not operate the user's settings.
 
 `Mod` means Ctrl on Windows/Linux and Command on macOS. Alt appears as Option on macOS. Function keys below work even while typing in the main app document; Ctrl, Alt or Command modifiers prevent a function-key match, and key-repeat does not repeat the action. A panel action with no available handler has no effect.
 
@@ -31,6 +31,21 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Shift+F7 | Focus the last live agent desk and bring it into view. |
 
 In App, Org and Agent settings, Mod+F focuses the window's search box; in the box Up/Down choose a result, Enter opens it and Escape clears the search ([search](../SKILL.md#search)).
+
+## Canvas mouse
+
+| Mouse | Canvas action |
+| --- | --- |
+| Click | Open the desk of an agent, project or the switchboard. |
+| Middle click | The same, wherever on the node the pointer is, buttons and links included. A middle click on a pinned window or app window does nothing. |
+| Double middle click | Fit the whole org, anywhere on the canvas (pinned windows too). Two still middle clicks within 500 ms; a moving press is a pan. |
+| Drag on empty canvas | Pan. |
+| Middle drag | Pan from anywhere on the canvas, desks and pinned windows included. It never opens a link or scrolls the page. |
+| Wheel | Zoom about the pointer; over a desk, modal, tray or pinned window it scrolls instead. |
+| Drag an agent's card | Drop on another agent to move it with its team; drop between siblings to reorder. See [org canvas](../../canvas/org-canvas/SKILL.md#structural-gestures). |
+| Right-click | The menu of the agent, project or link under the pointer. |
+
+These are UI gestures with no agent tool or authority; agents read the org with `orgtree_chart`.
 
 ## Organization navigation
 

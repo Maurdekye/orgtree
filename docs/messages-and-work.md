@@ -150,7 +150,7 @@ Markdown works across conversations, mail, work descriptions and presentations. 
 
 An agent deliberately writing a standalone @user in visible prose can request your attention. Code spans and code blocks stay literal. Native mention notifications and their click destinations follow your notification settings. In the main window, the glowing **@** button visits unobserved transcript mentions; mail mentions use Inbox/Attention. Seeing a mention and answering its associated question are separate actions.
 
-**Shift+F4** searches the retained mention navigation history across transcript, mail and docket sources, including seen entries. It opens the source and highlights the passage; later presses step backward. [Settings and usage](settings-and-usage.md#keyboard-shortcuts) explains its 4.4.2 history baseline and limits.
+**Shift+F4** searches the retained mention navigation history across transcript, mail and docket sources, including seen entries. It opens the source and highlights the passage; later presses step backward. [Settings and usage](settings-and-usage.md#controls) explains its 4.4.2 history baseline and limits.
 
 ### Image embedding limits
 

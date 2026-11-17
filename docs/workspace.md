@@ -68,7 +68,7 @@ The organization header provides:
 | Glowing @ button, when present | Visit the newest unobserved transcript mention and highlight its passage. Repeated clicks visit remaining mentions. Mail mentions use the inbox path. |
 | STOP ALL | Emergency organization-wide control; see [Operating and troubleshooting](operating-orgtree.md). |
 
-Use **Shift+F4** for the newest recorded user mention across transcripts, mail and tickets, including seen entries. Separate presses step backward without wrapping; a newer mention restarts from the newest. This is a different navigation path from the header's pending-transcript @ button. See [mention history and limits](settings-and-usage.md#keyboard-shortcuts).
+Use **Shift+F4** for the newest recorded user mention across transcripts, mail and tickets, including seen entries. Separate presses step backward without wrapping; a newer mention restarts from the newest. This is a different navigation path from the header's pending-transcript @ button. See [mention history and limits](settings-and-usage.md#controls).
 
 The footer reports activity, version and connection errors. Conditional chips can show recorded cost, a provider warning, hub delivery state or a headless session. Cost information may include unknown pricing; it is not your provider's invoice. Click the Hub chip to inspect Connections. A queued delivery count means delivery is outstanding.
 

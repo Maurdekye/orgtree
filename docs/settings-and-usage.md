@@ -157,9 +157,21 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
   Charter-folder scans skip links, junctions, reparse points and cloud placeholders, including linked parent folders. Use absolute paths without `..`. Each folder examines at most 500 directly contained Markdown entries, counting skipped entries too. Files over 1,000,000 bytes are refused before reading their contents. The folder row reports refused paths, skipped files and a shortened listing. Keep cloud files locally available in a plain folder before using them. The hire form shows at most 100,000 characters from a readable preset and marks truncation; text entered directly into an agent charter keeps its existing rules.
 - **History**, **About** and developer diagnostics are reference/recovery surfaces. [Operation](operating-orgtree.md) covers them; [Development](development.md) covers contributor tools.
 
-## Keyboard shortcuts
+## Controls
 
-**App settings > Keyboard shortcuts** is a reference, not a rebinding editor. `Mod` means Ctrl on Windows/Linux and Command on macOS. Main-window function keys work while typing; Ctrl/Alt/Command modifiers prevent their match, and holding a key does not repeat the action. A missing org/panel handler has no effect.
+**App settings > Controls** (called Keyboard shortcuts before 4.6.2) is a reference, not a rebinding editor. It starts with the canvas mouse gestures:
+
+| Mouse | Action |
+| --- | --- |
+| Click | Open the desk of an agent, project or the switchboard. |
+| Middle click | The same, even over the node's buttons and links. On a pinned window it does nothing. |
+| Double middle click | Fit the whole org, anywhere on the canvas. |
+| Drag (empty canvas) / middle drag (anywhere) | Pan the canvas. A middle drag also works over desks and pinned windows. |
+| Wheel | Zoom at the pointer; over a desk, it scrolls the desk. |
+| Drag an agent | Drop it on another agent to move it and its team there, or between siblings to reorder it. |
+| Right-click | Open the menu of an agent, project or link. |
+
+The keyboard part: `Mod` means Ctrl on Windows/Linux and Command on macOS. Main-window function keys work while typing; Ctrl/Alt/Command modifiers prevent their match, and holding a key does not repeat the action. A missing org/panel handler has no effect.
 
 | Key | Action |
 | --- | --- |

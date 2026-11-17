@@ -3,8 +3,16 @@
 Middle-button pointer gestures use native DOM capture at the visible viewport before
 nodes, piles, watchdogs, the inbox or their nested controls can intercept them.
 They use the existing background pan handlers, camera rebasing and saved view.
-The switchboard click-to-focus flag is set only by the left button. A stationary
-middle click therefore opens nothing. Mousedown and auxclick defaults are
+The switchboard click-to-focus flag is set only by the left button.
+
+STILL MIDDLE CLICK (USER 2026-11-17 m7f02c0265e3f; replaces "a stationary middle
+click opens nothing"): a release within the pan's 3 px threshold (not a cancel)
+focuses, through `centerOn`, the node the PRESS landed on: an agent card at any
+zoom, the desk node, a project node, the switchboard or a floating jump card.
+Because the capture runs first, the node's own buttons and links never see it.
+A pinned frame or app window focuses nothing. A second still middle click within
+`DOUBLE_MIDDLE_MS` (500) and `DOUBLE_MIDDLE_PX` (6) fits the org (`fitAll`, as
+the HUD button), wherever it lands. Mousedown, mouseup and auxclick defaults are
 suppressed to avoid browser autoscroll and opening links in another window.
 Pointer release, cancellation and lost capture end the gesture. The handlers
 belong to each mounted viewport, including a canvas in another window; there

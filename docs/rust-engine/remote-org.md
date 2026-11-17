@@ -292,7 +292,7 @@ exist" would tell the remote engine about this computer.
 - **App settings says whose settings it shows.** In a remote window the engine's settings are the
   remote engine's (its routes are relayed and its values come with the composed app feed). Under
   the tab strip a note says so. The tabs that hold only this app's settings (Streaming, Mail hub,
-  Keyboard shortcuts, About) carry the badge "this computer"; in the mixed tabs the groups stored
+  Controls, About) carry the badge "this computer"; in the mixed tabs the groups stored
   by this app (startup, updates and Data location in Runtime; theme, canvas, desk, quick chat and startup in
   Display) are wrapped in `ThisComputer` (`canvas/settingskit.tsx`), a named group whose group
   heads get the same badge from the style sheet. "Wrap object mentions" and the Enter key rule

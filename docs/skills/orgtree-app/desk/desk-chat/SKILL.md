@@ -380,7 +380,7 @@ identified misspelling, Undo/Redo, Cut/Copy/Paste, Delete and Select All. Spelli
 entries follow completed browser/OS spelling checks; they may be absent before
 the browser checks the entered word. Rich
 editors also offer Paste as plain text. Availability follows the current field
-and selection. See App settings > Keyboard shortcuts for the detailed text-menu
+and selection. See App settings > Controls for the detailed text-menu
 commands. Menus stay at the pointer in their originating window.
 
 Supported parts are prose, displayed unsealed thoughts, expanded retained tool inputs and results. Structured JSON keys and scalar values carry their own JSON pointer, so equal strings in different fields stay distinct. Select one source part per gesture. Live/current turns refuse at the engine until settled; hidden machine context, sealed thoughts, helper-private records and reconstructed clipped JSON are not selection sources. Source mapping mismatches refuse rather than guess.

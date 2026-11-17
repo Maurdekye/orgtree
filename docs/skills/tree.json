@@ -5466,9 +5466,10 @@
    "covers": [
     "screen:keyboard-shortcuts"
    ],
-   "purpose": "Keyboard shortcuts: the read-only list of bindings, including org-canvas navigation.",
+   "purpose": "Controls (formerly Keyboard shortcuts): the read-only list of canvas mouse gestures and key bindings, including org-canvas navigation.",
    "must_cover": [
     "every binding",
+    "every canvas mouse gesture",
     "opening panel focus and auto-selected Alt-arrow navigation"
    ],
    "sources": [
