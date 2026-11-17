@@ -131,6 +131,7 @@ import { newSync, onBase, onFrame, resetSync } from './treesync'
 import { orgRecordFeed, resolveRecordSelection } from './recordtransport'
 import { RecordTreeSelection } from './recordtreeselection'
 import { projectTree, recordFeedCapable } from './recordprojection'
+import { shareTree } from './treeshare'
 import type { RecordEvent, RecordFeed } from './recordfeed'
 import { RecordSocketLink } from './recordsocketlink'
 import { OrgRecordContext } from './recordsession'
@@ -1182,7 +1183,11 @@ export default function App() {
         if (wantSlug.current !== slug) return
         // Runtime annotation frames have their own clock, outside the org revision.
         replaceNodeMetadata(slug, shown.roots)
-        const visible = treeHere(applyPrimedAsks(slug, shown, readStartedAt), slug)
+        // the parts equal to the tree on screen keep their objects (treeshare.ts): a frame that changes
+        // nothing re-renders nothing, and one agent's change re-renders that agent's path only
+        const here = treeRef.current
+        const visible = shareTree(here && here.slug === shown.slug ? here : null,
+          treeHere(applyPrimedAsks(slug, shown, readStartedAt), slug))
         setTree(visible)
         publishEpicTree(visible)
         mailTreeChanged(slug, visible.roots)

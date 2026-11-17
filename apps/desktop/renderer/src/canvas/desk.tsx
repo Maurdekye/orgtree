@@ -2436,14 +2436,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const sameReplyIdentity = useCallback((r: ReplyContext) => r.org === slug && r.agent === node.id
     && r.generation === (node.generation ?? 0), [slug, node.id, node.generation])
-  const sourceIds = new Set([
-    ...(chat?.messages ?? []).flatMap(m => [m.event_id, m.thinking_event_id,
+  // ⚠ memoized: on every re-render this walked every message's segments (isSegments per row); during a
+  // feed burst that ran per frame in each open desk (renderer-ping stacks, 4.6.1-alpha.3 on the user's machine)
+  const chatMessages = chat?.messages, chatPendingMail = chat?.pending_mail
+  const sourceIds = useMemo(() => new Set([
+    ...(chatMessages ?? []).flatMap(m => [m.event_id, m.thinking_event_id,
       ...(m.tools ?? []).flatMap(t => [t.event_id, t.result_event_id]),
       ...(isSegments(m.segments, 'operator') ? m.segments.flatMap(s => s.kind === 'mail' ? s.rows.map(r => r.id ? 'mail:' + r.id : undefined) : []) : [])]),
     ...live_feed.flatMap(r => [r.event_id,
       ...(r.kind === 'steered' && isSegments(r.segments, 'operator') ? r.segments.flatMap(s => s.kind === 'mail' ? s.rows.map(m => m.id ? 'mail:' + m.id : undefined) : []) : [])]),
-    ...(chat?.pending_mail ?? []).flatMap(r => [r.event_id, r.id ? 'mail:' + r.id : undefined]),
-  ].filter(Boolean))
+    ...(chatPendingMail ?? []).flatMap(r => [r.event_id, r.id ? 'mail:' + r.id : undefined]),
+  ].filter(Boolean)), [chatMessages, live_feed, chatPendingMail])
   const transient = (chat?.transient ?? []).filter(r => {
     if (!r.event_id || sourceIds.has(r.event_id)) return false
     // A poll can precede the latest immutable stream revision. Never let its
