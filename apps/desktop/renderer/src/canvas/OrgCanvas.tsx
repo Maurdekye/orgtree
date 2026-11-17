@@ -527,6 +527,9 @@ type PendingMove = { to: string | null; settled: boolean }
 // the nav cluster's two camera buttons, named ONCE: the button tooltip and the
 // empty-canvas menu entry read the same words, so the two cannot drift apart
 export const HUD_FIT = 'fit the whole org'
+/** two still middle clicks this close in time (ms, the Windows default double-click time) and space (px) fit the org */
+export const DOUBLE_MIDDLE_MS = 500
+export const DOUBLE_MIDDLE_PX = 6
 export const HUD_SWITCHBOARD = 'jump to the switchboard'
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -3202,6 +3205,32 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // including portals, and cannot reach a popped-out desk's separate document.
   const panHandlers = useRef({ down: onPointerDown, move: onPointerMove, up: onPointerUp })
   panHandlers.current = { down: onPointerDown, move: onPointerMove, up: onPointerUp }
+  // A STILL middle click (USER 2026-11-17 11:37:36Z m7f02c0265e3f: "middle click always focuses an agent,
+  // regardless of if youre hovering a button or something clickable on the agent, and double middle click
+  // always fits the org"). The capture below already takes every middle press before a node's own buttons
+  // or links see it, so the press target names the node. A pinned frame or app window sits above the
+  // canvas: a single click there focuses nothing (coordinator me681aa8b7d8b); the double click still fits.
+  const middlePress = useRef<Element | null>(null)
+  const lastMiddleClick = useRef<{ t: number; x: number; y: number } | null>(null)
+  const middleClickRef = useRef((_e: PointerEvent, _target: Element | null) => {})
+  middleClickRef.current = (e, target) => {
+    const now = Date.now(), last = lastMiddleClick.current
+    if (last && now - last.t <= DOUBLE_MIDDLE_MS
+        && Math.abs(e.clientX - last.x) + Math.abs(e.clientY - last.y) <= DOUBLE_MIDDLE_PX) {
+      lastMiddleClick.current = null
+      keyboardDestination.current = ''
+      fitAll()
+      return
+    }
+    lastMiddleClick.current = { t: now, x: e.clientX, y: e.clientY }
+    if (!target || target.closest('.pinwin, .custom-app-window')) return
+    const node = target.closest('.sq.user, [data-first-use-agent], .sq.project[data-copy-agent-name], .edge-jump[data-copy-agent-name]')
+    const id = !node ? null : node.matches('.sq.user') ? USER
+      : node.getAttribute('data-first-use-agent') ?? node.getAttribute('data-copy-agent-name')
+    if (!id) return
+    if (id !== USER && (!mapRef.current.has(id) || mapRef.current.get(id)?.state === 'draft')) return
+    centerOn(id)
+  }
   useLayoutEffect(() => {
     const el = viewportRef.current
     if (!el || worldHidden) return
@@ -3209,6 +3238,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (e.button !== 1) return
       e.preventDefault(); e.stopPropagation()
       middlePanPointer.current = e.pointerId
+      middlePress.current = e.target as Element | null
       panHandlers.current.down(e, el)
     }
     const move = (e: PointerEvent) => {
@@ -3219,12 +3249,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const up = (e: PointerEvent) => {
       if (middlePanPointer.current !== e.pointerId) return
       e.preventDefault(); e.stopPropagation()
+      // the pan's own 3 px threshold decides click from drag; a cancel is neither
+      const d = panRef.current
+      const still = e.type === 'pointerup' && !!d && !d.moved
+        && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) <= 3
+      const target = middlePress.current
+      middlePress.current = null
       panHandlers.current.up(e)
       middlePanPointer.current = null
+      if (still) middleClickRef.current(e, target)
     }
     const lost = (e: PointerEvent) => {
       if (middlePanPointer.current !== e.pointerId) return
       middlePanPointer.current = null
+      middlePress.current = null
       eyePressRef.current = false
       panRef.current = null
     }
@@ -3238,6 +3276,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     el.addEventListener('pointercancel', up, true)
     el.addEventListener('lostpointercapture', lost, true)
     el.addEventListener('mousedown', blockDefault, true)
+    el.addEventListener('mouseup', blockDefault, true)
     el.addEventListener('auxclick', blockDefault, true)
     return () => {
       el.removeEventListener('pointerdown', down, true)
@@ -3246,6 +3285,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       el.removeEventListener('pointercancel', up, true)
       el.removeEventListener('lostpointercapture', lost, true)
       el.removeEventListener('mousedown', blockDefault, true)
+      el.removeEventListener('mouseup', blockDefault, true)
       el.removeEventListener('auxclick', blockDefault, true)
       const pointer = middlePanPointer.current
       if (pointer !== null) {
