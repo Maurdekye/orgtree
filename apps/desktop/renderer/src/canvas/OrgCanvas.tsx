@@ -3444,7 +3444,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       const pile = pileOfRef.current.get(id)
       const members = new Set(pile?.kind === 'a' && pile.front === id ? pile.list : [id])
       const sibs = (mapRef.current.get(parent!)?.children ?? []).map(c => c.id)
-        .filter(k => k !== DRAFT && !members.has(k)
+        .filter(k => k !== DRAFT && !members.has(k) && liveSibling(k)
           && (chartLayout !== 'circular' || !hiddenRef.current.has(k)))
       const eye = targetRef.current.get(USER), point = springs.current.get(id)
       if (point) d.reorder = chartLayout === 'circular'
@@ -3452,6 +3452,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         : rowReorderSlot(sibs, targetRef.current, point)
     }
   }
+  // A REORDER ANCHOR IS A LIVE SIBLING. The engine places a node only among its live siblings and refuses
+  // before/after naming any other (domain/ops/ordering.rs). A retired sibling is still a child in the tree, so
+  // when one sorted last (the Unity org's shader-editing project, USER 2026-11-17 m61a1e8d5f01a) the last slot
+  // asked for { after: <retired> } and every drop there was refused.
+  const liveSibling = (k: string) => mapRef.current.get(k)?.state === 'live'
   const abortNodeDrag = (_e: React.PointerEvent<HTMLDivElement>, id: string) => {
     // pointercancel path: restore the recorded bases and commit NOTHING —
     // see the NodeSquare comment (a cancel routed through endNodeDrag's
@@ -3559,12 +3564,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const block = pile && pile.kind === 'a' && pile.front === id
       ? pile.list : [id]
     const members = new Set(block)
-    const sibs = cohort.filter((k) => !members.has(k))
+    const sibs = cohort.filter((k) => !members.has(k) && liveSibling(k))
     if (!sibs.length) { finish(); return }
     const first = block[0]!
     const oldIdx = cohort.indexOf(first)
     const beforeOld = cohort.slice(0, Math.max(oldIdx, 0)).reverse()
-      .find((k) => !members.has(k))
+      .find((k) => !members.has(k) && liveSibling(k))
     const oldReq = beforeOld ? { after: beforeOld }
       : { before: sibs.find((k) => cohort.indexOf(k) > oldIdx) ?? sibs[0]! }
     const x = springs.current.get(id)?.x ?? 0
