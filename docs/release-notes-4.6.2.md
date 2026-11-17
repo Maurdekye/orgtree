@@ -28,5 +28,6 @@ Orgtree 4.6.2 adds GPT-6.2 Sol and GPT-6.2 Astra, and makes switching desks on t
 ## Notes
 
 - No database changes.
+- Antigravity on a standalone engine passes its automated tests, but a real sign-in on a Linux engine hasn't been checked yet.
 - The standalone (headless) engine ships as the Linux archive, the Docker image on this release and `ghcr.io/maurdekye/orgtree-engine:4.6.2`, plus the agents image `:4.6.2-agents`. These packages are optional: the desktop app doesn't need them.
 - Windows builds remain unsigned. macOS and Linux builds remain prototypes. Downloads include `SHA256SUMS.txt`.
