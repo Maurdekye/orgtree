@@ -82,9 +82,16 @@ impl Audience {
 }
 
 /// The values of this computer that a computer it let in is pushed: what a window of one of
-/// its organizations needs to offer tiers and accounts. Each passes `remote_access::shown::hide`
-/// first. Everything else of this computer's stays here.
-const MEMBER_VALUES: &[&str] = &["providers", "accounts"];
+/// its organizations needs to offer tiers and accounts, and the usage its Usage panel and badge
+/// show (USER 2026-11-17 m1b95cceba206 "Show all members"; before, the panel waited forever for
+/// a value that never came). Each passes `remote_access::shown::hide` first. Everything else of
+/// this computer's stays here: model-server configuration (`langservers`), the OpenRouter
+/// document, and every usage ROUTE, which reads the provider again (`remote_access/member.rs`).
+const MEMBER_VALUES: &[&str] = &[
+    "providers", "accounts",
+    "usage", "usage_peek", "codex_usage", "codex_usage_peek", "antigravity_usage", "antigravity_usage_peek",
+    "muse_usage", "muse_usage_peek", "openrouter_keys_usage", "openrouter_usage_peek", "registered_usage", "langserver_usage",
+];
 
 enum Msg {
     Registry,
