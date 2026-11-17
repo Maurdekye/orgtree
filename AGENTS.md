@@ -188,11 +188,6 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 ## Engine and desktop invariants
 
-- AGY's silent check never reads its FILE sign-in (no D-Bus, e.g. the
-  container): the guard validates that with `agy models` instead. See
-  [file sign-in](docs/rust-engine/antigravity-background-auth.md#file-sign-in-linux-without-a-keyring-2026-11-16).
-  [verified: `providers/agy_auth.rs`, AGY 1.5.9 2026-11-16]
-
 - Chat audio is click-to-load; video opens on render, paused; maximize needs
   the `fullscreen` grant in `main/windows.ts`. Capped at256MiB, streamed only
   after file authorization, ranges bounded to the opened size. Keep image
