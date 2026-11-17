@@ -12,7 +12,7 @@ Orgtree 4.6.1 shows a desk live in every place it's open: on its canvas card, in
 
 ## Files and links
 
-- **Bigger files from agents.** `orgtree_send_file` takes files up to 32 GiB (was 256 MiB). Downloads stream, a copy is refused up front if the drive is short of space, and a failed copy leaves no partial file.
+- **Bigger files from agents.** Agents can send files up to 32 GiB with `orgtree_send_file` (was 256 MiB). The copy is refused up front if the drive is short of space, and a failed copy leaves no partial file. The app's **Download** button still saves files up to 256 MiB; a larger file can be opened from where it was delivered.
 - **Transcript links after a data move.** Images, videos and file links in transcripts written before a **Data location** move open from the same place in the new folder, even after the old folder is deleted. Nothing stored is rewritten.
 - **Local file links on Linux and macOS.** Absolute paths and `file:///` links open as local files there, and the engine's own address never opens in the browser.
 
