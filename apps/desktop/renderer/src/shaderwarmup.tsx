@@ -62,7 +62,21 @@ const tree = (): TreePayload => {
 }
 
 const frames = (n: number) => new Promise<void>(r => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f) })
-const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+/** at least `ms`, then until the GPU keeps up again: QUICK frames in a row, each under QUICK_MS. A shader
+ *  compile holds a frame for 200-850 ms on a slow-compiling GPU (4.6.1-alpha.3), so the next desk waits for
+ *  the compiles of this one. Capped, so a GPU that never settles still gets through the scene. */
+const QUICK = 6, QUICK_MS = 50, SETTLE_CAP_MS = 12_000
+const settle = (ms: number) => new Promise<void>(r => {
+  const t0 = performance.now()
+  let last = t0, quick = 0
+  const f = (now: number) => {
+    quick = now - last < QUICK_MS ? quick + 1 : 0
+    last = now
+    if ((now - t0 >= ms && quick >= QUICK) || now - t0 >= SETTLE_CAP_MS) r()
+    else requestAnimationFrame(f)
+  }
+  requestAnimationFrame(f)
+})
 
 function Scene({ step }: { step: number }) {
   const [focus, setFocus] = useState<string | null>(null)
@@ -71,7 +85,7 @@ function Scene({ step }: { step: number }) {
     let live = true
     void (async () => {
       await frames(10)
-      for (const id of DESKS) { if (!live) return; setFocus(id); await wait(step); await frames(2) }
+      for (const id of DESKS) { if (!live) return; setFocus(id); await settle(step); await frames(2) }
       if (live) document.title = WARMUP_DONE_TITLE
     })()
     return () => { live = false }

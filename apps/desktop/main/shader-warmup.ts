@@ -15,7 +15,12 @@
 // destroyed when the scene says done, or at the deadline, whichever comes first.
 //
 // SKIP. A marker in userData records the key it ran for (app version, Chromium version, GPU
-// vendor/device/driver). Same key and GrShaderCache still there: nothing runs.
+// vendor/device/driver) and the creation time of the GrShaderCache folder it warmed. Same key and
+// the same folder: nothing runs. A folder recreated since (Chromium wiped it: measured on the
+// user's 4.6.1-alpha.2, 2026-11-16 21:03Z, cause not reproduced) runs again.
+//
+// DEADLINE. 45 s, not 8: on the user's GPU each compile takes 200-850 ms and 4.6.1-alpha.3's
+// warm-up was cut off at 8 s. The scene itself moves on only once frames are quick again.
 //
 // MAIN THREAD. Everything here is async and event driven: one timer per idle check, no
 // synchronous work on a timer beyond reading the system idle time.
@@ -73,7 +78,8 @@ export type WarmupDeps = {
   keyParts(): Promise<WarmupKeyParts>
   readMarker(): Promise<string | null>
   writeMarker(text: string): Promise<void>
-  cacheExists(): Promise<boolean>
+  /** the GrShaderCache folder's creation time (ms) and size in bytes, or null when there is none */
+  cacheInfo(): Promise<{ birth: number; bytes: number } | null>
   /** a never-shown offscreen window on its own in-memory session that serves only the UI files */
   createWindow(): WarmupWindow
   url: string
@@ -93,7 +99,7 @@ export type WarmupOptions = {
   deadlineMs: number
 }
 
-export const WARMUP_DEFAULTS: WarmupOptions = { delayMs: 15_000, idleS: 5, retryMs: 10_000, giveUpMs: 10 * 60_000, deadlineMs: 8_000 }
+export const WARMUP_DEFAULTS: WarmupOptions = { delayMs: 15_000, idleS: 5, retryMs: 10_000, giveUpMs: 10 * 60_000, deadlineMs: 45_000 }
 
 export type WarmupOutcome = 'skipped-warm' | 'skipped-no-gpu' | 'gave-up-busy' | 'done' | 'deadline' | 'failed' | 'stopped'
 
@@ -123,10 +129,15 @@ export class ShaderWarmup {
     this.finish('stopped')
   }
 
+  /** what the skip check saw of the cache folder; every outcome line carries it (null: no folder) */
+  private cache: { birth: number; bytes: number } | null | undefined = undefined
+
   private finish(o: WarmupOutcome, extra: Record<string, unknown> = {}): void {
     if (this.settled) return
     this.settled = true
-    this.deps.log({ outcome: o, ms: this.deps.now() - this.started, ...extra })
+    const cache = this.cache === undefined ? {} : this.cache === null ? { cache_birth: null, cache_bytes: null }
+      : { cache_birth: new Date(this.cache.birth).toISOString(), cache_bytes: this.cache.bytes }
+    this.deps.log({ outcome: o, ms: this.deps.now() - this.started, ...cache, ...extra })
     this.resolve(o)
   }
 
@@ -143,8 +154,10 @@ export class ShaderWarmup {
       key = warmupKey(await this.deps.keyParts())
       // GPU only (USER 2026-11-16 09:43:35Z: no CPU raster): with software raster there is nothing to warm
       if (!this.deps.gpuRasters()) return this.finish('skipped-no-gpu')
-      const [marker, cache] = await Promise.all([this.deps.readMarker(), this.deps.cacheExists()])
-      if (cache && marker && safeKey(marker) === key) return this.finish('skipped-warm')
+      const [marker, cache] = await Promise.all([this.deps.readMarker(), this.deps.cacheInfo()])
+      this.cache = cache
+      const seen = marker ? readMarker(marker) : null
+      if (cache && seen && seen.key === key && seen.birth === cache.birth) return this.finish('skipped-warm')
     } catch (e) { return this.finish('failed', { error: String(e) }) }
     if (this.stopped) return
     this.whenIdle(key)
@@ -171,8 +184,12 @@ export class ShaderWarmup {
       this.close()
       const done = () => this.finish(o, { window_ms: this.deps.now() - t0, ...extra })
       // only a scene that ran to its end marks the cache warm; a cut-off one runs again next launch
-      if (o === 'done') this.deps.writeMarker(JSON.stringify({ key, at: new Date(this.deps.now()).toISOString() })).then(done, e => this.finish('failed', { error: String(e) }))
-      else done()
+      if (o !== 'done') return done()
+      // the folder it warmed: a new run's cache may only appear during the scene, so read it again now
+      this.deps.cacheInfo().catch(() => null).then(cache => {
+        this.cache = cache
+        return this.deps.writeMarker(JSON.stringify({ key, cache_birth: cache?.birth ?? null, at: new Date(this.deps.now()).toISOString() }))
+      }).then(done, e => this.finish('failed', { error: String(e) }))
     }
     w.onTitle(title => { if (title === WARMUP_DONE_TITLE) end('done') })
     w.onGone(() => end('failed', { error: 'window gone' }))
@@ -181,6 +198,9 @@ export class ShaderWarmup {
   }
 }
 
-function safeKey(text: string): string | null {
-  try { const k = (JSON.parse(text) as { key?: unknown }).key; return typeof k === 'string' ? k : null } catch { return null }
+function readMarker(text: string): { key: string; birth: number | null } | null {
+  try {
+    const m = JSON.parse(text) as { key?: unknown; cache_birth?: unknown }
+    return typeof m.key === 'string' ? { key: m.key, birth: typeof m.cache_birth === 'number' ? m.cache_birth : null } : null
+  } catch { return null }
 }

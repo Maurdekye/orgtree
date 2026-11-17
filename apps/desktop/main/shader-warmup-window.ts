@@ -51,7 +51,16 @@ export function startShaderWarmup(o: { uiDirectory: string; log: (line: Record<s
     },
     readMarker: () => fs.promises.readFile(path.join(userData, WARMUP_MARKER), 'utf8').catch(() => null),
     writeMarker: text => fs.promises.writeFile(path.join(userData, WARMUP_MARKER), text),
-    cacheExists: () => fs.promises.access(path.join(userData, 'GrShaderCache')).then(() => true, () => false),
+    cacheInfo: async () => {
+      const dir = path.join(userData, 'GrShaderCache')
+      const st = await fs.promises.stat(dir).catch(() => null)
+      if (!st?.isDirectory()) return null
+      let bytes = 0
+      for (const f of await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        if (f.isFile()) bytes += (await fs.promises.stat(path.join(dir, f.name)).catch(() => null))?.size ?? 0
+      }
+      return { birth: Math.round(st.birthtimeMs), bytes }
+    },
     createWindow: () => {
       const win = new BrowserWindow({ ...WARMUP_WINDOW_OPTIONS, webPreferences: { ...WARMUP_WINDOW_OPTIONS.webPreferences, session: warmupSession(o.uiDirectory) } })
       win.webContents.setAudioMuted(true)

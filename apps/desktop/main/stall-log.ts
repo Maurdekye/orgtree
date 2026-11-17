@@ -72,6 +72,7 @@ const oneOf = (v: unknown, list: readonly string[], fallback = 'other'): string 
 const bool = (v: unknown): boolean | undefined => typeof v === 'boolean' ? v : undefined
 const arr = (v: unknown, max: number): unknown[] => Array.isArray(v) ? v.slice(0, max) : []
 const rec = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
+const ISO_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/
 const compact = <T extends Record<string, unknown>>(o: T): T => {
   for (const k of Object.keys(o)) if (o[k] === undefined) delete o[k]
   return o
@@ -160,7 +161,10 @@ function body(src: StallSrc, r: Record<string, unknown>): Record<string, unknown
       failed: bool(r.failed), stage: r.stage === undefined ? undefined : oneOf(r.stage, ['stop', 'process']) })
   }
   // the shader warm-up (main/shader-warmup.ts): its outcome and two durations; never an error text
-  if (src === 'shader-warmup') return compact({ outcome: oneOf(r.outcome, STALL_WARMUP_OUTCOMES), window_ms: num(r.window_ms) })
+  // and the GrShaderCache folder's creation time (an ISO time only) and size: a changed time between launches is a wiped cache
+  if (src === 'shader-warmup') return compact({ outcome: oneOf(r.outcome, STALL_WARMUP_OUTCOMES), window_ms: num(r.window_ms),
+    cache_birth: r.cache_birth === null ? null : typeof r.cache_birth === 'string' && ISO_TIME.test(r.cache_birth) ? r.cache_birth : undefined,
+    cache_bytes: r.cache_bytes === null ? null : num(r.cache_bytes) })
   if (src === 'renderer-ping' || src === 'renderer-unresponsive') {
     return compact({ blocked_ms: num(r.blocked_ms), stacks: arr(r.stacks, 2).map(stack), ipc: ipc(), ctx: r.ctx === undefined ? undefined : context(r.ctx), gpu: gpu(r.gpu) })
   }
