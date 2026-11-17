@@ -9065,6 +9065,20 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
   position: absolute; top: 0; inset-inline-end: 0; margin: 0; flex-wrap: nowrap;
 }
 .popout-mount .modalpin-bar > .popout-window-controls { flex: 0 0 auto; flex-wrap: nowrap; }
+/* The one-row header (@container min-width: 600px above) measures the whole header, but in a pop-out the row
+   keeps --popout-controls (3 x 34 px + 4 px = 106 px) free for the window controls. Until the header has 600 px
+   PLUS that room, a popped-out header wraps exactly as a narrow one does; otherwise the left block shrank under
+   its fixed-width status banner, which ran over DND (4.6.1 hands-on, item
+   desk-window-header-the-status-text-overlaps-dnd-4). Container queries cannot read the variable: keep 705
+   in step with --popout-controls. */
+@container (max-width: 705px) {
+  .popout-mount .cc-head-top { flex-wrap: wrap; }
+  .popout-mount .cc-head-left > .cc-name { min-width: 3ch; }
+  .popout-mount .cc-head-right {
+    max-width: 100%; flex-wrap: wrap; overflow: visible;
+    margin-inline-start: 0;
+  }
+}
 
 /* A popped-out desk sits flush against a frameless window's edges; a little
    room keeps it off the glass. Desks only - a popped-out modal already has its
