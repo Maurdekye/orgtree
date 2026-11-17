@@ -9,8 +9,10 @@
 // Nothing else is touched: a download from any other address is left exactly as it was.
 import path from 'node:path'
 
-/** The engine route a Files download comes from (`http::scratch_files::download`). */
-const FILES_ROUTE = /^\/api\/orgs\/[^/]+\/nodes\/[^/]+\/scratch-files\/file$/
+/** The engine routes a native download comes from: the Files panel (`http::scratch_files::download`)
+ *  and a delivered file's card or image viewer (`http::nodes::file`, up to the engine's 32 GiB send
+ *  limit). Both are saved by Electron straight to disk, never read whole into the page. */
+const FILES_ROUTE = /^\/api\/orgs\/[^/]+\/nodes\/[^/]+\/(?:scratch-files\/)?file$/
 
 /** What the window is told (`remote-file-download`; the renderer's remotefiles.ts reads it). */
 export interface DownloadNews {
@@ -38,7 +40,7 @@ export interface SessionLike {
   on(event: 'will-download', listener: (event: unknown, item: ItemLike, contents: ContentsLike) => void): unknown
 }
 
-/** Is this the address of a Files download of this app's own engine? */
+/** Is this the address of a file download (Files panel or delivered file) of this app's own engine? */
 export function isFilesDownload(url: string, origin: string): boolean {
   try {
     const parsed = new URL(url)

@@ -57,7 +57,7 @@ test('only the Files route of this app\'s own engine is a Files download', () =>
     assert.equal(isFilesDownload(url, ORIGIN), true, url)
   }
   for (const url of [
-    `${ORIGIN}/api/orgs/galaxy/nodes/lead/file?path=x`,
+    `${ORIGIN}/api/orgs/galaxy/nodes/lead/file/more?path=x`,
     `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files`,
     `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files/file/more`,
     `${ORIGIN}/api/orgs/galaxy/nodes/a/b/scratch-files/file`,

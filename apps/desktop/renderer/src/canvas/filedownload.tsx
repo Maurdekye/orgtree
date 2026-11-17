@@ -2,41 +2,17 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { responseFilename } from './download'
 
-// Matches the engine's immutable delivery snapshot limit. Bound actual response
-// bytes as well: a stored file can have been changed outside Orgtree since delivery.
-export const FILE_DOWNLOAD_MAX = 256 * 1024 * 1024
-
-export async function readDownloadBlob(response: Response, maxBytes = FILE_DOWNLOAD_MAX): Promise<Blob> {
-  const tooLarge = () => new Error('File exceeds the 256 MiB download limit.')
-  const length = Number(response.headers.get('Content-Length'))
-  if (length > maxBytes) { await response.body?.cancel(); throw tooLarge() }
-  const reader = response.body?.getReader()
-  const chunks: BlobPart[] = []
-  let size = 0
-  if (reader) try {
-    for (;;) {
-      const {done,value} = await reader.read()
-      if (done) break
-      size += value.byteLength
-      if (size > maxBytes) { await reader.cancel(); throw tooLarge() }
-      chunks.push(value as BlobPart)
-    }
-  } finally { reader.releaseLock() }
-  return new Blob(chunks,{type:response.headers.get('Content-Type') ?? 'application/octet-stream'})
-}
-
-/** Like presentation downloads, fetch in the authoritative main realm; only
- * the completed Blob goes to the initiating portal's native download anchor. */
+/** A delivered file can be tens of GB (the engine's limit is 32 GiB), so it is never fetched into a
+ * Blob: a plain anchor click makes Electron's own download (main/remote-downloads.ts) stream it to
+ * the place the user picks in the Save dialog. A HEAD request first shows an engine refusal in the
+ * card, since a native download that fails to start says nothing of why. */
 export async function downloadFile(owner: Document, href: string, name: string): Promise<void> {
-  const response = await fetch(href,{signal:AbortSignal.timeout(600_000)})
-  if (!response.ok) throw new Error(`Download failed (${response.status}). Try again.`)
-  const blob = await readDownloadBlob(response)
-  const url = window.URL.createObjectURL(blob), anchor = owner.createElement('a')
-  anchor.href=url;anchor.download=responseFilename(response,name)
+  const check = await fetch(href,{method:'HEAD',signal:AbortSignal.timeout(60_000)})
+  if (!check.ok) throw new Error(`Download failed (${check.status}). Try again.`)
+  const anchor = owner.createElement('a')
+  anchor.href=href;anchor.download=responseFilename(check,name)
   owner.body.appendChild(anchor)
-  try { anchor.click() } finally {
-    anchor.remove();window.setTimeout(()=>window.URL.revokeObjectURL(url),30_000)
-  }
+  try { anchor.click() } finally { anchor.remove() }
 }
 
 export function FileDownload({ href,name,className,title,ariaLabel,children }: {

@@ -36,15 +36,16 @@ canvas/files.tsx, tests/files.test.tsx]
 
 ## Detached downloads and image Escape (2026-10-25)
 
-Files filename and Download links fetch through the authoritative main renderer,
-then hand only a Blob to the initiating document's native save anchor. Portal
-request authentication stays restricted. The response is bounded to 256 MiB by
-both declared length and counted stream bytes before a Blob is made; buffering
-still costs memory up to that limit. Errors remain visible beside the link.
+Files filename and Download links do a HEAD check in the authoritative main renderer
+(so an engine refusal shows beside the link), then click a plain anchor: Electron's own
+download (main/remote-downloads.ts, `will-download`; the same handler as the Files panel
+of a remote organization) streams the file to the place the user picks in the Save dialog.
+No Blob of the file is made, so the only size limit is the engine's 32 GiB send cap.
+Portal request authentication stays restricted.
 The image viewer captures Escape in its own document, ahead of a detached
 surface's bubbling boundary; matching cleanup prevents a stale key listener.
 One Escape closes the viewer without closing its desk or another document.
 [verified: canvas/{files,filedownload,lightbox}.tsx/ts; tests/filespopout.test.tsx]
 
-The image viewer's download link uses the same authenticated download path,
-256 MiB limit and visible failure handling, including in a separate window.
+The image viewer's download link uses the same native download as the file cards,
+including in a separate window.

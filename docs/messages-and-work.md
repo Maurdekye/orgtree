@@ -324,7 +324,7 @@ removed outside Orgtree, the row can remain while its download fails.
 Renaming or retiring an agent does not change its retained deliveries.
 
 Files downloads also work from a desk in a separate window: choose the filename
-or Download. The download limit is 256 MiB; errors appear beside the link.
+or Download. A download can be up to 32 GiB and is saved straight to disk (Electron's Save dialog); an engine refusal appears beside the link.
 When View opens a picture, Escape closes that viewer while leaving the desk
 open. The viewer's Close button and backdrop remain available too.
 
@@ -360,5 +360,5 @@ go after a pinch or a drag does not close the viewer. Closing it by the close
 button, Escape or the backdrop always leaves the app at its normal size, and the
 close button and filename stay visible over a zoomed picture.
 
-The image viewer's download link uses the same authenticated download path,
-256 MiB limit and visible failure handling, including in a separate window.
+The image viewer's download link uses the same native download as the file cards,
+including in a separate window.

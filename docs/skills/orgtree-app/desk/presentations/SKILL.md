@@ -95,8 +95,8 @@ The shared [selection limits](../inbox-screens/SKILL.md#reply-to-selected-mail-t
 ## Files downloads and image viewers
 
 In an agent's Files tab, both the filename and Download save the delivered
-snapshot, including from a desk in a separate window. Downloads are limited to
-256 MiB; a failed download shows an error beside its link. View opens an image
+snapshot, including from a desk in a separate window. Downloads can be up to
+32 GiB and are saved straight to disk; an engine refusal shows an error beside its link. View opens an image
 in that window. Escape closes the image viewer and leaves the desk open; the
 Close button and backdrop also close the viewer.
 
@@ -107,5 +107,5 @@ go after a pinch or a drag does not close the viewer. Closing it by the close
 button, Escape or the backdrop always leaves the app at its normal size, and the
 close button and filename stay visible over a zoomed picture.
 
-The image viewer's download link uses the same authenticated download path,
-256 MiB limit and visible failure handling, including in a separate window.
+The image viewer's download link uses the same native download as the file cards,
+including in a separate window.
