@@ -190,11 +190,12 @@ test('SW6 the session serves only plain UI files under the UI folder', () => {
   }
 })
 
-test('SW7 the stall log keeps an outcome enum and durations, never error text', () => {
+test('SW7 the stall log keeps an outcome enum and durations, never error text', async () => {
   const file = path.join(temp, 'ui-stalls.jsonl')
   const log = new StallLog({ file: () => file, app: () => '4.6.1-test', clock: () => new Date('2026-11-16T20:30:00Z') })
   log.write('shader-warmup', { outcome: 'done', ms: 23000, window_ms: 2400, error: 'C:\\Users\\someone\\secret' })
   log.write('shader-warmup', { outcome: 'whatever', ms: 1 })
+  await log.flush()                                // the stall log appends asynchronously (main-thread fix)
   const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l))
   assert.equal(lines.length, 2)
   assert.equal(lines[0].src, 'shader-warmup'); assert.equal(lines[0].outcome, 'done'); assert.equal(lines[0].window_ms, 2400); assert.equal(lines[0].ms, 23000)
