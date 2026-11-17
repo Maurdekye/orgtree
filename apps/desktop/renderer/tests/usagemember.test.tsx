@@ -40,6 +40,9 @@ test('a member window shows the owner\'s usage figures it is sent', async (t: Te
   assert.match(text, /46\s*%/, 'the owner\'s weekly figure shows')
 })
 
+const ABSENT = (id: string) => ({ id, label: id, cli: id, tiers: [],
+  status: { installed: false, connected: false, kind: 'subscription' }, hire_enabled: false, reason: 'not installed' })
+
 test('a refused or failed usage read shows an error instead of an empty or endless panel', async (t: TestContext) => {
   const g = globalThis as unknown as Record<string, unknown>
   const saved = g.fetch
@@ -47,7 +50,8 @@ test('a refused or failed usage read shows an error instead of an empty or endle
   const refused = { detail: 'This belongs to NICK-PC.', code: 'E17' }
   g.fetch = legacyAppBackend(((input: unknown) => {
     const path = new URL(String(input), 'http://localhost').pathname
-    if (/\/providers$/.test(path)) return Promise.resolve(json({ providers: [] }))
+    // no provider lane to draw a card for: before, a refused read left the panel blank
+    if (/\/providers$/.test(path)) return Promise.resolve(json({ providers: [ABSENT('claude'), ABSENT('openai'), ABSENT('google')] }))
     if (path === '/api/accounts') return Promise.resolve(json(refused, 403))
     if (/usage/.test(path) || path === '/api/langservers') return Promise.resolve(json(refused, 403))
     return Promise.resolve(json({}))
