@@ -410,20 +410,132 @@ for (const mode of ['row', 'circular'] as const) {
       assert.deepEqual(nums(space.style.transform), after)
     })
   }
-  test(`${mode}: stationary middle click and right press do not open a node or switchboard`, async t => {
+  // USER 2026-11-17 11:37:36Z m7f02c0265e3f (item canvas-middle-click-always-focuses-the-agent-eve): "middle click
+  // always focuses an agent, regardless of if youre hovering a button or something clickable on the agent, and
+  // double middle click always fits the org". This replaces the old "a stationary middle click opens nothing".
+  const middleClick = async (target: Element, x = 800, y = 400, pointerId = 78) => {
+    const events: Event[] = []
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'auxclick']) {
+      const event = type.startsWith('pointer')
+        ? new W.PointerEvent(type, { bubbles: true, cancelable: true, button: 1, buttons: type === 'pointerup' ? 0 : 4, pointerId, clientX: x, clientY: y })
+        : new W.MouseEvent(type, { bubbles: true, cancelable: true, button: 1, clientX: x, clientY: y, detail: 1 })
+      await inAct(() => { target.dispatchEvent(event) }); events.push(event)
+    }
+    return events
+  }
+  for (const surface of ['card body', 'card button', 'card link', 'switchboard'] as const) {
+    test(`${mode}: a still middle click on the ${surface} focuses that agent; the child gets nothing`, async t => {
+      useFakeClock(); t.after(realClock)
+      setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+      localStorage.removeItem('orgtree-view-mine')
+      const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+      const host = surface === 'switchboard' ? m.el.querySelector<HTMLElement>('.sq.user')! : card(m.el, 'x')!
+      assert.ok(host, `${surface} rendered`)
+      assert.equal(host.classList.contains('desk'), false, 'not focused before the click')
+      let target: HTMLElement = host
+      const childGot: string[] = []
+      if (surface === 'card button' || surface === 'card link') {
+        // a clickable child of its own that stops bubbling and would act on any press it saw
+        const child = m.el.ownerDocument.createElement(surface === 'card button' ? 'button' : 'a')
+        if (child instanceof W.HTMLAnchorElement) child.href = 'https://example.invalid/fixture'
+        host.appendChild(child); target = child
+        for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'auxclick'])
+          child.addEventListener(type, event => { childGot.push(type); event.stopPropagation() })
+      }
+      const events = await middleClick(target)
+      await advance(3000, 50); await flush()
+      const focused = surface === 'switchboard' ? m.el.querySelector<HTMLElement>('.sq.user')! : card(m.el, 'x')!
+      assert.equal(focused.classList.contains('desk'), true, `${surface}: the middle click focused it`)
+      assert.deepEqual(childGot, [], 'the clickable child never saw the middle press')
+      for (const event of events)
+        if (event.type !== 'mouseup') assert.equal(event.defaultPrevented, true, `${event.type} default (autoscroll, new window) is blocked`)
+      assert.deepEqual(m.ops, [], 'no node operation')
+    })
+  }
+  test(`${mode}: a still middle click on empty canvas or a pinned desk moves nothing; right press opens nothing`, async t => {
     useFakeClock(); t.after(realClock)
     setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    resetDeskFixture()
     const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+    t.after(resetDeskFixture)
+    await inAct(() => { assert.equal(addPin('mine', 'b', { x: 100, y: 100, w: 600, h: 500 }).ok, true) })
+    await flush(); await advance(3000, 50); await flush()
     const space = m.el.querySelector<HTMLElement>('.space')!
     const initial = space.style.transform
+    const pin = m.el.querySelector<HTMLElement>('.pinwin-title')
+    assert.ok(pin, 'pinned desk title rendered')
+    await middleClick(m.el.querySelector<HTMLElement>('.viewport')!, 5, 5)
+    await advance(1000, 50)
+    await middleClick(pin!, 300, 120, 79)
+    await advance(3000, 50)
+    assert.equal(space.style.transform, initial, 'a single middle click off the canvas nodes moves no camera')
+    assert.equal(card(m.el, 'b')!.classList.contains('desk'), false, 'the pinned agent is not focused on the canvas')
     for (const target of [card(m.el, 'x')!, m.el.querySelector<HTMLElement>('.sq.user')!])
-      for (const button of [1, 2]) for (const type of ['pointerdown', 'pointerup'])
+      for (const type of ['pointerdown', 'pointerup'])
         await inAct(() => target.dispatchEvent(new W.PointerEvent(type, {
-          bubbles: true, cancelable: true, button, pointerId: 78, clientX: 800, clientY: 400,
+          bubbles: true, cancelable: true, button: 2, pointerId: 80, clientX: 800, clientY: 400,
         })))
     await advance(3000, 50)
-    assert.equal(space.style.transform, initial)
+    assert.equal(space.style.transform, initial, 'right press opens nothing')
     assert.deepEqual(m.ops, [])
+  })
+  for (const surface of ['background', 'agent'] as const) {
+    test(`${mode}: a double middle click on the ${surface} fits the whole org`, async t => {
+      useFakeClock(); t.after(realClock)
+      setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+      localStorage.removeItem('orgtree-view-mine')
+      const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+      const viewport = m.el.querySelector<HTMLElement>('.viewport')!
+      const space = m.el.querySelector<HTMLElement>('.space')!
+      const fitButton = [...m.el.querySelectorAll<HTMLButtonElement>('button')]
+        .find(b => b.title.toLowerCase().includes('fit the whole org'))
+      assert.ok(fitButton, 'HUD fit button rendered')
+      // the reference: the HUD's own fit, from a camera moved away by a middle drag
+      const dragAway = async (id: number) => {
+        for (const [type, x, y] of [['pointerdown', 800, 400], ['pointermove', 1000, 600], ['pointerup', 1000, 600]] as const)
+          await inAct(() => viewport.dispatchEvent(new W.PointerEvent(type, { bubbles: true, cancelable: true,
+            button: 1, buttons: type === 'pointerup' ? 0 : 4, pointerId: id, clientX: x, clientY: y })))
+        await advance(1000, 50)
+      }
+      await dragAway(90)
+      await inAct(() => { fitButton!.click() }); await advance(3000, 50); await flush()
+      const fitted = space.style.transform
+      await dragAway(91)
+      assert.notEqual(space.style.transform, fitted, 'the camera starts away from the fit')
+      const target = surface === 'background' ? viewport : card(m.el, 'x')!
+      const mid = client(m.el, { x: at(m.el, 'x').x + NODE_W / 2, y: at(m.el, 'x').y + NODE_H / 2 })
+      const [x, y] = surface === 'background' ? [5, 5] : [mid.clientX, mid.clientY]
+      await middleClick(target, x, y, 92)
+      await advance(120, 20)
+      await middleClick(target, x + 2, y + 1, 93)
+      await advance(3000, 50); await flush()
+      // the glide from a different start lands within float rounding of the HUD's own fit
+      const end = nums(space.style.transform), want = nums(fitted)
+      assert.equal(end.length, want.length)
+      end.forEach((v, i) => assert.ok(Math.abs(v - want[i]!) < 1e-6, `the double middle click ends in the fit: ${space.style.transform} vs ${fitted}`))
+      assert.deepEqual(m.ops, [])
+      // two still middle clicks far apart in time are two single clicks, not a fit
+      await dragAway(94)
+      const apart = space.style.transform
+      await middleClick(viewport, 5, 5, 95); await advance(900, 50)
+      await middleClick(viewport, 5, 5, 96); await advance(3000, 50)
+      assert.equal(space.style.transform, apart, 'slow clicks on empty canvas do nothing')
+    })
+  }
+  test(`${mode}: a middle drag over an agent pans and does not focus it`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    localStorage.removeItem('orgtree-view-mine')
+    const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+    const space = m.el.querySelector<HTMLElement>('.space')!
+    const initial = nums(space.style.transform)
+    const target = card(m.el, 'x')!
+    for (const [type, x, y] of [['pointerdown', 800, 400], ['pointermove', 860, 430], ['pointerup', 860, 430]] as const)
+      await inAct(() => target.dispatchEvent(new W.PointerEvent(type, { bubbles: true, cancelable: true,
+        button: 1, buttons: type === 'pointerup' ? 0 : 4, pointerId: 97, clientX: x, clientY: y })))
+    await advance(3000, 50)
+    assert.deepEqual(nums(space.style.transform), [initial[0]! + 60, initial[1]! + 30, initial[2]!])
+    assert.equal(card(m.el, 'x')!.classList.contains('desk'), false)
   })
   test(`${mode}: left background pan keeps its original movement`, async t => {
     useFakeClock(); t.after(realClock)
