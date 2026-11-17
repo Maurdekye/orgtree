@@ -166,6 +166,46 @@ async function main() {
     `the desk header must span the window to be grabbable (${deskBar.width} of ${content.width})`)
   assert.ok(deskBar.top <= 12, `and sit at the top of it (${deskBar.top})`)
 
+  // ---- MEDIUM WIDTH: nothing in the header's left block runs under its right cluster
+  // (4.6.1 hands-on, item desk-window-header-the-status-text-overlaps-dnd-4: in a 628 px desk window the status
+  // banner "Idle 11s" spilled over DND). The header measures 600+ px, so the one-row layout applied, but the row
+  // keeps --popout-controls free for the window controls and has only ~500 px: the left block shrank below its
+  // fixed-width banner. The fixture is a desk header as the hands-on measured it: tier, name, a turn-status banner
+  // (flex: none) on the left; a right cluster about 400 px wide (DND .. settings).
+  const LIVE_HEADER = `
+<div class="cc-head"><div class="cc-head-top">
+  <span class="cc-head-left"><span class="tier">S</span><span class="cc-name">alice</span>
+    <span class="turn-status-banner">Idle 11s and counting</span></span>
+  <span class="spacer"></span>
+  <span class="cc-head-right" id="live-right">
+    <button class="dnd-control" style="width: 60px">DND</button>
+    <span style="display: inline-block; width: 330px">Halt dissolve chat mail docket team</span>
+  </span>
+  <span class="window-controls popout-window-controls">
+    <button class="window-control">-</button><button class="window-control">+</button><button class="window-control close">x</button>
+  </span>
+</div></div>`
+  const overlapAt = async (width: number) => {
+    await write(child, 'popout-document', 'popout-mount', LIVE_HEADER)
+    child.setContentSize(width, 600)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    return child.webContents.executeJavaScript(`(() => {
+      const right = document.querySelector('#live-right').getBoundingClientRect()
+      const parts = [...document.querySelectorAll('.cc-head-left, .cc-head-left *')].map(e => ({ cls: e.className, r: e.getBoundingClientRect() }))
+      const hits = parts.filter(p => p.r.width > 0 && p.r.top < right.bottom && right.top < p.r.bottom && p.r.right > right.left + 0.5)
+        .map(p => ({ cls: p.cls, right: Math.round(p.r.right), rightLeft: Math.round(right.left) }))
+      const left = document.querySelector('.cc-head-left').getBoundingClientRect()
+      return { hits, wrapped: right.top >= left.bottom - 1, width: innerWidth }
+    })()`) as Promise<{ hits: { cls: string; right: number; rightLeft: number }[]; wrapped: boolean; width: number }>
+  }
+  const wide = await overlapAt(900)
+  assert.equal(wide.wrapped, false, `POSITIVE CONTROL: at 900 px the header is one row (${JSON.stringify(wide)})`)
+  assert.deepEqual(wide.hits, [], 'and nothing overlaps there')
+  for (const width of [640, 700]) {
+    const medium = await overlapAt(width)
+    assert.deepEqual(medium.hits, [], `at ${width} px nothing in the left block may run under the right cluster (${JSON.stringify(medium)})`)
+  }
+
   // ---- narrow: the rest of the header wraps, the controls do not
   await write(child, 'popout-document', 'popout-mount', DESK_HEADER + MODAL_BAR)
   child.setContentSize(380, 600)
