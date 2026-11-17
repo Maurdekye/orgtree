@@ -13,6 +13,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { BUILTIN, isMacPlatform, keyCaps, NON_SHORTCUT_BINDINGS, shortcutGroups } from '../src/shortcuts'
 import type { Shortcut } from '../src/shortcuts'
+import * as shortcutsModule from '../src/shortcuts'
 import { ShortcutsSettings } from '../src/canvas/shortcutsettings'
 
 declare const __SRC_DIR__: string
@@ -340,7 +341,7 @@ test('the section renders every group as rows of keycaps', async () => {
     try {
       await inAct(() => {})
       const heads = [...view.el.querySelectorAll('.set-group-head')].map(h => h.textContent)
-      assert.deepEqual(heads, shortcutGroups().map(g => g.title))
+      assert.deepEqual(heads, [CANVAS_MOUSE, ...shortcutGroups().map(g => g.title)])
       const undo = [...view.el.querySelectorAll('.set-row')]
         .find(r => r.querySelector('.set-label')?.textContent?.startsWith('Undo'))!
       assert.deepEqual([...undo.querySelectorAll('kbd')].map(k => k.textContent), [mac ? '⌘' : 'Ctrl', 'Z'])
@@ -350,8 +351,43 @@ test('the section renders every group as rows of keycaps', async () => {
       assert.deepEqual([...redo.querySelectorAll('kbd')].map(k => k.textContent),
         ['Ctrl', 'Y', mac ? '⌘' : 'Ctrl', mac ? '⇧' : 'Shift', 'Z'])
       assert.equal(view.el.querySelectorAll('.set-row').length,
-        shortcutGroups().reduce((n, g) => n + g.items.length, 0))
+        mouse().length + shortcutGroups().reduce((n, g) => n + g.items.length, 0))
       assert.equal(view.el.querySelectorAll('input, select, button').length, 0, 'read-only: no controls')
     } finally { await view.unmount() }
   }
+})
+
+// USER 2026-11-17 11:37:50Z m0713cad4efde: "and document all these canvas mouse controls in the keyboard
+// controls menu, and rename it to just \"controls\"". Mouse gestures have no key literal for the scan above,
+// so each row names a marker its source must still contain.
+interface MouseRow { gesture: string; action: string; note?: string; sources: string[]; marker: string }
+const CANVAS_MOUSE = 'Canvas mouse'
+const mouse = () => ((shortcutsModule as Record<string, unknown>).MOUSE_CONTROLS ?? []) as MouseRow[]
+
+test('the canvas mouse controls are listed, each still in a source it names', () => {
+  const rows = mouse()
+  const gestures = rows.map(r => r.gesture)
+  for (const want of ['Click', 'Middle click', 'Double middle click', 'Drag', 'Middle drag', 'Wheel', 'Right-click'])
+    assert.ok(gestures.includes(want), `${want} is listed: ${gestures.join(', ')}`)
+  assert.match(rows.find(r => r.gesture === 'Middle click')!.action, /desk/i)
+  assert.match(rows.find(r => r.gesture === 'Double middle click')!.action, /fit the whole org/i)
+  for (const r of rows) {
+    assert.ok(r.sources.length > 0, r.gesture)
+    const found = r.sources.some(f => readFileSync(path.join(DESKTOP, f), 'utf8').includes(r.marker))
+    assert.ok(found, `${r.gesture} / ${r.action}: "${r.marker}" is still in ${r.sources.join(', ')}`)
+  }
+})
+
+test('the Controls tab opens on the canvas mouse group, drawn like the keys', async () => {
+  const view = await mountView(<div className="settings"><ShortcutsSettings mac={false} /></div>, el => el)
+  try {
+    await inAct(() => {})
+    const heads = [...view.el.querySelectorAll('.set-group-head')].map(h => h.textContent)
+    assert.equal(heads[0], CANVAS_MOUSE)
+    assert.ok(!heads.slice(1).includes('Controls'), 'no inner group shares the tab name')
+    const row = [...view.el.querySelectorAll('.set-row')]
+      .find(r => r.querySelector('.set-label')?.textContent?.startsWith('Fit the whole org'))
+    assert.ok(row, 'double middle click row rendered')
+    assert.deepEqual([...row!.querySelectorAll('kbd')].map(k => k.textContent), ['Double middle click'])
+  } finally { await view.unmount() }
 })

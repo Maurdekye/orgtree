@@ -185,7 +185,8 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
         // Streaming joined after Display on 2026-11-04. Remote access shows only on a computer that can share
         // (accounts.tsx `sharing`), which this fixture is not.
         ['Providers', 'Harnesses', 'Runtime', 'Display', 'Streaming', 'Default org settings',
-          'Mail hub', 'Developer', 'Keyboard shortcuts', 'About'])
+          // Keyboard shortcuts became Controls on 2026-11-17 (USER m0713cad4efde)
+          'Mail hub', 'Developer', 'Controls', 'About'])
       assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true',
@@ -213,7 +214,7 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
       })
       assert.equal(tabs[9]!.getAttribute('aria-selected'), 'true')
       assert.equal(document.activeElement, tabs[9])
-      // two steps back from About: Keyboard shortcuts, then Developer
+      // two steps back from About: Controls, then Developer
       for (const at of [9, 8]) {
         await inAct(async () => {
           tabs[at]!.dispatchEvent(new KeyboardEvent('keydown', {

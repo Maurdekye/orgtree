@@ -56,7 +56,7 @@ test('a remote window’s App settings says whose settings these are and marks w
   assert.equal(note?.getAttribute('role'), 'note')
   // whole tabs that belong to this app on this computer
   assert.deepEqual(s.scopes, { Providers: '', Harnesses: '', Runtime: '', Display: '', Streaming: 'this computer',
-    'Default org settings': '', 'Mail hub': 'this computer', Developer: '', 'Keyboard shortcuts': 'this computer', About: 'this computer' })
+    'Default org settings': '', 'Mail hub': 'this computer', Developer: '', Controls: 'this computer', About: 'this computer' })
   // Display: the look of this app is this computer's; the two typing rules are the engine's
   const display = s.groups('display')
   assert.equal(display.Text, false)
