@@ -81,14 +81,14 @@ async function fixture() {
     coreStopRequested: false, coreQuitPrepared: true, poll: undefined, trayPopupSeq: 0,
     engineRestartOptions: { synthetic: true }, engineRestartBlocked: () => false,
     resumeEngineStartup: undefined, refreshTrayEngine() {}, rebuildTray() {}, relaunches: 0,
-    preferences: { get: () => ({ exitOnClose: true, startupMode: 'restore' }) },
+    preferences: { get: () => ({ exitOnClose: true, startupMode: 'restore' }), flushSync() {} },
     windows: { beginClose: () => 'close', settleClose() {} },
     updateLog: { record() {} }, coreLifecycle: { stop() {}, async transition() {}, async complete() {} },
     engine: { cancelLaunches() {}, async stopForQuit() {}, async stopGracefullyForInstaller() { return true } },
     bounded: promise => promise, UPDATE_LAYOUT_MS: 1, UPDATE_DEADLINES: { layoutMs: 1 },
     QUIT_STOP_BUDGET_MS: 1, QUIT_ENGINE_TOTAL_MS: 1, INSTALLER_UPGRADE_STOP_BUDGET_MS: 1,
     credentialBridge: { async release() {} }, tray: { destroy() {} }, closeTrayPopup() {},
-    cancelProviderLogin() {}, windowEvents: { record() {} }, windowFacts() {},
+    cancelProviderLogin() {}, async stopProviderLoginsForQuit() {}, PROVIDER_LOGIN_STOP_MS: 1, windowEvents: { record() {} }, windowFacts() {},
     // No renderer read work runs here: model its close gate already drained.
     // Pending/rejected drains have their own mailleave-native tests.
     drainReads: () => false,
