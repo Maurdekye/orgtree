@@ -895,6 +895,25 @@ test('older refusal cannot cancel a later sibling drag; latest refusal follows t
   assertAt(at(m.el, 'x'), want, 'rollback uses current authoritative state')
 })
 
+// USER 2026-11-17 13:51:36Z m61a1e8d5f01a (item canvas-reorder-can-t-drag-a-node-to-the-last-rig): under the Unity
+// org's shader-editing project no node could be dragged into the last slot. Its last child in tree order is a
+// RETIRED sibling the canvas doesn't draw; the engine places only among LIVE siblings
+// (domain/ops/ordering.rs: "<name> is not a live sibling in this placement"), so { after: <retired> } was refused
+// and the card sprang back. Every anchor must be a live sibling.
+for (const mode of ['row', 'circular'] as const) {
+  test(`${mode}: a drop into the last slot under a project anchors on the last LIVE sibling, not a retired one`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const retired = { ...mkNode('r') as TreeNode, state: 'archived' as TreeNode['state'] }
+    const project = { ...mkNode('p', [mkNode('x'), mkNode('b'), mkNode('c'), retired]) as TreeNode, kind: 'project' } as TreeNode
+    const m = await mountCanvas(t, tree([mkNode('boss', [project])]), () => Promise.resolve({}))
+    const calls = holdReorders()
+    await dragSibling(m.el, 'x', 'c', mode, 'after')
+    assert.deepEqual(calls.map(c => c.body), [{ after: 'c' }],
+      `the last slot is after the last live sibling (r is drawn: ${!!card(m.el, 'r')})`)
+  })
+}
+
 test('reorder transform preserves unrelated branches and refuses vanished/moved anchors', () => {
   const initial = reorderTree()
   const entry = { parent: 'boss', block: ['x'], slot: { after: 'c' }, settled: false }
