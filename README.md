@@ -6,7 +6,9 @@
 
 Orgtree is a free, open-source desktop app that runs a whole team of AI agents on your computer. Hire agents, arrange them in a tree of managers and specialists, and talk to any of them on a live canvas. It runs on the coding tools you already use, such as Claude Code and Codex, with your own subscriptions.
 
-**[Download for Windows](https://github.com/Maurdekye/orgtree/releases/latest)** · **[Watch the tutorial](#watch-the-tutorial)** · [Get started](#get-started) · [Documentation](#documentation) · [Sister projects](#sister-projects) · [Release notes](https://github.com/Maurdekye/orgtree/releases) · [Report an issue](https://github.com/Maurdekye/orgtree/issues)
+Sister projects: **[Hubchat](https://github.com/Maurdekye/orgtree-hubchat)**, a chat app for talking to your organizations and agents from your PC or phone, and the **[mail hub](https://github.com/Maurdekye/orgtree-mailhub)**, a small self-hosted service that lets Orgtree organizations, people and agents on different machines mail each other.
+
+**[Download for Windows](https://github.com/Maurdekye/orgtree/releases/latest)** · **[Watch the tutorial](#watch-the-tutorial)** · [Get started](#get-started) · [Documentation](#documentation) · [Release notes](https://github.com/Maurdekye/orgtree/releases) · [Report an issue](https://github.com/Maurdekye/orgtree/issues)
 
 ![Agents on the Orgtree canvas](docs/images/orgtree-4-canvas.png)
 
@@ -82,8 +84,6 @@ Run Claude Code, OpenAI Codex, Google Antigravity, Muse Code and OpenRouter agen
 - **Across machines.** A mail hub connects organizations on different computers, so their agents can exchange messages and files. Organizations on the same machine can mail each other too.
 - **From another computer.** [Open an organization that runs on another PC](docs/collaborating.md#open-an-organization-from-another-computer), or share one of yours with a colleague. It keeps running where it is. Adding a computer is like giving it SSH access to yours, so add only computers and people you would trust with your whole computer.
 - **On a server.** The [standalone engine](docs/standalone-engine.md) runs without the desktop, directly or in Docker, and the desktop app can open its organizations.
-
-See [Sister projects](#sister-projects) for the apps and services that make these connections.
 
 ## Screenshots
 
@@ -233,7 +233,6 @@ Orgtree runs the agents. Its sister projects connect them to people and to other
 | **[Hubchat Web](https://github.com/Maurdekye/orgtree-hubchat#hubchat-web)** | Hubchat as a web app, for devices that have no Hubchat app, mainly an iPhone or iPad. One person runs a small server and everyone else opens its address in a browser. | A browser. The server runs in Docker or as static files. | Released with Hubchat |
 | **[Mail hub](https://github.com/Maurdekye/orgtree-mailhub)** | A small self-hosted service that carries mail between Orgtree organizations, people and agents on different machines. Orgtree has a hub built in, which suits individuals and small teams. For a team of developers, the recommended setup is this standalone hub on a shared private server. Its `hubtool` also gives Claude Code and Codex sessions outside Orgtree a mailbox. | Docker (amd64 and arm64). | [![Latest Mail hub release](https://img.shields.io/github/v/release/Maurdekye/orgtree-mailhub?label=Mail%20hub)](https://github.com/Maurdekye/orgtree-mailhub/releases/latest) |
 | **[Standalone engine](docs/standalone-engine.md)** | The Orgtree engine without the desktop, for a server. The desktop app can open its organizations from another computer. It lives in this repository. | Linux x86_64, directly or in Docker. | [![Latest Orgtree release](https://img.shields.io/github/v/release/Maurdekye/orgtree?label=Orgtree)](https://github.com/Maurdekye/orgtree/releases/latest) |
-| **[Stream manager](https://github.com/Maurdekye/orgtree-stream-manager)** | A local bridge between a live stream and an organization. Agents read and answer Twitch and YouTube chat, moderate it and react to donations. | Docker, on the streamer's PC. | No releases yet; build it from source |
 
 Setting up a team of developers? [Developer team setup](docs/team-setup.md) shows how Orgtree, Hubchat and a shared mail hub fit together.
 
