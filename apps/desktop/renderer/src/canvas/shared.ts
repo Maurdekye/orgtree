@@ -123,6 +123,8 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
 /** Gemini 3.8 Flash joined on 2026-11-13 (user md16909f83245 "Now"): Gemini 4 Hydrogen takes its place among
  *  the current tiers, and Flash is offered only with "show legacy models" on. */
 export const OPT_IN_LEGACY_TIERS = ['pro', 'flash']
+/** a tier that becomes opt-in legacy while its successor is offered (USER 2026-11-17 m32a4af643c1c: 'if carbon is available, put argon behind the legacy models checkbox') */
+export const SUCCEEDED_LEGACY_TIERS: Record<string, string> = { argon: 'carbon' }
 /** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
  *  the always-offered hireable family. A future rollout tier would be listed
  *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
@@ -901,15 +903,22 @@ export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 
    both answer from one payload. Subscribable, so a list re-renders the
    moment agy starts listing the model. */
 let offeredConditional: string[] = []
+export const isOptInLegacy = (tier: string): boolean => OPT_IN_LEGACY_TIERS.includes(tier)
+  || (SUCCEEDED_LEGACY_TIERS[tier] !== undefined && offeredConditional.includes(SUCCEEDED_LEGACY_TIERS[tier]))
 const conditionalSubs = new Set<() => void>()
+const showLegacySubs = new Set<() => void>()
 export const setOfferedConditionalTiers = (
   tiers: { tier: string }[] | null | undefined,
 ): void => {
   const next = CONDITIONAL_ANTIGRAVITY_TIERS.filter(
     (t) => (tiers ?? []).some((r) => r.tier === t))
   if (next.join(',') === offeredConditional.join(',')) return
+  const hadCarbon = offeredConditional.includes('carbon')
   offeredConditional = next
   for (const fn of [...conditionalSubs]) fn()
+  if (hadCarbon !== offeredConditional.includes('carbon')) {
+    for (const fn of [...showLegacySubs]) fn()
+  }
 }
 const subscribeConditional = (fn: () => void): (() => void) => {
   conditionalSubs.add(fn)
@@ -1815,7 +1824,6 @@ export const SHOW_LEGACY_MODELS_KEY = 'orgtree-show-legacy-models'
 export const showLegacyModelsOn = (): boolean => {
   try { return localStorage.getItem(SHOW_LEGACY_MODELS_KEY) === '1' } catch { return false }
 }
-const showLegacySubs = new Set<() => void>()
 export const setShowLegacyModelsOn = (on: boolean): void => {
   try {
     localStorage.setItem(SHOW_LEGACY_MODELS_KEY, on ? '1' : '0')
@@ -1827,18 +1835,20 @@ const subscribeShowLegacy = (fn: () => void): (() => void) => {
   window.addEventListener('storage', fn)
   return () => { showLegacySubs.delete(fn); window.removeEventListener('storage', fn) }
 }
+const showLegacySnapshot = (): number => (showLegacyModelsOn() ? 2 : 0)
+  + (offeredConditional.includes('carbon') ? 1 : 0)
 export const useShowLegacyModels = (): boolean =>
-  useSyncExternalStore(subscribeShowLegacy, showLegacyModelsOn)
+  useSyncExternalStore(subscribeShowLegacy, showLegacySnapshot) >= 2
 /** Is this tier kept out of choosers as legacy? gpt-reserve always; the
  *  opt-in legacy tiers unless "show legacy models" is on. */
 export const tierHiddenAsLegacy = (tier: string): boolean =>
   LEGACY_CODEX_TIERS.includes(tier) || optInLegacyHidden(tier)
 /** only the opt-in half: an opt-in legacy tier while the toggle is off */
 export const optInLegacyHidden = (tier: string): boolean =>
-  OPT_IN_LEGACY_TIERS.includes(tier) && !showLegacyModelsOn()
+  isOptInLegacy(tier) && !showLegacyModelsOn()
 /** the " · legacy" mark a chooser appends to an opt-in legacy tier's label */
 export const legacyMark = (tier: string): string =>
-  OPT_IN_LEGACY_TIERS.includes(tier) ? ' · legacy' : ''
+  isOptInLegacy(tier) ? ' · legacy' : ''
 
 // App-wide agent action buttons: off unless explicitly enabled.
 export const AGENT_SHORTCUTS_KEY = 'orgtree-agent-shortcuts'

@@ -60,7 +60,7 @@ import { CanvasAnchorSettings } from './canvasanchor'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setLangServerTiers, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
   legacyMark, optInLegacyHidden, orderProviderTiers, providersWithAccounts, TIER_LETTER, tierLabel,
-  setChartLayout, useAgyModelsRefresh, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
+  setChartLayout, useAgyModelsRefresh, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useOfferedConditionalTiers, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
@@ -496,12 +496,13 @@ function AgentShortcutsToggle() {
    left the switch on 2026-10-26 (GPT-6.1 Terra is current). */
 function ShowLegacyModelsToggle() {
   const on = useShowLegacyModels()
+  const carbon = useOfferedConditionalTiers().split(',').includes('carbon')
   return (
     <SetGroup title="Legacy models">
-      <SetToggle label="Show legacy models (Gemini Pro, Gemini Flash)" checked={on}
+      <SetToggle label={'Show legacy models (Gemini Pro, Gemini Flash' + (carbon ? ', Gemini Argon' : '') + ')'} checked={on}
         onChange={setShowLegacyModelsOn}
-        hint={'Off: hire and model choices, and the model tier lists, leave Gemini Pro out. '
-          + 'Agents already on Gemini Pro keep running and show their model either way.'} />
+        hint={'Off: hire and model choices, and the model tier lists, leave the legacy models out. '
+          + 'Agents already on a legacy model keep running and show their model either way.'} />
     </SetGroup>
   )
 }
