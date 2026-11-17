@@ -394,7 +394,7 @@ test('a popped-out window gets its own stage: an effect lands where its agent is
   }
 })
 
-test('the native preferences file keeps the switch across a restart, beside the other settings', () => {
+test('the native preferences file keeps the switch across a restart, beside the other settings', async () => {
   const dir = fs.mkdtempSync(path.join(process.env.EPIC_TMP || os.tmpdir(), 'epic-preferences-'))
   const file = path.join(dir, 'preferences.json')
   try {
@@ -402,10 +402,13 @@ test('the native preferences file keeps the switch across a restart, beside the 
     assert.equal(first.get().epicMode === true, false, 'a fresh install is off')
     first.set({ epicMode: true })
     first.set({ exitOnClose: true })
+    // the native file follows asynchronously (desktop main-thread fix): wait for it before reading the file
+    await first.flush()
     const restart = new Preferences(file)
     assert.equal(restart.get().epicMode, true, 'on survives a new process reading the file')
     assert.equal(restart.get().exitOnClose, true, 'without disturbing the setting written after it')
     restart.set({ epicMode: false })
+    await restart.flush()
     assert.equal(new Preferences(file).get().epicMode, false, 'and so does off')
     fs.writeFileSync(file, JSON.stringify({ epicMode: 'yes' }))
     assert.equal(new Preferences(file).get().epicMode === true, false, 'a corrupt value reads as off')

@@ -114,7 +114,7 @@ test('each org and surface resolves its own filter, with legacy values as migrat
     'changing one org keeps another org unchanged')
 })
 
-test('per-org active-filter writes merge across surfaces and persist across reload', t => {
+test('per-org active-filter writes merge across surfaces and persist across reload', async t => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'orgtree-active-filters-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const file = path.join(dir, 'desktop-settings.json')
@@ -122,6 +122,8 @@ test('per-org active-filter writes merge across surfaces and persist across relo
   prefs.set({ activeAgentsByOrg: { 'org-alpha': { agents: true, quickChat: false } } })
   prefs.set({ activeAgentsByOrg: { 'org-beta': { attentionDesk: true } } })
   prefs.set({ activeAgentsByOrg: { 'org-alpha': { attentionDesk: false } } })
+  // the native file follows asynchronously (desktop main-thread fix): wait for it before reading the file
+  await prefs.flush()
 
   const saved = new Preferences(file).get().activeAgentsByOrg
   assert.deepEqual(saved, {

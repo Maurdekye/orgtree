@@ -93,7 +93,7 @@ test('an older-app upgrade with several org windows keeps the saved Attention', 
   await beta.unmount()
 })
 
-test('the main process changes one org at a time, so a stale window cannot erase another record', () => {
+test('the main process changes one org at a time, so a stale window cannot erase another record', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'modeprefs-'))
   try {
     const file = path.join(dir, 'prefs.json')
@@ -101,6 +101,8 @@ test('the main process changes one org at a time, so a stale window cannot erase
     // two windows read the same early snapshot, then each records its own org
     prefs.set({ orgView: { slug: 'alpha', view: 'attention' } })
     prefs.set({ orgView: { slug: 'beta', view: 'canvas' } })
+    // the native file follows asynchronously (desktop main-thread fix): wait for it before reading the file
+    await prefs.flush()
     const now = new Preferences(file).get()
     assert.deepEqual(now.attentionOrgs, ['alpha'])
     assert.deepEqual(now.canvasOrgs, ['beta'])
@@ -108,6 +110,7 @@ test('the main process changes one org at a time, so a stale window cannot erase
     prefs.set({ attentionOrgs: [], canvasOrgs: [] })
     assert.deepEqual(prefs.get().attentionOrgs, ['alpha'])
     prefs.set({ orgView: { slug: 'alpha', view: 'canvas' } })
+    await prefs.flush()
     const after = new Preferences(file).get()
     assert.deepEqual(after.attentionOrgs, [])
     assert.deepEqual(after.canvasOrgs, ['beta', 'alpha'])

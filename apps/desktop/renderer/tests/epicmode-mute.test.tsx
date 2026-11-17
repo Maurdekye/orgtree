@@ -11,13 +11,16 @@ import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { fakeAudio } from './epicmode-fakes'
 import * as taps from '../src/epic/tap'
 
-test('EPIC mute is a boolean native preference, absent by default and retained on reload', () => {
+test('EPIC mute is a boolean native preference, absent by default and retained on reload', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'epic-mute-pref-')), file = path.join(dir, 'settings.json')
   const prefs = new Preferences(file)
   assert.equal('epicMuted' in prefs.get(), false)
   prefs.set({ epicMode: true, epicMuted: true })
+  // the native file follows asynchronously (desktop main-thread fix): wait for it before reading the file
+  await prefs.flush()
   assert.equal((new Preferences(file).get() as any).epicMuted, true)
   prefs.set({ epicMode: false })
+  await prefs.flush()
   assert.equal((new Preferences(file).get() as any).epicMuted, true)
   for (const value of [1, 'true', null, {}]) assert.throws(() => preferencesPatch({ epicMuted: value }))
 })

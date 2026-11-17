@@ -20,6 +20,8 @@ for (const provenance of [true, undefined, false]) {
     assert.equal(loaded.get().visualThemeExplicit, explicit, 'unset is distinct from a chosen theme')
     assert.equal(loaded.set(legacy).visualTheme, expected, 'legacy writers normalize too')
     assert.equal(loaded.get().visualThemeExplicit, explicit)
+    // the native file follows asynchronously (desktop main-thread fix): wait for it before reading the file
+    await loaded.flush()
     assert.equal(JSON.parse(readFileSync(file, 'utf8')).visualTheme, expected)
     assert.equal(new Preferences(file).get().visualTheme, expected, 'canonical reload is stable')
     const bytes = readFileSync(file, 'utf8')
