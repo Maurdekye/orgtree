@@ -51,11 +51,14 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "haiku", provider: CLAUDE, seat: 0.5, model: "claude-haiku-5-5",
         versions: &[("5.5", "claude-haiku-5-5"), ("4.5", "claude-haiku-4-5")], letter: "H",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
-    Tier { tier: "astra", provider: OPENAI, seat: 10.0, model: "gpt-6-astra",
-        versions: &[("6", "gpt-6-astra")], letter: "A",
-        context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((10.0, 1.0, 50.0)) },
+    // Sol 6.2 and Astra 6.2 (USER 2026-11-17 md06e7aabe0e3; Codex CLI 0.166.0 lists both on both OpenAI accounts):
+    // as Fable 5.2, 6.2 leads `versions` and is what a NEW hire gets, while `model` stays what "no version saved"
+    // has meant for a seat that exists (Sol 6.1, Astra 6). Prices follow OpenAI's 6.2 API rates; Astra $8 → seat 8.
+    Tier { tier: "astra", provider: OPENAI, seat: 8.0, model: "gpt-6-astra",
+        versions: &[("6.2", "gpt-6.2-astra"), ("6", "gpt-6-astra")], letter: "A",
+        context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((8.0, 0.40, 40.0)) },
     Tier { tier: "sol", provider: OPENAI, seat: 2.0, model: "gpt-6.1-sol",
-        versions: &[("6.1", "gpt-6.1-sol"), ("6", "gpt-6-sol"), ("5.6", "gpt-5.6-sol")], letter: "S",
+        versions: &[("6.2", "gpt-6.2-sol"), ("6.1", "gpt-6.1-sol"), ("6", "gpt-6-sol"), ("5.6", "gpt-5.6-sol")], letter: "S",
         context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((2.0, 0.10, 10.0)) },
     // GPT-6.1 Terra (user 2026-10-26 "get 4.4.6 out with this", then "make
     // sure to take terra out of the legacy models checkbox"): a current tier
