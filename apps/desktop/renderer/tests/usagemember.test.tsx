@@ -61,3 +61,18 @@ test('a refused or failed usage read shows an error instead of an empty or endle
   assert.ok(alert, `the panel says why it has nothing to show: ${text}`)
   assert.match(alert.textContent ?? '', /Usage could not be loaded: This belongs to NICK-PC\./)
 })
+
+test('a member window of an owner too old to send its usage says so instead of loading forever', async (t: TestContext) => {
+  const feed = remoteFeed(t, (url) => json(url.endsWith('/providers') ? { providers: [CLAUDE_ON] }
+    : url === '/api/accounts' ? { accounts: [], host_identity: {} } : {}))
+  const view = await mountView(<UsageModal toast={() => {}} close={() => {}} org="org" />, el => el)
+  t.after(async () => { await view.unmount() })
+  const here = remoteView({ name: 'NICK-PC', mode: 'host', scope: 'member', version: '4.6.0' })
+  await feed.remotes([here], here, { providers: { providers: [CLAUDE_ON] }, accounts: { accounts: [], host_identity: {} } })
+  await inAct(async () => { await flush() })
+  const text = view.el.textContent ?? ''
+  assert.doesNotMatch(text, /loading…/)
+  const note = view.el.querySelector<HTMLElement>('.usage-load-error[role="note"]')
+  assert.equal(note?.textContent, 'NICK-PC runs Orgtree 4.6.0, which does not send its usage to other computers. '
+    + 'Update NICK-PC to 4.6.2 or later to see its usage here.')
+})
