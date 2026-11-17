@@ -52,3 +52,31 @@ for (const kind of ['agent', 'project'] as const) test(`${kind} retired chip fol
   assert.ok(badges.children.length > 1, 'positive control: coloured chips and retired badge exist')
   assert.equal(badges.lastElementChild?.classList.contains('retired-token'), true)
 })
+
+// Desk-load hang (4.6.1-alpha.3): every glide frame re-renders every card, and the face measured
+// (a forced synchronous layout) after EVERY render, so one camera frame cost one reflow per card over
+// a DOM that had just gained a desk. CF1: only a change inside the face, or a resize, measures.
+test('CF1 a re-render that changes nothing inside the face does not measure; a content change still refits', async t => {
+  const proto = HTMLElement.prototype, saved = new Map<string, PropertyDescriptor | undefined>()
+  let reads = 0, wide = 110
+  for (const key of ['clientWidth', 'clientHeight', 'offsetWidth', 'offsetHeight', 'scrollWidth', 'scrollHeight']) {
+    saved.set(key, Object.getOwnPropertyDescriptor(proto, key))
+    Object.defineProperty(proto, key, { configurable: true, get(this: HTMLElement) {
+      if (this.classList.contains('card-face')) return 110
+      if (this.classList.contains('card-face-inner')) { if (key === 'scrollWidth') { reads++; return wide } return 110 }
+      return saved.get(key)?.get?.call(this) ?? 0
+    } })
+  }
+  t.after(() => { for (const [key, d] of saved) if (d) Object.defineProperty(proto, key, d); else delete (proto as unknown as Record<string, unknown>)[key] })
+  const face = (title: string, x: number) => <div style={{ transform: `translate(${x}px, 0px)` }}><CardFace><div className="sq-title">{title}</div></CardFace></div>
+  const v = await mountView(face('worker', 0), el => el); t.after(() => v.unmount())
+  const frame = v.el.querySelector<HTMLElement>('.card-face')!
+  assert.ok(reads > 0, 'positive control: the first render measures')
+  assert.equal(frame.dataset.cardScale, '1')
+  const before = reads
+  for (let x = 1; x <= 30; x++) await v.render(face('worker', x))   // a glide: the card moves, its face does not change
+  assert.equal(reads - before, 0, `30 camera frames measured the face ${reads - before} times`)
+  wide = 220
+  await v.render(face('a much longer worker title', 30))             // content grows past the face, its box does not
+  assert.equal(Number(frame.dataset.cardScale), .5, 'a content change still refits')
+})
