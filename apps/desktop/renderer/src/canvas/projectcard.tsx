@@ -371,8 +371,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinned, onFocus, onShow
       )}
       {/* the agent card's transparent hover bridges (cards.tsx, styles.css .hsof-bridge): the coworker columns stand off
           the card and exist only while it is hovered, so without them they vanished as the pointer crossed the gap (USER
-          2026-11-17 m75a0b53834c2, at mini zoom). Mini only: norm and desk stay as they were (@coordinator-opus). */}
-      {node.state === 'live' && onSpawnSide && lod === 'mini' && !deskOpen && <>
+          2026-11-17 m75a0b53834c2, at mini zoom; norm too, USER 19:01:49Z mcbc35fe69dad). Not on the desk, which shows its
+          chips without hover, so there is no gap to bridge. */}
+      {node.state === 'live' && onSpawnSide && !deskOpen && <>
         <div className="hsof-bridge bridge-l" aria-hidden="true" />
         <div className="hsof-bridge bridge-r" aria-hidden="true" />
       </>}
