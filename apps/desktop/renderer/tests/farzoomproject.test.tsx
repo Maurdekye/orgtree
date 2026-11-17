@@ -85,7 +85,7 @@ test('normal project icon still names the project and the visible name has rich 
 // the node". The coworker columns stand off the card by --hsof-l-clear / --hsof-r-clear (styles.css) and exist only while
 // the card is hovered. An agent card fills that gap with transparent hover bridges (cards.tsx, minihire.test.tsx §1); the
 // project card had none, so the pointer left the card in the gap and the columns vanished before it reached them.
-test('mini: a project carries the coworker hover bridges its side hire columns need, as an agent card does', async t => {
+test('mini and norm: a project carries the coworker hover bridges its side hire columns need, as an agent card does', async t => {
   const side = (lod: 'mini' | 'norm') => <AgentNavProvider>
     <ProjectSquare node={project} lod={lod} pos={{ x: 0, y: 0 }} zoom={lod === 'mini' ? .24 : 1}
       dragging={false} isDrop={false} op={async () => ({} as OpResult)} slug="test-org" toast={noop}
@@ -102,7 +102,12 @@ test('mini: a project carries the coworker hover bridges its side hire columns n
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   assert.match(css, /\.sq > \.hsof-bridge\.bridge-l\s*\{[^}]*width:\s*var\(--hsof-l-clear\)/,
     'the bridge spans exactly the gap its column stands off')
-  // Norm and desk are unchanged by this fix (@coordinator-opus m14b916d5b7cb).
+  // USER 2026-11-17 19:01:49Z mcbc35fe69dad "Normal zoom too (Rec.)": norm has the same gap (22 px on screen at z 1),
+  // so it gets the same bridges, as an agent card has at every zoom. The desk shows its chips without hover and keeps none.
   await v.render(side('norm'))
-  assert.equal(v.el.querySelectorAll('.sq.project > .hsof-bridge').length, 0, 'norm zoom is unchanged')
+  const normCard = v.el.querySelector<HTMLElement>('.sq.project')!
+  assert.equal(normCard.querySelectorAll(':scope > .hsof.side-l, :scope > .hsof.side-r').length, 2,
+    'both coworker columns are mounted at norm')
+  assert.ok(normCard.querySelector(':scope > .hsof-bridge.bridge-l'), 'norm: the left gap is bridged')
+  assert.ok(normCard.querySelector(':scope > .hsof-bridge.bridge-r'), 'norm: the right gap is bridged')
 })
