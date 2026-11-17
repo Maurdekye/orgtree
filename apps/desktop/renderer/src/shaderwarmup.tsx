@@ -32,11 +32,11 @@ function stubNetwork(): void {
   window.fetch = (async (input: RequestInfo | URL) => {
     const u = new URL(String(input instanceof Request ? input.url : input), 'http://warmup.invalid')
     let body: unknown = { ok: true, rows: [], items: [], pending: [], delivered: [], sent: [], transfers: [], counts: {}, agents: [], history: [], next_cursor: null }
-    const chat = /\/nodes\/([^/]+)\/chat$/.exec(u.pathname)
+    const chat = /\/nodes\/([^/]+)\/chat$/.exec(u.pathname)?.[1]
     if (chat) {
-      const all = Array.from({ length: 12 }, (_, i) => message(chat[1], i))
+      const all = Array.from({ length: 12 }, (_, i) => message(chat, i))
       body = { busy: false, queued: 0, responding: false, last_error: null, messages: all, live: [], draft_epoch: 'warmup:0',
-        mail_pending: 0, pending_mail: [], conversation_id: chat[1], has_older: false, before: null, after: `1:${all.length - 1}` }
+        mail_pending: 0, pending_mail: [], conversation_id: chat, has_older: false, before: null, after: `1:${all.length - 1}` }
     } else if (/work-item-references/.test(u.pathname)) {
       const names = (u.searchParams.get('names') || '').split(',').filter(Boolean)
       body = { references: names.map(slug => ({ slug, title: `The ${slug} title`, status: 'in_progress', archived: false })) }
