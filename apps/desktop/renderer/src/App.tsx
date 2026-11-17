@@ -83,7 +83,7 @@ import { OrgStatusBar } from './shell/statusbar'
 import { RemoteBanner, RemoteChip, useRemoteAway } from './shell/remotes'
 import { SharedChip } from './canvas/remoteaccess'
 import { remoteOfOrg, useRemotes } from './remotes'
-import { treeHere } from './remotehere'
+import { treeHere, useRemoteHere } from './remotehere'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
 import { SaveTemplateSetting } from './canvas/templates'
@@ -2615,10 +2615,23 @@ function OpenRouterKeyUsageSection({ lane, name }: { lane: string; name?: string
   </div>
 }
 
+/** Is `version` ("4.6.0", "4.6.2-alpha.1") older than major.minor.patch `min`? Unreadable: no. */
+const versionBefore = (version: string, min: readonly number[]): boolean => {
+  const parts = version.split(/[.-]/).slice(0, 3).map(Number)
+  if (parts.some((n) => !Number.isFinite(n))) return false
+  for (let i = 0; i < min.length; i++) if (parts[i] !== min[i]) return (parts[i] ?? 0) < min[i]!
+  return false
+}
+
 export function UsageModal({ close, toast, org }: { close: () => void; toast: ToastFn; org?: string | null }) {
   // opened from an org window: that org's accounts, the rest behind a toggle
   // (user 2026-10-10); from Home, every account
   const lanes = useOrgLaneFilter(org)
+  // A computer another desktop let in (a member) is sent that desktop's usage since 4.6.2
+  // (USER 2026-11-17 m1b95cceba206 "Show all members"). An owner on an older version sends
+  // none, so its window would wait forever: it says so instead.
+  const remote = useRemoteHere()
+  const oldOwner = remote?.scope === 'member' && remote.version && versionBefore(remote.version, [4, 6, 2]) ? remote : null
   // ⚠ EVERY registered account, primary first then fallbacks in priority
   // order (user ruling 2026-08-25) — one section of bars per account. The
   // bar markup itself lives in UsageBars (canvas/accounts.tsx) so this modal
@@ -2775,6 +2788,12 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
     cards.push({ provider: r.provider, lane: r.id, node: <RegisteredAccountSection key={r.id}
       row={r} multiple={multipleAccounts(r.provider)} /> })
   }
+  const visible = groupByProvider(cards.filter((c) => lanes.used(c.lane)))
+  // NEVER AN EMPTY OR ENDLESS PANEL (USER 2026-11-17 mb356fe1b5546, "the usage panel loads
+  // forever"): with no card to draw, a read that failed or was refused (another computer's
+  // "This belongs to …", an engine that is down) is said, in any window.
+  const loadFailure = visible.length ? null
+    : claude.failure ?? codex.failure ?? agy.failure ?? muse.failure ?? accountReadout.failure ?? null
   return (
     <PinFrame kind="usage" title="Usage" panel="settings usage-modal"
       close={close}>
@@ -2787,9 +2806,13 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
           && !(shown.google && (agy.value || agy.failure || agy.pending))
           && !(shown.openrouter && orrCards.length > 0)
           && !(shown.muse && (muse.value || muse.failure || muse.pending))
-          ? <div className="dim">loading…</div>
+          ? oldOwner ? <div className="dim usage-load-error" role="note">
+              {oldOwner.name} runs Orgtree {oldOwner.version}, which does not send its usage to other computers.{' '}
+              Update {oldOwner.name} to 4.6.2 or later to see its usage here.</div>
+            : <div className="dim">loading…</div>
           : <div className="usage-cards">
-          {groupByProvider(cards.filter((c) => lanes.used(c.lane))).map((c) => c.node)}
+          {loadFailure && <div className="ask-warn usage-load-error" role="alert">Usage could not be loaded: {loadFailure}</div>}
+          {visible.map((c) => c.node)}
           {registryError && !registry && <div className="dim">
             registered accounts unavailable: {registryError}</div>}
           </div>}
