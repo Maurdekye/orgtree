@@ -79,3 +79,30 @@ test('normal project icon still names the project and the visible name has rich 
   assert.equal(name.title, 'Project · Summary: a synthetic release')
   assert.equal(!!v.el.querySelector('.sq-far-ghost'), false)
 })
+
+// USER 2026-11-17 18:55:48Z m75a0b53834c2 (item canvas-at-mini-node-zoom-a-project-s-coworker-hi): "at mini node zoom,
+// it's nearly impossible to expand the coworker hire tokens on a project, as they disappear once you move your mouse off
+// the node". The coworker columns stand off the card by --hsof-l-clear / --hsof-r-clear (styles.css) and exist only while
+// the card is hovered. An agent card fills that gap with transparent hover bridges (cards.tsx, minihire.test.tsx §1); the
+// project card had none, so the pointer left the card in the gap and the columns vanished before it reached them.
+test('mini: a project carries the coworker hover bridges its side hire columns need, as an agent card does', async t => {
+  const side = (lod: 'mini' | 'norm') => <AgentNavProvider>
+    <ProjectSquare node={project} lod={lod} pos={{ x: 0, y: 0 }} zoom={lod === 'mini' ? .24 : 1}
+      dragging={false} isDrop={false} op={async () => ({} as OpResult)} slug="test-org" toast={noop}
+      hire={{ claudeHire: { enabled: true, installed: true, reason: null } }}
+      seats={{ opus: 5 }} onHire={noop} onNewProject={noop} onInbox={noop} onSpawnSide={noop}
+      onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  </AgentNavProvider>
+  const v = await mountView(side('mini'), el => el); t.after(() => v.unmount())
+  const card = v.el.querySelector<HTMLElement>('.sq.project')!
+  assert.equal(card.querySelectorAll(':scope > .hsof.side-l, :scope > .hsof.side-r').length, 2,
+    'both coworker columns are mounted at mini (otherwise this tests nothing)')
+  assert.ok(card.querySelector(':scope > .hsof-bridge.bridge-l'), 'the left gap is bridged')
+  assert.ok(card.querySelector(':scope > .hsof-bridge.bridge-r'), 'the right gap is bridged')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.sq > \.hsof-bridge\.bridge-l\s*\{[^}]*width:\s*var\(--hsof-l-clear\)/,
+    'the bridge spans exactly the gap its column stands off')
+  // Norm and desk are unchanged by this fix (@coordinator-opus m14b916d5b7cb).
+  await v.render(side('norm'))
+  assert.equal(v.el.querySelectorAll('.sq.project > .hsof-bridge').length, 0, 'norm zoom is unchanged')
+})
