@@ -20,7 +20,7 @@ for(const fail of [false,true])test(`lightbox download uses the owning document 
     assert.equal(calls.length,1,'one pre-check request, no body read')
     assert.ok(owner.querySelector('.lb-overlay'),'downloading does not dismiss the viewer')
     if(fail){assert.equal(saved.length,0);assert.match(owner.querySelector('[role="alert"]')?.textContent??'',/403/)}
-    else{assert.equal(saved.length,1);assert.equal(saved[0].owner,owner);assert.equal(saved[0].name,'example.png');assert.equal(saved[0].href,'blob:http://localhost/lightbox');assert.equal(await payload!.text(),'RC POINTER P\n')}
+    else{assert.equal(saved.length,1);assert.equal(saved[0].owner,owner);assert.equal(saved[0].name,'example.png');assert.match(saved[0].href,/\/api\/orgs\/fixture\/nodes\/maker\/file\?path=example\.png$/);assert.equal(payload,undefined,'no Blob of the image is made')}
   }finally{
     closeLightbox(owner);owner.createElement=create;globalThis.fetch=fetchBefore;window.URL.createObjectURL=createBefore;window.URL.revokeObjectURL=revokeBefore;window.setTimeout=timeoutBefore;dom.window.close()
   }
