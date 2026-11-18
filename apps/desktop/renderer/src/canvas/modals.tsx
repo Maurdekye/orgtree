@@ -24,7 +24,7 @@ import { lineageCount } from '../archived'
 // below; moving it out would have had to export all three.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { FAST_MODE_HELP, seatVersion, useFastMode } from './fastmode'
+import { FAST_MODE_HELP, useFastMode } from './fastmode'
 import { blankVersionLabel, versionScopePayload } from './modelversion'
 import { FastHireDefaults } from './fastdefaults'
 import { NativeReplacementToggle } from './nativepermissions'
@@ -1529,8 +1529,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const modelVersion = val('modelVersion', scope.model_version ?? '')
   const setModelVersion = set<string>('modelVersion', modelVersion)
   const versions = MODEL_VERSIONS[model] ?? []
-  // a seat that exists with no pin runs its tier's legacy default (Fable: 5.1), which decides fast mode
-  const supportsFastMode = useFastMode(model, versions.includes(modelVersion) ? modelVersion : model === node.tier ? seatVersion(model) : undefined)
+  // a seat with no pin runs its tier's latest version, which decides fast mode
+  const supportsFastMode = useFastMode(model, versions.includes(modelVersion) ? modelVersion : undefined)
   const fastMode = val('fastMode', scope.fast_mode === true)
   const setFastMode = set<boolean>('fastMode', fastMode)
   // each field's stored value as the tree shows it now: what an edit that starts now is based on
@@ -1951,7 +1951,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           <>
             <SetRow label="Model version" hint="Choose a specific version or use the latest."><select value={versions.includes(modelVersion) ? modelVersion : ''}
               onChange={(e) => setModelVersion(e.target.value)}>
-              <option value="">{blankVersionLabel(model, model !== node.tier)}</option>
+              <option value="">{blankVersionLabel(model)}</option>
               {versions.map((v) => (
                 <option key={v} value={v}>{`${tierLabel(model)} ${v}`}</option>
               ))}
