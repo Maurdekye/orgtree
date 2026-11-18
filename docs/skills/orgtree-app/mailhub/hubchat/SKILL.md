@@ -29,8 +29,12 @@ at `2ec8c0e`: `canvas/agentmentions.tsx` (`hubchatDeepLink`,
 `refreshHubchatInstalled`), `phone.rs` and desktop hub protocol handling.
 
 The other direction runs through a file, not the network. The engine keeps
-`local-orgs.json` in its data root (`%APPDATA%\Orgtree v2\data`): each active
-org that has a hub address, by slug, name and address, and nothing secret.
+`local-orgs.json` in its data root: `%APPDATA%\Orgtree v2\data` by default, or the
+folder **Data location** moved it to, which `%APPDATA%\Orgtree v2\data-location.json`
+names. The list holds each active org that has a hub address, by slug, name and
+address, and nothing secret. Hubchat 1.3.9 or later follows a moved data root;
+older versions find no local orgs after a move, so the badge and Orgtree mention
+chips stay plain.
 Desktop Hubchat 1.2.6 or later, on the same PC and Windows account, reads it:
 the **Orgtree org** badge in a local org's contact info opens that org in
 Orgtree, starting Orgtree when it isn't running, through the taskbar argument
