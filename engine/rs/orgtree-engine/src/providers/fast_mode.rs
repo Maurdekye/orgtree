@@ -161,8 +161,8 @@ mod tests {
         assert!(!supported(&st,"sol",Some("6")));
         assert!(supported(&st,"opus",None));
         for tier in ["sonnet","haiku","agy-opus","or-opus","ls-opus","wonder"] { assert!(!supported(&st,tier,None)); }
-        assert_eq!(codex_tier(&st,"gpt-6.1-sol",false).as_deref(),Some("default"));
-        assert_eq!(codex_tier(&st,"gpt-6.1-sol",true).as_deref(),Some("priority"));
+        assert_eq!(codex_tier(&st,"gpt-6.2-sol",false).as_deref(),Some("default"));
+        assert_eq!(codex_tier(&st,"gpt-6.2-sol",true).as_deref(),Some("priority"));
         assert_eq!(codex_tier(&st,"unknown",true),None);
     }
     #[test]

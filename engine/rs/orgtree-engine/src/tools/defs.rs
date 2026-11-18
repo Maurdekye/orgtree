@@ -1052,7 +1052,7 @@ fn build_tool_retool() -> Value {
 fn build_tool_switch_model() -> Value {
     tool(
         "orgtree_switch_model",
-        "Move an agent below you to another tier, or to another version of its tier, at its next turn boundary. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn.",
+        "Move an agent below you to another tier or version at its next turn boundary. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn.",
         json!({ "node": { "type": "string" }, "tier": { "type": "string" },
                 "model_version": { "type": "string", "description": "\"latest\" or an offered version key of the tier to pin; omitted: a new tier starts on latest, the same tier is unchanged" } }),
         &["node", "tier"],
@@ -2209,6 +2209,15 @@ mod builder_stack_tests {
             if matches!(name, "orgtree_hire" | "orgtree_rehire" | "orgtree_staff") {
                 assert!(want["inputSchema"].as_object_mut().unwrap().remove("allOf").is_some(), "{name}: the snapshot had the allOf");
                 assert!(got["inputSchema"].get("allOf").is_none());
+                want["description"] = got["description"].clone();
+            }
+            // LATEST OR PINNED (USER 2026-11-18 m62f2d7627923): rehire, retool and switch_model take model_version,
+            // and switch_model's text says it changes a version too
+            if matches!(name, "orgtree_rehire" | "orgtree_retool" | "orgtree_switch_model") {
+                assert_eq!(got["inputSchema"]["properties"]["model_version"]["type"], "string", "{name}");
+                want["inputSchema"]["properties"]["model_version"] = got["inputSchema"]["properties"]["model_version"].clone();
+            }
+            if name == "orgtree_switch_model" {
                 want["description"] = got["description"].clone();
             }
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");

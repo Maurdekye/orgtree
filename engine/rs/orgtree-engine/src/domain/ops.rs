@@ -1322,7 +1322,7 @@ mod draft_hire_preference_tests {
     /// running turn through the switch queue. Every rehire path ends in rehire().
     #[test]
     fn switch_model_retool_and_rehire_take_a_model_version() {
-        let source = include_str!("ops.rs");
+        let source = include_str!("ops.rs").replace("\r\n", "\n");
         let body = |name: &str| {
             let s = &source[source.find(&format!("async fn {name}(engine")).unwrap()..];
             s[..s.find("\n}\n").unwrap()].to_string()
