@@ -94,6 +94,10 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "krypton", provider: GOOGLE, seat: 2.0, model: "gemini-4-krypton",
         versions: &[("4", "gemini-4-krypton")], letter: "K",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
+    // Neon seat 2: inferred, speculative; USER 2026-11-18 mcfdf1e158062. No published price or measured availability.
+    Tier { tier: "neon", provider: GOOGLE, seat: 2.0, model: "gemini-4-neon",
+        versions: &[("4", "gemini-4-neon")], letter: "N",
+        context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
     // Gemini 4 Carbon (speculative 2026-10-10, confirmed on a real turn 2026-11-11): offered only while the
     // account's `agy models` lists it. Seat 4 by the user's ruling (2026-11-12 m18bc0505e597 "change carbon's
     // credit cost to 4"), no longer the placeholder 2 copied from Pro; seats hired at 2 keep it until rehired.
@@ -307,6 +311,7 @@ fn display_family(t: &Tier) -> Option<&'static str> {
         (GOOGLE, "pro") => "Gemini Pro",
         (GOOGLE, "argon") => "Gemini Argon",
         (GOOGLE, "krypton") => "Gemini Krypton",
+        (GOOGLE, "neon") => "Gemini Neon",
         (GOOGLE, "carbon") => "Gemini Carbon",
         (GOOGLE, "hydrogen") => "Gemini Hydrogen",
         (MUSE, "wonder") => "Muse Wonder",
@@ -685,7 +690,7 @@ mod effort_tests {
         assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
         // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads
-        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "agy-sonnet", "flash", "hydrogen"]);
+        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "neon", "agy-sonnet", "flash", "hydrogen"]);
         assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
         // what a person sees: legacy and not-yet-listed models are hidden
         let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {

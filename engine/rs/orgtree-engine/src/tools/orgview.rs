@@ -570,7 +570,7 @@ pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
     let mut out = Vec::new();
     for t in catalog::listed().iter().copied().filter(|t| !t.legacy) {
         if catalog::antigravity_claude(t.tier) && !engine.settings.antigravity_claude_enabled() { continue; }
-        // Argon, Krypton, Carbon: only while the account's `agy models` lists them
+        // Argon, Krypton, Neon, Carbon: only while the account's `agy models` lists them
         if t.provider == catalog::GOOGLE && !crate::providers::agy_offered(engine, t.tier) { continue; }
         if !engine.settings.provider_enabled(t.provider) {
             continue;

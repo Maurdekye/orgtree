@@ -79,7 +79,7 @@ off_case!(langserver_org_off, "langserver", "ls-fixture-model");
     assert!(e.providers.state.load().agy_models.is_empty(), "control: agy lists nothing here");
     let tiers: Vec<String> = options(&e, &org)["tiers"].as_array().unwrap().iter().map(|t| t["tier"].as_str().unwrap().to_string()).collect();
     assert!(tiers.iter().any(|t| t == "hydrogen"), "{tiers:?}");
-    for hidden in ["flash", "pro", "carbon", "argon", "krypton"] { assert!(!tiers.iter().any(|t| t == hidden), "{hidden}: {tiers:?}"); }
+    for hidden in ["flash", "pro", "carbon", "argon", "krypton", "neon"] { assert!(!tiers.iter().any(|t| t == hidden), "{hidden}: {tiers:?}"); }
     let row = options(&e, &org)["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "hydrogen").cloned().unwrap();
     assert_eq!((row["seat"].as_f64(), row["provider"].as_str()), (Some(1.0), Some("google")));
     // user 2026-11-13 m39ddd2612ce5: xhigh is selectable wherever the hire menu's efforts are read
