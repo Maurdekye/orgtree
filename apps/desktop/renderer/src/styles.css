@@ -1078,6 +1078,7 @@ button.badge.audience-fold.alert {
 .chip.agents b.t-pro { color: var(--tier-pro); }
 .chip.agents b.t-argon { color: var(--tier-argon); }
 .chip.agents b.t-krypton { color: var(--tier-krypton); }
+.chip.agents b.t-neon { color: var(--tier-neon); }
 .chip.agents b.t-hydrogen { color: var(--tier-hydrogen); }
 .chip.agents b.t-carbon { color: var(--tier-carbon); }
 /* credit requests (inbox panel): old → new (+Δ), reason, one-click verdict */
@@ -1335,6 +1336,7 @@ button.badge.audience-fold.alert {
 .sq.tier-pro { --tier-accent: var(--tier-pro); border-top-color: color-mix(in srgb, var(--tier-pro) 55%, var(--line)); }
 .sq.tier-argon { --tier-accent: var(--tier-argon); border-top-color: color-mix(in srgb, var(--tier-argon) 55%, var(--line)); }
 .sq.tier-krypton { --tier-accent: var(--tier-krypton); border-top-color: color-mix(in srgb, var(--tier-krypton) 55%, var(--line)); }
+.sq.tier-neon { --tier-accent: var(--tier-neon); border-top-color: color-mix(in srgb, var(--tier-neon) 55%, var(--line)); }
 .sq.tier-hydrogen { --tier-accent: var(--tier-hydrogen); border-top-color: color-mix(in srgb, var(--tier-hydrogen) 55%, var(--line)); }
 .sq.tier-carbon { --tier-accent: var(--tier-carbon); border-top-color: color-mix(in srgb, var(--tier-carbon) 55%, var(--line)); }
 .sq.mini.tier-luna { --mini-tier: var(--tier-luna); }
@@ -1348,6 +1350,7 @@ button.badge.audience-fold.alert {
 .sq.mini.tier-pro { --mini-tier: var(--tier-pro); }
 .sq.mini.tier-argon { --mini-tier: var(--tier-argon); }
 .sq.mini.tier-krypton { --mini-tier: var(--tier-krypton); }
+.sq.mini.tier-neon { --mini-tier: var(--tier-neon); }
 .sq.mini.tier-hydrogen { --mini-tier: var(--tier-hydrogen); }
 .sq.mini.tier-carbon { --mini-tier: var(--tier-carbon); }
 /* At map zoom the old provider signal collapsed to a sub-pixel busy border,
@@ -1446,6 +1449,7 @@ button.badge.audience-fold.alert {
 .sq.prov-google.desk.tier-pro { border-top-color: var(--tier-pro); }
 .sq.prov-google.desk.tier-argon { border-top-color: var(--tier-argon); }
 .sq.prov-google.desk.tier-krypton { border-top-color: var(--tier-krypton); }
+.sq.prov-google.desk.tier-neon { border-top-color: var(--tier-neon); }
 .sq.prov-google.desk.tier-hydrogen { border-top-color: var(--tier-hydrogen); }
 .sq.prov-google.desk.tier-carbon { border-top-color: var(--tier-carbon); }
 /* the OpenRouter family's card dressing (2026-09-02) — same inherited-chrome
@@ -2716,6 +2720,12 @@ button.cc-name:focus-visible {
      light themes' panel contrast is 1.6-1.7 and the dark ones 8-11, so the K letter stays the redundant glyph
      on light surfaces like flash and astra. Conditional like Argon. */
   --tier-krypton: #cdc8fb;
+  /* Neon (speculative; USER 2026-11-18 mcfdf1e158062): first candidate #ff3a1f.
+     MEASURED CIE76 dE (D65), all four contrast themes and built-in accent presets:
+     nearest light/solarized --danger-ink 33.88, then --tier-sol 34.88; dark nearest
+     --tier-sol 34.88, then --accent 44.46. Light panel contrast 3.57:1, solarized
+     3.45:1 (both >= 3), so no extra dark backing. */
+  --tier-neon: #ff3a1f;
   /* Hydrogen (Gemini 4 Hydrogen, user 2026-11-12 m7941d5c20ccc "Near-white / pale silver"). NEAR-WHITE with the
      faintest green cast, because the neutral near-whites are taken: astra is the near-white that leans violet, and
      a true silver is the text itself (--ink #ccc / #d6d6d6). MEASURED (CIE76 dE, D65; sweep kept in the hand-in): a
@@ -2812,6 +2822,7 @@ button.cc-name:focus-visible {
 .tier.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .tier.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .tier.t-krypton { color: var(--tier-krypton); border-color: color-mix(in srgb, var(--tier-krypton) 45%, var(--line)); }
+.tier.t-neon { color: var(--tier-neon); border-color: color-mix(in srgb, var(--tier-neon) 45%, var(--line)); }
 .tier.t-hydrogen { color: var(--tier-hydrogen); border-color: color-mix(in srgb, var(--tier-hydrogen) 45%, var(--line)); }
 .tier.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 /* lifecycle fills: archived fades (existing); knowledge bearers wash grey.
@@ -4452,6 +4463,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .hsof button.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .hsof button.t-krypton { color: var(--tier-krypton); border-color: color-mix(in srgb, var(--tier-krypton) 45%, var(--line)); }
+.hsof button.t-neon { color: var(--tier-neon); border-color: color-mix(in srgb, var(--tier-neon) 45%, var(--line)); }
 .hsof button.t-hydrogen { color: var(--tier-hydrogen); border-color: color-mix(in srgb, var(--tier-hydrogen) 45%, var(--line)); }
 .hsof button.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 .hsof button.codex-preview:disabled, .hs-tier.codex-preview:disabled { opacity: .45; border-style: dashed; }
