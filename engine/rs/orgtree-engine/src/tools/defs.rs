@@ -2298,9 +2298,17 @@ mod builder_stack_tests {
         }
         for name in ["orgtree_rehire", "orgtree_retool"] {
             let card = cards.iter().find(|card| card["name"] == name).unwrap();
-            for field in ["model_version", "peer_mail", "session", "auto_cheap_compact"] {
+            for field in ["peer_mail", "session", "auto_cheap_compact"] {
                 assert!(card["inputSchema"]["properties"].get(field).is_none(), "{name}/{field}");
             }
+        }
+        // a seat's version is "latest" or a pin, and can be changed on purpose (USER 2026-11-18 m62f2d7627923)
+        for name in ["orgtree_hire", "orgtree_staff", "orgtree_rehire", "orgtree_retool", "orgtree_switch_model"] {
+            let card = cards.iter().find(|card| card["name"] == name).unwrap();
+            let field = &card["inputSchema"]["properties"]["model_version"];
+            assert_eq!(field["type"], "string", "{name}");
+            assert!(field["description"].as_str().unwrap().contains("latest"), "{name}");
+            assert!(!field["description"].as_str().unwrap().contains("New hire only"), "{name}");
         }
     }
 }

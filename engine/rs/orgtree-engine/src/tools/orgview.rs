@@ -522,6 +522,24 @@ mod fast_tools_tests {
         assert_eq!(out["nodes"][1]["scope"]["fast_mode"],false);
         assert_eq!(out["nodes"][2]["scope"]["fast_mode"],true);
     }
+
+    /// state_inspect says which version each seat runs: "latest" and what it resolves to now, or its pin, and the
+    /// model id (org primordial-engine's report 2026-11-18: "model astra" hid that a seat ran Astra 6).
+    #[test]
+    fn inspection_reports_each_seats_model_version_and_model_id() {
+        let ceiling=json!({"org_visibility":"full","tools":{},"add_dirs":[]});
+        let scopes=HashMap::from([(1,(None,json!({"org_visibility":"full"}))),(2,(Some(1),json!({"model_version":"6"})))]);
+        let records=vec![(1,json!({"name":"n1","state":"live","tier":"astra"})),(2,json!({"name":"n2","state":"live","tier":"astra"}))];
+        let reporting=scopes.iter().map(|(id,(parent,_))|(*id,*parent)).collect();
+        let d=inspection_projection(1,"n1".into(),false,vec![],scopes,reporting,records,ceiling,false).unwrap();
+        let out:Value=serde_json::from_str(&d.text).unwrap();
+        let node=|name:&str| out["nodes"].as_array().unwrap().iter().find(|n| n["name"]==name).unwrap().clone();
+        assert_eq!(node("n1")["model_version"],"latest");
+        assert_eq!(node("n1")["resolved_version"],"6.2");
+        assert_eq!(node("n1")["model_id"],"gpt-6.2-astra");
+        assert_eq!(node("n2")["model_version"],"6");
+        assert_eq!(node("n2")["model_id"],"gpt-6-astra");
+    }
 }
 
 /// One catalog tier as `orgtree_list_tiers` lists it: its model is what a NEW hire of the tier gets.

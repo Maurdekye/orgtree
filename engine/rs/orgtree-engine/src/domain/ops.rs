@@ -1276,62 +1276,70 @@ mod draft_hire_preference_tests {
         assert_eq!(scope::clamp(&sc, &scope::org_ceiling(&json!([])))["session"], sc["session"]);
     }
 
-    /// A switch INTO Fable pins 5.2 like a new hire; a switch within Fable or to another tier keeps the stored value.
+    /// LATEST OR PINNED (USER 2026-11-18 m62f2d7627923): a move to another tier starts on that tier's latest, as a
+    /// hire does (a version of the old tier means nothing there); a stay within the tier keeps the stored setting.
     #[test]
-    fn a_switch_into_fable_pins_5_2_and_a_stay_within_fable_keeps_the_stored_value() {
-        let mut sc = json!({"effort": "high", "model_version": "5.5"});
-        scope_on_switch("opus", "fable", &mut sc);
-        assert_eq!(sc["model_version"], "5.2", "a stale version of the old tier is replaced");
-        let mut sc = json!({});
-        scope_on_switch("sonnet", "fable", &mut sc);
-        assert_eq!(sc, json!({"model_version": "5.2"}));
-        for before in [json!({}), json!({"model_version": "5.1"}), json!({"model_version": "5"})] {
+    fn a_tier_change_starts_on_latest_and_a_stay_keeps_the_setting() {
+        for before in [json!({"effort": "high", "model_version": "5.5"}), json!({"effort": "high"})] {
+            let mut sc = before;
+            scope_on_switch("opus", "fable", &mut sc);
+            assert_eq!(sc, json!({"effort": "high"}), "latest on the new tier");
+        }
+        for before in [json!({}), json!({"model_version": "5.1"})] {
             let mut sc = before.clone();
             scope_on_switch("fable", "fable", &mut sc);
-            assert_eq!(sc, before, "within Fable nothing changes; absent stays absent (legacy 5.1)");
+            assert_eq!(sc, before, "within the tier nothing changes");
         }
-        let mut sc = json!({"model_version": "5.1"});
-        scope_on_switch("fable", "opus", &mut sc);
-        assert_eq!(sc, json!({"model_version": "5.1"}), "leaving Fable touches nothing");
-        let mut sc = json!({});
-        scope_on_switch("opus", "sonnet", &mut sc);
-        assert_eq!(sc, json!({}), "no other tier writes a version");
     }
 
-    /// A new Fable hire that names no version is written 5.2 (coordinator 2026-11-09 22:05Z); explicit versions stay.
+    /// Hires start on latest: nothing is written for a hire that names no version or names "latest"; a named
+    /// version pins (USER 2026-11-18 m62f2d7627923 "all hires and all nodes start on \"latest\"").
     #[test]
-    fn a_new_fable_hire_without_a_version_is_pinned_to_5_2() {
-        for req in [json!({}), json!({"model_version": ""})] {
-            let mut sc = req;
-            normalize_hire_preferences("fable", &mut sc).unwrap();
-            assert_eq!(sc, json!({"model_version": "5.2"}));
+    fn a_new_hire_starts_on_latest_and_a_named_version_pins() {
+        for tier in ["fable", "sol", "astra", "opus", "luna"] {
+            for req in [json!({}), json!({"model_version": ""}), json!({"model_version": "latest"})] {
+                let mut sc = req.clone();
+                normalize_hire_preferences(tier, &mut sc).unwrap();
+                assert_eq!(sc, json!({}), "{tier} {req}");
+            }
         }
-        for v in ["5.2", "5.1", "5"] {
+        for (tier, v) in [("fable", "5.1"), ("sol", "6.1"), ("astra", "6"), ("astra", "6.2")] {
             let mut sc = json!({"model_version": v});
-            normalize_hire_preferences("fable", &mut sc).unwrap();
-            assert_eq!(sc["model_version"], v);
+            normalize_hire_preferences(tier, &mut sc).unwrap();
+            assert_eq!(sc, json!({"model_version": v}), "{tier} {v}");
         }
-        let mut sc = json!({});
-        normalize_hire_preferences("opus", &mut sc).unwrap();
-        assert_eq!(sc, json!({}), "no other tier gets a version written");
     }
 
-    /// Luna writes no version for a new hire; Sol and Astra write 6.2 (USER 2026-11-17 md06e7aabe0e3), as Fable 5.2.
+    /// The scope a version choice leaves, or None when the seat's setting is already that (latest stays latest, a
+    /// pin stays the same pin): only a real change is applied or queued.
     #[test]
-    fn draft_hire_preferences_omission_and_explicit_inheritance() {
-        for req in [json!({}),json!({"model_version":"","session":"signed-in","auto_cheap_compact":{}})] {
-            let mut sc = req;
-            normalize_hire_preferences("luna", &mut sc).unwrap();
-            assert_eq!(sc, json!({}));
+    fn a_version_change_is_only_a_different_setting() {
+        assert_eq!(version_change(&json!({"effort": "low"}), None), None, "latest to latest");
+        assert_eq!(version_change(&json!({"model_version": "6"}), Some("6")), None, "the same pin");
+        assert_eq!(version_change(&json!({"effort": "low"}), Some("6")), Some(json!({"effort": "low", "model_version": "6"})));
+        assert_eq!(version_change(&json!({"model_version": "6"}), None), Some(json!({})), "a pin back to latest");
+        assert_eq!(version_change(&json!({"model_version": "6"}), Some("6.2")), Some(json!({"model_version": "6.2"})));
+    }
+
+    /// switch_model, retool and rehire take model_version ("latest" or an offered version). switch_model within the
+    /// tier answers "unchanged" only when the setting is the same; a different one is applied, or queued behind a
+    /// running turn through the switch queue. Every rehire path ends in rehire().
+    #[test]
+    fn switch_model_retool_and_rehire_take_a_model_version() {
+        let source = include_str!("ops.rs");
+        let body = |name: &str| {
+            let s = &source[source.find(&format!("async fn {name}(engine")).unwrap()..];
+            s[..s.find("\n}\n").unwrap()].to_string()
+        };
+        let switch = body("switch_model");
+        assert!(switch.contains("version_change(&n.scope"), "switch_model compares the setting");
+        assert!(switch.find("version_change(&n.scope").unwrap() < switch.find("\"unchanged\": true").unwrap(),
+            "a different version is not unchanged");
+        assert!(switch.contains("\"model_version\": choice"), "the queued intent carries the version");
+        for name in ["switch_model", "retool", "rehire"] {
+            assert!(body(name).contains("catalog::version_choice("), "{name} validates model_version");
         }
-        for tier in ["sol", "astra"] {
-            let mut sc = json!({});
-            normalize_hire_preferences(tier, &mut sc).unwrap();
-            assert_eq!(sc, json!({"model_version": "6.2"}), "{tier}");
-        }
-        let mut sc = json!({"model_version": "6.1"});
-        normalize_hire_preferences("sol", &mut sc).unwrap();
-        assert_eq!(sc, json!({"model_version": "6.1"}), "an explicit older version stays");
+        assert!(!body("rehire").contains("for key in [\"model_version\""), "rehire no longer refuses model_version");
     }
 
     #[test]

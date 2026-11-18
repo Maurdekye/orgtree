@@ -119,7 +119,8 @@ mod tests {
     fn an_unversioned_sol_hire_takes_6_2_speed_support_and_an_existing_seat_keeps_6_1() {
         let mut st = State::default();
         st.codex_fast_modes.insert("gpt-6.1-sol".into(), "priority".into());
-        assert!(supported(&st, "sol", None), "an existing unpinned seat runs 6.1");
+        assert!(!supported(&st, "sol", None), "a seat without a pin runs the latest, 6.2 (USER 2026-11-18 mcdb197b3d169)");
+        assert!(supported(&st, "sol", Some("6.1")), "a 6.1 pin keeps 6.1's speed");
         assert!(hire_enabled(&st, "sol", &json!({"fast_mode": true}), &json!({})).is_err(), "a new hire is 6.2");
         assert!(validate_defaults(&st, &json!({"sol": true})).is_err());
         st.codex_fast_modes.insert("gpt-6.2-sol".into(), "priority".into());
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     fn fast_mode_is_model_specific_and_off_is_explicit() {
         let mut st=State::default();
-        st.codex_fast_modes.insert("gpt-6.1-sol".into(),"priority".into());
+        st.codex_fast_modes.insert("gpt-6.2-sol".into(),"priority".into());
         assert!(supported(&st,"sol",None));
         assert!(!supported(&st,"sol",Some("6")));
         assert!(supported(&st,"opus",None));

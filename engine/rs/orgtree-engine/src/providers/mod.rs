@@ -1502,18 +1502,19 @@ mod model_version_tests {
         assert_eq!(row["display_versions"][version], expected);
     }
 
-    /// Astra 6.2 is what a NEW hire gets and what the tier row names; 6 stays what a seat with no version runs.
+    /// Astra's row names its latest, 6.2, which every seat without a pin runs; 6 stays pinnable. No row names a
+    /// "default" other than the latest (USER 2026-11-18 m62f2d7627923).
     #[test]
     fn astra_row_names_6_2_for_a_new_hire_and_keeps_version_six() {
         let astra = catalog::tier("astra").unwrap();
         assert_eq!(catalog::display_name(astra, Some("6")).as_deref(), Some("ChatGPT Astra 6"));
-        assert_eq!(catalog::model_for("astra", None), "gpt-6-astra");
+        assert_eq!(catalog::model_for("astra", None), "gpt-6.2-astra");
         let row = tier_rows(catalog::OPENAI, false).into_iter().find(|r| r["tier"] == "astra").unwrap();
         assert_eq!(row["model"], "gpt-6.2-astra");
         assert_eq!(row["display_name"], "ChatGPT Astra 6.2");
         assert_eq!(row["display_versions"]["6"], "ChatGPT Astra 6");
         assert_eq!(row["display_versions"]["6.2"], "ChatGPT Astra 6.2");
-        assert_eq!(row["legacy_version"], "6", "what blank means on a seat that exists");
+        assert!(row.get("legacy_version").is_none(), "no default other than the latest");
         assert_eq!(row["seat"], 8.0);
     }
 
@@ -1548,9 +1549,7 @@ mod model_version_tests {
         assert_eq!(row["display_name"], "Claude Fable 5.2");
         assert_eq!(row["display_versions"]["5.1"], "Claude Fable 5.1");
         assert_eq!(row["display_versions"]["5.2"], "Claude Fable 5.2");
-        assert_eq!(row["legacy_version"], "5.1", "what blank means on a seat that exists");
-        let opus = tier_rows(catalog::CLAUDE, false).into_iter().find(|r| r["tier"] == "opus").unwrap();
-        assert!(opus["legacy_version"].is_null());
+        assert!(row.get("legacy_version").is_none(), "no default other than the latest");
     }
 
     #[test]
@@ -1638,7 +1637,7 @@ mod conditional_tests {
         assert_eq!(sol["model"], "gpt-6.2-sol");
         assert_eq!(sol["display_versions"]["6.1"], "ChatGPT Sol 6.1");
         assert_eq!(sol["display_versions"]["6"], "ChatGPT Sol 6");
-        assert_eq!(sol["legacy_version"], "6.1", "what blank means on a seat that exists");
+        assert!(sol.get("legacy_version").is_none(), "no default other than the latest");
 
         let muse = super::tier_rows(super::catalog::MUSE, false).into_iter()
             .find(|row| row["tier"] == "wonder-full").unwrap();
