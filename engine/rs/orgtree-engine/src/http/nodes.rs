@@ -990,7 +990,7 @@ pub(crate) async fn apply_user_scope_in_tx(
     let tier: String = row.get(3);
     let login = crate::accounts::next_turn_login(row.get::<_, Option<String>>(4).as_deref(), row.get::<_, Option<String>>(5).as_deref());
     let version: Option<String> = match b.get("model_version") {
-        Some(v) => v.as_str().filter(|s| !s.is_empty()).map(str::to_string),
+        Some(v) => v.as_str().filter(|s| !s.is_empty() && *s != crate::providers::catalog::LATEST).map(str::to_string),
         None => before.get("model_version").and_then(Value::as_str).map(str::to_string),
     };
     let view = e.accounts.view();
@@ -1011,7 +1011,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     }
     if let Some(v) = b.get("model_version") {
-        if crate::providers::catalog::antigravity_claude(&tier) && v.as_str().is_some_and(|s| !s.is_empty()) {
+        if crate::providers::catalog::antigravity_claude(&tier) && v.as_str().is_some_and(|s| !s.is_empty() && s != crate::providers::catalog::LATEST) {
             crate::refuse!(BadRequest, "Antigravity Claude tiers are fixed at 5.5 and have no version choice");
         }
         // a Muse pin must be a model the seat's own login offers
@@ -1022,7 +1022,8 @@ pub(crate) async fn apply_user_scope_in_tx(
                 crate::providers::MuseOffer::Unknown(why) => crate::refuse!(Conflict, "{why}: the version is not pinned on a login whose catalog is unknown; try again in a moment"),
             }
         }
-        match v.as_str().filter(|s| !s.is_empty()) {
+        // "latest" (or empty) follows the tier's newest version and is stored as nothing (USER 2026-11-18)
+        match v.as_str().filter(|s| !s.is_empty() && *s != crate::providers::catalog::LATEST) {
             Some(s) => obj.insert("model_version".into(), json!(s)),
             None => obj.remove("model_version"),
         };

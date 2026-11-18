@@ -497,7 +497,7 @@ fn seat_scope_props(dirs: &str) -> Value {
 fn new_hire_scope_props(dirs: &str) -> Value {
     merge(seat_scope_props(dirs), json!({
         "permission_mode": { "type": "string", "enum": ["plan", "default", "acceptEdits", "bypassPermissions"] },
-        "model_version": { "type": "string", "description": "New hire only: offered version key; empty uses latest" },
+        "model_version": { "type": "string", "description": MODEL_VERSION_HELP },
         "session": { "type": ["string", "array"], "items": { "type": "string" }, "minItems": 1,
             "description": "New hire only: Windows session preference; Guide" },
         "peer_mail": { "type": "boolean", "description": "New hire only: allow its direct reports to message each other" },
@@ -996,6 +996,10 @@ fn build_tool_project() -> Value {
     project
 }
 
+/// A seat's model version is LATEST (follows the tier's newest version as releases add them) or a PIN (never changes;
+/// USER 2026-11-18 m62f2d7627923).
+const MODEL_VERSION_HELP: &str = "\"latest\" (default: follows the tier's newest version) or an offered version key to pin";
+
 #[inline(never)]
 #[nolog]
 fn build_tool_rehire() -> Value {
@@ -1006,7 +1010,8 @@ fn build_tool_rehire() -> Value {
             json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
                     "charter": { "type": "string" }, "kickoff": { "type": "string" },
-                    "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" } }),
+                    "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
+                    "model_version": { "type": "string", "description": "\"latest\" or an offered version key to pin; omitted keeps its saved setting" } }),
             seat_scope_props(DIRS_REHIRE),
         ),
         &["node"],
@@ -1034,6 +1039,7 @@ fn build_tool_retool() -> Value {
         merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
                       "remove_dirs": { "type": "array", "items": { "type": "string" },
                                        "description": "folders it holds to remove" },
+                      "model_version": { "type": "string", "description": "\"latest\" or an offered version key of its tier to pin; applies at its next turn boundary" },
                       "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode", "follow"],
                                    "description": "OpenRouter and language model server seats: runs it on this harness from its next turn (a fresh session with a summary); \"follow\" returns it to its key's or server's" } }),
               scope_props(DIRS_RETOOL)),
@@ -1046,8 +1052,9 @@ fn build_tool_retool() -> Value {
 fn build_tool_switch_model() -> Value {
     tool(
         "orgtree_switch_model",
-        "Move an agent below you to another tier at its next turn boundary. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn.",
-        json!({ "node": { "type": "string" }, "tier": { "type": "string" } }),
+        "Move an agent below you to another tier, or to another version of its tier, at its next turn boundary. An effort-only change on an eligible Claude seat applies at its next model call, mid-turn.",
+        json!({ "node": { "type": "string" }, "tier": { "type": "string" },
+                "model_version": { "type": "string", "description": "\"latest\" or an offered version key of the tier to pin; omitted: a new tier starts on latest, the same tier is unchanged" } }),
         &["node", "tier"],
     )
 }
@@ -2172,7 +2179,7 @@ mod builder_stack_tests {
             if matches!(name, "orgtree_hire" | "orgtree_staff") {
                 let fields = serde_json::json!({
         "permission_mode": { "type": "string", "enum": ["plan", "default", "acceptEdits", "bypassPermissions"] },
-        "model_version": { "type": "string", "description": "New hire only: offered version key; empty uses latest" },
+        "model_version": { "type": "string", "description": crate::tools::defs::MODEL_VERSION_HELP },
         "session": { "type": ["string", "array"], "items": { "type": "string" }, "minItems": 1,
             "description": "New hire only: Windows session preference; Guide" },
         "peer_mail": { "type": "boolean", "description": "New hire only: allow its direct reports to message each other" },

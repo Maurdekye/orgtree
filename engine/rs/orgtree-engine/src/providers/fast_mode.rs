@@ -41,8 +41,8 @@ pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
     };
     for (tier, enabled) in rows {
         if catalog::tier(tier).is_none() { crate::refuse!(BadRequest, "unknown fast-mode tier {tier}"); }
-        // a default applies to FUTURE hires: validate it against the model a new hire of the tier gets (Fable 5.2)
-        validate(st,tier,catalog::tier(tier).and_then(catalog::new_hire_version),enabled)?;
+        // a default applies to FUTURE hires, which start on the tier's latest version
+        validate(st,tier,None,enabled)?;
     }
     Ok(value.clone())
 }
@@ -50,8 +50,8 @@ pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
 /// Explicit hire values are validated; a stale default never forces an unsupported model.
 #[nolog]
 pub fn hire_enabled(st: &State, tier: &str, req: &Value, settings: &Value) -> anyhow::Result<bool> {
-    // a hire that names no version gets the tier's new-hire version (Fable 5.2), so its speed support is that model's
-    let version = req["model_version"].as_str().filter(|v| !v.is_empty()).or_else(|| catalog::tier(tier).and_then(catalog::new_hire_version));
+    // a hire that names no version (or "latest") runs the tier's latest, so its speed support is that model's
+    let version = req["model_version"].as_str().filter(|v| !v.is_empty() && *v != catalog::LATEST);
     match req.get("fast_mode") {
         Some(value) => validate(st,tier,version,value),
         None => Ok(settings["default_fast_mode"][tier].as_bool().unwrap_or(false) && supported(st,tier,version)),

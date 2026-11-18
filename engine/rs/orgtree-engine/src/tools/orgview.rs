@@ -491,6 +491,13 @@ fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, na
             "tools": {"bash":effective["tools"]["bash"],"web":effective["tools"]["web"],"edit":effective["tools"]["edit"],"subagents":effective["tools"]["subagents"],"orgtree":effective["tools"]["orgtree"]}, "mcp":effective["tools"]["mcp"],
             "add_dirs": effective["add_dirs"], "fast_mode": effective["fast_mode"].as_bool().unwrap_or(false)});
         row["visibility"] = effective["org_visibility"].clone();
+        // the version it runs: "latest" and what that is now, or its pin, and the model id (a project has none)
+        if row["kind"] != "project" {
+            let pin = scopes[&id].1.get("model_version").and_then(Value::as_str).filter(|v| !v.is_empty());
+            if let Some(o) = catalog::version_view(row["tier"].as_str().unwrap_or(""), pin).as_object() {
+                for (k, v) in o { row[k.as_str()] = v.clone(); }
+            }
+        }
         out.push(row);
     }
     for name in &names {
@@ -546,7 +553,7 @@ mod fast_tools_tests {
 #[nolog]
 pub(crate) fn tier_entry(t: &catalog::Tier) -> Value {
     json!({ "tier": t.tier, "provider": catalog::provider_label(t.provider), "seat": t.seat,
-            "model": catalog::new_hire_model(t), "context": t.context })
+            "model": t.model, "context": t.context })
 }
 
 #[logged]

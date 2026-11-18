@@ -36,10 +36,10 @@ pub struct Tier {
 }
 
 pub static TIERS: &[Tier] = &[
-    // `model` stays 5.1: what "no version saved" has always meant for a seat that exists. Fable 5.2 leads `versions`
-    // and is what a NEW hire gets (`new_hire_version`).
+    // LATEST OR PINNED (USER 2026-11-18 m62f2d7627923, mcdb197b3d169): `model` is always the first of `versions`, so
+    // a seat with no saved version runs the newest one and moves with the catalog; a pin never changes.
     // Seat 8 (USER 2026-11-13 md539ddd936f9); seats already hired at 10 keep their stored price until rehired.
-    Tier { tier: "fable", provider: CLAUDE, seat: 8.0, model: "claude-fable-5-1",
+    Tier { tier: "fable", provider: CLAUDE, seat: 8.0, model: "claude-fable-5-2",
         versions: &[("5.2", "claude-fable-5-2"), ("5.1", "claude-fable-5-1"), ("5", "claude-fable-5")], letter: "F",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
     Tier { tier: "opus", provider: CLAUDE, seat: 4.0, model: "claude-opus-5-5",
@@ -51,13 +51,12 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "haiku", provider: CLAUDE, seat: 0.5, model: "claude-haiku-5-5",
         versions: &[("5.5", "claude-haiku-5-5"), ("4.5", "claude-haiku-4-5")], letter: "H",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
-    // Sol 6.2 and Astra 6.2 (USER 2026-11-17 md06e7aabe0e3; Codex CLI 0.166.0 lists both on both OpenAI accounts):
-    // as Fable 5.2, 6.2 leads `versions` and is what a NEW hire gets, while `model` stays what "no version saved"
-    // has meant for a seat that exists (Sol 6.1, Astra 6). Prices follow OpenAI's 6.2 API rates; Astra $8 → seat 8.
-    Tier { tier: "astra", provider: OPENAI, seat: 8.0, model: "gpt-6-astra",
+    // Sol 6.2 and Astra 6.2 (USER 2026-11-17 md06e7aabe0e3; Codex CLI 0.166.0 lists both on both OpenAI accounts).
+    // Prices follow OpenAI's 6.2 API rates; Astra $8 → seat 8.
+    Tier { tier: "astra", provider: OPENAI, seat: 8.0, model: "gpt-6.2-astra",
         versions: &[("6.2", "gpt-6.2-astra"), ("6", "gpt-6-astra")], letter: "A",
         context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((8.0, 0.40, 40.0)) },
-    Tier { tier: "sol", provider: OPENAI, seat: 2.0, model: "gpt-6.1-sol",
+    Tier { tier: "sol", provider: OPENAI, seat: 2.0, model: "gpt-6.2-sol",
         versions: &[("6.2", "gpt-6.2-sol"), ("6.1", "gpt-6.1-sol"), ("6", "gpt-6-sol"), ("5.6", "gpt-5.6-sol")], letter: "S",
         context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((2.0, 0.10, 10.0)) },
     // GPT-6.1 Terra (user 2026-10-26 "get 4.4.6 out with this", then "make
@@ -252,32 +251,41 @@ pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }
 
-/// The version a NEW hire of the tier gets written into its scope when it names none: the latest offered version
-/// when it differs from the tier's legacy default (`model`, what "no version saved" has always meant for a seat
-/// that exists). Fable 5.2 (USER 2026-11-09 21:52Z): `None` for every tier whose latest IS its default.
+/// The word for "no pinned version": the seat runs its tier's newest version, whatever that is when it runs.
+pub const LATEST: &str = "latest";
+
+/// A model_version a hire, a rehire, a switch, a retool or the gear asks for: `None` is LATEST ("latest" or empty:
+/// nothing is stored, the seat follows the newest version, USER 2026-11-18 m62f2d7627923), `Some` is a pin. A
+/// static tier pins only an offered version; Muse, OpenRouter and model-server pins are checked where their catalogs
+/// are known.
 #[nolog]
-pub fn new_hire_version(t: &Tier) -> Option<&'static str> {
-    t.versions.first().filter(|(_, model)| *model != t.model).map(|(version, _)| *version)
+pub fn version_choice(tier: &str, raw: &serde_json::Value) -> Result<Option<String>, String> {
+    let Some(v) = raw.as_str() else { return Err("model_version must be a string".into()) };
+    if v.is_empty() || v == LATEST {
+        return Ok(None);
+    }
+    if antigravity_claude(tier) {
+        return Err("Antigravity Claude tiers are fixed at 5.5 and have no version choice".into());
+    }
+    if is_muse(tier) || is_openrouter(tier) || is_langserver(tier) {
+        return Ok(Some(v.to_string()));
+    }
+    match self::tier(tier) {
+        Some(t) if !t.versions.iter().any(|(key, _)| *key == v) => {
+            let offered: Vec<&str> = t.versions.iter().map(|(key, _)| *key).collect();
+            Err(format!("{tier} does not offer model version {v}; use \"{LATEST}\" or one of: {}", offered.join(", ")))
+        }
+        _ => Ok(Some(v.to_string())),
+    }
 }
 
-/// The model a new hire of the tier runs: its default model, or the one `new_hire_version` names.
+/// How a seat's version reads (state_inspect): its setting ("latest" or the pin), the version that resolves to
+/// now, and the model id it runs.
 #[nolog]
-pub fn new_hire_model(t: &Tier) -> &'static str {
-    t.versions.first().filter(|(_, model)| *model != t.model).map_or(t.model, |(_, model)| *model)
-}
-
-/// The version a seat that EXISTS with no saved version still means, when that differs from what a new hire gets
-/// (Fable: "5.1"); `None` when blank and the latest are the same.
-#[nolog]
-pub fn legacy_version(t: &Tier) -> Option<&'static str> {
-    new_hire_version(t)?;
-    t.versions.iter().find(|(_, model)| *model == t.model).map(|(version, _)| *version)
-}
-
-/// The user-facing name of what a new hire of the tier gets.
-#[logged]
-pub fn new_hire_display_name(t: &Tier) -> Option<String> {
-    display_name(t, new_hire_version(t))
+pub fn version_view(tier: &str, pin: Option<&str>) -> serde_json::Value {
+    let model = model_for(tier, pin);
+    let resolved = self::tier(tier).and_then(|t| t.versions.iter().find(|(_, m)| *m == model).map(|(key, _)| *key));
+    serde_json::json!({ "model_version": pin.unwrap_or(LATEST), "resolved_version": resolved, "model_id": model })
 }
 
 /// Product and family names shown beside an agent's selected model. Keep

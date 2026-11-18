@@ -594,22 +594,34 @@ mod agy_placement_tests {
 /// The seat's pinned model version (its scope's `model_version`).
 #[nolog]
 fn pinned(scope: &Value) -> Option<&str> {
-    scope.get("model_version").and_then(Value::as_str).filter(|v| !v.is_empty())
+    scope.get("model_version").and_then(Value::as_str).filter(|v| !v.is_empty() && *v != catalog::LATEST)
 }
 
-/// A seat that moves INTO a tier whose new hires get an explicit version (Fable 5.2) behaves like a new hire and is
-/// pinned to it; a move that leaves the tier, or stays in it, keeps the stored value (an absent one stays absent).
+/// A seat that moves to another tier starts on that tier's LATEST version, as a hire does (a version of the old
+/// tier means nothing there); a stay within the tier keeps the stored setting. A switch that names a version of its
+/// own applies it after this.
 #[nolog]
 fn scope_on_switch(old_tier: &str, new_tier: &str, scope: &mut Value) {
-    if old_tier == new_tier {
-        return;
-    }
-    if let Some(version) = catalog::tier(new_tier).and_then(catalog::new_hire_version) {
-        if !scope.is_object() {
-            *scope = json!({});
+    if old_tier != new_tier {
+        if let Some(o) = scope.as_object_mut() {
+            o.remove("model_version");
         }
-        scope["model_version"] = json!(version);
     }
+}
+
+/// The scope a version choice leaves (`None` = latest, `Some` = a pin), or `None` when the seat's setting is
+/// already that one: only a real change is applied or queued (USER 2026-11-18 m62f2d7627923).
+#[nolog]
+fn version_change(scope: &Value, choice: Option<&str>) -> Option<Value> {
+    if pinned(scope) == choice {
+        return None;
+    }
+    let mut next = if scope.is_object() { scope.clone() } else { json!({}) };
+    match choice {
+        Some(v) => { next["model_version"] = json!(v); }
+        None => { next.as_object_mut().unwrap().remove("model_version"); }
+    }
+    Some(next)
 }
 
 /// Whether an op places or tunes a Muse seat: its tier, or the tier of the
@@ -1211,28 +1223,12 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
 /// INSERT stores this same scope, including superior-insertion hires.
 #[nolog]
 fn normalize_hire_preferences(tier: &str, sc: &mut Value) -> Result<()> {
+    // a hire starts on LATEST unless it names a version (USER 2026-11-18 m62f2d7627923): latest is stored as nothing
     if let Some(value) = sc.get("model_version").cloned() {
-        let Some(version) = value.as_str() else { refuse!(BadRequest, "model_version must be a string") };
-        if version.is_empty() {
-            sc.as_object_mut().unwrap().remove("model_version");
-        } else {
-            if catalog::antigravity_claude(tier) {
-                refuse!(BadRequest, "Antigravity Claude tiers are fixed at 5.5 and have no version choice");
-            }
-            if !catalog::is_muse(tier) && !catalog::is_openrouter(tier) && !catalog::is_langserver(tier) {
-                if let Some(model) = catalog::tier(tier) {
-                    if !model.versions.iter().any(|(key, _)| *key == version) {
-                        refuse!(BadRequest, "{tier} does not offer model version {version}");
-                    }
-                }
-            }
-        }
-    }
-    // a new hire that names no version gets the tier's new-hire version written (Fable 5.2); a seat with no saved
-    // version keeps meaning the tier's legacy default, so seats that exist never move
-    if sc.get("model_version").is_none() {
-        if let Some(version) = catalog::tier(tier).and_then(catalog::new_hire_version) {
-            sc["model_version"] = json!(version);
+        match catalog::version_choice(tier, &value) {
+            Ok(Some(version)) => sc["model_version"] = json!(version),
+            Ok(None) => { sc.as_object_mut().unwrap().remove("model_version"); }
+            Err(why) => refuse!(BadRequest, "{why}"),
         }
     }
     if sc.get("peer_mail").is_some_and(|v| !v.is_boolean()) {
@@ -2138,7 +2134,7 @@ async fn restore_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Act
 
 #[logged]
 async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
-    for key in ["model_version", "session", "peer_mail", "auto_cheap_compact"] {
+    for key in ["session", "peer_mail", "auto_cheap_compact"] {
         if req.get(key).is_some() { refuse!(BadRequest, "{key} is a new-hire option; restoration keeps its saved preference"); }
     }
     if req.get("index").is_some() {
@@ -2178,7 +2174,15 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         refuse!(Conflict, "provider is disabled for {tier}");
     }
     validate_account(engine, &org.slug, &tier, str_arg(req, "account").or(n.account.as_deref()))?;
-    muse_admit(engine, &tier, pinned(&n.scope), str_arg(req, "account").or(n.account.as_deref()))?;
+    // the version it comes back on: its stored setting (latest stays latest, a pin stays), latest on another tier,
+    // or the one the rehire names (USER 2026-11-18 m62f2d7627923)
+    let mut restored = n.scope.clone();
+    scope_on_switch(&n.tier, &tier, &mut restored);
+    if let Some(raw) = req.get("model_version") {
+        let choice = match catalog::version_choice(&tier, raw) { Ok(c) => c, Err(why) => refuse!(BadRequest, "{why}") };
+        if let Some(next) = version_change(&restored, choice.as_deref()) { restored = next; }
+    }
+    muse_admit(engine, &tier, pinned(&restored), str_arg(req, "account").or(n.account.as_deref()))?;
     let anchor_stake = anchor.as_ref().map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = req["grant"].as_f64().unwrap_or(n.grant);
     if grant < 0.0 { refuse!(BadRequest, "a grant cannot be negative"); }
@@ -2206,7 +2210,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         .get(0);
     let inherited_scope = match &anchor {
         Some(a) => {
-            let mut inherited = scope::normalize(&n.scope);
+            let mut inherited = scope::normalize(&restored);
             let target_scope = capability(tx, a.id, &caps.settings).await?;
             for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] { inherited[k] = target_scope[k].clone(); }
             Some(inherited)
@@ -2238,8 +2242,13 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         fx.reconfigure.push(a.id);
     } else {
         tx.execute("UPDATE ot.agents SET provider = $2 WHERE id = $1", &[&n.id, &catalog::provider_of(&tier)]).await?;
+        if restored != n.scope {
+            tx.execute("UPDATE ot.agents SET scope = $2 WHERE id = $1", &[&n.id, &restored]).await?;
+        }
     }
     let mut scope_req = req.clone();
+    // the version is settled above; retool must not apply it again to the stored tier
+    if let Some(o) = scope_req.as_object_mut() { o.remove("model_version"); }
     if let Some(raw) = str_arg(req, "account") {
         let selected = match crate::accounts::choice(Some(raw)) {
             crate::accounts::Choice::Account(a) => Some(a), _ => None,
@@ -3682,7 +3691,41 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     agent_only(&n, "switch models")?;
     authorize(tx, actor, &n, "switch the model of").await?;
     let tier = str_arg(req, "tier").unwrap_or("").to_string();
+    // a version named with the switch: "latest" or an offered version of the target tier (USER 2026-11-18 m62f2d7627923)
+    let choice: Option<Option<String>> = match req.get("model_version").filter(|v| !v.is_null()) {
+        Some(raw) => Some(match catalog::version_choice(&tier, raw) { Ok(c) => c, Err(why) => refuse!(BadRequest, "{why}") }),
+        None => None,
+    };
     if tier == n.tier {
+        // another version within the tier is a change of the seat's version, not "unchanged": it applies at the turn
+        // boundary like a switch (queued behind a running turn), and the CLI restarts on the new model
+        if let Some(choice) = &choice {
+            if let Some(next) = version_change(&n.scope, choice.as_deref()) {
+                let choice_word = choice.as_deref().unwrap_or(catalog::LATEST);
+                muse_admit(engine, &tier, choice.as_deref(), n.account.as_deref())?;
+                if busy(tx, n.id).await? {
+                    let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": false,
+                        "account": req["account"], "model_version": choice_word }), true).await?;
+                    event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier,
+                        "model_version": choice_word, "by": actor.label() }), fx).await?;
+                    fx.agents.insert(n.id);
+                    fx.queued.push(n.id);
+                    fx.events = true;
+                    return Ok(json!({ "node": n.name, "queued": true, "pending_switch": tier, "model_version": choice_word, "replaced": replaced }));
+                }
+                tx.execute("UPDATE ot.agents SET scope = $2, context_window = NULL, pending_switch = NULL, row_version = row_version + 1 WHERE id = $1",
+                    &[&n.id, &next]).await?;
+                let notice = super::settings_notice::parts(super::settings_notice::scope_only(&n.scope), super::settings_notice::scope_only(&next));
+                event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": { "model_version": choice_word }, "notice": notice }), fx).await?;
+                fx.agents.insert(n.id);
+                if let Some(p) = n.parent { fx.agents.insert(p); }
+                fx.reconfigure.push(n.id);
+                fx.events = true;
+                let view = catalog::version_view(&tier, choice.as_deref());
+                return Ok(json!({ "node": n.name, "tier": tier, "model_version": view["model_version"],
+                    "resolved_version": view["resolved_version"], "model_id": view["model_id"] }));
+            }
+        }
         let previous: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
         tx.execute("UPDATE ot.agents SET pending_switch = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?;
         if let Some(previous) = previous {
@@ -3722,9 +3765,10 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         crate::accounts::Choice::Primary => None,
         crate::accounts::Choice::Unset => if from == to { n.account.clone() } else { None },
     };
-    muse_admit(engine, &tier, pinned(&n.scope), lands.as_deref())?;
+    muse_admit(engine, &tier, choice.as_ref().and_then(|c| c.as_deref()), lands.as_deref())?;
     if busy(tx, n.id).await? {
-        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": crossing, "account": req["account"] }), true).await?;
+        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": crossing, "account": req["account"],
+            "model_version": req["model_version"] }), true).await?;
         event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
         fx.agents.insert(n.id);
         fx.queued.push(n.id);
@@ -3790,10 +3834,13 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         )
         .await?;
     }
-    // a move INTO a tier whose new hires get an explicit version (Fable 5.2) pins it like a new hire; a gear save
+    // a move to another tier starts on its latest unless the switch names a version (scope_on_switch); a gear save
     // that names a version of its own lands after this and wins
     let mut next_scope = n.scope.clone();
     scope_on_switch(&n.tier, &tier, &mut next_scope);
+    if let Some(Some(v)) = &choice {
+        next_scope["model_version"] = json!(v);
+    }
     if next_scope != n.scope {
         tx.execute("UPDATE ot.agents SET scope = $2 WHERE id = $1", &[&n.id, &next_scope]).await?;
     }
@@ -4454,6 +4501,23 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         let r = set_harness(engine, org, tx, actor, &n, want.as_deref(), fx).await?;
         return Ok(json!({ "node": n.name, "harness": retool_harness_out(&r), "cascaded": [] }));
     }
+    // its model version (USER 2026-11-18 m62f2d7627923): "latest" or an offered version of its tier, applied through
+    // the switch path (at the turn boundary, queued behind a running turn); the rest of the call reads the seat after
+    let version = match req.get("model_version").filter(|v| !v.is_null()) {
+        Some(raw) => {
+            if let Err(why) = catalog::version_choice(&n.tier, raw) { refuse!(BadRequest, "{why}") }
+            let switch = json!({ "node": n.name, "tier": n.tier, "model_version": raw });
+            Some(boxed(|| switch_model(engine, org, tx, actor, &switch, fx)).await?)
+        }
+        None => None,
+    };
+    if let Some(out) = version.as_ref().filter(|_| req.as_object().is_some_and(|o|
+        o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "model_version")))) {
+        let mut out = out.clone();
+        out["cascaded"] = json!([]);
+        return Ok(out);
+    }
+    let n = if version.is_some() { node_by_name(tx, org.id, &n.name).await? } else { n };
     let fast = if let Some(value) = req.get("fast_mode") {
         let pending: Option<String> = tx.query_one("SELECT pending_switch->>'tier' FROM ot.agents WHERE id=$1", &[&n.id]).await?.get(0);
         Some(crate::providers::fast_mode::validate_next_turn(

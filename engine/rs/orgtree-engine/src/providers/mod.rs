@@ -871,11 +871,9 @@ fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
                 .collect();
             json!({
                 "tier": t.tier, "provider": t.provider, "seat": t.seat,
-                "model": catalog::new_hire_model(t), "letter": t.letter,
-                "display_name": catalog::new_hire_display_name(t),
+                "model": t.model, "letter": t.letter,
+                "display_name": catalog::display_name(t, None),
                 "display_versions": display_versions,
-                // what blank means on a seat that already exists, where it differs from what a new hire gets
-                "legacy_version": catalog::legacy_version(t),
             })
         })
         .collect()
@@ -889,7 +887,7 @@ pub fn payload(engine: &Engine) -> Value {
         for row in &mut tiers {
             let tier = row["tier"].as_str().unwrap_or("").to_string();
             // what a NEW hire gets (Fable 5.2 offers fast mode; a seat with no saved version is still 5.1)
-            row["fast_mode"] = json!(fast_mode::supported(&st, &tier, catalog::tier(&tier).and_then(catalog::new_hire_version)));
+            row["fast_mode"] = json!(fast_mode::supported(&st, &tier, None));
             let versions: std::collections::BTreeMap<&str, bool> = catalog::tier(&tier)
                 .map(|t| t.versions.iter().map(|(v,_)| (*v,fast_mode::supported(&st,&tier,Some(v)))).collect()).unwrap_or_default();
             row["fast_mode_versions"] = json!(versions);
