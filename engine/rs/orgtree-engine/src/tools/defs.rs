@@ -2211,14 +2211,10 @@ mod builder_stack_tests {
                 assert!(got["inputSchema"].get("allOf").is_none());
                 want["description"] = got["description"].clone();
             }
-            // LATEST OR PINNED (USER 2026-11-18 m62f2d7627923): rehire, retool and switch_model take model_version,
-            // and switch_model's text says it changes a version too
-            if matches!(name, "orgtree_rehire" | "orgtree_retool" | "orgtree_switch_model") {
+            // LATEST OR PINNED (USER 2026-11-18 m62f2d7627923): rehire and retool take model_version
+            if matches!(name, "orgtree_rehire" | "orgtree_retool") {
                 assert_eq!(got["inputSchema"]["properties"]["model_version"]["type"], "string", "{name}");
                 want["inputSchema"]["properties"]["model_version"] = got["inputSchema"]["properties"]["model_version"].clone();
-            }
-            if name == "orgtree_switch_model" {
-                want["description"] = got["description"].clone();
             }
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
             *want=got.clone();
@@ -2296,6 +2292,16 @@ mod builder_stack_tests {
         }
         ask["inputSchema"]["properties"]["questions"]["items"]["properties"]["options"] =
             got["inputSchema"]["properties"]["questions"]["items"]["properties"]["options"].clone();
+        // LATEST OR PINNED (USER 2026-11-18 m62f2d7627923): switch_model takes model_version and its text says it
+        // changes a version too. Nothing else about the card changed.
+        let switch = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_switch_model").unwrap();
+        let got = actual.iter().find(|c| c["name"] == "orgtree_switch_model").unwrap();
+        let mut probe = got.clone();
+        assert!(probe["inputSchema"]["properties"].as_object_mut().unwrap().remove("model_version").is_some());
+        assert!(probe["description"].as_str().unwrap().contains("another tier or version at its next turn boundary"));
+        probe["description"] = switch["description"].clone();
+        assert_eq!(*switch, probe, "orgtree_switch_model: only model_version and the description changed");
+        *switch = got.clone();
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
