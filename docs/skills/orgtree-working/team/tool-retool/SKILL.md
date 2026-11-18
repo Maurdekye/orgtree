@@ -26,6 +26,7 @@ which real agent supervises a member and which project charters it receives.
 | `org_visibility` | `self`, `team`, `subtree`, `full`; must fit your effective scope. |
 | `permission_mode` | `default`, `acceptEdits`, `bypassPermissions`; must fit your effective mode. |
 | `effort` | A level the current tier/model/login supports (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` are the shared vocabulary); `""` removes the override to inherit. Unsupported levels are refused. |
+| `model_version` | `"latest"` (follow the tier's newest version) or an offered version key of the seat's tier to pin. It goes through the [switch](../tool-switch-model/SKILL.md) path: applied at the turn boundary, queued behind a running turn; the same setting changes nothing. |
 | `account` | Exact compatible org-allowed account id or `primary` for the provider's own login; omission keeps binding. Busy account changes queue for a turn boundary. |
 | `account_fallback` | Set opt-in/out for fallback within the same provider. |
 | `clear_account_fallback` | True removes the override and uses org default; takes precedence over account_fallback. |

@@ -12,7 +12,7 @@ These are per-agent settings. Agents explain and recommend choices; they do not 
 | Control | Storage | Choices and effect |
 |---|---|---|
 | Model | `node:tier` through a model-switch operation | Provider-grouped tiers; changing the tier changes the agent's model and seat cost. |
-| Model version | `node:model_version` in scope | Shown when a tier has more than one listed version; empty means latest, with its version shown in the label. |
+| Model version | `node:model_version` in scope | Shown when a tier has more than one listed version. **latest (x)** follows the tier's newest version, also after later releases; a listed version pins it and never changes. There is no other default. |
 | Harness | the seat's own harness (`extra.harness_pin`, `extra.harness_pin_to`) through the `harness` operation | OpenRouter and language model server seats only: **Follow key (…)** or **Follow server (…)**, or an installed harness it can run. A change applies at its next turn, on a fresh session that starts with a summary. |
 | Thinking effort | `node:effort` in scope | Organization default or a level offered for the chosen harness/model. Empty clears the agent override. |
 

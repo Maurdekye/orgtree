@@ -36,7 +36,7 @@ Every explicitly requested name must be in the returned permitted set. An unknow
 
 The response has `actor`, your effective `visibility`, and `nodes`. Agent records include:
 
-- identity, parent, title, state, generation, tier/model and provider;
+- identity, parent, title, state, generation, tier/model and provider; for an agent, `model_version` (`"latest"` or its pin), `resolved_version` (what that is now) and `model_id`;
 - grant, seat cost, free credits, and archive time;
 - live `sibling_index` (zero-based), `live_sibling_count`, and `live_child_count`; archived rows have no live index;
 - safe account-binding presence/missing flags, freeze provider/cause/pool/deadline, halt/limit-lock and mid-turn flags;
