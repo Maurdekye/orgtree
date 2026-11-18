@@ -377,11 +377,12 @@ test('§4b Carbon is legible on the surfaces it is drawn on, and its card edge s
   }
 })
 
-test('Argon, Krypton and Carbon offers are independent', (t: TestContext) => {
+test('Argon, Krypton, Neon and Carbon offers are independent', (t: TestContext) => {
   fresh(t)
-  for (const offered of [[], ['carbon'], ['argon', 'carbon'], ['krypton', 'carbon'], ['argon', 'krypton']]) {
+  for (const mask of Array.from({ length: 16 }, (_, i) => i)) {
+    const offered = ['argon', 'krypton', 'neon', 'carbon'].filter((_, i) => mask & (1 << i))
     const h = { ...ON, offeredTiers: ['hydrogen', 'pro', ...offered] }
-    for (const tier of ['argon', 'krypton', 'carbon']) {
+    for (const tier of ['argon', 'krypton', 'neon', 'carbon']) {
       assert.equal(antigravityTierOffer(h, tier), offered.includes(tier) ? 'offer' : 'hide')
     }
   }

@@ -1815,3 +1815,43 @@ mod hire_by_account_tests {
         assert!(!hire(vec![account("claude-2", catalog::CLAUDE, "subscription", "unauthenticated", true)], catalog::CLAUDE).0);
     }
 }
+
+#[cfg(test)]
+mod neon_tests {
+    use super::*;
+
+    #[test]
+    fn speculative_neon_matches_krypton_and_resolves_latest_or_pin() {
+        let n = catalog::tier("neon").expect("speculative Neon tier");
+        assert_eq!((n.provider, n.model, n.letter, n.seat), (catalog::GOOGLE, "gemini-4-neon", "N", 2.0));
+        assert_eq!(n.versions, &[("4", "gemini-4-neon")]);
+        assert_eq!(n.context, Some(1_000_000));
+        assert!(!n.live_effort && !n.legacy && n.conditional && n.prices.is_none());
+        assert_eq!(catalog::display_name(n, None).as_deref(), Some("Gemini Neon 4"));
+        assert_eq!(catalog::version_view("neon", None)["resolved_version"], "4");
+        assert_eq!(catalog::model_for("neon", Some("4")), "gemini-4-neon");
+        assert_eq!(effort_names(&State::default(), "neon"), effort_names(&State::default(), "krypton"));
+        assert_eq!(catalog::antigravity_effort("neon", "medium"), "high");
+        let names: Vec<_> = catalog::TIERS.iter().map(|t| t.tier).collect();
+        let k = names.iter().position(|t| *t == "krypton").unwrap();
+        assert_eq!(&names[k..k+3], &["krypton", "neon", "carbon"]);
+    }
+
+    #[test]
+    fn speculative_neon_offers_are_independent_and_require_its_exact_id() {
+        for mask in 0..16 {
+            let tiers = ["argon", "krypton", "neon", "carbon"];
+            let ids: Vec<_> = tiers.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0)
+                .map(|(_, t)| format!("gemini-4-{t}")).collect();
+            for (i, tier) in tiers.iter().enumerate() {
+                assert_eq!(agy_offers(tier, &ids), mask & (1 << i) != 0, "{tier}: {ids:?}");
+            }
+        }
+        assert!(!agy_offers("neon", &["gemini-4-neon-2".into(), "gemini-4-neonite".into()]));
+        for id in ["gemini-4-neon", "gemini-4-neon-low", "gemini-4-neon-high"] {
+            assert!(agy_offers("neon", &[id.into()]));
+        }
+        assert!(!catalog::tier("neon").unwrap().legacy);
+        assert!(catalog::tier("pro").unwrap().legacy && catalog::tier("flash").unwrap().legacy);
+    }
+}
