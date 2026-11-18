@@ -110,6 +110,8 @@ mod mention_recency_tests;
 mod fire_body_tests;
 #[cfg(test)]
 mod panel_message_tests;
+#[cfg(test)]
+mod latest_version_tests;
 
 #[logged]
 fn checksum(sql: &str) -> String {
