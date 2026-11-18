@@ -57,7 +57,7 @@ const hasClass = (el: Element, c: string) => el.className.split(/\s+/).includes(
 test('§1 krypton is a conditional Antigravity tier; hydrogen and pro are not', (t: TestContext) => {
   fresh(t)
   assert.ok(ANTIGRAVITY_TIERS.includes('krypton'))
-  assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'neon', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.equal(TIER_LETTER.krypton, 'K')
   assert.equal(ANTIGRAVITY_TIER_SEAT.krypton, 2, 'placeholder seat copies pro')
   // no payload evidence: hidden

@@ -64,7 +64,7 @@ export const TIER_LETTER: Record<string, string> = {
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
   // hydrogen shares H with haiku, the same accepted collision
-  flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', carbon: 'C',
+  flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', neon: 'N', carbon: 'C',
   'agy-sonnet': 'S', 'agy-opus': 'O',
   wonder: 'W', 'wonder-full': 'F', spark: 'S',
   // a project node's sentinel tier (docs/rust-engine/PROJECT-NODES.md): not a
@@ -145,17 +145,19 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
  *  default order while Flash is hidden as legacy. It is ALWAYS offered, unlike the conditional Gemini 4 tiers
  *  (user 2026-11-13 "make hydrogen always available unconditionally regardless of the check"). Seat 1 by the
  *  input-price rule ($1.5 per million), a placeholder like its letter until a real turn. */
-export const ANTIGRAVITY_TIERS = ['flash', 'hydrogen', 'pro', 'argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus']
+export const ANTIGRAVITY_TIERS = ['flash', 'hydrogen', 'pro', 'argon', 'krypton', 'neon', 'carbon', 'agy-sonnet', 'agy-opus']
 export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
-  { flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
-/** Argon and Krypton seats are PLACEHOLDERS copied from pro (coordinator ruling
+  { flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', neon: 'N', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
+/** Argon, Krypton and Neon seats are PLACEHOLDERS copied from pro (coordinator ruling
  *  2026-10-01; Krypton took Barium's row, user 2026-11-11). Carbon costs 4 by the
  *  user's ruling (2026-11-12 "change carbon's credit cost to 4"); it was the same
  *  placeholder 2 before. Mirrors catalog.rs. */
+// Neon: inferred, speculative; USER 2026-11-18 mcfdf1e158062. Seat 2 is copied from Krypton.
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
-  { flash: 1, hydrogen: 1, pro: 2, argon: 2, krypton: 2, carbon: 4, 'agy-sonnet': 2, 'agy-opus': 4 }
+  { flash: 1, hydrogen: 1, pro: 2, argon: 2, krypton: 2, neon: 2, carbon: 4, 'agy-sonnet': 2, 'agy-opus': 4 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
  *  2026-10-01), Krypton (`gemini-4-krypton`, user 2026-11-11, in Barium's place) and
+ *  Neon (`gemini-4-neon`, speculative USER 2026-11-18 mcfdf1e158062) and
  *  Carbon (`gemini-4-carbon`, user 2026-10-10, confirmed 2026-11-11). Known to the
  *  axis (a node wearing one keeps its letter,
  *  colour and seat) but offered by NO chooser until the backend's providers
@@ -163,7 +165,7 @@ export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
  *  the account's live `agy models` list contains that id. Mirrors
  *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
 // The Claude tiers depend on the Runtime opt-in. They have no version picker.
-export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'krypton', 'carbon', 'agy-sonnet', 'agy-opus']
+export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'krypton', 'neon', 'carbon', 'agy-sonnet', 'agy-opus']
 /** The Muse Code family (2026-10-12) — Muse Wonder, Muse Wonder Full and
  *  Muse Spark (1.3, with 1.2 in the version menu). EVERY ONE IS CONDITIONAL:
  *  offered only while the providers payload's Muse tier rows list it, which
@@ -835,7 +837,7 @@ export const codexTierOffer = (
 }
 
 /** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
- *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon and Krypton)
+ *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon, Krypton, Neon and Carbon)
  *  hides until the payload's tier rows include it — no evidence, no offer.
  *  Everything else follows the family verdict. */
 export const antigravityTierOffer = (
@@ -898,7 +900,7 @@ export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 
     ? hireTierDisabledReason(tier, hire, provider) : hire?.reason ?? 'hiring is not enabled yet',
 }))).filter(choice => choice.offer !== 'hide')
 
-/* ---------------- conditional tiers the payload currently offers (Argon and Krypton)
+/* ---------------- conditional tiers the payload currently offers (Argon, Krypton, Neon and Carbon)
    For surfaces that have no HireState of their own (the bearer rehire list).
    OrgCanvas feeds it from the same providers poll the hire strips read, so
    both answer from one payload. Subscribable, so a list re-renders the

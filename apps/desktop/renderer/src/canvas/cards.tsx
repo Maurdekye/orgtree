@@ -804,7 +804,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // disabled (user ruling 2026-09-02 — "dont just grey out the reserve
     // token. remove it entirely").
     // the one per-tier verdict every hire surface reads (`hireTierOffer`): a
-    // Codex legacy token, Gemini Pro (legacy toggle) and Argon/Krypton (only
+    // Codex legacy token, Gemini Pro (legacy toggle) and Argon/Krypton/Neon/Carbon (only
     // once agy lists it), a Muse tier only while the account's own catalog
     // lists it, an opt-in legacy tier of another family, and a tier every
     // signed-in account is at its limit for (greyed, with its own reason).

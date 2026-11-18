@@ -4963,7 +4963,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   map, onFocusAgent, close }: LineagePanelProps) {
   // re-render on the "show legacy models" flip — the tier list reads it
   useShowLegacyModels()
-  // …and when agy starts (or stops) listing a conditional tier (Argon and Krypton)
+  // …and when agy starts (or stops) listing a conditional tier (Argon, Krypton, Neon and Carbon)
   useOfferedConditionalTiers()
   // its rehire model choices: re-read agy's model list on opening
   useAgyModelsRefresh()
@@ -5097,7 +5097,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                         && tierShown(presence, t, b.tier)
                         // Gemini Pro only with "show legacy models" on
                         && !optInLegacyHidden(t)
-                        // Argon and Krypton only once agy lists it
+                        // Argon, Krypton, Neon and Carbon only once agy lists it
                         && !conditionalTierHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)
