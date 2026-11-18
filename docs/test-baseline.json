@@ -1,21 +1,21 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-11-17T22:46:13.591Z",
+  "recorded_at": "2026-11-18T17:46:02.964Z",
   "recorded_by": "rig-sol-b",
   "max_age_days": 7,
-  "commit": "2d3875f0629aa0faf0467fddc01bdb05de27c91f",
-  "commit_subject": "docs: 4.6.2 notes: a real Antigravity sign-in on a Linux engine is not yet checked",
-  "commit_at": "2026-11-17T23:53:10+02:00",
-  "branch": "rig-sol-b/release-462-20261117",
+  "commit": "299f8a59091dee218d95e36ca27b2d3019d8e1b2",
+  "commit_subject": "docs: release notes for 4.6.3",
+  "commit_at": "2026-11-18T19:07:50+02:00",
+  "branch": "rig-sol-b/release-463-neon-20261118",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
     "tests": "e1c44ec5e4d075365cd3176fae9023222d9ca621",
-    "engine": "de92f54947e22ff0b9a0b6334ea3e2d0f7d7593c",
-    "apps": "18ffbd27f20b58081ffd93ccd21325c98489bbf5",
+    "engine": "e13e5786495c571d24c2725629a31b5a0699f416",
+    "apps": "df31c0da6a8501f6c0b86355194f6e019c3077bd",
     "packages": "73bff0cb194d6ec95d8a87e13795ac50e727852e",
     "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
-    "package.json": "e9c2b15a8f04e180b1a967ef38e9d52cd6baf753"
+    "package.json": "2801171bc121c491fb4f38327a4714a544f76357"
   },
   "machine": {
     "host": "Pendragon",
@@ -26,9 +26,9 @@
     "concurrency": 2,
     "suite_concurrency": {
       "node-root": 1,
-      "renderer": 2
+      "renderer": 4
     },
-    "concurrency_scope": "Original record serialization option; actual measurement concurrency is stated per suite"
+    "concurrency_scope": "Original record serialization option2 is not renderer execution concurrency; renderer runner uses default4 (sanitized override absent), root run used1. No assertions executed by this serialization."
   },
   "suites": {
     "node-root": {
@@ -36,15 +36,15 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-17T22:46:13.404Z",
-      "commit": "2d3875f0629aa0faf0467fddc01bdb05de27c91f",
+      "recorded_at": "2026-11-18T17:46:02.784Z",
+      "commit": "299f8a59091dee218d95e36ca27b2d3019d8e1b2",
       "trees": {
         "tests": "e1c44ec5e4d075365cd3176fae9023222d9ca621",
-        "engine": "de92f54947e22ff0b9a0b6334ea3e2d0f7d7593c",
-        "apps": "18ffbd27f20b58081ffd93ccd21325c98489bbf5",
+        "engine": "e13e5786495c571d24c2725629a31b5a0699f416",
+        "apps": "df31c0da6a8501f6c0b86355194f6e019c3077bd",
         "packages": "73bff0cb194d6ec95d8a87e13795ac50e727852e",
         "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
-        "package.json": "e9c2b15a8f04e180b1a967ef38e9d52cd6baf753"
+        "package.json": "2801171bc121c491fb4f38327a4714a544f76357"
       },
       "partial": null,
       "excluded": [
@@ -85,7 +85,7 @@
           "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
         }
       ],
-      "duration_ms": 460710,
+      "duration_ms": 385010,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -1795,17 +1795,18 @@
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_rename_repairs_only_contained_registered_paths",
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_setup_plan_is_lockfile_based_and_does_not_write_git_metadata"
       ],
-      "serialization_duration_ms": 31,
+      "serialization_duration_ms": 30,
       "measurement": {
-        "authority": "@coordinator-opus m9380e8e09d23",
+        "authority": "@coordinator-opus ma11b4fb60250/m3af82065b35f",
         "same_saved_outcomes": true,
-        "source_commit": "2d3875f0629aa0faf0467fddc01bdb05de27c91f",
-        "ran_at": "2026-11-17T22:14:42.840Z",
+        "source_commit": "299f8a59091dee218d95e36ca27b2d3019d8e1b2",
+        "ran_at": "2026-11-18T17:26:03.706Z",
         "concurrency": 1,
         "no_suite_replay": true,
         "source_trees_equal": true,
-        "qualification": "ONE original full root at2d plus ONLY37 adapter-poisoned baseline-tool cases recovered once with consumed parent token. Original44failures retained separately; no other file/case replay.",
-        "case_only_recovery_seconds": 34.938
+        "qualification": {
+          "noRecoveryOrReplay": true
+        }
       }
     },
     "renderer": {
@@ -1813,15 +1814,15 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-17T22:46:13.590Z",
-      "commit": "2d3875f0629aa0faf0467fddc01bdb05de27c91f",
+      "recorded_at": "2026-11-18T17:46:02.964Z",
+      "commit": "299f8a59091dee218d95e36ca27b2d3019d8e1b2",
       "trees": {
         "tests": "e1c44ec5e4d075365cd3176fae9023222d9ca621",
-        "engine": "de92f54947e22ff0b9a0b6334ea3e2d0f7d7593c",
-        "apps": "18ffbd27f20b58081ffd93ccd21325c98489bbf5",
+        "engine": "e13e5786495c571d24c2725629a31b5a0699f416",
+        "apps": "df31c0da6a8501f6c0b86355194f6e019c3077bd",
         "packages": "73bff0cb194d6ec95d8a87e13795ac50e727852e",
         "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
-        "package.json": "e9c2b15a8f04e180b1a967ef38e9d52cd6baf753"
+        "package.json": "2801171bc121c491fb4f38327a4714a544f76357"
       },
       "partial": null,
       "excluded": [
@@ -1830,7 +1831,7 @@
           "why": "driven by hand or by a native probe runner, not by run.mjs"
         }
       ],
-      "duration_ms": 1028477,
+      "duration_ms": 839602,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -1840,9 +1841,9 @@
         "ORGTREE_TEST_RUN_TIMEOUT_MS": "900000"
       },
       "counts": {
-        "files": 939,
-        "tests": 7239,
-        "passed": 7192,
+        "files": 940,
+        "tests": 7245,
+        "passed": 7198,
         "failed": 42,
         "skipped": 5
       },
@@ -1891,15 +1892,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-o4g9kx\\bundles\\agentrefs.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-z2WRk3\\bundles\\agentrefs.test.mjs",
           "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-o4g9kx\\bundles\\agentrefs.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-z2WRk3\\bundles\\agentrefs.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-17T22:46:13.590Z",
+          "failing_since": "2026-11-18T17:46:02.964Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -1933,8 +1934,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
-          "error_digest": "8c903e3c30fc",
+          "error": "Cannot read properties of null (reading '_document')",
+          "error_digest": "266f954381ef",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2095,15 +2096,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-A7q0Nt\\bundles\\foregroundtree.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-SozowW\\bundles\\foregroundtree.test.mjs",
           "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-A7q0Nt\\bundles\\foregroundtree.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-SozowW\\bundles\\foregroundtree.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-17T22:46:13.590Z",
+          "failing_since": "2026-11-18T17:46:02.964Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2185,8 +2186,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2197,8 +2198,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2209,8 +2210,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2221,8 +2222,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2233,8 +2234,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2245,8 +2246,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2359,15 +2360,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-MNo8Oc\\bundles\\treeview.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-gWDPk4\\bundles\\treeview.test.mjs",
           "file": "apps/desktop/renderer/tests/treeview.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-MNo8Oc\\bundles\\treeview.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-gWDPk4\\bundles\\treeview.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-17T22:46:13.590Z",
+          "failing_since": "2026-11-18T17:46:02.964Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2511,7 +2512,7 @@
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::an owner answered only for another catalog stays unconfirmed, never gone (review f7)",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::bare names in prose resolve omitted agents in a bounded lookup; items keep the collision",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::prose lookup skips numbers, timestamp pieces and UUIDs, but keeps real names (including digits)",
-        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-o4g9kx\\bundles\\agentrefs.test.mjs",
+        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-z2WRk3\\bundles\\agentrefs.test.mjs",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1 a row offers the agent's own menu — the same entries, in the same order, as its card",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1a user audience action reflects current access on both menu surfaces",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1b audience menu actions use the audited user-audience endpoint",
@@ -3274,7 +3275,7 @@
         "renderer::apps/desktop/renderer/tests/carbon.test.tsx::§4b Carbon is legible on the surfaces it is drawn on, and its card edge shows in every theme",
         "renderer::apps/desktop/renderer/tests/carbon.test.tsx::§4b Carbon reads as a light charcoal grey",
         "renderer::apps/desktop/renderer/tests/carbon.test.tsx::§4b Carbon stays clear of every other model colour and the dark neutrals",
-        "renderer::apps/desktop/renderer/tests/carbon.test.tsx::Argon, Krypton and Carbon offers are independent",
+        "renderer::apps/desktop/renderer/tests/carbon.test.tsx::Argon, Krypton, Neon and Carbon offers are independent",
         "renderer::apps/desktop/renderer/tests/cardhoverfit.test.tsx::agent retired chip follows all other header chips",
         "renderer::apps/desktop/renderer/tests/cardhoverfit.test.tsx::CF1 a re-render that changes nothing inside the face does not measure; a content change still refits",
         "renderer::apps/desktop/renderer/tests/cardhoverfit.test.tsx::fit excludes transient full-name overflow but still responds to real content",
@@ -5016,7 +5017,7 @@
         "renderer::apps/desktop/renderer/tests/foregroundlineage.test.tsx::live lineage gate waits for actual rows rather than interpreting omission as an empty lineage",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::a metadata patch keeps the selected ETag: the next read is a delta, never a revalidated pre-patch body",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::an unchanged server answers the kept ETag with 304 and the kept body is kept",
-        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-A7q0Nt\\bundles\\foregroundtree.test.mjs",
+        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-SozowW\\bundles\\foregroundtree.test.mjs",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§1 a leg per kind — each is classified as itself, not as `limit`",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§2 precedence is deliberate where kinds coexist",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§3 both registers are TOTAL over the kinds and share no word",
@@ -6208,14 +6209,11 @@
         "renderer::apps/desktop/renderer/tests/modelswitch.test.tsx::the Agent model selector groups Antigravity Claude tiers before Gemini tiers",
         "renderer::apps/desktop/renderer/tests/modelswitch.test.tsx::the header summary counts every provider family",
         "renderer::apps/desktop/renderer/tests/modelswitch.test.tsx::the switch lists every provider family with its ledger seats",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::a switch into another tier with no version still clears a stale one",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::a switch INTO Fable names the pin it will get",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::a switch into Fable with no version leaves it to the engine to pin 5.2",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::a within-Fable edit that never touched the version sends none (absent stays absent)",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::an existing unpinned Fable seat names what blank resolves to; other tiers keep latest",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::an explicit 5.2 in the gear saves model_version 5.2",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::an explicit blank on an existing Fable seat keeps meaning legacy 5.1 (clears the pin)",
-        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::Sol and Astra 6.2 (USER 2026-11-17 md06e7aabe0e3): an unpinned seat names 6.1 / 6, a move in names 6.2",
+        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::a switch into any tier with no version clears a stale one: it starts on latest",
+        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::an edit that never touched the version sends none (absent stays absent)",
+        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::an explicit blank in the gear clears the pin: the seat follows the latest",
+        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::an explicit version in the gear saves that pin",
+        "renderer::apps/desktop/renderer/tests/modelversion.test.ts::the blank option is always latest: on a seat, on a move into a tier, on a retired seat",
         "renderer::apps/desktop/renderer/tests/moderestore.test.tsx::a user switch after startup is mirrored and never undone by the restore",
         "renderer::apps/desktop/renderer/tests/moderestore.test.tsx::a window closed in Canvas reopens in Canvas",
         "renderer::apps/desktop/renderer/tests/moderestore.test.tsx::an older-app upgrade with several org windows keeps the saved Attention",
@@ -6333,6 +6331,15 @@
         "renderer::apps/desktop/renderer/tests/navigationshortcuttips.test.tsx::agent and project jump chips retain exact plain and canonical identity hover",
         "renderer::apps/desktop/renderer/tests/navigationshortcuttips.test.tsx::command tips show compact same-line bindings with Unicode directions",
         "renderer::apps/desktop/renderer/tests/navigationshortcuttips.test.tsx::the switchboard jump command keeps its compact shortcut",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::§1 neon is a conditional Antigravity tier; hydrogen and pro are not",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::§2 agent settings model switch: no Neon option until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::§2 canvas hire chips: no Neon chip until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::§2 hire sheet: no Neon button until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::§2 lineage rehire list: no \"as neon\" row until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::§3 an agent already on Neon keeps its own tier in the switch and its N token",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::Argon and Neon offers are independent",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::Neon has a colour on every Krypton surface",
+        "renderer::apps/desktop/renderer/tests/neon.test.tsx::Neon leaves the Carbon-only Argon legacy rule unchanged",
         "renderer::apps/desktop/renderer/tests/netheaderlinks.test.tsx::§1.1 the desk header names an outside sender with the shared Hub contact link, not plain text",
         "renderer::apps/desktop/renderer/tests/netheaderlinks.test.tsx::§1.2 CONTROL: an untyped outside mail already wears the link in the same header (MailFrom)",
         "renderer::apps/desktop/renderer/tests/netheaderlinks.test.tsx::§2.1 the shared mail header draws an outside @net:/@org: actor as the Hub contact link",
@@ -9175,7 +9182,7 @@
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::resetSync starts a connection over",
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::rev-less frames (sparks, older server) take no part in ordering",
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::the buffer is bounded: overflow drops oldest first",
-        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-462-20261117\\tmp\\orgtree-renderer-tests-MNo8Oc\\bundles\\treeview.test.mjs",
+        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-gWDPk4\\bundles\\treeview.test.mjs",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::canvas age surfaces share the authoritative completed-turn badge",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::cards retain LastTurnAge while focused desks use only the status banner",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::fresh desk banner is neutral motionless Idle with no invented age",
@@ -9624,18 +9631,416 @@
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§7 zoomed in it is a live control again, and opens its document",
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§8 the gate reuses the canvas threshold rather than inventing one"
       ],
-      "serialization_duration_ms": 179,
+      "serialization_duration_ms": 174,
       "measurement": {
-        "authority": "@coordinator-opus m9380e8e09d23",
+        "authority": "@coordinator-opus ma11b4fb60250/m3af82065b35f",
         "same_saved_outcomes": true,
-        "source_commit": "2d3875f0629aa0faf0467fddc01bdb05de27c91f",
-        "ran_at": "2026-11-17T22:40:21.338Z",
-        "concurrency": 2,
+        "source_commit": "299f8a59091dee218d95e36ca27b2d3019d8e1b2",
+        "ran_at": "2026-11-18T17:41:50.373Z",
+        "concurrency": 4,
         "no_suite_replay": true,
         "source_trees_equal": true
       }
     }
   },
-  "measurement_authority": "@coordinator-opus m9380e8e09d23; no source/test edits, SAME fresh outcomes reused",
-  "release_failure_disposition": "@coordinator-opus mdc4b1d895976: all42renderer and7root failures subset of accepted v4.6.1; remain failures/no same-cause claim.6popout message variants+installer scrubber variant accepted."
+  "measurement_authority": "@coordinator-opus ma11b4fb60250/m3af82065b35f; no source/test edits, SAME fresh outcomes reused",
+  "not_executed_qualification": {
+    "moduleDefinedCases": [
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "name": "an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
+            "full": "an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
+            "line": 100,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::an answer read from a newer catalog is not served to an older tree",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "name": "an answer read from a newer catalog is not served to an older tree",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "an answer read from a newer catalog is not served to an older tree",
+            "full": "an answer read from a newer catalog is not served to an older tree",
+            "line": 66,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::an unresolved omitted agent is never reported gone",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "name": "an unresolved omitted agent is never reported gone",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "an unresolved omitted agent is never reported gone",
+            "full": "an unresolved omitted agent is never reported gone",
+            "line": 87,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::cache batches at 128, answers only for its catalog, and never turns a failure into absence",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "name": "cache batches at 128, answers only for its catalog, and never turns a failure into absence",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "cache batches at 128, answers only for its catalog, and never turns a failure into absence",
+            "full": "cache batches at 128, answers only for its catalog, and never turns a failure into absence",
+            "line": 35,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::references use the exact landed route and refuse an answer that does not match the request",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "name": "references use the exact landed route and refuse an answer that does not match the request",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "references use the exact landed route and refuse an answer that does not match the request",
+            "full": "references use the exact landed route and refuse an answer that does not match the request",
+            "line": 22,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::the cache stays bounded per org and across orgs",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "name": "the cache stays bounded per org and across orgs",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "the cache stays bounded per org and across orgs",
+            "full": "the cache stays bounded per org and across orgs",
+            "line": 75,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::304 preserves identity and advances replay watermarks immutably",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "304 preserves identity and advances replay watermarks immutably",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "304 preserves identity and advances replay watermarks immutably",
+            "full": "304 preserves identity and advances replay watermarks immutably",
+            "line": 67,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::503 is an error and catalog churn falls back as a whole read",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "503 is an error and catalog churn falls back as a whole read",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "503 is an error and catalog churn falls back as a whole read",
+            "full": "503 is an error and catalog churn falls back as a whole read",
+            "line": 97,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
+            "full": "a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
+            "line": 153,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::exact delta preserves fields, reparents and removes without mutating the base",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "exact delta preserves fields, reparents and removes without mutating the base",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "exact delta preserves fields, reparents and removes without mutating the base",
+            "full": "exact delta preserves fields, reparents and removes without mutating the base",
+            "line": 41,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::late old selection and invalidated requests cannot replace the current selected cache",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "late old selection and invalidated requests cannot replace the current selected cache",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "late old selection and invalidated requests cannot replace the current selected cache",
+            "full": "late old selection and invalidated requests cannot replace the current selected cache",
+            "line": 109,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::lookup and page use exact landed routes and keep explicit absence/reset distinct",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "lookup and page use exact landed routes and keep explicit absence/reset distinct",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "lookup and page use exact landed routes and keep explicit absence/reset distinct",
+            "full": "lookup and page use exact landed routes and keep explicit absence/reset distinct",
+            "line": 138,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::malformed topology and contradictory absence never become partial success",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "malformed topology and contradictory absence never become partial success",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "malformed topology and contradictory absence never become partial success",
+            "full": "malformed topology and contradictory absence never become partial success",
+            "line": 59,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::retained cache is one selection per org and eight orgs, independent of visits",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "retained cache is one selection per org and eight orgs, independent of visits",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "retained cache is one selection per org and eight orgs, independent of visits",
+            "full": "retained cache is one selection per org and eight orgs, independent of visits",
+            "line": 127,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
+            "full": "selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
+            "line": 25,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "name": "wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
+            "full": "wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
+            "line": 81,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
+            "full": "a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
+            "line": 136,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
+            "full": "catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
+            "line": 110,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::changed catalog re-resolves piles on the server and keeps no old implicit fronts",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "changed catalog re-resolves piles on the server and keeps no old implicit fronts",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "changed catalog re-resolves piles on the server and keeps no old implicit fronts",
+            "full": "changed catalog re-resolves piles on the server and keeps no old implicit fronts",
+            "line": 122,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
+            "full": "collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
+            "line": 58,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::explicit pile browser loads coherent identities then closing releases them",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "explicit pile browser loads coherent identities then closing releases them",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "explicit pile browser loads coherent identities then closing releases them",
+            "full": "explicit pile browser loads coherent identities then closing releases them",
+            "line": 98,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
+            "full": "saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
+            "line": 84,
+            "callee": "test"
+          }
+        ]
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "name": "shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
+        "classification": "DEFINITION_STILL_EXISTS",
+        "declarations": [
+          {
+            "name": "shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
+            "full": "shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
+            "line": 75,
+            "callee": "test"
+          }
+        ]
+      }
+    ],
+    "moduleFailureEvents": [
+      {
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-z2WRk3\\bundles\\agentrefs.test.mjs",
+        "suite": "renderer",
+        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-z2WRk3\\bundles\\agentrefs.test.mjs",
+        "status": "failed",
+        "kind": "leaf",
+        "failure_type": "testCodeFailure",
+        "error": "test failed",
+        "error_digest": "2512eeb638b3",
+        "duration_ms": 226,
+        "stability": "unconfirmed"
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-SozowW\\bundles\\foregroundtree.test.mjs",
+        "suite": "renderer",
+        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-SozowW\\bundles\\foregroundtree.test.mjs",
+        "status": "failed",
+        "kind": "leaf",
+        "failure_type": "testCodeFailure",
+        "error": "test failed",
+        "error_digest": "2512eeb638b3",
+        "duration_ms": 59,
+        "stability": "unconfirmed"
+      },
+      {
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-gWDPk4\\bundles\\treeview.test.mjs",
+        "suite": "renderer",
+        "file": "apps/desktop/renderer/tests/treeview.test.ts",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-463-neon-20261118\\tmp\\orgtree-renderer-tests-gWDPk4\\bundles\\treeview.test.mjs",
+        "status": "failed",
+        "kind": "leaf",
+        "failure_type": "testCodeFailure",
+        "error": "test failed",
+        "error_digest": "2512eeb638b3",
+        "duration_ms": 53,
+        "stability": "unconfirmed"
+      }
+    ],
+    "moduleSourceProof": {
+      "apps/desktop/renderer/tests/treeview.test.ts": {
+        "currentObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
+        "accepted462Object": "2e790d1eb27380a56849ef3fc998a88160060cf7",
+        "unchanged": true
+      },
+      "apps/desktop/renderer/tests/agentrefs.test.ts": {
+        "currentObject": "cdb2bce938782dca54051eed7bc4afa28b212090",
+        "accepted462Object": "cdb2bce938782dca54051eed7bc4afa28b212090",
+        "unchanged": true
+      },
+      "apps/desktop/renderer/tests/foregroundtree.test.ts": {
+        "currentObject": "8b8da36bf75f5f530693718a3bac80382722becb",
+        "accepted462Object": "8b8da36bf75f5f530693718a3bac80382722becb",
+        "unchanged": true
+      }
+    },
+    "rootSafety": [
+      "with no window open, the helper asks the background engine to stop and waits for its whole tree",
+      "an engine that cannot be asked is a refusal that names it and says what to do",
+      "a descriptor that names another process is never used to send a stop",
+      "a descriptor another account can write is not trusted, as the window does not trust it",
+      "an engine that takes the request but does not stop in its budget is named, with a wait-and-retry",
+      "on an all-users installation an engine it cannot ask is left to the boot step, not waited for"
+    ],
+    "rendererSafety": [
+      "agents drawer reclaims the rail for names while preserving hierarchy and controls in Edge",
+      "real process listing sees a stand-in obs64.exe and loses it after it exits",
+      "§7 outside the Job, the watchdog ends a detached orphan once its parent is gone"
+    ],
+    "noSkippedCaseClaimedPassing": true
+  },
+  "release_failure_disposition": "All current failures are contained in the sealed accepted 4.6.2 gate by normalized case identity. Every failure remains recorded; no fix or same-cause claim. See pre-baseline-comparison.json."
 }
