@@ -21,7 +21,7 @@ Ordinary close drops stdin and waits five seconds before terminating a lingering
 Argon and Carbon offer low, medium and high effort. The saved choice reaches `agy` as
 `--effort` when its process starts; changing it takes effect at the next turn
 through process replacement, not mid-turn. Flash and AGY Claude also offer
-medium; Pro and Krypton retain low/high, and Hydrogen offers low, medium, high and xhigh. Model availability still depends
+medium; Pro, Krypton and speculative Neon retain low/high, and Hydrogen offers low, medium, high and xhigh. Model availability still depends
 on the account's registry. These controls do not promise a measured change in
 reasoning tokens, latency or answer quality.
 
@@ -168,3 +168,11 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 ## Disabled by Orgtree opt-in
 
 tools.orgtree_disabled currently restores no Antigravity tools: its existing native restrictions are scope-based rather than universal replacement-tool denies. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.
+
+## Speculative Neon
+
+Gemini Neon (`gemini-4-neon`, N) is prepared ahead of availability. Its 2-credit
+seat is an inferred placeholder, like Krypton. It appears directly after Krypton
+only when the account model list reports it; it has low/high effort and one
+version, 4 (also the latest). No access or real turn has been verified. Neon
+changes no legacy-model rule: only Carbon makes Argon opt-in legacy.

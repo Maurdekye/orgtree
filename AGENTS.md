@@ -308,7 +308,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 - The seven scratch-note/taskbar/tray/native-tab root tests allocate fresh temporary output leaves without author-specific environment variables. Optional output overrides require the current `ORGTREE_AGENT` scope, canonical containment and no linked ancestors; cleanup rechecks directory identity. See [test output setup](docs/agents/development-and-verification.md#portable-root-test-output). [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
 
 - Desk model eligibility uses the staffing tier's eligible managed accounts as well as its native-login flags. A spent native login cannot hide a tier with another eligible account; the picker prefers native when usable, otherwise submits and discloses an eligible managed ID. Current-model queue cancellation leaves the account alone. [verified: `canvas/deskmodel.tsx`, `desk-model-instant.test.tsx`; 2026-10-22]
-- Antigravity conditional models retain their last confirmed in-memory catalog
+- Conditional Gemini tiers (including Neon) retain their last confirmed in-memory catalog
   on inconclusive refresh failures only for the same silently checked principal.
   Metadata changes quarantine cached offers until one bounded identity recheck;
   a different/unknown login clears them. Catalog results carry their own identity;

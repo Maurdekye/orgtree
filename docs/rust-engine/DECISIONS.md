@@ -2673,3 +2673,14 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
       engine verified and after rollback. `coreLifecycle.transition(true)` stays (never `cancelRecovery`).
 
 **Desks show in every place at once, USER 2026-11-15 (4.6.1, docket `desks-show-in-every-place-at-once-no-more-desk-i`):** "begin a refactor of the desk system: all desks that have multiple valid views have their views duplicated, you should no longer see \"xyz's desk is open elsewhere (bring it here)\" etc. it should always show in both locations at once" (mbf1f1ca2cfe9). Replaces the 2026-09-21 single-owner registry (one live desk moved between places, the Attention `automatic` claim, the temporary desk's borrow). Every place renders the live desk; the conversation and the unsent draft are one per agent. Approved by the user (16:03:27Z m4492aff12953, "all but 4"): the draft is shared, popping out of a pin moves the pin, a question notification picks the most recently used place. Item 3 of the same message: a popped-out desk can become its own attention desk (its own agent selection, several at once), converted by one header icon toggle beside the pin and pop-out buttons ("make it an icon next to the pin / pop buttons"). See [desktop-and-renderer.md](../agents/desktop-and-renderer.md#desks-show-in-every-place-at-once-2026-11-15-461).
+
+### Speculative Gemini Neon (USER 2026-11-18, 4.6.3)
+
+USER mcfdf1e158062: "its not availalbe yet, just add it speculatively like the other gemini models".
+Neon follows Krypton: `neon`, GOOGLE, `gemini-4-neon`, version 4, letter N;
+conditional, non-legacy, 1M context, no published prices. Seat 2 is inferred
+and speculative, not measured. The generic low/high effort mapping is retained
+(coordinator m4bdfd44c0fab); no medium mapping. Place Neon directly after
+Krypton. Availability still requires its exact model ID in the account catalog.
+Neon changes no legacy rule. No real Neon turn or provider access is claimed.
+See the current [provider notes](../agents/providers-and-accounts.md#speculative-gemini-neon-2026-11-18-463).

@@ -1,5 +1,23 @@
 # Providers and accounts
 
+## Speculative Gemini Neon (2026-11-18, 4.6.3)
+
+Neon (`neon`, model/version `gemini-4-neon` / `4`, letter N) is added ahead of
+availability, directly after Krypton. It copies Krypton's conditional gate:
+only the account's confirmed model list can offer it in hiring, staffing and
+model switching. A missing entry hides it; adding Neon to the code does not
+establish provider access. Hydrogen stays unconditional. The 2-credit seat is
+inferred and speculative, by analogy to Argon/Krypton; no API price or real
+model turn was measured. Context is the same 1,000,000-token placeholder.
+Latest resolves to version 4, and version 4 may be pinned. Effort copies
+Krypton's generic low/high mapping, with no medium or special mapping.
+Legacy rules are unchanged: Argon becomes opt-in legacy only when Carbon is
+offered; Neon neither becomes legacy nor makes another tier legacy.
+Its tier colour is neon-sign red-orange `#ff3a1f`, on all six tier surfaces.
+[decided: USER 2026-11-18 mcfdf1e158062; coordinator m414e2f39c07e,
+m4bdfd44c0fab; verified: `providers/{catalog,mod}.rs`, `canvas/shared.ts`,
+`styles.css`, `tests/neon.test.tsx`]
+
 ## Codex request-rate 429 retries in minutes (2026-10-28, 4.5.1)
 
 A Codex turn that ends `exceeded retry limit, last status: 429 Too Many Requests` is the request
