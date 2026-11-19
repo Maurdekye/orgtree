@@ -38,7 +38,8 @@ import { hireAccount } from './canvas/hireaccount'
 import { agentNavProps } from './canvas/agentnav'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
-  agentSuperior, draftOpeningGrant, ALL_TIER_SEAT, hireOf, providersWithAccounts, tierLabel, type CanvasNode,
+  agentSuperior, draftOpeningGrant, ALL_TIER_SEAT, hireOf, optInLegacyHidden, providersWithAccounts,
+  tierLabel, useShowLegacyModels, type CanvasNode,
 } from './canvas/shared'
 import { AttachIcon, ExpandMoreIcon, SendIcon } from './icons'
 import {
@@ -143,8 +144,11 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     void staffingOptions(slug).then(value => { if (current) setAvailability({ slug, value }) }).catch(() => {})
     return () => { current = false }
   }, [slug, providers, tree, feedVersion])
-  const choices = useMemo(() => quickChatChoices(availability?.slug === slug ? availability.value : null,
+  const eligibleChoices = useMemo(() => quickChatChoices(availability?.slug === slug ? availability.value : null,
     tree, nodes, superior), [availability, slug, tree, nodes, superior])
+  useShowLegacyModels()
+  const choices = eligibleChoices.filter(choice => !optInLegacyHidden(choice.row.tier))
+  const hiddenPreference = !!memo.tier && optInLegacyHidden(memo.tier)
   const offered = choices.map(choice => choice.row.tier)
   const tier = quickChatTier(memo.tier, offered)
   const chosen = choices.find(choice => choice.row.tier === tier)
@@ -349,9 +353,12 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     }
     catch (e) { toast([`Quick chat: ${born} was hired but the message failed: ${e instanceof Error ? e.message : String(e)}`]) }
   }
-  // a Quick chat hire is a manual hire too: its model and superior become the
-  // next default (its effort already is, having been read from the memory)
-  const remember = (s: QuickSuperior) => { rememberTier(slug, tier); rememberSuperior(slug, s) }
+  // A Quick chat hire normally sets the next default. A legacy fallback
+  // keeps the user's model preference for when they show legacy models again.
+  const remember = (s: QuickSuperior) => {
+    if (!hiddenPreference) rememberTier(slug, tier)
+    rememberSuperior(slug, s)
+  }
   const supNode = superior === null ? null : nodes.get(superior)
   const row = hireOptions(null)
 
