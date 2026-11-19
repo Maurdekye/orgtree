@@ -286,6 +286,23 @@ app.whenReady().then(async () => {
     }
     await M.js(`document.documentElement.className = ''; 0`); await pause(200)
 
+    // ---- H. a disabled dropdown LOOKS disabled, closed, in every theme (regression of the in-page list: the native
+    //      control drew itself greyed; the in-page one took the enabled colours and only ignored the click)
+    facts.disabledLook = {}
+    for (const [cls, name] of [['', '11-disabled-dark'], ['contrast-light', '12-disabled-light'], ['contrast-obsidian-black', '13-disabled-obsidian']]) {
+      await M.js(`document.documentElement.className = ${J(cls)}; 0`); await pause(250)
+      const d = await M.js(`(() => { const f = id => { const c = getComputedStyle(document.getElementById(id)); return { color: c.color, opacity: +c.opacity, cursor: c.cursor } }
+        document.getElementById('off').scrollIntoView({ block: 'center' }); return { off: f('off'), on: f('long') } })()`)
+      facts.disabledLook[cls || 'dark'] = d
+      const where = `H. ${cls || 'dark'}: `
+      need(d.on.opacity === 1 && d.on.cursor !== 'not-allowed', where + `control failed: the enabled dropdown already looks disabled ${J(d.on)}`)
+      need(d.off.color !== d.on.color, where + `the disabled dropdown's text has the enabled colour ${d.off.color}`)
+      need(d.off.opacity < 1, where + `the disabled dropdown is not faded (opacity ${d.off.opacity})`)
+      need(d.off.cursor === 'not-allowed', where + `the disabled dropdown's cursor is ${d.off.cursor}`)
+      await shot(wc, name)
+    }
+    await M.js(`document.documentElement.className = ''; 0`); await pause(200)
+
     // ---- G. a real popped-out window
     { const b = await M.js(`__dd.centre('.modalpin-bar [aria-label="Open in new window"]')`)
       need(!!b, 'G. the panel has no pop-out button')

@@ -31,6 +31,19 @@ test('one rule switches every single-choice select AND its list to the in-page l
     'both halves, for every single-choice select: with only the select switched the browser keeps the OS pop-up')
 })
 
+test('a disabled dropdown has a disabled look of its own: dim text, faded, a not-allowed cursor', () => {
+  // The native control greyed itself; the in-page one takes our colours, so without this rule a disabled dropdown
+  // looks enabled and only ignores the click (reported from the Steam Frame, 2026-11-19 mcaf6252f7161).
+  const sheet = rules(readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8'))
+  const rule = sheet.find(r => r.selector === `${SINGLE}:disabled`)
+  assert.ok(rule, 'styles.css styles the disabled single-choice select')
+  assert.match(rule.body, /(^|[;\s])color:\s*var\(--dim\)/)
+  assert.match(rule.body, /(^|[;\s])opacity:\s*\.\d+/)
+  assert.match(rule.body, /(^|[;\s])cursor:\s*not-allowed/)
+  const base = sheet.findIndex(r => r.selector === SINGLE && /cursor:\s*default/.test(r.body))
+  assert.ok(base >= 0 && sheet.indexOf(rule) > base, 'after the closed control\'s own rule, whose cursor it replaces')
+})
+
 test('no stylesheet gives a select another appearance', () => {
   const offenders: string[] = []
   for (const file of files(__SRC_DIR__, /\.css$/)) for (const r of rules(readFileSync(file, 'utf8'))) {
