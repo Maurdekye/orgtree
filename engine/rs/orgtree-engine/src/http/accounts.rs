@@ -367,7 +367,9 @@ fn readout_doc(e: &Engine) -> Value {
         })
         .collect();
     let mut assignments = serde_json::Map::new();
-    for t in crate::providers::catalog::listed().iter().copied().filter(|t| t.provider == "claude" && !t.legacy) {
+    // a conditional Claude tier (Mythos) only while the own sign-in's model list names it
+    for t in crate::providers::catalog::listed().iter().copied().filter(|t| t.provider == "claude" && !t.legacy)
+        .filter(|t| !t.conditional || crate::providers::claude_offered(e, t.tier)) {
         assignments.insert(t.tier.to_string(), json!({ "account": "primary", "available": true, "refresh_at": null }));
     }
     json!({ "version": 2, "primary": { "signed_in": signed_in, "email": email }, "keys": keys, "assignments": assignments })
@@ -542,7 +544,8 @@ async fn key_row(e: &Engine, a: &AccountInfo) -> Value {
     let tiers: Vec<Value> = crate::providers::catalog::listed()
         .iter()
         .copied()
-        .filter(|t| t.provider == "claude" && !t.legacy)
+        // a conditional Claude tier (Mythos) is never offered on a metered key: its list is not judged
+        .filter(|t| t.provider == "claude" && !t.legacy && !t.conditional)
         .map(|t| json!({ "tier": t.tier, "available": a.limited(now).is_none(),
                          "refresh_at": a.limited(now).map(crate::util::iso), "pool": null }))
         .collect();

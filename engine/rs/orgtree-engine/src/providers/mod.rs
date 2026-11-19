@@ -795,8 +795,8 @@ pub fn claude_login_seen(engine: &Engine, key: &str, answer: &Value) {
     };
     let before = engine.providers.claude_logins.load().get(key).map(|r| r.models.clone());
     if before.as_ref() != Some(&models) {
-        tracing::info!(login = if key == CLAUDE_OWN { "own sign-in" } else { key }, rows = models.rows.len(),
-            conditional = ?offers(Some(&models)), "Claude model list read from the CLI");
+        let login = if key == CLAUDE_OWN { "own sign-in" } else { key };
+        tracing::info!(login, rows = models.rows.len(), conditional = ?offers(Some(&models)), "Claude model list read from the CLI");
     }
     let republish = offers(before.as_ref()) != offers(Some(&models)) || before.as_ref().map(|m| &m.identity) != Some(&models.identity);
     let entry = ClaudeLoginRead { at: chrono::Utc::now(), models };
@@ -825,12 +825,12 @@ pub fn claude_logins_prune(engine: &Engine) {
             None => true,
         }
     };
-    if !engine.providers.claude_logins.load().iter().any(|(k, r)| stale(k, r)) {
+    if !engine.providers.claude_logins.load().iter().any(|(k, r)| stale(k.as_str(), r)) {
         return;
     }
     engine.providers.claude_logins.rcu(|cur| {
         let mut next = (**cur).clone();
-        next.retain(|k, r| !stale(k, r));
+        next.retain(|k, r| !stale(k.as_str(), &*r));
         next
     });
     publish(engine);
