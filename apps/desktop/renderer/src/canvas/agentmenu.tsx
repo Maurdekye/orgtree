@@ -636,7 +636,7 @@ export async function continueFrozenOnAccount(slug: string, nid: string,
     const r = await continueOnAccount(slug, nid, account)
     if (r.state === 'switched_not_resumed') {
       toast([r.status ?? `${nid} was moved to ${account} but is still frozen.`,
-        'Its held work has NOT resumed — use unstick on the agent to finish the move.'])
+        'Its held work has NOT resumed — use thaw on the agent to finish the move.'])
       return
     }
     toast([r.status ?? `${nid} continues on ${account}`, ...(r.warnings ?? [])])

@@ -1,5 +1,5 @@
 // compactactions.test.tsx — user 2026-09-12 (uploads/image-80.png): the
-// layered/stack count and the freeze badge that unsticks an agent are still
+// layered/stack count and the freeze badge that thaws an agent are still
 // clickable on a zoomed-out card, and they should not be.
 //
 // WHY, IN THE USER'S OWN WORDS. "the idea behind making these other badges
@@ -14,7 +14,7 @@
 // (zoomoutcards.test.tsx): the chips stay visible, because a freeze chip you
 // can see is how you know at a glance that an agent is halted. Only the
 // action goes, and it goes to the DESK, which already draws both of these
-// correctly: a plain freeze chip with a separate labelled `unstick` button
+// correctly: a plain freeze chip with a separate labelled `thaw` button
 // beside it, and its own lineage button.
 //
 //   §1  both are present at compact zoom          (signs, not absences)
@@ -74,7 +74,7 @@ function watchFetch(sink: Sink) {
   // ⚠ BOTH GLOBALS. `api.ts` calls a bare `fetch`, which resolves to
   // `globalThis.fetch` — node's — while the harness's `window` is the jsdom
   // one. Patching only `window.fetch` left the recorder permanently empty,
-  // which made §3's "no unstick was fired" true for the wrong reason: it
+  // which made §3's "no thaw was fired" true for the wrong reason: it
   // would have passed with the action firing on every click. §6 is what
   // catches that, and it did.
   const spy = ((input: RequestInfo | URL, init?: RequestInit) => {

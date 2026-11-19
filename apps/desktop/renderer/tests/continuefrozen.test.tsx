@@ -180,7 +180,7 @@ test('§2b A SWITCH WHOSE RELEASE FAILED IS NOT A CONTINUATION',
     const text = said[0].join(' ')
     assert.match(text, /still frozen/i, 'it did not say the freeze remains')
     assert.match(text, /claude-7/, 'it did not say where the agent now is')
-    assert.match(text, /unstick/i, 'it offered no way to finish the move')
+    assert.match(text, /thaw/i, 'it offered no way to finish the move')
     assert.doesNotMatch(said[0][0], /^worker continues/,
       'a half-finished move was reported as a continuation')
   })

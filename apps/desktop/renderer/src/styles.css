@@ -855,13 +855,13 @@ button.badge.queued { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.queued:hover { border-color: var(--button-accent); }
 .queued-mark { color: var(--agent-accent-text, var(--accent)); font-family: var(--mono); font-size: 10px; margin-left: 2px; white-space: nowrap; }
 .queued-warn { margin: 6px 0; }
-/* ⭐ the per-node unstick (user ruling 2026-08-06): the desk button, and the
+/* ⭐ the per-node thaw (user ruling 2026-08-06): the desk button, and the
    card's freeze badge doubling as the control */
-.badge.unstick {
+.badge.thaw {
   background: none; border: 1px solid var(--accent); color: var(--agent-accent-text, var(--accent));
   cursor: pointer; font-weight: 600;
 }
-.badge.unstick:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.badge.thaw:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 button.badge.frozen { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.frozen:hover { border-color: var(--button-accent); }
 /* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13). A

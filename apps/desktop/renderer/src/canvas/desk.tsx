@@ -4145,15 +4145,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         {/* ⭐ the user's per-node override (ruling 2026-08-06): one click
             releases EVERY lock holding this agent and re-drives it */}
         {(node.frozen || node.limit_locked) &&
-          <button className="badge unstick"
+          <button className="badge thaw"
             title="release every lock holding this agent (user override) and resume it"
             onClick={() => unstickNode(slug, node.id)
               .then((r) => toast([r.released?.length
-                ? `${node.id} unstuck (${r.released.join(', ')})`
+                ? `${node.id} thawed (${r.released.join(', ')})`
                 : (r.status ?? 'nothing to release'),
                 ...(r.warnings ?? [])]))
               .catch((e: Error) => toast([`error: ${e.message}`]))}>
-            unstick</button>}
+            thaw</button>}
         {/* the switchboard panels mirror this header IDENTICALLY (user spec
             2026-08-19) — nothing below is compact-gated anymore; a panel and
             the agent's own desk show the same chips, actions, tabs and gear */}

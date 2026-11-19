@@ -1512,7 +1512,7 @@ interface NodeSquareProps {
  * is a thing you aim at to OPEN a desk. Its badge row is a row of SIGNS -
  * lifecycle, provenance, pinned, queued switch, limit, route - and two of
  * them happened to be buttons: the layers/stack count and the freeze badge
- * that unsticks the agent. Both cost the operator twice. They fired a
+ * that thaws the agent. Both cost the operator twice. They fired a
  * consequential action nobody aimed at, and because a control has to stop
  * its own pointerdown to survive the viewport's pointer capture, they also
  * SWALLOWED the press meant to focus the agent - which the user named as the
@@ -1521,7 +1521,7 @@ interface NodeSquareProps {
  *
  * NOTHING IS LOST, AND THE DESK IS THE PRECEDENT. The open desk already
  * draws both of these correctly: its freeze chip is a plain span and the
- * release is a separate, labelled `unstick` button beside it, and its
+ * release is a separate, labelled `thaw` button beside it, and its
  * lineage control is its own button (desk.tsx). This makes the card agree
  * with the desk instead of merging a status chip and an action into one.
  *
@@ -2085,11 +2085,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
                 + 'came from, not what it is doing; a rehired bearer works '
                 + 'like any other agent'}>{node.bearer_state}</span>}
           {/* ⭐ clickable (user ruling 2026-08-06): the freeze badge IS the
-              per-node unstick — the control lives where the user finds the
+              per-node thaw — the control lives where the user finds the
               agent, not only in org-level panels */}
-          {/* the per-node unstick (user ruling 2026-08-06) used to ride on
+          {/* the per-node thaw (user ruling 2026-08-06) used to ride on
               this chip. Since 2026-09-12 the chip is a SIGN out here and the
-              release is the desk's own `unstick` button - the title says what
+              release is the desk's own `thaw` button - the title says what
               is wrong and no longer invites a click a zoomed-out card must
               not accept. See ActionBadge. */}
           {node.frozen &&
@@ -2105,7 +2105,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               onAct={() => {
                 unstickNode(slug, node.id)
                   .then((r) => toast([r.released?.length
-                    ? `${node.id} unstuck (${r.released.join(', ')})`
+                    ? `${node.id} thawed (${r.released.join(', ')})`
                     : (r.status ?? 'nothing to release'),
                     ...(r.warnings ?? [])]))
                   .catch((e2: Error) => toast([`error: ${e2.message}`]))
