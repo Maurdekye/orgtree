@@ -2022,8 +2022,25 @@ html.mobile .edge-jump { display: none; }
   display: inline-flex; align-items: center; flex-wrap: nowrap; gap: 6px;
   flex: none; margin-inline-start: auto;
 }
+/* A WIDE HEADER KEEPS ONE ROW WHILE IT FITS AND WRAPS WHEN IT DOES NOT (user
+   2026-11-19 mc14eea0faf60 "at certain desk widths the dnd and halt buttons
+   overlap the status"). It used to be forbidden to wrap from 600px up, with a
+   left group free to shrink to nothing: its fixed parts (context wheel,
+   process mark, status banner) then stuck out of it, under DND and halt. A
+   pinned desk, whose name is in the title bar, has nothing else to give.
+   Now the left group is never narrower than what it holds, the name is the
+   one part of it that gives (down to its floor), and past that the right
+   group takes a second row, as it already did under 600px.
+   ⚠ `width: 0` ON THE NAME is what lets it give before the row wraps: a
+   wrapping row breaks on each part's smallest size, and a one-line name's
+   smallest size is otherwise its whole text. It grows back from 0 to its
+   text and no further (max-content). The left group's basis is 0 for the
+   same reason; it takes the row's spare width, so the spacer has none. */
 @container (min-width: 600px) {
-  .cc-head-top { flex-wrap: nowrap; }
+  .cc-head-left { flex: 1 1 0; min-width: min-content; }
+  .cc-head-left > .cc-name { flex: 1 1 auto; width: 0; max-width: max-content; }
+  .cc-head-top > .spacer { flex: none; width: 12px; }
+  .cc-head-right { max-width: 100%; flex-wrap: wrap; }
 }
 @container (max-width: 599px) {
   .cc-head-left > .cc-name { min-width: 3ch; }
