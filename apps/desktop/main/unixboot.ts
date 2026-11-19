@@ -97,6 +97,18 @@ export async function loginShellPath(shell = process.env.SHELL || '/bin/sh', hom
   return [...login.split(':'), ...interactive.split(':')].filter(d => d && !seen.has(d) && !!seen.add(d)).join(':')
 }
 
+/** Whether THIS build owns the background engine's registration (the LaunchAgent,
+ *  the systemd user unit, the autostart entry): the installed release only. A build
+ *  whose version carries a prerelease label (4.6.3-frame.1, an alpha, a release
+ *  candidate) is a test build beside an installed version, and one registration
+ *  serves the whole account: such a build once rewrote the installed version's unit
+ *  to its own file. It never writes, enables, disables or removes any of them; it
+ *  attaches to a host that already answers, or starts an engine of its own. */
+export function registersBootEngine(o: { packaged: boolean; platform: NodeJS.Platform; appId: string; releaseAppId: string; version: string; hasEngine: boolean }): boolean {
+  if (!o.packaged || o.platform === 'win32' || o.appId !== o.releaseAppId || !o.hasEngine) return false
+  return !/^\d+\.\d+\.\d+-/.test(o.version.trim())
+}
+
 export function bootCommand(o: BootInputs): BootCommand {
   const env = { ORGTREE_V2_DATA: o.dataRoot, PATH: bootPath(o.home, o.platform, o.shellPath) }
   if (o.appImage) return { program: o.appImage, args: ['-e', APPIMAGE_HOST_JS], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } }

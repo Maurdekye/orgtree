@@ -98,7 +98,7 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
 import { readStartupTasks, startEngineTask, startHelperTask, startupOn, writeRunOnStartup } from './runonstartup'
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
-import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
+import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, registersBootEngine, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { addRemoteFirewallRule, removeRemoteFirewallRule, validDoorPort } from './remotefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -2633,9 +2633,12 @@ else {
       // macOS and Linux: the installed release registers that host itself (a
       // LaunchAgent / systemd user unit, unixboot.ts), at every launch so a
       // moved app is picked up, starts it, and waits for its descriptor. A
-      // development build never registers one, as on Windows.
+      // development build never registers one, as on Windows, and neither does
+      // a build with a prerelease label: the registration is the installed
+      // version's (registersBootEngine).
       const bootAttached = async () => {
-        if (!app.isPackaged || process.platform === 'win32' || identity.appId !== RELEASE_APP_ID || !engineOptions.binary) return false
+        if (!registersBootEngine({ packaged: app.isPackaged, platform: process.platform, appId: identity.appId, releaseAppId: RELEASE_APP_ID,
+          version: app.getVersion(), hasEngine: !!engineOptions.binary })) return false
         const folders = privateDataFolders(engineOptions.dataRoot, app.getPath('userData'))
         if (folders.tightened.length) console.warn(`data folders made private (0700): ${folders.tightened.join(', ')}`)
         if (folders.error) console.warn(`data folders could not be made private: ${folders.error}`)
