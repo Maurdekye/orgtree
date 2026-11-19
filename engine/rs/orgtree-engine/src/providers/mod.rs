@@ -239,6 +239,18 @@ pub fn locate_codex() -> Option<(PathBuf, String)> {
     which("codex").map(|p| (p, "path".into()))
 }
 
+/// Codex installs independent of the launching process's PATH, on macOS and
+/// Linux: `~/.local/bin/codex` (where its installer links it), then the
+/// standalone package itself. The engine's PATH is the login shell's plus the
+/// usual folders, but a desktop started by another launcher (Steam) can hand
+/// it less; `known_claude` does the same for Claude Code. `posix` is false on
+/// Windows, which keeps its own lookups (a parameter, so both cases are tested
+/// on every platform).
+#[nolog]
+fn known_codex(_profile: &Path, _posix: bool) -> Option<PathBuf> {
+    None
+}
+
 #[logged]
 pub fn locate_agy() -> Option<(PathBuf, String)> {
     if crate::rig::active() {
@@ -1559,6 +1571,62 @@ mod model_version_tests {
         }
         assert_eq!(catalog::display_name(catalog::tier("gpt-reserve").unwrap(), None).as_deref(),
             Some("ChatGPT Reserve"));
+    }
+}
+
+#[cfg(test)]
+mod codex_location_tests {
+    use super::*;
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            Self(std::env::temp_dir().join(format!("orgtree-codex-location-{}-{nonce}", std::process::id())))
+        }
+        fn local(&self) -> PathBuf { self.0.join(".local").join("bin").join("codex") }
+        fn standalone(&self) -> PathBuf {
+            self.0.join(".codex").join("packages").join("standalone").join("current").join("bin").join("codex")
+        }
+        fn write(&self, path: &Path) {
+            assert!(path.starts_with(&self.0));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"presence only, never execute").unwrap();
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    // A Steam Frame's desktop PATH is /usr/local/bin:/usr/bin: Codex in ~/.local/bin was
+    // not found (docket 4-6-4-linux-appimage-boot-unit-takeover-fallback).
+    #[test]
+    fn the_user_install_in_local_bin_is_found_without_path() {
+        let f = Fixture::new(); f.write(&f.local());
+        assert_eq!(known_codex(&f.0, true), Some(f.local()));
+    }
+    #[test]
+    fn the_standalone_package_is_found_without_path() {
+        let f = Fixture::new(); f.write(&f.standalone());
+        assert_eq!(known_codex(&f.0, true), Some(f.standalone()));
+    }
+    #[test]
+    fn local_bin_comes_before_the_standalone_package() {
+        let f = Fixture::new(); f.write(&f.standalone()); f.write(&f.local());
+        assert_eq!(known_codex(&f.0, true), Some(f.local()));
+    }
+    #[test]
+    fn nothing_installed_is_nothing_found_and_a_folder_is_not_a_program() {
+        let f = Fixture::new();
+        assert_eq!(known_codex(&f.0, true), None);
+        std::fs::create_dir_all(f.local()).unwrap();
+        assert_eq!(known_codex(&f.0, true), None);
+    }
+    // Windows keeps its own lookups (the npm vendor executable, then PATH).
+    #[test]
+    fn windows_keeps_its_own_lookups() {
+        let f = Fixture::new(); f.write(&f.local()); f.write(&f.standalone());
+        assert_eq!(known_codex(&f.0, false), None);
     }
 }
 
