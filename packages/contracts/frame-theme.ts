@@ -46,13 +46,21 @@ export function isFrameTheme(value: unknown): value is FrameTheme {
     (FRAME_THEME_COLORS as readonly string[]).includes(name) && isFrameColor(color))
 }
 
-/** The page stylesheet: one zero-specificity root rule of our names only. */
+/** A dropdown in a presentation or an app panel draws its option list inside the frame, never as an OS
+ *  pop-up (USER 2026-11-19 mf7601ffdfba7, look choice 8): the pop-up of a native select is a separate OS window, and
+ *  on the Steam Frame it never received a controller click. Both halves are needed, the select and its picker.
+ *  Zero specificity, like the colors: a page that gives its own select an `appearance` keeps what it set (and with
+ *  it the OS pop-up). The list keeps the browser's own look, which follows the page's colors, not Orgtree's. */
+export const FRAME_SELECT_CSS = ':where(select:not([multiple]):not([size])),'
+  + ':where(select:not([multiple]):not([size]))::picker(select){appearance:base-select}'
+
+/** The page stylesheet: one zero-specificity root rule of our names only, then the dropdown rule. */
 export function frameThemeCss(theme: FrameTheme): string {
   const vars = FRAME_THEME_COLORS.flatMap(name => {
     const color = theme.colors[name]
     return isFrameColor(color) ? [`${frameThemeProperty(name)}:${color}`] : []
   })
-  return `:where(:root){${[...vars, `--orgtree-color-scheme:${theme.colorScheme === 'light' ? 'light' : 'dark'}`].join(';')}}`
+  return `:where(:root){${[...vars, `--orgtree-color-scheme:${theme.colorScheme === 'light' ? 'light' : 'dark'}`].join(';')}}` + FRAME_SELECT_CSS
 }
 
 /** A computed CSS color (`rgb()`, `rgba()` or `color(srgb ...)`, as browsers

@@ -6097,6 +6097,52 @@ input::placeholder, textarea::placeholder { color: #6e6e6e; }
    in-page list box already and is left alone. */
 select:not([multiple]):not([size]),
 select:not([multiple]):not([size])::picker(select) { appearance: base-select; }
+/* ITS LOOK (user 2026-11-19 mf7601ffdfba7, look choices 1-7 and 10).
+   The closed control is as wide as its CURRENT choice, no longer its widest
+   one (the in-page select has no other sizing; `field-sizing` does not change
+   it, measured), with a floor so a two-letter choice is not a sliver. Callers'
+   own `width` / `max-width` rules still apply. The arrow is the chevron the
+   native control drew, as a clipped box in the text colour: no image, so it
+   follows every theme.
+   The list is the application context menu's panel and rows (.ctxmenu,
+   .ctxmenu-item below): same tokens, radius, shadow, row metrics and hover. It
+   is at least as wide as its control. Its HEIGHT IS LEFT TO THE BROWSER, which
+   stops it at the window edge and scrolls with the chosen row in view; a
+   max-height of ours made a long list cover its own control. The chosen row
+   carries a tick in the accent colour. A group's label is a small dim heading,
+   with a rule between groups. The list is not scaled with a canvas desk: it
+   is drawn in the window's top layer at normal size, readable at any zoom.
+   ⚠ Every option rule is scoped to the single-choice select: a `multiple`
+   list box has no pop-up and keeps its own rows. */
+select:not([multiple]):not([size]) {
+  align-items: center; justify-content: space-between; gap: 6px;
+  min-inline-size: 4.5em; white-space: nowrap; overflow: hidden; cursor: default;
+}
+select:not([multiple]):not([size])::picker-icon {
+  content: ''; flex: none; width: 9px; height: 9px; background: currentColor; opacity: .75;
+  clip-path: polygon(0 30%, 12% 18%, 50% 56%, 88% 18%, 100% 30%, 50% 80%);
+}
+select:not([multiple]):not([size])::picker(select) {
+  margin: 2px 0; padding: 4px; box-sizing: border-box;
+  min-width: anchor-size(width); max-width: min(420px, calc(100vw - 16px));
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  font-size: 13px; line-height: 1.3; cursor: default; scrollbar-width: thin;
+}
+select:not([multiple]):not([size]) option {
+  padding: 6px 12px; border-radius: 5px; min-height: 0; gap: 8px;
+  background: none; color: var(--ink); font-size: 13px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+select:not([multiple]):not([size]) option:is(:hover, :focus, :focus-visible) {
+  background: var(--panel-2); color: var(--ink-strong); outline: none;
+}
+select:not([multiple]):not([size]) option:checked { color: var(--ink-strong); }
+select:not([multiple]):not([size]) option:disabled { color: var(--dim); cursor: default; background: none; }
+select:not([multiple]):not([size]) option::checkmark { flex: none; width: 12px; color: var(--accent); font-size: 12px; }
+select:not([multiple]):not([size]) optgroup { margin: 0; padding: 0; font-weight: 400; font-size: 11px; color: var(--dim); }
+select:not([multiple]):not([size]) optgroup:not(:first-child) { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+select:not([multiple]):not([size]) optgroup > legend { padding: 4px 12px 2px; font-weight: 600; letter-spacing: .02em; }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 1px solid var(--accent); outline-offset: -1px;
 }

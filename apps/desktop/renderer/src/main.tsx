@@ -24,6 +24,11 @@ import { startAgentColorSync } from './agentcolors'
 import { startEpicSync } from './epic/sync'
 import { startHeldEvents } from './events/heldbus'
 import { startStreamerMode } from './streamer'
+import { installSelectKeys } from './selectkeys'
+
+// ⚠ THE WINDOW'S FIRST CAPTURE LISTENER, so before React and before every effect that listens on the window: an open
+// dropdown list must be the first to see its own keys, wheel and presses (selectkeys.ts).
+installSelectKeys(window)
 
 // ⚠ FIRST, AND BEFORE EVERY OTHER `onEvent` SUBSCRIPTION IN THIS DOCUMENT.
 // The preload sends `desktop:events-listening` from inside `onEvent`, so

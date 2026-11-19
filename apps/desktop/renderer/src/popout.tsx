@@ -16,6 +16,7 @@ import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pend
 import type { BorrowedSurface } from './windowlife'
 import { followRainbowWindow } from './rainbow'
 import { protectStreamerDocument } from './streamer'
+import { installSelectKeys } from './selectkeys'
 
 /** One gesture's client box and its actual window; never persisted. */
 export interface SurfaceOrigin {
@@ -723,6 +724,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
       d.close()
       cleanups.current.push(protectStreamerDocument(d))
+      // before anything is mounted in the new window: an open dropdown list owns its own input there too (selectkeys.ts)
+      cleanups.current.push(installSelectKeys(w))
       const onGone = () => {
         if (epoch.current !== transaction) return
         // A window lost during setup is still the established failed-open

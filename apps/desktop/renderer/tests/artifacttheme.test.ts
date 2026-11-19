@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { artifactThemeKeeper, type ThemedContents } from '../../main/frametheme'
+import { FRAME_SELECT_CSS } from '../../../../packages/contracts/frame-theme'
 
 // "Open in a new window" shows an HTML presentation in a native viewer with
 // no app bridge. Native injects the same --orgtree-* colors the inline reader
@@ -40,8 +41,9 @@ function viewer(delay = 0) {
 const settle = (ms = 10) => new Promise(r => setTimeout(r, ms))
 const dark = { colorScheme: 'dark', colors: { accent: '#d97757', accentSoft: 'rgba(217, 119, 87, 0.16)', bg: '#1f1f1f' } }
 const light = { colorScheme: 'light', colors: { accent: '#89391f', bg: '#f6f7f9' } }
-const DARK_CSS = ':where(:root){--orgtree-accent:#d97757;--orgtree-accent-soft:rgba(217, 119, 87, 0.16);--orgtree-bg:#1f1f1f;--orgtree-color-scheme:dark}'
-const LIGHT_CSS = ':where(:root){--orgtree-accent:#89391f;--orgtree-bg:#f6f7f9;--orgtree-color-scheme:light}'
+// every frame sheet ends with the dropdown rule (USER 2026-11-19 mf7601ffdfba7; selectinpage.test.ts)
+const DARK_CSS = ':where(:root){--orgtree-accent:#d97757;--orgtree-accent-soft:rgba(217, 119, 87, 0.16);--orgtree-bg:#1f1f1f;--orgtree-color-scheme:dark}' + FRAME_SELECT_CSS
+const LIGHT_CSS = ':where(:root){--orgtree-accent:#89391f;--orgtree-bg:#f6f7f9;--orgtree-color-scheme:light}' + FRAME_SELECT_CSS
 
 test('a presentation window gets the colors once its page is ready, and a theme switch replaces them in place', async () => {
   const themes = artifactThemeKeeper(), v = viewer()
