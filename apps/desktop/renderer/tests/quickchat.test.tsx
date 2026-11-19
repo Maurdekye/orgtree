@@ -16,7 +16,7 @@ import {
 } from '../src/quickchat'
 import type { OpRequest, TreePayload } from '../src/types'
 import { trayRows } from '../src/canvas/agenttray'
-import type { CanvasNode } from '../src/canvas/shared'
+import { setOfferedConditionalTiers, setShowLegacyModelsOn, type CanvasNode } from '../src/canvas/shared'
 import { resetStaffingOptionsForTests, type StaffingTier } from '../src/canvas/staffingoptions'
 import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
@@ -160,6 +160,42 @@ test('the model with no history prefers Opus, then Sol, then Argon, then Wonder,
   assert.equal(quickChatTier('sonnet', ['sonnet', 'opus']), 'sonnet')
   assert.equal(quickChatTier('fable', ['sonnet', 'opus']), 'opus', 'a model no longer offered falls back')
 })
+
+for (const legacyTier of ['argon', 'carbon']) {
+  test(`Quick chat falls back from a hidden ${legacyTier} preference and restores it when legacy models are enabled`, async () => {
+    localStorage.clear()
+    setOfferedConditionalTiers([{ tier: legacyTier }])
+    rememberTier('org', legacyTier)
+    providers(['google'], [legacyTier, 'hydrogen', 'krypton'].map(tier => ({
+      tier, provider: 'google', seat: 2, efforts: ['low', 'high'], accounts: [], default_ok: true,
+    })))
+    const ops: OpRequest[] = []
+    const view = await mount(ops, [])
+    try {
+      if (legacyTier === 'carbon') {
+        assert.equal(shown(view.el).model, 'carbon', 'Carbon is current until Neon is offered')
+        await inAct(() => setOfferedConditionalTiers([{ tier: 'carbon' }, { tier: 'neon' }]))
+      }
+      assert.equal(shown(view.el).model, 'hydrogen')
+      const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
+      await type(box, 'Hire the fallback model')
+      await enter(box)
+      assert.deepEqual(ops.map(op => op.tier), ['hydrogen'])
+      assert.equal(readQuickChat('org').tier, legacyTier, 'the fallback hire preserves the preference')
+
+      await inAct(() => setShowLegacyModelsOn(true))
+      assert.equal(shown(view.el).model, legacyTier)
+      await type(box, 'Hire the remembered model')
+      await enter(box)
+      assert.deepEqual(ops.map(op => op.tier), ['hydrogen', legacyTier])
+    } finally {
+      await view.unmount()
+      setOfferedConditionalTiers([])
+      setShowLegacyModelsOn(false)
+      localStorage.clear()
+    }
+  })
+}
 
 test('with no history: Opus, the org default effort, top level; Enter hires, kicks off and focuses', async () => {
   localStorage.clear(); providers(['claude'])
