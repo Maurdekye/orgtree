@@ -54,3 +54,8 @@ Gemini Neon is prepared speculatively ahead of provider availability. Like Krypt
 it appears only after the account model list reports `gemini-4-neon`. Its N
 tier has an inferred 2-credit seat and offers low, medium, high and xhigh like
 Hydrogen. See the Runtime legacy-model rules above.
+
+Claude Mythos is listed under Claude only while a signed-in Claude account provides it
+(from 4.6.5). Orgtree takes that from the model list the account's own Claude Code
+reports when an agent starts on it. Without that, Mythos is hidden everywhere. See
+[Claude Code](../../harnesses/harness-claude-code/SKILL.md).

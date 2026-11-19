@@ -12,6 +12,7 @@ The existing renderer already creates effort rows and posts the selected value.
 | Provider/tier | Offered levels |
 | --- | --- |
 | Claude, including Haiku | low, medium, high, xhigh, max |
+| Claude Mythos | The levels its login's own model row names, in the same order; all five when the row names none |
 | OpenRouter favorites | low, medium, high, xhigh, max |
 | Codex | The above five levels intersected with the selected model's advertised `supportedReasoningEfforts` |
 | Antigravity Flash | low, medium, high |

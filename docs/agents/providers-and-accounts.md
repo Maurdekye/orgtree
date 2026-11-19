@@ -1,5 +1,86 @@
 # Providers and accounts
 
+## Claude Mythos, shown only while a signed-in Claude login provides it (2026-11-19, 4.6.5)
+
+Mythos (`mythos`, Claude, letter M) is a conditional Claude tier, the first one. It is offered and shown only
+while a signed-in Claude login's own CLI lists the model, and hidden otherwise.
+
+**The tier.** Model `claude-mythos-5-2`; versions 5.2, 5.1 and 5, latest or pinned like Fable. Seat 8, by the
+input-price rule. Context 1,000,000. Declared right after Fable in the catalog, so Fable stays the first Claude
+tier and Mythos is listed second. Colour `#785a20` (the user's), on Fable's five tier surfaces.
+
+**Measured, 2026-11-19** (Anthropic's model pages; the strings and schema inside Claude Code 2.1.321, read without
+running it):
+- The ids `claude-mythos-5-2`, `claude-mythos-5-1`, `claude-mythos-5`. Mythos 5.2 is "the same model as Claude
+  Fable 5.2", for organizations verified through Anthropic's programs; $8 input and $40 output per million tokens.
+- The CLI answers the `initialize` control request with `models`: rows of `value`, `resolvedModel`,
+  `supportedEffortLevels`, `supportsFastMode`, an optional `disabled`; and `account` with `email`, `apiProvider`.
+- The CLI has no `mythos` alias; the full id is the model name.
+
+**Not measured** (no login on the build machine has Mythos; no model call, sign-in or account write was made):
+- The row a login that has Mythos returns. The parser follows the schema.
+- Mid-turn effort and fast mode: set as for Fable 5.2, because the CLI names the two ids together.
+- Which usage windows it spends (below).
+
+**How a login is judged.** The engine already sends `initialize` to every Claude CLI it starts. It now keeps
+the answer's model list per login (`providers::claude_login_seen`): the engine's own sign-in, and each registered
+Claude account. A login offers Mythos when a row's `value` or `resolvedModel` equals one of the tier's own ids,
+the `[1m]` marker aside. No prefix, label or family name matches (the Argon ruling of 2026-10-01: exact id).
+- Three answers, as for Muse: offered, not offered, unknown. Unknown is hidden.
+- Never borrowed: each login is asked by its own list. Another login's list offers nothing.
+- A list is used only for the sign-in it was read under (the answer's email against the login's). A login that
+  reads as signed out offers nothing, and its list is dropped, so signing in again starts from "not read".
+- The lists are in memory only. After an engine restart Mythos is hidden until a Claude CLI starts on a login
+  that has it. Seats already on Mythos keep running: their own start reads the list.
+- Not judged: a metered API key, OpenRouter and language model servers. Their CLIs' lists say nothing about a
+  Claude sign-in, so Mythos is not offered on them.
+
+**Known limit.** Claude Code fetches its extra model rows in one start-up request and skips it when nonessential
+traffic is off ("[Bootstrap] Skipped: Nonessential traffic disabled", a string in 2.1.321; that
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is the switch it tests is inferred). The engine sets that for every
+agent (decision 53), and it stays set. So under the engine a login reports the copy it cached the last time a CLI
+ran on it outside the engine: at its sign-in, or in the user's own terminal. A login that gains Mythos after
+signing in shows it only after such a run.
+
+**No start without a turn.** A CLI start that only reads the list, for logins no agent has started on yet, is not
+built. What such a start does to a login's stored sign-in is unmeasured, and a start outside a turn would race the
+engine's own credential handling (coordinator 2026-11-19 md6ecb7617d51). It stays out until a real engine start
+has measured it.
+
+**Where it is enforced.**
+- The providers payload lists the Mythos row only while a login offers it, with `own` (the engine's sign-in) and
+  `logins` (registered ids), as a Muse row says where it is offered. `orgtree_list_tiers` and the staffing options
+  follow the same rule.
+- Hire, rehire, model switch and account change refuse Mythos on a login that does not offer it, with the reason
+  (`ops::claude_admit`). A hire that names no account lands on a login that offers it, the one with the most room.
+- Continue-on and account fallback never move a Mythos seat to a login that does not offer it
+  (`freeze::continuation`, `org_accounts::best_allowed`).
+- A Mythos turn ends with "model pin refused" when the CLI reports another model than the one asked for
+  (`claude_models::substituted`). Claude Code can move a refused model to its tier's default by itself, so the pin
+  is asserted, as an Antigravity seat's is.
+
+**Usage.** Mythos spends the session window and the standard weekly window, a model window that names Mythos, and
+Fable's model window too. So a login whose Fable window is at 100% does not start Mythos. This is the careful
+reading until a login that has Mythos shows real readings. Fable's content-filter policies, the weekly Fable lock
+and the Fable pip stay Fable-only, and the auto-autopsy model list leaves Mythos out as it leaves Fable out.
+
+**The desktop.** `CONDITIONAL_CLAUDE_TIERS` and `claudeTierOffer` in `canvas/shared.ts`: every chooser hides
+Mythos without its payload row; an agent already on it keeps its own tier in its settings. Its dark gold reads
+2.39:1 on the dark panel and 2.03:1 on the dark token backing, so its letter takes a pale backing of its own hue
+(`--tier-mythos-backing`, 5.22:1) wherever it is text, in every theme.
+
+**Adding another conditional Claude model.** A catalog row with `conditional: true` and its name in
+`display_family`; the tier in `TIERS`, `TIER_LETTER`, `TIER_SEAT`, `MODEL_VERSIONS` and `CONDITIONAL_CLAUDE_TIERS`
+in `shared.ts`; its colour on the five tier surfaces in `styles.css`, measured against every theme; then
+`usage::spends` and `fast_mode::claude_model` if it differs from the other Claude tiers. The per-login list, the
+placement checks and the model-pin guard already cover every conditional Claude row.
+
+[decided: USER 2026-11-19 m4f7e7e8c6694, m8c9e34510689, m434ffd1cf05f (the plan's recommendations), mb033e506819f
+(colour); coordinator md6ecb7617d51; verified: `providers/{catalog,claude_models,mod}.rs`,
+`providers/claude_offer_tests.rs`, `runtime/{claude,actor}.rs`, `domain/{ops,staffing,tree}.rs`,
+`runtime/freeze/continuation.rs`, `org_accounts.rs`, `usage.rs`, `canvas/shared.ts`, `styles.css`,
+`tests/mythos.test.tsx`]
+
 ## Speculative Gemini Neon (2026-11-18, 4.6.3)
 
 Neon (`neon`, model/version `gemini-4-neon` / `4`, letter N) is added ahead of

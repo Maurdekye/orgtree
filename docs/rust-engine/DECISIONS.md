@@ -2685,6 +2685,22 @@ Krypton. Availability still requires its exact model ID in the account catalog.
 Neon changes no legacy rule. No real Neon turn or provider access is claimed.
 See the current [provider notes](../agents/providers-and-accounts.md#speculative-gemini-neon-2026-11-18-463).
 
+### Claude Mythos, per login (USER 2026-11-19, 4.6.5)
+
+USER m4f7e7e8c6694: "also add mythos support when available". USER m8c9e34510689: "well add it and only show it
+if mythos is provided by a signed in claude account". USER m434ffd1cf05f accepts the plan's recommendations;
+USER mb033e506819f: "use #785a20".
+Mythos is a conditional Claude tier: `mythos`, `claude-mythos-5-2` (versions 5.2, 5.1, 5), letter M, seat 8,
+1M context. The evidence is the model list a login's own Claude CLI gives in its `initialize` answer, kept per
+login in memory; exact id only; offered, not offered or unknown, and unknown is hidden. A login is never judged
+by another login's list, and a list is used only for the sign-in it was read under. Hire, rehire, switch,
+account change, continue-on and account fallback refuse a login that does not offer it. A Mythos turn the CLI
+serves with another model ends ("model pin refused"). Mythos spends Fable's model-scoped weekly window as well
+as its own. No start without a turn is built until a real engine start has measured one (coordinator
+md6ecb7617d51). Decision 53's traffic setting is unchanged; its consequence for the list is a known limit.
+Measured and unmeasured parts are in the
+[provider notes](../agents/providers-and-accounts.md#claude-mythos-shown-only-while-a-signed-in-claude-login-provides-it-2026-11-19-465).
+
 ### Retired count labels and owner menus (USER 2026-11-19, 4.6.4)
 
 USER m35bfc49352ad requests non-interactive retired counts; ma217f83e0e6a chooses plain labels plus owner context menus. This supersedes the 2026-10-21 clickable header badge interaction only. The shared count is an inert span, pointer-events none, no title or focus stop. Agent/project/root and Agents list menus expose Open retired list (N) when count and callback are present; the desk show/hide-retired toggle is unchanged. See [current interaction](retired-header-badges.md#current-interaction-2026-11-19-464).
