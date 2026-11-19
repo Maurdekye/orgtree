@@ -11,4 +11,19 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      # The test drives a stub engine from the test-only native helper (tools/test-native,
+      # found by tools/native-test-bins.mjs in its cargo target folder). The helper is a small
+      # crate of its own, built with the runner's own Rust and cached by its sources.
+      - name: Restore the native test helper
+        id: test-native-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tools/test-native/target
+          key: test-native-win-${{ hashFiles('tools/test-native/Cargo.lock', 'tools/test-native/Cargo.toml', 'tools/test-native/src/**') }}
+      - name: Build the native test helper
+        if: steps.test-native-cache.outputs.cache-hit != 'true'
+        run: cargo build --locked --manifest-path tools/test-native/Cargo.toml
+      - name: The native test helper is there
+        shell: bash
+        run: test -f tools/test-native/target/debug/orgtree-test-native.exe
       - run: node --test tests/startup-engine.test.mjs
