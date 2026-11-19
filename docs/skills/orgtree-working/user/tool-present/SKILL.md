@@ -86,6 +86,8 @@ An HTML presentation receives Orgtree's current colors as CSS custom properties 
 | `--orgtree-success`, `--orgtree-danger`, `--orgtree-warning` | Status colors |
 | `--orgtree-color-scheme` | `dark` or `light` (the Light and Solarized Light contrast colors are light) |
 
+A `<select>` in a presentation draws its option list inside the page, not as an operating-system pop-up, which some devices can't click (a VR headset, for one). Leave the `appearance` of a select alone: setting it brings the pop-up back. Its colors can be styled freely.
+
 Each color is concrete, `#rrggbb` or `rgba(r, g, b, a)`, and follows the user's current choices: a custom accent, and the deeper accent and status partners Orgtree uses on the light contrast colors. A minimal themed page:
 
 ```css

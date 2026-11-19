@@ -175,6 +175,23 @@ retain **Reply to selection** alongside those commands. Select All selects text
 in the current document; it does not edit it or send a message. These menus stay
 with their originating canvas, floating, pinned or popped-out reading surface.
 
+## Dropdowns
+
+A dropdown opens its list inside the Orgtree window, in the app's own colors,
+on every platform. The list always stays within the window, so it opens upward
+near the bottom edge. A closed dropdown is as wide as its current choice.
+
+With the keyboard: on a focused dropdown, **Up** and **Down** change the choice
+without opening the list, and **Home** and **End** jump to the first and last
+choice. **Enter**, **Space** or **Alt+Down** opens the list (in a form, Enter
+stays the form's). Typing letters jumps to a matching choice. In the open list,
+the arrows move, **Enter** takes the highlighted choice, **Escape** closes the
+list without changing anything, and **Tab** takes the highlighted choice and
+moves to the next field.
+
+Dropdowns in presentations and app panels open inside their own page the same
+way, unless the page styles its dropdowns itself.
+
 ## Replies to an exact passage
 
 In a live mail reply context, highlight text, right-click **Reply to selection**,

@@ -740,6 +740,47 @@ same change. The desk's own name and node hover are unchanged.
 [verified: `canvas/agentnav.tsx`; controls: `agenttooltipstale.test.tsx`,
 `agenttooltipstale.capture.cjs` + `.visual.tsx` (stand-in card, real host, real mouse)]
 
+## Dropdowns draw their list inside the window (2026-11-19, 4.6.4)
+
+Every single-choice `<select>` is Chromium's in-page select: `styles.css` sets
+`appearance: base-select` on the select AND on its `::picker(select)`. With only
+one half the browser keeps the OS pop-up, a separate OS window that never
+received a controller click under Gamescope with the OpenVR backend (Steam
+Frame: 0 of 20). The rule needs nothing at the call site, so a new select is
+covered as written; never give a select another `appearance`. A `multiple` or
+sized select is an in-page list box already and is left alone; each one is
+listed in `selectinpage.test.ts`. The list takes the context menu's look
+(`.ctxmenu`) and is drawn in the window's top layer: above every modal and pin,
+unscaled on a canvas desk, and per document, so a popped-out window draws its
+own. The closed control is as wide as its current choice (the in-page select
+has no widest-choice sizing; `field-sizing` does not change that), with a
+floor; callers' `width`/`max-width` still apply.
+
+`selectkeys.ts` restores what differs from a native Windows select, one install
+per window (`main.tsx` before React, `popout.tsx` before a surface mounts): it
+must be the window's first capture listener.
+- Closed: Up/Down/Home/End/Page Up/Page Down change the value with one `input`
+  and one `change`; plain Enter opens the list, except in a `<form>` and except
+  when the page consumed the key.
+- Open: the list owns its keys, wheel and option presses, as the OS pop-up did.
+  They are stopped at the window and never `preventDefault`ed. Without that,
+  Escape closes the panel behind the list (`useEsc`), the wheel zooms the
+  canvas, and a focus trap runs with focus on an `<option>`.
+- Tab in the open list takes the highlighted choice; after the browser has
+  closed the list, the page is offered a synthetic Tab from the control (a
+  focus trap handles it as usual), else focus goes to the next tab stop.
+
+Presentations, app panels and presentation windows get the same rule at zero
+specificity through `frameThemeCss` (`packages/contracts/frame-theme.ts`); a
+page that sets its own `appearance` on a select keeps the OS pop-up.
+`showPicker()` is refused inside those sandboxed frames.
+See `selectkeys.test.ts`, `selectinpage.test.ts` (the guard) and
+`selectinpage.capture.cjs` (real window, pop-out and frame; a sandboxed frame
+takes synthetic input only through the debugger protocol), and the
+[user guide](../messages-and-work.md#dropdowns).
+[decided: user 2026-11-19 m6a2395ab50fb "Everywhere", mf7601ffdfba7 look
+choices; verified: `styles.css`, `selectkeys.ts`, Electron 44.11.3]
+
 ## Text editing and spelling menus (2026-10-24, 4.4.5)
 
 Native `editmenu.ts` uses Chromium's edit flags, pointed misspelling and

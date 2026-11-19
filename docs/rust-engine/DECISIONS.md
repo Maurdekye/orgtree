@@ -2688,3 +2688,21 @@ See the current [provider notes](../agents/providers-and-accounts.md#speculative
 ### Retired count labels and owner menus (USER 2026-11-19, 4.6.4)
 
 USER m35bfc49352ad requests non-interactive retired counts; ma217f83e0e6a chooses plain labels plus owner context menus. This supersedes the 2026-10-21 clickable header badge interaction only. The shared count is an inert span, pointer-events none, no title or focus stop. Agent/project/root and Agents list menus expose Open retired list (N) when count and callback are present; the desk show/hide-retired toggle is unchanged. See [current interaction](retired-header-badges.md#current-interaction-2026-11-19-464).
+
+### Dropdowns draw their list inside the window (USER 2026-11-19, 4.6.4)
+
+Reported from the user's Steam Frame (SteamOS, Gamescope with the OpenVR
+backend, Xwayland): a native select's option list is a separate OS window
+there and took 0 of 20 controller clicks; native Wayland did not start.
+USER m6a2395ab50fb "Answer: Everywhere": the in-app list replaces the OS
+pop-up on every platform, not only under Gamescope. The coordinator chose
+(m0184a8ec3718) Chromium's own in-page select for every single-choice select,
+through one stylesheet rule and a small key module, over a new component and
+66 rewritten call sites. USER mf7601ffdfba7 "Accept all (Rec.)" approved the
+look: the context menu's look; a tick on the chosen row; dim group labels; the
+native chevron kept; the closed control as wide as its current choice with a
+floor; Enter opens except in a form; long lists scroll to the window edge; the
+list not scaled on a canvas desk; the `multiple` list box unchanged; and the
+same rule inside presentations and app panels. A real Steam Frame check is
+still to come. See the current
+[desktop notes](../agents/desktop-and-renderer.md#dropdowns-draw-their-list-inside-the-window-2026-11-19-464).

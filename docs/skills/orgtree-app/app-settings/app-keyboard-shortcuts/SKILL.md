@@ -130,6 +130,7 @@ Read-only selections offer **Copy** and **Select All**; exact-passage menus keep
 new agent tool or message send. Agents use their existing file/edit tools and
 the selection read/send contracts when working with equivalent source content.
 | Standard widgets | Enter/Space activates focused button-like items. Tab moves focus, remains inside modal dialogs, or leaves/closes menus. Up/Down/Page Up/Page Down/Home/End/Space scrolls a conversation when focus allows native scrolling. |
+| Dropdowns | The list opens inside the window. Closed: Up/Down change the choice, Home/End jump to the first/last, Enter/Space/Alt+Down open the list (in a form, Enter stays the form's), letters jump to a match. Open: arrows move, Enter takes the highlighted choice, Escape closes the list only, Tab takes the choice and moves on. |
 
 Undo is durable action history and can require confirmation; it is distinct from editing text. See [orgtree-toasts-and-undo](../../app-shell/toasts-and-undo/SKILL.md) for its scope and the resulting state changes. The source catalog is `shortcuts.ts` plus `shell/appshortcuts.ts`; if a newly added binding differs, use that source and update this page in the same landing.
 

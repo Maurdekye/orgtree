@@ -298,6 +298,10 @@ variable and has an example. In CSS: `--orgtree-accent`, `--orgtree-accent-hover
 and `--orgtree-color-scheme` (`dark` or `light`). They sit in one zero-specificity
 rule, so the app's own values win.
 
+A `<select>` in a panel draws its option list inside the panel, not as an
+operating-system pop-up, which some devices can't click. Leave the `appearance`
+of a select alone: setting it brings the pop-up back.
+
 In script, `orgtree.theme.get()` returns the current `{colorScheme, colors}`
 synchronously, frozen: the same colors under camelCase names (`accent`,
 `accentHover`, `accentSoft`, `accentText`, `bg`, `sidebar`, `card`, `hover`, `input`,
