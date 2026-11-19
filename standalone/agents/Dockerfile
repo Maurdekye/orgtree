@@ -36,26 +36,18 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 COPY agents-entrypoint.sh /usr/local/bin/orgtree-agents-entrypoint
 COPY healthcheck.sh /usr/local/bin/orgtree-healthcheck
-# The secret is optional and exists only during this RUN, never in a layer: one line,
-# "Authorization: Bearer <token>", for the api.github.com request below. CI passes the
-# workflow's token (build-standalone-agents.yml); a build without it asks anonymously.
-RUN --mount=type=secret,id=github_api_header set -eux; \
+RUN set -eux; \
     ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
     apt-get update; \
     apt-get install -y --no-install-recommends openssh-client python3 curl docker-cli; \
     rm -rf /var/lib/apt/lists/*; \
     chmod 0755 /usr/local/bin/orgtree-agents-entrypoint /usr/local/bin/orgtree-healthcheck; \
-    # git over SSH out of the box: GitHub's published host keys are preinstalled; other
+    # git over SSH out of the box: GitHub's published host keys are preinstalled (the
+    # RUN after this one); other
     # hosts are accepted on first use and remembered in ~/.ssh/known_hosts (HOME is on
     # the data volume); a changed key is still refused. Keys go in ~/.ssh as usual.
     printf 'Host *\n    StrictHostKeyChecking accept-new\n' > /etc/ssh/ssh_config.d/50-orgtree.conf; \
-    # anonymous requests are limited per address, and a shared CI runner's address can be
-    # over the limit (HTTP 403, release test run 44482893173): send the token when given.
-    # curl reads the header from the file, so the token is not on the command line.
-    auth=/run/secrets/github_api_header; \
-    curl -fsS --retry 3 --retry-delay 5 $([ -s "$auth" ] && echo "-H @$auth") https://api.github.com/meta | python3 -c 'import json,sys; [print("github.com", k) for k in json.load(sys.stdin)["ssh_keys"]]' > /etc/ssh/ssh_known_hosts; \
-    test -s /etc/ssh/ssh_known_hosts; \
     # Codex: in the image, root-owned (it cannot update itself)
     npm install -g --no-fund --no-audit "@openai/codex@${CODEX_VERSION}"; \
     codex="$(find /usr/local/lib/node_modules/@openai/codex -type f -name codex -path '*/vendor/*' -perm -u+x | head -n1)"; \
@@ -77,6 +69,18 @@ RUN --mount=type=secret,id=github_api_header set -eux; \
       "$CLAUDE_CODE_VERSION" "$CODEX_VERSION" "$CLAUDE_CODE_INSTALL" "$AGY_VERSION" "$AGY_SHA256" > /opt/orgtree/agents.env; \
     rm -rf /root/.npm /tmp/*; \
     mkdir -p /data/home; chown -R orgtree:orgtree /data
+# GitHub's SSH host keys, from api.github.com. This RUN does nothing else, because it is
+# the one that can read the secret: no package manager and no package's script runs in
+# it. The secret is optional and is mounted for this RUN only, never in a layer: one
+# line, "Authorization: Bearer <token>". CI passes the workflow's token
+# (build-standalone-agents.yml), because anonymous requests are limited per address and
+# a shared runner's address can be over the limit (HTTP 403, release test run
+# 44482893173). A build without the secret asks anonymously. curl reads the header from
+# the file, so the token is not on a command line.
+RUN --mount=type=secret,id=github_api_header set -eux; \
+    auth=/run/secrets/github_api_header; \
+    curl -fsS --retry 3 --retry-delay 5 $([ -s "$auth" ] && echo "-H @$auth") https://api.github.com/meta | python3 -c 'import json,sys; [print("github.com", k) for k in json.load(sys.stdin)["ssh_keys"]]' > /etc/ssh/ssh_known_hosts; \
+    test -s /etc/ssh/ssh_known_hosts
 # The same package-level description as the plain image: GHCR shows the
 # last pushed tag's description on the package page.
 LABEL org.opencontainers.image.title="orgtree-engine (agents)" \
