@@ -29,6 +29,18 @@ The published installer is for **64-bit Windows**. Windows builds are unsigned; 
 2. Download **`Orgtree-Setup-<version>.exe`** and run it. GitHub's source-code ZIP is for source, not installation.
 3. Open **Orgtree** from the Start menu. The centered Welcome card lets you choose a theme and startup behavior, then create an organization. Narrow windows keep side padding; shorter windows scroll to the remaining actions.
 
+<a id="linux-appimage-without-fuse"></a>
+
+### Linux AppImage without FUSE (Steam Frame, SteamOS)
+
+The Linux builds are prototypes. An AppImage normally mounts itself with FUSE (`libfuse2`). The Steam Frame, SteamOS and some other systems do not have it. On those systems this is a compatibility requirement:
+
+- **Start the AppImage with `APPIMAGE_EXTRACT_AND_RUN=1` in its environment.** Do not use the `--appimage-extract-and-run` argument. The AppImage's own launcher removes that argument, so the restart after an update would try FUSE and fail to start. The variable is passed on to the restarted app.
+- In Steam, add the AppImage as a non-Steam game and set its launch options to `APPIMAGE_EXTRACT_AND_RUN=1 %command%`. In a terminal: `APPIMAGE_EXTRACT_AND_RUN=1 ./Orgtree.AppImage`.
+- **Keep the file at one fixed path, in a folder you can write to.** An update replaces the file in place under the same name, and the background engine's login registration names that path. Moving or renaming the file breaks both.
+
+If an update's restart does not come back, start the AppImage once more the same way; the update itself is already in place.
+
 The installer includes the desktop app, local engine and PostgreSQL database. You do not need to install Node.js, Rust or PostgreSQL to use the packaged app, and from 4.6.1 the installer carries no Python at all. A newer installation keeps your organization data. Model access and provider applications are set up separately.
 
 The database needs the Microsoft Visual C++ runtime (2015-2022, x64), version 14.44 or newer. Setup checks it. When it is missing or too old, Setup downloads Microsoft's own runtime and installs it; Windows may ask for administrator approval. If that cannot be done, for example without an internet connection, Setup tells you: Orgtree's database will not start until you install the runtime from <https://aka.ms/vs/17/release/vc_redist.x64.exe>. An update that installs in the background only checks, and does not install it.

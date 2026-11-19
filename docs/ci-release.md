@@ -350,7 +350,11 @@ Ubuntu 22.04's glibc 2.35 (inferred).
 - AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it, from a folder you own such
   as `~/Applications` (it updates itself there, see below). It needs FUSE 2:
   `sudo apt install libfuse2` (Ubuntu 22.04) or `libfuse2t64` (24.04). Without it
-  (SteamOS has none), run `./Orgtree-<v>.AppImage --appimage-extract-and-run`: see
+  (SteamOS has none), run it with `APPIMAGE_EXTRACT_AND_RUN=1` in the environment,
+  not with the `--appimage-extract-and-run` argument: the runtime consumes the
+  argument, so the restart after an update would try FUSE and fail, while the
+  variable carries over (USER 2026-11-19 m33b5b5e1347f: a compatibility requirement,
+  documented in `docs/getting-started.md`; the relaunch code is unchanged). See
   "Without FUSE" below. The update test runs it with FUSE (measured on the runner).
   Where unprivileged user namespaces are restricted (a stock Ubuntu 24.04), the
   launcher electron-builder puts in the AppImage adds `--no-sandbox` by itself when
