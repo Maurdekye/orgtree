@@ -32,3 +32,5 @@ Retired project fronts retain their folder identity and can open the same retire
 ## See also
 
 - [orgtree-app-display-desk-and-chart](../../app-settings/app-display-desk-and-chart/SKILL.md)
+
+Retired-count labels do not capture clicks or keyboard focus. Right-click the agent/project/org > **Open retired list (N)** to open that owner's list, or use the same entry on an Agents list row. Existing pile-front selectors and the desk show/hide-retired toggle remain separate controls.

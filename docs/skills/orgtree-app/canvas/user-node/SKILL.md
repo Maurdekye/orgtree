@@ -39,3 +39,5 @@ buttons remain clickable. Agent and project retired badges stay in their
 card headers. See [piles](../piles/SKILL.md).
 
 - [orgtree-confirm-dialogs](../../app-shell/confirm-dialogs/SKILL.md)
+
+The root **N retired** count is a plain label: clicks pass through to the canvas. Right-click the org eye and choose **Open retired list (N)** to search its retired top-level agents.

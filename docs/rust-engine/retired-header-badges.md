@@ -1,5 +1,27 @@
 # Retired list header badges
 
+## Current interaction (2026-11-19, 4.6.4)
+
+USER m35bfc49352ad / ma217f83e0e6a replaces the earlier clickability ruling:
+the count is a plain span, with its count in an aria-label, no tooltip, focus
+stop or event handlers, and pointer-events none. Its colour, size, header flow,
+far-zoom visibility and count are unchanged. The root satellite wrapper also
+passes pointer events to the canvas. The desk count is plain; its separate
+show/hide-retired toggle stays unchanged.
+
+Right-click the agent/project/org > **Open retired list (N)** opens the same
+bounded picker through its existing owner callback. Agent/project builders put
+the entry immediately after Open, ahead of lifecycle actions; the root menu
+puts it after New project (or Hire an agent when that entry is absent). Both a
+positive count and a handler are required. Agents list rows use the same
+builder and remain the route while a focused card suppresses its own menu.
+Selecting a retiree reveals/navigates to it, without rehiring it.
+
+## Historical layout and earlier interaction
+
+The 2026-10-21 click/hover behavior described below is superseded by the current
+interaction above. Its layout and fitting decisions still apply.
+
 USER 2026-10-21 11:16Z: "also i want the retired card to look the same on both
 agents and projects. make it a card that's in the same list of header cards on
 both, clickable to open the retired list."

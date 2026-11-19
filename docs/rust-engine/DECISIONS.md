@@ -2684,3 +2684,7 @@ and speculative, not measured. The generic low/high effort mapping is retained
 Krypton. Availability still requires its exact model ID in the account catalog.
 Neon changes no legacy rule. No real Neon turn or provider access is claimed.
 See the current [provider notes](../agents/providers-and-accounts.md#speculative-gemini-neon-2026-11-18-463).
+
+### Retired count labels and owner menus (USER 2026-11-19, 4.6.4)
+
+USER m35bfc49352ad requests non-interactive retired counts; ma217f83e0e6a chooses plain labels plus owner context menus. This supersedes the 2026-10-21 clickable header badge interaction only. The shared count is an inert span, pointer-events none, no title or focus stop. Agent/project/root and Agents list menus expose Open retired list (N) when count and callback are present; the desk show/hide-retired toggle is unchanged. See [current interaction](retired-header-badges.md#current-interaction-2026-11-19-464).

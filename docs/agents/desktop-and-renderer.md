@@ -1,5 +1,14 @@
 # Desktop and renderer
 
+## Retired counts are non-interactive (2026-11-19, 4.6.4)
+
+Retired count badges are plain labels. Right-click the agent/project/org >
+**Open retired list (N)**; the Agents list row offers the same entry while a
+desk is focused. The desk show/hide-retired toggle is unchanged. This supersedes
+the historical badge-click interaction below, not its layout. See
+[retired header badges](../rust-engine/retired-header-badges.md#current-interaction-2026-11-19-464).
+[decided: USER m35bfc49352ad, ma217f83e0e6a; verified: `canvas/{retiredbadge,agentmenu,cards,projectcard,OrgCanvas,desk}.tsx`]
+
 ## No program launch or timer-driven disk wait on the desktop main thread (2026-11-16, 4.6.1)
 
 @item:orgtree/nick-pc-4-6-0-desktop-main-process-stalls-input-f, USER 2026-11-16 16:30:53Z m8fe70e62fc2c "Full scope +

@@ -70,8 +70,8 @@ a reason say **Runs in Windows Session 0**. A known placement time appears as
 as an accessible label. `orgtree_session` already reports placement to agents.
 
 Other card furniture keeps its specific name: lifecycle/pinned/remote markers
-can be zoom-only; retired-count badges open a list rather than report turn
-state. The unstick button is a recovery action. Agent cards, zoom cards, jump
+can be zoom-only; retired-count badges are plain labels rather than turn
+state or controls; the owner context menu opens the retired list. The unstick button is a recovery action. Agent cards, zoom cards, jump
 cards, presentation cards and document chips remain distinct objects. A badge
 does not by itself prove a process is running or a queued change has applied.
 
@@ -171,7 +171,7 @@ Counts appear for Mail, Docket and Presented when nonzero. For configuration fie
 
 ## Retired reports and slot holds
 
-With retired agents hidden, the report-jump row keeps a retired-count badge for both agent and project desks. Click it, or choose Open retired list from its own menu, to search the retained reports and reveal one. This is navigation, not rehire.
+With retired agents hidden, the report-jump row keeps a plain retired-count label for both agent and project desks. Right-click the agent/project/org > **Open retired list (N)** to search the retained reports and reveal one. The Agents list row menu provides the same route while a desk is focused. The separate show/hide-retired toggle is unchanged. This is navigation, not rehire.
 
 Held-slot state badges and waiting-claim header badges name the project, show quantities for multi-slot claims and open that project's Slots panel when a route is available. Their hover gives held/waiting time; waiting-claim header badges also show line position. A grant notification and an active lease are separate facts: inspect the Slots panel to confirm what is still held.
 

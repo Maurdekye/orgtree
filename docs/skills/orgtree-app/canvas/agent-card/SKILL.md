@@ -84,7 +84,7 @@ use a folder mark and have no model/account tooltip.
 
 At overview zoom, the complete face of an agent or project card shrinks uniformly when needed to fit its fixed bounds. Text, badges and icons shrink together; the card does not expand or cut off its lower controls. This does not change an opened desk or far-zoom locator.
 
-A retired-count badge on an agent or project card opens the shared retired list. Its own right-click menu offers Open retired list rather than the containing agent/project menu. The same badge is available among a desk's report jump controls when retired reports are hidden. Selecting an entry reveals/navigates to that retained identity; it does not restore or rehire it. See [piles](../piles/SKILL.md).
+A retired-count badge on an agent or project card is a plain, non-interactive label; clicks pass through to its owner. Right-click the agent/project/org and choose **Open retired list (N)** to open the shared retired list. The Agents list row has the same entry, including while that agent's desk is focused. The count in a desk's report-jump row is plain too; its separate show/hide-retired toggle is unchanged. Selecting an entry reveals/navigates to that retained identity; it does not restore or rehire it. See [piles](../piles/SKILL.md).
 
 ## Folding a subtree
 
