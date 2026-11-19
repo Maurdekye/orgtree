@@ -1960,7 +1960,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
                 v => agent(v),
             }
         }
-        "orgtree_retool" | "orgtree_retire" | "orgtree_dissolve" | "orgtree_interrupt" | "orgtree_unstick" | "orgtree_continue_on"
+        "orgtree_retool" | "orgtree_retire" | "orgtree_dissolve" | "orgtree_interrupt" | "orgtree_thaw" | "orgtree_unstick" | "orgtree_continue_on"
         | "orgtree_cheap_compact" | "orgtree_switch_model" | "orgtree_read_transcript" | "orgtree_read_scratch" | "orgtree_rename"
         | "orgtree_reallocate" | "orgtree_halt" | "orgtree_unhalt" => args(&["node", "nodes"], &mut agent),
         "orgtree_reorder" => args(&["node", "nodes", "before", "after"], &mut agent),

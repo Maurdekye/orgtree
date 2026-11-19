@@ -67,7 +67,7 @@ pub fn required(name: &str) -> Option<&'static [&'static str]> {
         "message" | "send_notice" | "inbox" | "audience" | "transfers" => &["messaging"],
         "chart" | "state_inspect" | "usage" | "list_tiers" | "list_orgs" | "read_transcript" | "read_reply_source" | "read_scratch" | "files" => &["inspection"],
         "watchdog" => &["watchdogs"],
-        "halt" | "unhalt" | "unstick" | "continue_on" | "account_mark" => &["runtime"],
+        "halt" | "unhalt" | "thaw" | "unstick" | "continue_on" | "account_mark" => &["runtime"],
         "ask" | "withdraw_ask" | "present" | "send_file" | "request_credits" | "request_scope" => &["user"],
         _ => return None,
     })

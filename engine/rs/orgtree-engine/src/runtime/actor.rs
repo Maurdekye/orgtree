@@ -2662,7 +2662,7 @@ impl Actor {
             let auto_resume = freeze::auto_resume_on(&self.engine, self.org_id).await?;
             tracing::info!(agent = self.id, state = %state, halted, killswitch, waking, auto_resume,
                 reset_due = wake.map(|t| t <= Utc::now()).unwrap_or(false),
-                wake_at = ?wake, "wake blocked: agent is frozen; automatic timer or manual unstick must release it");
+                wake_at = ?wake, "wake blocked: agent is frozen; automatic timer or manual thaw must release it");
         }
         if state != "live" || halted || frozen || killswitch || !waking {
             return Ok(());

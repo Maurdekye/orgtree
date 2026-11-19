@@ -116,7 +116,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_interrupt",
         "orgtree_halt",
         "orgtree_unhalt",
-        "orgtree_unstick",
+        "orgtree_thaw",
         "orgtree_continue_on",
         "orgtree_account_mark",
         "orgtree_ask",
@@ -146,6 +146,17 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_swap",
         "orgtree_self_subjugate",
     ]
+}
+
+/// The served name of a tool. `orgtree_unstick` was renamed `orgtree_thaw` in 4.6.5 (USER
+/// 2026-11-19 mf0951505ba87). The old name is a hidden alias: no list or card shows it, but
+/// a call or a stored watchdog fire action that still names it runs as `orgtree_thaw`.
+#[nolog]
+pub fn canonical(name: &str) -> &str {
+    match name {
+        "orgtree_unstick" => "orgtree_thaw",
+        other => other,
+    }
 }
 
 #[logged]
@@ -195,7 +206,7 @@ pub fn sdk_server() -> Value { json!({ "type": "sdk", "name": "orgtree" }) }
 fn deferred(name: &str) -> bool {
     matches!(name,
         "orgtree_apps" | "orgtree_files" | "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
-        "orgtree_halt" | "orgtree_unhalt" | "orgtree_unstick" | "orgtree_continue_on" |
+        "orgtree_halt" | "orgtree_unhalt" | "orgtree_thaw" | "orgtree_continue_on" |
         "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" | "orgtree_read_reply_source" |
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
         "orgtree_move" | "orgtree_rename" | "orgtree_reorder" | "orgtree_reallocate" |
@@ -564,7 +575,7 @@ fn all() -> Vec<Value> {
         build_tool_interrupt(),
         build_tool_halt(),
         build_tool_unhalt(),
-        build_tool_unstick(),
+        build_tool_thaw(),
         build_tool_continue_on(),
         build_tool_account_mark(),
         build_tool_ask(),
@@ -832,9 +843,9 @@ fn build_tool_unhalt() -> Value {
 
 #[inline(never)]
 #[nolog]
-fn build_tool_unstick() -> Value {
+fn build_tool_thaw() -> Value {
     tool(
-        "orgtree_unstick",
+        "orgtree_thaw",
         "Release a descendant agent's usage freeze and let it continue.",
         json!({ "node": { "type": "string" } }),
         &["node"],
@@ -857,7 +868,7 @@ fn build_tool_continue_on() -> Value {
 fn build_tool_account_mark() -> Value {
     tool(
         "orgtree_account_mark",
-        "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs unstick. Only org-visible accounts.",
+        "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs thaw. Only org-visible accounts.",
         json!({
             "action": { "type": "string", "enum": ["inspect", "clear"] },
             "account": { "type": "string", "description": "inspect: account id or name. clear: the exact `account` of the mark entry" },
@@ -1867,6 +1878,13 @@ mod builder_stack_tests {
     #[test]
     fn reply_selection_all_tool_json_matches_pre_split_snapshot() {
         let mut expected: serde_json::Value = serde_json::from_slice(include_bytes!("../../testdata/tool-cards-c89111b.json")).unwrap();
+        // USER 2026-11-19 mf0951505ba87: orgtree_unstick is called orgtree_thaw. Same place, same schema.
+        let thaw = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_unstick").unwrap();
+        thaw["name"] = serde_json::json!("orgtree_thaw");
+        thaw["description"] = serde_json::json!(thaw["description"].as_str().unwrap().replace("orgtree-tool-unstick", "orgtree-tool-thaw"));
+        let mark = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_account_mark").unwrap();
+        assert_eq!(mark["description"].as_str().unwrap().matches("still needs unstick").count(), 1);
+        mark["description"] = serde_json::json!(mark["description"].as_str().unwrap().replace("still needs unstick", "still needs thaw"));
         // User 2026-10-20: TOTAL moved from inline instructions to this card.
         let credit = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_request_credits").unwrap();
         credit["description"] = serde_json::json!("Ask the user for a larger TOTAL grant with a reason.\nGuide: orgtree-tool-request-credits.");
@@ -2090,7 +2108,7 @@ mod builder_stack_tests {
             ("orgtree_interrupt", "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status. Effort-only changes on eligible Claude seats apply mid-turn, no interrupt."),
             ("orgtree_halt", "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes."),
             ("orgtree_unhalt", "Unhalt descendant agents; waiting mail may start their next turn."),
-            ("orgtree_unstick", "Release a descendant agent's usage freeze and let it continue."),
+            ("orgtree_thaw", "Release a descendant agent's usage freeze and let it continue."),
             ("orgtree_continue_on", "Switch a frozen descendant agent to a same-provider account and release its freeze."),
             ("orgtree_cheap_compact", "Restart a descendant agent on a fresh session with a summary handoff."),
             ("orgtree_rehire", "Restore a retired agent/project; target/hire_type set placement. Projects keep policy, cost no seat and reject model/scope/grant overrides. Agents retain omitted values; folders replace. kickoff sends first mail. Credit/authority limits apply."),

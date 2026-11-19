@@ -100,7 +100,7 @@ pub fn wake_at(rec: &Value) -> Option<DateTime<Utc>> {
 #[logged]
 pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, name: &str, rec: &Value) {
     let Some(wake) = wake_at(rec) else {
-        tracing::info!(org = org_id, agent = agent_id, "freeze not scheduled: no valid reset deadline; manual unstick required");
+        tracing::info!(org = org_id, agent = agent_id, "freeze not scheduled: no valid reset deadline; manual thaw required");
         return;
     };
     if matches!(rec["cause"].as_str(), Some("auth" | "balance")) {

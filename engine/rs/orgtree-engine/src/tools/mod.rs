@@ -124,7 +124,8 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
 
 #[logged]
 async fn call_inner(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
-    let name = params["name"].as_str().unwrap_or("");
+    // a renamed tool's old name is a hidden alias (defs::canonical)
+    let name = defs::canonical(params["name"].as_str().unwrap_or(""));
     // a tool's arguments are a JSON object: anything else is refused here,
     // before a handler writes into it (writing a key into an array or a
     // string panics)
@@ -277,7 +278,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_interrupt" => boxed(|| control::interrupt(engine, caller, args)).await,
         "orgtree_halt" => boxed(|| control::halt(engine, caller, args, true)).await,
         "orgtree_unhalt" => boxed(|| control::halt(engine, caller, args, false)).await,
-        "orgtree_unstick" => boxed(|| control::unstick(engine, caller, args)).await,
+        "orgtree_thaw" => boxed(|| control::thaw(engine, caller, args)).await,
         "orgtree_continue_on" => boxed(|| control::continue_on(engine, caller, args)).await,
         "orgtree_account_mark" => boxed(|| control::account_mark(engine, caller, args)).await,
         "orgtree_ask" | "orgtree_request_credits" | "orgtree_request_scope" | "orgtree_withdraw_ask" => {

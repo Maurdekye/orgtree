@@ -1507,6 +1507,13 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     Ok(())
 }
 
+/// The tool a stored fire action calls, under its served name: an action stored before a
+/// rename (orgtree_unstick, now orgtree_thaw) passes its gates and runs as the renamed tool.
+#[nolog]
+fn fire_action_tool(action: &Value) -> &str {
+    crate::tools::defs::canonical(action["tool"].as_str().unwrap_or(""))
+}
+
 /// Validate create's `fire_actions`: a list of at most MAX_FIRE_ACTIONS
 /// `{tool, args}` objects naming served `orgtree_*` tools, args a bounded
 /// JSON object. Authority is NOT decided here: it is re-read at fire time.
@@ -1521,7 +1528,7 @@ fn fire_actions_arg(args: &Value) -> Result<Vec<Value>> {
     }
     let mut out = Vec::new();
     for (i, a) in list.iter().enumerate() {
-        let tool = a["tool"].as_str().map(str::trim).unwrap_or("");
+        let tool = crate::tools::defs::canonical(a["tool"].as_str().map(str::trim).unwrap_or(""));
         if !crate::tools::defs::implemented().contains(&tool) {
             refuse!(BadRequest, "fire_actions tool must be one of the served orgtree_* tools (got {tool:?})");
         }
@@ -1656,7 +1663,7 @@ async fn run_fire_actions_inner(engine: &Arc<Engine>, org_id: i64, owner: i64, o
     };
     FIRE_ACTION_DEPTH.scope(depth + 1, async {
         for a in actions {
-            let tool = a["tool"].as_str().unwrap_or("");
+            let tool = fire_action_tool(a);
             let argv = if a["args"].is_object() { a["args"].clone() } else { json!({}) };
             if let Some((sid, sname, gate)) = &setter {
                 let verdict = match gate {

@@ -1,4 +1,4 @@
-//! Acting on agents below you: interrupt, halt/unhalt, unstick,
+//! Acting on agents below you: interrupt, halt/unhalt, thaw,
 //! continue on another account; and account limit marks.
 
 use std::sync::Arc;
@@ -174,12 +174,12 @@ pub(crate) async fn halt_targets(engine: &Arc<Engine>, org_id: i64, targets: &[(
 }
 
 #[logged]
-pub async fn unstick(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+pub async fn thaw(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
-    downward(&client, &me, &t, "unstick").await?;
+    downward(&client, &me, &t, "thaw").await?;
     require_turn_runtime(&t.kind, &t.name)?;
     drop(client);
     let released = freeze::thaw(engine, me.org_id, t.id, false).await?;

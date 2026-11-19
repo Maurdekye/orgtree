@@ -4057,7 +4057,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
     let frozen: Option<Value> = tx.query_one("SELECT frozen FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     let auth = frozen.as_ref().is_some_and(|f| matches!(f["cause"].as_str(), Some("auth" | "balance")) || f["untrusted"] == true);
     if frozen.as_ref().is_some_and(|f| f["limit"] == true) && !auth {
-        refuse!(Conflict, "usage-limit freeze requires continue-on or unstick; an account rebind cannot release it");
+        refuse!(Conflict, "usage-limit freeze requires continue-on or thaw; an account rebind cannot release it");
     }
     let view = engine.accounts.view();
     let info = match &acc {

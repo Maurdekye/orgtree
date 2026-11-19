@@ -727,7 +727,7 @@ pub async fn unstick(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Stri
         client.execute("UPDATE ot.agents SET limit_locked = false, row_version = row_version + 1 WHERE id = $1", &[&a.id]).await?;
         changes::notify(&e, &org, vec![Change::Agent(a.id)]);
         if let Err(error) = runtime::recovery::forget_hard_fail(&e, a.id).await {
-            tracing::warn!(agent=a.id, error=%format!("{error:#}"), "manual unstick wake could not reset stalled report");
+            tracing::warn!(agent=a.id, error=%format!("{error:#}"), "manual thaw wake could not reset stalled report");
         }
         runtime::wake(&e, org.id, a.id);
     }
