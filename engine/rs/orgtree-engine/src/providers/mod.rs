@@ -236,7 +236,8 @@ pub fn locate_codex() -> Option<(PathBuf, String)> {
             }
         }
     }
-    which("codex").map(|p| (p, "path".into()))
+    // PATH first: it is the user's own choice of Codex when it names one
+    which("codex").or_else(|| known_codex(&home(), !cfg!(windows))).map(|p| (p, "path".into()))
 }
 
 /// Codex installs independent of the launching process's PATH, on macOS and
@@ -247,8 +248,16 @@ pub fn locate_codex() -> Option<(PathBuf, String)> {
 /// Windows, which keeps its own lookups (a parameter, so both cases are tested
 /// on every platform).
 #[nolog]
-fn known_codex(_profile: &Path, _posix: bool) -> Option<PathBuf> {
-    None
+fn known_codex(profile: &Path, posix: bool) -> Option<PathBuf> {
+    if !posix {
+        return None;
+    }
+    [
+        profile.join(".local").join("bin").join("codex"),
+        profile.join(".codex").join("packages").join("standalone").join("current").join("bin").join("codex"),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
 }
 
 #[logged]
