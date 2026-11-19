@@ -197,9 +197,15 @@ export async function ensureRuntimeCopy(o: RuntimeCopyInputs): Promise<RuntimeCo
         throw new Error(`the engine copy is incomplete: ${got.files} files, ${got.bytes} bytes; the app has ${want.files} files, ${want.bytes} bytes`)
       }
       await fs.promises.writeFile(path.join(tmp, COMPLETE), JSON.stringify({ ...want, name: o.name }) + '\n', { mode: 0o600 })
-      await fs.promises.rm(dir, { recursive: true, force: true })
-      await renameIntoPlace(tmp, dir)
-      copied = true
+      if (await verified(dir, want)) {
+        // another launch finished the same copy meanwhile, and an engine may already
+        // run from it: that one stays, this one is dropped
+        await fs.promises.rm(tmp, { recursive: true, force: true })
+      } else {
+        await fs.promises.rm(dir, { recursive: true, force: true })
+        await renameIntoPlace(tmp, dir)
+        copied = true
+      }
     } catch (error) {
       await fs.promises.rm(tmp, { recursive: true, force: true }).catch(() => undefined)
       throw error
