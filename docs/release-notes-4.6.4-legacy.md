@@ -1,1 +1,0 @@
-**Argon and Carbon are legacy.** Gemini Argon now shows only with **Show legacy models** on. Gemini Carbon also moves behind it once Gemini Neon is available. Quick chat uses a visible model when your saved choice is hidden and restores your choice when you turn legacy models back on.
