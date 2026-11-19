@@ -174,7 +174,7 @@ export default async function (rig) {
     { what: `${name} to be frozen`, timeout: 30000 })
   await rig.userMail('nia', 'PROOF-REPEAT: please do the thing.')
   const n1 = await nextFreeze('nia')
-  await rig.tool('boss', 'orgtree_unstick', { node: 'nia' })
+  await rig.tool('boss', 'orgtree_thaw', { node: 'nia' })
   const n2 = await nextFreeze('nia', n1.at)
   p.check('nia: a fresh countdown never shortens the prior deadline', Date.parse(n2.until) >= Date.parse(n1.until)
     && [n1, n2].every(f => Math.abs((Date.parse(f.until) - Date.parse(f.at)) / 1000 - 10427) <= 5),
@@ -186,13 +186,13 @@ export default async function (rig) {
     p.check('ora: a "Resets in 3s" wall holds her for 3 s', false, { held_s: o1Held })
   } else {
     await rig.waitFor(() => Date.now() > Date.parse(o1.until) + 1000, { what: "ora's 3 s countdown to pass", timeout: 20000 })
-    await rig.tool('boss', 'orgtree_unstick', { node: 'ora' })
+    await rig.tool('boss', 'orgtree_thaw', { node: 'ora' })
     const o2 = await nextFreeze('ora', o1.at)
     const oHeld = (Date.parse(o2.until) - Date.parse(o2.at)) / 1000
     p.check('ora: a fresh parsed 3 s reset remains authoritative after the old deadline passed', oHeld > 0
       && Math.abs(oHeld - 3) <= 1 && Date.parse(o2.until) > Date.parse(o1.until),
       { first: { at: o1.at, until: o1.until }, again: { at: o2.at, until: o2.until, held_s: oHeld } })
-    await rig.tool('boss', 'orgtree_unstick', { node: 'ora' })
+    await rig.tool('boss', 'orgtree_thaw', { node: 'ora' })
     const ot = await rig.waitTurns('ora', 3, { timeout: 30000 })
     p.check('ora: a completed turn forgets the wall', !ot[2].error && rig.agentRow('ora').extra?.last_wall === undefined,
       { error: ot[2].error, last_wall: rig.agentRow('ora').extra?.last_wall })

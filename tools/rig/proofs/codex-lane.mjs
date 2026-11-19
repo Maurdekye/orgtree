@@ -167,11 +167,11 @@ export default async function (rig) {
     { until: hf.until, resetsAt: new Date(resetAt * 1000).toISOString() })
   const told = await rig.waitFor(() => toBoss('hana', 'usage limit')[0], { what: 'boss to be told about hana', timeout: 15000 }).catch(() => null)
   p.check('hana: her superior is told she is held', !!told, told)
-  const unstick = await rig.tool('boss', 'orgtree_unstick', { node: 'hana' })
+  const thaw = await rig.tool('boss', 'orgtree_thaw', { node: 'hana' })
   const resumed = await rig.waitFor(() => log('hana', 'turn').length >= 2 ? log('hana', 'turn')[1] : null,
     { what: 'hana to resume', timeout: 30000 }).catch(() => null)
-  p.note('hana after orgtree_unstick: does the resumed turn carry the original request? (3.x replayed the failed turn\'s text)',
-    { unstick: unstick.ok ? 'ok' : unstick.text, resumed: !!resumed, carries: resumed ? /PROOF-LIMIT/.test(resumed.prompt) : null,
+  p.note('hana after orgtree_thaw: does the resumed turn carry the original request? (3.x replayed the failed turn\'s text)',
+    { thaw: thaw.ok ? 'ok' : thaw.text, resumed: !!resumed, carries: resumed ? /PROOF-LIMIT/.test(resumed.prompt) : null,
       prompt: resumed ? String(resumed.prompt).slice(-400) : null })
 
   // ---------------------------------------------------------------- ivy: unauthorized

@@ -85,7 +85,7 @@ export default async function(rig){
 
   await project('control-container','boss');await hire('control-agent','boss')
   const original=node('control-container'),originalAgent=node('control-agent')
-  for(const tool of ['orgtree_interrupt','orgtree_halt','orgtree_unhalt','orgtree_unstick','orgtree_continue_on','orgtree_compact','orgtree_cheap_compact']){
+  for(const tool of ['orgtree_interrupt','orgtree_halt','orgtree_unhalt','orgtree_thaw','orgtree_unstick','orgtree_continue_on','orgtree_compact','orgtree_cheap_compact']){
     const r=await rig.tool('boss',tool,{node:'control-container',account:'openai/primary'})
     p.check(`${tool}: clear refusal for a container with no turns`,!r.ok&&/project|no runtime|no.*turn|not an agent/i.test(r.text)&&!/did not answer|runtime is stopping/i.test(r.text),r.text)
   }

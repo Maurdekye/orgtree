@@ -99,8 +99,8 @@ export default async function (rig) {
   p.check('bob: `until` tells the operator what to do ("credential rejected — replace it, then resume")',
     parked.frozen.until === 'credential rejected — replace it, then resume', parked.frozen.until)
   const seenB = await look(rig, p, 'bob', 'parked')
-  p.check('bob: the card says "credential", the desk "credential rejected" with an unstick control', seenB.ok && /credential/i.test(seenB.value?.cardText ?? '')
-    && (seenB.value?.freezeText ?? []).some(t => /credential rejected/i.test(t)) && (seenB.value?.freezeText ?? []).some(t => /^unstick$/i.test(t)),
+  p.check('bob: the card says "credential", the desk "credential rejected" with a thaw control', seenB.ok && /credential/i.test(seenB.value?.cardText ?? '')
+    && (seenB.value?.freezeText ?? []).some(t => /credential rejected/i.test(t)) && (seenB.value?.freezeText ?? []).some(t => /^thaw$/i.test(t)),
     seenB.ok ? { card: seenB.value.cardText, freeze: seenB.value.freezeText } : seenB.error)
   p.check('bob: the desk shows the remedy ("replace it, then resume")',
     seenB.ok && (seenB.value?.freezeText ?? []).some(t => /replace it, then resume/i.test(t)), seenB.ok ? seenB.value.freezeText : seenB.error)

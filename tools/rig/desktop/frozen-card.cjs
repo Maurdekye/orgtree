@@ -23,7 +23,7 @@ module.exports = async (page, { args }) => {
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       const t = (n.nodeValue || '').trim()
       const r = n.parentElement && n.parentElement.getBoundingClientRect()
-      if (t && r && r.width > 0 && /credential|rejected|network|unstick|parked|frozen|resume|died/i.test(t)) out.add(t.slice(0, 200))
+      if (t && r && r.width > 0 && /credential|rejected|network|thaw|parked|frozen|resume|died/i.test(t)) out.add(t.slice(0, 200))
     }
     return [...out].slice(0, 20)
   })

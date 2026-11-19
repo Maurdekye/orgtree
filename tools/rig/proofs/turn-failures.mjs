@@ -3,7 +3,7 @@
 //          kept; the automatic wake at the reset gives the request again,
 //          with no weekly-Fable notice to anyone (that is the org-wide
 //          Fable halt's).
-//   hana:  the same, released by hand (orgtree_unstick).
+//   hana:  the same, released by hand (orgtree_unstick, the old name of orgtree_thaw: a hidden alias that must keep working).
 //   ivy:   (Codex) consecutive failed turns are reported to the superior
 //          once; a completed turn makes the next failure news again. (A
 //          turn that failed before any output gives its mail back, so the
@@ -98,8 +98,8 @@ export default async function (rig) {
   await rig.userMail('hana', 'PROOF-LIMIT: please do the held thing.')
   await rig.waitFor(() => rig.agentRow('hana')?.frozen, { what: 'hana to be frozen' })
   const un = await rig.tool('boss', 'orgtree_unstick', { node: 'hana' })
-  const hr = await rig.waitFor(() => log('hana', 'turn')[1], { what: 'hana\'s turn after the unstick', timeout: 30000 })
-  p.check('hana: after orgtree_unstick the turn is given the held request again', un.ok && /Your hold was released/.test(hr.prompt)
+  const hr = await rig.waitFor(() => log('hana', 'turn')[1], { what: 'hana\'s turn after the thaw', timeout: 30000 })
+  p.check('hana: after orgtree_unstick (the hidden alias of orgtree_thaw) the turn is given the held request again', un.ok && /Your hold was released/.test(hr.prompt)
     && /PROOF-LIMIT: please do the held thing/.test(hr.prompt.split('Your hold was released')[1] ?? ''), String(hr.prompt).slice(-500))
   await rig.waitTurns('hana', 2)
 

@@ -58,7 +58,7 @@ export default async function (rig) {
   }
 
   // Existing terminal failure state + giant original: the next ordinary wake
-  // succeeds; no fresh session, compact, unstick or mailbox deletion is needed.
+  // succeeds; no fresh session, compact, thaw or mailbox deletion is needed.
   for (const [n, tier, ceiling] of [['budgetcodex','luna',1_000_000], ['budgetclaude','haiku',262144],
     ['budgetagy','flash',262144], ['budgetmuse','wonder',262144], ['budgetoc','or-rig-fake-model',262144]]) {
     await hire(n, tier)

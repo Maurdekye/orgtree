@@ -59,9 +59,9 @@ export default async function (rig) {
       && /Halted/.test(list.alice) && /Working/.test(list.bob) && /Idle/.test(list.carol), list)
   }
 
-  const unstick = await rig.tool('boss', 'orgtree_unstick', { node: 'hana' })
+  const thaw = await rig.tool('boss', 'orgtree_thaw', { node: 'hana' })
   await rig.waitTurns('hana', 2, { timeout: 30000 })
-  p.check('manual unstick releases and resumes the held request', unstick.ok && !rig.agentRow('hana').frozen
+  p.check('manual thaw releases and resumes the held request', thaw.ok && !rig.agentRow('hana').frozen
     && rig.fakeLog('hana').some(l => l.kind === 'turn' && /Your hold was released/.test(l.prompt)
       && /PROOF-FREEZE/.test(l.prompt)))
 
