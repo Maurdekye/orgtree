@@ -27,7 +27,7 @@ function rig(win: Window = window, html = HTML): Rig {
   // jsdom has no in-page list: the test says when it is open, through the same question the module asks the browser
   let isOpen = false
   const matches = s.matches.bind(s)
-  s.matches = (selector: string) => selector === ':open' ? isOpen : matches(selector)
+  ;(s as unknown as { matches: (selector: string) => boolean }).matches = selector => selector === ':open' ? isOpen : matches(selector)
   const stop = installSelectKeys(win)
   const W = win as unknown as { KeyboardEvent: typeof KeyboardEvent }
   return { win, doc, s, events, stop, open: v => { isOpen = v },
