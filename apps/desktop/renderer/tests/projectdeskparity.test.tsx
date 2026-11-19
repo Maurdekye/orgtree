@@ -237,13 +237,13 @@ test('G3a the members\' row passes through nested projects and folds retired mem
   assert.deepEqual(jumped, ['dev2'], 'a nested member jumps')
 })
 
-test('G3b with retired agents hidden, the row offers the "N retired" picker instead', async (t) => {
+test('G3b with retired agents hidden, the row shows an inert "N retired" count', async (t) => {
   serve(t)
   setHideRetiredOn(true)
   t.after(() => setHideRetiredOn(false))
   const { website, map } = team()
   const el = await mountDesk(t, website, map)
-  const token = membersRow(el)?.querySelector<HTMLButtonElement>('button.desk-retired-token')
+  const token = membersRow(el)?.querySelector<HTMLSpanElement>('span.desk-retired-token')
   assert.ok(token, 'the agent desk\'s retired token')
   assert.equal(token!.textContent?.trim(), '2 retired')
   assert.deepEqual(chipNames(membersRow(el)), ['dev1', 'ui', 'dev2'])

@@ -130,10 +130,16 @@ uiTest('mounted pile and hidden-retired picker wait for HTTP rows and confirm de
     await flush()
     const token = el.querySelector<HTMLElement>('.retired-token')
     assert.ok(token, 'hidden-retired token rendered')
-    await inAct(async () => { token.click(); await flush() })
+    const root = el.querySelector('.sq.user')
+    assert.ok(root, 'root owns the hidden retired list')
+    await inAct(() => root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+    const entry = [...el.ownerDocument.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+      .find(button => button.textContent?.trim() === 'Open retired list (200)')
+    assert.ok(entry, 'the root menu exposes the retired list')
+    await inAct(async () => { entry.click(); await flush() })
     assert.match(picker()?.textContent ?? '', /Loading retired agents/)
     assert.equal(picker()!.querySelectorAll('.pile-row').length, 0)
-    assert.ok(deleteAll(), 'the token picker uses the same explicit paged delete-all route')
+    assert.ok(deleteAll(), 'the root menu picker uses the same explicit paged delete-all route')
     assert.equal(reads.length, 3, 'one opening page per picker; no background enumeration')
   } finally { globalThis.fetch = originalFetch; setHideRetiredOn(false) }
 })
