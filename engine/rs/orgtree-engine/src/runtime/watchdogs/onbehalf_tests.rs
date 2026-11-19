@@ -644,6 +644,28 @@ async fn fa08_an_own_dog_is_unchanged() {
     assert_eq!(w.mail_with(w.s, "own report").await, 1);
 }
 
+/// FA9 (4.6.5 rename, USER 2026-11-19 mf0951505ba87): a dog stored before the rename still names
+/// orgtree_unstick. Its fire runs the action as orgtree_thaw, through the real firing path and the
+/// real tool dispatch, and the thaw handler answers.
+#[tokio::test]
+#[ignore = "requires isolated projdogs_fixture database"]
+#[nolog]
+async fn fa09_a_stored_orgtree_unstick_action_runs_as_orgtree_thaw() {
+    let w = world().await;
+    create(&w.e, w.org.id, w.s, &json!({"kind":"command","target":"echo hi","pattern":"never-matches-zzz","name":"old","interval_s":3600,"fire_actions":[{"tool":"orgtree_chart","args":{}}]})).await.unwrap();
+    let row = w.dog("old").await.3;
+    // as a 4.6.4 engine stored it: create now writes the new name, so the old one is planted
+    w.sql("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{fire_actions}',$2::jsonb) WHERE id=$1",
+        &[&row, &json!([{"tool":"orgtree_unstick","args":{"node":"w"}}])]).await;
+    assert_eq!(w.dog("old").await.2["fire_actions"][0]["tool"], json!("orgtree_unstick"));
+    w.fire(row, &["go"]).await;
+    let mail = w.fire_mail(w.s).await;
+    assert!(mail.contains("  orgtree_thaw: ok
+"), "{mail}");
+    assert!(mail.contains("w was not frozen; nothing to release."), "the thaw handler did not answer: {mail}");
+    assert!(!mail.contains("unknown tool"), "{mail}");
+}
+
 // ---------------------------------------------------------------- management controls (rev 1.2 W9, MG1-MG3)
 
 /// MG1 (control): an agent two levels above w, through project P, manages w's dog completely.
