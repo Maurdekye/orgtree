@@ -186,7 +186,7 @@ test('§5 canvas hire chips: each family cheapest first', async (t: TestContext)
   const seen = [...v.el.querySelectorAll<HTMLButtonElement>('.hsof:not(.side) button')].map(tierOf)
   assert.deepEqual(within(seen, TIERS), ['haiku', 'sonnet', 'opus', 'fable'])
   assert.deepEqual(within(seen, CODEX_TIERS), ['luna', 'terra', 'sol', 'astra'])
-  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['agy-sonnet', 'agy-opus', 'hydrogen', 'argon', 'krypton', 'neon', 'carbon'])
+  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['agy-sonnet', 'agy-opus', 'hydrogen', 'krypton', 'neon', 'carbon'])
   assert.deepEqual(within(seen, MUSE_TIERS), ['spark', 'wonder', 'wonder-full'])
 })
 
@@ -228,8 +228,8 @@ test('hire price: disabled and far-expanded rows retain ascending order and cond
   t.after(() => v.unmount())
   assert.ok(v.el.querySelector('.hire-compact.is-expanded'))
   const rows = [...v.el.querySelectorAll('.hs-fam')]
-  const google = rows.find(row => row.querySelector('.t-argon'))!
-  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['agy-sonnet', 'agy-opus', 'hydrogen', 'argon', 'krypton', 'neon'])
+  const google = rows.find(row => row.querySelector('.t-krypton'))!
+  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['agy-sonnet', 'agy-opus', 'hydrogen', 'krypton', 'neon'])
   assert.ok([...google.querySelectorAll<HTMLButtonElement>('button')].every(button => button.disabled))
   const claude = rows.find(row => row.querySelector('.t-haiku'))!
   assert.deepEqual([...claude.querySelectorAll('button')].map(tierOf), ['haiku', 'sonnet', 'opus', 'fable'])
@@ -266,7 +266,7 @@ test('§5 hire sheet: each family dearest first, and it still opens on the first
   const family = (tier: string) => rows.find((r) => r.includes(tier))!
   assert.deepEqual(family('haiku'), ['fable', 'opus', 'sonnet', 'haiku'])
   assert.deepEqual(family('luna'), ['astra', 'sol', 'terra', 'luna'])
-  assert.deepEqual(family('hydrogen'), ['agy-opus', 'agy-sonnet', 'carbon', 'argon', 'krypton', 'neon', 'hydrogen'])
+  assert.deepEqual(family('hydrogen'), ['agy-opus', 'agy-sonnet', 'carbon', 'krypton', 'neon', 'hydrogen'])
   assert.deepEqual(family('spark'), ['wonder-full', 'wonder', 'spark'])
   // the pre-selected model is the first OFFERED one in the old order (haiku), not the first on screen (fable)
   const on = [...document.querySelectorAll<HTMLButtonElement>('.hs-tier.on')].map(tierOf)

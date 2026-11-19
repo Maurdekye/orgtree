@@ -10,6 +10,7 @@ import path from 'node:path'
 import {
   ANTIGRAVITY_TIERS, ANTIGRAVITY_TIER_SEAT, antigravityTierOffer,
   CONDITIONAL_ANTIGRAVITY_TIERS, conditionalTierHidden, setOfferedConditionalTiers,
+  setShowLegacyModelsOn,
   TIER_LETTER, USER,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
@@ -219,8 +220,10 @@ test('§4 Krypton uses the specified krypton lavender on every tier surface', ()
   }
 })
 
-test('Argon and Krypton offers are independent', (t: TestContext) => {
+test('Argon and Krypton catalog offers are independent with legacy models enabled', (t: TestContext) => {
   fresh(t)
+  setShowLegacyModelsOn(true)
+  t.after(() => setShowLegacyModelsOn(false))
   for (const offered of [[], ['argon'], ['krypton'], ['argon', 'krypton']]) {
     const h = { ...ON, offeredTiers: ['hydrogen', 'pro', ...offered] }
     for (const tier of ['argon', 'krypton']) {

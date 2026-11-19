@@ -319,7 +319,7 @@ configTest('the Agent model selector groups Antigravity Claude tiers before Gemi
     const antigravity = el.querySelector<HTMLOptGroupElement>(
       'select.model-switch optgroup[label="Antigravity"]')!
     assert.deepEqual([...antigravity.querySelectorAll('option')].map((o) => o.value),
-      ['agy-opus', 'agy-sonnet', 'argon', 'hydrogen'])
+      ['agy-opus', 'agy-sonnet', 'hydrogen'])
   })
 
 // D-196 (user ruling 2026-08-29): a provider-crossing switch now asks first,

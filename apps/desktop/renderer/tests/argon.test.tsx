@@ -7,7 +7,8 @@
 // in a vacuum". The backend puts `argon` among the Antigravity tier rows of
 // /api/providers only while `agy models` lists `gemini-4-argon`; every chooser
 // here must follow that row, with the Antigravity family INSTALLED and its
-// sibling `hydrogen` as the positive control.
+// sibling `hydrogen` as the positive control. The fixtures opt in to legacy
+// models to test catalog availability.
 //
 //   §1 the rule: argon is conditional; hydrogen and pro are not
 //   §2 every chooser leaves Argon out until the payload offers it, then shows
@@ -25,7 +26,7 @@ import path from 'node:path'
 import {
   ANTIGRAVITY_TIERS, ANTIGRAVITY_TIER_SEAT, antigravityTierOffer,
   CONDITIONAL_ANTIGRAVITY_TIERS, conditionalTierHidden, setOfferedConditionalTiers,
-  TIER_LETTER, USER,
+  setShowLegacyModelsOn, TIER_LETTER, USER,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
 import { NodeSquare } from '../src/canvas/cards'
@@ -51,7 +52,11 @@ function fresh(t: TestContext) {
   localStorage.clear()
   installFetch(new FakeServer())
   setOfferedConditionalTiers([])
-  t.after(() => setOfferedConditionalTiers([]))
+  setShowLegacyModelsOn(true)
+  t.after(() => {
+    setShowLegacyModelsOn(false)
+    setOfferedConditionalTiers([])
+  })
 }
 
 function agent(tier = 'haiku', lineage: LineageEntry[] = []): CanvasNode {
@@ -83,9 +88,9 @@ test('§1 argon is a conditional Antigravity tier; hydrogen and pro are not', (t
   // the family verdict still applies once listed
   assert.equal(antigravityTierOffer({ ...google(true), enabled: false }, 'argon'), 'disable')
   assert.equal(antigravityTierOffer({ ...google(true), userEnabled: false }, 'argon'), 'hide')
-  // hydrogen is unaffected either way; pro keeps its legacy-toggle rule
+  // Hydrogen and opted-in Pro do not require a conditional catalog offer.
   assert.equal(antigravityTierOffer(google(false), 'hydrogen'), 'offer')
-  assert.equal(antigravityTierOffer(google(false), 'pro'), 'hide')
+  assert.equal(antigravityTierOffer(google(false), 'pro'), 'offer')
   // the store for surfaces without a HireState
   assert.equal(conditionalTierHidden('argon'), true)
   setOfferedConditionalTiers(rows(true))

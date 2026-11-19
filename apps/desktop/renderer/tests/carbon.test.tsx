@@ -14,6 +14,7 @@ import path from 'node:path'
 import {
   ANTIGRAVITY_TIERS, ANTIGRAVITY_TIER_SEAT, antigravityTierOffer,
   CONDITIONAL_ANTIGRAVITY_TIERS, conditionalTierHidden, setOfferedConditionalTiers,
+  setShowLegacyModelsOn,
   TIER_LETTER, USER,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
@@ -377,8 +378,10 @@ test('§4b Carbon is legible on the surfaces it is drawn on, and its card edge s
   }
 })
 
-test('Argon, Krypton, Neon and Carbon offers are independent', (t: TestContext) => {
+test('Argon, Krypton, Neon and Carbon catalog offers are independent with legacy models enabled', (t: TestContext) => {
   fresh(t)
+  setShowLegacyModelsOn(true)
+  t.after(() => setShowLegacyModelsOn(false))
   for (const mask of Array.from({ length: 16 }, (_, i) => i)) {
     const offered = ['argon', 'krypton', 'neon', 'carbon'].filter((_, i) => mask & (1 << i))
     const h = { ...ON, offeredTiers: ['hydrogen', 'pro', ...offered] }

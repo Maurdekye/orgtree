@@ -10,7 +10,7 @@ import path from 'node:path'
 import {
   ANTIGRAVITY_TIERS, ANTIGRAVITY_TIER_SEAT, antigravityTierOffer,
   CONDITIONAL_ANTIGRAVITY_TIERS, conditionalTierHidden, setOfferedConditionalTiers,
-  TIER_LETTER, USER, isOptInLegacy,
+  TIER_LETTER, USER, isOptInLegacy, setShowLegacyModelsOn,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
 import { NodeSquare } from '../src/canvas/cards'
@@ -209,8 +209,10 @@ test('§3 an agent already on Neon keeps its own tier in the switch and its N to
 
 /* ── §4 the colour ──────────────────────────────────────────────────────── */
 
-test('Argon and Neon offers are independent', (t: TestContext) => {
+test('Argon and Neon catalog offers are independent with legacy models enabled', (t: TestContext) => {
   fresh(t)
+  setShowLegacyModelsOn(true)
+  t.after(() => setShowLegacyModelsOn(false))
   for (const offered of [[], ['argon'], ['neon'], ['argon', 'neon']]) {
     const h = { ...ON, offeredTiers: ['hydrogen', 'pro', ...offered] }
     for (const tier of ['argon', 'neon']) {
@@ -219,15 +221,16 @@ test('Argon and Neon offers are independent', (t: TestContext) => {
   }
 })
 
-test('Neon leaves the Carbon-only Argon legacy rule unchanged', () => {
-  setOfferedConditionalTiers([{ tier: 'neon' }, { tier: 'argon' }]);
-  assert.equal(conditionalTierHidden('neon'), false);
-  assert.equal(isOptInLegacy('neon'), false);
-  assert.equal(isOptInLegacy('argon'), false);
-  setOfferedConditionalTiers([{ tier: 'neon' }, { tier: 'argon' }, { tier: 'carbon' }]);
-  assert.equal(isOptInLegacy('argon'), true);
-  assert.equal(isOptInLegacy('neon'), false);
-  setOfferedConditionalTiers([]);
+test('Neon stays current and makes Carbon legacy while offered', (t: TestContext) => {
+  fresh(t)
+  setOfferedConditionalTiers([{ tier: 'argon' }, { tier: 'carbon' }])
+  assert.equal(isOptInLegacy('carbon'), false)
+  assert.equal(isOptInLegacy('argon'), true)
+  setOfferedConditionalTiers([{ tier: 'neon' }, { tier: 'argon' }, { tier: 'carbon' }])
+  assert.equal(conditionalTierHidden('neon'), false)
+  assert.equal(isOptInLegacy('neon'), false)
+  assert.equal(isOptInLegacy('carbon'), true)
+  assert.equal(isOptInLegacy('argon'), true)
 })
 
 test('Neon has a colour on every Krypton surface', () => {

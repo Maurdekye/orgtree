@@ -12,7 +12,7 @@ import type { ProviderInfo, TreePayload } from '../src/types'
 
 const families = [
   ['claude', 'Claude', 'opus'], ['openai', 'Codex', 'sol'],
-  ['google', 'Antigravity', 'argon'], ['muse', 'Muse', 'wonder-full'],
+  ['google', 'Antigravity', 'krypton'], ['muse', 'Muse', 'wonder-full'],
   ['openrouter', 'OpenRouter', 'or-synthetic'], ['langserver', 'Language model servers', 'ls-synthetic'],
 ] as const
 const providers: ProviderInfo[] = families.map(([id,label,tier]) => ({
@@ -74,7 +74,7 @@ test('off, absent, unknown and signed-in missing catalogs retain their existing 
 
 test('signed-out preview inventory preserves Antigravity model switches and legacy hiding',()=>{
   const hire=hireOf({...providers[2]!,preview_tiers:['flash','argon','krypton','neon','carbon']})
-  assert.equal(antigravityTierOffer(hire,'argon'),'disable')
+  assert.equal(antigravityTierOffer(hire,'argon'),'hide')
   assert.equal(antigravityTierOffer(hire,'krypton'),'disable')
   assert.equal(antigravityTierOffer(hire,'neon'),'disable')
   assert.equal(antigravityTierOffer(hire,'carbon'),'disable')

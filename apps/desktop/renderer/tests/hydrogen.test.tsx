@@ -77,7 +77,7 @@ test('§1 hydrogen is always offered, never conditional; flash is an opt-in lega
   assert.equal(antigravityTierOffer({ ...BARE, enabled: false }, 'hydrogen'), 'disable')
   assert.equal(antigravityTierOffer({ ...BARE, userEnabled: false }, 'hydrogen'), 'hide')
   // Flash: hidden by default, back with the toggle, marked legacy like Gemini Pro
-  assert.deepEqual(OPT_IN_LEGACY_TIERS, ['pro', 'flash'])
+  assert.deepEqual(OPT_IN_LEGACY_TIERS, ['pro', 'flash', 'argon'])
   assert.equal(optInLegacyHidden('flash'), true)
   assert.equal(antigravityTierOffer(ON, 'flash'), 'hide')
   assert.equal(legacyMark('flash'), ' · legacy')
