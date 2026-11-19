@@ -240,3 +240,22 @@ test('which engine the registration names: the copy without FUSE, the AppImage w
   assert.deepEqual(boot.bootInputsFor({ ...base, engine: '/opt/Orgtree/resources/engine/orgtree-engine', extracted: false }),
     { ...base, engine: '/opt/Orgtree/resources/engine/orgtree-engine', appImage: undefined })
 })
+
+test('two launches copying at once: the one that finishes second keeps the first one\'s copy', async () => {
+  const from = resources('g')
+  const root = path.join(temp, 'root-g')
+  let firstDone = null
+  // while this launch copies, another launch finishes its own copy of the same build and starts an engine from it
+  const slow = async (source, target) => {
+    await fs.promises.cp(source, target, { recursive: true, verbatimSymlinks: true })
+    if (!firstDone) {
+      firstDone = await runtime.ensureRuntimeCopy({ resources: from, root, name: 'v', inUse: never, pid: 111 })
+      fs.writeFileSync(path.join(firstDone.dir, 'started-by-the-first-launch'), '')
+    }
+  }
+  const second = await runtime.ensureRuntimeCopy({ resources: from, root, name: 'v', inUse: async () => true, copyTree: slow, pid: 222 })
+  assert.equal(firstDone.copied, true)
+  assert.equal(second.copied, false, 'it did not publish over a finished copy')
+  assert.ok(fs.existsSync(path.join(second.dir, 'started-by-the-first-launch')), 'the first launch\'s folder is the one in place')
+  assert.deepEqual(fs.readdirSync(root), ['v'], 'and the second launch\'s temporary folder is gone')
+})
