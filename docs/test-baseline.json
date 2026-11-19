@@ -1,18 +1,18 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-11-19T11:22:26.931Z",
+  "recorded_at": "2026-11-19T16:09:16.080Z",
   "recorded_by": "rig-sol-b",
   "max_age_days": 7,
-  "commit": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-  "commit_subject": "test(renderer): the pinned node-menu cases hold a still camera and wait on their conditions",
-  "commit_at": "2026-11-19T13:17:50+02:00",
-  "branch": "rig-sol-b/release-464-repair-20261119",
+  "commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
+  "commit_subject": "docs: 4.6.4 release notes for the AppImage-without-FUSE, Codex and test-build fixes",
+  "commit_at": "2026-11-19T17:44:18+02:00",
+  "branch": "rig-sol-b/release-464-linux-20261119",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
-    "tests": "62d6154a6db0c6eee5761d9b59283251639b5130",
-    "engine": "0cb889935ade018a12aedd88475f61fc2786c5ae",
-    "apps": "971957273248ea8aeacb1559d73d6705fef972cf",
+    "tests": "58bbd1a3a3c20ce76544cc4b63aee7ce81774795",
+    "engine": "780518f9ecbd460502e0f4ca5e5a30184a64186d",
+    "apps": "fab41a73cc454910ae716526f1658781173f90ba",
     "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
     "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
     "package.json": "6bc653948a08ec7fe0b6e00325e8f62126c817df"
@@ -36,12 +36,12 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-19T11:22:26.637Z",
-      "commit": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
+      "recorded_at": "2026-11-19T16:09:15.845Z",
+      "commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
       "trees": {
-        "tests": "62d6154a6db0c6eee5761d9b59283251639b5130",
-        "engine": "0cb889935ade018a12aedd88475f61fc2786c5ae",
-        "apps": "971957273248ea8aeacb1559d73d6705fef972cf",
+        "tests": "58bbd1a3a3c20ce76544cc4b63aee7ce81774795",
+        "engine": "780518f9ecbd460502e0f4ca5e5a30184a64186d",
+        "apps": "fab41a73cc454910ae716526f1658781173f90ba",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
         "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
         "package.json": "6bc653948a08ec7fe0b6e00325e8f62126c817df"
@@ -85,16 +85,16 @@
           "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
         }
       ],
-      "duration_ms": 396544,
+      "duration_ms": 395114,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
       "files_that_produced_no_result": null,
       "env_overrides": null,
       "counts": {
-        "files": 141,
-        "tests": 1620,
-        "passed": 1599,
+        "files": 143,
+        "tests": 1638,
+        "passed": 1617,
         "failed": 7,
         "skipped": 14
       },
@@ -433,6 +433,18 @@
         "node-root::tests/engine-restart.test.mjs::the superseded 2026-09-15 hide-while-running rule is recorded, not left standing",
         "node-root::tests/engine-restart.test.mjs::the tray menu is built with the restart row already VISIBLE",
         "node-root::tests/engine-restart.test.mjs::THERE IS NO STATE THAT HIDES THE ROW",
+        "node-root::tests/engine-runtime-copy.test.mjs::a copy that does not match its source fails, and leaves nothing that looks finished",
+        "node-root::tests/engine-runtime-copy.test.mjs::a damaged copy that a process still runs from is not replaced under it",
+        "node-root::tests/engine-runtime-copy.test.mjs::a half-finished or damaged copy is never used: it is replaced",
+        "node-root::tests/engine-runtime-copy.test.mjs::a process counts as running from a copy by its program's path",
+        "node-root::tests/engine-runtime-copy.test.mjs::a verified copy of this build is used again, not copied again",
+        "node-root::tests/engine-runtime-copy.test.mjs::older copies: the current one and the newest other stay; one in use is never removed; strangers are left alone",
+        "node-root::tests/engine-runtime-copy.test.mjs::one folder per build, named by version and commit",
+        "node-root::tests/engine-runtime-copy.test.mjs::the background engine is registered to run the copy itself, and only while the AppImage is still there",
+        "node-root::tests/engine-runtime-copy.test.mjs::the engine and the ui are copied with their layout, links and modes; nothing else is",
+        "node-root::tests/engine-runtime-copy.test.mjs::two launches copying at once: the one that finishes second keeps the first one's copy",
+        "node-root::tests/engine-runtime-copy.test.mjs::which engine the registration names: the copy without FUSE, the AppImage with it, the installed binary otherwise",
+        "node-root::tests/engine-runtime-copy.test.mjs::without FUSE the AppImage runs from <tmp>/appimage_extracted_<hash>: that, and only that, is recognised",
         "node-root::tests/foundation.test.mjs::desktop manifest preserves runtime entry and original source license",
         "node-root::tests/harness-presence.test.mjs::a window closed during the registry read receives no popup",
         "node-root::tests/harness-presence.test.mjs::background startup does not read or display the setup warning",
@@ -1361,6 +1373,12 @@
         "node-root::tests/unix-boot-engine.test.mjs::the launchd guard: a present engine is exec'd with its arguments, a missing one exits 0",
         "node-root::tests/unix-boot-engine.test.mjs::the login shell PATH comes first, then the fixed list, each folder once, relative entries dropped",
         "node-root::tests/unix-boot-engine.test.mjs::the login shell PATH is read from the profile with a clean environment (not the caller's PATH)",
+        "node-root::tests/unix-engine-launch.test.mjs::a build with a prerelease label never registers: it leaves the installed version's unit alone",
+        "node-root::tests/unix-engine-launch.test.mjs::as before: no registration on Windows, in development, under another identity, or without an engine",
+        "node-root::tests/unix-engine-launch.test.mjs::the engine the desktop starts itself searches the same folders as the background engine",
+        "node-root::tests/unix-engine-launch.test.mjs::the installed release registers the background engine on macOS and Linux",
+        "node-root::tests/unix-engine-launch.test.mjs::the managed engine's environment: the given search path replaces PATH, everything else is kept",
+        "node-root::tests/unix-engine-launch.test.mjs::Windows and a development run keep the PATH they were started with",
         "node-root::tests/update-channel.test.mjs::§1 ⚠ AN INSTALLED BETA MOVES ONTO STABLE",
         "node-root::tests/update-channel.test.mjs::§10 version ordering was never the problem, and is pinned so it stays that way",
         "node-root::tests/update-channel.test.mjs::§11 ⚠ THE RELEASE TOOLING REFUSES AN RC LABEL",
@@ -1814,80 +1832,24 @@
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_rename_repairs_only_contained_registered_paths",
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_setup_plan_is_lockfile_based_and_does_not_write_git_metadata"
       ],
-      "serialization_duration_ms": 44,
+      "serialization_duration_ms": 34,
       "measurement": {
         "composition": {
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "measuredAt": "2026-11-19T10:52:44.798Z",
-          "files": 141,
+          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+          "measuredAt": "2026-11-19T15:55:37.480Z",
+          "files": 143,
           "arm64Cases": 10,
-          "sha256": "829a823c6b99f73c4b113da5c13bc667f8bcab48c41c803540fb752b0dc8bc59"
+          "sha256": "35639312e8a84a597c676c15492fdb03d45da692d35f608d35e873470c74840c"
         },
-        "authority": "@coordinator-opus m66c506edc222 and ma76bd5bd2da0",
+        "authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20",
         "same_saved_outcomes": true,
-        "source_commit": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-        "ran_at": "2026-11-19T10:52:44.798Z",
+        "source_commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
+        "ran_at": "2026-11-19T15:55:37.480Z",
         "concurrency": 1,
         "no_suite_replay": true,
         "source_trees_equal": true,
         "qualification": {
-          "composition": {
-            "acceptedCandidate": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-            "notAWholeSuiteExecutionAtSuccessor": true,
-            "rootSource": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-            "node-root": {
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "measuredAt": "2026-11-19T10:52:44.798Z",
-              "files": 141,
-              "arm64Cases": 10,
-              "sha256": "829a823c6b99f73c4b113da5c13bc667f8bcab48c41c803540fb752b0dc8bc59"
-            },
-            "renderer": {
-              "carriedSource": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "carriedMeasuredAt": "2026-11-19T11:14:27.031Z",
-              "carriedFiles": 903,
-              "carriedGroups": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                15,
-                16,
-                17,
-                18,
-                19,
-                20,
-                21,
-                22,
-                23
-              ],
-              "replacementSource": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-              "replacementMeasuredAt": "2026-11-19T11:21:10.542Z",
-              "replacementGroup": 14,
-              "replacementFiles": 40,
-              "replacementSha256": "10d5d27a87ac304e010a0386489f8a940f9989c9948c7b590192f6b9c6037966",
-              "carriedSha256": "88adef8592bdaec83f89d09ff765c48fddcddd036a5d89e2b85c2a5ec4b571ca",
-              "elapsedGroupSumMs": 1258077,
-              "durationScope": "Sum of elapsed measurements for the 24 contributing group attempts"
-            },
-            "redGroup14": {
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "rawReporterSha256": "8ead12ac706294991bf880bcfa11dfa46b4fd59035190962dfc7a84e0d211cf7",
-              "excludedFromComposedSet": true
-            },
-            "userRuling": "m660cc166fe34",
-            "authority": "@coordinator-opus m66c506edc222 and ma76bd5bd2da0"
-          }
+          "noRecoveryOrReplay": true
         }
       }
     },
@@ -1896,12 +1858,12 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-19T11:22:26.931Z",
-      "commit": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
+      "recorded_at": "2026-11-19T16:09:16.079Z",
+      "commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
       "trees": {
-        "tests": "62d6154a6db0c6eee5761d9b59283251639b5130",
-        "engine": "0cb889935ade018a12aedd88475f61fc2786c5ae",
-        "apps": "971957273248ea8aeacb1559d73d6705fef972cf",
+        "tests": "58bbd1a3a3c20ce76544cc4b63aee7ce81774795",
+        "engine": "780518f9ecbd460502e0f4ca5e5a30184a64186d",
+        "apps": "fab41a73cc454910ae716526f1658781173f90ba",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
         "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
         "package.json": "6bc653948a08ec7fe0b6e00325e8f62126c817df"
@@ -1913,7 +1875,7 @@
           "why": "driven by hand or by a native probe runner, not by run.mjs"
         }
       ],
-      "duration_ms": 1258077,
+      "duration_ms": 1263599,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -1974,15 +1936,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-H3Xf3I\\bundles\\agentrefs.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
           "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-H3Xf3I\\bundles\\agentrefs.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-19T11:22:26.931Z",
+          "failing_since": "2026-11-19T16:09:16.079Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2178,15 +2140,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-IkK31x\\bundles\\foregroundtree.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
           "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-IkK31x\\bundles\\foregroundtree.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-19T11:22:26.931Z",
+          "failing_since": "2026-11-19T16:09:16.079Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2594,7 +2556,7 @@
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::an owner answered only for another catalog stays unconfirmed, never gone (review f7)",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::bare names in prose resolve omitted agents in a bounded lookup; items keep the collision",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::prose lookup skips numbers, timestamp pieces and UUIDs, but keeps real names (including digits)",
-        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-H3Xf3I\\bundles\\agentrefs.test.mjs",
+        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1 a row offers the agent's own menu — the same entries, in the same order, as its card",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1a user audience action reflects current access on both menu surfaces",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1b audience menu actions use the audited user-audience endpoint",
@@ -5101,7 +5063,7 @@
         "renderer::apps/desktop/renderer/tests/foregroundlineage.test.tsx::live lineage gate waits for actual rows rather than interpreting omission as an empty lineage",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::a metadata patch keeps the selected ETag: the next read is a delta, never a revalidated pre-patch body",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::an unchanged server answers the kept ETag with 304 and the kept body is kept",
-        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-IkK31x\\bundles\\foregroundtree.test.mjs",
+        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§1 a leg per kind — each is classified as itself, not as `limit`",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§2 precedence is deliberate where kinds coexist",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§3 both registers are TOTAL over the kinds and share no word",
@@ -9736,50 +9698,148 @@
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§7 zoomed in it is a live control again, and opens its document",
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§8 the gate reuses the canvas threshold rather than inventing one"
       ],
-      "serialization_duration_ms": 284,
+      "serialization_duration_ms": 225,
       "measurement": {
         "composition": {
-          "carriedSource": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "carriedMeasuredAt": "2026-11-19T11:14:27.031Z",
-          "carriedFiles": 903,
-          "carriedGroups": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23
+          "groups": [
+            {
+              "group": 0,
+              "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+              "files": 40
+            },
+            {
+              "group": 1,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 2,
+              "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+              "files": 40
+            },
+            {
+              "group": 3,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 4,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 5,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 6,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 7,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 8,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 9,
+              "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+              "files": 40
+            },
+            {
+              "group": 10,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 11,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 12,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 13,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 14,
+              "source": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
+              "files": 40
+            },
+            {
+              "group": 15,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 16,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 17,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 18,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 19,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 20,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 21,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 22,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 40
+            },
+            {
+              "group": 23,
+              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+              "files": 23
+            }
           ],
-          "replacementSource": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-          "replacementMeasuredAt": "2026-11-19T11:21:10.542Z",
-          "replacementGroup": 14,
-          "replacementFiles": 40,
-          "replacementSha256": "10d5d27a87ac304e010a0386489f8a940f9989c9948c7b590192f6b9c6037966",
-          "carriedSha256": "88adef8592bdaec83f89d09ff765c48fddcddd036a5d89e2b85c2a5ec4b571ca",
-          "elapsedGroupSumMs": 1258077,
-          "durationScope": "Sum of elapsed measurements for the 24 contributing group attempts"
+          "rerunGroups": [
+            0,
+            2,
+            9
+          ],
+          "freshFiles": 120,
+          "carriedFiles": 823,
+          "previousReleaseBaseline": "51ef24f7fb79da51efd53d5eab4b13e45b86e30f",
+          "previousComposedSHA256": "39698bf543dd7aa0ac24ca201b537c107dc813e6140909f5549f5634db1b32f4",
+          "replacementResultSHA256": "d73f01dd9f099c37d1aeb69c6a09d47f838514fe06ef9644eefa6f24628115fa",
+          "durationScope": "Sum of the 24 contributing group measurements",
+          "elapsedGroupSumMs": 1263599
         },
-        "authority": "@coordinator-opus m66c506edc222 and ma76bd5bd2da0",
+        "authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20",
         "same_saved_outcomes": true,
-        "source_commit": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-        "ran_at": "2026-11-19T11:21:10.542Z",
+        "source_commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
+        "ran_at": "2026-11-19T15:55:37.480Z",
         "concurrency": 4,
         "no_suite_replay": true,
         "source_trees_equal": true
@@ -9787,63 +9847,154 @@
     }
   },
   "composed_measurement": {
-    "acceptedCandidate": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-    "notAWholeSuiteExecutionAtSuccessor": true,
-    "rootSource": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+    "acceptedCandidate": "78e88175a3183462291f7333e0f0322debc3ab2d",
     "node-root": {
-      "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-      "measuredAt": "2026-11-19T10:52:44.798Z",
-      "files": 141,
+      "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+      "measuredAt": "2026-11-19T15:55:37.480Z",
+      "files": 143,
       "arm64Cases": 10,
-      "sha256": "829a823c6b99f73c4b113da5c13bc667f8bcab48c41c803540fb752b0dc8bc59"
+      "sha256": "35639312e8a84a597c676c15492fdb03d45da692d35f608d35e873470c74840c"
     },
     "renderer": {
-      "carriedSource": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-      "carriedMeasuredAt": "2026-11-19T11:14:27.031Z",
-      "carriedFiles": 903,
-      "carriedGroups": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12,
-        13,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23
+      "groups": [
+        {
+          "group": 0,
+          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+          "files": 40
+        },
+        {
+          "group": 1,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 2,
+          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+          "files": 40
+        },
+        {
+          "group": 3,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 4,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 5,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 6,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 7,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 8,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 9,
+          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
+          "files": 40
+        },
+        {
+          "group": 10,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 11,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 12,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 13,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 14,
+          "source": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
+          "files": 40
+        },
+        {
+          "group": 15,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 16,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 17,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 18,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 19,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 20,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 21,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 22,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 40
+        },
+        {
+          "group": 23,
+          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
+          "files": 23
+        }
       ],
-      "replacementSource": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-      "replacementMeasuredAt": "2026-11-19T11:21:10.542Z",
-      "replacementGroup": 14,
-      "replacementFiles": 40,
-      "replacementSha256": "10d5d27a87ac304e010a0386489f8a940f9989c9948c7b590192f6b9c6037966",
-      "carriedSha256": "88adef8592bdaec83f89d09ff765c48fddcddd036a5d89e2b85c2a5ec4b571ca",
-      "elapsedGroupSumMs": 1258077,
-      "durationScope": "Sum of elapsed measurements for the 24 contributing group attempts"
+      "rerunGroups": [
+        0,
+        2,
+        9
+      ],
+      "freshFiles": 120,
+      "carriedFiles": 823,
+      "previousReleaseBaseline": "51ef24f7fb79da51efd53d5eab4b13e45b86e30f",
+      "previousComposedSHA256": "39698bf543dd7aa0ac24ca201b537c107dc813e6140909f5549f5634db1b32f4",
+      "replacementResultSHA256": "d73f01dd9f099c37d1aeb69c6a09d47f838514fe06ef9644eefa6f24628115fa",
+      "durationScope": "Sum of the 24 contributing group measurements",
+      "elapsedGroupSumMs": 1263599
     },
-    "redGroup14": {
-      "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-      "rawReporterSha256": "8ead12ac706294991bf880bcfa11dfa46b4fd59035190962dfc7a84e0d211cf7",
-      "excludedFromComposedSet": true
-    },
-    "userRuling": "m660cc166fe34",
-    "authority": "@coordinator-opus m66c506edc222 and ma76bd5bd2da0"
+    "authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20",
+    "notAWholeRendererSuiteExecutionAtCandidate": true
   },
-  "measurement_authority": "@coordinator-opus m66c506edc222 and ma76bd5bd2da0; no source/test edits, SAME fresh outcomes reused",
+  "measurement_authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20; no source/test edits, SAME fresh outcomes reused",
   "not_executed_qualification": {
     "moduleDefinedCases": [
       {
@@ -10171,29 +10322,29 @@
     ],
     "moduleFailureEvents": [
       {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-H3Xf3I\\bundles\\agentrefs.test.mjs",
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
         "suite": "renderer",
         "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-H3Xf3I\\bundles\\agentrefs.test.mjs",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
         "status": "failed",
         "kind": "leaf",
         "failure_type": "testCodeFailure",
         "error": "test failed",
         "error_digest": "2512eeb638b3",
-        "duration_ms": 239,
+        "duration_ms": 325,
         "stability": "unconfirmed"
       },
       {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-IkK31x\\bundles\\foregroundtree.test.mjs",
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
         "suite": "renderer",
         "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-IkK31x\\bundles\\foregroundtree.test.mjs",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
         "status": "failed",
         "kind": "leaf",
         "failure_type": "testCodeFailure",
         "error": "test failed",
         "error_digest": "2512eeb638b3",
-        "duration_ms": 61,
+        "duration_ms": 62,
         "stability": "unconfirmed"
       },
       {
@@ -10213,17 +10364,17 @@
     "moduleSourceProof": {
       "apps/desktop/renderer/tests/treeview.test.ts": {
         "currentObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
-        "accepted463Object": "2e790d1eb27380a56849ef3fc998a88160060cf7",
+        "acceptedObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
         "unchanged": true
       },
       "apps/desktop/renderer/tests/agentrefs.test.ts": {
         "currentObject": "cdb2bce938782dca54051eed7bc4afa28b212090",
-        "accepted463Object": "cdb2bce938782dca54051eed7bc4afa28b212090",
+        "acceptedObject": "cdb2bce938782dca54051eed7bc4afa28b212090",
         "unchanged": true
       },
       "apps/desktop/renderer/tests/foregroundtree.test.ts": {
         "currentObject": "8b8da36bf75f5f530693718a3bac80382722becb",
-        "accepted463Object": "8b8da36bf75f5f530693718a3bac80382722becb",
+        "acceptedObject": "8b8da36bf75f5f530693718a3bac80382722becb",
         "unchanged": true
       }
     },
@@ -10242,5 +10393,5 @@
     ],
     "noSkippedCaseClaimedPassing": true
   },
-  "release_failure_disposition": "All current failures are contained in the sealed accepted 4.6.3 gate by normalized case identity. Every failure remains recorded; no fix or same-cause claim. See pre-baseline-comparison.json."
+  "release_failure_disposition": "All current failures are contained in the sealed accepted 4.6.4 gate by normalized case identity. Every failure remains recorded; no fix or same-cause claim. See pre-baseline-comparison.json."
 }
