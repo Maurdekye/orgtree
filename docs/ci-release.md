@@ -19,8 +19,8 @@ published automatically.
    ubuntu-22.04): the unsigned macOS and Linux prototypes, each with a launch smoke
    on its runner; the Linux build also checks its update feed and updates an
    installed AppImage to a newer one. See [macOS and Linux](#macos-and-linux-prototypes).
-   The Linux build runs a second time for arm64 (`linux-arm64`, ubuntu-22.04-arm), as a
-   candidate that is not part of the release: see [Linux arm64](#linux-arm64-a-candidate).
+   The Linux build runs a second time for arm64 (`linux-arm64`, ubuntu-22.04-arm), and
+   its files are part of the release: see [Linux arm64](#linux-arm64).
 4. **standalone** (`build-standalone.yml`, ubuntu-22.04 then ubuntu-24.04): the
    official headless engine for Linux servers and its Docker image, each smoked.
    See [Standalone engine](#standalone-engine).
@@ -392,7 +392,7 @@ with the PATH it was opened with; a macOS app opened from Finder gets a minimal 
 fail (measured on the runner); the app then runs every `systemctl --user` call without
 that variable.
 
-### Linux arm64 (a candidate)
+### Linux arm64
 
 `build-linux.yml` takes `arch`: `x64` (the default) or `arm64`. The arm64 build runs the
 same steps on GitHub's `ubuntu-22.04-arm` runner. Nothing is cross-compiled: the engine,
@@ -409,15 +409,21 @@ build. Its files carry the architecture, so they sit beside the x64 ones:
 The x64 names, paths, cache keys and artifact name are what they were
 (`.github/ci/linux/arch.sh` holds the difference).
 
-**A candidate, not part of the release.** `release.yml` has one switch, `LINUX_ARM64`,
-and it says `candidate`. The arm64 build runs on every tag and every test run, but
-`stage` neither waits for it nor takes its files: the staged set, `SHA256SUMS.txt` and
-the draft are exactly what they are without it, and a red arm64 build cannot stop a
-release. The four files and their own `SHA256SUMS-linux-arm64.txt` are the run's artifact
-`candidate-linux-arm64-<tag>` (kept 14 days), which is what goes to a tester. To make
-arm64 part of a release, set `LINUX_ARM64: release` and add `linux-arm64` to `stage`'s
-`needs`; `stage` then requires the four files and lists them in `SHA256SUMS.txt`, and
-verify-release checks them as it checks x64. That switch is the owner's decision.
+**Part of the release.** `release.yml` has one switch, `LINUX_ARM64`, and it says
+`release`: `stage` waits for the arm64 build (`linux-arm64` is in its `needs`), requires
+the four files, lists them in `SHA256SUMS.txt` and attaches them to the draft, and
+verify-release checks them as it checks x64. A red arm64 build stops a release, like any
+other build. The four files and their own `SHA256SUMS-linux-arm64.txt` are still also the
+run's artifact `candidate-linux-arm64-<tag>` (kept 14 days), which is how a build reaches
+a tester before it is published.
+
+To take arm64 out of a release again, set `LINUX_ARM64: candidate` and remove
+`linux-arm64` from `stage`'s `needs`. The arm64 build then still runs on every tag and
+every test run, but `stage` neither waits for it nor takes its files: the staged set,
+`SHA256SUMS.txt` and the draft are exactly what they are without it, and a red arm64
+build cannot stop a release. Both modes were run once in test mode on 2026-11-19: as a
+candidate the staged names were those of published v4.6.3 (run 44482893173); as
+`release` they were those plus the four arm64 files (run 44490672383).
 
 **What the arm64 build proves**, on the runner (first run 44482854610, 2026-11-19, at
 7aef30d, 29 minutes with cold caches, every step green):
