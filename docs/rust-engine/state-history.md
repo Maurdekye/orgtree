@@ -62,7 +62,7 @@ read it.
 
 A pure connection-retry freeze and a pure request-rate 429 freeze are
 **not** frozen spans: freeze release already treats them as neither a
-limit reset nor an unstick, and they retry within minutes. Every other
+limit reset nor a thaw, and they retry within minutes. Every other
 freeze record — usage limit, auth, balance, no allowed account — is
 Frozen. The org killswitch and retiring an agent are not states here:
 the killswitch is org-wide, and a retired agent's history simply ends.
