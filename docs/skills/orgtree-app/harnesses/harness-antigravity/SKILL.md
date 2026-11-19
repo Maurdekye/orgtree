@@ -21,7 +21,8 @@ Ordinary close drops stdin and waits five seconds before terminating a lingering
 Argon and Carbon offer low, medium and high effort. The saved choice reaches `agy` as
 `--effort` when its process starts; changing it takes effect at the next turn
 through process replacement, not mid-turn. Flash and AGY Claude also offer
-medium; Pro, Krypton and speculative Neon retain low/high, and Hydrogen offers low, medium, high and xhigh. Model availability still depends
+medium. Pro and Krypton offer low and high. Hydrogen and Neon offer low,
+medium, high and xhigh. Model availability still depends
 on the account's registry. These controls do not promise a measured change in
 reasoning tokens, latency or answer quality.
 
@@ -108,7 +109,7 @@ These hooks are not an OS filesystem sandbox, and a folder grant does not establ
 
 Use the discovered Google catalog. Gemini tiers spend Gemini windows; `agy-sonnet`/`agy-opus` require the app's `antigravity_claude_enabled` opt-in and the appropriate catalog offer. Its default is false. The runtime setting belongs to the app Runtime controls; enabling it neither signs in nor creates quota.
 
-AGY maps `none`/`minimal` to `low`, unsupported larger names to `high`; `medium` is supported for Argon, Flash and the Claude-family route. Those Claude-family model IDs encode effort variants. A model/effort change can therefore change the model ID even though a pure effort-only control elsewhere does not rewrite the old prefix.
+AGY maps `none` and `minimal` to `low`. Flash, Argon, Carbon, Hydrogen, Neon and AGY Claude offer `medium`. Hydrogen and Neon map `max` to `xhigh`. Other tiers clamp those larger levels to `high`. Gemini effort is passed in `--effort`. AGY Claude's model IDs encode effort variants.
 
 ## Registered accounts and the Windows sign-in limit
 
@@ -173,6 +174,6 @@ tools.orgtree_disabled currently restores no Antigravity tools: its existing nat
 
 Gemini Neon (`gemini-4-neon`, N) is prepared ahead of availability. Its 2-credit
 seat is an inferred placeholder, like Krypton. It appears directly after Krypton
-only when the account model list reports it; it has low/high effort and one
+only when the account model list reports it. It offers low, medium, high and xhigh and has one
 version, 4 (also the latest). No access or real turn has been verified. Neon
 makes Carbon opt-in legacy when available. Argon is always opt-in legacy.

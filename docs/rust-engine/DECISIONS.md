@@ -2706,3 +2706,10 @@ list not scaled on a canvas desk; the `multiple` list box unchanged; and the
 same rule inside presentations and app panels. A real Steam Frame check is
 still to come. See the current
 [desktop notes](../agents/desktop-and-renderer.md#dropdowns-draw-their-list-inside-the-window-2026-11-19-464).
+
+105. **New Gemini models use Hydrogen's effort levels** (USER 2026-11-19
+    mcaafe86eb086 and mc0cf1cebaa48). New Gemini (Antigravity) models get low,
+    medium, high and xhigh unless the user specifies otherwise. Use Hydrogen's
+    mapping in `providers/catalog.rs`. Pass medium through and map both xhigh
+    and max to xhigh. Neon adopts these levels. Existing tiers retain their
+    levels. Antigravity's acceptance of the Neon mapping is inferred.

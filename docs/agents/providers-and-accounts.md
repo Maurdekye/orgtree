@@ -9,11 +9,15 @@ model switching. A missing entry hides it; adding Neon to the code does not
 establish provider access. Hydrogen stays unconditional. The 2-credit seat is
 inferred and speculative, by analogy to Argon/Krypton; no API price or real
 model turn was measured. Context is the same 1,000,000-token placeholder.
-Latest resolves to version 4, and version 4 may be pinned. Effort copies
-Krypton's generic low/high mapping, with no medium or special mapping.
+Latest resolves to version 4, and version 4 may be pinned. Neon offers low,
+medium, high and xhigh like Hydrogen. Antigravity's acceptance of Neon's
+effort levels is inferred from Hydrogen's mapping.
 Gemini 4 Argon shows only with **Show legacy models** on, marked legacy.
 When Gemini Neon is available, Gemini 4 Carbon is a legacy model too.
 Its tier colour is neon-sign red-orange `#ff3a1f`, on all six tier surfaces.
+
+When adding a Gemini tier, offer low, medium, high and xhigh using Hydrogen's
+mapping in `providers/catalog.rs` unless the user specifies otherwise.
 [decided: USER 2026-11-18 mcfdf1e158062; coordinator m414e2f39c07e,
 m4bdfd44c0fab; verified: `providers/{catalog,mod}.rs`, `canvas/shared.ts`,
 `styles.css`, `tests/neon.test.tsx`]
