@@ -763,9 +763,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // for the surfaces that carry no HireState of their own
   useEffect(() => { setOfferedConditionalTiers(antigravityProvider?.tiers) },
     [antigravityProvider])
-  // the conditional Claude tier (Mythos) the same poll says a signed-in Claude login provides
-  useEffect(() => { setOfferedClaudeTiers(claudeProvider?.tiers) },
-    [claudeProvider])
   // the Muse family: every tier conditional on the account's own catalog rows
   const museProvider = providerEntries.find(
     (v) => v.id === 'muse') ?? null
@@ -779,6 +776,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // Codex set up still offered four live Claude hire buttons.
   const claudeProvider = providerEntries.find(
     (v) => v.id === 'claude') ?? null
+  // the conditional Claude tier (Mythos) the same poll says a signed-in Claude login provides, for the
+  // surfaces that carry no HireState of their own
+  useEffect(() => { setOfferedClaudeTiers(claudeProvider?.tiers) },
+    [claudeProvider])
   // `installed` rides along because the offer rule needs to tell "absent" from
   // "signed out" — hiding is reserved for the first (see `familyOffer`).
   // D-202 moved `hireOf` into shared.ts when the accounts panel and the two

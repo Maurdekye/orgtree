@@ -121,7 +121,9 @@ function card(node: CanvasNode, claudeHire: HireState) {
       pos={{ x: 0, y: 0 }} lod="norm" focused={false}
       dragging={false} isDrop={false} seats={SEATS}
       map={new Map()} op={() => Promise.resolve({} as never)} slug="org"
-      toast={noop} pxc={1} zoom={1}
+      // Five Claude chips are 126 px wide, 2 px more than the 124 px node at zoom 1, where the strip folds
+      // behind its arrow (the existing fit rule, as for an Antigravity row of five). Looked at a little closer.
+      toast={noop} pxc={1} zoom={1.2}
       onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
       onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
       onRecenter={noop} onJump={noop} cascadeAlloc
@@ -144,7 +146,8 @@ test('§2 canvas hire chips: no Mythos chip until the payload offers it', async 
   const on = await card(agent(), claude(true))
   t.after(() => on.unmount())
   const mythos = chip(on.el, 'mythos')
-  assert.ok(mythos, 'no Mythos chip once the payload offers it')
+  assert.ok(mythos, 'no Mythos chip once the payload offers it; chips: '
+    + [...on.el.querySelectorAll('.hsof button')].map((b) => b.className + '=' + b.textContent).join(' | '))
   assert.equal(mythos!.disabled, false)
   assert.equal(mythos!.textContent, 'M')
 })
