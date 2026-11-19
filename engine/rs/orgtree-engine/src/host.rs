@@ -113,13 +113,19 @@ pub(crate) fn canon(p: &Path) -> String {
     c.to_string_lossy().trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase()
 }
 
+/// Whether `dir`, the folder of this program, is the engine of an installed app.
+#[nolog]
+fn beside_installed_app(dir: &Path) -> bool {
+    dir.join("..").join("app.asar").is_file()
+}
+
 /// What the packaged desktop gives its engine: the bundled PostgreSQL, and
 /// permission to create the cluster on a fresh data folder. Only beside an
 /// installed app (`resources/app.asar`).
 #[logged]
 fn packaged_postgres() -> Result<Vec<(String, String)>, String> {
     let dir = exe_dir();
-    if !dir.join("..").join("app.asar").is_file() {
+    if !beside_installed_app(&dir) {
         return Ok(Vec::new());
     }
     // The engine runs PostgreSQL from beside itself on every platform, as the
@@ -615,6 +621,50 @@ impl Handshake {
 fn since_start() -> Duration {
     static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
     START.get_or_init(Instant::now).elapsed()
+}
+
+#[cfg(test)]
+mod installed_app_tests {
+    use super::*;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("orgtree-installed-app-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("engine")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_engine_beside_app_asar_is_an_installed_app() {
+        let root = scratch("asar");
+        std::fs::write(root.join("app.asar"), b"presence only").unwrap();
+        assert!(beside_installed_app(&root.join("engine")));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    // An AppImage without FUSE: the desktop copies resources/engine and
+    // resources/ui to <userData>/engine-runtime/<build> and writes .complete
+    // last. The background engine runs from there and must be allowed to
+    // create the database (docket 4-6-4-linux-appimage-boot-unit-takeover-fallback:
+    // "no PostgreSQL cluster ... and this launch may not create one").
+    #[test]
+    fn the_desktops_finished_engine_copy_is_an_installed_app() {
+        let root = scratch("copy");
+        std::fs::create_dir_all(root.join("ui")).unwrap();
+        std::fs::write(root.join(".complete"), b"{}").unwrap();
+        assert!(beside_installed_app(&root.join("engine")));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_bare_engine_folder_is_not() {
+        let root = scratch("bare");
+        std::fs::create_dir_all(root.join("ui")).unwrap();
+        assert!(!beside_installed_app(&root.join("engine")));
+        // a folder of that name is not the marker
+        std::fs::create_dir_all(root.join(".complete")).unwrap();
+        assert!(!beside_installed_app(&root.join("engine")));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 #[cfg(test)]
