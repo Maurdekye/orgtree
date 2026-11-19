@@ -4411,6 +4411,19 @@ mod tests {
         }
     }
 
+    /// The tool was renamed in 4.6.5 (USER 2026-11-19 mf0951505ba87). A fire action written
+    /// with the old name is still accepted, and is stored under the new one.
+    #[test]
+    fn a_fire_action_naming_orgtree_unstick_is_stored_as_orgtree_thaw() {
+        let new = fire_actions_arg(&json!({"fire_actions":[{"tool":"orgtree_thaw","args":{"node":"a"}}]})).unwrap();
+        assert_eq!(new[0], json!({"tool":"orgtree_thaw","args":{"node":"a"}}));
+        let old = fire_actions_arg(&json!({"fire_actions":[{"tool":"orgtree_unstick","args":{"node":"a"}}]})).unwrap();
+        assert_eq!(old[0], json!({"tool":"orgtree_thaw","args":{"node":"a"}}));
+        // a stored action is canonicalized before its gates and its call
+        assert_eq!(fire_action_tool(&json!({"tool":"orgtree_unstick","args":{"node":"a"}})), "orgtree_thaw");
+        assert_eq!(fire_action_tool(&json!({"tool":"orgtree_chart"})), "orgtree_chart");
+    }
+
     #[test]
     fn fire_actions_are_validated_and_bounded() {
         assert_eq!(fire_actions_arg(&json!({})).unwrap(), Vec::<Value>::new());

@@ -58,6 +58,26 @@ mod project_agent_tool_tests {
         assert_eq!(build_tool_project()["inputSchema"]["properties"]["chunk_index"]["minimum"],0);
     }
 
+    /// USER 2026-11-19 mf0951505ba87: orgtree_unstick is called orgtree_thaw. The old name is a
+    /// hidden alias: it resolves, but no tool list, card or description shows it.
+    #[test]
+    fn orgtree_thaw_is_served_and_orgtree_unstick_is_a_hidden_alias() {
+        assert!(super::implemented().contains(&"orgtree_thaw"));
+        assert!(!super::implemented().contains(&"orgtree_unstick"));
+        assert_eq!(super::canonical("orgtree_unstick"), "orgtree_thaw");
+        assert_eq!(super::canonical("orgtree_thaw"), "orgtree_thaw");
+        assert_eq!(super::canonical("orgtree_unhalt"), "orgtree_unhalt");
+        let card = super::build_tool_thaw();
+        assert_eq!(card["name"], "orgtree_thaw");
+        assert!(card["description"].as_str().unwrap().ends_with("
+Guide: orgtree-tool-thaw."));
+        assert_eq!(card["_meta"]["anthropic/alwaysLoad"], false);
+        let all = serde_json::to_string(&super::list()).unwrap();
+        assert!(!all.contains("unstick"), "a served card still says unstick");
+        assert_eq!(crate::domain::tool_groups::required("orgtree_thaw"), Some(&["runtime"][..]));
+        assert_eq!(crate::domain::tool_groups::required("orgtree_unstick"), Some(&["runtime"][..]));
+    }
+
     #[test]
     fn project_tools_atomic_create_above_is_advertised() {
         assert_eq!(build_tool_project()["inputSchema"]["properties"]["above"]["type"],"string");
