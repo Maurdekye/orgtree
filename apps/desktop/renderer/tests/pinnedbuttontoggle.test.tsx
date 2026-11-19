@@ -12,6 +12,7 @@ import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 import { pinSurfaceKey, readPinSurfaces, removePinSurface, updatePinSurface } from '../src/canvas/pinspace'
+import { saveView, START_VIEW_KEY } from '../src/canvas/shared'
 
 const org = 'pin-toggle', rect = { x: 10, y: 20, w: 600, h: 400 }, noop = () => {}
 function setup(t: TestContext) {
@@ -62,12 +63,26 @@ test('an unpinned panel still opens, and a detached panel still receives focus',
 })
 
 const flatten = (entries: MenuEntry[]): MenuItem[] => entries.flatMap(e => e === 'sep' ? [] : [e, ...flatten(e.children ?? [])])
+/** wait for a condition, bounded: true as soon as it holds, false after `ms` of real time. Replaces fixed
+ *  flush counts, which a loaded whole-suite run outlasts (4.6.4 release gate, rig-sol-b 2026-11-19). */
+async function until(cond: () => boolean, ms = 3000): Promise<boolean> {
+  const end = Date.now() + ms
+  for (;;) {
+    if (cond()) return true
+    if (Date.now() > end) return false
+    await inAct(async () => { await new Promise(r => setTimeout(r, 5)); await flush(2) })
+  }
+}
 for (const [label, base] of [['Mail', 'node-inbox'], ['Team', 'agent-team'], ['Docket', 'agent-docket']] as const) {
   test(`the real node ${label} menu raises its own pin and keeps it open`, async t => {
     // worker's own window of this kind (one per target since 2026-10-20)
     const kind = `${base}:worker`
     setup(t)
     localStorage.setItem('orgtree-agent-shortcuts', '1')
+    // A still camera at near zoom. The default start glides (on real animation frames) from zoom 1.6 to
+    // the fit, which in this page is far zoom, where cards unmount their shortcut buttons: the button
+    // assert then depended on finishing before the glide did, and failed whenever the run was slow.
+    localStorage.setItem(START_VIEW_KEY, 'remember'); saveView(org, { x: 0, y: 0, z: 1 })
     const oldFetch = globalThis.fetch, inner = globalThis.fetch
     globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => /\/inbox$/.test(new URL(String(input), 'http://localhost').pathname)
       ? Promise.resolve(new Response(JSON.stringify({ pending: [], delivered: [], sent: [], next_cursor: null }), { status: 200 }))
@@ -81,28 +96,30 @@ for (const [label, base] of [['Mail', 'node-inbox'], ['Team', 'agent-team'], ['D
     function Probe() { registry = useAgentNavRegistry(); return null }
     const view = await mountView(<CurrentOrg.Provider value={org}><AgentNavProvider><OrgCanvas tree={tree} slug={org} op={async () => ({})}
       toast={noop} mailEvt={null} /><Probe /></AgentNavProvider></CurrentOrg.Provider>, el => el)
-    t.after(() => view.unmount()); await flush(3)
+    t.after(() => view.unmount())
+    const pinned = () => readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true))
+    assert.equal(await until(() => !!registry?.current?.('worker')?.length), true, 'the node menu is registered')
     const select = async () => inAct(async () => {
       flatten(registry!.current!('worker')).find(e => e.label === label)!.onSelect(); await flush(5)
     })
-    await select(); await inAct(() => { pinModal(kind, rect, org) }); await flush(3)
-    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true)
+    await select(); await inAct(() => { pinModal(kind, rect, org) })
+    assert.equal(await until(pinned), true)
     const cover = pinSurfaceKey(org, 'covering-panel')
     await inAct(() => { updatePinSurface(cover, org, rect, false) })
     t.after(() => removePinSurface(cover))
     assert.equal(pinnedModalBehind(kind, org), true, 'control starts behind another panel')
     await select()
-    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'menu keeps its panel mounted')
-    assert.equal(pinnedModalBehind(kind, org), false, 'menu raises the existing pin')
+    assert.equal(await until(() => !pinnedModalBehind(kind, org)), true, 'menu raises the existing pin')
+    assert.equal(pinned(), true, 'menu keeps its panel mounted')
     await select()
-    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'repeated menu activation keeps it open')
+    assert.equal(pinned(), true, 'repeated menu activation keeps it open')
     if (label === 'Docket') {
-      const button = view.el.querySelector<HTMLButtonElement>('[aria-label="Docket for worker"]')
-      assert.equal(button !== null, true, 'the actual node shortcut button exists')
-      await inAct(() => button!.click())
-      assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), false, 'the node button hides its pin')
-      await inAct(() => button!.click())
-      assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'the node button reopens it')
+      const find = () => view.el.querySelector<HTMLButtonElement>('[aria-label="Docket for worker"]')
+      assert.equal(await until(() => find() !== null), true, 'the actual node shortcut button exists')
+      await inAct(() => find()!.click())
+      assert.equal(await until(() => !pinned()), true, 'the node button hides its pin')
+      await inAct(() => find()!.click())
+      assert.equal(await until(pinned), true, 'the node button reopens it')
     }
   })
 }
