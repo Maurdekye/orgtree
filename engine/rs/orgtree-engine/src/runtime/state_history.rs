@@ -82,7 +82,7 @@ pub struct Facts {
 
 /// A freeze record the history counts as Frozen. The short automatic
 /// retries — a pure connection freeze and a pure request-rate 429, the
-/// records freeze release calls "neither a limit reset nor an unstick" —
+/// records freeze release calls "neither a limit reset nor a thaw" —
 /// are not a frozen span; every other record (limit, auth, balance) is,
 /// and a limit-locked agent is frozen with or without a record.
 #[logged]

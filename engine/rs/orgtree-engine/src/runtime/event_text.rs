@@ -2471,7 +2471,7 @@ fn render(ev: &Value) -> Option<String> {
         "policy.fable_flagged" => r_fable_flagged(ev),
         "policy.weekly_limit" => r_weekly(ev),
         "policy.unstuck" => Some(
-            "The user manually UNSTUCK you (override) — any limit that held you is \
+            "The user manually THAWED you (override) — any limit that held you is \
 released; continue."
                 .into(),
         ),

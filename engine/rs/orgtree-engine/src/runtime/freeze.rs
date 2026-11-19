@@ -1,5 +1,5 @@
 //! Usage-limit freezes: when a frozen agent wakes again (auto-resume), the
-//! resume and unstick actions, and account fallback (a limited agent moving
+//! resume and thaw actions, and account fallback (a limited agent moving
 //! to another account of the same provider).
 
 use std::sync::Arc;
@@ -170,7 +170,7 @@ async fn resume_scheduled(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expe
     Ok(true)
 }
 
-/// Manual unstick ignores the horizon. Automatic callers check it in Rust,
+/// Manual thaw ignores the horizon. Automatic callers check it in Rust,
 /// including legacy records and clock-skew grace, then compare-and-clear.
 #[logged]
 pub async fn thaw(engine: &Arc<Engine>, org_id: i64, agent_id: i64, only_due: bool) -> Result<bool> {
@@ -209,7 +209,7 @@ pub async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, exp
     // noted before anything can wake it into its next state
     crate::runtime::state_note(engine, org_id, agent_id, Utc::now());
     let old: Value = row.get::<_, Option<Value>>(0).unwrap_or(Value::Null);
-    // a connection retry (parity P34) is neither a limit reset nor an unstick
+    // a connection retry (parity P34) is neither a limit reset nor a thaw
     let retry = expected.is_some() && old["connection"].as_bool().unwrap_or(false) && !old["limit"].as_bool().unwrap_or(false);
     tracing::info!(org = org_id, agent = agent_id, automatic = expected.is_some(), retry, "freeze released; waking agent");
     changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::History(agent_id)]);

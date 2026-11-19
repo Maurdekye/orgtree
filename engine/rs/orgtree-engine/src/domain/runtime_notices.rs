@@ -126,7 +126,7 @@ pub async fn restart_asked(engine: &Arc<Engine>, org_id: i64, agent_id: i64, sup
     mail::system_event(engine, org_id, agent_id, &text, false, None).await
 }
 
-/// A freeze was released. By hand: the agent's `unstick` notice. By its timer:
+/// A freeze was released. By hand: the agent's thaw notice (lifecycle operation `unstick`). By its timer:
 /// no notice, the wake mail says it (`limit_reset` is the org-wide
 /// weekly-Fable halt's notice, as in 3.x).
 #[logged]
