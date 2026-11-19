@@ -26,10 +26,19 @@
 # change. The first start must refuse the engine at once and print the folder with the
 # chmod that fixes it, leaving ~/.config as it was; after that printed command, a second
 # start (same profile, the engine still running) must attach as usual.
-#   bash .github/ci/linux/desktop-check.sh <AppImage> <logs dir> [fresh|repair|autostart|unsafe-config]
+# Mode no-fuse (builds from 4.6.4 on): the AppImage starts with APPIMAGE_EXTRACT_AND_RUN=1, as
+# on a system without libfuse2 (SteamOS). The runtime unpacks into /tmp/appimage_extracted_<hash>,
+# shared by every launch and deleted when any of them exits, so the engine must run from its
+# own copy under the profile (apps/desktop/main/engine-runtime.ts): the unit names the copy,
+# the host and PostgreSQL run from it, and both keep running with their files through a
+# second launch and the desktop's quit.
+#   bash .github/ci/linux/desktop-check.sh <AppImage> <logs dir> [fresh|repair|autostart|unsafe-config|no-fuse]
 set -euo pipefail
 src=$(realpath "$1"); logs=$(realpath -m "$2"); mode=${3:-fresh}; mkdir -p "$logs"
-case $mode in fresh|repair|autostart|unsafe-config) ;; *) echo "unknown mode $mode"; exit 2 ;; esac
+case $mode in fresh|repair|autostart|unsafe-config|no-fuse) ;; *) echo "unknown mode $mode"; exit 2 ;; esac
+# where the desktop's files are: a FUSE mount, or without FUSE the runtime's extraction
+where='mount_Orgtre[^/]*'; extract=()
+[ "$mode" = no-fuse ] && { where='appimage_extracted_[^/]*'; extract=(env APPIMAGE_EXTRACT_AND_RUN=1); }
 [ "$mode" = unsafe-config ] && : "${DESKTOP_CHECK_CONFIG_MODE:=775}"
 strict=${DESKTOP_CHECK_EXPECT_PRIVATE:-}
 uid=$(id -u); export XDG_RUNTIME_DIR="/run/user/$uid"
@@ -41,12 +50,12 @@ shims=$(mktemp -d); budget=${DESKTOP_CHECK_BUDGET:-150}
 step() { echo "--- $*"; }
 engine_log() { find "$profile" -path '*diagnostics/logs/*.log' -type f -print0 2>/dev/null | xargs -0 -r cat 2>/dev/null; }
 mode_of() { stat -c '%a' "$1" 2>/dev/null || echo missing; }
-launch() { (umask 0002; cd "$HOME" && PATH="$shims:$PATH" setsid "$app" >>"$1" 2>&1 </dev/null &); }   # <output file>
+launch() { (umask 0002; cd "$HOME" && PATH="$shims:$PATH" setsid "${extract[@]}" "$app" >>"$1" 2>&1 </dev/null &); }   # <output file>
 # the desktop's main process: from an AppImage mount, neither a Chromium child (--type=)
 # nor the engine's host (ELECTRON_RUN_AS_NODE=1)
 desktop_pids() {
   local p
-  for p in $(pgrep -f 'mount_Orgtre[^/]*/orgtree' || true); do
+  for p in $(pgrep -f "$where/orgtree" || true); do
     tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q -e '--type=' && continue
     tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | grep -qx 'ELECTRON_RUN_AS_NODE=1' && continue
     echo "$p"
@@ -56,11 +65,13 @@ teardown() {
   set +e
   step "teardown ($mode)"
   cp -r "$profile/data/diagnostics" "$logs/app-diagnostics" 2>/dev/null
-  pkill -TERM -f 'mount_Orgtre.*/orgtree( |$)' 2>/dev/null
+  pkill -TERM -f '(mount_Orgtre.*|appimage_extracted_[^/]*)/orgtree( |$)' 2>/dev/null
   systemctl --user disable --now "$unit" >/dev/null 2>&1
   rm -f "$HOME/.config/systemd/user/$unit" "$autostart"; systemctl --user daemon-reload
-  for _ in $(seq 1 30); do pgrep -f 'orgtree-engine|mount_Orgtre' >/dev/null || break; sleep 1; done
-  pkill -KILL -f 'orgtree-engine|mount_Orgtre|orgtree-mailhub' 2>/dev/null
+  for _ in $(seq 1 30); do pgrep -f 'orgtree-engine|mount_Orgtre|appimage_extracted_' >/dev/null || break; sleep 1; done
+  pkill -KILL -f 'orgtree-engine|mount_Orgtre|appimage_extracted_|orgtree-mailhub' 2>/dev/null
+  # the engine's own copy (no-fuse) is 440 MB: never left for the next mode to move into the logs
+  rm -rf "$profile/engine-runtime" /tmp/appimage_extracted_*
   [ -n "${xvfbpid:-}" ] && kill "$xvfbpid"
   [ -n "${buspid:-}" ] && { kill "$buspid"; sleep 1; rm -f "$XDG_RUNTIME_DIR/bus"; }
   [ -n "${config_was:-}" ] && chmod "$config_was" "$HOME/.config"
@@ -189,3 +200,58 @@ if [ ${#problems[@]} -gt 0 ]; then
   exit 1
 fi
 echo "PASS ($mode): engine via $manager${unit_umask:+ with UMask $unit_umask}; folders $(mode_of "$profile") and $(mode_of "$profile/data")"
+
+if [ "$mode" = no-fuse ]; then
+  step "without FUSE: the engine runs from its own copy"
+  unit_file="$HOME/.config/systemd/user/$unit"
+  copy_root="$profile/engine-runtime"
+  copy=$(find "$copy_root" -mindepth 1 -maxdepth 1 -type d ! -name '.tmp-*' 2>/dev/null | head -1 || true)
+  extraction() { ls -d /tmp/appimage_extracted_* 2>/dev/null | head -1 || true; }
+  answers() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+  nf=()
+  { [ -n "$copy" ] && [ -f "$copy/.complete" ]; } || nf+=("no finished engine copy under $copy_root")
+  grep -q 'the engine runs from its own copy' "$logs/app.out" || nf+=("the app did not say it runs the engine from its own copy")
+  grep -qxF "ExecStart=\"$copy/engine/orgtree-engine\" \"host\"" "$unit_file" || nf+=("the unit does not run the copy: $(grep '^ExecStart=' "$unit_file" || true)")
+  grep -qxF "ConditionPathExists=$app" "$unit_file" || nf+=("the unit has no condition on the AppImage file")
+  [ "$(mode_of "$copy_root")" = 700 ] || nf+=("$copy_root is $(mode_of "$copy_root"), not 700")
+  host=$(systemctl --user show "$unit" -p MainPID --value 2>/dev/null || true); host_exe=$(readlink "/proc/$host/exe" 2>/dev/null || true)
+  case $host_exe in "$copy/engine/"*) ;; *) nf+=("the background engine's host runs '$host_exe', not the copy") ;; esac
+  pg=$(pgrep -u "$uid" -x postgres | head -1 || true); pg_exe=$(readlink "/proc/$pg/exe" 2>/dev/null || true)
+  case $pg_exe in "$copy/engine/postgresql/"*) ;; *) nf+=("PostgreSQL runs '$pg_exe', not the copy") ;; esac
+  port=$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).port" "$profile/data/engine-attach.json" 2>/dev/null || true)
+  answers "$port" || nf+=("the engine does not accept connections on port '$port'")
+  files_before=$(find "$copy" -type f | wc -l)
+  echo "copy: $copy ($files_before files, $(du -sm "$copy" | cut -f1) MB); extraction: $(extraction); host pid $host; postgres pid $pg; engine port $port"
+
+  # What Steam did twice on a Frame: a second launch while the first runs. It exits at once
+  # (single instance), and its runtime then deletes the extraction both launches share.
+  step "a second launch while the first runs"
+  first=$(desktop_pids | tr '\n' ' ')
+  second=0; (umask 0002; cd "$HOME" && PATH="$shims:$PATH" timeout 90 env APPIMAGE_EXTRACT_AND_RUN=1 "$app" >"$logs/app-second.out" 2>&1 </dev/null) || second=$?
+  sleep 3
+  first_alive=; for p in $first; do kill -0 "$p" 2>/dev/null && first_alive="$first_alive$p "; done
+  echo "the second launch exited $second; extraction now: $(extraction) ($(find /tmp/appimage_extracted_* -type f 2>/dev/null | wc -l) files); the first desktop (pid ${first:-none}) still alive: ${first_alive:-no}"
+  systemctl --user is-active --quiet "$unit" || nf+=("the background engine stopped after the second launch")
+  [ "$(find "$copy" -type f | wc -l)" = "$files_before" ] || nf+=("the copy lost files after the second launch")
+  [ -e "$copy/engine/postgresql/lib/plpgsql.so" ] || nf+=("plpgsql.so is gone from the copy")
+  kill -0 "$pg" 2>/dev/null || nf+=("PostgreSQL (pid $pg) is gone after the second launch")
+  answers "$port" || nf+=("the engine no longer accepts connections after the second launch")
+
+  step "the desktop quits: its extraction goes, the background engine stays"
+  for p in $(desktop_pids); do kill -TERM "$p" 2>/dev/null || true; done
+  for _ in $(seq 1 30); do [ -z "$(desktop_pids)" ] && break; sleep 1; done
+  sleep 5
+  echo "extraction after the quit: $(extraction)"
+  [ "$(systemctl --user show "$unit" -p MainPID --value 2>/dev/null || true)" = "$host" ] || nf+=("the background engine's host changed or stopped after the desktop quit")
+  systemctl --user is-active --quiet "$unit" || nf+=("the background engine is not running after the desktop quit")
+  [ -x "$copy/engine/orgtree-engine" ] && [ -e "$copy/engine/postgresql/lib/plpgsql.so" ] || nf+=("the copy lost its engine or plpgsql.so after the desktop quit")
+  kill -0 "$pg" 2>/dev/null || nf+=("PostgreSQL (pid $pg) is gone after the desktop quit")
+  answers "$port" || nf+=("the engine no longer accepts connections after the desktop quit")
+  if [ ${#nf[@]} -gt 0 ]; then
+    echo "--- $unit"; systemctl --user status "$unit" --no-pager 2>&1 | head -12 || true; cat "$unit_file" || true
+    echo "--- the app's output"; grep -v -E 'appimage_extracted_[0-9a-f]+/|Unable to revert mtime' "$logs/app.out" | tail -30
+    for p in "${nf[@]}"; do echo "::error::($mode) $p"; done
+    exit 1
+  fi
+  echo "PASS ($mode): the unit runs $copy/engine/orgtree-engine; the engine and PostgreSQL kept running and kept their files through a second launch and the desktop's quit"
+fi
