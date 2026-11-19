@@ -1063,6 +1063,7 @@ button.badge.audience-fold.alert {
 .chip.agents b.t-opus { color: var(--tier-opus); }
 .chip.agents b.t-agy-opus { color: var(--tier-opus); }
 .chip.agents b.t-fable { color: var(--tier-fable); }
+.chip.agents b.t-mythos { color: var(--tier-mythos); background: var(--tier-mythos-backing); border-radius: 2px; padding: 0 2px; }
 /* The summary is a model inventory, so every provider's model count keeps
    the same tier colour it wears on cards and pickers. Provider identity
    belongs to the surrounding chrome; these tokens distinguish the models. */
@@ -1319,6 +1320,7 @@ button.badge.audience-fold.alert {
 .sq.mini.tier-opus { --mini-tier: var(--tier-opus); }
 .sq.mini.tier-agy-opus { --mini-tier: var(--tier-opus); }
 .sq.mini.tier-fable { --mini-tier: var(--tier-fable); }
+.sq.mini.tier-mythos { --mini-tier: var(--tier-mythos); }
 /* the codex family's card dressing (FR-15; dormant until codex hire lands).
    Provider theming (user spec 2026-08-28): a codex agent's DESK is blue
    where a claude desk is terracotta — same geometry, recolored — and its
@@ -2692,6 +2694,18 @@ button.cc-name:focus-visible {
   --tier-sonnet: #3d8ce6;
   --tier-opus: #dcb0f5;
   --tier-fable: #e8b04b;
+  /* Mythos (Claude Mythos; conditional: shown only while a signed-in Claude login provides it). The colour is the
+     user's, exactly: USER 2026-11-19 mb033e506819f "use #785a20", a dark gold in Fable's family (Mythos 5.2 is the
+     same model as Fable 5.2). MEASURED 2026-11-19 (CIE76 dE, D65, against every colour this file defines): 41.0
+     from --tier-fable, then terra 44.4, carbon 48.8, sol 49.1, all far above this file's ~15 floor; the nearest
+     colour that is not a tier is the light themes' --warn #805b0b at 9.8. WCAG contrast: 6.40:1 on the light
+     panel and 6.18:1 on solarized's, but 2.39:1 on the dark panel, 2.97:1 on obsidian's and 2.03:1 on the token
+     backing #313131 that tier letters sit on in EVERY theme (--input here, the dark backing rule on the light
+     themes). So wherever it is a LETTER (tier token, hire button, agents chip) it takes a pale backing of its own
+     hue, the mirror of the dark backing the pale tiers take: #785a20 on #f6e6cf is 5.22:1. The hue is not changed.
+     Borders and the mini node keep the colour itself, as Gemini Pro's equally dark violet does. */
+  --tier-mythos: #785a20;
+  --tier-mythos-backing: #f6e6cf;
   /* the codex family (FR-15) — DISTINCTIVE per-tier shades (user correction
      2026-08-28: "return the individual model tier colors to their prior
      distinctive shades; just the desk view theme itself takes on the
@@ -2822,12 +2836,19 @@ button.cc-name:focus-visible {
 .sq.tier-opus { --tier-accent: var(--tier-opus); border-top-color: color-mix(in srgb, var(--tier-opus) 55%, var(--line)); }
 .sq.tier-agy-opus { --tier-accent: var(--tier-opus); border-top-color: color-mix(in srgb, var(--tier-opus) 55%, var(--line)); }
 .sq.tier-fable { --tier-accent: var(--tier-fable); border-top-color: color-mix(in srgb, var(--tier-fable) 55%, var(--line)); }
+.sq.tier-mythos { --tier-accent: var(--tier-mythos); border-top-color: color-mix(in srgb, var(--tier-mythos) 55%, var(--line)); }
 .tier.t-haiku { color: var(--tier-haiku); border-color: color-mix(in srgb, var(--tier-haiku) 45%, var(--line)); }
 .tier.t-sonnet { color: var(--tier-sonnet); border-color: color-mix(in srgb, var(--tier-sonnet) 45%, var(--line)); }
 .tier.t-agy-sonnet { color: var(--tier-sonnet); border-color: color-mix(in srgb, var(--tier-sonnet) 45%, var(--line)); }
 .tier.t-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .tier.t-agy-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .tier.t-fable { color: var(--tier-fable); border-color: color-mix(in srgb, var(--tier-fable) 45%, var(--line)); }
+.tier.t-mythos { color: var(--tier-mythos); background: var(--tier-mythos-backing); border-color: color-mix(in srgb, var(--tier-mythos) 45%, var(--line)); }
+/* the light themes give every tier token a dark backing (the rule near the top of this file); Mythos keeps its
+   pale one there too, or its dark gold would sit on #313131 at 2.03:1 */
+:root:is(.contrast-light, .contrast-solarized-light) :is(.tier.t-mythos, .hsof button.t-mythos) {
+  color: var(--tier-mythos); background: var(--tier-mythos-backing);
+}
 .tier.t-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-gpt-6-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-gpt-reserve { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
@@ -4460,12 +4481,14 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .hsof button.t-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .hsof button.t-agy-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .hsof button.t-fable { color: var(--tier-fable); border-color: color-mix(in srgb, var(--tier-fable) 45%, var(--line)); }
+.hsof button.t-mythos { color: var(--tier-mythos); background: var(--tier-mythos-backing); border-color: color-mix(in srgb, var(--tier-mythos) 45%, var(--line)); }
 .hsof button.t-haiku:hover:not(:disabled) { border-color: var(--tier-haiku); }
 .hsof button.t-sonnet:hover:not(:disabled) { border-color: var(--tier-sonnet); }
 .hsof button.t-agy-sonnet:hover:not(:disabled) { border-color: var(--tier-sonnet); }
 .hsof button.t-opus:hover:not(:disabled) { border-color: var(--tier-opus); }
 .hsof button.t-agy-opus:hover:not(:disabled) { border-color: var(--tier-opus); }
 .hsof button.t-fable:hover:not(:disabled) { border-color: var(--tier-fable); }
+.hsof button.t-mythos:hover:not(:disabled) { border-color: var(--tier-mythos); }
 /* codex family (FR-15 preview) — same idiom; the strip's preview chips are
    permanently disabled, so no hover leg. A touch dimmer than the generic
    :disabled .35 would leave them: these are "coming", not "can't afford". */
