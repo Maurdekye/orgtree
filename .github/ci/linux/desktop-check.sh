@@ -31,7 +31,7 @@
 # shared by every launch and deleted when any of them exits, so the engine must run from its
 # own copy under the profile (apps/desktop/main/engine-runtime.ts): the unit names the copy,
 # the host and PostgreSQL run from it, and both keep running with their files through a
-# second launch and the desktop's quit.
+# second launch and the desktop's death (SIGKILL: a Quit stops the background engine on purpose).
 #   bash .github/ci/linux/desktop-check.sh <AppImage> <logs dir> [fresh|repair|autostart|unsafe-config|no-fuse]
 set -euo pipefail
 src=$(realpath "$1"); logs=$(realpath -m "$2"); mode=${3:-fresh}; mkdir -p "$logs"
@@ -237,21 +237,23 @@ if [ "$mode" = no-fuse ]; then
   kill -0 "$pg" 2>/dev/null || nf+=("PostgreSQL (pid $pg) is gone after the second launch")
   answers "$port" || nf+=("the engine no longer accepts connections after the second launch")
 
-  step "the desktop quits: its extraction goes, the background engine stays"
-  for p in $(desktop_pids); do kill -TERM "$p" 2>/dev/null || true; done
+  # A Quit stops the background engine on purpose (engine.ts stopForQuit), so the desktop is
+  # killed instead, as when it crashes or its session ends: the engine has nothing to do with it.
+  step "the desktop dies (SIGKILL): the background engine stays"
+  for p in $(desktop_pids); do kill -KILL "$p" 2>/dev/null || true; done
   for _ in $(seq 1 30); do [ -z "$(desktop_pids)" ] && break; sleep 1; done
   sleep 5
-  echo "extraction after the quit: $(extraction)"
-  [ "$(systemctl --user show "$unit" -p MainPID --value 2>/dev/null || true)" = "$host" ] || nf+=("the background engine's host changed or stopped after the desktop quit")
-  systemctl --user is-active --quiet "$unit" || nf+=("the background engine is not running after the desktop quit")
-  [ -x "$copy/engine/orgtree-engine" ] && [ -e "$copy/engine/postgresql/lib/plpgsql.so" ] || nf+=("the copy lost its engine or plpgsql.so after the desktop quit")
-  kill -0 "$pg" 2>/dev/null || nf+=("PostgreSQL (pid $pg) is gone after the desktop quit")
-  answers "$port" || nf+=("the engine no longer accepts connections after the desktop quit")
+  echo "extraction after the desktop died: $(extraction)"
+  [ "$(systemctl --user show "$unit" -p MainPID --value 2>/dev/null || true)" = "$host" ] || nf+=("the background engine's host changed or stopped after the desktop died")
+  systemctl --user is-active --quiet "$unit" || nf+=("the background engine is not running after the desktop died")
+  [ -x "$copy/engine/orgtree-engine" ] && [ -e "$copy/engine/postgresql/lib/plpgsql.so" ] || nf+=("the copy lost its engine or plpgsql.so after the desktop died")
+  kill -0 "$pg" 2>/dev/null || nf+=("PostgreSQL (pid $pg) is gone after the desktop died")
+  answers "$port" || nf+=("the engine no longer accepts connections after the desktop died")
   if [ ${#nf[@]} -gt 0 ]; then
     echo "--- $unit"; systemctl --user status "$unit" --no-pager 2>&1 | head -12 || true; cat "$unit_file" || true
     echo "--- the app's output"; grep -v -E 'appimage_extracted_[0-9a-f]+/|Unable to revert mtime' "$logs/app.out" | tail -30
     for p in "${nf[@]}"; do echo "::error::($mode) $p"; done
     exit 1
   fi
-  echo "PASS ($mode): the unit runs $copy/engine/orgtree-engine; the engine and PostgreSQL kept running and kept their files through a second launch and the desktop's quit"
+  echo "PASS ($mode): the unit runs $copy/engine/orgtree-engine; the engine and PostgreSQL kept running and kept their files through a second launch and the desktop's death"
 fi

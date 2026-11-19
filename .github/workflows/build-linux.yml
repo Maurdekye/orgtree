@@ -232,7 +232,7 @@ jobs:
 
       # Without FUSE (SteamOS has no libfuse2): the runtime's extraction is shared by every launch
       # and deleted when any of them exits, so the engine runs from its own copy and keeps its
-      # files through a second launch and the desktop's quit (desktop-check.sh, mode no-fuse).
+      # files through a second launch and the desktop's death (desktop-check.sh, mode no-fuse).
       - name: Desktop-like start - without FUSE (extract and run), the engine from its own copy
         if: (success() || failure()) && hashFiles('apps/desktop/main/engine-runtime.ts') != ''
         env:

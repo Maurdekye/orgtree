@@ -379,7 +379,8 @@ Ubuntu 22.04's glibc 2.35 (inferred).
   cannot be made, the engine runs from the extraction as before and nothing is
   registered. The `no-fuse` mode of `.github/ci/linux/desktop-check.sh` runs this on
   the Linux runners: the unit, the host and PostgreSQL run from the copy and keep
-  running, with their files, through a second launch and the desktop's quit.
+  running, with their files, through a second launch and the desktop being killed (a
+  Quit stops the background engine on purpose, so the check kills the desktop).
   Not fixed: a second launch still deletes the first launch's Electron files, which
   the runtime does after the app has exited. Files the first desktop has open keep
   working; one it opens later would be missing.

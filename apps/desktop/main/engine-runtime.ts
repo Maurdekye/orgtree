@@ -11,8 +11,8 @@ import path from 'node:path'
  *  without FUSE): a second launch that exits removes all of it under the first, which
  *  is still running. The engine and its PostgreSQL then lose the files they have not
  *  opened yet (PostgreSQL loads plpgsql on first use: "could not access file
- *  "plpgsql""). The same folder cannot serve the background engine either: quitting
- *  the desktop would delete it under the engine that is meant to stay.
+ *  "plpgsql""). The same folder cannot serve the background engine either: that engine
+ *  starts at login without the desktop, and must outlive a desktop that crashes.
  *
  *  So in that mode the engine does not run from the extraction. `resources/engine` and
  *  `resources/ui` are copied once per build into
