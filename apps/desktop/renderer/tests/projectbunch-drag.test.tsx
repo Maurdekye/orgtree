@@ -211,7 +211,11 @@ test('hidden retired branch bunches while its owning project keeps a reachable l
   // it no longer uses an independently translated overlay inside that card.
   assert.equal(pill.closest('.sq-badges')?.closest('.sq'), card(view.el, 'project-1'))
   assert.equal(pill.style.transform, '')
-  await inAct(() => pill.click()); await advance(20); await flush()
+  await inAct(() => card(view.el, 'project-1')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  const retiredEntry = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+    .find(b => b.textContent?.trim() === 'Open retired list (1)')
+  assert.ok(retiredEntry, 'the owning project menu retains the retired-list route')
+  await inAct(() => retiredEntry.click()); await advance(20); await flush()
   assert.equal(view.archiveReads.length, 1, 'opens the existing bounded picker')
   assert.equal(view.archiveReads[0]!.searchParams.get('parent'), 'project-1')
   assert.equal(document.querySelector('.pile-name')?.textContent, side.id)

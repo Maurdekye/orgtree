@@ -12,7 +12,7 @@
 //     and the token/reveal bookkeeping — every rule directly.
 //   * a full OrgCanvas mount (jsdom, with a real-sized viewport stubbed in,
 //     since jsdom's zero-rect viewport culls every card): default-off
-//     control, cards gone + token present when on, and the token → picker →
+//     control, cards gone + token present when on, and the owner menu → picker →
 //     reveal round trip through the REAL centerOn hook.
 //
 // Run:  cd frontend && node tests/run.mjs hideretired
@@ -88,6 +88,31 @@ function tree(kids: Kid[]): TreePayload {
     cascade_hire: false, cascade_alloc: true,
     audience_requests: [], org_inbox: null, net: null,
   } as unknown as TreePayload
+}
+
+// Open through the owning identity, never through the inert count label.
+async function openRetiredList(badge: HTMLElement) {
+  const owner = badge.dataset.retiredParent!
+  const doc = badge.ownerDocument
+  let target = badge.closest<HTMLElement>('.sq')
+  if (!target && badge.closest('.root-retired-list')) target = doc.querySelector<HTMLElement>('.sq.user')
+  if (!target || target.classList.contains('desk')) {
+    const row = () => [...doc.querySelectorAll<HTMLElement>('.tray-row')]
+      .find(r => r.querySelector('.tray-name')?.textContent === owner)
+    if (!row()) {
+      const toggle = doc.querySelector<HTMLElement>('.tray-toggle')
+      assert.ok(toggle, 'Agents list toggle is available while the desk is focused')
+      await inAct(() => toggle.click()); await flush()
+    }
+    target = row() ?? null
+  }
+  assert.ok(target, `menu owner ${owner} is rendered`)
+  await inAct(() => target!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  await flush()
+  const entry = [...doc.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+    .find(b => /^Open retired list [(][0-9]+[)]$/.test(b.textContent?.trim() ?? ''))
+  assert.ok(entry, `owner ${owner} offers its retired list`)
+  await inAct(() => entry.click()); await flush()
 }
 
 // ------------------------------------------------------------- pure layer
@@ -284,7 +309,7 @@ domTest('the token lists the retirees and picking one REVEALS it through the rea
   const token = [...el.querySelectorAll('.retired-token')]
     .find((t) => t.textContent === '2 retired') as HTMLElement
   assert.ok(token, 'the boss token rendered')
-  await inAct(async () => { token.click(); await flush() })
+  await openRetiredList(token)
   const picker = el.ownerDocument.querySelector('.pile-picker')
   assert.ok(picker, 'the picker opened')
   assert.equal(el.contains(picker), false, 'picker escapes the canvas stacking context')
@@ -333,13 +358,12 @@ test('zoomed desk replaces retired jumps with a picker and hides retired audienc
     assert.equal(v.el.querySelector('.retired-fold'), null)
     assert.equal(v.el.querySelector('.test-retired-audience'), null)
     assert.equal([...v.el.querySelectorAll('button')].some(b => /show 2 retired|hide retired/.test(b.textContent || '')), false)
-    const token = v.el.querySelector<HTMLButtonElement>('.desk-retired-token')!
+    const token = v.el.querySelector<HTMLElement>('.desk-retired-token')!
     assert.equal(token.textContent, '2 retired')
+    assert.equal(token.tagName, 'SPAN')
     await inAct(() => token.click())
-    const pick = [...document.querySelectorAll<HTMLButtonElement>('.pile-row')].find(b => b.textContent?.includes('ret-one'))
-    assert.ok(pick, 'retired list opens over zoomed desk')
-    await inAct(() => pick.click())
-    assert.deepEqual(jumps, ['ret-one'])
+    assert.equal(document.querySelector('.pile-picker'), null, 'the desk count no longer opens a picker')
+    assert.deepEqual(jumps, [], 'count clicks perform no navigation; owner menus are covered by full canvas tests')
   } finally { await v.unmount(); restoreFetch(); setHideRetiredOn(false); resetConvos() }
 })
 
@@ -360,7 +384,7 @@ domTest('revealed retired agent can be dismissed via card action, restores token
   const token = [...el.querySelectorAll('.retired-token')]
     .find((t) => t.textContent === '2 retired') as HTMLElement
   assert.ok(token, 'boss token found')
-  await inAct(async () => { token.click(); await flush() })
+  await openRetiredList(token)
   const picker = el.ownerDocument.querySelector('.pile-picker')!
   const row = [...picker.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
@@ -427,11 +451,11 @@ domTest('revealed retired agent can be dismissed via card action, restores token
   // No op was called (purely transient view change)
   assert.equal(ops.length, 0, 'no op dispatched to server')
 
-  // Reselection from token works
+  // Reselection through the owner menu works
   const tokenRestored = [...el.querySelectorAll('.retired-token, .desk-retired-token')]
     .find((t) => t.textContent === '2 retired') as HTMLElement
   assert.ok(tokenRestored, 'token restored')
-  await inAct(async () => { tokenRestored.click(); await flush() })
+  await openRetiredList(tokenRestored)
   const pickerRestored = el.ownerDocument.querySelector('.pile-picker')!
   const rowRestored = [...pickerRestored.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
@@ -451,7 +475,7 @@ domTest('revealed retired agent can be dismissed via context menu Dismiss entry'
   // Reveal ret-one
   const token = [...el.querySelectorAll('.retired-token')]
     .find((t) => t.textContent === '2 retired') as HTMLElement
-  await inAct(async () => { token.click(); await flush() })
+  await openRetiredList(token)
   const picker = el.ownerDocument.querySelector('.pile-picker')!
   const row = [...picker.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
@@ -488,7 +512,7 @@ domTest('dismissing an inactive revealed retiree preserves the active live targe
   // Reveal two retirees, preserving both in transient view state.
   let token = [...el.querySelectorAll('.retired-token')]
     .find((t) => t.textContent === '2 retired') as HTMLElement
-  await inAct(async () => { token.click(); await flush() })
+  await openRetiredList(token)
   let picker = el.ownerDocument.querySelector('.pile-picker')!
   let row = [...picker.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
@@ -498,7 +522,7 @@ domTest('dismissing an inactive revealed retiree preserves the active live targe
 
   token = [...el.querySelectorAll('.retired-token')]
     .find((t) => t.textContent === '1 retired') as HTMLElement
-  await inAct(async () => { token.click(); await flush() })
+  await openRetiredList(token)
   picker = el.ownerDocument.querySelector('.pile-picker')!
   row = [...picker.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').includes('ret-two')) as HTMLElement

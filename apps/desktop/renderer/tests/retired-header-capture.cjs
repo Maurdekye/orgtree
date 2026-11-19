@@ -36,18 +36,18 @@ return{token:a,card:b,dogRects:others,content,fitScale:Number(fit?.dataset.cardS
 records.push({kind,count,dogs,crowded,theme,scale,...seen})
 if(seen.overlap)failures.push({kind,count,dogs,theme,scale,reason:'retired/watchdog rectangles intersect'})
 if(seen.overflow)failures.push({kind,count,dogs,crowded,theme,scale,reason:'card content overflows fixed card'})
-if(!red){assert.equal(seen.inHeader,true);assert.equal(seen.inOwner,true);assert.equal(seen.hit,true);assert.equal(seen.overlap,false);assert.equal(crowded?seen.fitScale<1:seen.fitScale===1,true,JSON.stringify({kind,count,crowded,fitScale:seen.fitScale}));
+if(!red){assert.equal(seen.inHeader,true);assert.equal(seen.inOwner,true);assert.equal(seen.hit,false);assert.equal(seen.overlap,false);assert.equal(crowded?seen.fitScale<1:seen.fitScale===1,true,JSON.stringify({kind,count,crowded,fitScale:seen.fitScale}));
 win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(seen.token.x+seen.token.width/2),y:Math.round(seen.token.y+seen.token.height/2)});
 await win.webContents.executeJavaScript(settle);
-assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.retired-token[data-retired-parent="owner"]').matches(':hover')`),true,'scaled retired badge remains a native hover target');
+assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.retired-token[data-retired-parent="owner"]').matches(':hover')`),false,'scaled retired badge is not a hover target');
 }
 if(scale===1&&(count===624||crowded)&&theme==='dark'){
 await win.webContents.executeJavaScript(settle);const frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false);fs.writeFileSync(out+`/${kind}-${crowded?'crowded-':''}${theme}.png`,frame.toPNG())
 }
 }
 if(!red){
-const behavior=await win.webContents.executeJavaScript(`(async()=>{const token=document.querySelector('.retired-token[data-retired-parent="owner"]');token.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2}));await ${settle};const labels=[...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(b=>b.textContent);token.click();await ${settle};return{labels,picker:!!document.querySelector('.pile-name'),reads:window.retiredHeaderFixture.reads.filter(u=>u.includes('/retired'))}})()`)
-assert.deepEqual(behavior.labels,['Open retired list']);assert.equal(behavior.picker,true);assert.ok(behavior.reads.some(u=>u.includes('parent=owner')))
+const behavior=await win.webContents.executeJavaScript(`(async()=>{const token=document.querySelector('.retired-token[data-retired-parent="owner"]');token.closest('.sq').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2}));await ${settle};const labels=[...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(b=>b.textContent);const entry=[...document.querySelectorAll('.ctxmenu [role="menuitem"]')].find(b=>/^Open retired list [(][0-9]+[)]$/.test(b.textContent));if(!entry)throw Error('owner retired-list entry absent');entry.click();await ${settle};return{labels,picker:!!document.querySelector('.pile-name'),reads:window.retiredHeaderFixture.reads.filter(u=>u.includes('/retired'))}})()`)
+assert.ok(behavior.labels.some(label=>/^Open retired list [(][0-9]+[)]$/.test(label)));assert.equal(behavior.picker,true);assert.ok(behavior.reads.some(u=>u.includes('parent=owner')))
 await win.webContents.executeJavaScript(`document.querySelector('.overlay')?.click()`)
 }
 }
