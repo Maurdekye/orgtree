@@ -48,7 +48,7 @@ keeps identity/policy and leaves retired members retired. Agent-only model,
 account, grant and scope overrides refuse. A live project refuses placement
 overrides instead of silently ignoring them; use move/reorder/rename.
 
-Direct interrupt, halt/unhalt, compaction, process start/stop, unstick and
+Direct interrupt, halt/unhalt, compaction, process start/stop, thaw and
 continue-on refuse nodes without an agent runtime before actor creation or
 state mutation. Batch halt validates every target before acting. To stop a
 project's team, address its actual agents. `swap` deliberately remains an

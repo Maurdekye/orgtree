@@ -30,7 +30,7 @@ All target names and permissions are validated before execution. The runtime the
 
 For a batch, `batch` is the number of resolved agents and a `nodes` result map reports each outcome. Runtime failures can leave a mixed batch even though permission validation happened first. Re-read uncertain outcomes before repeating a timed-out call.
 
-A usage freeze, org stop latch, account eligibility problem, or turn-capacity wait can still prevent a turn. Use [unstick](../tool-unstick/SKILL.md) for a usage freeze when appropriate; unhalt does not clear it. It does not rehire a retired agent.
+A usage freeze, org stop latch, account eligibility problem, or turn-capacity wait can still prevent a turn. Use [thaw](../tool-thaw/SKILL.md) for a usage freeze when appropriate; unhalt does not clear it. It does not rehire a retired agent.
 
 Common refusals are `name the agent (node) or agents (nodes)`, `nodes must be a list of node ids`, `you cannot unhalt yourself`, unknown names, and targets outside your descendants. Single runtime failures report `could not unhalt …: …`; batch errors stay in their per-agent entry.
 

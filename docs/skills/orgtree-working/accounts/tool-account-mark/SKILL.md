@@ -68,7 +68,7 @@ Expired records can be cleared too; the operation removes their stored record ra
 
 Every successful clear records actor, org, tool route, account/pool, removed/kept snapshots, time and reason. The delete and audit commit together. The tool then returns `frozen_here`, a read-only hint listing at most 50 live frozen agents in the caller's org explicitly bound to that account; it is not an exhaustive cross-org or ambient-alias affected-seat list.
 
-Those agents remain frozen. If authorized and appropriate, release a descendant separately with [unstick](../../runtime/tool-unstick/SKILL.md), or choose an eligible same-provider destination with [continue-on](../tool-continue-on/SKILL.md). Neither action is implied by clearing the mark.
+Those agents remain frozen. If authorized and appropriate, release a descendant separately with [thaw](../../runtime/tool-thaw/SKILL.md), or choose an eligible same-provider destination with [continue-on](../tool-continue-on/SKILL.md). Neither action is implied by clearing the mark.
 
 ## Refusals and recovery
 

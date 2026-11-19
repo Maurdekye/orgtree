@@ -228,7 +228,7 @@ alias), `orgtree_inbox`, `orgtree_ask`, `orgtree_withdraw_ask`, `orgtree_status`
 `orgtree_cheap_compact`, `orgtree_request_credits`, `orgtree_request_scope`, `orgtree_audience`,
 `orgtree_watchdog`, `orgtree_chart`, `orgtree_list_tiers`, `orgtree_list_orgs`,
 `orgtree_read_transcript`, `orgtree_read_scratch`, `orgtree_staff`, `orgtree_swap`,
-`orgtree_self_subjugate`, `orgtree_unstick`, `orgtree_continue_on`, `orgtree_account_mark`,
+`orgtree_self_subjugate`, `orgtree_thaw`, `orgtree_continue_on`, `orgtree_account_mark`,
 `orgtree_state_inspect`.
 
 Removed tools are listed in the ledger (§10, P). The managed agent instructions (the system prompt
@@ -821,7 +821,7 @@ See `agent-ordering.md`.
 `orgtree_preview`, `orgtree_capabilities` (user 2026-10-06: not needed).
 
 Kept at the user's decision (2026-10-06): `orgtree_staff`, `orgtree_swap`,
-`orgtree_self_subjugate`, `orgtree_unstick`, `orgtree_continue_on`, `orgtree_account_mark`,
+`orgtree_self_subjugate`, `orgtree_thaw`, `orgtree_continue_on`, `orgtree_account_mark`,
 `orgtree_state_inspect`, and `orgtree_list_orgs`. `orgtree_send_notice` becomes
 `orgtree_message` with `notice: true` (old name kept as an alias).
 

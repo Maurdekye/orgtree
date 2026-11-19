@@ -88,7 +88,7 @@ For a usage deadline, **Organization settings > Autonomy > auto-resume** permits
 
 Reset evidence can include a duration, a timestamp or a clock in the CLI host's local zone. Unknown named zones are not guessed. Applicable fresh same-account usage evidence can extend a hold; stale or unrelated readings cannot manufacture recovery. Read the recorded deadline and reason rather than assuming all similar errors use one timer.
 
-**Resume frozen agents now** or a desk's unstick action explicitly clears the hold for retry. It creates no provider allowance and leaves other holds, such as Halt, in place. A provider can refuse again. **Continue on…**, where offered, selects an eligible same-provider account and releases the freeze together. A plain account settings edit is not the same recovery action.
+**Resume frozen agents now** or a desk's thaw action explicitly clears the hold for retry. It creates no provider allowance and leaves other holds, such as Halt, in place. A provider can refuse again. **Continue on…**, where offered, selects an eligible same-provider account and releases the freeze together. A plain account settings edit is not the same recovery action.
 
 Clearing an account's recorded capacity mark is different again: it resumes nobody. Repair actual sign-in/billing problems at the provider, then use the appropriate retry. Avoid repeated clearing of a still-exhausted lane. Automatic account fallback and paid-key opt-ins are covered in [Providers, models and tools](providers-and-tools.md#automatic-fallback-and-metered-keys).
 

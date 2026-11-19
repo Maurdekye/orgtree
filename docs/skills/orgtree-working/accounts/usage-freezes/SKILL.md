@@ -1,6 +1,6 @@
 ---
 name: orgtree-usage-freezes
-description: Explain usage holds, reset recovery and the separate effects of unstick, continuation and account marks.
+description: Explain usage holds, reset recovery and the separate effects of thaw, continuation and account marks.
 ---
 Up: [orgtree-accounts](../SKILL.md)
 
@@ -36,7 +36,7 @@ The freeze can retain the request refused before it received an answer. Recovery
 
 | Situation | Relevant operation |
 | --- | --- |
-| Release the freeze and retry the current account, with authorization | [unstick](../../runtime/tool-unstick/SKILL.md). Read its scope and release behavior. |
+| Release the freeze and retry the current account, with authorization | [thaw](../../runtime/tool-thaw/SKILL.md). Read its scope and release behavior. |
 | Explicitly move to an eligible same-provider account and release the freeze | [continue-on](../tool-continue-on/SKILL.md). Read its destination gates and transaction effects. |
 | Inspect or remove an obsolete recorded account-pool mark | [account-mark](../tool-account-mark/SKILL.md). A clear resumes nobody. |
 | Need current saved quota evidence before deciding | [usage](../tool-usage/SKILL.md). Unknown values are not room. |
@@ -47,7 +47,7 @@ Automatic account fallback is governed by [account lanes](../account-lanes/SKILL
 
 ## See also
 
-- [orgtree-tool-unstick](../../runtime/tool-unstick/SKILL.md)
+- [orgtree-tool-thaw](../../runtime/tool-thaw/SKILL.md)
 - [orgtree-tool-continue-on](../tool-continue-on/SKILL.md)
 - [orgtree-tool-account-mark](../tool-account-mark/SKILL.md)
 - See `orgtree-org-autonomy` (orgtree-app › org-settings).

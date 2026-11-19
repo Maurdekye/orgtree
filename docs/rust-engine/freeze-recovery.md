@@ -99,7 +99,7 @@ readings and shorter resets cannot shorten or replace the parsed refusal.
 
 The freeze record stores the selected reset for its held-until notice;
 `freeze::wake_at` still adds 60 seconds before automatic wake/replay. No changes
-were made to manual unstick, continue-on, halt/unhalt, timer compare-and-clear,
+were made to manual thaw, continue-on, halt/unhalt, timer compare-and-clear,
 or the auto-resume setting. Their existing overrides and guards remain.
 
 Author verification: eight regression tests at the red checkpoint executed with

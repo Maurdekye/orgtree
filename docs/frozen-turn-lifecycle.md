@@ -26,7 +26,7 @@ The installed version is 2.0.8, build commit `7cd48de`. Its supervisor source ma
 
 The partial record is a write-once opening stub. Its empty events and null fields are initialization defaults, not evidence that the turn produced no output. Its continued presence and missing final sibling show that the recorder did not finalize. The retained live child, cold-admission journal, native transcript, and process exit timestamp locate this failure in the provider pipe lifecycle, rather than admission or transcript ingestion.
 
-`interrupt_turn` previously accepted success after writing and flushing a control request to stdin. A child can keep that pipe writable after its launcher has exited. The successful write neither proved receipt nor caused a blocked CLI to consume it. `orgtree_unstick` addresses a recorded frozen/replay condition; this attempt had no such classification.
+`interrupt_turn` previously accepted success after writing and flushing a control request to stdin. A child can keep that pipe writable after its launcher has exited. The successful write neither proved receipt nor caused a blocked CLI to consume it. `orgtree_thaw` addresses a recorded frozen/replay condition; this attempt had no such classification.
 
 The earlier interrupt-before-retire fix correctly added interruption before archive and waited for `busy` to clear. In this incident it ran, waited, and warned as designed. It could not release a thread waiting for pipe EOF. Rehire also preserved that in-memory busy state. This source fix addresses the lower-level process and pipe failure rather than changing the archive policy.
 

@@ -1656,7 +1656,7 @@
     "tool-interrupt",
     "tool-halt",
     "tool-unhalt",
-    "tool-unstick",
+    "tool-thaw",
     "tool-cheap-compact",
     "tool-compact",
     "standalone-engine",
@@ -1901,12 +1901,12 @@
    ]
   },
   {
-   "path": "orgtree-working/runtime/tool-unstick",
-   "name": "orgtree-tool-unstick",
+   "path": "orgtree-working/runtime/tool-thaw",
+   "name": "orgtree-tool-thaw",
    "level": 3,
    "kind": "tool",
    "covers": [
-    "orgtree_unstick"
+    "orgtree_thaw"
    ],
    "tool_group": "runtime",
    "purpose": "Release a usage-limit freeze.",
@@ -1919,7 +1919,7 @@
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs:386",
-    "engine/rs/orgtree-engine/src/tools/control.rs unstick",
+    "engine/rs/orgtree-engine/src/tools/control.rs thaw",
     "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
    ],
    "writer": "runtime-sol",
@@ -2658,11 +2658,11 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Usage-limit freezes: what freezes an agent, auto-resume, unstick, continue_on and account marks.",
+   "purpose": "Usage-limit freezes: what freezes an agent, auto-resume, thaw, continue_on and account marks.",
    "must_cover": [
     "freeze causes and states",
     "auto-resume",
-    "unstick vs continue_on",
+    "thaw vs continue_on",
     "account marks"
    ],
    "sources": [
@@ -2673,7 +2673,7 @@
     "docs/rust-engine/continue-primary.md"
    ],
    "see_also": [
-    "tool-unstick",
+    "tool-thaw",
     "tool-continue-on",
     "tool-account-mark",
     "org-autonomy"

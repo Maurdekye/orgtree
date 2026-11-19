@@ -71,7 +71,7 @@ as an accessible label. `orgtree_session` already reports placement to agents.
 
 Other card furniture keeps its specific name: lifecycle/pinned/remote markers
 can be zoom-only; retired-count badges are plain labels rather than turn
-state or controls; the owner context menu opens the retired list. The unstick button is a recovery action. Agent cards, zoom cards, jump
+state or controls; the owner context menu opens the retired list. The thaw button is a recovery action. Agent cards, zoom cards, jump
 cards, presentation cards and document chips remain distinct objects. A badge
 does not by itself prove a process is running or a queued change has applied.
 
@@ -107,7 +107,7 @@ offers the personal Revoke button; inherited access is managed at its project.
 
 Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps. The idle, active and halted ages read on the common age scale (seconds, minutes, hours up to 36 hours, then days, weeks, months and years: 45s, 12m, 5h, 3d, 3w), and hovering one shows the full local date and time it counts from. A usage freeze's reset or wake countdown is not an age and keeps its own wording.
 
-Freeze badges show the recorded cause/deadline/provenance rather than promising a guaranteed wake. The user unstick control is an explicit recovery override. For freeze mechanics see `orgtree-usage-freezes` (orgtree-working › accounts). For cache evidence see `orgtree-cache-continuity` there.
+Freeze badges show the recorded cause/deadline/provenance rather than promising a guaranteed wake. The user thaw control is an explicit recovery override. For freeze mechanics see `orgtree-usage-freezes` (orgtree-working › accounts). For cache evidence see `orgtree-cache-continuity` there.
 
 ## Jump cards
 

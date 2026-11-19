@@ -17,7 +17,7 @@ available. All other tools require these groups:
 | `messaging` | message, send_notice, inbox, audience, transfers |
 | `inspection` | chart, state_inspect, list_tiers, list_orgs, read_transcript, read_scratch |
 | `watchdogs` | watchdog |
-| `runtime` | interrupt, halt, unhalt, unstick, continue_on, account_mark |
+| `runtime` | interrupt, halt, unhalt, thaw, continue_on, account_mark |
 | `user` | ask, withdraw_ask, present, send_file, request_credits, request_scope |
 | `logo` | org_logo (set/remove this org's Logo; immediate, logged, undoable) |
 

@@ -13,7 +13,7 @@ Read the persisted gate before choosing a recovery action. Similar-looking idle 
 |---|---|
 | Only the current descendant turn must stop | [Interrupt](../tool-interrupt/SKILL.md). |
 | The descendant must stay stopped until released | [Halt](../tool-halt/SKILL.md), then [unhalt](../tool-unhalt/SKILL.md). |
-| The runtime records a provider/usage freeze | [Unstick](../tool-unstick/SKILL.md) and [usage-freeze guidance](../../accounts/usage-freezes/SKILL.md). |
+| The runtime records a provider/usage freeze | [Thaw](../tool-thaw/SKILL.md) and [usage-freeze guidance](../../accounts/usage-freezes/SKILL.md). |
 | The org-wide stop latch is set | `orgtree-kill-switch` (orgtree-app › app-shell). |
 
 These gates are separate. Clearing one need not clear another. Tool arguments, authority rules and result shapes live in those tool pages; a top-level agent is still bound by the downward authority rules.

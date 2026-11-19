@@ -1,11 +1,11 @@
 ---
-name: orgtree-tool-unstick
+name: orgtree-tool-thaw
 description: Release a descendant's usage freeze without changing its account or adding capacity.
 ---
 
 Up: [orgtree-runtime](../SKILL.md)
 
-# orgtree_unstick
+# orgtree_thaw
 
 Projects and other nodes without an agent runtime are refused before state changes.
 Name the actual agent members to control a project's team. This call targets
@@ -17,7 +17,7 @@ Use this when a descendant's stored freeze should be released, such as after its
 
 `node` is required and names one agent in your org; a leading `@` is accepted. There is no batch, account, reason, or default-target parameter.
 
-Requires effective `tools.orgtree.runtime`. Only strict descendants are permitted. Top-level agents have the same downward-only authority. Self is refused with `you cannot unstick yourself`; peers and superiors are refused as outside your descendant scope; an unknown/deleted name is not found.
+Requires effective `tools.orgtree.runtime`. Only strict descendants are permitted. Top-level agents have the same downward-only authority. Self is refused with `you cannot thaw yourself`; peers and superiors are refused as outside your descendant scope; an unknown/deleted name is not found.
 
 ## What changes
 
@@ -25,7 +25,7 @@ For a live frozen target the runtime clears `frozen` and its agent `limit_locked
 
 The text result is either `… was released and continues its work.` or `… was not frozen; nothing to release.` A non-live target cannot be thawed. This is not a rehire.
 
-Unstick does not add provider capacity, clear the account's capacity marks, change the account binding, or prove that the next request will succeed. If the underlying refusal remains, the agent may freeze again. Account inspection/mark handling belongs to [account marks](../../accounts/tool-account-mark/SKILL.md); an authorized account change belongs to [continue on](../../accounts/tool-continue-on/SKILL.md). Use [unhalt](../tool-unhalt/SKILL.md) for an independent halt.
+Thaw does not add provider capacity, clear the account's capacity marks, change the account binding, or prove that the next request will succeed. If the underlying refusal remains, the agent may freeze again. Account inspection/mark handling belongs to [account marks](../../accounts/tool-account-mark/SKILL.md); an authorized account change belongs to [continue on](../../accounts/tool-continue-on/SKILL.md). Use [unhalt](../tool-unhalt/SKILL.md) for an independent halt.
 
 ## Example
 

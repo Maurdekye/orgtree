@@ -317,7 +317,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   [conditional Gemini tiers](docs/agents/providers-and-accounts.md#e-f9bfc5ac5f086eb7).
   [verified: `providers/{agy_auth,agy_models,mod}.rs`; 2026-10-22]
 
-- State badges pass card focus/select gestures through. The serving-account badge is a focusable informational span with native title = aria-label; it has no button role or pointer/click handler. Other state markers remain inert, with halt/unstick actions separate on the desk. [decided: user 2026-10-22 09:58Z; verified: `canvas/desk.tsx`, `statebadgefocus.test.tsx`]
+- State badges pass card focus/select gestures through. The serving-account badge is a focusable informational span with native title = aria-label; it has no button role or pointer/click handler. Other state markers remain inert, with halt/thaw actions separate on the desk. [decided: user 2026-10-22 09:58Z; verified: `canvas/desk.tsx`, `statebadgefocus.test.tsx`]
 
 - Helper transcript tool inputs use the ordinary credential redactor before
   capture and on retained reads; never publish raw partial JSON. See

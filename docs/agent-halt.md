@@ -31,6 +31,6 @@ Explicit unhalt admits one owner for the preserved work, under the ordinary life
 | Cheap compaction, reseed, provider change | The successor retains halt and pending work. An archived predecessor does not receive a copy of the pending queue. |
 | Manual provider compaction | Refused while halted. A compaction already active is included in settlement. |
 | Remote control | The managed remote-control process is terminated and settled, including a concurrent start. Starting remote control while halted is refused. A stale record without process ownership refuses halt rather than claiming settlement. |
-| Unstick or automatic provider resume | Cannot release halt. Other freeze state retains its own owner. |
+| Thaw or automatic provider resume | Cannot release halt. Other freeze state retains its own owner. |
 
 The backend tests cite the user invariant directly and exercise delayed cleanup, admission races, restart, unread delivery journals, and lifecycle changes with isolated data and fake provider processes. Integration coverage includes queued provider switches at a stopped turn boundary and at restart, missing-account recovery, dead remote-driver recovery, and a halt arriving during terminal-error cleanup. These recovery paths may clear their own holds and retain a wake; they cannot release halt or consume its mail. Headless renderer tests cover the distinct controls and truthful labels.

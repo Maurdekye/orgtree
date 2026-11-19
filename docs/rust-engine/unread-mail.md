@@ -26,7 +26,7 @@ mail and mail positively present in the recipient's conversation.
 - The update requires the recipient, turn, IDs and `delivering` state to match.
   Repeating it is harmless. Existing end-of-turn settlement remains as fallback.
 - Every acknowledgement publishes `Change::Mailbox`, which refreshes both the
-  mailbox and the agent record. Unstick continues using normal admission and
+  mailbox and the agent record. Thaw continues using normal admission and
   delivery; it does not manufacture a receipt or mark a whole mailbox read.
 
 These are the engine's existing delivery acknowledgement boundaries, not proof

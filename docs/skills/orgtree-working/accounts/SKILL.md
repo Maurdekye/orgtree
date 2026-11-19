@@ -12,7 +12,7 @@ Provider accounts from an agent's side: usage windows, account binding, freezes 
 
 - [orgtree-account-lanes](account-lanes/SKILL.md): Account lanes and binding: which account your turns run on, fallback, and why agents do not switch on their own.
 - [orgtree-usage-windows](usage-windows/SKILL.md): Reading usage windows: session, weekly and scoped windows, freshness, and when a reading counts as exhaustion.
-- [orgtree-usage-freezes](usage-freezes/SKILL.md): Usage-limit freezes: what freezes an agent, auto-resume, unstick, continue_on and account marks.
+- [orgtree-usage-freezes](usage-freezes/SKILL.md): Usage-limit freezes: what freezes an agent, auto-resume, thaw, continue_on and account marks.
 - [orgtree-cache-continuity](cache-continuity/SKILL.md): Provider prompt-cache continuity: what changes the cache namespace or prefix, TTLs per auth lane, and why no hit is guaranteed.
 
 ## Tools

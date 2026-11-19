@@ -69,7 +69,7 @@ Do not promise a cache hit from an unchanged lane or a resumed process. Other se
 - An org-account exclusion, `... is inactive; nothing changed`, sign-out/reauthentication, `... is itself limited ...`, or `... is at its limit ...`: fix or choose an already-authorized eligible destination. Do not clear marks just to force a switch.
 - Muse's model-not-offered or catalog-unknown refusal: use a login that actually offers the exact model/version, or explain the missing entitlement. Do not infer it from a bundled model name.
 
-On a timeout or uncertain engine error, inspect current state before repeating a mutating call. Repetition can queue another wake. Use [usage](../tool-usage/SKILL.md) for read-only quota evidence and [account-mark](../tool-account-mark/SKILL.md) for stored marks. Releasing a freeze on the same account is covered by [unstick](../../runtime/tool-unstick/SKILL.md).
+On a timeout or uncertain engine error, inspect current state before repeating a mutating call. Repetition can queue another wake. Use [usage](../tool-usage/SKILL.md) for read-only quota evidence and [account-mark](../tool-account-mark/SKILL.md) for stored marks. Releasing a freeze on the same account is covered by [thaw](../../runtime/tool-thaw/SKILL.md).
 
 ## See also
 

@@ -951,7 +951,7 @@ table and provisional bounds: [helper transcripts](helper-transcripts.md).
 25. **API-key accounts** (create them; metered spend) and the **ability to disable using
     subscriptions for inference** stay (ledger H3), with the API-key fallback switch.
 26. **Agent tools kept:** `orgtree_staff`, `orgtree_swap`, `orgtree_self_subjugate`,
-    `orgtree_unstick`, `orgtree_continue_on`, `orgtree_account_mark`, `orgtree_state_inspect`.
+    `orgtree_thaw`, `orgtree_continue_on`, `orgtree_account_mark`, `orgtree_state_inspect`.
 27. **Agent tools not needed:** `orgtree_preview`, `orgtree_capabilities` (reverses their keep in 26).
 
 ## Approval
@@ -2729,3 +2729,17 @@ still to come. See the current
     mapping in `providers/catalog.rs`. Pass medium through and map both xhigh
     and max to xhigh. Neon adopts these levels. Existing tiers retain their
     levels. Antigravity's acceptance of the Neon mapping is inferred.
+
+106. **orgtree_unstick is called orgtree_thaw** (USER 2026-11-19 mf0951505ba87
+    "rename the orgtree_unstick tool to orgtree_thaw", 4.6.5). The tool card,
+    the served list, its Guide (`orgtree-tool-thaw`), the skills, the docs and
+    the desk's release button use the new name. Coordinator's decision: the old
+    name stays a hidden alias for at least one release. No list, card or
+    description shows it, but a call or a stored watchdog fire action that
+    names `orgtree_unstick` runs as `orgtree_thaw` (`tools::defs::canonical`).
+    Fire actions are the only stored place that names a tool; tool groups store
+    group names. Kept under their old names because they are stored or
+    internal: the HTTP route `/nodes/{nid}/unstick`, the lifecycle operation
+    `unstick`, the `policy.unstuck` event and the renderer's `unstickNode`.
+    Every seat's tool list changes, so each starts a new prompt-cache prefix at
+    its first start after the upgrade.
