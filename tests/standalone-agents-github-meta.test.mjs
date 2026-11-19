@@ -32,6 +32,23 @@ test('the host-key fetch reads its token from an optional BuildKit secret', () =
   assert.doesNotMatch(run, /cat \/run\/secrets|\$\(<\s*\/run\/secrets/, 'the token is never expanded into the command line')
 })
 
+test('the RUN that can read the secret does nothing but fetch the keys', () => {
+  // A mounted secret is readable by everything the instruction runs. apt runs package
+  // scripts and npm runs lifecycle scripts, so none of that may share the instruction.
+  const mounted = instructions.filter(line => line.includes('--mount=type=secret'))
+  assert.equal(mounted.length, 1, 'one instruction mounts a secret')
+  assert.equal(mounted[0], fetching[0], 'and it is the one that fetches')
+  const body = mounted[0].replace(/^RUN --mount=\S+ /, '')
+  assert.doesNotMatch(body, /\b(apt|apt-get|dpkg|npm|npx|pip|pip3|yarn|pnpm|corepack|make|sh|bash|install)\b/, 'no package manager, installer or shell script in it')
+  // every command in it, by its first word: set, an assignment, curl | python3, test
+  const commands = body.replace(/'[^']*'/g, "''").split(/;|\|/).map(part => part.trim().split(/\s+/)[0]).filter(Boolean)
+  assert.deepEqual([...new Set(commands)].sort(), ['auth=/run/secrets/github_api_header', 'curl', 'python3', 'set', 'test'])
+  // it comes after the installs: nothing installed later can have been swapped in before it
+  const at = instructions.indexOf(mounted[0])
+  const installs = instructions.map((line, index) => /\b(apt-get install|npm (install|ci))\b/.test(line) ? index : -1).filter(index => index >= 0)
+  assert.ok(installs.length > 0 && installs.every(index => index < at), 'every apt and npm install is in an earlier instruction')
+})
+
 test('no token reaches the image through a build argument or ENV', () => {
   for (const line of instructions.filter(line => /^(ARG|ENV) /.test(line))) assert.doesNotMatch(line, /TOKEN|AUTHORI[SZ]ATION|GITHUB_API/i, line)
 })
