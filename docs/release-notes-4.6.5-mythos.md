@@ -1,1 +1,0 @@
-**Claude Mythos.** Mythos appears as a Claude model when one of your signed-in Claude accounts provides it, and stays hidden otherwise. Orgtree reads this from the model list the account's own Claude Code reports when an agent starts on it. It costs 8 credits, like Fable. If your account gained Mythos after you signed in, sign in again so its model list is current.
