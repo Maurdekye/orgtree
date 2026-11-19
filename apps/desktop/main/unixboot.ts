@@ -69,6 +69,17 @@ export function bootPath(home: string, platform: NodeJS.Platform, shellPath = ''
   return [...shellPath.split(':'), ...fixed].filter(d => path.posix.isAbsolute(d) && !seen.has(d) && !!seen.add(d)).join(':')
 }
 
+/** The PATH of the engine the desktop starts itself, on macOS and Linux: the one the
+ *  background engine's registration gets (bootPath), so the provider CLIs are found
+ *  the same way whichever engine serves the session. The desktop's own PATH depends
+ *  on how it was opened: under Steam it is /usr/local/bin:/usr/bin, without
+ *  ~/.local/bin. undefined (the PATH is left as it is) on Windows and in a
+ *  development run, which is started from the developer's shell. */
+export function managedEnginePath(o: { packaged: boolean; platform: NodeJS.Platform; home: string; shellPath?: string }): string | undefined {
+  if (!o.packaged || o.platform === 'win32') return undefined
+  return bootPath(o.home, o.platform, o.shellPath)
+}
+
 const PATH_MARK = '__ORGTREE_LOGIN_PATH__'
 
 /** The PATH between the markers, ignoring whatever the profile printed around it. */

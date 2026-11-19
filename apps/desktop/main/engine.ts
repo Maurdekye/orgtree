@@ -64,6 +64,11 @@ import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 import { readHarnessRegistry } from './harnesses'
 
+/** A copy of `env` whose PATH is `searchPath`, when one is given. */
+export function withSearchPath(env: NodeJS.ProcessEnv, searchPath?: string): NodeJS.ProcessEnv {
+  return searchPath ? { ...env, PATH: searchPath } : { ...env }
+}
+
 export interface EngineOptions { directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
   /** True when `dataRoot` comes from a custom `data-location.json` folder (enforces pre-spawn reparse + DACL trust). */
   customDataRoot?: boolean
@@ -71,6 +76,9 @@ export interface EngineOptions { directory: string; dataRoot: string; forbiddenR
    *  ORGTREE_ENGINE_BIN in development). Required to start a managed engine;
    *  4.6.1 removed the interpreter fallback. */
   binary?: string
+  /** macOS and Linux, packaged: the PATH a managed engine is started with
+   *  (unixboot.ts managedEnginePath). Absent: the desktop's own. */
+  searchPath?: string
   /** Windows: start the background engine where it belongs (sessionlaunch.ts):
    *  the boot task, in Session 0 (decision 94), after which this engine attaches,
    *  or 'managed' when this desktop starts its own. Tests and legacy runtimes
@@ -398,7 +406,7 @@ export class Engine extends EventEmitter {
       this.stopping = false
       return
     }
-    const env = { ...process.env,
+    const env = { ...withSearchPath(process.env, options.searchPath),
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid) }
     if (process.platform === 'win32') Object.assign(env, {ORGTREE_CORE_MODE: 'managed'})

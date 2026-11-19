@@ -98,7 +98,7 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
 import { readStartupTasks, startEngineTask, startHelperTask, startupOn, writeRunOnStartup } from './runonstartup'
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
-import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, registersBootEngine, type BootInputs } from './unixboot'
+import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { addRemoteFirewallRule, removeRemoteFirewallRule, validDoorPort } from './remotefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -2535,7 +2535,8 @@ else {
         customDataRoot: false,
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer'),
-        launchBackground: undefined as EngineOptions['launchBackground'] }
+        launchBackground: undefined as EngineOptions['launchBackground'],
+        searchPath: undefined as EngineOptions['searchPath'] }
       engineOptions.customDataRoot = isCustomRoot(engineOptions.dataRoot)
       // Never create a blank database when a configured custom data location is
       // unmounted or missing at startup (Q6): let the user reconnect the drive,
@@ -2636,6 +2637,13 @@ else {
       // development build never registers one, as on Windows, and neither does
       // a build with a prerelease label: the registration is the installed
       // version's (registersBootEngine).
+      // The login shell's PATH, read once: for the registration and for an
+      // engine this desktop starts itself (the same folders either way).
+      let shellPathRead: Promise<string> | null = null
+      const unixShellPath = () => shellPathRead ??= loginShellPath()
+      if (app.isPackaged && process.platform !== 'win32') {
+        engineOptions.searchPath = managedEnginePath({ packaged: true, platform: process.platform, home: os.homedir(), shellPath: await unixShellPath() })
+      }
       const bootAttached = async () => {
         if (!registersBootEngine({ packaged: app.isPackaged, platform: process.platform, appId: identity.appId, releaseAppId: RELEASE_APP_ID,
           version: app.getVersion(), hasEngine: !!engineOptions.binary })) return false
@@ -2644,7 +2652,7 @@ else {
         if (folders.error) console.warn(`data folders could not be made private: ${folders.error}`)
         unixBootInputs = { platform: process.platform, home: os.homedir(), appId: identity.appId,
           engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
-          shellPath: await loginShellPath() }
+          shellPath: await unixShellPath() }
         // "Run on startup" off: nothing of Orgtree starts at login. A host
         // still running from earlier is left to serve this session (the
         // caller attaches to it); otherwise the caller starts its own engine.
