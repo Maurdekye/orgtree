@@ -123,9 +123,11 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
  *  sure to take terra out of the legacy models checkbox"). */
 /** Gemini 3.8 Flash joined on 2026-11-13 (user md16909f83245 "Now"): Gemini 4 Hydrogen takes its place among
  *  the current tiers, and Flash is offered only with "show legacy models" on. */
-export const OPT_IN_LEGACY_TIERS = ['pro', 'flash']
+// Argon joined on 2026-11-19 (USER me5cc210883ca).
+export const OPT_IN_LEGACY_TIERS = ['pro', 'flash', 'argon']
 /** a tier that becomes opt-in legacy while its successor is offered (USER 2026-11-17 m32a4af643c1c: 'if carbon is available, put argon behind the legacy models checkbox') */
-export const SUCCEEDED_LEGACY_TIERS: Record<string, string> = { argon: 'carbon' }
+// USER 2026-11-19 me5cc210883ca: Carbon becomes legacy while Neon is offered.
+export const SUCCEEDED_LEGACY_TIERS: Record<string, string> = { carbon: 'neon' }
 /** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
  *  the always-offered hireable family. A future rollout tier would be listed
  *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
@@ -916,10 +918,10 @@ export const setOfferedConditionalTiers = (
   const next = CONDITIONAL_ANTIGRAVITY_TIERS.filter(
     (t) => (tiers ?? []).some((r) => r.tier === t))
   if (next.join(',') === offeredConditional.join(',')) return
-  const hadCarbon = offeredConditional.includes('carbon')
+  const hadNeon = offeredConditional.includes('neon')
   offeredConditional = next
   for (const fn of [...conditionalSubs]) fn()
-  if (hadCarbon !== offeredConditional.includes('carbon')) {
+  if (hadNeon !== offeredConditional.includes('neon')) {
     for (const fn of [...showLegacySubs]) fn()
   }
 }
@@ -1818,7 +1820,7 @@ export const useHideRetired = (): boolean =>
 
 /* --------------------------- show legacy models (user 2026-09-30)
    OFF BY DEFAULT, same localStorage contract as the toggles above. Off, the
-   OPT_IN_LEGACY_TIERS (Gemini Pro) leave every hire and tier chooser; on, they
+   opt-in legacy tiers leave every hire and tier chooser; on, they
    come back marked "legacy". A DISPLAY preference only: agents already on a
    legacy tier show it either way, and the backend accepts it either way.
    ⚠ Surfaces that read `tierHiddenAsLegacy` (through `codexTierOffer` or
@@ -1839,7 +1841,7 @@ const subscribeShowLegacy = (fn: () => void): (() => void) => {
   return () => { showLegacySubs.delete(fn); window.removeEventListener('storage', fn) }
 }
 const showLegacySnapshot = (): number => (showLegacyModelsOn() ? 2 : 0)
-  + (offeredConditional.includes('carbon') ? 1 : 0)
+  + (offeredConditional.includes('neon') ? 1 : 0)
 export const useShowLegacyModels = (): boolean =>
   useSyncExternalStore(subscribeShowLegacy, showLegacySnapshot) >= 2
 /** Is this tier kept out of choosers as legacy? gpt-reserve always; the
