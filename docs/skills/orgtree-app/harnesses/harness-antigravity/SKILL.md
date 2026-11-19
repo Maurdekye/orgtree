@@ -175,4 +175,4 @@ Gemini Neon (`gemini-4-neon`, N) is prepared ahead of availability. Its 2-credit
 seat is an inferred placeholder, like Krypton. It appears directly after Krypton
 only when the account model list reports it; it has low/high effort and one
 version, 4 (also the latest). No access or real turn has been verified. Neon
-changes no legacy-model rule: only Carbon makes Argon opt-in legacy.
+makes Carbon opt-in legacy when available. Argon is always opt-in legacy.

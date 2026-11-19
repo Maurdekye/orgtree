@@ -38,9 +38,9 @@ profile can differ from the ambient account. Verified at `2ec8c0e`:
 
 ## Legacy models
 
-**App settings > Runtime > Show legacy models (Gemini Pro, Gemini Flash)** is a renderer localStorage preference `orgtree-show-legacy-models`, default off. The control is in Runtime, not Providers. It covers Gemini Pro and, since Gemini Hydrogen took its place, Gemini 3.8 Flash; what follows about Gemini Pro holds for Flash too (`flash · legacy`). Off, Gemini Pro is left out of every hire and model chooser. On, it comes back marked legacy: as `pro · legacy` in the canvas agent and project menus' hire submenus, as a dashed hire token whose tooltip ends in `· legacy`, and in the tooltip of its agent Model tab option. The Providers model-tier list and the docket **Staff…** menu never list Gemini Pro: the engine leaves legacy tiers out of both. Existing agents on Gemini Pro retain their model and remain visible either way. It does not buy entitlement, change runtime credentials, restart the app or alter a model's price.
+**App settings > Runtime > Show legacy models** is a renderer localStorage preference `orgtree-show-legacy-models`, default off. The control is in Runtime, not Providers. It covers Gemini Pro and, since Gemini Hydrogen took its place, Gemini 3.8 Flash; what follows about Gemini Pro holds for Flash too (`flash · legacy`). Off, Gemini Pro is left out of every hire and model chooser. On, it comes back marked legacy: as `pro · legacy` in the canvas agent and project menus' hire submenus, as a dashed hire token whose tooltip ends in `· legacy`, and in the tooltip of its agent Model tab option. The Providers model-tier list and the docket **Staff…** menu never list Gemini Pro: the engine leaves legacy tiers out of both. Existing agents on Gemini Pro retain their model and remain visible either way. It does not buy entitlement, change runtime credentials, restart the app or alter a model's price.
 
-When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
+Gemini 4 Argon is a legacy model: it shows only with this setting on, marked legacy. When Gemini Neon is available, Gemini 4 Carbon is a legacy model too.
 
 Suggest enabling it only to expose a deliberately requested legacy choice. The account and catalog must still offer that choice.
 

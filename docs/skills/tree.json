@@ -6836,7 +6836,7 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "component": "ShowLegacyModelsToggle",
-     "label": "'Show legacy models (Gemini Pro, Gemini Flash' + (carbon ? ', Gemini Argon' : '') + ')'"
+     "label": "'Show legacy models (Gemini Pro, Gemini Flash, Gemini Argon' + (neon ? ', Gemini Carbon' : '') + ')'"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",

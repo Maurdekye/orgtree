@@ -11,8 +11,8 @@ inferred and speculative, by analogy to Argon/Krypton; no API price or real
 model turn was measured. Context is the same 1,000,000-token placeholder.
 Latest resolves to version 4, and version 4 may be pinned. Effort copies
 Krypton's generic low/high mapping, with no medium or special mapping.
-Legacy rules are unchanged: Argon becomes opt-in legacy only when Carbon is
-offered; Neon neither becomes legacy nor makes another tier legacy.
+Gemini 4 Argon shows only with **Show legacy models** on, marked legacy.
+When Gemini Neon is available, Gemini 4 Carbon is a legacy model too.
 Its tier colour is neon-sign red-orange `#ff3a1f`, on all six tier surfaces.
 [decided: USER 2026-11-18 mcfdf1e158062; coordinator m414e2f39c07e,
 m4bdfd44c0fab; verified: `providers/{catalog,mod}.rs`, `canvas/shared.ts`,
@@ -56,12 +56,12 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
   that includes one says `est.` too. Remove `catalog::cost_is_estimate` when the price is published. [decided: user
   2026-11-13 md16909f83245 "Estimate"; verified: `runtime/agy.rs` `request_cost`, `canvas/desk.tsx` `SpendBadge`]
 - **Flash is legacy** (engine `legacy: true`, renderer `OPT_IN_LEGACY_TIERS`): out of `orgtree_list_tiers`, the staffing
-  options and the providers rows, and offered on the desktop only with Show legacy models (Gemini Pro, Gemini Flash)
+  options and the providers rows, and offered on the desktop only with **Show legacy models**
   on, marked legacy. Seats on Flash keep running, keep their letter, colour and seat, and Flash is still placed by
   name. A saved template with a Flash seat has that seat blocked until a current model is picked, as one with a Gemini
   Pro seat always had. [decided: user 2026-11-13 md16909f83245 "Now"; verified: `providers/catalog.rs`,
   `domain/staffing/menu_availability_tests.rs`, `domain/templates.rs` tests]
-  When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
+  Gemini 4 Argon is a legacy model: it shows only with this setting on, marked legacy. When Gemini Neon is available, Gemini 4 Carbon is a legacy model too.
 - **The built-in Antigravity team** is Hydrogen for the coordinator, redteam and curator and Carbon for the
   implementer; Quick chat starts on Hydrogen. Carbon is conditional: where agy does not list it only the implementer
   blocks until another model is picked. [decided: user 2026-11-13 mb720ed1d4d06; verified:
@@ -148,7 +148,7 @@ legacy tier is marked legacy); coordinator 2026-10-26 (fix in 4.5.0); verified:
 `canvas/agentmenu.tsx`, `canvas/shared.ts`, `providers/mod.rs`,
 `domain/staffing.rs`]
 
-When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
+Gemini 4 Argon is a legacy model: it shows only with this setting on, marked legacy. When Gemini Neon is available, Gemini 4 Carbon is a legacy model too.
 
 ## GPT-6.1 Terra (2026-10-26)
 
@@ -171,7 +171,7 @@ ruling. [decided: user 2026-10-26 18:19Z "get 4.4.6 out with this", "make sure
 to take terra out of the legacy models checkbox"; verified: `providers/catalog.rs`,
 `runtime/actor.rs`, `canvas/shared.ts`, `canvas/accounts.tsx`]
 
-When Gemini 4 Carbon is available, Gemini 4 Argon is a legacy model too: it shows only with this setting on, marked legacy.
+Gemini 4 Argon is a legacy model: it shows only with this setting on, marked legacy. When Gemini Neon is available, Gemini 4 Carbon is a legacy model too.
 
 ## Native limit fallback (2026-10-24)
 
