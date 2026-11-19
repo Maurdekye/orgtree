@@ -27,7 +27,7 @@ While running, organizations are grouped into their own taskbar identities using
 | Harness setup | Detected harness status and the corresponding installation destinations |
 | Crash reports | Opens the local crash-report location |
 | Restart engine / Start engine | Explicit engine restart, always in Session 0 through the boot task on an all-users install; the sign-in helper attaches to the new engine within seconds. Reads Start engine while the engine is stopped or unavailable. Visible even when unavailable, disabled during conflicting shutdown/restart activity |
-| Quit Orgtree | Requests application shutdown |
+| Quit Orgtree | Requests application shutdown; the same entry is last in the [application menu](../org-header-and-menu/SKILL.md), for systems that show no tray |
 
 For individual notification switches see [App notifications](../../app-settings/app-notifications/SKILL.md); startup and close semantics belong to the settings references below. A restart click is not a success receipt: the menu follows engine readiness and reports failure separately.
 

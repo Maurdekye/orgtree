@@ -49,6 +49,9 @@ export interface OrgtreeMenuProps {
   /** the Changelog, directly below Usage history (user 2026-10-24 22:13:55Z) */
   onChangelog?: () => void
   onAppSettings: () => void
+  /** Quit Orgtree, the tray's own Quit (USER 2026-11-19 m8b45545c043f): the last entry, under a separator.
+   *  Absent where there is no desktop shell to quit (a browser). */
+  onQuit?: () => void
   /** Main shell's keyboard route uses the existing submenu/open helpers. */
   shortcutRef?: RefObject<OrgtreeMenuActions | null>
   /** told whenever the organization list inside the menu opens or closes.
@@ -85,7 +88,7 @@ interface SubPos { left: number; top: number; flip: boolean }
 
 export function OrgtreeMenu(props: OrgtreeMenuProps) {
   const { orgs, freshness, ageMs, error, currentOrg, isOpenElsewhere,
-    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onChangelog, onAppSettings } = props
+    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onChangelog, onAppSettings, onQuit } = props
   const [open, setOpen] = useState(false)
   // THE ORGANIZATION LIST IS A SUBMENU (user 2026-09-29, image-21: "this open
   // organization should open a submenu to the right side, not expand a new
@@ -340,6 +343,17 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
               version is shown without any click instead — in an organization
               window's status strip, and beside the title on Home and New
               organization (shell/header.tsx `version`). */}
+          {/* QUIT ORGTREE (USER 2026-11-19 m8b45545c043f "Yes, everywhere"): the tray's Quit, with the tray's
+              wording, for where there is no tray (Orgtree opened only in the Steam overlay) and everywhere
+              else. Last, behind a separator, as in the tray menu. No confirmation here: the main process asks
+              whatever tray Quit asks. */}
+          {onQuit && <>
+            <div className="shell-menu-sep" role="separator" />
+            <button type="button" role="menuitem" className="shell-menu-item"
+              onClick={() => run(onQuit)}>
+              <span className="shell-menu-label">Quit Orgtree</span>
+            </button>
+          </>}
         </div>
       )}
       {open && orgList && (

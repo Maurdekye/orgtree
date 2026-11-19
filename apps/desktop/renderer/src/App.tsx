@@ -1712,6 +1712,9 @@ export default function App() {
     void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
       toast([`could not open the creation window: ${e.message}`]))
   }, [toast])
+  const quitOrgtree = useCallback(() => {
+    void desktop()?.quit().catch((e: Error) => toast([`could not quit Orgtree: ${e.message}`]))
+  }, [toast])
   const attractOn = useAttractMode()
   const shellMenu = (
     <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
@@ -1720,6 +1723,7 @@ export default function App() {
       onUsage={() => toggleSurface('usage', showUsage, setShowUsage, true)}
       onUsageHistory={() => toggleSurface('usage-history', showUsageHistory, setShowUsageHistory, true)}
       onChangelog={openChangelog}
+      onQuit={desktop() ? quitOrgtree : undefined}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
       onAppSettings={() => toggleSurface('app-settings', showAccounts, setShowAccounts, true)} shortcutRef={mainMenu} />

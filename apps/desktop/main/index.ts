@@ -277,6 +277,13 @@ else {
     cancelId: 1,
     noLink: true,
   }
+  /** ⚠ THE ONE "QUIT ORGTREE" (USER 2026-11-19 m8b45545c043f): the tray entry and the app menu's entry
+   *  (`desktop:quit`) both call this and nothing else. Opened only in the Steam overlay there is no tray, and
+   *  closing the window leaves the background service running, so the app menu is the only quit there. It is
+   *  app.quit() and no more: `before-quit` below owns the confirmation, the engine, mail hub and database stop
+   *  and every deadline, for both routes alike. macOS's own app-menu Quit is Electron's `quit` role, which is
+   *  app.quit() too. Never give either route a shutdown of its own. */
+  const quitOrgtree = () => app.quit()
   let trayMenu: rawMenu | undefined
   // set when start-up failed (main/startup-failure.ts): the tray says so and can show the error again
   let startupFailure: string | undefined
@@ -1150,7 +1157,7 @@ else {
       // genuinely is at that instant, before any engine options are captured.
       { id: 'engine-restart', label: 'Restart engine', visible: true, enabled: false,
         click: () => { void restartEngine() } },
-      { label: 'Quit Orgtree', click: () => app.quit() },
+      { label: 'Quit Orgtree', click: () => quitOrgtree() },
     ])
     trayMenu.on('menu-will-show', () => {
       trayMenuOpen = true; rebuildTray()
@@ -2314,7 +2321,7 @@ else {
     handleApp('desktop:set-effective-theme', value => setEffectiveTheme(value))
     handleApp('desktop:set-frame-theme', value => artifactThemes.set(value))
     handle('desktop:show', caller => revealWindow(caller))
-    handleApp('desktop:quit', () => { app.quit() })
+    handleApp('desktop:quit', () => { quitOrgtree() })
     handleApp('desktop:harnesses', () => harnessCache.fresh())
     handleOwner('desktop:notify', value => {
       if (!Notification.isSupported()) return false

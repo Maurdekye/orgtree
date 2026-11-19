@@ -24,7 +24,7 @@ space. Organization settings shows the same logo when opened separately.
 | Refresh | Reload this renderer window |
 | Minimize, maximize/restore, close | Native controls for this window |
 
-The Orgtree application menu contains New window, Open organization, Create new organization, App settings, Usage, Usage history, and Changelog. Changelog, directly below Usage history, opens every published release's notes, newest first ([orgtree-changelog](../changelog/SKILL.md)). Open organization is a submenu with filtering for larger lists and an already-open indicator; selecting an open organization focuses its window. Arrow keys navigate the menu and Escape closes it or its submenu.
+The Orgtree application menu contains New window, Open organization, Create new organization, App settings, Usage, Usage history, Changelog and, last, **Quit Orgtree**. Quit Orgtree does what the tray's Quit Orgtree does: it closes every window and shuts down the background engine, mail hub and database. Use it where there is no tray, for example when Orgtree was opened only in the Steam overlay; closing the window there leaves the background service running. Changelog, directly below Usage history, opens every published release's notes, newest first ([orgtree-changelog](../changelog/SKILL.md)). Open organization is a submenu with filtering for larger lists and an already-open indicator; selecting an open organization focuses its window. Arrow keys navigate the menu and Escape closes it or its submenu.
 
 ## Attract mode
 
