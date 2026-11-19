@@ -19,6 +19,8 @@ published automatically.
    ubuntu-22.04): the unsigned macOS and Linux prototypes, each with a launch smoke
    on its runner; the Linux build also checks its update feed and updates an
    installed AppImage to a newer one. See [macOS and Linux](#macos-and-linux-prototypes).
+   The Linux build runs a second time for arm64 (`linux-arm64`, ubuntu-22.04-arm), as a
+   candidate that is not part of the release: see [Linux arm64](#linux-arm64-a-candidate).
 4. **standalone** (`build-standalone.yml`, ubuntu-22.04 then ubuntu-24.04): the
    official headless engine for Linux servers and its Docker image, each smoked.
    See [Standalone engine](#standalone-engine).
@@ -390,6 +392,47 @@ with the PATH it was opened with; a macOS app opened from Finder gets a minimal 
 fail (measured on the runner); the app then runs every `systemctl --user` call without
 that variable.
 
+### Linux arm64 (a candidate)
+
+`build-linux.yml` takes `arch`: `x64` (the default) or `arm64`. The arm64 build runs the
+same steps on GitHub's `ubuntu-22.04-arm` runner. Nothing is cross-compiled: the engine,
+the mail hub and PostgreSQL are built on the ARM runner, and Electron is its arm64
+build. Its files carry the architecture, so they sit beside the x64 ones:
+
+| arm64 file | what it is |
+|---|---|
+| `Orgtree-<v>-arm64.AppImage` | the portable app |
+| `latest-linux-arm64.yml` (`beta-`/`alpha-linux-arm64.yml` for a prerelease) | its updater feed. An arm64 AppImage asks for this file by itself (electron-updater adds the architecture to the feed's name for anything but x64), so the two AppImages never read each other's feed |
+| `orgtree_<v>_arm64.deb` | the Ubuntu/Debian package (no updater, as on x64) |
+| `build-info-linux-arm64.json` | the build's `build-info.json` |
+
+The x64 names, paths, cache keys and artifact name are what they were
+(`.github/ci/linux/arch.sh` holds the difference).
+
+**A candidate, not part of the release.** `release.yml` has one switch, `LINUX_ARM64`,
+and it says `candidate`. The arm64 build runs on every tag and every test run, but
+`stage` neither waits for it nor takes its files: the staged set, `SHA256SUMS.txt` and
+the draft are exactly what they are without it, and a red arm64 build cannot stop a
+release. The four files and their own `SHA256SUMS-linux-arm64.txt` are the run's artifact
+`candidate-linux-arm64-<tag>` (kept 14 days), which is what goes to a tester. To make
+arm64 part of a release, set `LINUX_ARM64: release` and add `linux-arm64` to `stage`'s
+`needs`; `stage` then requires the four files and lists them in `SHA256SUMS.txt`, and
+verify-release checks them as it checks x64. That switch is the owner's decision.
+
+**What the arm64 build proves**, on the runner (first run 44482854610, 2026-11-19, at
+7aef30d, 29 minutes with cold caches, every step green):
+- every step of the x64 build: the engine unit tests, the packaged engine, the AppImage
+  under Xvfb, the `.deb` installed with apt, the background engine in both layouts, the
+  four desktop-like starts, the agent tool calls, and the AppImage updating itself from N
+  to N+1 over a loopback feed named `latest-linux-arm64.yml`;
+- one step x64 doesn't have (`.github/ci/linux/glibc-floor.mjs`): every ELF file in the
+  package is aarch64, and none needs a glibc newer than 2.35, Ubuntu 22.04's. Measured in
+  that run, 78 files: the engine, the mail hub and PostgreSQL need glibc 2.34, Electron's
+  own programs 2.25. The per-file report is the artifact `orgtree-linux-arm64-glibc`.
+
+Not tried: a real ARM desktop, a start without FUSE on such a device, SteamOS, an update
+from a public feed. The x64 build's "inferred" notes below hold for arm64 as well.
+
 **Linux updates (the AppImage only).** An AppImage started from its file reads
 `latest-linux.yml` from the latest GitHub release, as the Windows app reads
 `latest.yml`. It downloads a newer version differentially: only the blocks that
@@ -495,7 +538,8 @@ signature, so updates there stay manual.
 A push to the branch `ci-test/orgtree-release` runs the whole pipeline as a test.
 No release is created; the staged assets are the run's artifact.
 Each `build-<platform>.yml` also runs on its own from a push to
-`ci-test/orgtree-windows`, `ci-test/orgtree-macos`, `ci-test/orgtree-linux` or
+`ci-test/orgtree-windows`, `ci-test/orgtree-macos`, `ci-test/orgtree-linux`,
+`ci-test/orgtree-linux-arm64` (the arm64 Linux build alone) or
 `ci-test/orgtree-standalone`.
 Once the workflows are on `main`, a manual run can test any tag or commit:
 
@@ -540,7 +584,8 @@ them exactly:
 | Electron / electron-builder | from `package-lock.json` | `package-lock.json` |
 | GitHub Actions | official `actions/*` only, pinned by commit SHA | every workflow |
 
-The runner images are pinned by name (`windows-2025`, `macos-15`, `ubuntu-22.04`).
+The runner images are pinned by name (`windows-2025`, `macos-15`, `ubuntu-22.04`, and
+`ubuntu-22.04-arm` for the arm64 Linux build).
 GitHub updates their contents weekly; the toolchains above are installed explicitly.
 The Linux build uses Ubuntu 22.04, the oldest supported runner, so the AppImage
 should run on Ubuntu 22.04 and newer (it needs at least 22.04's glibc; inferred).
