@@ -1,6 +1,14 @@
-# Orgtree for Linux (Ubuntu x86_64): AppImage + .deb, built from exactly `inputs.ref`.
-# Reusable: release.yml calls it; a push to ci-test/orgtree-linux runs it standalone.
+# Orgtree for Linux (Ubuntu x86_64, or arm64): AppImage + .deb, built from exactly `inputs.ref`.
+# Reusable: release.yml calls it once per architecture; a push to ci-test/orgtree-linux
+# runs the x64 build standalone, a push to ci-test/orgtree-linux-arm64 the arm64 build.
 # Untested-on-desktop prototype: see docs/ci-release.md for what Linux lacks yet.
+#
+# `arch` picks the runner (ubuntu-22.04, or ubuntu-22.04-arm: both build natively, nothing
+# is cross-compiled) and the names. x64 keeps the names it always had; the arm64 build's
+# carry the architecture (.github/ci/linux/arch.sh): Orgtree-<v>-arm64.AppImage,
+# latest-linux-arm64.yml, orgtree_<v>_arm64.deb, build-info-linux-arm64.json, and the
+# artifact orgtree-linux-arm64. Every step runs for both; the arm64 build also measures
+# its glibc floor and checks that every program in the package is aarch64.
 name: build-linux
 
 on:
@@ -8,8 +16,9 @@ on:
     inputs:
       ref: {type: string, required: true}
       signing: {type: string, default: test}
+      arch: {type: string, default: x64}   # x64 or arm64
   push:
-    branches: ['ci-test/orgtree-linux']
+    branches: ['ci-test/orgtree-linux', 'ci-test/orgtree-linux-arm64']
 
 permissions: {contents: read}
 
@@ -19,11 +28,15 @@ env:
   NODE_VERSION: 24.12.0
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: '0'
+  # A call names the architecture; a push to a test branch is that branch's.
+  ORGTREE_LINUX_ARCH: ${{ inputs.arch || (github.ref_name == 'ci-test/orgtree-linux-arm64' && 'arm64' || 'x64') }}
+  # '' for x64 and '-arm64' for arm64, as in .github/ci/linux/arch.sh.
+  ARCH_SUFFIX: ${{ (inputs.arch || (github.ref_name == 'ci-test/orgtree-linux-arm64' && 'arm64' || 'x64')) == 'arm64' && '-arm64' || '' }}
 
 jobs:
   build:
     # 22.04 (glibc 2.35) so the binaries also run on Ubuntu 22.04; 24.04 would raise the floor to 2.39.
-    runs-on: ubuntu-22.04
+    runs-on: ${{ (inputs.arch || (github.ref_name == 'ci-test/orgtree-linux-arm64' && 'arm64' || 'x64')) == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,6 +45,12 @@ jobs:
           submodules: recursive
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Architecture
+        run: |
+          case "$ORGTREE_LINUX_ARCH" in x64) want=x86_64 ;; arm64) want=aarch64 ;; *) echo "::error::arch must be x64 or arm64, not $ORGTREE_LINUX_ARCH"; exit 1 ;; esac
+          echo "building Linux $ORGTREE_LINUX_ARCH on $(uname -m), $(. /etc/os-release; echo "$PRETTY_NAME"), $(ldd --version | head -1)"
+          [ "$(uname -m)" = "$want" ] || { echo "::error::this runner is $(uname -m), the $ORGTREE_LINUX_ARCH build needs $want"; exit 1; }
 
       - name: System packages
         run: |
@@ -55,14 +74,14 @@ jobs:
             ~/.cargo/git/db
             engine/rs/target
             engine/mailhub/target
-          key: linux-cargo-${{ env.RUSTC_VERSION }}-${{ hashFiles('engine/rs/Cargo.lock', 'engine/mailhub/Cargo.lock') }}
-          restore-keys: linux-cargo-${{ env.RUSTC_VERSION }}-
+          key: linux${{ env.ARCH_SUFFIX }}-cargo-${{ env.RUSTC_VERSION }}-${{ hashFiles('engine/rs/Cargo.lock', 'engine/mailhub/Cargo.lock') }}
+          restore-keys: linux${{ env.ARCH_SUFFIX }}-cargo-${{ env.RUSTC_VERSION }}-
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: pg-cache
         with:
           path: build/linux/postgresql
-          key: linux-postgresql-${{ hashFiles('.github/ci/linux/build-postgres.sh') }}
+          key: linux${{ env.ARCH_SUFFIX }}-postgresql-${{ hashFiles('.github/ci/linux/build-postgres.sh') }}
 
       - name: PostgreSQL 18.6 (from source)
         if: steps.pg-cache.outputs.cache-hit != 'true'
@@ -116,14 +135,30 @@ jobs:
       - name: electron-builder (AppImage + deb)
         env:
           ELECTRON_RUN_AS_NODE: ''
-        run: npx electron-builder --config .github/ci/linux/electron-builder.linux.cjs --linux --x64 --publish never
+        run: npx electron-builder --config .github/ci/linux/electron-builder.linux.cjs --linux "--$ORGTREE_LINUX_ARCH" --publish never
 
       - name: Collect assets
         id: assets
         run: bash .github/ci/linux/collect.sh build/linux/out
 
+      # arm64 only (the x64 job is left as it was): every program and library in the package
+      # is aarch64, and none needs a glibc newer than Ubuntu 22.04's 2.35. Measured per file;
+      # the report is kept as the artifact orgtree-linux-arm64-glibc.
+      - name: glibc floor and architecture of the packaged programs (arm64)
+        if: env.ORGTREE_LINUX_ARCH == 'arm64'
+        run: node .github/ci/linux/glibc-floor.mjs "release/linux$ARCH_SUFFIX-unpacked" "$ORGTREE_LINUX_ARCH" 2.35 build/linux/glibc/glibc-floor-linux-arm64.json
+
+      - name: glibc report (arm64)
+        if: (success() || failure()) && env.ORGTREE_LINUX_ARCH == 'arm64'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-linux-arm64-glibc
+          path: build/linux/glibc/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Smoke - packaged engine starts and answers
-        run: bash .github/ci/linux/smoke-engine.sh release/linux-unpacked
+        run: bash .github/ci/linux/smoke-engine.sh "release/linux$ARCH_SUFFIX-unpacked"
 
       - name: Smoke - AppImage under xvfb
         run: bash .github/ci/linux/smoke-appimage.sh build/linux/out
@@ -150,7 +185,7 @@ jobs:
           if systemctl --user show-environment >/dev/null 2>&1; then echo "systemd --user: available"; else echo "systemd --user: NOT available (autostart fallback)"; fi
           # a CLI only the login shell's PATH finds: the engine started by systemd must find it too
           bash .github/ci/unix/login-shell-cli.sh codex
-          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine \
+          node .github/ci/boot-engine-smoke.mjs "release/linux$ARCH_SUFFIX-unpacked/resources/engine/orgtree-engine" \
             --expect-cli codex "$HOME/.npm-global/bin/codex"
 
       - name: Background engine - registered, started and stopped (AppImage)
@@ -158,7 +193,7 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           v="$(node -p "require('./package.json').version")"
-          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine --appimage "release/Orgtree-$v.AppImage" \
+          node .github/ci/boot-engine-smoke.mjs "release/linux$ARCH_SUFFIX-unpacked/resources/engine/orgtree-engine" --appimage "release/Orgtree-$v$ARCH_SUFFIX.AppImage" \
             --expect-cli codex "$HOME/.npm-global/bin/codex"
 
       # This build's AppImage starting as on a stock Ubuntu desktop (.github/ci/linux/desktop-check.sh):
@@ -171,25 +206,25 @@ jobs:
       - name: Desktop-like start - systemd, fresh install
         env:
           DESKTOP_CHECK_EXPECT_PRIVATE: '1'
-        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-fresh fresh
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version")$ARCH_SUFFIX.AppImage" build/linux/smoke-logs/desktop-fresh fresh
 
       - name: Desktop-like start - systemd, over folders a 4.1.1 install left at 0775
         if: success() || failure()
         env:
           DESKTOP_CHECK_EXPECT_PRIVATE: '1'
-        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-repair repair
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version")$ARCH_SUFFIX.AppImage" build/linux/smoke-logs/desktop-repair repair
 
       - name: Desktop-like start - autostart fallback (systemctl --user fails)
         if: success() || failure()
         env:
           DESKTOP_CHECK_EXPECT_PRIVATE: '1'
-        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-autostart autostart
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version")$ARCH_SUFFIX.AppImage" build/linux/smoke-logs/desktop-autostart autostart
 
       - name: Desktop-like start - ~/.config writable by the group (refused with the fix, then fixed)
         if: success() || failure()
         env:
           DESKTOP_CHECK_EXPECT_PRIVATE: '1'
-        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-unsafe-config unsafe-config
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version")$ARCH_SUFFIX.AppImage" build/linux/smoke-logs/desktop-unsafe-config unsafe-config
 
       # Real Orgtree tool calls by hired agents, one per CLI lane (Claude and Codex over stdio,
       # Antigravity over the bridge socket), with the rig's fake CLI as every CLI.
@@ -200,8 +235,8 @@ jobs:
         run: |
           # the leftover check needs the fake CLI's `spawn` step
           if grep -q '"spawn"' tools/rig/fakecli/src/main.rs; then export AGENT_SMOKE_LEFTOVERS=1; fi
-          bash .github/ci/unix/agent-tools-smoke.sh release/linux-unpacked/resources/engine/orgtree-engine \
-            release/linux-unpacked/resources/ui build/fakecli/release/orgtree-fakecli build/linux/smoke-logs/agent-tools
+          bash .github/ci/unix/agent-tools-smoke.sh "release/linux$ARCH_SUFFIX-unpacked/resources/engine/orgtree-engine" \
+            "release/linux$ARCH_SUFFIX-unpacked/resources/ui" build/fakecli/release/orgtree-fakecli build/linux/smoke-logs/agent-tools
 
       # The AppImage updates itself: N installed in ~/Applications, N+1 (the same build one
       # patch version up) on a loopback feed. The app's own automatic path downloads N+1,
@@ -215,7 +250,7 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: orgtree-linux
+          name: orgtree-linux${{ env.ARCH_SUFFIX }}
           path: build/linux/out/*
           if-no-files-found: error
           retention-days: 14
@@ -224,7 +259,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: orgtree-linux-smoke-logs
+          name: orgtree-linux${{ env.ARCH_SUFFIX }}-smoke-logs
           path: build/linux/smoke-logs/
           if-no-files-found: ignore
           retention-days: 7

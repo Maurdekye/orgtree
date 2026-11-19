@@ -10,6 +10,10 @@
 #   linux    build-linux.yml: Orgtree-<v>.AppImage, its update feed latest-linux.yml (or
 #            beta-linux.yml), orgtree_<v>_amd64.deb (no updater) and build-info-linux.json,
 #            with launch smokes and a real N to N+1 AppImage update on the runner
+#   linux-arm64  build-linux.yml again, for arm64 on an ARM runner: Orgtree-<v>-arm64.AppImage,
+#            latest-linux-arm64.yml, orgtree_<v>_arm64.deb and build-info-linux-arm64.json,
+#            with the same smokes. A CANDIDATE while LINUX_ARM64 below says so: built and
+#            kept as the run's artifact candidate-linux-arm64-<tag>, never part of the release.
 #   standalone  build-standalone.yml: the headless engine for Linux servers,
 #            orgtree-engine-standalone-<v>-linux-x86_64.tar.gz, its Docker image as
 #            orgtree-engine-standalone-<v>-docker-amd64.tar.gz and
@@ -44,6 +48,19 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # Linux arm64: `candidate` or `release`.
+  #   candidate  the arm64 build runs beside the others, but stage neither waits for it
+  #              nor takes its files: the staged set, SHA256SUMS.txt and the draft are
+  #              what they are without it, and a red arm64 build changes nothing. Its
+  #              four files and their SHA256SUMS-linux-arm64.txt are the run's artifact
+  #              candidate-linux-arm64-<tag>, for testing.
+  #   release    the four arm64 files are part of the release: stage requires them and
+  #              lists them in SHA256SUMS.txt. To switch: this value, AND `linux-arm64`
+  #              in stage's `needs` (stage refuses to run as `release` without it).
+  #              Shipping arm64 in a published release is the owner's decision.
+  LINUX_ARM64: candidate
 
 concurrency:
   group: release-${{ inputs.ref || github.ref }}
@@ -100,6 +117,55 @@ jobs:
     with:
       ref: ${{ needs.resolve.outputs.sha }}
 
+  linux-arm64:
+    needs: resolve
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      arch: arm64
+
+  # The arm64 build as something to hand out for testing, whatever LINUX_ARM64 says: its
+  # four files and their hashes in one artifact. Nothing here is uploaded to a release.
+  linux-arm64-candidate:
+    needs: [resolve, linux-arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-linux-arm64
+          path: dist
+      - name: Check the arm64 files and write SHA256SUMS-linux-arm64.txt
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          cd dist
+          channel=latest
+          if [ "$PRERELEASE" = true ]; then channel="${VERSION#*-}"; channel="${channel%%.*}"; fi
+          have="$(ls | sort | tr '\n' ' ')"
+          want="$(printf '%s\n' "Orgtree-$VERSION-arm64.AppImage" "$channel-linux-arm64.yml" "orgtree_${VERSION}_arm64.deb" build-info-linux-arm64.json | sort | tr '\n' ' ')"
+          if [ "$have" != "$want" ]; then
+            echo "::error::the arm64 build delivered [$have], expected [$want]"
+            exit 1
+          fi
+          sha256sum -- * > SHA256SUMS-linux-arm64.txt
+          cat SHA256SUMS-linux-arm64.txt
+          {
+            echo "### Orgtree $VERSION for Linux arm64, commit $SHA ($LINUX_ARM64)"
+            echo
+            echo '| file | bytes | sha256 |'
+            echo '|---|---:|---|'
+            for f in *; do echo "| $f | $(stat -c %s "$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-linux-arm64-${{ needs.resolve.outputs.tag }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
   standalone:
     needs: resolve
     uses: ./.github/workflows/build-standalone.yml
@@ -117,6 +183,8 @@ jobs:
 
   # Every platform must build: a release never goes out with a platform silently
   # missing. A flaky job can be re-run ("Re-run failed jobs") and the run carries on.
+  # Linux arm64 is not one of them while it is a candidate (LINUX_ARM64 above): `needs`
+  # leaves it out, so stage neither waits for it nor fails with it.
   stage:
     needs: [resolve, windows, macos, linux, standalone, standalone-agents]
     runs-on: ubuntu-24.04
@@ -134,6 +202,16 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: orgtree-linux
+          path: dist
+      - name: Linux arm64 in the release needs its build
+        if: env.LINUX_ARM64 == 'release' && !contains(toJSON(needs), '"linux-arm64"')
+        run: |
+          echo "::error::LINUX_ARM64 is release, but stage does not need the linux-arm64 job: add it to stage's needs"
+          exit 1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: env.LINUX_ARM64 == 'release'
+        with:
+          name: orgtree-linux-arm64
           path: dist
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -154,12 +232,18 @@ jobs:
           windows="build-info.json engine-hashes.json $channel.yml Orgtree-Setup-$VERSION.exe Orgtree-Setup-$VERSION.exe.blockmap packaged-hashes.json"
           macos="Orgtree-$VERSION-arm64.dmg Orgtree-$VERSION-arm64.zip build-info-macos.json"
           linux="Orgtree-$VERSION.AppImage $channel-linux.yml orgtree_${VERSION}_amd64.deb build-info-linux.json"
+          # Linux arm64: four more files once it is part of the release, none while a candidate.
+          case "${LINUX_ARM64:-}" in
+            candidate) arm64="" ;;
+            release) arm64="Orgtree-$VERSION-arm64.AppImage $channel-linux-arm64.yml orgtree_${VERSION}_arm64.deb build-info-linux-arm64.json" ;;
+            *) echo "::error::LINUX_ARM64 must be candidate or release, not '${LINUX_ARM64:-}'"; exit 1 ;;
+          esac
           standalone="orgtree-engine-standalone-$VERSION-linux-x86_64.tar.gz orgtree-engine-standalone-$VERSION-docker-amd64.tar.gz build-info-standalone.json"
           standalone="$standalone orgtree-engine-standalone-$VERSION-agents-docker-amd64.tar.gz build-info-standalone-agents.json"
           have="$(ls | sort | tr '\n' ' ')"
-          want="$(printf '%s\n' $windows $macos $linux $standalone | sort | tr '\n' ' ')"
+          want="$(printf '%s\n' $windows $macos $linux $arm64 $standalone | sort | tr '\n' ' ')"
           if [ "$have" != "$want" ]; then
-            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4, standalone 5)"
+            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4, Linux arm64 $([ -n "$arm64" ] && echo 4 || echo 0), standalone 5)"
             exit 1
           fi
           sha256sum -- * > SHA256SUMS.txt

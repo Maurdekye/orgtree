@@ -15,13 +15,15 @@
 #   bash .github/ci/linux/update-test.sh <logs dir>   (repository root, after the release build)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+. "$here/arch.sh"   # x64: Orgtree-<v>.AppImage and latest-linux.yml; arm64: both with -arm64
+feed_file="latest-linux$ARCH_SUFFIX.yml"
 logs=$(realpath -m "$1"); mkdir -p "$logs"
 work=$(realpath -m build/linux/update-test); rm -rf "$work"; mkdir -p "$work/feed"
 port=47615; feed="http://127.0.0.1:$port/"
 core=$(node -p 'require("./package.json").version.split("-")[0]')
 IFS=. read -r major minor patch <<<"$core"
 vN="$major.$minor.$patch"; vN1="$major.$minor.$((patch + 1))"
-apps="$HOME/Applications"; app="$apps/Orgtree-$vN.AppImage"
+apps="$HOME/Applications"; app="$apps/Orgtree-$vN$ARCH_SUFFIX.AppImage"
 profile="$HOME/.config/Orgtree v2"   # the release identity's userData
 unit=orgtree-engine.service
 autostart="$HOME/.config/autostart/orgtree-engine.desktop"   # the app's fallback without systemd --user
@@ -106,19 +108,19 @@ package() {  # <version> <label>
   node -e 'const fs = require("fs"); const info = JSON.parse(fs.readFileSync("dist/build-info.json", "utf8"));
     info.version = process.argv[1]; fs.writeFileSync(process.argv[2], JSON.stringify(info, null, 2) + "\n")' "$1" "$out/build-info.json"
   if ! UPDATE_TEST_VERSION=$1 UPDATE_TEST_FEED=$feed UPDATE_TEST_OUT="$out/release" UPDATE_TEST_BUILD_INFO="$out/build-info.json" \
-      npx electron-builder --config "$here/electron-builder.update-test.cjs" --linux AppImage --x64 --publish never >"$logs/package-$2.log" 2>&1; then
+      npx electron-builder --config "$here/electron-builder.update-test.cjs" --linux AppImage "--$LINUX_ARCH" --publish never >"$logs/package-$2.log" 2>&1; then
     tail -40 "$logs/package-$2.log"; fail "packaging $2 ($1) failed"
   fi
-  [ -f "$out/release/Orgtree-$1.AppImage" ] || fail "electron-builder made no Orgtree-$1.AppImage"
+  [ -f "$out/release/Orgtree-$1$ARCH_SUFFIX.AppImage" ] || fail "electron-builder made no Orgtree-$1$ARCH_SUFFIX.AppImage"
 }
 package "$vN" N
 package "$vN1" N1
-echo "N's packaged feed (resources/app-update.yml):"; sed 's/^/  /' "$work/N/release/linux-unpacked/resources/app-update.yml"
-node "$here/check-update-feed.mjs" "$work/N1/release" "$vN1" || fail "N+1's latest-linux.yml failed its check"
-cp "$work/N1/release/latest-linux.yml" "$work/N1/release/Orgtree-$vN1.AppImage" "$work/feed/"
-mkdir -p "$apps"; cp "$work/N/release/Orgtree-$vN.AppImage" "$app"; chmod +x "$app"
-shaN=$(sha256sum "$app" | cut -d' ' -f1); shaN1=$(sha256sum "$work/feed/Orgtree-$vN1.AppImage" | cut -d' ' -f1)
-echo "installed $app (sha256 $shaN); the feed offers Orgtree-$vN1.AppImage (sha256 $shaN1)"
+echo "N's packaged feed (resources/app-update.yml):"; sed 's/^/  /' "$work/N/$UNPACKED/resources/app-update.yml"
+node "$here/check-update-feed.mjs" "$work/N1/release" "$vN1" "$LINUX_ARCH" || fail "N+1's $feed_file failed its check"
+cp "$work/N1/release/$feed_file" "$work/N1/release/Orgtree-$vN1$ARCH_SUFFIX.AppImage" "$work/feed/"
+mkdir -p "$apps"; cp "$work/N/release/Orgtree-$vN$ARCH_SUFFIX.AppImage" "$app"; chmod +x "$app"
+shaN=$(sha256sum "$app" | cut -d' ' -f1); shaN1=$(sha256sum "$work/feed/Orgtree-$vN1$ARCH_SUFFIX.AppImage" | cut -d' ' -f1)
+echo "installed $app (sha256 $shaN); the feed offers Orgtree-$vN1$ARCH_SUFFIX.AppImage (sha256 $shaN1)"
 
 # The app picks systemd when `systemctl --user show-environment` succeeds for it, which runs
 # with the environment the AppImage's AppRun sets up (PATH, LD_LIBRARY_PATH, ...).
@@ -133,9 +135,9 @@ trap teardown EXIT
 node "$here/update-feed.mjs" "$work/feed" "$port" "$logs/feed-requests.jsonl" >"$logs/feed.out" 2>&1 & feedpid=$!
 Xvfb :77 -screen 0 1280x800x24 -nolisten tcp >"$logs/xvfb.out" 2>&1 & xvfbpid=$!
 export DISPLAY=:77
-for _ in $(seq 1 40); do [ -S /tmp/.X11-unix/X77 ] && curl -sf -o /dev/null "${feed}latest-linux.yml" && break; sleep 0.5; done
+for _ in $(seq 1 40); do [ -S /tmp/.X11-unix/X77 ] && curl -sf -o /dev/null "${feed}$feed_file" && break; sleep 0.5; done
 [ -S /tmp/.X11-unix/X77 ] || fail "Xvfb did not start"
-curl -sf -o /dev/null "${feed}latest-linux.yml" || fail "the loopback feed did not answer"
+curl -sf -o /dev/null "${feed}$feed_file" || fail "the loopback feed did not answer"
 
 mkdir -p "$shim_dir"
 # No agent CLI on the runner, on purpose: the desktop shows its "No agent harness" notice,
@@ -265,7 +267,7 @@ node -e 'const [file, name, size] = process.argv.slice(1)
   console.log(`${requests.length} requests for ${name}: ${ranges} ranges, ${whole} whole-file; ${bytes} of ${size} bytes sent`)
   if (whole === 0 && ranges > 0) console.log("PASS differential download")
   else console.log("::warning::not a differential download: the app fetched the whole file (the update log says why)")' \
-  "$logs/feed-requests.jsonl" "Orgtree-$vN1.AppImage" "$(stat -c %s "$work/feed/Orgtree-$vN1.AppImage")"
+  "$logs/feed-requests.jsonl" "Orgtree-$vN1$ARCH_SUFFIX.AppImage" "$(stat -c %s "$work/feed/Orgtree-$vN1$ARCH_SUFFIX.AppImage")"
 echo "the systemctl calls the app made:"; sed 's/^/  /' "$systemctl_log"
 # Where systemctl --user works (as on a Linux desktop), the background engine must be a
 # systemd user unit, not the autostart fallback.

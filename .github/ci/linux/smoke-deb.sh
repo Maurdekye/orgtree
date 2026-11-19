@@ -2,9 +2,10 @@
 # Install the .deb with apt (as a user would), check the layout and the sandbox
 # helper, start it under a virtual display, then remove it.
 set -euo pipefail
+. "$(dirname "$0")/arch.sh"
 out=$(realpath "$1")
 logs=$(realpath -m build/linux/smoke-logs); mkdir -p "$logs"
-deb=$(ls "$out"/orgtree_*_amd64.deb)
+deb=$(ls "$out"/orgtree_*_"$DEB_ARCH".deb)
 dpkg-deb --info "$deb" | sed -n '1,30p'
 sudo apt-get install -y -q "$deb"
 bin=$(readlink -f /usr/bin/orgtree || true)   # postinst links it to /opt/<product>/orgtree

@@ -5,11 +5,25 @@
 import crypto from 'node:crypto'
 import zlib from 'node:zlib'
 
+/** '' for x64, whose names carry no architecture, and '-arm64' for arm64: the suffix of
+ *  the AppImage's name and of its channel file (.github/ci/linux/arch.sh). */
+export function linuxArchSuffix(arch = 'x64') {
+  if (arch !== 'x64' && arch !== 'arm64') throw new Error(`no Linux build for ${arch}`)
+  return arch === 'x64' ? '' : `-${arch}`
+}
+
 /** latest-linux.yml for a stable version, alpha-/beta-linux.yml for a prerelease
- *  (electron-builder names the channel after the version's first prerelease label). */
-export function linuxChannelFile(version) {
+ *  (electron-builder names the channel after the version's first prerelease label).
+ *  The arm64 build has its own, latest-linux-arm64.yml: the file electron-updater asks
+ *  for on arm64. */
+export function linuxChannelFile(version, arch = 'x64') {
   const label = /^\d+\.\d+\.\d+-([0-9A-Za-z]+)/.exec(version)?.[1]
-  return `${label ?? 'latest'}-linux.yml`
+  return `${label ?? 'latest'}-linux${linuxArchSuffix(arch)}.yml`
+}
+
+/** Orgtree-<version>.AppImage, or Orgtree-<version>-arm64.AppImage. */
+export function linuxAppImage(version, arch = 'x64') {
+  return `Orgtree-${version}${linuxArchSuffix(arch)}.AppImage`
 }
 
 /** electron-builder's update info: top-level scalars plus the `files:` list of maps. */
@@ -51,9 +65,9 @@ export function embeddedBlockMap(bytes) {
 
 /** Checks `text` (the channel file) against the assets it names. `asset(name)` returns
  *  that file's bytes or undefined; `check(ok, message)` records one result. */
-export function checkLinuxUpdateInfo({ text, version, asset, check }) {
-  const name = linuxChannelFile(version)
-  const appImage = `Orgtree-${version}.AppImage`
+export function checkLinuxUpdateInfo({ text, version, asset, check, arch = 'x64' }) {
+  const name = linuxChannelFile(version, arch)
+  const appImage = linuxAppImage(version, arch)
   let info
   try { info = parseUpdateInfo(text) } catch (error) { check(false, `${name} parses: ${error.message}`); return }
   check(info.version === version, `${name} version ${info.version}`)

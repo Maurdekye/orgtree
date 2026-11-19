@@ -9,6 +9,11 @@ const root = path.resolve(__dirname, '..', '..', '..')
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const base = pkg.build
 const { win, nsis, ...shared } = base
+// x64 keeps the names it always had; the arm64 build's AppImage carries its architecture
+// (.github/ci/linux/arch.sh). The .deb's name has it either way (amd64, arm64).
+const arch = process.env.ORGTREE_LINUX_ARCH || 'x64'
+if (arch !== 'x64' && arch !== 'arm64') throw new Error(`ORGTREE_LINUX_ARCH must be x64 or arm64, not ${arch}`)
+const appImageName = 'Orgtree-${version}' + (arch === 'x64' ? '' : `-${arch}`) + '.${ext}'
 
 module.exports = {
   ...shared,
@@ -32,7 +37,7 @@ module.exports = {
     category: 'Development',
     executableName: 'orgtree',
     maintainer: 'Maurdekye <noreply@github.com>',
-    artifactName: 'Orgtree-${version}.${ext}',
+    artifactName: appImageName,
   },
   deb: {
     artifactName: 'orgtree_${version}_${arch}.${ext}',
@@ -40,9 +45,10 @@ module.exports = {
     depends: ['libgtk-3-0', 'libnotify4', 'libnss3', 'libxss1', 'libxtst6', 'xdg-utils',
       'libatspi2.0-0', 'libuuid1', 'libsecret-1-0', 'libasound2 | libasound2t64', 'zlib1g'],
   },
-  appImage: { artifactName: 'Orgtree-${version}.${ext}' },
-  // The same GitHub feed as Windows: electron-builder writes latest-linux.yml beside
-  // the AppImage and embeds app-update.yml, which the AppImage updater reads.
+  appImage: { artifactName: appImageName },
+  // The same GitHub feed as Windows: electron-builder writes latest-linux.yml (for arm64,
+  // latest-linux-arm64.yml) beside the AppImage and embeds app-update.yml, which the
+  // AppImage updater reads.
   // The .deb has no updater (apps/desktop/main/appimage-update.ts).
   publish: base.publish,
 }

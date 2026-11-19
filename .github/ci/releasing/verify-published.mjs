@@ -3,6 +3,9 @@
 // - latest.yml (beta.yml for a beta) names the installer with its exact size and SHA-512;
 // - latest-linux.yml (beta-linux.yml), when the release has one, names the AppImage with
 //   its exact size and SHA-512, and the AppImage carries the blockmap that blockMapSize names;
+// - the Linux arm64 build, when the release has any of its files, is all there
+//   (Orgtree-<v>-arm64.AppImage, latest-linux-arm64.yml, orgtree_<v>_arm64.deb,
+//   build-info-linux-arm64.json) and is checked like the x64 one;
 // - build-info.json names the tag's commit, a clean tree and the release channel,
 //   and the macOS/Linux copies (build-info-macos.json, -linux.json) the same version and commit;
 // - the standalone engine's Linux archive, Docker image archive and build-info-standalone.json
@@ -17,7 +20,7 @@
 //   prerelease (stable installs are offered whatever "latest" is).
 //   TAG=v<x.y.z> GITHUB_REPOSITORY=owner/repo GH_TOKEN=... node verify-published.mjs
 import crypto from 'node:crypto'
-import { checkLinuxUpdateInfo, linuxChannelFile } from '../linux/update-info.mjs'
+import { checkLinuxUpdateInfo, linuxAppImage, linuxChannelFile } from '../linux/update-info.mjs'
 import { ghcrImage } from '../standalone/ghcr-image.mjs'
 
 const { TAG: tag, GITHUB_REPOSITORY: repo, GH_TOKEN: token } = process.env
@@ -52,6 +55,11 @@ const expected = ['build-info.json', 'engine-hashes.json', channelFile, installe
   `Orgtree-${version}-arm64.dmg`, `Orgtree-${version}-arm64.zip`, 'build-info-macos.json',
   `Orgtree-${version}.AppImage`, `orgtree_${version}_amd64.deb`, 'build-info-linux.json']
 for (const name of expected) check(name in bytes, `asset ${name} is present`)
+// Linux arm64 (release.yml's LINUX_ARM64): a release has all four of its files or none.
+const linuxArm64 = [linuxAppImage(version, 'arm64'), linuxChannelFile(version, 'arm64'), `orgtree_${version}_arm64.deb`, 'build-info-linux-arm64.json']
+const hasLinuxArm64 = linuxArm64.some(name => name in bytes)
+if (hasLinuxArm64) for (const name of linuxArm64) check(name in bytes, `asset ${name} is present`)
+else console.log(`note ${tag} has no Linux arm64 build`)
 // The standalone engine (build-standalone.yml). Every release from 4.5.12 on is built with
 // it; an older one has it only once release-standalone.yml has added it.
 const standalone = [`orgtree-engine-standalone-${version}-linux-x86_64.tar.gz`,
@@ -86,6 +94,8 @@ if (channelFile in bytes && installer in bytes) {
 const linuxFeed = linuxChannelFile(version)
 if (linuxFeed in bytes) checkLinuxUpdateInfo({ text: bytes[linuxFeed].toString('utf8'), version, asset: name => bytes[name], check })
 else console.log(`note ${linuxFeed} is not in this release (Linux updates began after 4.1.0)`)
+const linuxArm64Feed = linuxChannelFile(version, 'arm64')
+if (linuxArm64Feed in bytes) checkLinuxUpdateInfo({ text: bytes[linuxArm64Feed].toString('utf8'), version, asset: name => bytes[name], check, arch: 'arm64' })
 let commit = (await api(`git/ref/tags/${encodeURIComponent(tag)}`)).object
 while (commit.type === 'tag') commit = (await api(`git/tags/${commit.sha}`)).object
 // Pushed by publish-standalone-image.yml, which runs alongside this check: a tag it has
@@ -122,7 +132,7 @@ if ('build-info-standalone-agents.json' in bytes) {
   for (const tool of ['claude-code', 'codex']) check(/^\d+\.\d+\.\d+$/.test(info.tools?.[tool]?.version ?? ''), `build-info-standalone-agents.json pins ${tool} (${info.tools?.[tool]?.version})`)
   await checkGhcr(info, prerelease ? [`${version}-agents`] : [`${version}-agents`, 'latest-agents'])
 }
-for (const name of ['build-info.json', 'build-info-macos.json', 'build-info-linux.json'].filter(n => n in bytes)) {
+for (const name of ['build-info.json', 'build-info-macos.json', 'build-info-linux.json', 'build-info-linux-arm64.json'].filter(n => n in bytes)) {
   const info = JSON.parse(bytes[name].toString('utf8'))
   check(info.version === version, `${name} version ${info.version}`)
   check(info.commit === commit.sha, `${name} commit is the tag's (${commit.sha})`)
