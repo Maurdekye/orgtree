@@ -113,15 +113,22 @@ pub(crate) fn canon(p: &Path) -> String {
     c.to_string_lossy().trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase()
 }
 
-/// Whether `dir`, the folder of this program, is the engine of an installed app.
+/// Whether `dir`, the folder of this program, is the engine of an installed app:
+/// `resources/engine` beside `resources/app.asar`, or the desktop's own copy of
+/// that folder. An AppImage without a FUSE mount runs its engine from
+/// `<userData>/engine-runtime/<build>/engine`, a verified copy the desktop marks
+/// with `.complete` when it is finished (apps/desktop/main/engine-runtime.ts);
+/// there is no `app.asar` beside it, and without this the background engine
+/// could not create the database on a fresh data folder.
 #[nolog]
 fn beside_installed_app(dir: &Path) -> bool {
-    dir.join("..").join("app.asar").is_file()
+    let above = dir.join("..");
+    above.join("app.asar").is_file() || above.join(".complete").is_file()
 }
 
 /// What the packaged desktop gives its engine: the bundled PostgreSQL, and
 /// permission to create the cluster on a fresh data folder. Only beside an
-/// installed app (`resources/app.asar`).
+/// installed app (`beside_installed_app`).
 #[logged]
 fn packaged_postgres() -> Result<Vec<(String, String)>, String> {
     let dir = exe_dir();

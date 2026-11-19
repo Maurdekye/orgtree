@@ -101,10 +101,10 @@ jobs:
           export ORGTREE_RELEASE_BUILD=1
           export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
           log="$RUNNER_TEMP/unix-unit-tests.log"
-          cargo test --release --locked -j "$(nproc)" -p orgtree-engine --bin orgtree-engine -- bridge:: runtime::agy:: winproc:: providers::codex_location_tests:: 2>&1 | tee "$log"
+          cargo test --release --locked -j "$(nproc)" -p orgtree-engine --bin orgtree-engine -- bridge:: runtime::agy:: winproc:: providers::codex_location_tests:: host::installed_app_tests:: 2>&1 | tee "$log"
           grep -E '^test result: ok\. [1-9][0-9]* passed' "$log"
           # every area must have run at least one test
-          for m in bridge runtime::agy winproc providers::codex_location_tests; do
+          for m in bridge runtime::agy winproc providers::codex_location_tests host::installed_app_tests; do
             n="$(grep -c -E "^test ${m}::.* \.\.\. ok$" "$log" || true)"
             echo "$m: $n passed"
             [ "$n" -ge 1 ] || { echo "::error::no $m unit test ran"; exit 1; }
