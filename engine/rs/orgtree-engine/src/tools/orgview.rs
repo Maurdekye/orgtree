@@ -572,6 +572,8 @@ pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
         if catalog::antigravity_claude(t.tier) && !engine.settings.antigravity_claude_enabled() { continue; }
         // Argon, Krypton, Neon, Carbon: only while the account's `agy models` lists them
         if t.provider == catalog::GOOGLE && !crate::providers::agy_offered(engine, t.tier) { continue; }
+        // Mythos: only while a signed-in Claude login's own model list names it
+        if t.provider == catalog::CLAUDE && !crate::providers::claude_somewhere(engine, t.tier) { continue; }
         if !engine.settings.provider_enabled(t.provider) {
             continue;
         }

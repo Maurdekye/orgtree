@@ -556,7 +556,8 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
 #[logged]
 fn muse_admit(engine: &Engine, tier: &str, version: Option<&str>, account: Option<&str>) -> Result<()> {
     if !catalog::is_muse(tier) {
-        return Ok(());
+        // every caller places a seat on a login: a conditional Claude tier is judged here too
+        return claude_admit(engine, tier, account);
     }
     let view = engine.accounts.view();
     let login = account.and_then(|id| view.get(id)).filter(|a| a.provider == catalog::MUSE).cloned();
@@ -566,6 +567,24 @@ fn muse_admit(engine: &Engine, tier: &str, version: Option<&str>, account: Optio
             refuse!(Conflict, "{why} now, so it cannot run {tier} (App settings › Providers › Muse lists what each login offers)")
         }
         crate::providers::MuseOffer::Unknown(why) => refuse!(Conflict, "{why}: {tier} is not placed on a login whose catalog is unknown; try again in a moment"),
+    }
+}
+
+/// A conditional Claude seat's placement (Mythos; USER 2026-11-19 m8c9e34510689), judged by the login it
+/// will run on (`account`: a registered id, else the engine's own sign-in): that login's own CLI must list the
+/// model (`providers::claude_offer`). Another login's list never counts, and a login whose list has not been
+/// read is refused as unknown, not inferred. Other tiers pass.
+#[logged]
+fn claude_admit(engine: &Engine, tier: &str, account: Option<&str>) -> Result<()> {
+    if !catalog::claude_conditional(tier) {
+        return Ok(());
+    }
+    let view = engine.accounts.view();
+    let login = account.and_then(|id| view.get(id)).filter(|a| a.provider == catalog::CLAUDE).cloned();
+    match crate::providers::claude_offer(engine, login.as_ref(), tier) {
+        crate::providers::ClaudeOffer::Offered(_) => Ok(()),
+        crate::providers::ClaudeOffer::NotOffered(why) => refuse!(Conflict, "{why} now, so it cannot run {tier}"),
+        crate::providers::ClaudeOffer::Unknown(why) => refuse!(Conflict, "{why}: {tier} is not placed on a login whose model list is unknown"),
     }
 }
 
@@ -1831,6 +1850,20 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
                                                a key in App settings › Providers › OpenRouter (Org settings › Accounts)"),
             _ => refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &org.slug, &crate::org_accounts::default_lane(provider), provider)),
         }
+    }
+    // a conditional Claude seat (Mythos): a hire that names no account lands on a login that offers it, the
+    // one with the most room, when the login it would otherwise take does not; a named account is judged as named
+    if catalog::claude_conditional(&tier) {
+        if explicit.is_none() {
+            let view = engine.accounts.view();
+            let lands = account.as_deref().and_then(|id| view.get(id));
+            if !matches!(crate::providers::claude_offer(engine, lands, &tier), crate::providers::ClaudeOffer::Offered(_)) {
+                if let Some(best) = crate::org_accounts::best_allowed(engine, &org.slug, &tier) {
+                    account = Some(best);
+                }
+            }
+        }
+        claude_admit(engine, &tier, account.as_deref())?;
     }
     // a Muse seat: the login it lands on (explicit, the org's default, the
     // best allowed, or the user's own) must offer the model, and its level

@@ -42,6 +42,15 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "fable", provider: CLAUDE, seat: 8.0, model: "claude-fable-5-2",
         versions: &[("5.2", "claude-fable-5-2"), ("5.1", "claude-fable-5-1"), ("5", "claude-fable-5")], letter: "F",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
+    // Claude Mythos (USER 2026-11-19 m4f7e7e8c6694 "also add mythos support when available", m8c9e34510689 "only show
+    // it if mythos is provided by a signed in claude account"): CONDITIONAL, offered only by a Claude login whose own
+    // CLI lists one of these exact ids (`claude_models`). MEASURED 2026-11-19 (Anthropic's model pages and the ids in
+    // Claude Code 2.1.321): the ids, the 1M window, and $8 input per million for 5.2, hence seat 8 by the input-price
+    // rule, level with Fable 5.2, which it is the same model as. INFERRED until a login that has it runs a turn:
+    // mid-turn effort and fast mode as Fable 5.2. Declared after Fable, so Fable stays the first Claude tier.
+    Tier { tier: "mythos", provider: CLAUDE, seat: 8.0, model: "claude-mythos-5-2",
+        versions: &[("5.2", "claude-mythos-5-2"), ("5.1", "claude-mythos-5-1"), ("5", "claude-mythos-5")], letter: "M",
+        context: Some(1_000_000), live_effort: true, legacy: false, conditional: true, prices: None },
     Tier { tier: "opus", provider: CLAUDE, seat: 4.0, model: "claude-opus-5-5",
         versions: &[("5.5", "claude-opus-5-5"), ("5", "claude-opus-5"), ("4.8", "claude-opus-4-8")], letter: "O",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
@@ -299,6 +308,7 @@ pub fn version_view(tier: &str, pin: Option<&str>) -> serde_json::Value {
 fn display_family(t: &Tier) -> Option<&'static str> {
     Some(match (t.provider, t.tier) {
         (CLAUDE, "fable") => "Claude Fable",
+        (CLAUDE, "mythos") => "Claude Mythos",
         (CLAUDE, "opus") => "Claude Opus",
         (GOOGLE, "agy-opus") => "Opus",
         (CLAUDE, "sonnet") => "Claude Sonnet",
@@ -414,6 +424,12 @@ pub fn turned_off(provider: &str) -> String {
         LANGSERVER => "Language model servers are turned off in App settings".to_string(),
         _ => format!("{} is turned off in App settings", provider_label(provider)),
     }
+}
+
+/// A Claude tier offered only by a login whose own CLI lists its model (Mythos): judged per login, as a Muse tier is.
+#[nolog]
+pub fn claude_conditional(tier: &str) -> bool {
+    self::tier(tier).is_some_and(|t| t.provider == CLAUDE && t.conditional)
 }
 
 /// A Muse Code tier (`wonder`, `wonder-full`, `spark`).
@@ -564,6 +580,43 @@ mod effort_tests {
         assert_eq!(seat_price("astra"), 8.0);
     }
 
+    /// Plan test 7. Claude Mythos (USER 2026-11-19 m4f7e7e8c6694, m8c9e34510689): a conditional Claude tier. MEASURED
+    /// (Anthropic's model pages and Claude Code 2.1.321, 2026-11-19): the ids, newest first, and $8 input per million
+    /// tokens for 5.2, so seat 8 by the input-price rule, level with Fable 5.2 (the same model).
+    #[test]
+    fn mythos_is_a_conditional_claude_tier_at_fables_seat() {
+        let m = tier("mythos").expect("mythos");
+        assert_eq!((m.provider, m.model, m.letter, m.seat, m.conditional, m.legacy), (CLAUDE, "claude-mythos-5-2", "M", 8.0, true, false));
+        assert_eq!(m.seat, crate::openrouter::seat_for(8.0), "the standing input-price seat rule");
+        assert_eq!(seat_price("mythos"), seat_price("fable"));
+        assert_eq!(t_versions("mythos"), ["5.2", "5.1", "5"]);
+        assert_eq!(m.context, Some(1_000_000));
+        assert!(m.live_effort, "inferred: as Fable 5.2");
+        assert_eq!(model_for("mythos", None), "claude-mythos-5-2", "latest");
+        assert_eq!(model_for("mythos", Some("5.1")), "claude-mythos-5-1", "a pin stays");
+        assert_eq!(model_for("mythos", Some("5")), "claude-mythos-5");
+        assert!(runs_model("mythos", "claude-mythos-5") && !runs_model("mythos", "claude-fable-5-2") && !runs_model("fable", "claude-mythos-5-2"));
+        assert_eq!(display_name(m, None).as_deref(), Some("Claude Mythos 5.2"));
+        assert_eq!(display_name(m, Some("5.1")).as_deref(), Some("Claude Mythos 5.1"));
+        assert_eq!(version_choice("mythos", &serde_json::json!("latest")), Ok(None));
+        assert_eq!(version_choice("mythos", &serde_json::json!("5")), Ok(Some("5".to_string())));
+        assert!(version_choice("mythos", &serde_json::json!("5.5")).is_err());
+        assert_eq!(provider_of("mythos"), CLAUDE);
+        assert!(claude_conditional("mythos"));
+        // the only conditional Claude tier; no letter is shared within Claude
+        for other in ["fable", "opus", "sonnet", "haiku", "argon", "wonder", "sol", "or-x", "nope"] {
+            assert!(!claude_conditional(other), "{other}");
+        }
+        let letters: Vec<&str> = TIERS.iter().filter(|t| t.provider == CLAUDE).map(|t| t.letter).collect();
+        assert_eq!(letters, ["F", "M", "O", "S", "H"]);
+        // Fable stays the first Claude tier: the order a default is taken from, and the first listed
+        assert_eq!(TIERS[0].tier, "fable");
+        assert_eq!((listed_rank("fable"), listed_rank("mythos")), (0, 1));
+        // a Gemini-only rule does not take it for one of its own
+        assert_eq!(antigravity_own_bucket("mythos"), None);
+        assert!(!cost_is_estimate("mythos") && !is_muse("mythos"));
+    }
+
     /// Gemini 4 Hydrogen (user 2026-11-12 m6b3dbb2cfa71, unreleased: every figure here is a placeholder until a
     /// real turn): a Gemini tier in the $1.5 input band, so seat 1 like Flash, which it replaces. It is offered
     /// unconditionally (user 2026-11-13 m6258781910ea), not on agy's model list like Argon, Krypton and Carbon.
@@ -689,7 +742,8 @@ mod effort_tests {
     #[test]
     fn tiers_are_listed_dearest_first_within_each_provider() {
         assert_eq!(listed().len(), TIERS.len());
-        assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
+        // Mythos seats at 8 like Fable and is declared after it: equal seats keep catalog order, so Fable leads
+        assert_eq!(names(CLAUDE), ["fable", "mythos", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
         // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads
         assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "neon", "agy-sonnet", "flash", "hydrogen"]);
@@ -702,6 +756,9 @@ mod effort_tests {
         // Flash is legacy since Hydrogen (user 2026-11-13): Hydrogen is the Gemini model every account is offered
         assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "hydrogen"]);
         assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "terra", "luna"]);
+        // Mythos is hidden like every conditional tier until a login's own list names it
+        assert_eq!(seen(CLAUDE, &[]), ["fable", "opus", "sonnet", "haiku"]);
+        assert_eq!(seen(CLAUDE, &["mythos"]), ["fable", "mythos", "opus", "sonnet", "haiku"]);
         // the rule itself, so a tier added later orders itself
         for p in [CLAUDE, OPENAI, GOOGLE, MUSE] {
             let seats: Vec<f64> = listed().iter().filter(|t| t.provider == p).map(|t| t.seat).collect();

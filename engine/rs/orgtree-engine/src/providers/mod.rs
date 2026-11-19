@@ -3,6 +3,7 @@
 //! offers. Discovery runs in the background and publishes the `providers` value.
 
 pub mod agy_models;
+pub mod claude_models;
 pub mod catalog;
 pub mod fast_mode;
 pub mod agy_auth;
@@ -85,6 +86,10 @@ pub struct Providers {
     /// read): what it offers, as the login itself said (the user's own login
     /// is `State::muse_probe`)
     muse_logins: ArcSwap<std::collections::HashMap<String, MuseLoginRead>>,
+    /// each Claude login's own model list, as its CLI last answered `initialize`
+    /// (`CLAUDE_OWN` for the engine's own sign-in, else the account id). Memory
+    /// only: empty after a restart until a CLI starts on the login again.
+    claude_logins: ArcSwap<std::collections::HashMap<String, ClaudeLoginRead>>,
     /// when `agy models` was last read: held across a read, so at most one
     /// runs and a caller arriving meanwhile reuses its answer
     agy_models_read: tokio::sync::Mutex<Option<(std::time::Instant, Option<agy_auth::Principal>)>>,
@@ -101,6 +106,25 @@ pub struct MuseLoginRead {
     pub signed_in: Option<bool>,
     /// why the read failed (the catalog is then the previous read's, if any)
     pub error: Option<String>,
+}
+
+/// One Claude login's model list as its own CLI last gave it.
+#[derive(Clone, Debug)]
+pub struct ClaudeLoginRead {
+    pub at: chrono::DateTime<chrono::Utc>,
+    pub models: claude_models::Models,
+}
+
+/// The key of the engine's own Claude sign-in in the per-login lists.
+pub const CLAUDE_OWN: &str = "";
+
+/// What a Claude login offers for one conditional tier, by its own list.
+#[derive(Clone, Debug)]
+pub enum ClaudeOffer {
+    Offered(claude_models::Row),
+    NotOffered(String),
+    /// no CLI has answered on this login yet, or the list was read under another sign-in: never inferred
+    Unknown(String),
 }
 
 /// What a Muse login offers for one model, by its own catalog.
@@ -459,6 +483,7 @@ async fn discover_status(engine: &Engine, scope: status_refresh::Scope) {
     let first = !engine.providers.state.load().probed;
     engine.providers.state.rcu(|current| status_refresh::merge_status(current, &st, scope));
     publish(engine);
+    claude_logins_prune(engine);
     if first && scope == Scope::All {
         refresh_agy_models(engine).await;
     }
@@ -747,6 +772,150 @@ impl MuseCatalogs {
     }
 }
 
+/// The key a Claude seat's login has in the per-login lists: the account it is bound to, or the
+/// engine's own sign-in (also for a row that points at that sign-in).
+#[nolog]
+pub fn claude_login_key(account: Option<&crate::accounts::AccountInfo>) -> String {
+    match account {
+        Some(a) if a.provider == catalog::CLAUDE && !a.ambient => a.id.clone(),
+        _ => CLAUDE_OWN.to_string(),
+    }
+}
+
+/// Keep what a Claude CLI answered `initialize` with on the login `key`
+/// (`claude_login_key`): its selectable models and the sign-in it answered under.
+/// An answer without a list changes nothing. The windows hear of it when a
+/// conditional tier's offer changed. Not logged: the answer names the account.
+#[nolog]
+pub fn claude_login_seen(engine: &Engine, key: &str, answer: &Value) {
+    let Some(models) = claude_models::parse(answer) else { return };
+    let offers = |m: Option<&claude_models::Models>| -> Vec<&'static str> {
+        catalog::TIERS.iter().filter(|t| t.provider == catalog::CLAUDE && t.conditional && m.is_some_and(|m| m.tier_row(t).is_some()))
+            .map(|t| t.tier).collect()
+    };
+    let before = engine.providers.claude_logins.load().get(key).map(|r| r.models.clone());
+    if before.as_ref() != Some(&models) {
+        tracing::info!(login = if key == CLAUDE_OWN { "own sign-in" } else { key }, rows = models.rows.len(),
+            conditional = ?offers(Some(&models)), "Claude model list read from the CLI");
+    }
+    let republish = offers(before.as_ref()) != offers(Some(&models)) || before.as_ref().map(|m| &m.identity) != Some(&models.identity);
+    let entry = ClaudeLoginRead { at: chrono::Utc::now(), models };
+    engine.providers.claude_logins.rcu(|cur| {
+        let mut next = (**cur).clone();
+        next.insert(key.to_string(), entry.clone());
+        next
+    });
+    if republish {
+        publish(engine);
+    }
+}
+
+/// Drop the lists of logins that are signed out, gone, or signed in as someone
+/// else than the list was read under: signing in again starts from "not read".
+#[logged]
+pub fn claude_logins_prune(engine: &Engine) {
+    let st = engine.providers.state.load();
+    let view = engine.accounts.view();
+    let stale = |key: &str, r: &ClaudeLoginRead| -> bool {
+        if key == CLAUDE_OWN {
+            return (st.probed && !st.claude.connected) || !r.models.read_under(st.claude.email.as_deref());
+        }
+        match view.get(key) {
+            Some(a) => a.provider != catalog::CLAUDE || claude_signed_out(a) || !r.models.read_under(a.email.as_deref()),
+            None => true,
+        }
+    };
+    if !engine.providers.claude_logins.load().iter().any(|(k, r)| stale(k, r)) {
+        return;
+    }
+    engine.providers.claude_logins.rcu(|cur| {
+        let mut next = (**cur).clone();
+        next.retain(|k, r| !stale(k, r));
+        next
+    });
+    publish(engine);
+}
+
+#[nolog]
+fn claude_signed_out(a: &crate::accounts::AccountInfo) -> bool {
+    a.auth == "signed_out" || a.auth == "unauthenticated"
+}
+
+/// Every Claude login's list as last read, taken at once: what a builder
+/// with no engine at hand asks (`ClaudeLists::offer`, as `claude_offer`).
+pub struct ClaudeLists {
+    state: Arc<State>,
+    logins: Arc<std::collections::HashMap<String, ClaudeLoginRead>>,
+}
+
+#[logged]
+pub fn claude_lists(engine: &Engine) -> ClaudeLists {
+    ClaudeLists { state: engine.providers.state.load_full(), logins: engine.providers.claude_logins.load_full() }
+}
+
+#[logged]
+impl ClaudeLists {
+    /// What `account` (None: the engine's own sign-in) offers for the
+    /// conditional Claude tier `tier`, by that login's own list: never
+    /// another login's, never inferred. A tier that is not conditional is
+    /// offered by every login.
+    pub fn offer(&self, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> ClaudeOffer {
+        let Some(t) = catalog::tier(tier).filter(|t| t.provider == catalog::CLAUDE && t.conditional) else {
+            return ClaudeOffer::Offered(claude_models::Row { value: catalog::model_for(tier, None), resolved: None, efforts: None, fast: None });
+        };
+        let name = catalog::display_name(t, None).unwrap_or_else(|| t.model.to_string());
+        let key = claude_login_key(account);
+        let (who, email, out) = match account.filter(|_| key != CLAUDE_OWN) {
+            Some(a) => (format!("the Claude account {}", a.id), a.email.clone(), claude_signed_out(a)),
+            None => ("the signed-in Claude account".to_string(), self.state.claude.email.clone(), self.state.probed && !self.state.claude.connected),
+        };
+        if out {
+            return ClaudeOffer::NotOffered(format!("{who} is not signed in"));
+        }
+        let Some(read) = self.logins.get(&key) else {
+            return ClaudeOffer::Unknown(format!("what {who} offers has not been read yet (Orgtree reads it when an agent starts on that login)"));
+        };
+        if !read.models.read_under(email.as_deref()) {
+            return ClaudeOffer::Unknown(format!("what {who} offers was read under another sign-in and has not been read again yet"));
+        }
+        match read.models.tier_row(t) {
+            Some(row) => ClaudeOffer::Offered(row.clone()),
+            None => ClaudeOffer::NotOffered(format!("{who} does not offer {name}")),
+        }
+    }
+}
+
+/// What the Claude login a seat runs on offers for `tier` (see `ClaudeLists::offer`).
+/// Never a provider request: placement checks run inside transactions.
+#[logged]
+pub fn claude_offer(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> ClaudeOffer {
+    claude_lists(engine).offer(account, tier)
+}
+
+/// Whether the engine's own Claude sign-in offers `tier` (true for a tier that is not conditional).
+#[logged]
+pub fn claude_offered(engine: &Engine, tier: &str) -> bool {
+    matches!(claude_offer(engine, None, tier), ClaudeOffer::Offered(_))
+}
+
+/// Whether some signed-in Claude login offers `tier`: the engine's own sign-in or a registered login switched
+/// on, each by its own list. True for a Claude tier that is not conditional.
+#[logged]
+pub fn claude_somewhere(engine: &Engine, tier: &str) -> bool {
+    !catalog::claude_conditional(tier) || claude_offered(engine, tier) || !claude_logins_offering(engine, tier).is_empty()
+}
+
+/// The registered Claude logins, switched on, that offer the conditional tier `tier`, by their own lists.
+#[logged]
+pub fn claude_logins_offering(engine: &Engine, tier: &str) -> Vec<String> {
+    let lists = claude_lists(engine);
+    engine.accounts.view().all().into_iter()
+        .filter(|a| a.provider == catalog::CLAUDE && !a.ambient && crate::accounts::active(engine, catalog::CLAUDE, Some(a)))
+        .filter(|a| matches!(lists.offer(Some(a), tier), ClaudeOffer::Offered(_)))
+        .map(|a| a.id.clone())
+        .collect()
+}
+
 /// Before a transaction that will judge a Muse placement on the user's own
 /// login: read it once (bounded) when discovery holds no catalog for it, as
 /// a turn's launch does. A failed or slow read is the check's to report.
@@ -764,6 +933,15 @@ pub async fn muse_own_refresh(engine: &Engine) {
 /// its pinned version included, in the catalog of the login it runs on).
 #[logged]
 pub fn effort_names_on(engine: &Engine, tier: &str, version: Option<&str>, account: Option<&crate::accounts::AccountInfo>) -> Option<Vec<String>> {
+    if catalog::claude_conditional(tier) {
+        // the levels the login's own row names, in Claude Code's order; a row that names none, or a login not
+        // read yet, takes Claude Code's own set
+        if let ClaudeOffer::Offered(claude_models::Row { efforts: Some(levels), .. }) = claude_offer(engine, account.filter(|a| a.provider == catalog::CLAUDE), tier) {
+            if !levels.is_empty() {
+                return Some(catalog::EFFORTS.iter().filter(|e| levels.iter().any(|l| l == *e)).map(|e| e.to_string()).collect());
+            }
+        }
+    }
     if !catalog::is_muse(tier) {
         return effort_names(&engine.providers.state.load(), tier);
     }
@@ -900,6 +1078,30 @@ fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
         .collect()
 }
 
+/// The Claude rows of the providers payload. A conditional tier (Mythos) is listed only while a signed-in
+/// login offers it by its own list: the engine's own sign-in (`own`) or registered logins switched on
+/// (`logins`, their ids), as a Muse row says where it is offered. Not offered anywhere, or not read yet: no row,
+/// so no window shows it (USER 2026-11-19 m8c9e34510689).
+#[logged]
+fn claude_tier_rows(engine: &Engine) -> Vec<Value> {
+    let lists = claude_lists(engine);
+    tier_rows(catalog::CLAUDE, false).into_iter().filter_map(|mut row| {
+        let tier = row["tier"].as_str().unwrap_or("").to_string();
+        if !catalog::claude_conditional(&tier) {
+            return Some(row);
+        }
+        let own = matches!(lists.offer(None, &tier), ClaudeOffer::Offered(_));
+        let logins = claude_logins_offering(engine, &tier);
+        if !own && logins.is_empty() {
+            return None;
+        }
+        row["conditional"] = json!(true);
+        row["own"] = json!(own);
+        row["logins"] = json!(logins);
+        Some(row)
+    }).collect()
+}
+
 #[logged]
 pub fn payload(engine: &Engine) -> Value {
     let st = engine.providers.state.load();
@@ -956,7 +1158,7 @@ pub fn payload(engine: &Engine) -> Value {
     };
     let mut providers = vec![];
     if st.claude.installed {
-        providers.push(by_account(entry(catalog::CLAUDE, "Claude", "claude", &st.claude, tier_rows(catalog::CLAUDE, false)), catalog::CLAUDE, &st.claude));
+        providers.push(by_account(entry(catalog::CLAUDE, "Claude", "claude", &st.claude, claude_tier_rows(engine)), catalog::CLAUDE, &st.claude));
     }
     if st.codex.installed {
         providers.push(by_account(entry(catalog::OPENAI, "Codex", "codex", &st.codex, tier_rows(catalog::OPENAI, false)), catalog::OPENAI, &st.codex));
@@ -1471,6 +1673,8 @@ pub(crate) fn agy_models_recheck_due(engine: &Engine) -> bool {
 
 #[cfg(test)]
 mod agy_model_refresh_tests;
+#[cfg(test)]
+mod claude_offer_tests;
 
 /// Whether a conditional Antigravity tier may be placed now (3.x
 /// `conditional_antigravity_availability`): the last read lists it, or a

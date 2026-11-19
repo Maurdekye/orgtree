@@ -160,6 +160,23 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
 /// (they are taken before any transaction); other providers pass.
 #[logged]
 pub(super) fn muse_offered(engine: &Engine, tier: &str, version: Option<&str>, target: &Target) -> Result<()> {
+    // a conditional Claude tier (Mythos) the same way, by the target login's own model list
+    if catalog::claude_conditional(tier) {
+        let view = engine.accounts.view();
+        let login = target.binding.as_deref().and_then(|id| view.get(id));
+        return match crate::providers::claude_offer(engine, login, tier) {
+            crate::providers::ClaudeOffer::Offered(_) => Ok(()),
+            crate::providers::ClaudeOffer::NotOffered(why) => crate::refuse!(
+                Conflict,
+                "{why}, so the agent cannot continue on {}; nothing changed",
+                target.lane
+            ),
+            crate::providers::ClaudeOffer::Unknown(why) => crate::refuse!(
+                Conflict,
+                "{why}: {tier} is not continued on a login whose model list is unknown; nothing changed"
+            ),
+        };
+    }
     if !catalog::is_muse(tier) {
         return Ok(());
     }

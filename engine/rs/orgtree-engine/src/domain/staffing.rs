@@ -41,7 +41,9 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
         // a Muse tier is conditional on a Muse login's own catalog: the user's
         // own, or a registered one (primary entitlement is no prerequisite)
         .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier))
-                || (t.provider == catalog::GOOGLE && crate::providers::agy_offered(engine, t.tier)))
+                || (t.provider == catalog::GOOGLE && crate::providers::agy_offered(engine, t.tier))
+                // a conditional Claude tier (Mythos): some signed-in login's own list names it
+                || (t.provider == catalog::CLAUDE && crate::providers::claude_somewhere(engine, t.tier)))
             && engine.settings.provider_enabled(t.provider))
         .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
         // Native exhaustion cannot hide a tier another eligible profile
@@ -205,6 +207,8 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
                 // a Muse login offers the tier by its own catalog, never by another's
                 && (provider != catalog::MUSE || matches!(
                     crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)))
+                // a conditional Claude tier (Mythos) by the login's own model list, never by another's
+                && matches!(crate::providers::claude_offer(engine, Some(a), tier), crate::providers::ClaudeOffer::Offered(_))
         })
         .map(|a| {
             let mut v = json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email,
@@ -322,6 +326,7 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
                 // the user's hard rule: never a model on a login whose window it spends is at 100%
                 let host = host_for(engine, &org.slug, &t.tier, t.provider)
                     && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier))
+                    && (t.provider != catalog::CLAUDE || crate::providers::claude_offered(engine, &t.tier))
                     && (accountless(t.provider)
                         || crate::usage::at_limit(engine, default_login(engine, org_default.as_deref(), &t.tier).as_ref(), &t.tier).is_none());
                 if accounts.is_empty() && !host {
@@ -613,7 +618,8 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
         .filter_map(|t| {
             let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
             let signed_in = host_for(engine, org_slug, &t.tier, t.provider)
-                && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier));
+                && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier))
+                && (t.provider != catalog::CLAUDE || crate::providers::claude_offered(engine, &t.tier));
             let host = signed_in && crate::usage::antigravity_limit(engine, &t.tier).is_none();
             let native_ok = host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none());
             if accounts.is_empty() && !native_ok && !accountless(t.provider) {
@@ -690,7 +696,8 @@ fn account_candidates(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Candid
             && crate::accounts::active(engine, provider, Some(a))
             && a.auth != "signed_out"
             && (provider != catalog::MUSE || matches!(
-                crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)));
+                crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)))
+            && matches!(crate::providers::claude_offer(engine, Some(a), tier), crate::providers::ClaudeOffer::Offered(_));
         if !running {
             Candidate::Out
         } else if a.limited_for(tier, now).is_some() || crate::usage::at_limit(engine, Some(a), tier).is_some() {

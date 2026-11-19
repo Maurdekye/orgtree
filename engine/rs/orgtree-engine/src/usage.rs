@@ -259,7 +259,11 @@ fn freeze_cached(usage: &Usage, provider: &str, account: Option<&crate::accounts
 /// Whether `tier` spends this reading window (the user's rule, 2026-09-12):
 /// Claude: the session and the standard weekly window for every tier, and a
 /// model-scoped weekly window only for the model it names (so fable needs
-/// both weekly windows and the lower tiers ignore Fable's); Codex: the plan
+/// both weekly windows and the lower tiers ignore Fable's). Mythos spends a
+/// window that names Mythos and also Fable's: Mythos 5.2 is the same model as
+/// Fable 5.2, and which window it draws on is not measured (no login here has
+/// it), so the careful reading holds until one shows real readings (USER
+/// 2026-11-19 m434ffd1cf05f, question 2); Codex: the plan
 /// pool (its unnamed windows, 3.x `codex_route.pool_of_window`); Antigravity:
 /// the tier's model group; Muse: only windows observed while the tier's own
 /// model ran (Muse reports one window set per login and does not say which
@@ -271,7 +275,10 @@ pub(crate) fn spends(provider: &str, tier: &str, w: &Value) -> bool {
     match provider {
         catalog::CLAUDE => match w["kind"].as_str().unwrap_or("") {
             "session" | "weekly_all" => true,
-            "weekly_scoped" => w["model"].as_str().is_some_and(|m| m.to_lowercase().contains(&tier.to_lowercase())),
+            "weekly_scoped" => w["model"].as_str().is_some_and(|m| {
+                let named = m.to_lowercase();
+                named.contains(&tier.to_lowercase()) || (tier == "mythos" && named.contains("fable"))
+            }),
             _ => false,
         },
         catalog::OPENAI => w["model"].as_str().map(str::trim).unwrap_or("").is_empty(),

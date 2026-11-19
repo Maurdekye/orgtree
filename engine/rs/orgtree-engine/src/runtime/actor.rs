@@ -1149,6 +1149,9 @@ async fn claude_spec_for(engine: &Arc<Engine>, id: i64, org_id: i64, ctx: &Ctx, 
         env,
         env_remove,
         keepalive,
+        // a subscription sign-in of Anthropic's own: its `initialize` answer is that login's model list
+        models_login: (route.is_none() && !apikey && ctx.provider == catalog::CLAUDE)
+            .then(|| crate::providers::claude_login_key(account.as_ref())),
         // a cache read stays here; ensure_proc places the agent's own CLI
         host: None,
     };
@@ -5770,6 +5773,19 @@ impl Actor {
                     // a query starts: one the CLI started by itself before it is over
                     self.claude_own = false;
                     self.on_init(&v);
+                    // a conditional Claude seat (Mythos) runs the model it asked for, or the turn ends saying
+                    // so: the CLI can move a refused model to its tier's default by itself
+                    if !sub && self.turn.is_some() {
+                        let asked = match &self.proc {
+                            Some(Proc::Claude(p)) => p.model.clone(),
+                            _ => String::new(),
+                        };
+                        if let Some(why) = crate::providers::claude_models::substituted(&asked, v["model"].as_str().unwrap_or("")) {
+                            self.kill_proc().await;
+                            self.end_turn(Some(why), Value::Null).await?;
+                            return Ok(());
+                        }
+                    }
                     if !sub && self.turn.is_none() {
                         // a turn the CLI started by itself, to hand the model a
                         // background task's notification (an idle CLI prints

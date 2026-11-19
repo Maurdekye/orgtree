@@ -43,6 +43,12 @@ pub struct SpawnSpec {
     /// session is forked (`--fork-session --max-turns 1`), a PreToolUse hook
     /// denies every tool in place of the mail hook, and no orgtree tool runs
     pub keepalive: bool,
+    /// the Claude login this CLI runs on, as the per-login model lists key it
+    /// (`providers::claude_login_key`): its `initialize` answer is that login's
+    /// own list. None for a CLI that is not on a subscription sign-in of
+    /// Anthropic's (OpenRouter, a language model server, a metered API key):
+    /// its answer says nothing about a Claude login.
+    pub models_login: Option<String>,
     /// started by the sign-in helper in the operator's signed-in session
     /// (`session_host::wanted`), else here
     pub host: Option<u32>,
@@ -72,6 +78,7 @@ impl std::fmt::Debug for SpawnSpec {
             .field("env", &env)
             .field("env_remove", &self.env_remove)
             .field("keepalive", &self.keepalive)
+            .field("models_login", &self.models_login)
             .field("host", &self.host)
             .finish()
     }
@@ -88,6 +95,8 @@ pub struct ClaudeProc {
     child: Option<Launched>,
     job: Option<winproc::ChildJob>,
     pub session_id: String,
+    /// the model it was started with (`--model`)
+    pub model: String,
 }
 
 static REQ: AtomicU64 = AtomicU64::new(1);
@@ -101,7 +110,7 @@ mod fast_mode_tests {
         for (enabled,success) in [(true,true),(false,true),(true,false)] {
             let (stdin,mut sent)=mpsc::unbounded_channel::<String>();
             let (waiters,mut replies)=mpsc::unbounded_channel::<(String,oneshot::Sender<Value>)>();
-            let proc=ClaudeProc { pid:0,process:uuid::Uuid::nil(),stdin,stdin_close:None,waiters,child:None,job:None,session_id:"same-session".into() };
+            let proc=ClaudeProc { pid:0,process:uuid::Uuid::nil(),stdin,stdin_close:None,waiters,child:None,job:None,session_id:"same-session".into(),model:String::new() };
             let response=async {
                 let frame:Value=serde_json::from_str(&sent.recv().await.unwrap()).unwrap();
                 assert_eq!(frame["type"],"control_request");
@@ -257,8 +266,9 @@ impl ClaudeProc {
         let (wtx, wrx) = mpsc::unbounded_channel();
         let writer = tx.clone();
         let keepalive = spec.keepalive;
-        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, writer, wrx, keepalive), proc_span));
-        let proc = ClaudeProc { pid, process, stdin: tx, stdin_close: Some(stdin_close), waiters: wtx, child: Some(child), job, session_id };
+        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine.clone(), stdout, caller, actor, process, writer, wrx, keepalive), proc_span));
+        let proc = ClaudeProc { pid, process, stdin: tx, stdin_close: Some(stdin_close), waiters: wtx, child: Some(child), job, session_id,
+                                model: spec.model.clone() };
         // Register the in-process MCP server and the mail hook before any turn
         // (a keepalive: the same server, so the request lists the same tools,
         // and a hook that denies every tool instead of the mail hook).
@@ -271,8 +281,15 @@ impl ClaudeProc {
         let init = proc
             .request(json!({ "subtype": "initialize", "hooks": hooks, "sdkMcpServers": ["orgtree"] }), Duration::from_secs(60))
             .await;
-        if let Err(e) = init {
-            tracing::warn!(error = %e, "claude initialize did not answer");
+        match &init {
+            // the answer carries the models this login may select: the evidence a conditional Claude tier
+            // (Mythos) is offered on, kept per login (`providers::claude_login_seen`)
+            Ok(answer) => {
+                if let Some(login) = &spec.models_login {
+                    crate::providers::claude_login_seen(&engine, login, answer);
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "claude initialize did not answer"),
         }
         Ok(proc)
     }

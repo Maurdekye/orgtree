@@ -384,7 +384,9 @@ pub fn best_allowed(engine: &Engine, org_slug: &str, tier: &str) -> Option<Strin
             && crate::usage::at_limit(engine, Some(a), tier).is_none()
             // a Muse login only where its own catalog offers the model
             && (provider != catalog::MUSE || matches!(
-                crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_))))
+                crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)))
+            // a conditional Claude tier (Mythos) only where the login's own list names it
+            && matches!(crate::providers::claude_offer(engine, Some(a), tier), crate::providers::ClaudeOffer::Offered(_)))
         .collect();
     let order: Vec<String> = usable.iter().map(|a| a.id.clone()).collect();
     let readings: HashMap<String, crate::domain::templates::Reading> = usable.iter()

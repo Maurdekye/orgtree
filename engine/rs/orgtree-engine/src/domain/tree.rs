@@ -20,6 +20,8 @@ pub struct TreeCtx<'a> {
     pub continue_primaries: &'a std::collections::HashSet<String>,
     /// every Muse login's catalog as last read: a frozen Muse seat's choices
     pub muse: &'a crate::providers::MuseCatalogs,
+    /// every Claude login's model list as last read: a frozen Mythos seat's choices
+    pub claude: &'a crate::providers::ClaudeLists,
     pub audiences_held: &'a crate::domain::audiences::EffectiveAudiences,
     /// the org these bodies are for: legacy org keys stay inside their org
     pub org_slug: &'a str,
@@ -255,6 +257,17 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
                     _ => None,
                 };
                 !matches!(ctx.muse.offer(login, &model), crate::providers::MuseOffer::NotOffered(_))
+            });
+        }
+        // a conditional Claude tier (Mythos) likewise: never a login whose own list lacks it; one not read
+        // yet stays a choice, and continue-on judges it then
+        if catalog::claude_conditional(tier) {
+            choices.retain(|id| {
+                let login = match crate::accounts::choice(Some(id)) {
+                    crate::accounts::Choice::Account(a) => ctx.accounts.get(&a),
+                    _ => None,
+                };
+                !matches!(ctx.claude.offer(login, tier), crate::providers::ClaudeOffer::NotOffered(_))
             });
         }
         choices
