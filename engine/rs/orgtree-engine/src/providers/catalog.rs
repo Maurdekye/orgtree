@@ -94,7 +94,8 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "krypton", provider: GOOGLE, seat: 2.0, model: "gemini-4-krypton",
         versions: &[("4", "gemini-4-krypton")], letter: "K",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    // Neon seat 2: inferred, speculative; USER 2026-11-18 mcfdf1e158062. No published price or measured availability.
+    // Neon seat 2 is inferred and speculative (USER 2026-11-18 mcfdf1e158062). No published price.
+    // Low, medium, high and xhigh follow Hydrogen. Provider acceptance of these levels is inferred.
     Tier { tier: "neon", provider: GOOGLE, seat: 2.0, model: "gemini-4-neon",
         versions: &[("4", "gemini-4-neon")], letter: "N",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
@@ -200,17 +201,18 @@ pub fn muse_effort(level: &str, variants: Option<&[String]>, default: Option<&st
     }
 }
 
-/// Match the verified Antigravity CLI vocabulary; larger inherited levels clamp
-/// to the model's highest (xhigh for Hydrogen, the one model the CLI names an
-/// `-xhigh` id for; high for every other), and the levels below its lowest
-/// (`none`, `minimal`) to low. Staffing offers only levels that need no translation.
+/// Clamp inherited Antigravity effort to the model's vocabulary. Hydrogen and Neon
+/// pass through medium and clamp max to xhigh. Other tiers clamp larger levels to
+/// high. None and minimal map to low. Staffing offers levels that need no translation.
+/// Neon follows Hydrogen (USER 2026-11-19 mcaafe86eb086). Apply those four levels to
+/// new Gemini models (mc0cf1cebaa48). Neon's provider acceptance is inferred.
 #[logged]
 pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     match effort {
         "low" | "high" => effort,
         "none" | "minimal" => "low",
-        "medium" if matches!(tier, "flash" | "argon" | "carbon" | "hydrogen") || antigravity_claude(tier) => effort,
-        "xhigh" | "max" if tier == "hydrogen" => "xhigh",
+        "medium" if matches!(tier, "flash" | "argon" | "carbon" | "hydrogen" | "neon") || antigravity_claude(tier) => effort,
+        "xhigh" | "max" if matches!(tier, "hydrogen" | "neon") => "xhigh",
         _ => "high",
     }
 }
