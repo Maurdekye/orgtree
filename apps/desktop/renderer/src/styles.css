@@ -6159,6 +6159,11 @@ select:not([multiple]):not([size]) {
   align-items: center; justify-content: space-between; gap: 6px;
   min-inline-size: 4.5em; white-space: nowrap; overflow: hidden; cursor: default;
 }
+/* A DISABLED DROPDOWN LOOKS DISABLED. The native control greyed itself; the in-page
+   one takes the colours above, so without this it looked enabled and only ignored
+   the click (Steam Frame report 2026-11-19 mcaf6252f7161). Dim text and the fade
+   of a disabled button (button:disabled), plus not-allowed where a pointer shows. */
+select:not([multiple]):not([size]):disabled { color: var(--dim); opacity: .45; cursor: not-allowed; }
 select:not([multiple]):not([size])::picker-icon {
   content: ''; flex: none; width: 9px; height: 9px; background: currentColor; opacity: .75;
   clip-path: polygon(0 30%, 12% 18%, 50% 56%, 88% 18%, 100% 30%, 50% 80%);
