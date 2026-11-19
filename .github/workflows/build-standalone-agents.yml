@@ -90,8 +90,13 @@ jobs:
           echo "engine $v ($commit), Claude Code $claude, Codex $codex"
 
       - name: Build (standalone/agents/Dockerfile FROM the plain image)
+        env:
+          # for the Dockerfile's request to api.github.com (GitHub's SSH host keys): a build
+          # secret, so it is in no layer, label or build argument of the image
+          GITHUB_API_HEADER: 'Authorization: Bearer ${{ github.token }}'
         run: |
           docker buildx build --load --platform linux/amd64 --provenance=false \
+            --secret id=github_api_header,env=GITHUB_API_HEADER \
             -f standalone/agents/Dockerfile --build-arg BASE="$IMAGE:$VERSION" \
             --build-arg CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" --build-arg CODEX_VERSION="$CODEX_VERSION" \
             --label org.opencontainers.image.version="$VERSION-agents" --label org.opencontainers.image.revision="$COMMIT" \
