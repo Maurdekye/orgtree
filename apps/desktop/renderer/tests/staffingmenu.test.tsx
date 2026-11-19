@@ -214,7 +214,9 @@ test('the published order IS the model-switch list order', async t => {
   // publishes is the one the model-switch dropdown shows, grouped by provider
   // and ordered by tier within each.
   assert.deepEqual(PUBLISHED, MODEL_SWITCH.filter(t => PUBLISHED.includes(t)))
-  assert.deepEqual(PUBLISHED.filter(t => TIERS.includes(t)), TIERS)
+  // (mythos is a conditional Claude tier this fixture does not publish: no login provides it here)
+  assert.deepEqual(PUBLISHED.filter(t => TIERS.includes(t)), TIERS.filter(t => PUBLISHED.includes(t)))
+  assert.deepEqual(TIERS.filter(t => !PUBLISHED.includes(t)), ['mythos'])
   // (agy-sonnet / agy-opus are conditional tiers this fixture does not publish)
   assert.deepEqual(PUBLISHED.filter(t => ANTIGRAVITY_TIERS.includes(t)), ANTIGRAVITY_TIERS.filter(t => PUBLISHED.includes(t)))
   const d = await docket(t, ['one'])

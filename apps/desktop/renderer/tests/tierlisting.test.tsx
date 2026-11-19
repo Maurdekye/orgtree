@@ -90,7 +90,8 @@ test('§1 bySeatDesc: the dearest first, equal seats keep their order, a missing
 
 test('§2 each provider lists its models dearest first, and the provider-neutral list follows', () => {
   assert.equal(TIER_SEAT.fable, 8, 'Fable costs 8 credits (USER 2026-11-13 md539ddd936f9)')
-  assert.deepEqual(TIERS_LISTED, ['fable', 'opus', 'sonnet', 'haiku'])
+  // Mythos seats at 8 like Fable and is declared after it: equal seats keep their order, so Fable leads
+  assert.deepEqual(TIERS_LISTED, ['fable', 'mythos', 'opus', 'sonnet', 'haiku'])
   // Terra seats at 1 since GPT-6.1 Terra (2026-10-26), so it follows Sol's 2
   assert.deepEqual(CODEX_TIERS_LISTED, ['astra', 'sol', 'terra', 'gpt-reserve', 'luna'])
   // Claude-backed tiers are one group, followed by Gemini tiers; Carbon's 4 (user 2026-11-12) leads the Gemini group.
@@ -100,7 +101,8 @@ test('§2 each provider lists its models dearest first, and the provider-neutral
 })
 
 test('§2 the order a DEFAULT is taken from did not move (the hire sheet and Quick chat open on the first offered)', () => {
-  assert.deepEqual(TIERS, ['haiku', 'sonnet', 'opus', 'fable'])
+  // Mythos is declared last: it is conditional, and never the first offered
+  assert.deepEqual(TIERS, ['haiku', 'sonnet', 'opus', 'fable', 'mythos'])
   assert.deepEqual(CODEX_TIERS, ['gpt-reserve', 'luna', 'terra', 'sol', 'astra'])
   assert.deepEqual(ANTIGRAVITY_TIERS, ['flash', 'hydrogen', 'pro', 'argon', 'krypton', 'neon', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.deepEqual(MUSE_TIERS, ['wonder', 'wonder-full', 'spark'])
