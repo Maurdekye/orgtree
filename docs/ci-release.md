@@ -429,6 +429,9 @@ verify-release checks them as it checks x64. That switch is the owner's decision
   package is aarch64, and none needs a glibc newer than 2.35, Ubuntu 22.04's. Measured in
   that run, 78 files: the engine, the mail hub and PostgreSQL need glibc 2.34, Electron's
   own programs 2.25. The per-file report is the artifact `orgtree-linux-arm64-glibc`.
+  A file whose symbols cannot be read (objdump missing or failing) has no verdict and
+  fails the step; only a file objdump itself calls "not a dynamic object" counts as
+  having none.
 
 Not tried: a real ARM desktop, a start without FUSE on such a device, SteamOS, an update
 from a public feed. The x64 build's "inferred" notes below hold for arm64 as well.

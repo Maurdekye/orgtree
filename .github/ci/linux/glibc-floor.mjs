@@ -6,6 +6,9 @@
 // `objdump -T`. Prints one row per file, writes the same as JSON, adds a table to the
 // run summary, and fails when a file needs a newer glibc than <max> or is built for
 // another architecture. A file with no GLIBC_ symbols (static, or no libc) has no floor.
+// A file whose symbols could not be read (no objdump, an I/O error, a format objdump does
+// not know) has no verdict, so the check fails; so does a package in which no file's
+// symbols name a glibc version at all.
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -29,6 +32,31 @@ const walk = folder => {
 }
 walk(dir)
 
+// `objdump -T` of one ELF file, as one of three outcomes:
+//   read        its dynamic symbol table, in `symbols`
+//   none        objdump says the file has none ("not a dynamic object", or a table that
+//               says "no symbols"): a static program
+//   unreadable  anything else, with the reason. Never taken for "none".
+function dynamicSymbols(file) {
+  const oneLine = text => String(text ?? '').trim().split('\n').filter(Boolean).slice(-1)[0] ?? ''
+  let out
+  try {
+    out = execFileSync('objdump', ['-T', file], { encoding: 'utf8', maxBuffer: 256 << 20, stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (error) {
+    // objdump ran and exited by itself, saying the file is not dynamically linked
+    if (typeof error.status === 'number' && /not a dynamic object/.test(String(error.stderr ?? ''))) return { symbols: '', state: 'none' }
+    const reason = typeof error.status === 'number' ? `objdump exited ${error.status}: ${oneLine(error.stderr) || '(no message)'}`
+      : error.signal ? `objdump was ended by ${error.signal}`
+      : `objdump did not run: ${error.code ?? ''} ${oneLine(error.message)}`.replace(/\s+/g, ' ')
+    return { symbols: '', state: 'unreadable', reason }
+  }
+  const at = out.indexOf('DYNAMIC SYMBOL TABLE:')
+  if (at < 0) return { symbols: '', state: 'unreadable', reason: 'objdump exited 0 with no dynamic symbol table in its output' }
+  const table = out.slice(at + 'DYNAMIC SYMBOL TABLE:'.length)
+  if (/^\s*no symbols\s*$/.test(table)) return { symbols: '', state: 'none' }
+  return { symbols: table, state: 'read' }
+}
+
 const rows = []
 for (const file of files.sort()) {
   const head = Buffer.alloc(20)
@@ -38,19 +66,21 @@ for (const file of files.sort()) {
   if (read < 20 || head.readUInt32BE(0) !== 0x7f454c46) continue   // not ELF
   const little = head[5] === 1
   const machine = little ? head.readUInt16LE(18) : head.readUInt16BE(18)
-  let symbols = ''
-  try { symbols = execFileSync('objdump', ['-T', file], { encoding: 'utf8', maxBuffer: 256 << 20, stdio: ['ignore', 'pipe', 'ignore'] }) } catch { /* no dynamic symbol table */ }
+  const { symbols, state, reason } = dynamicSymbols(file)
   const versions = [...new Set(symbols.match(/GLIBC_\d+(?:\.\d+)+/g) ?? [])].map(v => v.slice(6)).sort(newer)
-  rows.push({ file: path.relative(dir, file).split(path.sep).join('/'), machine: machineName(machine), glibc: versions.at(-1) ?? null })
+  rows.push({ file: path.relative(dir, file).split(path.sep).join('/'), machine: machineName(machine), glibc: versions.at(-1) ?? null, symbols: state, ...(reason ? { reason } : {}) })
 }
 if (!rows.length) { console.log(`::error::no ELF file under ${dir}`); process.exit(1) }
 
 const problems = []
 for (const row of rows) {
   if (row.machine !== wantName) problems.push(`${row.file} is built for ${row.machine}, not ${wantName}`)
+  if (row.symbols === 'unreadable') problems.push(`${row.file}: its dynamic symbols could not be read (${row.reason}), so its glibc is unknown`)
   if (row.glibc && newer(row.glibc, max) > 0) problems.push(`${row.file} needs glibc ${row.glibc}, newer than ${max}`)
 }
 const floor = rows.map(row => row.glibc).filter(Boolean).sort(newer).at(-1) ?? null
+// a packaged app always has dynamically linked programs: no floor at all means nothing was measured
+if (!floor && !problems.length) problems.push(`no file's dynamic symbols name a glibc version: ${rows.length} ELF file(s) read, none with a GLIBC_ symbol`)
 // The parts the app is made of, each with the newest glibc any of its files needs.
 const parts = [
   ['Electron (the app binary and its libraries)', row => !row.file.startsWith('resources/')],
@@ -64,7 +94,7 @@ const parts = [
 }).filter(part => part.files)
 
 const width = Math.max(...rows.map(row => row.file.length))
-for (const row of rows) console.log(`${row.file.padEnd(width)}  ${row.machine.padEnd(8)}  ${row.glibc ? `GLIBC_${row.glibc}` : '(none)'}`)
+for (const row of rows) console.log(`${row.file.padEnd(width)}  ${row.machine.padEnd(8)}  ${row.glibc ? `GLIBC_${row.glibc}` : row.symbols === 'unreadable' ? 'UNREADABLE' : row.symbols === 'none' ? '(no dynamic symbols)' : '(none)'}`)
 console.log('')
 for (const part of parts) console.log(`${part.part}: ${part.files} ELF file(s), needs glibc ${part.glibc ?? '(none)'}`)
 console.log(`glibc floor of the ${arch} app: ${floor ?? '(none)'} (allowed: up to ${max}); ${rows.length} ELF files, all must be ${wantName}`)
