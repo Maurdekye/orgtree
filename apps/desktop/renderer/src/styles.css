@@ -6084,6 +6084,19 @@ input, select, textarea {
   border: 1px solid var(--line); background: var(--input); color: var(--ink-strong);
 }
 input::placeholder, textarea::placeholder { color: #6e6e6e; }
+/* A DROPDOWN'S OPTION LIST IS DRAWN INSIDE THE WINDOW, NEVER AS AN OS POP-UP
+   (user 2026-11-19 m6a2395ab50fb "Everywhere"). A native select opens its list
+   in a separate OS window. Under Gamescope with the OpenVR backend (the Steam
+   Frame) that window never received a controller click: 0 of 20 option clicks
+   registered. `base-select` on BOTH the select and its picker makes Chromium
+   draw the list in the page's top layer instead: in this window, above every
+   modal and pinned window, each option an ordinary element that takes the
+   click. ⚠ BOTH HALVES ARE NEEDED: with only the select switched the browser
+   keeps the OS pop-up. It covers every single-choice select, present and
+   future, with no change at the call site; a `multiple` or sized select is an
+   in-page list box already and is left alone. */
+select:not([multiple]):not([size]),
+select:not([multiple]):not([size])::picker(select) { appearance: base-select; }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 1px solid var(--accent); outline-offset: -1px;
 }
