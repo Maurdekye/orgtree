@@ -19,7 +19,7 @@
 //      lineage rehire list, auto-autopsy model list, App settings > Model
 //      tiers, Usage tier rows
 //   §3 an agent already on Gemini Pro keeps its P token and its own tier
-//   §4 the toggle's label names its one legacy model, Gemini Pro
+//   §4 the toggle's label names Gemini Pro, Flash and Argon by default
 //   §5 the toggle lives in App settings > Runtime, off by default
 //
 // ⚠ Every test that turns the toggle on turns it off again in `t.after`.
@@ -293,7 +293,7 @@ test('§2 Usage per-account tier rows leave Gemini Pro out unless legacy models 
 
 /* ── §4 the label ───────────────────────────────────────────────────────── */
 
-test('§4 the toggle is labelled with its one legacy model, Gemini Pro',
+test('§4 the toggle names Gemini Pro, Flash and Argon when Neon is absent',
   async (t: TestContext) => {
     fresh(t)
     const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
@@ -301,7 +301,7 @@ test('§4 the toggle is labelled with its one legacy model, Gemini Pro',
     await inAct(async () => { await flush(10) })
     const panel = document.getElementById('app-settings-panel-runtime')
     assert.ok(panel, 'no Runtime tab panel')
-    assert.match(panel!.textContent ?? '', /Show legacy models \(Gemini Pro, Gemini Flash\)/)
+    assert.match(panel!.textContent ?? '', /Show legacy models \(Gemini Pro, Gemini Flash, Gemini Argon\)/)
     assert.doesNotMatch(panel!.textContent ?? '', /Terra/, 'the Runtime tab still names Terra as legacy')
   })
 
@@ -313,7 +313,7 @@ test('§5 App settings > Runtime carries the toggle (and no other tab does), off
     const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
     t.after(() => v.unmount())
     await inAct(async () => { await flush(10) })
-    const label = /Show legacy models \(Gemini Pro, Gemini Flash\)/
+    const label = /Show legacy models \(/
     const holders = [...document.querySelectorAll('[role="tabpanel"]')]
       .filter((p) => label.test(p.textContent ?? ''))
     assert.deepEqual(holders.map((p) => p.id), ['app-settings-panel-runtime'],
