@@ -126,6 +126,8 @@ fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
             .replace("org mailbox", "org inbox").replace("org-mailbox", "org-inbox").replace("Org mailbox", "Org inbox");
         // Effort-only change clause (docket agent-instructions-say-that-effort-changes-on-cl): a rules-text addition only.
         let text = text.replace("An effort-only change on an eligible Claude seat applies at its next model call, mid-turn, with no interrupt or restart. For other pending", "For pending");
+        // USER 2026-11-19 mf0951505ba87: orgtree_unstick is called orgtree_thaw; the name is the only change.
+        let text = text.replace("orgtree_thaw", "orgtree_unstick");
         assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
         assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
             expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions/loading/apps");
