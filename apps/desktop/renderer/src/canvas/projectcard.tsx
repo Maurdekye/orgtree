@@ -298,7 +298,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinned, onFocus, onShow
               aria-label={`mailbox of project ${node.id}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onInbox(true, mailQueueFolder(queue)) }}>{queue.text}</button>}
-            {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
+            {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} />}
 
             </div>
           </div>

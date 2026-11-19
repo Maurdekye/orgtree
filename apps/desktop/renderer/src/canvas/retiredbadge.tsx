@@ -1,15 +1,9 @@
-import { useContextMenu } from './contextmenu'
-
-/** USER 2026-10-21 11:16Z: one clickable header badge on agents and projects.
- * The retired-list identity owns this gesture, rather than the containing node. */
-export function RetiredBadge({ parent, count, onOpen, className = 'retired-token' }: {
-  parent: string; count: number; onOpen: () => void; className?: string
+/** USER 2026-11-19 ma217f83e0e6a: retired counts are plain indicators.
+ * The owning node's context menu opens its existing retired list. */
+export function RetiredBadge({ parent, count, className = 'retired-token' }: {
+  parent: string; count: number; className?: string
 }) {
-  const menu = useContextMenu()
   if (count < 1) return null
-  return <><button type="button" className={`badge retired-badge ${className}`.trim()} data-retired-parent={parent}
-    title={`${count} retired agent${count === 1 ? '' : 's'} hidden here — click to list`}
-    onPointerDown={e => e.stopPropagation()}
-    onClick={e => { e.stopPropagation(); onOpen() }}
-    onContextMenu={e => menu.open(e, [{ label: 'Open retired list', onSelect: onOpen }])}>{count} retired</button>{menu.node}</>
+  return <span className={`badge retired-badge ${className}`.trim()} data-retired-parent={parent}
+    aria-label={`${count} retired agent${count === 1 ? '' : 's'}`}>{count} retired</span>
 }

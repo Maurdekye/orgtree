@@ -5033,9 +5033,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           // External root satellite: above resting cards (1), below the eye's
           // focused/hover hire controls (5/6). The former inset-bunch layer 7
           // covered the eye's provider rows; node badges now live in headers.
-          <div className="root-retired-list" style={{ position: 'absolute', zIndex: 2,
+          <div className="root-retired-list" style={{ pointerEvents: 'none', position: 'absolute', zIndex: 2,
             transform: `translate(${posOf(USER)!.x + 6}px, ${posOf(USER)!.y + sizeOf(USER).h + 4}px)` }}>
-            <RetiredBadge parent={USER} count={retiredCounts.get(USER)!} onOpen={() => setRetiredOpen(USER)} />
+            <RetiredBadge parent={USER} count={retiredCounts.get(USER)!} />
           </div>)}
         {/* FR-18: watchdog chips — tiny satellite cards beside their owner
             (the user's spec: named; click for the detail + sent-events

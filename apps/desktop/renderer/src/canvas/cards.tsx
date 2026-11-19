@@ -2165,7 +2165,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {/* the subtree fold chevron, wearing the hidden count while
               folded — before the retired token, which stays last in both
               header rows (2026-10-21) */}
-          {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
+          {onRetired && <RetiredBadge parent={node.id} count={retiredCount} />}
 
         </div>
       )}

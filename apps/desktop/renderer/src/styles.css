@@ -405,9 +405,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   background: var(--panel-2); color: var(--dim);
   border: 1px solid var(--line-soft); border-radius: 9px;
   font: inherit; line-height: 1.5; white-space: normal; overflow-wrap: anywhere;
-  cursor: pointer;
+  pointer-events: none; cursor: default;
 }
-.retired-badge:hover { color: var(--ink-strong); border-color: var(--dim); }
 .watchdog-group { white-space: nowrap; min-width: 104px; }
 .watchdog-list { position: relative; width: 460px; max-width: calc(100vw - 32px); }
 .watchdog-list-close { position: absolute; right: 16px; top: 12px; }
@@ -2106,11 +2105,12 @@ html.mobile .edge-jump { display: none; }
 .desk-nav-chip {
   display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--line); border-radius: 5px; background: var(--input);
-  color: var(--dim); font-size: 11.5px; padding: 2px 8px; cursor: pointer;
+  color: var(--dim); font-size: 11.5px; padding: 2px 8px;
 }
 /* a project's jump card carries the folder mark in place of a tier letter */
 .desk-nav-chip .project-mark { display: inline-flex; color: var(--accent); }
-.desk-nav-chip:hover {
+.desk-nav-chip:not(.retired-badge) { cursor: pointer; }
+.desk-nav-chip:not(.retired-badge):hover {
   color: var(--ink-strong);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: var(--accent-soft);

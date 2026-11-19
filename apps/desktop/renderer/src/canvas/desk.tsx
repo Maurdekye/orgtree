@@ -2019,7 +2019,6 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
 }) {
   const [showRetired, setShowRetired] = useState(false)
   const hideRetired = useHideRetired()
-  const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
   const jump = onJump ?? (() => {})
   const reports = onJump ? downJumpTargets(node.children) : []
   const alive = reports.filter((c) => c.state === 'live')
@@ -2044,13 +2043,8 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
     <div className="desk-nav">
       <DeskJumpCards ids={cardIds} render={renderCard}>{folded => <>
         {!folded && alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
-        {hideRetired && retiredTotal > 0 && <>
-          <RetiredBadge className="desk-nav-chip desk-retired-token" parent={node.id} count={retiredTotal} onOpen={() => setRetiredMenuOpen(true)} />
-          {retiredMenuOpen && <ModalOverPins><PilePicker org={org} reports
-            pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]?.id ?? '', total: retiredTotal }}
-            map={map} close={() => setRetiredMenuOpen(false)}
-            onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
-        </>}
+        {hideRetired && retiredTotal > 0 &&
+          <RetiredBadge className="desk-nav-chip desk-retired-token" parent={node.id} count={retiredTotal} />}
         {!hideRetired && retired.length > 0 && (
           <button className="desk-nav-chip dim"
             title={showRetired ? 'collapse the retired reports'
