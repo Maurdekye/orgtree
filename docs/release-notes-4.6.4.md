@@ -21,6 +21,9 @@ Orgtree 4.6.4 draws every dropdown inside the app window, makes the retired badg
 ## Linux on arm64
 
 - **New downloads.** An AppImage and a .deb for 64-bit ARM Linux (aarch64) sit beside the x64 ones, with their own update feed. They need glibc 2.34 or newer. They were built and smoke-tested on GitHub's arm64 runners.
+- **AppImage without FUSE.** The AppImage now works where FUSE is missing; start it with `--appimage-extract-and-run`. The engine then runs from its own copy in your profile, about 430 MB per version. That also stops a second launch from breaking a running engine.
+- **Codex found however Orgtree was started.** An engine started from the Steam overlay or a desktop menu now searches the same folders as the background engine, including `~/.local/bin`, and Codex's own install folder.
+- **Test builds leave your background engine alone.** A build with a prerelease label no longer rewrites the installed version's login registration.
 
 ## Notes
 
