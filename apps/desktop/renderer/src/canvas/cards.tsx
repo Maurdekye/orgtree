@@ -77,6 +77,8 @@ import { AgentSlotChips } from './slotchips'
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
   onAgents?: (keepOpen?: boolean) => void
+  retiredCount?: number
+  onRetired?: () => void
   /** Org template defaults; manual Quick chat picks are read at menu-open time. */
   quickChatDefaults?: TreePayload['quick_chat']
   pos: Pt
@@ -145,7 +147,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   onMailLink, onWorkLink,
   focused, deskEligible = true, eyeW, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
-  pinnedIds, onShowPin, onNewProject }: UserNodeProps) {
+  pinnedIds, onShowPin, onNewProject, retiredCount = 0, onRetired }: UserNodeProps) {
   // the eye's hire chips collapse behind the same far-zoom ⋯ toggle as every
   // other node's (NodeSquare's expandedHireEdge) — the eye has one static
   // edge (soleHire), so a plain boolean stands in for that per-edge map.
@@ -196,6 +198,9 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     if (onNewProject) {
       entries.push({ label: 'New project…', title: 'a project node at the top level: its agents work on it',
         onSelect: () => onNewProject() })
+    }
+    if (onRetired && retiredCount > 0) {
+      entries.push({ label: `Open retired list (${retiredCount})`, onSelect: onRetired })
     }
     const openEntries: MenuEntry[] = []
     if (onInbox) openEntries.push({ label: 'Inbox', onSelect: () => onInbox(true) })
@@ -1687,6 +1692,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   const menuEntries = (): MenuEntry[] => {
     const desk = deskNow(node)
     return agentMenuEntries(node, {
+      onRetiredList: onRetired, retiredCount,
       onOpenDesk: onRecenter,
       onInbox: () => onInbox(true),
       onTeam: onTeam ? () => onTeam(true) : undefined,

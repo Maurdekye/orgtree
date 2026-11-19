@@ -55,6 +55,8 @@ export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact' 
   | 'halt-subtree' | 'halt-subordinates' | 'unhalt-subtree' | 'unhalt-subordinates'
 
 export interface AgentMenuHandlers {
+  onRetiredList?: () => void
+  retiredCount?: number
   onTeam?: () => void
   /** open this agent's desk — the card re-centres the camera on itself, the
    *  Agents List row glides to it. Absent leaves the entry disabled rather
@@ -256,6 +258,9 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     title: temporary ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined,
     children: [...deskEntries, ...(deskEntries.length ? ['sep' as const] : []), ...openEntries],
   })
+  if (h.onRetiredList && (h.retiredCount ?? 0) > 0) {
+    entries.splice(2, 0, { label: `Open retired list (${h.retiredCount})`, onSelect: h.onRetiredList })
+  }
   const hire = h.onHire
   if (canHire && hire) {
     // the menu just opened on a model choice: re-read agy's model list
@@ -430,6 +435,9 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // project, in one order (UX symmetry #3, symmetrymenus.test §2)
   entries.push({ label: 'Open', submenuOnly: !temp, onSelect: () => temp?.(), children: open,
     title: temp ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined })
+  if (h.onRetiredList && (h.retiredCount ?? 0) > 0) {
+    entries.push({ label: `Open retired list (${h.retiredCount})`, onSelect: h.onRetiredList })
+  }
   const hire = h.onHire
   if (live && hire && !s.piled) {
     refreshAgyModels()

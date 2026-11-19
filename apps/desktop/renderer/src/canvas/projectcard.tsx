@@ -203,6 +203,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinned, onFocus, onShow
   // same rules draw it; busy and asking keep their state colour (styles.css)
   if (theme?.color) Object.assign(style, { '--provider-accent': theme.color })
   const menuEntries = () => projectMenuEntries(node, {
+    onRetiredList: onRetired, retiredCount,
     onInbox: () => onInbox(true),
     onTeam: onTeam ? () => onTeam(true) : undefined,
     onDocket: onDocket ? () => onDocket(true) : undefined,

@@ -3951,6 +3951,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // read at menu-open time, never subscribed to (deskhosts.tsx)
     const desk = deskNow(n)
     return agentMenuEntries(n, {
+      onRetiredList: () => setRetiredOpen(n.id), retiredCount: retiredCounts.get(n.id),
       onOpenDesk: go,
       onInbox: () => openInbox(n.id, { ensureOpen: true }),
       onTeam: () => openTeam(n.id, { ensureOpen: true }),
@@ -4856,6 +4857,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             // and applies the USER_W floor.
             const eyeW = eyeWorldW(eyeR)
             return <UserNode key={USER} pos={p} isDrop={dropId === USER} seats={seats}
+              retiredCount={retiredCounts.get(USER)} onRetired={() => setRetiredOpen(USER)}
               codexHire={codexHire} antigravityHire={antigravityHire}
               openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
               claudeHire={claudeHire} onNoHarness={onAccounts}
