@@ -1821,7 +1821,7 @@ mod neon_tests {
     use super::*;
 
     #[test]
-    fn speculative_neon_matches_krypton_and_resolves_latest_or_pin() {
+    fn neon_catalog_preserves_identity_and_resolves_latest_or_pin() {
         let n = catalog::tier("neon").expect("speculative Neon tier");
         assert_eq!((n.provider, n.model, n.letter, n.seat), (catalog::GOOGLE, "gemini-4-neon", "N", 2.0));
         assert_eq!(n.versions, &[("4", "gemini-4-neon")]);
@@ -1830,11 +1830,23 @@ mod neon_tests {
         assert_eq!(catalog::display_name(n, None).as_deref(), Some("Gemini Neon 4"));
         assert_eq!(catalog::version_view("neon", None)["resolved_version"], "4");
         assert_eq!(catalog::model_for("neon", Some("4")), "gemini-4-neon");
-        assert_eq!(effort_names(&State::default(), "neon"), effort_names(&State::default(), "krypton"));
-        assert_eq!(catalog::antigravity_effort("neon", "medium"), "high");
         let names: Vec<_> = catalog::TIERS.iter().map(|t| t.tier).collect();
         let k = names.iter().position(|t| *t == "krypton").unwrap();
         assert_eq!(&names[k..k+3], &["krypton", "neon", "carbon"]);
+    }
+
+    #[test]
+    fn neon_effort_matches_hydrogen_and_keeps_the_model_id() {
+        let state = State::default();
+        let neon = effort_names(&state, "neon").unwrap();
+        assert_eq!(neon, effort_names(&state, "hydrogen").unwrap());
+        assert_eq!(neon, ["low", "medium", "high", "xhigh"]);
+        assert_eq!(catalog::antigravity_effort("neon", "medium"), "medium");
+        assert_eq!(catalog::antigravity_effort("neon", "xhigh"), "xhigh");
+        assert_eq!(catalog::antigravity_effort("neon", "max"), "xhigh");
+        assert_eq!(catalog::antigravity_effort("neon", "minimal"), "low");
+        assert_eq!(catalog::antigravity_model("neon", "gemini-4-neon", "xhigh"), "gemini-4-neon");
+        assert_eq!(effort_names(&state, "krypton").unwrap(), ["low", "high"]);
     }
 
     #[test]
