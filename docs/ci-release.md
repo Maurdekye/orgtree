@@ -349,12 +349,50 @@ Ubuntu 22.04's glibc 2.35 (inferred).
   them (inferred, not run).
 - AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it, from a folder you own such
   as `~/Applications` (it updates itself there, see below). It needs FUSE 2:
-  `sudo apt install libfuse2` (Ubuntu 22.04) or `libfuse2t64` (24.04). Without it,
-  run `./Orgtree-<v>.AppImage --appimage-extract-and-run`. The update test runs it
-  with FUSE (measured on the runner). Where unprivileged user namespaces are
-  restricted (a stock Ubuntu 24.04), the launcher electron-builder puts in the
-  AppImage adds `--no-sandbox` by itself when `unshare -Ur true` fails (read from
-  electron-builder 26.15.3; the runner allows user namespaces, so not exercised).
+  `sudo apt install libfuse2` (Ubuntu 22.04) or `libfuse2t64` (24.04). Without it
+  (SteamOS has none), run `./Orgtree-<v>.AppImage --appimage-extract-and-run`: see
+  "Without FUSE" below. The update test runs it with FUSE (measured on the runner).
+  Where unprivileged user namespaces are restricted (a stock Ubuntu 24.04), the
+  launcher electron-builder puts in the AppImage adds `--no-sandbox` by itself when
+  `unshare -Ur true` fails (read from electron-builder 26.15.3; the runner allows user
+  namespaces, so not exercised). Measured in a container, where `unshare` fails: with
+  that argument added, the AppImage started as node (`ELECTRON_RUN_AS_NODE`, which is
+  how the background engine's unit runs it with FUSE) exits 9, "bad option:
+  --no-sandbox". On such a system the unit cannot start that way; not seen on a real
+  desktop yet.
+- **Without FUSE** (from 4.6.4; `apps/desktop/main/engine-runtime.ts`). Started with
+  `--appimage-extract-and-run` or `APPIMAGE_EXTRACT_AND_RUN=1`, the AppImage runtime
+  unpacks the whole app (805 MB) into `/tmp/appimage_extracted_<hash of the file>` and
+  deletes that folder when the app exits. Every launch of the same file shares the
+  folder. Measured with the x64 4.6.3 AppImage in a container without FUSE: a second
+  launch that exits removes all of it under the first, which is still running. On a
+  Steam Frame this left PostgreSQL without `plpgsql` ("could not access file"), and a
+  unit that ran the AppImage file could not start at all (`libfuse.so.2`). So in this
+  mode the engine does not run from the extraction. The desktop copies
+  `resources/engine` and `resources/ui` once per build to
+  `~/.config/Orgtree v2/engine-runtime/<version>-<commit>` (440 MB in 800 files, 3 s
+  measured), starts its engine from the copy, and registers the background engine as
+  `<copy>/engine/orgtree-engine host`, with a second `ConditionPathExists` on the
+  AppImage file. The copy is built in a temporary folder, checked by file count and
+  bytes against the app, and renamed into place; the current and the newest other copy
+  are kept, and one that a process still runs from is never removed. If the copy
+  cannot be made, the engine runs from the extraction as before and nothing is
+  registered. The `no-fuse` mode of `.github/ci/linux/desktop-check.sh` runs this on
+  the Linux runners: the unit, the host and PostgreSQL run from the copy and keep
+  running, with their files, through a second launch and the desktop's quit.
+  Not fixed: a second launch still deletes the first launch's Electron files, which
+  the runtime does after the app has exited. Files the first desktop has open keep
+  working; one it opens later would be missing.
+- A build whose version has a prerelease label (a test build such as `4.6.3-frame.1`)
+  never writes, enables, disables or removes `orgtree-engine.service` or the autostart
+  entry: the registration belongs to the installed release
+  (`unixboot.ts registersBootEngine`). It attaches to a background engine that already
+  answers, or starts its own.
+- The engine the desktop starts itself gets the same `PATH` as the registered one (the
+  login shell's, then `~/.local/bin` and the usual folders), not the desktop's own,
+  which under Steam is `/usr/local/bin:/usr/bin`. Codex is also looked for in
+  `~/.local/bin/codex` and `~/.codex/packages/standalone/current/bin/codex` when
+  `PATH` has none.
 - For a prerelease such as `X.Y.Z-beta.N`, Debian's version inside the package reads
   `X.Y.Z~beta.N`; the file name keeps the hyphen.
 - Data folder: `~/.config/Orgtree v2`, or under `$XDG_CONFIG_HOME` if that is set
@@ -439,7 +477,7 @@ candidate the staged names were those of published v4.6.3 (run 44482893173); as
   fails the step; only a file objdump itself calls "not a dynamic object" counts as
   having none.
 
-Not tried: a real ARM desktop, a start without FUSE on such a device, SteamOS, an update
+Not tried in CI: a real ARM desktop, SteamOS (a tester's Steam Frame runs it without FUSE), an update
 from a public feed. The x64 build's "inferred" notes below hold for arm64 as well.
 
 **Linux updates (the AppImage only).** An AppImage started from its file reads
