@@ -98,7 +98,8 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
 import { readStartupTasks, startEngineTask, startHelperTask, startupOn, writeRunOnStartup } from './runonstartup'
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
-import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, type BootInputs } from './unixboot'
+import { bootInputsFor, disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, type BootInputs } from './unixboot'
+import { appImageExtracted, ensureRuntimeCopy, runtimeCopyName, RUNTIME_FOLDER } from './engine-runtime'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { addRemoteFirewallRule, removeRemoteFirewallRule, validDoorPort } from './remotefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -2538,6 +2539,29 @@ else {
         launchBackground: undefined as EngineOptions['launchBackground'],
         searchPath: undefined as EngineOptions['searchPath'] }
       engineOptions.customDataRoot = isCustomRoot(engineOptions.dataRoot)
+      // An AppImage running WITHOUT a FUSE mount (--appimage-extract-and-run): its
+      // extraction is shared by every launch and deleted when any of them exits, so
+      // the engine, its PostgreSQL and the ui it serves run from the engine's own
+      // copy instead (engine-runtime.ts). With FUSE, a .deb or macOS: unchanged.
+      const extractedAppDir = app.isPackaged && process.platform === 'linux' && !process.env.ORGTREE_ENGINE_BIN ? appImageExtracted(process.env) : null
+      let runtimeCopyFailed = false
+      if (extractedAppDir && engineOptions.binary) {
+        try {
+          const commit = await fs.promises.readFile(path.join(process.resourcesPath, 'build-info.json'), 'utf8')
+            .then(text => String((JSON.parse(text) as { commit?: unknown }).commit ?? ''), () => '')
+          const copy = await ensureRuntimeCopy({ resources: process.resourcesPath, root: path.join(app.getPath('userData'), RUNTIME_FOLDER),
+            name: runtimeCopyName({ version: app.getVersion(), commit }) })
+          engineOptions.directory = copy.engine
+          engineOptions.binary = path.join(copy.engine, exeName('orgtree-engine'))
+          engineOptions.uiDirectory = copy.ui
+          console.warn(`no FUSE mount (${extractedAppDir}): the engine runs from its own copy, ${copy.dir}${copy.copied ? ' (copied now)' : ''}`)
+          if (copy.removed.length) console.warn(`older engine copies removed: ${copy.removed.join(', ')}`)
+        } catch (error) {
+          // the engine then runs from the extraction, as before, and nothing is registered
+          runtimeCopyFailed = true
+          console.warn(`no FUSE mount (${extractedAppDir}) and the engine could not be copied: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
       // Never create a blank database when a configured custom data location is
       // unmounted or missing at startup (Q6): let the user reconnect the drive,
       // pick another folder, switch back to default, or quit.
@@ -2647,12 +2671,15 @@ else {
       const bootAttached = async () => {
         if (!registersBootEngine({ packaged: app.isPackaged, platform: process.platform, appId: identity.appId, releaseAppId: RELEASE_APP_ID,
           version: app.getVersion(), hasEngine: !!engineOptions.binary })) return false
+        // without FUSE the AppImage cannot be the registered program, and without
+        // the copy there is nothing stable to register
+        if (runtimeCopyFailed) return false
         const folders = privateDataFolders(engineOptions.dataRoot, app.getPath('userData'))
         if (folders.tightened.length) console.warn(`data folders made private (0700): ${folders.tightened.join(', ')}`)
         if (folders.error) console.warn(`data folders could not be made private: ${folders.error}`)
-        unixBootInputs = { platform: process.platform, home: os.homedir(), appId: identity.appId,
-          engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
-          shellPath: await unixShellPath() }
+        unixBootInputs = bootInputsFor({ platform: process.platform, home: os.homedir(), appId: identity.appId,
+          engine: engineOptions.binary!, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
+          shellPath: await unixShellPath(), extracted: !!extractedAppDir })
         // "Run on startup" off: nothing of Orgtree starts at login. A host
         // still running from earlier is left to serve this session (the
         // caller attaches to it); otherwise the caller starts its own engine.

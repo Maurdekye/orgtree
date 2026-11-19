@@ -50,8 +50,13 @@ export interface BootInputs {
   appId: string
   /** the packaged engine binary (inside the .app, /opt/Orgtree, or the AppImage mount) */
   engine: string
-  /** $APPIMAGE when running from an AppImage */
+  /** $APPIMAGE when running from an AppImage with a FUSE mount: the registration
+   *  runs the AppImage file itself, which keeps its mount up (APPIMAGE_HOST_JS) */
   appImage?: string
+  /** files that must also exist for the entry to do anything. Without FUSE `engine`
+   *  is the engine's own copy (engine-runtime.ts) and this is the AppImage: deleting
+   *  the AppImage makes the registration a no-op, as a removed installation does */
+  requires?: string[]
   dataRoot: string
   /** the user's login shell's PATH (loginShellPath), ahead of the fixed list */
   shellPath?: string
@@ -126,6 +131,15 @@ export function bootCommand(o: BootInputs): BootCommand {
   return { program: o.engine, args: ['host'], env }
 }
 
+/** What the registration is made from, by how the app runs. An AppImage without a
+ *  FUSE mount (`extracted`) cannot be the registered program: it needs libfuse to
+ *  start, and its extraction is deleted when the desktop exits. `engine` is then
+ *  the engine's own copy, run directly. */
+export function bootInputsFor(o: Omit<BootInputs, 'requires'> & { extracted: boolean }): BootInputs {
+  const { extracted, appImage, ...rest } = o
+  return extracted && appImage ? { ...rest, requires: [appImage] } : { ...rest, appImage }
+}
+
 export const launchAgentLabel = (appId: string) => appId + LAUNCH_AGENT_SUFFIX
 
 export function bootFile(o: Pick<BootInputs, 'platform' | 'home' | 'appId'>, kind: 'launchd' | 'systemd' | 'autostart'): string {
@@ -179,7 +193,7 @@ export function systemdUnit(o: BootInputs): string {
   return [
     '[Unit]',
     'Description=Orgtree Background Engine',
-    `ConditionPathExists=${c.program.replace(/%/g, '%%')}`,
+    ...[c.program, ...(o.requires ?? [])].map(file => `ConditionPathExists=${file.replace(/%/g, '%%')}`),
     'StartLimitIntervalSec=600',
     'StartLimitBurst=4',
     '',
