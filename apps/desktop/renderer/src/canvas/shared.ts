@@ -59,7 +59,7 @@ const sanitizeMarkdown = (html: string): string => {
 // out of this shared map made every generic card/header caller fall through to
 // `?` even though the hire sheet had a separate Codex-only map.
 export const TIER_LETTER: Record<string, string> = {
-  haiku: 'H', sonnet: 'S', opus: 'O', fable: 'F',
+  haiku: 'H', sonnet: 'S', opus: 'O', fable: 'F', mythos: 'M',
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
@@ -71,11 +71,18 @@ export const TIER_LETTER: Record<string, string> = {
   // model, so a square mark wherever a row draws a node's tier chip
   project: '▣',
 }
-export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
-/** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
- *  frontend had four copies of this before. Fable costs 8 (user 2026-11-13 md539ddd936f9). */
+export const TIERS = ['haiku', 'sonnet', 'opus', 'fable', 'mythos']
+/** seat cost per tier — mirrors ledger.TIERS. One table; the
+ *  frontend had four copies of this before. Fable costs 8 (user 2026-11-13 md539ddd936f9).
+ *  Mythos (USER 2026-11-19 m4f7e7e8c6694): 8, by the input-price rule ($8 per million, measured 2026-11-19),
+ *  level with Fable 5.2, the same model. Declared after Fable: equal seats keep this order where tiers are listed. */
 export const TIER_SEAT: Record<string, number> =
-  { haiku: 0.5, sonnet: 2, opus: 4, fable: 8 }
+  { haiku: 0.5, sonnet: 2, opus: 4, fable: 8, mythos: 8 }
+/** Claude tiers offered only while a signed-in Claude login provides them (USER 2026-11-19 m8c9e34510689 "only
+ *  show it if mythos is provided by a signed in claude account"): the engine lists the tier in the Claude
+ *  provider's payload rows only while a login's own CLI lists the model. No row, no offer. Mirrors the catalog's
+ *  `conditional` Claude rows. */
+export const CONDITIONAL_CLAUDE_TIERS = ['mythos']
 /** Model VERSIONS inside a tier — mirrors ledger.MODEL_VERSIONS. A version is
  *  a subcategory of the tier (user ruling 2026-08-04): it never changes the
  *  seat cost and never appears as a chip, only in the gear. A tier absent
@@ -86,6 +93,7 @@ export const TIER_SEAT: Record<string, number> =
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
   { haiku: ['5.5', '4.5'], opus: ['5.5', '5', '4.8'], sonnet: ['5.5', '5'], fable: ['5.2', '5.1', '5'],
+    mythos: ['5.2', '5.1', '5'],
     flash: ['3.8', '3.7', '3.6'], astra: ['6.2', '6'], sol: ['6.2', '6.1', '6', '5.6'], terra: ['6.1', '5.6'], luna: ['6', '5.6'],
     spark: ['1.3', '1.2'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A
@@ -852,6 +860,17 @@ export const antigravityTierOffer = (
   return familyOffer(h)
 }
 
+/** Offer verdict for one Claude tier: a CONDITIONAL tier (Mythos) hides until the payload's Claude rows
+ *  include it — no evidence, no offer, also while the family itself is hirable or signed out. Every other
+ *  Claude tier follows the family verdict, as before. */
+export const claudeTierOffer = (
+  h: HireState | null | undefined, tier: string,
+): FamilyOffer => {
+  if (optInLegacyHidden(tier)) return 'hide'
+  if (CONDITIONAL_CLAUDE_TIERS.includes(tier) && !h?.offeredTiers?.includes(tier)) return 'hide'
+  return familyOffer(h)
+}
+
 /** Offer verdict for one Muse tier: every Muse tier is conditional — no
  *  evidence (the tier is not among the payload's Muse rows), no offer. */
 export const museTierOffer = (
@@ -868,6 +887,7 @@ export const modelTierOffer = (provider: string, hire: HireState | null | undefi
   provider === 'codex' ? codexTierOffer(hire, tier)
     : provider === 'antigravity' ? antigravityTierOffer(hire, tier)
     : provider === 'muse' ? museTierOffer(hire, tier)
+    : provider === 'claude' ? claudeTierOffer(hire, tier)
     : optInLegacyHidden(tier) ? 'hide' : familyOffer(hire)
 
 /** Shared hire-sheet and context-menu eligibility: `modelTierOffer`, and a
@@ -925,11 +945,23 @@ export const setOfferedConditionalTiers = (
     for (const fn of [...showLegacySubs]) fn()
   }
 }
+/** The conditional Claude tiers (Mythos) the Claude provider's payload rows currently list, for the same
+ *  surfaces. Its own store: Antigravity's rows are no evidence for a Claude tier, nor the other way round. */
+let offeredClaude: string[] = []
+export const setOfferedClaudeTiers = (
+  tiers: { tier: string }[] | null | undefined,
+): void => {
+  const next = CONDITIONAL_CLAUDE_TIERS.filter(
+    (t) => (tiers ?? []).some((r) => r.tier === t))
+  if (next.join(',') === offeredClaude.join(',')) return
+  offeredClaude = next
+  for (const fn of [...conditionalSubs]) fn()
+}
 const subscribeConditional = (fn: () => void): (() => void) => {
   conditionalSubs.add(fn)
   return () => { conditionalSubs.delete(fn) }
 }
-const offeredConditionalKey = (): string => offeredConditional.join(',')
+const offeredConditionalKey = (): string => offeredConditional.join(',') + '|' + offeredClaude.join(',')
 export const useOfferedConditionalTiers = (): string =>
   useSyncExternalStore(subscribeConditional, offeredConditionalKey)
 /** Re-read the account's `agy models` list each time a model choice opens
@@ -941,6 +973,7 @@ export const useAgyModelsRefresh = (open = true): void => {
 /** a conditional tier the payload does not (yet) offer (Muse's included) */
 export const conditionalTierHidden = (tier: string): boolean =>
   (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier) && !offeredConditional.includes(tier))
+  || (CONDITIONAL_CLAUDE_TIERS.includes(tier) && !offeredClaude.includes(tier))
   || (MUSE_TIERS.includes(tier) && !(museHireState?.offeredTiers ?? []).includes(tier))
 
 /* ---------------- the Muse provider entry, adopted from the canvas's providers poll
@@ -1135,7 +1168,9 @@ export interface AutopsyModelGroup {
 }
 
 /** Available configured provider models for the auto-autopsy selector.
- *  Sourced from /api/providers payload, explicitly excluding 'fable'.
+ *  Sourced from /api/providers payload, explicitly excluding 'fable', and
+ *  'mythos' with it (the same model for verified organizations; USER
+ *  2026-11-19 m434ffd1cf05f, question 3).
  *  Only providers with hire_enabled === true are offered.
  */
 export function availableAutopsyModels(
@@ -1159,7 +1194,7 @@ export function availableAutopsyModels(
     if (!p.hire_enabled) continue
     const models: AutopsyModelOption[] = []
     for (const t of p.tiers || []) {
-      if (t.tier === 'fable') continue // ⚠ FABLE NOT SELECTABLE (ruling 2026-09-03)
+      if (t.tier === 'fable' || t.tier === 'mythos') continue // ⚠ FABLE NOT SELECTABLE (ruling 2026-09-03), NOR MYTHOS
       // not a tier any more (gpt-reserve), or an opt-in legacy tier with the
       // toggle off — but a CONFIGURED value is kept, like every other list
       if (tierHiddenAsLegacy(t.tier) && t.tier !== normCurrent) continue

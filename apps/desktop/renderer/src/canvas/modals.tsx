@@ -43,7 +43,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps, agentTooltipProps } from './agentnav'
-import { hireTierChoices, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { hireTierChoices, ALL_PRESENT, antigravityTierOffer, claudeTierOffer, CONDITIONAL_CLAUDE_TIERS, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { HireProviders, ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
@@ -1811,8 +1811,12 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const codexHire = hireOf(codexProvider)
   const antigravityHire = hireOf(antigravityProvider)
   const museHire = hireOf(museProvider)
+  const claudeHire = hireOf(claudeProvider)
   const shownTiers = (fam: readonly string[]) =>
     fam.filter((t) => tierShown(presence, t, node.tier)
+      // Mythos only while a signed-in Claude login provides it; same keep rule: a node already on it
+      // still sees its own value
+      && !(CONDITIONAL_CLAUDE_TIERS.includes(t) && claudeTierOffer(claudeHire, t) === 'hide' && t !== node.tier)
       && !(CODEX_TIERS.includes(t) && codexTierOffer(codexHire, t) === 'hide'
         && t !== node.tier)
       // Gemini Pro (legacy toggle) and Argon/Krypton/Neon/Carbon (only once agy lists it), same

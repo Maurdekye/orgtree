@@ -5091,7 +5091,8 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                         && tierShown(presence, t, b.tier)
                         // Gemini Pro only with "show legacy models" on
                         && !optInLegacyHidden(t)
-                        // Argon, Krypton, Neon and Carbon only once agy lists it
+                        // Argon, Krypton, Neon and Carbon only once agy lists it; Mythos only while a
+                        // signed-in Claude login provides it
                         && !conditionalTierHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)
