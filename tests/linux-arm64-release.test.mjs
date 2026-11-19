@@ -157,15 +157,15 @@ function stage(names, { version = '4.6.4', prerelease = 'false', mode }) {
     listed: fs.existsSync(sums) ? fs.readFileSync(sums, 'utf8').trim().split('\n').map(line => line.split(/\s+\*?/)[1]).sort() : null }
 }
 
-test('release.yml ships with arm64 as a candidate, outside the release', () => {
-  assert.equal(shippedMode(), 'candidate')
+test('release.yml ships with arm64 in the release', () => {
+  assert.equal(shippedMode(), 'release')
   const text = releaseYml()
   const job = name => { const at = text.indexOf(`\n  ${name}:\n`); assert.ok(at >= 0, `job ${name}`); return text.slice(at, text.indexOf('\n\n', at + 1)) }
   // the arm64 build runs, with the architecture named, and x64 is called as before
   assert.match(job('linux-arm64'), /uses: \.\/\.github\/workflows\/build-linux\.yml[\s\S]*arch: arm64/)
   assert.doesNotMatch(job('linux'), /arch:/)
-  // neither stage nor draft waits for it
-  assert.match(text, /\n  stage:\n    needs: \[resolve, windows, macos, linux, standalone, standalone-agents\]\n/)
+  // stage waits for it and takes its four files
+  assert.match(text, /\n  stage:\n    needs: \[resolve, windows, macos, linux, linux-arm64, standalone, standalone-agents\]\n/)
   assert.match(text, /\n  draft:\n[\s\S]*?\n    needs: \[resolve, stage\]\n/)
 })
 

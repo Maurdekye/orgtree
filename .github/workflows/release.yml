@@ -60,7 +60,7 @@ env:
   #              lists them in SHA256SUMS.txt. To switch: this value, AND `linux-arm64`
   #              in stage's `needs` (stage refuses to run as `release` without it).
   #              Shipping arm64 in a published release is the owner's decision.
-  LINUX_ARM64: candidate
+  LINUX_ARM64: release
 
 concurrency:
   group: release-${{ inputs.ref || github.ref }}
@@ -186,7 +186,7 @@ jobs:
   # Linux arm64 is not one of them while it is a candidate (LINUX_ARM64 above): `needs`
   # leaves it out, so stage neither waits for it nor fails with it.
   stage:
-    needs: [resolve, windows, macos, linux, standalone, standalone-agents]
+    needs: [resolve, windows, macos, linux, linux-arm64, standalone, standalone-agents]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
