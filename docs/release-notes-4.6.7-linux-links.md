@@ -1,1 +1,0 @@
-- **Orgtree links open on SteamOS.** In 4.6.6, tapping an Orgtree link in Hubchat did nothing on SteamOS (a Steam Frame or Steam Deck in Gaming Mode), because the system misread the quoted path in Orgtree's link handler. Orgtree now writes that path without quotes when it has no spaces or special characters, and corrects the entry 4.6.6 wrote the next time it starts.
