@@ -35,7 +35,7 @@ test('the entry is hidden, takes the scheme, starts this AppImage and carries th
     'Exec="/home/u/Applications/Orgtree.AppImage" %u', 'MimeType=x-scheme-handler/orgtree;', 'X-Orgtree-Version=4.6.6', ''])
   // a run without FUSE asks for the same mode in the handler (the runtime consumes the argument form)
   assert.match(linkEntryText({ program: '/a/Orgtree.AppImage', extracted: true, version: '4.6.6' }),
-    /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "\/a\/Orgtree\.AppImage" %u$/m)
+    /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/a\/Orgtree\.AppImage" %u$/m)
 })
 
 test('a program path is quoted by the Desktop Entry rules, or refused', () => {
@@ -64,8 +64,23 @@ test('a moved AppImage, a new version or a run without FUSE rewrites only its ow
     env: { HOME: h.dir, APPIMAGE: '/opt/o/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' } }))
   assert.deepEqual({ ...next }, { entry: 'written', default: 'ours' })
   const text = fs.readFileSync(h.entry, 'utf8')
-  assert.match(text, /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "\/opt\/o\/Orgtree\.AppImage" %u$/m)
+  assert.match(text, /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/opt\/o\/Orgtree\.AppImage" %u$/m)
   assert.match(text, /^X-Orgtree-Version=4\.6\.7$/m)
+})
+
+test('an entry from before NO_CLEANUP is rewritten at the next start', () => {
+  // The runtime removes its extraction folder when the app it started exits; a
+  // link's launch would remove the running app's (runtime.c, AppImageKit effcebc).
+  const h = home('cleanup')
+  const env = { HOME: h.dir, APPIMAGE: '/opt/o/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' }
+  fs.mkdirSync(h.apps, { recursive: true })
+  fs.writeFileSync(h.entry, ['[Desktop Entry]', 'Type=Application', 'Name=Orgtree link', 'NoDisplay=true',
+    'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "/opt/o/Orgtree.AppImage" %u', 'MimeType=x-scheme-handler/orgtree;', 'X-Orgtree-Version=4.6.6', ''].join('\n'))
+  fs.mkdirSync(path.dirname(h.mime), { recursive: true })
+  fs.writeFileSync(h.mime, '[Default Applications]\nx-scheme-handler/orgtree=dev.orgtree.link.desktop;\n')
+  assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { env })) }, { entry: 'written', default: 'ours' })
+  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/opt\/o\/Orgtree\.AppImage" %u$/m)
+  assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { env })) }, { entry: 'current', default: 'ours' })
 })
 
 test("another program's default is left alone, and no other entry is ever touched", () => {
