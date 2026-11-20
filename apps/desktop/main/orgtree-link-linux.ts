@@ -37,13 +37,18 @@ export interface LinuxLinkResult {
   other?: string
 }
 
-/** One program path as an Exec argument: quoted, with the Desktop Entry
+/** One program path as an Exec argument. A plain path (letters, digits and
+ *  `/._+-`) is written bare; any other is quoted, with the Desktop Entry
  *  escapes (inside quotes `"`, `` ` ``, `$` and `\` take a backslash; a string
  *  value doubles each backslash; `%` doubles). Null for a path that is not
- *  absolute or holds a control character: nothing is written for it. */
+ *  absolute or holds a control character: nothing is written for it.
+ *  ⚠ Bare wherever it can be: SteamOS gamescope's xdg-open (generic mode) keeps
+ *  the quotes as part of the name, so a quoted Exec starts nothing there
+ *  (4.6.6 on a Steam Frame, 2026-11-20). A path that needs quotes may still fail there. */
 export function desktopExecArg(program: string): string | null {
   // eslint-disable-next-line no-control-regex
   if (!program.startsWith('/') || /[\u0000-\u001f\u007f]/.test(program)) return null
+  if (/^\/[A-Za-z0-9/._+-]+$/.test(program)) return program
   return '"' + program.replace(/["`$\\]/g, c => '\\' + c).replace(/\\/g, '\\\\').replace(/%/g, '%%') + '"'
 }
 
