@@ -71,8 +71,11 @@ the link over as a command-line argument, so nothing else may get through.
     `NoDisplay=true`, `MimeType=x-scheme-handler/orgtree;`, an `Exec` that
     names this run's AppImage (`$APPIMAGE`, else the installed program) with
     `%u`, and `X-Orgtree-Version`. A run without FUSE writes
-    `Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "<AppImage>" %u`. It is rewritten
-    only when its text would change (a moved file, a new version).
+    `Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "<AppImage>" %u`:
+    without `NO_CLEANUP` the AppImage runtime removes the extraction folder
+    when the link's launch exits, and that folder is the running app's own.
+    The entry is rewritten only when its text would change (a moved file, a
+    new version).
   - the default, `x-scheme-handler/orgtree=dev.orgtree.link.desktop;` under
     `[Default Applications]` in `$XDG_CONFIG_HOME/mimeapps.list`, only when
     that list names no default for the scheme. A default the user or another

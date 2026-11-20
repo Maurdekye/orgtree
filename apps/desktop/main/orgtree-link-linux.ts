@@ -48,9 +48,13 @@ export function desktopExecArg(program: string): string | null {
 }
 
 /** The handler entry. A run without a FUSE mount asks for the same mode through
- *  the variable: the AppImage runtime consumes the argument form. */
+ *  the variable: the AppImage runtime consumes the argument form.
+ *  ⚠ NO_CLEANUP stays with it. Every launch of one AppImage file extracts into
+ *  the same folder, and the runtime removes that folder when the app it started
+ *  exits: without it each link would delete the running app's files as it
+ *  handed over (measured on a Steam Frame 2026-11-20; runtime.c, AppImageKit effcebc). */
 export function linkEntryText(o: { program: string; extracted: boolean; version: string }): string {
-  const exec = `${o.extracted ? 'env APPIMAGE_EXTRACT_AND_RUN=1 ' : ''}${desktopExecArg(o.program)} %u`
+  const exec = `${o.extracted ? 'env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 ' : ''}${desktopExecArg(o.program)} %u`
   return ['[Desktop Entry]', 'Type=Application', 'Name=Orgtree link', 'NoDisplay=true', `Exec=${exec}`,
     `MimeType=${LINK_MIME};`, `X-Orgtree-Version=${o.version.replace(/[^0-9A-Za-z.+-]/g, '')}`, ''].join('\n')
 }
