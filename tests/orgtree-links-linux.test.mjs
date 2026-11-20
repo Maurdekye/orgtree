@@ -32,10 +32,47 @@ test('the entry is hidden, takes the scheme, starts this AppImage and carries th
   assert.equal(LINK_MIME, 'x-scheme-handler/orgtree')
   const text = linkEntryText({ program: '/home/u/Applications/Orgtree.AppImage', extracted: false, version: '4.6.6' })
   assert.deepEqual(text.split('\n'), ['[Desktop Entry]', 'Type=Application', 'Name=Orgtree link', 'NoDisplay=true',
-    'Exec="/home/u/Applications/Orgtree.AppImage" %u', 'MimeType=x-scheme-handler/orgtree;', 'X-Orgtree-Version=4.6.6', ''])
+    'Exec=/home/u/Applications/Orgtree.AppImage %u', 'MimeType=x-scheme-handler/orgtree;', 'X-Orgtree-Version=4.6.6', ''])
   // a run without FUSE asks for the same mode in the handler (the runtime consumes the argument form)
   assert.match(linkEntryText({ program: '/a/Orgtree.AppImage', extracted: true, version: '4.6.6' }),
-    /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/a\/Orgtree\.AppImage" %u$/m)
+    /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/a\/Orgtree\.AppImage %u$/m)
+})
+
+test('a plain program path is written bare: SteamOS keeps the quotes of a quoted one', () => {
+  // gamescope's xdg-open (generic mode) hands `env` the quotes as part of the name: ENOENT, the tap does nothing
+  const frame = '/home/steamos/Applications/Orgtree.AppImage'
+  assert.equal(desktopExecArg(frame), frame)
+  assert.equal(desktopExecArg('/opt/Orgtree-4.6.7_arm64+x/orgtree'), '/opt/Orgtree-4.6.7_arm64+x/orgtree')
+  assert.match(linkEntryText({ program: frame, extracted: true, version: '4.6.7' }),
+    /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/home\/steamos\/Applications\/Orgtree\.AppImage %u$/m)
+  assert.match(linkEntryText({ program: frame, extracted: false, version: '4.6.7' }),
+    /^Exec=\/home\/steamos\/Applications\/Orgtree\.AppImage %u$/m)
+  // anything else keeps the quoted form
+  assert.equal(desktopExecArg('/home/u/$HOME/Orgtree.AppImage'), '"/home/u/\\\\$HOME/Orgtree.AppImage"')
+  assert.match(linkEntryText({ program: '/home/u/My Apps/Orgtree.AppImage', extracted: false, version: '4.6.7' }),
+    /^Exec="\/home\/u\/My Apps\/Orgtree\.AppImage" %u$/m)
+})
+
+test('an entry 4.6.6 wrote with quotes is rewritten bare at the next start', () => {
+  for (const [name, env, before, after] of [
+    ['bare-extracted', { APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' },
+      'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "/home/steamos/Applications/Orgtree.AppImage" %u',
+      'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 /home/steamos/Applications/Orgtree.AppImage %u'],
+    ['bare-mounted', { APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage', APPDIR: '/tmp/.mount_OrgtreAbCdEf' },
+      'Exec="/home/steamos/Applications/Orgtree.AppImage" %u', 'Exec=/home/steamos/Applications/Orgtree.AppImage %u'],
+  ]) {
+    const h = home(name)
+    const lines = exec => ['[Desktop Entry]', 'Type=Application', 'Name=Orgtree link', 'NoDisplay=true', exec,
+      'MimeType=x-scheme-handler/orgtree;', 'X-Orgtree-Version=4.6.6', ''].join('\n')
+    fs.mkdirSync(h.apps, { recursive: true })
+    fs.writeFileSync(h.entry, lines(before))
+    fs.mkdirSync(path.dirname(h.mime), { recursive: true })
+    fs.writeFileSync(h.mime, '[Default Applications]\nx-scheme-handler/orgtree=dev.orgtree.link.desktop;\n')
+    const start = () => ({ ...registerLinuxOrgtreeScheme(inputs(h, { env: { HOME: h.dir, ...env } })) })
+    assert.deepEqual(start(), { entry: 'written', default: 'ours' }, name)
+    assert.equal(fs.readFileSync(h.entry, 'utf8'), lines(after), name)
+    assert.deepEqual(start(), { entry: 'current', default: 'ours' }, name)
+  }
 })
 
 test('a program path is quoted by the Desktop Entry rules, or refused', () => {
@@ -49,7 +86,7 @@ test('a first start writes its own entry and becomes the default; a second start
   const h = home('first')
   const first = registerLinuxOrgtreeScheme(inputs(h))
   assert.deepEqual({ ...first }, { entry: 'written', default: 'set' })
-  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec="\/home\/u\/Applications\/Orgtree\.AppImage" %u$/m)
+  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec=\/home\/u\/Applications\/Orgtree\.AppImage %u$/m)
   assert.equal(fs.readFileSync(h.mime, 'utf8'), '[Default Applications]\nx-scheme-handler/orgtree=dev.orgtree.link.desktop;\n')
   const stamp = [fs.statSync(h.entry).mtimeMs, fs.statSync(h.mime).mtimeMs]
   assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h)) }, { entry: 'current', default: 'ours' })
@@ -64,7 +101,7 @@ test('a moved AppImage, a new version or a run without FUSE rewrites only its ow
     env: { HOME: h.dir, APPIMAGE: '/opt/o/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' } }))
   assert.deepEqual({ ...next }, { entry: 'written', default: 'ours' })
   const text = fs.readFileSync(h.entry, 'utf8')
-  assert.match(text, /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/opt\/o\/Orgtree\.AppImage" %u$/m)
+  assert.match(text, /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/opt\/o\/Orgtree\.AppImage %u$/m)
   assert.match(text, /^X-Orgtree-Version=4\.6\.7$/m)
 })
 
@@ -79,7 +116,7 @@ test('an entry from before NO_CLEANUP is rewritten at the next start', () => {
   fs.mkdirSync(path.dirname(h.mime), { recursive: true })
   fs.writeFileSync(h.mime, '[Default Applications]\nx-scheme-handler/orgtree=dev.orgtree.link.desktop;\n')
   assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { env })) }, { entry: 'written', default: 'ours' })
-  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/opt\/o\/Orgtree\.AppImage" %u$/m)
+  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/opt\/o\/Orgtree\.AppImage %u$/m)
   assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { env })) }, { entry: 'current', default: 'ours' })
 })
 
@@ -144,7 +181,7 @@ test('only the real install registers: the same guards as Windows', () => {
 test('an installed package (no AppImage) registers its own program', () => {
   const h = home('deb')
   assert.equal(registerLinuxOrgtreeScheme(inputs(h, { env: { HOME: h.dir }, execPath: '/opt/Orgtree/orgtree' })).entry, 'written')
-  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec="\/opt\/Orgtree\/orgtree" %u$/m)
+  assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec=\/opt\/Orgtree\/orgtree %u$/m)
 })
 
 test('shipping wiring: registered at start beside the Windows registration', () => {
