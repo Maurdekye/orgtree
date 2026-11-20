@@ -93,6 +93,7 @@ import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './t
 import { readRemotes, remoteAliases, REMOTE_WINDOW_REFUSAL } from './remotes'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import { isOrgtreeLinkArg, registerOrgtreeScheme } from './orgtree-link'
+import { registerLinuxOrgtreeScheme } from './orgtree-link-linux'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
@@ -186,6 +187,9 @@ if (single && !installerUpgradeRequested) {
     registerOrgtreeScheme({ isPackaged: app.isPackaged, appData: app.getPath('appData'),
       isDefaultProtocolClient: protocol => app.isDefaultProtocolClient(protocol),
       setAsDefaultProtocolClient: protocol => app.setAsDefaultProtocolClient(protocol) })
+    // Linux: its own handler entry, and the default only when nothing else is (main/orgtree-link-linux.ts).
+    const linux = registerLinuxOrgtreeScheme({ platform: process.platform, isPackaged: app.isPackaged, home: os.userInfo().homedir, version: app.getVersion(), execPath: process.execPath, env: process.env })
+    if (linux.default === 'other') console.warn(`orgtree:// links stay with ${linux.other}: Orgtree left that default alone`)
   } catch (error) { console.warn('The orgtree:// link scheme could not be registered', error) }
 }
 if (!single) app.quit()
