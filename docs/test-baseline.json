@@ -1,21 +1,21 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-11-20T18:28:19.791Z",
+  "recorded_at": "2026-11-20T23:46:00.817Z",
   "recorded_by": "rig-sol-b",
   "max_age_days": 7,
-  "commit": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
-  "commit_subject": "docs: 4.6.6 release notes (fragment folded)",
-  "commit_at": "2026-11-20T20:19:17+02:00",
-  "branch": "rig-sol-b/release-466-5725ae5",
+  "commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
+  "commit_subject": "docs: 4.6.7 release notes (fragment folded)",
+  "commit_at": "2026-11-20T22:38:54+02:00",
+  "branch": "rig-sol-b/release-467-4431628",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
-    "tests": "1e8ade45cee91b8f0923171d8db781ae9dfccb9b",
-    "engine": "110e71ec84692f18a9b4b722b52edd28c9fef9c3",
-    "apps": "f40d10cb5ecce9b794b93369efd1e553a1f2ee49",
+    "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
+    "engine": "e0a388574e6479c1cecc9077f60a79daab46c81a",
+    "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
     "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
     "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-    "package.json": "2db0c5750bfdf93d77e182bb6612495965de7c56"
+    "package.json": "0932d3199d6390b851da603f344a376b092e516b"
   },
   "machine": {
     "host": "Pendragon",
@@ -36,15 +36,15 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-20T18:28:19.585Z",
-      "commit": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
+      "recorded_at": "2026-11-20T23:46:00.580Z",
+      "commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
       "trees": {
-        "tests": "1e8ade45cee91b8f0923171d8db781ae9dfccb9b",
-        "engine": "110e71ec84692f18a9b4b722b52edd28c9fef9c3",
-        "apps": "f40d10cb5ecce9b794b93369efd1e553a1f2ee49",
+        "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
+        "engine": "e0a388574e6479c1cecc9077f60a79daab46c81a",
+        "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
         "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "package.json": "2db0c5750bfdf93d77e182bb6612495965de7c56"
+        "package.json": "0932d3199d6390b851da603f344a376b092e516b"
       },
       "partial": null,
       "excluded": [
@@ -85,7 +85,7 @@
           "why": "Standing safety exclusion. NOT_EXECUTED."
         }
       ],
-      "duration_ms": 385362,
+      "duration_ms": 475473,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -93,8 +93,8 @@
       "env_overrides": null,
       "counts": {
         "files": 145,
-        "tests": 1652,
-        "passed": 1631,
+        "tests": 1654,
+        "passed": 1633,
         "failed": 7,
         "skipped": 14
       },
@@ -728,7 +728,9 @@
         "node-root::tests/org-windows.test.mjs::the organization slug rule is the canonical route rule, with no invented cap",
         "node-root::tests/orgtree-links-linux.test.mjs::a first start writes its own entry and becomes the default; a second start changes nothing",
         "node-root::tests/orgtree-links-linux.test.mjs::a moved AppImage, a new version or a run without FUSE rewrites only its own entry",
+        "node-root::tests/orgtree-links-linux.test.mjs::a plain program path is written bare: SteamOS keeps the quotes of a quoted one",
         "node-root::tests/orgtree-links-linux.test.mjs::a program path is quoted by the Desktop Entry rules, or refused",
+        "node-root::tests/orgtree-links-linux.test.mjs::an entry 4.6.6 wrote with quotes is rewritten bare at the next start",
         "node-root::tests/orgtree-links-linux.test.mjs::an entry from before NO_CLEANUP is rewritten at the next start",
         "node-root::tests/orgtree-links-linux.test.mjs::an existing list keeps every line; the default joins its section or a new one",
         "node-root::tests/orgtree-links-linux.test.mjs::an installed package (no AppImage) registers its own program",
@@ -1846,14 +1848,14 @@
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_rename_repairs_only_contained_registered_paths",
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_setup_plan_is_lockfile_based_and_does_not_write_git_metadata"
       ],
-      "serialization_duration_ms": 31,
+      "serialization_duration_ms": 39,
       "measurement": {
         "mode": "fresh",
-        "measured_commit": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
-        "authority": "@coordinator-opus m1d8fac765151, user mbbfe5de30648",
+        "measured_commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
+        "authority": "@coordinator-opus m0ef0dad39cda, USER m725c710ca7b4 and mf875c468ace8",
         "same_saved_outcomes": true,
-        "source_commit": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
-        "ran_at": "2026-11-20T18:27:46.075Z",
+        "source_commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
+        "ran_at": "2026-11-20T20:49:33.866Z",
         "concurrency": 1,
         "no_suite_replay": true
       }
@@ -1863,15 +1865,15 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-20T18:28:19.791Z",
-      "commit": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
+      "recorded_at": "2026-11-20T23:46:00.815Z",
+      "commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
       "trees": {
-        "tests": "1e8ade45cee91b8f0923171d8db781ae9dfccb9b",
-        "engine": "110e71ec84692f18a9b4b722b52edd28c9fef9c3",
-        "apps": "f40d10cb5ecce9b794b93369efd1e553a1f2ee49",
+        "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
+        "engine": "e0a388574e6479c1cecc9077f60a79daab46c81a",
+        "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
         "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "package.json": "2db0c5750bfdf93d77e182bb6612495965de7c56"
+        "package.json": "0932d3199d6390b851da603f344a376b092e516b"
       },
       "partial": null,
       "excluded": [
@@ -9722,21 +9724,25 @@
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§7 zoomed in it is a live control again, and opens its document",
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§8 the gate reuses the canvas threshold rather than inventing one"
       ],
-      "serialization_duration_ms": 199,
+      "serialization_duration_ms": 226,
       "measurement": {
         "mode": "carried",
         "measured_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-        "accepted_release": "583f549163b340ff56f91a662a9ef740ac665936",
-        "candidate": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
+        "accepted_release": "bb6551c7e5d7659643392738510c2be7a1852685",
+        "candidate": "4431628d7d899580b5aaddd834a82b399c25ea52",
         "changed_paths_since_release": [
-          "apps/desktop/main/index.ts",
           "apps/desktop/main/orgtree-link-linux.ts",
-          "docs/release-notes-4.6.6.md",
+          "docs/engine-contract.md",
+          "docs/release-notes-4.6.7.md",
           "docs/releases.json",
+          "docs/rust-engine/DECISIONS.md",
           "docs/rust-engine/orgtree-links.md",
+          "docs/rust-engine/remote-org.md",
           "docs/skills/orgtree-app/mailhub/hubchat/SKILL.md",
           "engine/rs/Cargo.lock",
           "engine/rs/orgtree-engine/Cargo.toml",
+          "engine/rs/orgtree-engine/src/appfeed.rs",
+          "engine/rs/orgtree-engine/src/local_orgs.rs",
           "package-lock.json",
           "package.json",
           "tests/orgtree-links-linux.test.mjs"
@@ -9744,14 +9750,14 @@
         "byte_identical_paths": [
           "apps/desktop/renderer",
           "packages",
-          "tools/test-baseline.mjs",
-          "tools/release-verification.mjs",
+          "tools",
+          "tests/linux-arm64-release.test.mjs",
           "tests/installer-elevation.test.mjs"
         ],
         "outcomes_sha256": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
         "evidence_seal_sha256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
         "groups": 24,
-        "authority": "@coordinator-opus m1d8fac765151, user mbbfe5de30648",
+        "authority": "@coordinator-opus m0ef0dad39cda, USER m725c710ca7b4 and mf875c468ace8",
         "same_saved_outcomes": true,
         "source_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
         "ran_at": "2026-11-19T22:33:12.859Z",
@@ -9760,26 +9766,30 @@
       }
     }
   },
-  "measurement_authority": "@coordinator-opus m1d8fac765151, user mbbfe5de30648",
+  "measurement_authority": "@coordinator-opus m0ef0dad39cda, USER m725c710ca7b4 and mf875c468ace8",
   "composed_measurement": {
     "root": {
       "mode": "fresh",
-      "measured_commit": "5725ae5f917896fe9814e3a1f512fa3ba82ac552"
+      "measured_commit": "4431628d7d899580b5aaddd834a82b399c25ea52"
     },
     "renderer": {
       "mode": "carried",
       "measured_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-      "accepted_release": "583f549163b340ff56f91a662a9ef740ac665936",
-      "candidate": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
+      "accepted_release": "bb6551c7e5d7659643392738510c2be7a1852685",
+      "candidate": "4431628d7d899580b5aaddd834a82b399c25ea52",
       "changed_paths_since_release": [
-        "apps/desktop/main/index.ts",
         "apps/desktop/main/orgtree-link-linux.ts",
-        "docs/release-notes-4.6.6.md",
+        "docs/engine-contract.md",
+        "docs/release-notes-4.6.7.md",
         "docs/releases.json",
+        "docs/rust-engine/DECISIONS.md",
         "docs/rust-engine/orgtree-links.md",
+        "docs/rust-engine/remote-org.md",
         "docs/skills/orgtree-app/mailhub/hubchat/SKILL.md",
         "engine/rs/Cargo.lock",
         "engine/rs/orgtree-engine/Cargo.toml",
+        "engine/rs/orgtree-engine/src/appfeed.rs",
+        "engine/rs/orgtree-engine/src/local_orgs.rs",
         "package-lock.json",
         "package.json",
         "tests/orgtree-links-linux.test.mjs"
@@ -9787,39 +9797,17 @@
       "byte_identical_paths": [
         "apps/desktop/renderer",
         "packages",
-        "tools/test-baseline.mjs",
-        "tools/release-verification.mjs",
+        "tools",
+        "tests/linux-arm64-release.test.mjs",
         "tests/installer-elevation.test.mjs"
       ],
       "outcomes_sha256": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
       "evidence_seal_sha256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
       "groups": 24
     },
-    "carriedEngineAndArm64": {
-      "source": "5725ae5f917896fe9814e3a1f512fa3ba82ac552",
-      "prior": "2d24f20da792f091e7a5189230ac931c3893f1e3",
-      "authority": "@coordinator-opus m1d8fac765151",
-      "user": "mbbfe5de30648",
-      "sourceDelta": [
-        "apps/desktop/main/orgtree-link-linux.ts",
-        "docs/rust-engine/orgtree-links.md",
-        "tests/orgtree-links-linux.test.mjs"
-      ],
-      "identicalGitObjects": {
-        "engine": "110e71ec84692f18a9b4b722b52edd28c9fef9c3",
-        "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "apps/desktop/renderer": "e623ccf0ddbbaa91a47c63413da96dc6fbe8d438",
-        "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-        "package.json": "2db0c5750bfdf93d77e182bb6612495965de7c56",
-        "package-lock.json": "fc824d5e7ebb088a77c0894eb22c7ebc2a7976d2",
-        "tests/linux-arm64-release.test.mjs": "bf78e5cda6b00fb5b03276053efa87b1f88b58f7"
-      },
-      "inheritedSealSHA256": "787625a05e26a6d2a8a0c42a039ae23e0a8fa3c20b30678a1e1efa26e891c155",
-      "sealedInputsVerified": 92,
-      "root": "fresh",
-      "arm64": "carried; included automatically within full root run",
-      "engine": "carried",
-      "renderer": "carried from the sealed 4.6.5 measurement"
+    "native": {
+      "mode": "fresh",
+      "measured_commit": "4431628d7d899580b5aaddd834a82b399c25ea52"
     },
     "noAssertionsReplayed": true
   },
@@ -10220,7 +10208,7 @@
     ],
     "noSkippedCaseClaimedPassing": true
   },
-  "release_failure_disposition": "Current failures are contained in the sealed accepted 4.6.5 gate by case identity.",
+  "release_failure_disposition": "Current failures are contained in the sealed accepted 4.6.6 gate by case identity.",
   "accepted_changed_signatures": [
     {
       "id": "node-root::tests/private-alpha-identity.test.mjs::startup path: the engine options take their data root from resolveDataRoot with this process's identity",
