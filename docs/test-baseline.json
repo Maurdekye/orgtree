@@ -1,21 +1,21 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-11-19T16:09:16.080Z",
+  "recorded_at": "2026-11-20T08:58:38.156Z",
   "recorded_by": "rig-sol-b",
   "max_age_days": 7,
-  "commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
-  "commit_subject": "docs: 4.6.4 release notes for the AppImage-without-FUSE, Codex and test-build fixes",
-  "commit_at": "2026-11-19T17:44:18+02:00",
-  "branch": "rig-sol-b/release-464-linux-20261119",
+  "commit": "116ffa2d6196f0fc4795886b02bb0759a713a6a8",
+  "commit_subject": "test(engine): the legacy profile pin undoes the approved orgtree_thaw rename",
+  "commit_at": "2026-11-20T01:50:01+02:00",
+  "branch": "rig-sol-b/release-465-repair-20261120",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
-    "tests": "58bbd1a3a3c20ce76544cc4b63aee7ce81774795",
-    "engine": "780518f9ecbd460502e0f4ca5e5a30184a64186d",
-    "apps": "fab41a73cc454910ae716526f1658781173f90ba",
+    "tests": "0ab3962bbd3559b0b5cc964fd33c0baffbaf640b",
+    "engine": "6b2e95be12631c3407d77927be65cb334e796996",
+    "apps": "eacefad19e03c4c32b7f0e7d6676eccc03846ed5",
     "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-    "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
-    "package.json": "6bc653948a08ec7fe0b6e00325e8f62126c817df"
+    "tools": "50a340480709f113afce68b937b1cd18c9e00472",
+    "package.json": "4d7b7bc43a6489c463a200e420158c6c10fd520d"
   },
   "machine": {
     "host": "Pendragon",
@@ -28,7 +28,7 @@
       "node-root": 1,
       "renderer": 4
     },
-    "concurrency_scope": "Original record serialization option2 is not renderer execution concurrency; renderer runner uses default4 (sanitized override absent), root run used1. No assertions executed by this serialization."
+    "concurrency_scope": "Root used one worker. Renderer used the original runner default four. Original record serialized saved results."
   },
   "suites": {
     "node-root": {
@@ -36,15 +36,15 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-19T16:09:15.845Z",
-      "commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
+      "recorded_at": "2026-11-20T08:58:37.977Z",
+      "commit": "116ffa2d6196f0fc4795886b02bb0759a713a6a8",
       "trees": {
-        "tests": "58bbd1a3a3c20ce76544cc4b63aee7ce81774795",
-        "engine": "780518f9ecbd460502e0f4ca5e5a30184a64186d",
-        "apps": "fab41a73cc454910ae716526f1658781173f90ba",
+        "tests": "0ab3962bbd3559b0b5cc964fd33c0baffbaf640b",
+        "engine": "6b2e95be12631c3407d77927be65cb334e796996",
+        "apps": "eacefad19e03c4c32b7f0e7d6676eccc03846ed5",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-        "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
-        "package.json": "6bc653948a08ec7fe0b6e00325e8f62126c817df"
+        "tools": "50a340480709f113afce68b937b1cd18c9e00472",
+        "package.json": "4d7b7bc43a6489c463a200e420158c6c10fd520d"
       },
       "partial": null,
       "excluded": [
@@ -62,39 +62,39 @@
         },
         {
           "what": "with no window open, the helper asks the background engine to stop and waits for its whole tree",
-          "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
+          "why": "Standing safety exclusion. NOT_EXECUTED by the native API filter."
         },
         {
           "what": "an engine that cannot be asked is a refusal that names it and says what to do",
-          "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
+          "why": "Standing safety exclusion. NOT_EXECUTED by the native API filter."
         },
         {
           "what": "a descriptor that names another process is never used to send a stop",
-          "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
+          "why": "Standing safety exclusion. NOT_EXECUTED by the native API filter."
         },
         {
           "what": "a descriptor another account can write is not trusted, as the window does not trust it",
-          "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
+          "why": "Standing safety exclusion. NOT_EXECUTED by the native API filter."
         },
         {
           "what": "an engine that takes the request but does not stop in its budget is named, with a wait-and-retry",
-          "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
+          "why": "Standing safety exclusion. NOT_EXECUTED by the native API filter."
         },
         {
           "what": "on an all-users installation an engine it cannot ask is left to the boot step, not waited for",
-          "why": "Standing safety exclusion; native API filters it without a skipped event. NOT_EXECUTED, not passing or a measured skip."
+          "why": "Standing safety exclusion. NOT_EXECUTED by the native API filter."
         }
       ],
-      "duration_ms": 395114,
+      "duration_ms": 522140,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
       "files_that_produced_no_result": null,
       "env_overrides": null,
       "counts": {
-        "files": 143,
-        "tests": 1638,
-        "passed": 1617,
+        "files": 144,
+        "tests": 1641,
+        "passed": 1620,
         "failed": 7,
         "skipped": 14
       },
@@ -208,6 +208,9 @@
         "node-root::tests/app-feed.test.mjs::registry snapshots 10/11/12 and 10/12 converge after create-delete and change-back",
         "node-root::tests/app-poll-inventory.test.mjs::app consumers have no provider/account/login/settings timer or polling hook",
         "node-root::tests/app-poll-inventory.test.mjs::compatibility polling is explicitly gated by unsupported app feed",
+        "node-root::tests/app-quit.test.mjs::one quit function: the tray entry and the window command both call it, and it is app.quit()",
+        "node-root::tests/app-quit.test.mjs::the app menu offers Quit whenever the desktop bridge has it, with no platform test",
+        "node-root::tests/app-quit.test.mjs::the command is registered and bridged on every platform",
         "node-root::tests/appimage-update.test.mjs::a failed swap leaves the old AppImage and no staged file behind, and throws",
         "node-root::tests/appimage-update.test.mjs::only an absolute APPIMAGE counts as an AppImage run",
         "node-root::tests/appimage-update.test.mjs::the AppImage is replaced in place, under its old name, and the download is consumed",
@@ -1832,25 +1835,17 @@
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_rename_repairs_only_contained_registered_paths",
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_setup_plan_is_lockfile_based_and_does_not_write_git_metadata"
       ],
-      "serialization_duration_ms": 34,
+      "serialization_duration_ms": 30,
       "measurement": {
-        "composition": {
-          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-          "measuredAt": "2026-11-19T15:55:37.480Z",
-          "files": 143,
-          "arm64Cases": 10,
-          "sha256": "35639312e8a84a597c676c15492fdb03d45da692d35f608d35e873470c74840c"
-        },
-        "authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20",
+        "authority": "@coordinator-opus m930ef4c99ceb, user m9c24e626a324",
         "same_saved_outcomes": true,
-        "source_commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
-        "ran_at": "2026-11-19T15:55:37.480Z",
+        "source_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
+        "successor_commit": "116ffa2d6196f0fc4795886b02bb0759a713a6a8",
+        "only_successor_change": "engine/rs/orgtree-engine/src/runtime/identity/compression_tests.rs",
+        "ran_at": "2026-11-19T22:12:11.246Z",
         "concurrency": 1,
         "no_suite_replay": true,
-        "source_trees_equal": true,
-        "qualification": {
-          "noRecoveryOrReplay": true
-        }
+        "unchanged_node_and_renderer_inputs": true
       }
     },
     "renderer": {
@@ -1858,15 +1853,15 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-19T16:09:16.079Z",
-      "commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
+      "recorded_at": "2026-11-20T08:58:38.156Z",
+      "commit": "116ffa2d6196f0fc4795886b02bb0759a713a6a8",
       "trees": {
-        "tests": "58bbd1a3a3c20ce76544cc4b63aee7ce81774795",
-        "engine": "780518f9ecbd460502e0f4ca5e5a30184a64186d",
-        "apps": "fab41a73cc454910ae716526f1658781173f90ba",
+        "tests": "0ab3962bbd3559b0b5cc964fd33c0baffbaf640b",
+        "engine": "6b2e95be12631c3407d77927be65cb334e796996",
+        "apps": "eacefad19e03c4c32b7f0e7d6676eccc03846ed5",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-        "tools": "d5ba855076c04bf28bc4ca9c4fb23a553077bc27",
-        "package.json": "6bc653948a08ec7fe0b6e00325e8f62126c817df"
+        "tools": "50a340480709f113afce68b937b1cd18c9e00472",
+        "package.json": "4d7b7bc43a6489c463a200e420158c6c10fd520d"
       },
       "partial": null,
       "excluded": [
@@ -1875,7 +1870,7 @@
           "why": "driven by hand or by a native probe runner, not by run.mjs"
         }
       ],
-      "duration_ms": 1263599,
+      "duration_ms": 1225749,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -1885,9 +1880,9 @@
         "ORGTREE_TEST_RUN_TIMEOUT_MS": "900000"
       },
       "counts": {
-        "files": 943,
-        "tests": 7268,
-        "passed": 7221,
+        "files": 945,
+        "tests": 7279,
+        "passed": 7232,
         "failed": 42,
         "skipped": 5
       },
@@ -1936,15 +1931,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
           "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-19T16:09:16.079Z",
+          "failing_since": "2026-11-20T08:58:38.156Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2140,15 +2135,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
           "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-19T16:09:16.079Z",
+          "failing_since": "2026-11-20T08:58:38.156Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2404,15 +2399,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-Lho0vh\\bundles\\treeview.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
           "file": "apps/desktop/renderer/tests/treeview.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-Lho0vh\\bundles\\treeview.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-19T11:22:26.931Z",
+          "failing_since": "2026-11-20T08:58:38.156Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2556,7 +2551,7 @@
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::an owner answered only for another catalog stays unconfirmed, never gone (review f7)",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::bare names in prose resolve omitted agents in a bounded lookup; items keep the collision",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::prose lookup skips numbers, timestamp pieces and UUIDs, but keeps real names (including digits)",
-        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
+        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1 a row offers the agent's own menu — the same entries, in the same order, as its card",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1a user audience action reflects current access on both menu surfaces",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1b audience menu actions use the audited user-audience endpoint",
@@ -2717,6 +2712,8 @@
         "renderer::apps/desktop/renderer/tests/appnotices.test.tsx::app notices preserve all categories, startup history, document baseline and native retry without polling; first empty=true",
         "renderer::apps/desktop/renderer/tests/apporgs.test.tsx::an unsupported app feed retains legacy periodic reads",
         "renderer::apps/desktop/renderer/tests/apporgs.test.tsx::org list joins app frames, keeps unavailable Retry rows and shares one socket without polling",
+        "renderer::apps/desktop/renderer/tests/appquitmenu.test.tsx::Quit Orgtree is the last entry of the app menu, under a separator, and calls the quit handler once",
+        "renderer::apps/desktop/renderer/tests/appquitmenu.test.tsx::without a quit handler (a browser, no desktop bridge) the menu has no Quit entry and no extra separator",
         "renderer::apps/desktop/renderer/tests/apprunning.test.tsx::§1 an @app: / @panel: chip is running, dead (dark grey) or none, in React and in Markdown; a missing target stays unresolved",
         "renderer::apps/desktop/renderer/tests/apprunning.test.tsx::§2 the chips follow the org's live apps frame as panels start and stop",
         "renderer::apps/desktop/renderer/tests/apprunning.test.tsx::§3 the Apps list's app rows show the same three states, and follow a power change",
@@ -5063,7 +5060,7 @@
         "renderer::apps/desktop/renderer/tests/foregroundlineage.test.tsx::live lineage gate waits for actual rows rather than interpreting omission as an empty lineage",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::a metadata patch keeps the selected ETag: the next read is a delta, never a revalidated pre-patch body",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::an unchanged server answers the kept ETag with 304 and the kept body is kept",
-        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
+        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§1 a leg per kind — each is classified as itself, not as `limit`",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§2 precedence is deliberate where kinds coexist",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§3 both registers are TOTAL over the kinds and share no word",
@@ -6335,6 +6332,14 @@
         "renderer::apps/desktop/renderer/tests/museusagerefresh.test.tsx::non-Muse native and registered cards retain their force refresh, even with a Muse-looking account ID",
         "renderer::apps/desktop/renderer/tests/museusagerefresh.test.tsx::reusable Claude account usage panel preserves its refresh policy",
         "renderer::apps/desktop/renderer/tests/museusagerefresh.test.tsx::reusable Muse account usage panel preserves its refresh policy",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§1 mythos is a conditional Claude tier with its letter, seat and versions; the four are not conditional",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§2 agent settings model switch: no Mythos option until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§2 canvas hire chips: no Mythos chip until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§2 hire sheet: no Mythos button until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§2 lineage rehire list: no \"as mythos\" row until the payload offers it",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§3 an agent already on Mythos keeps its own tier in the switch and its M token",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§4 the auto-autopsy model list leaves Mythos out, as it leaves Fable out",
+        "renderer::apps/desktop/renderer/tests/mythos.test.tsx::§5 Mythos has the user's colour on every Fable surface, with a pale backing where it is text",
         "renderer::apps/desktop/renderer/tests/namehover.test.tsx::far zoom: no medium-zoom overlay; the far-zoom name reveal is unchanged",
         "renderer::apps/desktop/renderer/tests/namehover.test.tsx::fitting project name stays plain on hover",
         "renderer::apps/desktop/renderer/tests/namehover.test.tsx::medium zoom: a name that fits does not expand on hover (negative control)",
@@ -8288,6 +8293,7 @@
         "renderer::apps/desktop/renderer/tests/scopedmodals.test.tsx::Organization Settings: an organization's window is its own",
         "renderer::apps/desktop/renderer/tests/scopedmodals.test.tsx::Presented Documents: an organization's window is its own",
         "renderer::apps/desktop/renderer/tests/scratch-folder.test.tsx::native action is absent in browsers/old shells, appears for live/archived agents and passes identity",
+        "renderer::apps/desktop/renderer/tests/selectinpage.test.ts::a disabled dropdown has a disabled look of its own: dim text, faded, a not-allowed cursor",
         "renderer::apps/desktop/renderer/tests/selectinpage.test.ts::every select in the renderer is one the rule covers; the list boxes are listed",
         "renderer::apps/desktop/renderer/tests/selectinpage.test.ts::no stylesheet gives a select another appearance",
         "renderer::apps/desktop/renderer/tests/selectinpage.test.ts::one rule switches every single-choice select AND its list to the in-page list",
@@ -9249,7 +9255,7 @@
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::resetSync starts a connection over",
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::rev-less frames (sparks, older server) take no part in ordering",
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::the buffer is bounded: overflow drops oldest first",
-        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-Lho0vh\\bundles\\treeview.test.mjs",
+        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::canvas age surfaces share the authoritative completed-turn badge",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::cards retain LastTurnAge while focused desks use only the status banner",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::fresh desk banner is neutral motionless Idle with no invented age",
@@ -9698,303 +9704,66 @@
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§7 zoomed in it is a live control again, and opens its document",
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§8 the gate reuses the canvas threshold rather than inventing one"
       ],
-      "serialization_duration_ms": 225,
+      "serialization_duration_ms": 174,
       "measurement": {
-        "composition": {
-          "groups": [
-            {
-              "group": 0,
-              "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-              "files": 40
-            },
-            {
-              "group": 1,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 2,
-              "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-              "files": 40
-            },
-            {
-              "group": 3,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 4,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 5,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 6,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 7,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 8,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 9,
-              "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-              "files": 40
-            },
-            {
-              "group": 10,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 11,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 12,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 13,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 14,
-              "source": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-              "files": 40
-            },
-            {
-              "group": 15,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 16,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 17,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 18,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 19,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 20,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 21,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 22,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 40
-            },
-            {
-              "group": 23,
-              "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-              "files": 23
-            }
-          ],
-          "rerunGroups": [
-            0,
-            2,
-            9
-          ],
-          "freshFiles": 120,
-          "carriedFiles": 823,
-          "previousReleaseBaseline": "51ef24f7fb79da51efd53d5eab4b13e45b86e30f",
-          "previousComposedSHA256": "39698bf543dd7aa0ac24ca201b537c107dc813e6140909f5549f5634db1b32f4",
-          "replacementResultSHA256": "d73f01dd9f099c37d1aeb69c6a09d47f838514fe06ef9644eefa6f24628115fa",
-          "durationScope": "Sum of the 24 contributing group measurements",
-          "elapsedGroupSumMs": 1263599
-        },
-        "authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20",
+        "authority": "@coordinator-opus m930ef4c99ceb, user m9c24e626a324",
         "same_saved_outcomes": true,
-        "source_commit": "78e88175a3183462291f7333e0f0322debc3ab2d",
-        "ran_at": "2026-11-19T15:55:37.480Z",
+        "source_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
+        "successor_commit": "116ffa2d6196f0fc4795886b02bb0759a713a6a8",
+        "only_successor_change": "engine/rs/orgtree-engine/src/runtime/identity/compression_tests.rs",
+        "ran_at": "2026-11-19T22:33:12.859Z",
         "concurrency": 4,
         "no_suite_replay": true,
-        "source_trees_equal": true
+        "unchanged_node_and_renderer_inputs": true
       }
     }
   },
+  "measurement_authority": "@coordinator-opus m930ef4c99ceb, user m9c24e626a324",
   "composed_measurement": {
-    "acceptedCandidate": "78e88175a3183462291f7333e0f0322debc3ab2d",
-    "node-root": {
-      "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-      "measuredAt": "2026-11-19T15:55:37.480Z",
-      "files": 143,
-      "arm64Cases": 10,
-      "sha256": "35639312e8a84a597c676c15492fdb03d45da692d35f608d35e873470c74840c"
+    "authority": "@coordinator-opus m930ef4c99ceb, user m9c24e626a324",
+    "originalSeal": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\evidence-seal.json",
+    "originalSealSHA256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
+    "originalSource": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
+    "composedSource": "116ffa2d6196f0fc4795886b02bb0759a713a6a8",
+    "soleChangedPath": "engine/rs/orgtree-engine/src/runtime/identity/compression_tests.rs",
+    "amendmentIsTestOnly": true,
+    "originalHashes": {
+      "fresh-node-root-outcomes.json": "f33d06f910103e3acab2cd1eedfa07d8bd4698a63cffce1561215b43d472ab03",
+      "fresh-renderer-outcomes.json": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
+      "same-saved-fresh-outcomes.json": "c3973af74c331a2200a69e843e7744080ec9e9de1ae923ac127039599584cd1c",
+      "compare-node-root-accepted464.json": "098a7663ce4d626899a0b1b788317c1f975f6d8f973dbceb38037f348b28fce4",
+      "compare-renderer-accepted464.json": "674e279d37fe874657782a1deaf5cdfd152734f4e8f40b1bf222af42864fcd53",
+      "module-not-executed-proof.json": "55064f8cf699962eda0c50989732c9202d29d944823dd093dfca52ee8a456f5b",
+      "actual-selection-audit.json": "fa60abc3a66414b298d58718c376b14ecc2bbdd6a9f0f43f8ae1da6ab8871b1d",
+      "arm64-regression.json": "6452b8790d596ae1ea586923ad689a732757445c02f73f83e7b49928f6a791de",
+      "pre-baseline-comparison.json": "6769604c685b2ff2139229c2c33664cdfa090be1d0d4e3cea6976a986ffe1365",
+      "renderer-selection-plan.json": "65246c717c30e10875db787add4c302436a5f1907971bc2528e6cf14d4f26d06",
+      "baseline-id-resolution.json": "e23efd0e3e7585eb1b9ec39ff84f63b1d39682c7cbeb1695d859bd8875f56a60"
     },
-    "renderer": {
-      "groups": [
-        {
-          "group": 0,
-          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-          "files": 40
-        },
-        {
-          "group": 1,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 2,
-          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-          "files": 40
-        },
-        {
-          "group": 3,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 4,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 5,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 6,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 7,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 8,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 9,
-          "source": "78e88175a3183462291f7333e0f0322debc3ab2d",
-          "files": 40
-        },
-        {
-          "group": 10,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 11,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 12,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 13,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 14,
-          "source": "c700d8fdd22b1b4420b03d7aad95b84c618140c8",
-          "files": 40
-        },
-        {
-          "group": 15,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 16,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 17,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 18,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 19,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 20,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 21,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 22,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 40
-        },
-        {
-          "group": 23,
-          "source": "ca30b3f5a1905989dfbc5f6595b7fe089cf610cb",
-          "files": 23
-        }
-      ],
-      "rerunGroups": [
-        0,
-        2,
-        9
-      ],
-      "freshFiles": 120,
-      "carriedFiles": 823,
-      "previousReleaseBaseline": "51ef24f7fb79da51efd53d5eab4b13e45b86e30f",
-      "previousComposedSHA256": "39698bf543dd7aa0ac24ca201b537c107dc813e6140909f5549f5634db1b32f4",
-      "replacementResultSHA256": "d73f01dd9f099c37d1aeb69c6a09d47f838514fe06ef9644eefa6f24628115fa",
-      "durationScope": "Sum of the 24 contributing group measurements",
-      "elapsedGroupSumMs": 1263599
+    "originalTrees": {
+      "tests": "0ab3962bbd3559b0b5cc964fd33c0baffbaf640b",
+      "engine": "ff163920be64c493a85fa04b2d96a05972b75283",
+      "apps": "eacefad19e03c4c32b7f0e7d6676eccc03846ed5",
+      "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
+      "tools": "50a340480709f113afce68b937b1cd18c9e00472",
+      "package.json": "4d7b7bc43a6489c463a200e420158c6c10fd520d"
     },
-    "authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20",
-    "notAWholeRendererSuiteExecutionAtCandidate": true
+    "currentTrees": {
+      "tests": "0ab3962bbd3559b0b5cc964fd33c0baffbaf640b",
+      "engine": "6b2e95be12631c3407d77927be65cb334e796996",
+      "apps": "eacefad19e03c4c32b7f0e7d6676eccc03846ed5",
+      "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
+      "tools": "50a340480709f113afce68b937b1cd18c9e00472",
+      "package.json": "4d7b7bc43a6489c463a200e420158c6c10fd520d"
+    },
+    "sourceBySuite": {
+      "node-root": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
+      "renderer": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
+      "arm64": "835b7c34b5a6610f0cb272c40285efedc9ab29eb"
+    },
+    "outcomeRowsPreserved": true,
+    "noAssertionReplay": true
   },
-  "measurement_authority": "@coordinator-opus ma21663174556 ma6816b67752f m5a324504dfed mcfefa11d5d20; no source/test edits, SAME fresh outcomes reused",
   "not_executed_qualification": {
     "moduleDefinedCases": [
       {
@@ -10322,59 +10091,59 @@
     ],
     "moduleFailureEvents": [
       {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
+        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
         "suite": "renderer",
         "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-7Aidf6\\bundles\\agentrefs.test.mjs",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
         "status": "failed",
         "kind": "leaf",
         "failure_type": "testCodeFailure",
         "error": "test failed",
         "error_digest": "2512eeb638b3",
-        "duration_ms": 325,
+        "duration_ms": 252,
         "stability": "unconfirmed"
       },
       {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
+        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
         "suite": "renderer",
         "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-linux-20261119\\tmp\\orgtree-renderer-tests-ulZr0P\\bundles\\foregroundtree.test.mjs",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
         "status": "failed",
         "kind": "leaf",
         "failure_type": "testCodeFailure",
         "error": "test failed",
         "error_digest": "2512eeb638b3",
-        "duration_ms": 62,
+        "duration_ms": 97,
         "stability": "unconfirmed"
       },
       {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-Lho0vh\\bundles\\treeview.test.mjs",
+        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
         "suite": "renderer",
         "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-464-20261119\\tmp\\orgtree-renderer-tests-Lho0vh\\bundles\\treeview.test.mjs",
+        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
         "status": "failed",
         "kind": "leaf",
         "failure_type": "testCodeFailure",
         "error": "test failed",
         "error_digest": "2512eeb638b3",
-        "duration_ms": 357,
+        "duration_ms": 91,
         "stability": "unconfirmed"
       }
     ],
     "moduleSourceProof": {
-      "apps/desktop/renderer/tests/treeview.test.ts": {
-        "currentObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
-        "acceptedObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
-        "unchanged": true
-      },
       "apps/desktop/renderer/tests/agentrefs.test.ts": {
         "currentObject": "cdb2bce938782dca54051eed7bc4afa28b212090",
-        "acceptedObject": "cdb2bce938782dca54051eed7bc4afa28b212090",
+        "accepted464Object": "cdb2bce938782dca54051eed7bc4afa28b212090",
         "unchanged": true
       },
       "apps/desktop/renderer/tests/foregroundtree.test.ts": {
         "currentObject": "8b8da36bf75f5f530693718a3bac80382722becb",
-        "acceptedObject": "8b8da36bf75f5f530693718a3bac80382722becb",
+        "accepted464Object": "8b8da36bf75f5f530693718a3bac80382722becb",
+        "unchanged": true
+      },
+      "apps/desktop/renderer/tests/treeview.test.ts": {
+        "currentObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
+        "accepted464Object": "2e790d1eb27380a56849ef3fc998a88160060cf7",
         "unchanged": true
       }
     },
@@ -10387,11 +10156,10 @@
       "on an all-users installation an engine it cannot ask is left to the boot step, not waited for"
     ],
     "rendererSafety": [
-      "agents drawer reclaims the rail for names while preserving hierarchy and controls in Edge",
       "real process listing sees a stand-in obs64.exe and loses it after it exits",
       "§7 outside the Job, the watchdog ends a detached orphan once its parent is gone"
     ],
     "noSkippedCaseClaimedPassing": true
   },
-  "release_failure_disposition": "All current failures are contained in the sealed accepted 4.6.4 gate by normalized case identity. Every failure remains recorded; no fix or same-cause claim. See pre-baseline-comparison.json."
+  "release_failure_disposition": "Current failures are contained in the sealed accepted 4.6.4 gate by normalized case identity."
 }
