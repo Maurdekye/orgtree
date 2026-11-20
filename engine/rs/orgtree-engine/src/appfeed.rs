@@ -437,7 +437,8 @@ impl Actor {
     fn mirror_local_orgs(&mut self) {
         let loading = |id: i64| self.reading.contains(&id) || self.dirty_orgs.contains(&id);
         let summary = |id: i64| self.summaries.get(&id).map(|e| &e.frame["body"]);
-        let Some(next) = crate::local_orgs::due(&self.registry, summary, loading, self.local_orgs.as_ref()) else {
+        let remote: Vec<(&Value, &Value)> = self.remote_rows.values().flatten().map(|row| (&row.registry, &row.summary)).collect();
+        let Some(next) = crate::local_orgs::due(&self.registry, summary, loading, &remote, self.local_orgs.as_ref()) else {
             return;
         };
         match crate::local_orgs::write(&self.engine.cfg.data_root, &next) {

@@ -19,7 +19,7 @@ pub const FILE: &str = "local-orgs.json";
 /// by `slug` and never parses one out of an address.
 /// Not logged: the app feed calls it on every org change.
 #[nolog]
-pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>) -> Value {
+pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>, _remote: &[(&Value, &Value)]) -> Value {
     let orgs: Vec<Value> = registry
         .iter()
         .filter_map(|row| {
@@ -39,11 +39,11 @@ pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value
 /// Not logged: the app feed calls it on every org change.
 #[nolog]
 pub fn due<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>, loading: impl Fn(i64) -> bool,
-               written: Option<&Value>) -> Option<Value> {
+               remote: &[(&Value, &Value)], written: Option<&Value>) -> Option<Value> {
     if registry.iter().filter_map(|row| row["org_id"].as_i64()).any(|id| summary(id).is_none() && loading(id)) {
         return None;
     }
-    let next = listing(registry, &summary);
+    let next = listing(registry, &summary, remote);
     (written != Some(&next)).then_some(next)
 }
 
@@ -108,19 +108,104 @@ mod tests {
     #[test]
     fn lists_the_registry_orgs_that_have_a_hub_address_by_their_own_slug() {
         let s = summaries();
-        assert_eq!(listing(&registry(), |id| s.get(&id)), expected());
+        assert_eq!(listing(&registry(), |id| s.get(&id), &[]), expected());
+    }
+
+    /// Remote rows as `remote::link::rows` makes them: (registry record, summary), by alias.
+    fn remote_rows() -> Vec<(Value, Value)> {
+        let record = |id: i64, alias: &str, theirs: &str, state: &str| json!({
+            "org_id": id, "slug": alias, "org_uuid": format!("r{id}"), "state": "active", "attempts": 0,
+            "remote": { "id": "e1", "name": "Tower", "tag": "tower", "slug": theirs, "state": state },
+        });
+        vec![
+            // the alias differs from its slug on its own engine (a local org already has that slug)
+            (record(-3, "alpha-tower", "alpha", "connected"),
+             json!({ "name": "Alpha There", "net_slug": "alpha.other.aa11bb", "nodes": 3, "live": 1 })),
+            // no hub address there
+            (record(-2, "plain", "plain", "connected"), json!({ "name": "Plain", "net_slug": null, "nodes": 1 })),
+            // not connected: the last summary it sent still names the address
+            (record(-1, "zeta", "zeta", "offline"), json!({ "name": "Zeta", "net_slug": "zeta.other.cc22dd", "nodes": 0 })),
+        ]
+    }
+
+    fn pairs(rows: &[(Value, Value)]) -> Vec<(&Value, &Value)> {
+        rows.iter().map(|(record, summary)| (record, summary)).collect()
+    }
+
+    fn expected_with_remote() -> Value {
+        json!({ "v": 1, "orgs": [
+            { "slug": "alpha", "name": "Alpha Works", "address": "alpha.someone.1a2b3c" },
+            { "slug": "gamma", "name": "Gamma Lab", "address": "old-name.someone.4d5e6f" },
+            { "slug": "alpha-tower", "name": "Alpha There", "address": "alpha.other.aa11bb", "remote": { "slug": "alpha" } },
+            { "slug": "zeta", "name": "Zeta", "address": "zeta.other.cc22dd", "remote": { "slug": "zeta" } },
+        ] })
     }
 
     #[test]
-    fn an_org_carries_only_its_slug_name_and_address() {
+    fn remote_orgs_that_have_a_hub_address_follow_the_local_ones_by_alias_connected_or_not() {
         let s = summaries();
-        let got = listing(&registry(), |id| s.get(&id));
+        let rows = remote_rows();
+        assert_eq!(listing(&registry(), |id| s.get(&id), &pairs(&rows)), expected_with_remote());
+        // whatever order the rows come in (several remote engines), local orgs stay first and remote ones go by alias
+        let mut reversed = rows.clone();
+        reversed.reverse();
+        assert_eq!(listing(&registry(), |id| s.get(&id), &pairs(&reversed)), expected_with_remote());
+    }
+
+    #[test]
+    fn a_remote_org_without_a_hub_address_is_not_listed() {
+        let s = summaries();
+        let rows = remote_rows();
+        let got = listing(&registry(), |id| s.get(&id), &pairs(&rows));
+        assert_eq!(got["orgs"].as_array().unwrap().len(), 4);
+        assert!(got["orgs"].as_array().unwrap().iter().all(|org| org["slug"] != "plain"));
+        let mut none = rows.clone();
+        none[0].1["net_slug"] = json!("");
+        none[2].1.as_object_mut().unwrap().remove("net_slug");
+        assert_eq!(listing(&registry(), |id| s.get(&id), &pairs(&none)), expected());
+    }
+
+    #[test]
+    fn a_remote_org_is_listed_under_its_alias_and_says_its_slug_there() {
+        let s = summaries();
+        let rows = remote_rows();
+        let got = listing(&registry(), |id| s.get(&id), &pairs(&rows));
+        let org = got["orgs"].as_array().unwrap().iter().find(|org| org["address"] == "alpha.other.aa11bb").expect("listed");
+        assert_eq!(org["slug"], "alpha-tower");
+        assert_eq!(org["remote"], json!({ "slug": "alpha" }));
+    }
+
+    #[test]
+    fn a_changed_remote_row_makes_the_listing_due() {
+        let s = summaries();
+        let mut rows = remote_rows();
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &pairs(&rows), Some(&expected())), Some(expected_with_remote()));
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &pairs(&rows), Some(&expected_with_remote())), None);
+        // the remote minted an address for an org that had none
+        rows[1].1["net_slug"] = json!("plain.other.ee33ff");
+        let next = due(&registry(), |id| s.get(&id), |_| false, &pairs(&rows), Some(&expected_with_remote())).expect("due");
+        assert_eq!(next["orgs"][3], json!({ "slug": "plain", "name": "Plain", "address": "plain.other.ee33ff", "remote": { "slug": "plain" } }));
+        // the last remote org is gone (its connection was removed)
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &[], Some(&next)), Some(expected()));
+    }
+
+    #[test]
+    fn an_org_carries_only_its_slug_name_and_address_and_a_remote_one_its_slug_there() {
+        let s = summaries();
+        let rows = remote_rows();
+        let got = listing(&registry(), |id| s.get(&id), &pairs(&rows));
         let orgs = got["orgs"].as_array().unwrap();
-        assert!(!orgs.is_empty());
-        for org in orgs {
+        assert_eq!(orgs.len(), 4);
+        for (at, org) in orgs.iter().enumerate() {
             let mut keys: Vec<&str> = org.as_object().unwrap().keys().map(String::as_str).collect();
             keys.sort_unstable();
-            assert_eq!(keys, ["address", "name", "slug"]);
+            if at < 2 {
+                assert_eq!(keys, ["address", "name", "slug"]);
+            } else {
+                // nothing about the remote engine itself (its name, tag, id or link state)
+                assert_eq!(keys, ["address", "name", "remote", "slug"]);
+                assert_eq!(org["remote"].as_object().unwrap().keys().collect::<Vec<_>>(), ["slug"]);
+            }
         }
     }
 
@@ -129,16 +214,16 @@ mod tests {
         let mut s = summaries();
         s.remove(&3);
         // gamma's summary is being read: a boot must not write a listing without it
-        assert_eq!(due(&registry(), |id| s.get(&id), |id| id == 3, None), None);
+        assert_eq!(due(&registry(), |id| s.get(&id), |id| id == 3, &[], None), None);
     }
 
     #[test]
     fn a_changed_listing_is_due_and_an_unchanged_one_is_not() {
         let s = summaries();
-        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, None), Some(expected()));
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &[], None), Some(expected()));
         let stale = json!({ "v": 1, "orgs": [] });
-        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, Some(&stale)), Some(expected()));
-        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, Some(&expected())), None);
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &[], Some(&stale)), Some(expected()));
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &[], Some(&expected())), None);
     }
 
     #[test]
@@ -147,7 +232,7 @@ mod tests {
         // its read failed or it was deleted: not loading, no summary
         s.remove(&1);
         let want = json!({ "v": 1, "orgs": [{ "slug": "gamma", "name": "Gamma Lab", "address": "old-name.someone.4d5e6f" }] });
-        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, Some(&expected())), Some(want));
+        assert_eq!(due(&registry(), |id| s.get(&id), |_| false, &[], Some(&expected())), Some(want));
     }
 
     #[test]
