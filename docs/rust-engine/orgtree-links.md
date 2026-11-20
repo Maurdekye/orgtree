@@ -17,6 +17,10 @@ Rulings (docket `hubchat-render-orgtree-mentions-as-chips-linking`):
   mirror of hubchat://.
 - 15:09Z mb6a4bdb7c944: a menu entry that opens just the org.
 - 15:10Z m7c183781895c: the edge-case rules below, accepted as proposed.
+- USER 2026-11-20 20:25:34Z m725c710ca7b4 (docket
+  `hubchat-orgtree-chips-and-info-link-for-remote-o`): "this PC's orgs" in
+  those rules now reads "an org this PC's Orgtree can open", so a remote org
+  saved in this PC's Orgtree counts (Orgtree 4.6.7 and later).
 
 ## The link shapes
 
@@ -123,11 +127,21 @@ the link over as a command-line argument, so nothing else may get through.
   own messages to people are the exception: I am this PC's user, so their
   tokens can open.
 - **When a chip opens.**
-  - The message's org must be one of this PC's orgs by ADDRESS (Orgtree's
-    `local-orgs.json`, the identity check the contact-info badge uses), and
-    the token's `<org>` must be one of this PC's org slugs. So a token from
-    someone else's org that happens to share a slug with one of mine stays
-    inert.
+  - The message's org must be one this PC's Orgtree can open, by ADDRESS
+    (Orgtree's `local-orgs.json`, the identity check the contact-info badge
+    uses), and the token's `<org>` must be one of the slugs listed there. So
+    a token from someone else's org that happens to share a slug with one of
+    mine stays inert.
+  - From Orgtree 4.6.7 the listing also holds the remote orgs saved in this
+    PC's Orgtree (docs/rust-engine/remote-org.md, "The list"), connected or
+    not, as `{slug, name, address, remote: {slug}}`. `slug` is the name this
+    Orgtree opens the org by (its alias), which is what a link carries;
+    `remote.slug` is its slug on its own engine, which is what its own
+    mentions carry. The two are equal unless the alias had to differ (a local
+    org already had that slug). Hubchat 1.3.10 reads `slug` only, so where
+    they differ the org's badge opens and chips naming its own slug stay
+    display-only. With an earlier Orgtree no remote org is listed and its
+    chips and badge stay plain.
   - The installed Orgtree (its Uninstall entry's DisplayVersion) must be
     4.5.9 or later, prereleases included.
   - Hubchat builds the link natively from validated parts and hands it to the

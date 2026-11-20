@@ -1,9 +1,11 @@
-//! `local-orgs.json` in the data root: the orgs this engine hosts that have a
-//! hub address, for other apps on this PC (desktop Hubchat's contact info
-//! opens a local org through Orgtree's taskbar argument). It holds nothing
-//! secret: slugs, names and addresses are what the hub directory already
-//! shows. The app feed keeps it current and writes it only when the listing
-//! changes.
+//! `local-orgs.json` in the data root: the orgs this PC's Orgtree can open
+//! that have a hub address, for other apps on this PC (desktop Hubchat's
+//! contact info and mention chips open such an org through Orgtree). That is
+//! the orgs this engine hosts and, after them, the remote orgs it has saved
+//! (USER 2026-11-20 m725c710ca7b4; before 4.6.7 only the hosted ones). It
+//! holds nothing secret: slugs, names and addresses are what the hub
+//! directory already shows, and nothing says where a remote org runs. The
+//! app feed keeps it current and writes it only when the listing changes.
 
 use std::path::Path;
 
@@ -17,10 +19,18 @@ pub const FILE: &str = "local-orgs.json";
 /// summary carries a hub address (`net_slug`). An imported org can keep the
 /// address it was minted with under another slug, so a reader opens an org
 /// by `slug` and never parses one out of an address.
+///
+/// After the local orgs come the remote ones (`remote`: each row's registry
+/// record and summary, `remote::link::rows`), by alias, under the same
+/// address rule and whether or not their engine is connected: the last
+/// summary it sent still names the address, and opening the org is what
+/// shows its state. `slug` is the alias, the name this PC's Orgtree opens it
+/// by; `remote: {"slug"}` is its slug on its own engine, the one its own
+/// mentions carry. Nothing else about the remote engine is written.
 /// Not logged: the app feed calls it on every org change.
 #[nolog]
-pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>, _remote: &[(&Value, &Value)]) -> Value {
-    let orgs: Vec<Value> = registry
+pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>, remote: &[(&Value, &Value)]) -> Value {
+    let mut orgs: Vec<Value> = registry
         .iter()
         .filter_map(|row| {
             let body = summary(row["org_id"].as_i64()?)?;
@@ -28,6 +38,18 @@ pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value
             Some(json!({ "slug": row["slug"], "name": body["name"], "address": address }))
         })
         .collect();
+    let mut theirs: Vec<(&str, Value)> = remote
+        .iter()
+        .filter_map(|(row, body)| {
+            let alias = row["slug"].as_str()?;
+            let address = body["net_slug"].as_str().filter(|a| !a.is_empty())?;
+            Some((alias, json!({ "slug": alias, "name": body["name"], "address": address,
+                                 "remote": { "slug": row["remote"]["slug"] } })))
+        })
+        .collect();
+    // rows come grouped by remote engine: one order whichever engine an org is on
+    theirs.sort_by(|a, b| a.0.cmp(b.0));
+    orgs.extend(theirs.into_iter().map(|(_, org)| org));
     json!({ "v": 1, "orgs": orgs })
 }
 
@@ -35,7 +57,9 @@ pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value
 /// loading its summary (a boot reads every org after the registry and must
 /// not write a listing that lacks them), or when it equals the one written.
 /// An org that is not loading and has no summary (its read failed) does not
-/// hold the others back: it is simply not listed.
+/// hold the others back: it is simply not listed. Remote orgs never hold a
+/// listing back: their rows are whole when they arrive, and a boot that
+/// writes before they do writes again when they come.
 /// Not logged: the app feed calls it on every org change.
 #[nolog]
 pub fn due<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>, loading: impl Fn(i64) -> bool,

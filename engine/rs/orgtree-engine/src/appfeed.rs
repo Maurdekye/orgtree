@@ -231,7 +231,8 @@ struct Actor {
     dirty_orgs: HashSet<i64>,
     reading: HashSet<i64>,
     /// remote engine id -> its organizations in the list. They are not local
-    /// orgs: no handle, no database row, never in local-orgs.json.
+    /// orgs: no handle, no database row. local-orgs.json lists those that
+    /// have a hub address after the local ones (local_orgs.rs).
     remote_rows: std::collections::BTreeMap<String, Vec<crate::remote::Row>>,
     /// remote engine id -> its own pushed values (key -> (seq, value)), kept
     /// while it is offline: its windows show the last known state.
@@ -429,8 +430,8 @@ impl Actor {
         })
     }
 
-    /// local-orgs.json follows the registry and the summaries' hub
-    /// addresses (local_orgs.rs). `local_orgs` keeps the listing actually
+    /// local-orgs.json follows the registry, the summaries' hub addresses
+    /// and the remote rows (local_orgs.rs). `local_orgs` keeps the listing actually
     /// written, so a failed write is retried at the next change.
     /// Not logged: it runs on every org read; the write itself is logged.
     #[nolog]
@@ -634,6 +635,8 @@ impl Actor {
     /// the frames a local organization's changes use.
     fn remote(&mut self, remote: String, rows: Vec<crate::remote::Row>) {
         let old = (if rows.is_empty() { self.remote_rows.remove(&remote) } else { self.remote_rows.insert(remote, rows.clone()) }).unwrap_or_default();
+        // a remote org's alias, name or hub address is in local-orgs.json too
+        self.mirror_local_orgs();
         if !old.iter().map(|r| &r.registry).eq(rows.iter().map(|r| &r.registry)) {
             self.rev += 1;
             let frame = self.registry_frame();

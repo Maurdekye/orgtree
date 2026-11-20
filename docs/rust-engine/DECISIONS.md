@@ -2490,7 +2490,12 @@ Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and
     registers the per-user class at start the way Hubchat registers hubchat:// (packaged,
     Windows, real profile; no installer change). Hubchat enables a chip only for an org of
     this PC by address (`local-orgs.json`) and an Orgtree of 4.5.9 or later. Contract:
-    [orgtree-links](orgtree-links.md).
+    [orgtree-links](orgtree-links.md). Widened 2026-11-20 (USER 20:25:34Z
+    m725c710ca7b4 "Fold into 4.6.7", docket `hubchat-orgtree-chips-and-info-link-for-remote-o`):
+    the 11-08 rule "an org of this PC" now reads "an org this PC's Orgtree can open". From
+    4.6.7 `local-orgs.json` also lists the saved remote orgs that have a hub address, under
+    their alias, so Hubchat opens their badge and chips too ([remote-org](remote-org.md),
+    "The list"). Hubchat is unchanged.
 
 99. **Viewer-scoped client tokens** (USER 2026-11-11 08:39:55Z m27cc41f6b6d1 "A: extend apps";
     08:56:16Z mbad040c63ccb "Accept all, build it"; docket

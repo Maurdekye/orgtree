@@ -32,21 +32,27 @@ The other direction runs through a file, not the network. The engine keeps
 `local-orgs.json` in its data root: `%APPDATA%\Orgtree v2\data` by default, or the
 folder **Data location** moved it to, which `%APPDATA%\Orgtree v2\data-location.json`
 names. The list holds each active org that has a hub address, by slug, name and
-address, and nothing secret. Hubchat 1.3.9 or later follows a moved data root;
+address, and nothing secret. From Orgtree 4.6.7 it also holds the remote orgs
+connected in this Orgtree (**Connect to a remote org**) that have a hub address,
+under the name they have here, whether or not their computer is reachable right
+now. Hubchat 1.3.9 or later follows a moved data root;
 older versions find no local orgs after a move, so the badge and Orgtree mention
 chips stay plain.
 Desktop Hubchat 1.2.6 or later, on the same PC and Windows account, reads it:
 the **Orgtree org** badge in a local org's contact info opens that org in
 Orgtree, starting Orgtree when it isn't running, through the taskbar argument
-`--orgtree-taskbar=org:<slug>`. Orgs on other computers and Hubchat on a phone
+`--orgtree-taskbar=org:<slug>`. A remote org listed there opens the same way, in
+its window on this PC. Orgs this Orgtree can't open and Hubchat on a phone
 keep a plain badge. Verified: `local_orgs.rs`, `appfeed.rs`, `main/jumplist.ts`.
 
 Desktop Hubchat 1.3.3 or later also draws Orgtree's mentions as chips: tickets,
 documents, apps, panels, mails, `@agent:`/`@project:` and, in a conversation with
 an org, a bare `@name` (one icon for agents and projects). It uses the mention
 text only. A chip opens its target in Orgtree 4.5.9 or later through an
-`orgtree://` link when the message's org and the mentioned org run on this PC,
-matched by address. Its right-click menu also opens just that org. Every other
+`orgtree://` link when this PC's Orgtree can open the message's org and the
+mentioned org: its own orgs and, from Orgtree 4.6.7, its remote orgs, matched by
+address. A remote org whose name here differs from its name on its own computer
+gets the badge link, but its chips stay display-only. Its right-click menu also opens just that org. Every other
 chip, and every chip on a phone, is display-only, with the hint "Opens in
 Orgtree on the PC that runs <org>". The contract is `docs/rust-engine/orgtree-links.md`
 in the Orgtree repository.

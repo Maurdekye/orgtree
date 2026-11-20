@@ -176,7 +176,16 @@ logged, and the bodies of `/api/remotes` are omitted before authentication.
 Remote organizations are rows of this engine's app feed and of `GET /api/orgs`: `slug` is the alias,
 `org_id` the local id, and `remote: {id, name, tag, slug, state}` says whose they are. While the link
 is connected they carry the remote's summary and working count; otherwise the last summary and no
-activity. They are not local organizations: no handle, no database row, never in `local-orgs.json`.
+activity. They are not local organizations: no handle and no database row.
+
+`local-orgs.json` lists them after the local organizations, since 4.6.7 (USER 2026-11-20 20:25:34Z
+m725c710ca7b4 "Fold into 4.6.7", docket `hubchat-orgtree-chips-and-info-link-for-remote-o`; until then
+they were never in it). An entry is `{slug, name, address, remote: {slug}}`: `slug` is the alias,
+`remote.slug` its slug on its own engine, and it is written only when the summary names a hub address
+(`net_slug`), connected or not. It names no remote engine. This is what lets desktop Hubchat open a
+remote organization's badge and mention chips in this computer's Orgtree; the user's rule of
+2026-11-08 (m7c183781895c, chips open only for this PC's own orgs) now reads "an org this PC's Orgtree
+can open". See [orgtree-links](orgtree-links.md).
 
 What waits on the user in a remote organization (questions, urgent mail and the rest) is among this
 computer's notices: the link mirrors the remote's `org_notices` frames, and the app feed sends them
