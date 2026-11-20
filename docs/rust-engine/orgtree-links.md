@@ -61,6 +61,27 @@ the link over as a command-line argument, so nothing else may get through.
   `ORGTREE_V2_DATA`/`ORGTREE_V2_PROFILE`, and a packaged smoke run whose
   `APPDATA` is not the real Roaming folder never register. The class
   survives an uninstall, as Hubchat's does: a link then opens nothing.
+- **Registration on Linux** (from 4.6.6, USER 2026-11-20;
+  `main/orgtree-link-linux.ts`). Electron's call does nothing useful for an
+  AppImage, so the packaged app writes two per-user files at start, under the
+  same guards (never development, a custom data root or profile, or a run
+  whose `HOME` is not the account's home):
+  - its OWN handler entry, `dev.orgtree.link.desktop` in
+    `$XDG_DATA_HOME/applications` (`~/.local/share/applications`):
+    `NoDisplay=true`, `MimeType=x-scheme-handler/orgtree;`, an `Exec` that
+    names this run's AppImage (`$APPIMAGE`, else the installed program) with
+    `%u`, and `X-Orgtree-Version`. A run without FUSE writes
+    `Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "<AppImage>" %u`. It is rewritten
+    only when its text would change (a moved file, a new version).
+  - the default, `x-scheme-handler/orgtree=dev.orgtree.link.desktop;` under
+    `[Default Applications]` in `$XDG_CONFIG_HOME/mimeapps.list`, only when
+    that list names no default for the scheme. A default the user or another
+    program set stays, and the app logs that it left it alone.
+
+  It never changes or removes an entry it did not write, such as a launcher
+  named `orgtree.desktop`. Hubchat on Linux reads the same two files to know
+  that links open here. Unit-tested with temporary folders
+  (`tests/orgtree-links-linux.test.mjs`); not yet seen on a device.
 - **Routing.** Windows starts `Orgtree.exe "<link>"`. The link is one
   command-line destination, like the taskbar's `--orgtree-taskbar=` targets.
   A command line holding both, or two links, names nothing. Links queue with

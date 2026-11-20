@@ -1,0 +1,1 @@
+**Orgtree links open on Linux.** The Linux app now registers `orgtree://` links when it starts, so Hubchat 1.3.10 or later on the same computer can open tickets, documents, agents and other mentions in Orgtree, and its Orgtree org badge works too. Orgtree adds its own hidden handler entry and leaves any launcher or default you set yourself alone.

@@ -51,6 +51,14 @@ chip, and every chip on a phone, is display-only, with the hint "Opens in
 Orgtree on the PC that runs <org>". The contract is `docs/rust-engine/orgtree-links.md`
 in the Orgtree repository.
 
+On Linux this needs Orgtree 4.6.6 or later and Hubchat 1.3.10 or later. The data
+root is `~/.config/Orgtree v2/data` (or the moved folder). Orgtree registers
+`orgtree://` at start with its own entry, `dev.orgtree.link.desktop`, and makes
+it the default only when no other program is; Hubchat lights chips and the badge
+when that default names a program that exists. On Linux the badge opens the org
+through an `orgtree://org/<slug>` link. With earlier versions every chip stays
+display-only there.
+
 ## How an organization receives and answers
 
 A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-mailbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org mailbox is a viewer of retained correspondence.
