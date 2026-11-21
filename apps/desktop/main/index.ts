@@ -193,11 +193,12 @@ if (single && !installerUpgradeRequested) {
   } catch (error) { console.warn('The orgtree:// link scheme could not be registered', error) }
   // Linux extract-and-run AppImage: create or repair our visible orgtree.desktop (and icon if missing).
   try {
-    registerLinuxOrgtreeApp({
+    const appEntry = registerLinuxOrgtreeApp({
       platform: process.platform, isPackaged: app.isPackaged, home: os.userInfo().homedir,
       version: app.getVersion(), execPath: process.execPath, env: process.env,
       iconSource: path.join(process.resourcesPath, 'runtime-icons', 'orgtree-eye.png'),
     })
+    if (appEntry.entry === 'other') console.info('Existing Linux orgtree.desktop was not managed by Orgtree or changed concurrently; left untouched')
   } catch (error) { console.warn('The Linux desktop entry could not be registered', error) }
 }
 if (!single) app.quit()
