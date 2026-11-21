@@ -89,10 +89,15 @@ the link over as a command-line argument, so nothing else may get through.
     that list names no default for the scheme. A default the user or another
     program set stays, and the app logs that it left it alone.
 
-  It never changes or removes an entry it did not write, such as a launcher
-  named `orgtree.desktop`. Hubchat on Linux reads the same two files to know
-  that links open here. Unit-tested with temporary folders
-  (`tests/orgtree-links-linux.test.mjs`); not yet seen on a device.
+  It never changes or removes an entry it did not write. In extract-and-run
+  mode (when `APPIMAGE` is set and `APPDIR` is an extracted AppImage folder),
+  Orgtree also creates or repairs its own visible `orgtree.desktop` (with
+  `Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 <AppImage> %U` and
+  `X-Orgtree-Version=<version>`) and installs its PNG icon if missing; any
+  existing `orgtree.desktop` without `X-Orgtree-Version=` or any entry under
+  another filename is left untouched byte for byte. Hubchat on Linux reads
+  `dev.orgtree.link.desktop` and `mimeapps.list` to know that links open here.
+  Unit-tested with temporary folders (`tests/orgtree-links-linux.test.mjs`).
 - **Routing.** Windows starts `Orgtree.exe "<link>"`. The link is one
   command-line destination, like the taskbar's `--orgtree-taskbar=` targets.
   A command line holding both, or two links, names nothing. Links queue with
