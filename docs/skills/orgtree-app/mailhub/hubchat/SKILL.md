@@ -65,6 +65,17 @@ when that default names a program that exists. On Linux the badge opens the org
 through an `orgtree://org/<slug>` link. With earlier versions every chip stays
 display-only there.
 
+From Orgtree 4.6.8, Linux also detects desktop Hubchat in the other direction
+(`phone.rs` `linux_hubchat`, in-process with no child process): Hubchat counts
+as installed when `x-scheme-handler/hubchat` resolves in XDG order (the
+`[Default Applications]` default in `mimeapps.list` across `$XDG_CONFIG_HOME`
+and `$XDG_CONFIG_DIRS`, else any non-hidden `.desktop` entry declaring that
+`MimeType`) to an `Exec` program that exists on disk. Hubchat on Linux writes
+its own `dev.orgtree.hubchat.link.desktop` entry and default at start (mirroring
+`dev.orgtree.link.desktop`, and honouring `HUBCHAT_LAUNCHER` when set to an
+existing executable regular file). macOS detection is not yet implemented and
+still reports Hubchat as not installed.
+
 ## How an organization receives and answers
 
 A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-mailbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org mailbox is a viewer of retained correspondence.
