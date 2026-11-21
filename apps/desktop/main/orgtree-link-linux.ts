@@ -15,6 +15,7 @@
 // X-Orgtree-Version= or any entry under another name belongs to whoever made it),
 // and it becomes the default only when nothing is: a default the user or another
 // program chose stays.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { appImageExtracted } from './engine-runtime'
@@ -37,6 +38,10 @@ export interface LinuxLinkInputs {
   /** `process.execPath`: the program of an installed package. */
   execPath: string
   env: Record<string, string | undefined>
+  /** Test seam: invoked after staging a temporary file and immediately before publishing `dest`. */
+  beforePublish?: (dest: string) => void
+  /** Test seam: override the temporary pathname chosen for `file`. */
+  makeTempPath?: (file: string) => string
 }
 
 export interface LinuxLinkResult {
@@ -113,11 +118,212 @@ export function appEntryText(o: { program: string; version: string }): string {
 const sameFolder = (a: string, b: string) => path.resolve(a) === path.resolve(b)
 const xdg = (value: string | undefined, fallback: string) => (value && path.isAbsolute(value) ? value : fallback)
 
-function writeAtomic(file: string, data: string | Buffer): void {
+interface WriteHooks {
+  beforePublish?: (dest: string) => void
+  makeTempPath?: (file: string) => string
+}
+
+interface RegularSnapshot {
+  text: string
+  dev: bigint
+  ino: bigint
+  size: bigint
+  mtimeNs: bigint
+  ctimeNs: bigint
+}
+
+/** True when `execPath` is strictly inside `appDir` (resolving symlinks when
+ *  both paths exist on disk, otherwise using normalized POSIX paths). */
+function execInsideAppDir(execPath: string, appDir: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  if (!execPath.startsWith('/') || !appDir.startsWith('/') || /[\u0000-\u001f\u007f]/.test(execPath) || /[\u0000-\u001f\u007f]/.test(appDir)) {
+    return false
+  }
+  try {
+    const realDir = fs.realpathSync(appDir)
+    const realExec = fs.realpathSync(execPath)
+    if (realDir === '/' || realDir === path.sep) return false
+    const prefix = realDir.endsWith(path.sep) ? realDir : realDir + path.sep
+    return realExec.startsWith(prefix) && realExec.length > prefix.length
+  } catch {
+    const normDir = path.posix.normalize(appDir).replace(/\/+$/, '')
+    const normExec = path.posix.normalize(execPath)
+    if (!normDir || normDir === '/') return false
+    return normExec.startsWith(normDir + '/') && normExec.length > normDir.length + 1
+  }
+}
+
+/** Validate that `APPIMAGE` and `APPDIR` belong to this running process rather
+ *  than being inherited from a parent AppImage that launched a native install. */
+function ownAppImage(
+  execPath: string,
+  env: Record<string, string | undefined>,
+): { program: string; extracted: boolean } | null {
+  const program = env.APPIMAGE
+  const appDir = env.APPDIR
+  if (!program || !appDir) return null
+  const normDir = path.posix.normalize(appDir).replace(/\/+$/, '')
+  const base = path.posix.basename(normDir)
+  const extracted = appImageExtracted(env) !== null && base.startsWith('appimage_extracted_')
+  const mounted = base.startsWith('.mount_')
+  if (!extracted && !mounted) return null
+  if (!execInsideAppDir(execPath, appDir)) return null
+  return { program, extracted }
+}
+
+function systemDataDirs(env: Record<string, string | undefined>, dataHome: string): string[] {
+  const raw = env.XDG_DATA_DIRS
+  const list = raw && raw.length > 0
+    ? (raw.includes(';') || /^[A-Za-z]:[\\/]/.test(raw) ? raw.split(';') : raw.split(':'))
+    : ['/usr/local/share', '/usr/share']
+  const out: string[] = []
+  for (const dir of list) {
+    if (!dir || !path.isAbsolute(dir) || sameFolder(dir, dataHome)) continue
+    out.push(dir)
+  }
+  return out
+}
+
+function hasSystemEntry(env: Record<string, string | undefined>, dataHome: string, entryName: string): boolean {
+  for (const dir of systemDataDirs(env, dataHome)) {
+    try {
+      fs.lstatSync(path.join(dir, 'applications', entryName))
+      return true
+    } catch { /* absent or unreadable */ }
+  }
+  return false
+}
+
+function defaultTempPath(file: string): string {
+  const rand = crypto.randomBytes(6).toString('hex')
+  return `${file}.${process.pid}.${tmpSeq++}.${rand}.tmp`
+}
+
+/** Exclusively create and populate a temporary file beside `file`.
+ *  If the exclusive open fails (e.g. `EEXIST`), the colliding path was NOT
+ *  created by us and is never unlinked. Permissions are applied on the open
+ *  file descriptor before closing. */
+function writeTempExclusive(file: string, data: string | Buffer, makeTempPath?: (file: string) => string): string {
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.${tmpSeq++}.tmp`
-  try { fs.writeFileSync(tmp, data, { mode: 0o644, flag: 'wx' }); fs.renameSync(tmp, file) }
-  catch (error) { fs.rmSync(tmp, { force: true }); throw error }
+  const tmp = makeTempPath ? makeTempPath(file) : defaultTempPath(file)
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0)
+  const fd = fs.openSync(tmp, flags, 0o644)
+  try {
+    try {
+      fs.writeFileSync(fd, data)
+      if (process.platform !== 'win32') fs.fchmodSync(fd, 0o644)
+      fs.fsyncSync(fd)
+    } finally {
+      fs.closeSync(fd)
+    }
+    return tmp
+  } catch (error) {
+    try { fs.unlinkSync(tmp) } catch { /* best-effort cleanup of file we created */ }
+    throw error
+  }
+}
+
+function writeAtomic(file: string, data: string | Buffer, makeTempPath?: (file: string) => string): void {
+  const tmp = writeTempExclusive(file, data, makeTempPath)
+  try { fs.renameSync(tmp, file) }
+  catch (error) { try { fs.unlinkSync(tmp) } catch { /* ignore */ }; throw error }
+}
+
+/** Publish a new file with no-replace semantics (`link(tmp, dest)` + unlink,
+ *  falling back to `O_CREAT | O_EXCL` on filesystems without hard-link support).
+ *  Returns `'exists'` without touching `file` if another writer created it first. */
+function writeNoReplace(file: string, data: string | Buffer, hooks: WriteHooks): 'written' | 'exists' {
+  const tmp = writeTempExclusive(file, data, hooks.makeTempPath)
+  try {
+    hooks.beforePublish?.(file)
+    try {
+      fs.linkSync(tmp, file)
+      try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+      return 'written'
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+      if (code === 'EEXIST') return 'exists'
+      if (code === 'ENOSYS' || code === 'EOPNOTSUPP' || code === 'EXDEV' || code === 'EPERM') {
+        const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0)
+        let fd: number
+        try {
+          fd = fs.openSync(file, flags, 0o644)
+        } catch (openErr) {
+          if ((openErr as NodeJS.ErrnoException).code === 'EEXIST') return 'exists'
+          throw openErr
+        }
+        try {
+          try {
+            fs.writeFileSync(fd, data)
+            if (process.platform !== 'win32') fs.fchmodSync(fd, 0o644)
+            fs.fsyncSync(fd)
+          } finally {
+            fs.closeSync(fd)
+          }
+          return 'written'
+        } catch (writeErr) {
+          try { fs.unlinkSync(file) } catch { /* ignore */ }
+          throw writeErr
+        }
+      }
+      throw error
+    }
+  } catch (error) {
+    try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+    throw error
+  }
+}
+
+function readRegularSnapshot(file: string): RegularSnapshot | null | 'untrusted' {
+  try {
+    const lst = fs.lstatSync(file)
+    if (!lst.isFile() || lst.size > MAX_ENTRY_BYTES) return 'untrusted'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+  let fd: number
+  try {
+    fd = fs.openSync(file, flags)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return null
+    if (code === 'ELOOP' || code === 'EISDIR' || code === 'ENOTDIR') return 'untrusted'
+    throw error
+  }
+  try {
+    const st = fs.fstatSync(fd, { bigint: true })
+    if (!st.isFile() || st.size > BigInt(MAX_ENTRY_BYTES)) return 'untrusted'
+    const buf = Buffer.allocUnsafe(MAX_ENTRY_BYTES + 1)
+    let total = 0
+    while (total < buf.length) {
+      const n = fs.readSync(fd, buf, total, buf.length - total, null)
+      if (n === 0) break
+      total += n
+    }
+    if (total > MAX_ENTRY_BYTES) return 'untrusted'
+    return {
+      text: buf.subarray(0, total).toString('utf8'),
+      dev: st.dev,
+      ino: st.ino,
+      size: st.size,
+      mtimeNs: st.mtimeNs,
+      ctimeNs: st.ctimeNs,
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+function sameSnapshot(a: RegularSnapshot, b: RegularSnapshot): boolean {
+  return a.dev === b.dev
+    && a.ino === b.ino
+    && a.size === b.size
+    && a.mtimeNs === b.mtimeNs
+    && a.ctimeNs === b.ctimeNs
+    && a.text === b.text
 }
 
 function isManagedOrgtreeEntry(text: string): boolean {
@@ -133,7 +339,7 @@ function isManagedOrgtreeEntry(text: string): boolean {
   return false
 }
 
-function installIconIfMissing(dataHome: string, iconSource?: string): LinuxAppEntryResult['icon'] {
+function installIconIfMissing(dataHome: string, iconSource: string | undefined, hooks: WriteHooks): LinuxAppEntryResult['icon'] {
   if (!iconSource) return 'skipped'
   try {
     const dest = path.join(dataHome, APP_ICON_REL)
@@ -146,8 +352,7 @@ function installIconIfMissing(dataHome: string, iconSource?: string): LinuxAppEn
     const src = fs.statSync(iconSource)
     if (!src.isFile() || src.size === 0 || src.size > MAX_ICON_BYTES) return 'skipped'
     const bytes = fs.readFileSync(iconSource)
-    writeAtomic(dest, bytes)
-    return 'written'
+    return writeNoReplace(dest, bytes, hooks)
   } catch {
     return 'skipped'
   }
@@ -198,13 +403,15 @@ export function registerLinuxOrgtreeScheme(o: LinuxLinkInputs): LinuxLinkResult 
   if (o.platform !== 'linux' || !o.isPackaged || !o.home) return skipped
   if (o.env.ORGTREE_V2_DATA || o.env.ORGTREE_V2_PROFILE) return skipped
   if (o.env.HOME && !sameFolder(o.env.HOME, o.home)) return skipped
-  const program = o.env.APPIMAGE || o.execPath
+  const owned = ownAppImage(o.execPath, o.env)
+  const program = owned ? owned.program : o.execPath
+  const extracted = owned ? owned.extracted : false
   if (desktopExecArg(program) === null) return skipped
   const entry = path.join(xdg(o.env.XDG_DATA_HOME, path.join(o.home, '.local', 'share')), 'applications', LINK_ENTRY)
-  const text = linkEntryText({ program, extracted: appImageExtracted(o.env) !== null, version: o.version })
+  const text = linkEntryText({ program, extracted, version: o.version })
   let current = false
   try { current = fs.readFileSync(entry, 'utf8') === text } catch { /* not there yet */ }
-  if (!current) writeAtomic(entry, text)
+  if (!current) writeAtomic(entry, text, o.makeTempPath)
   const claimed = claimDefault(path.join(xdg(o.env.XDG_CONFIG_HOME, path.join(o.home, '.config')), 'mimeapps.list'))
   return { entry: current ? 'current' : 'written', ...claimed }
 }
@@ -213,34 +420,62 @@ export function registerLinuxOrgtreeScheme(o: LinuxLinkInputs): LinuxLinkResult 
  *  missing) when running as a packaged Linux AppImage in extract-and-run mode.
  *  Uses the same real-install and foreign-HOME guards as scheme registration.
  *  Only writes or repairs our own entry (marked with X-Orgtree-Version=); never
- *  modifies a hand-written orgtree.desktop, a symlink, or any entry under
- *  another name. */
+ *  modifies a hand-written orgtree.desktop, a symlink, a concurrent user edit,
+ *  an administrator-installed system entry, or any entry under another name. */
 export function registerLinuxOrgtreeApp(o: LinuxAppEntryInputs): LinuxAppEntryResult {
   const skipped: LinuxAppEntryResult = { entry: 'skipped', icon: 'skipped' }
   if (o.platform !== 'linux' || !o.isPackaged || !o.home) return skipped
   if (o.env.ORGTREE_V2_DATA || o.env.ORGTREE_V2_PROFILE) return skipped
   if (o.env.HOME && !sameFolder(o.env.HOME, o.home)) return skipped
-  if (appImageExtracted(o.env) === null) return skipped
-  const program = o.env.APPIMAGE
-  if (!program || desktopExecArg(program) === null) return skipped
+  const owned = ownAppImage(o.execPath, o.env)
+  if (!owned || !owned.extracted) return skipped
+  const program = owned.program
+  if (desktopExecArg(program) === null) return skipped
 
   const dataHome = xdg(o.env.XDG_DATA_HOME, path.join(o.home, '.local', 'share'))
   const entryPath = path.join(dataHome, 'applications', APP_ENTRY)
   const text = appEntryText({ program, version: o.version })
 
-  let entryStatus: 'written' | 'current' = 'written'
-  try {
-    const st = fs.lstatSync(entryPath)
-    if (!st.isFile() || st.size > MAX_ENTRY_BYTES) return { entry: 'other', icon: 'skipped' }
-    const existing = fs.readFileSync(entryPath, 'utf8')
-    if (!isManagedOrgtreeEntry(existing)) return { entry: 'other', icon: 'skipped' }
-    if (existing === text) entryStatus = 'current'
-    else writeAtomic(entryPath, text)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    writeAtomic(entryPath, text)
+  const snap = readRegularSnapshot(entryPath)
+  if (snap === 'untrusted') return { entry: 'other', icon: 'skipped' }
+
+  let entryStatus: 'written' | 'current'
+  if (snap === null) {
+    if (hasSystemEntry(o.env, dataHome, APP_ENTRY)) return { entry: 'other', icon: 'skipped' }
+    if (writeNoReplace(entryPath, text, o) === 'exists') return { entry: 'other', icon: 'skipped' }
+    entryStatus = 'written'
+  } else {
+    if (!isManagedOrgtreeEntry(snap.text)) return { entry: 'other', icon: 'skipped' }
+    if (snap.text === text) {
+      entryStatus = 'current'
+    } else {
+      const tmp = writeTempExclusive(entryPath, text, o.makeTempPath)
+      try {
+        o.beforePublish?.(entryPath)
+        const cur = readRegularSnapshot(entryPath)
+        if (cur === null) {
+          try {
+            fs.linkSync(tmp, entryPath)
+            try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+          } catch (error) {
+            try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+            if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { entry: 'other', icon: 'skipped' }
+            throw error
+          }
+        } else if (cur === 'untrusted' || !sameSnapshot(snap, cur)) {
+          try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+          return { entry: 'other', icon: 'skipped' }
+        } else {
+          fs.renameSync(tmp, entryPath)
+        }
+      } catch (error) {
+        try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+        throw error
+      }
+      entryStatus = 'written'
+    }
   }
 
-  const icon = installIconIfMissing(dataHome, o.iconSource)
+  const icon = installIconIfMissing(dataHome, o.iconSource, o)
   return { entry: entryStatus, icon }
 }
