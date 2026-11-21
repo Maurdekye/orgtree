@@ -24,6 +24,7 @@ const {
   linkEntryText,
   appEntryText,
   desktopExecArg,
+  systemDataDirs,
   LINK_ENTRY,
   LINK_MIME,
   APP_ENTRY,
@@ -577,6 +578,10 @@ test('M12: repair aborts and leaves destination absent when managed entry disapp
 })
 
 test('M12: Linux XDG_DATA_DIRS splits on colon only so a literal semicolon in a path never hides a system entry', () => {
+  assert.deepEqual(
+    [...systemDataDirs({ XDG_DATA_DIRS: '/opt/a;b/share:/usr/share' }, '/home/u/.local/share')],
+    ['/opt/a;b/share', '/usr/share'],
+  )
   if (process.platform === 'linux') {
     const h = home('m12-semicolon')
     const sysWithSemi = path.join(h.dir, 'sys;dir')

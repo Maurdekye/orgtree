@@ -171,10 +171,14 @@ function ownAppImage(
   return { program, extracted }
 }
 
-function systemDataDirs(env: Record<string, string | undefined>, dataHome: string): string[] {
+export function systemDataDirs(env: Record<string, string | undefined>, dataHome: string): string[] {
   const raw = env.XDG_DATA_DIRS
+  // On Linux XDG_DATA_DIRS is strictly colon-delimited (a literal ';' is a valid
+  // filename character, never a delimiter). Only Windows host test fixtures pass
+  // drive-letter paths (e.g. C:\...) separated by ';'.
+  const isWinList = process.platform === 'win32' && !!raw && /^[A-Za-z]:[\\/]/.test(raw)
   const list = raw && raw.length > 0
-    ? (raw.includes(';') || /^[A-Za-z]:[\\/]/.test(raw) ? raw.split(';') : raw.split(':'))
+    ? raw.split(isWinList ? ';' : ':')
     : ['/usr/local/share', '/usr/share']
   const out: string[] = []
   for (const dir of list) {
@@ -229,10 +233,11 @@ function writeAtomic(file: string, data: string | Buffer, makeTempPath?: (file: 
   catch (error) { try { fs.unlinkSync(tmp) } catch { /* ignore */ }; throw error }
 }
 
-/** Publish a new file with no-replace semantics (`link(tmp, dest)` + unlink,
- *  falling back to `O_CREAT | O_EXCL` on filesystems without hard-link support).
- *  Returns `'exists'` without touching `file` if another writer created it first. */
-function writeNoReplace(file: string, data: string | Buffer, hooks: WriteHooks): 'written' | 'exists' {
+/** Publish a brand-new file with atomic no-replace semantics (`link(tmp, dest)` + unlink).
+ *  Returns `'exists'` without touching `file` if another writer created it first,
+ *  or `'skipped'` on filesystems that do not support hard links rather than writing
+ *  directly into the visible final path (which could leave a truncated file on crash). */
+function writeNoReplace(file: string, data: string | Buffer, hooks: WriteHooks): 'written' | 'exists' | 'skipped' {
   const tmp = writeTempExclusive(file, data, hooks.makeTempPath)
   try {
     hooks.beforePublish?.(file)
@@ -245,27 +250,7 @@ function writeNoReplace(file: string, data: string | Buffer, hooks: WriteHooks):
       try { fs.unlinkSync(tmp) } catch { /* ignore */ }
       if (code === 'EEXIST') return 'exists'
       if (code === 'ENOSYS' || code === 'EOPNOTSUPP' || code === 'EXDEV' || code === 'EPERM') {
-        const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0)
-        let fd: number
-        try {
-          fd = fs.openSync(file, flags, 0o644)
-        } catch (openErr) {
-          if ((openErr as NodeJS.ErrnoException).code === 'EEXIST') return 'exists'
-          throw openErr
-        }
-        try {
-          try {
-            fs.writeFileSync(fd, data)
-            if (process.platform !== 'win32') fs.fchmodSync(fd, 0o644)
-            fs.fsyncSync(fd)
-          } finally {
-            fs.closeSync(fd)
-          }
-          return 'written'
-        } catch (writeErr) {
-          try { fs.unlinkSync(file) } catch { /* ignore */ }
-          throw writeErr
-        }
+        return 'skipped'
       }
       throw error
     }
@@ -442,7 +427,9 @@ export function registerLinuxOrgtreeApp(o: LinuxAppEntryInputs): LinuxAppEntryRe
   let entryStatus: 'written' | 'current'
   if (snap === null) {
     if (hasSystemEntry(o.env, dataHome, APP_ENTRY)) return { entry: 'other', icon: 'skipped' }
-    if (writeNoReplace(entryPath, text, o) === 'exists') return { entry: 'other', icon: 'skipped' }
+    const pub = writeNoReplace(entryPath, text, o)
+    if (pub === 'exists') return { entry: 'other', icon: 'skipped' }
+    if (pub === 'skipped') return { entry: 'skipped', icon: 'skipped' }
     entryStatus = 'written'
   } else {
     if (!isManagedOrgtreeEntry(snap.text)) return { entry: 'other', icon: 'skipped' }
@@ -452,22 +439,18 @@ export function registerLinuxOrgtreeApp(o: LinuxAppEntryInputs): LinuxAppEntryRe
       const tmp = writeTempExclusive(entryPath, text, o.makeTempPath)
       try {
         o.beforePublish?.(entryPath)
+        // Re-check immediately before renaming: if the managed entry disappeared,
+        // became untrusted, or changed since our snapshot, abort repair and leave
+        // the destination untouched.
         const cur = readRegularSnapshot(entryPath)
-        if (cur === null) {
-          try {
-            fs.linkSync(tmp, entryPath)
-            try { fs.unlinkSync(tmp) } catch { /* ignore */ }
-          } catch (error) {
-            try { fs.unlinkSync(tmp) } catch { /* ignore */ }
-            if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { entry: 'other', icon: 'skipped' }
-            throw error
-          }
-        } else if (cur === 'untrusted' || !sameSnapshot(snap, cur)) {
+        if (cur === null || cur === 'untrusted' || !sameSnapshot(snap, cur)) {
           try { fs.unlinkSync(tmp) } catch { /* ignore */ }
           return { entry: 'other', icon: 'skipped' }
-        } else {
-          fs.renameSync(tmp, entryPath)
         }
+        // Known Low (Node.js lacks renameat2(RENAME_EXCHANGE)): a sub-millisecond
+        // TOCTOU window remains between the pre-rename snapshot check above and
+        // renameSync below; this is accepted in Orgtree's Node main process.
+        fs.renameSync(tmp, entryPath)
       } catch (error) {
         try { fs.unlinkSync(tmp) } catch { /* ignore */ }
         throw error
