@@ -2,6 +2,11 @@
  "about": "Every published Orgtree release (GitHub releases that are not pre-releases), newest first. Its notes are docs/release-notes-<version>.md, the GitHub release description. published_at: when GitHub published it, the time the Changelog shows. tagged_at: the time of the commit its tag names. Add a release here after publishing it (docs/ci-release.md).",
  "releases": [
   {
+   "version": "4.6.8",
+   "published_at": "2026-11-21T23:22:03Z",
+   "tagged_at": "2026-11-21T22:29:27Z"
+  },
+  {
    "version": "4.6.7",
    "published_at": "2026-11-21T08:40:05Z",
    "tagged_at": "2026-11-20T23:46:11Z"
