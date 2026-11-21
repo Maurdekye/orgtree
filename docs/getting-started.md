@@ -35,11 +35,12 @@ The published installer is for **64-bit Windows**. Windows builds are unsigned; 
 
 The Linux builds are prototypes. An AppImage normally mounts itself with FUSE (`libfuse2`). The Steam Frame, SteamOS and some other systems do not have it. On those systems this is a compatibility requirement:
 
-- **Start the AppImage with `APPIMAGE_EXTRACT_AND_RUN=1` in its environment.** Do not use the `--appimage-extract-and-run` argument. The AppImage's own launcher removes that argument, so the restart after an update would try FUSE and fail to start. The variable is passed on to the restarted app.
-- In Steam, add the AppImage as a non-Steam game and set its launch options to `APPIMAGE_EXTRACT_AND_RUN=1 %command%`. In a terminal: `APPIMAGE_EXTRACT_AND_RUN=1 ./Orgtree.AppImage`.
-- **Keep the file at one fixed path, in a folder you can write to.** An update replaces the file in place under the same name, and the background engine's login registration names that path. Moving or renaming the file breaks both.
+- **Start the AppImage with `APPIMAGE_EXTRACT_AND_RUN=1` in its environment on first launch.** Do not use the `--appimage-extract-and-run` argument. The AppImage's own launcher removes that argument, so the restart after an update would try FUSE and fail to start. The variable is passed on to the restarted app.
+- In a terminal: `APPIMAGE_EXTRACT_AND_RUN=1 ./Orgtree.AppImage`. In Steam, add the AppImage as a non-Steam game and set its launch options to `APPIMAGE_EXTRACT_AND_RUN=1 %command%`.
+- **Keep the file at one fixed, space-free path in a folder you can write to** (such as `~/Applications/Orgtree.AppImage`). An update replaces the file in place under the same name, and the background engine's login registration names that path. Moving or renaming the file breaks both.
+- Once started in extract-and-run mode, Orgtree writes and maintains its own visible `~/.local/share/applications/orgtree.desktop` (with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`) and icon, as well as its `orgtree://` link handler, leaving any hand-written desktop entry untouched.
 
-If an update's restart does not come back, start the AppImage once more the same way; the update itself is already in place.
+If an update's restart does not come back, start the AppImage once more the same way; the update itself is already in place. For full verification, engine checks and Hubchat pairing notes, see [SteamOS and Steam Frame](steamos-steam-frame.md).
 
 The installer includes the desktop app, local engine and PostgreSQL database. You do not need to install Node.js, Rust or PostgreSQL to use the packaged app, and from 4.6.1 the installer carries no Python at all. A newer installation keeps your organization data. Model access and provider applications are set up separately.
 

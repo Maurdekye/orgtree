@@ -255,6 +255,7 @@ Start with [After the tour](docs/getting-started.md#after-the-tour), then follow
 
 More to read:
 
+- [SteamOS and Steam Frame](docs/steamos-steam-frame.md)
 - [Custom apps and independent saved panels](docs/custom-apps.md)
 - [Developer team setup](docs/team-setup.md)
 - [Development and contributions](docs/development.md)
