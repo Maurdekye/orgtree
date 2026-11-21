@@ -179,6 +179,10 @@ jobs:
         if: hashFiles('tests/appimage-update.test.mjs') != ''
         run: node --test tests/appimage-update.test.mjs
 
+      - name: Linux desktop and orgtree:// link registration - unit tests
+        if: hashFiles('tests/orgtree-links-linux.test.mjs') != ''
+        run: node --test tests/orgtree-links-linux.test.mjs
+
       - name: Background engine - registered, started and stopped (deb layout)
         if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
         run: |
