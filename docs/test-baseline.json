@@ -1,21 +1,21 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-11-20T23:46:00.817Z",
+  "recorded_at": "2026-11-21T22:29:16.060Z",
   "recorded_by": "rig-sol-b",
   "max_age_days": 7,
-  "commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
-  "commit_subject": "docs: 4.6.7 release notes (fragment folded)",
-  "commit_at": "2026-11-20T22:38:54+02:00",
-  "branch": "rig-sol-b/release-467-4431628",
+  "commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
+  "commit_subject": "docs: 4.6.8 release notes",
+  "commit_at": "2026-11-21T19:46:17+02:00",
+  "branch": "rig-sol-b/release-468-4e63b4b",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
     "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
-    "engine": "e0a388574e6479c1cecc9077f60a79daab46c81a",
+    "engine": "ca75c0359bb9b2856de8128533c20376658c65fe",
     "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
     "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
     "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-    "package.json": "0932d3199d6390b851da603f344a376b092e516b"
+    "package.json": "f652221d5c356d2962204e20286b4f8e2295c3f8"
   },
   "machine": {
     "host": "Pendragon",
@@ -36,15 +36,15 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-20T23:46:00.580Z",
-      "commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
+      "recorded_at": "2026-11-21T22:29:15.882Z",
+      "commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
       "trees": {
         "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
-        "engine": "e0a388574e6479c1cecc9077f60a79daab46c81a",
+        "engine": "ca75c0359bb9b2856de8128533c20376658c65fe",
         "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
         "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "package.json": "0932d3199d6390b851da603f344a376b092e516b"
+        "package.json": "f652221d5c356d2962204e20286b4f8e2295c3f8"
       },
       "partial": null,
       "excluded": [
@@ -85,7 +85,7 @@
           "why": "Standing safety exclusion. NOT_EXECUTED."
         }
       ],
-      "duration_ms": 475473,
+      "duration_ms": 448775,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -1848,14 +1848,36 @@
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_rename_repairs_only_contained_registered_paths",
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_setup_plan_is_lockfile_based_and_does_not_write_git_metadata"
       ],
-      "serialization_duration_ms": 39,
+      "serialization_duration_ms": 29,
       "measurement": {
         "mode": "fresh",
-        "measured_commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
-        "authority": "@coordinator-opus m0ef0dad39cda, USER m725c710ca7b4 and mf875c468ace8",
+        "measured_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
+        "vc_runtime_qualification": {
+          "authority": "@coordinator-opus m0f74821c0085",
+          "rawRoot": "fresh-node-root-outcomes.json",
+          "rawSha256": "e00f18fa5f068936f0fe900c6cd0a3c2414336fb8c2a64f46c05ee546ce76989",
+          "focusedEvidence": "vc-classification-verdict.json",
+          "focusedSha256": "6585e4e77be9e53331c4f1ff19eeaec46b089b3126a49ae914c2125a99c3754a",
+          "replacements": [
+            {
+              "id": "node-root::tests/vc-runtime.test.mjs::a recent runtime, or one Setup just installed, is logged and warns nobody",
+              "rootDurationMs": 10212,
+              "focusedDurationMs": 1966.8169
+            },
+            {
+              "id": "node-root::tests/vc-runtime.test.mjs::every other outcome is logged and warned about, and Setup still completes",
+              "rootDurationMs": 14355,
+              "focusedDurationMs": 2060.483
+            }
+          ],
+          "remainingAcceptedFailures": 7,
+          "rawRootRetained": true,
+          "noFullSuiteReplay": true
+        },
+        "authority": "@coordinator-opus me32f429ef026, USER m710139692c91",
         "same_saved_outcomes": true,
-        "source_commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
-        "ran_at": "2026-11-20T20:49:33.866Z",
+        "source_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
+        "ran_at": "2026-11-21T22:20:57.407Z",
         "concurrency": 1,
         "no_suite_replay": true
       }
@@ -1865,15 +1887,15 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-20T23:46:00.815Z",
-      "commit": "4431628d7d899580b5aaddd834a82b399c25ea52",
+      "recorded_at": "2026-11-21T22:29:16.059Z",
+      "commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
       "trees": {
         "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
-        "engine": "e0a388574e6479c1cecc9077f60a79daab46c81a",
+        "engine": "ca75c0359bb9b2856de8128533c20376658c65fe",
         "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
         "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
         "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "package.json": "0932d3199d6390b851da603f344a376b092e516b"
+        "package.json": "f652221d5c356d2962204e20286b4f8e2295c3f8"
       },
       "partial": null,
       "excluded": [
@@ -9724,40 +9746,32 @@
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§7 zoomed in it is a live control again, and opens its document",
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§8 the gate reuses the canvas threshold rather than inventing one"
       ],
-      "serialization_duration_ms": 226,
+      "serialization_duration_ms": 170,
       "measurement": {
         "mode": "carried",
         "measured_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-        "accepted_release": "bb6551c7e5d7659643392738510c2be7a1852685",
-        "candidate": "4431628d7d899580b5aaddd834a82b399c25ea52",
+        "accepted_release": "a7e8408ac2cd2a9acc2006df719648f4798986d5",
+        "candidate": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
         "changed_paths_since_release": [
-          "apps/desktop/main/orgtree-link-linux.ts",
-          "docs/engine-contract.md",
-          "docs/release-notes-4.6.7.md",
+          "docs/collaborating.md",
+          "docs/release-notes-4.6.8.md",
           "docs/releases.json",
-          "docs/rust-engine/DECISIONS.md",
-          "docs/rust-engine/orgtree-links.md",
-          "docs/rust-engine/remote-org.md",
           "docs/skills/orgtree-app/mailhub/hubchat/SKILL.md",
           "engine/rs/Cargo.lock",
           "engine/rs/orgtree-engine/Cargo.toml",
-          "engine/rs/orgtree-engine/src/appfeed.rs",
-          "engine/rs/orgtree-engine/src/local_orgs.rs",
+          "engine/rs/orgtree-engine/src/phone.rs",
           "package-lock.json",
-          "package.json",
-          "tests/orgtree-links-linux.test.mjs"
+          "package.json"
         ],
         "byte_identical_paths": [
           "apps/desktop/renderer",
           "packages",
-          "tools",
-          "tests/linux-arm64-release.test.mjs",
-          "tests/installer-elevation.test.mjs"
+          "tools"
         ],
         "outcomes_sha256": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
         "evidence_seal_sha256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
         "groups": 24,
-        "authority": "@coordinator-opus m0ef0dad39cda, USER m725c710ca7b4 and mf875c468ace8",
+        "authority": "@coordinator-opus me32f429ef026, USER m710139692c91",
         "same_saved_outcomes": true,
         "source_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
         "ran_at": "2026-11-19T22:33:12.859Z",
@@ -9766,40 +9780,54 @@
       }
     }
   },
-  "measurement_authority": "@coordinator-opus m0ef0dad39cda, USER m725c710ca7b4 and mf875c468ace8",
+  "measurement_authority": "@coordinator-opus me32f429ef026, USER m710139692c91",
   "composed_measurement": {
     "root": {
       "mode": "fresh",
-      "measured_commit": "4431628d7d899580b5aaddd834a82b399c25ea52"
+      "measured_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
+      "vc_runtime_qualification": {
+        "authority": "@coordinator-opus m0f74821c0085",
+        "rawRoot": "fresh-node-root-outcomes.json",
+        "rawSha256": "e00f18fa5f068936f0fe900c6cd0a3c2414336fb8c2a64f46c05ee546ce76989",
+        "focusedEvidence": "vc-classification-verdict.json",
+        "focusedSha256": "6585e4e77be9e53331c4f1ff19eeaec46b089b3126a49ae914c2125a99c3754a",
+        "replacements": [
+          {
+            "id": "node-root::tests/vc-runtime.test.mjs::a recent runtime, or one Setup just installed, is logged and warns nobody",
+            "rootDurationMs": 10212,
+            "focusedDurationMs": 1966.8169
+          },
+          {
+            "id": "node-root::tests/vc-runtime.test.mjs::every other outcome is logged and warned about, and Setup still completes",
+            "rootDurationMs": 14355,
+            "focusedDurationMs": 2060.483
+          }
+        ],
+        "remainingAcceptedFailures": 7,
+        "rawRootRetained": true,
+        "noFullSuiteReplay": true
+      }
     },
     "renderer": {
       "mode": "carried",
       "measured_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-      "accepted_release": "bb6551c7e5d7659643392738510c2be7a1852685",
-      "candidate": "4431628d7d899580b5aaddd834a82b399c25ea52",
+      "accepted_release": "a7e8408ac2cd2a9acc2006df719648f4798986d5",
+      "candidate": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
       "changed_paths_since_release": [
-        "apps/desktop/main/orgtree-link-linux.ts",
-        "docs/engine-contract.md",
-        "docs/release-notes-4.6.7.md",
+        "docs/collaborating.md",
+        "docs/release-notes-4.6.8.md",
         "docs/releases.json",
-        "docs/rust-engine/DECISIONS.md",
-        "docs/rust-engine/orgtree-links.md",
-        "docs/rust-engine/remote-org.md",
         "docs/skills/orgtree-app/mailhub/hubchat/SKILL.md",
         "engine/rs/Cargo.lock",
         "engine/rs/orgtree-engine/Cargo.toml",
-        "engine/rs/orgtree-engine/src/appfeed.rs",
-        "engine/rs/orgtree-engine/src/local_orgs.rs",
+        "engine/rs/orgtree-engine/src/phone.rs",
         "package-lock.json",
-        "package.json",
-        "tests/orgtree-links-linux.test.mjs"
+        "package.json"
       ],
       "byte_identical_paths": [
         "apps/desktop/renderer",
         "packages",
-        "tools",
-        "tests/linux-arm64-release.test.mjs",
-        "tests/installer-elevation.test.mjs"
+        "tools"
       ],
       "outcomes_sha256": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
       "evidence_seal_sha256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
@@ -9807,7 +9835,7 @@
     },
     "native": {
       "mode": "fresh",
-      "measured_commit": "4431628d7d899580b5aaddd834a82b399c25ea52"
+      "measured_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3"
     },
     "noAssertionsReplayed": true
   },
@@ -10208,7 +10236,7 @@
     ],
     "noSkippedCaseClaimedPassing": true
   },
-  "release_failure_disposition": "Current failures are contained in the sealed accepted 4.6.6 gate by case identity.",
+  "release_failure_disposition": "Current failures are contained in the sealed accepted 4.6.7 gate by case identity.",
   "accepted_changed_signatures": [
     {
       "id": "node-root::tests/private-alpha-identity.test.mjs::startup path: the engine options take their data root from resolveDataRoot with this process's identity",
