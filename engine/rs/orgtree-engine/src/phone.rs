@@ -1050,6 +1050,57 @@ async fn unattended() -> Option<bool> {
     serde_json::from_slice::<Value>(&out.stdout).ok()?["ForceDaemon"].as_bool()
 }
 
+/// Linux `x-scheme-handler/hubchat` resolution (docket
+/// `frame-linux-arm64-orgtree-4-6-7-doesn-t-detect-h`; USER 2026-11-21
+/// m705e9611b564: only a working `hubchat://` handler counts as installed).
+/// Pure in-process path logic built on Windows tests too; no child process.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod linux_hubchat {
+    use std::path::{Path, PathBuf};
+
+    pub const SCHEME_MIME: &str = "x-scheme-handler/hubchat";
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub struct Dirs {
+        /// `$XDG_CONFIG_HOME` (else `~/.config`), then `$XDG_CONFIG_DIRS` (else `/etc/xdg`).
+        pub config: Vec<PathBuf>,
+        /// `$XDG_DATA_HOME` (else `~/.local/share`), then `$XDG_DATA_DIRS` (else `/usr/local/share:/usr/share`).
+        pub data: Vec<PathBuf>,
+    }
+
+    #[nolog] // Pure XDG path resolver with closure lookup.
+    pub fn dirs(_home: &Path, _var: impl Fn(&str) -> Option<String>) -> Dirs {
+        Dirs::default()
+    }
+
+    #[nolog] // Pure mimeapps.list parser.
+    pub fn default_handlers(_mimeapps: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    #[nolog] // Pure Desktop Entry Exec parser.
+    pub fn exec_program(_exec: &str) -> Option<PathBuf> {
+        None
+    }
+
+    #[nolog] // Pure XDG handler resolver with closure existence predicate.
+    pub fn handler(_dirs: &Dirs, _exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+        None
+    }
+
+    #[nolog] // Pure rig-override + Linux handler composition for unit tests.
+    pub fn installed_with(
+        rig_override: Option<&Path>,
+        dirs: &Dirs,
+        exists: impl Fn(&Path) -> bool,
+    ) -> bool {
+        if let Some(marker) = rig_override {
+            return marker.is_file();
+        }
+        handler(dirs, exists).is_some()
+    }
+}
+
 /// Hubchat in this user's (or the machine's) installed programs.
 #[logged]
 async fn hubchat_installed() -> bool {
@@ -1552,5 +1603,333 @@ mod authority_tests {
         let (md, warning) = template_org_md(Some(format!("{BLOCK_START}\n@net:{ALEX} is")));
         assert!(md.is_none() && warning.is_some(), "a broken note drops the whole org.md");
         assert_eq!(template_org_md(None), (None, None));
+    }
+}
+
+#[cfg(test)]
+mod linux_hubchat_tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::linux_hubchat;
+
+    struct ScratchHome {
+        root: PathBuf,
+        user_cfg: PathBuf,
+        sys_cfg: PathBuf,
+        user_data: PathBuf,
+        sys_data: PathBuf,
+        program: String,
+    }
+
+    impl ScratchHome {
+        fn new(name: &str) -> Self {
+            static SEQ: AtomicU64 = AtomicU64::new(0);
+            let n = SEQ.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "orgtree-linux-hubchat-{name}-{}-{n}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&root);
+            let user_cfg = root.join("cfg");
+            let sys_cfg = root.join("etc-xdg");
+            let user_data = root.join("data");
+            let sys_data = root.join("usr-share");
+            std::fs::create_dir_all(&user_cfg).unwrap();
+            std::fs::create_dir_all(&sys_cfg).unwrap();
+            std::fs::create_dir_all(user_data.join("applications")).unwrap();
+            std::fs::create_dir_all(sys_data.join("applications")).unwrap();
+            let bin = root.join("opt").join("hubchat");
+            std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+            std::fs::write(&bin, b"appimage").unwrap();
+            let program = bin.display().to_string().replace('\\', "/");
+            Self { root, user_cfg, sys_cfg, user_data, sys_data, program }
+        }
+
+        fn dirs(&self) -> linux_hubchat::Dirs {
+            linux_hubchat::Dirs {
+                config: vec![self.user_cfg.clone(), self.sys_cfg.clone()],
+                data: vec![self.user_data.clone(), self.sys_data.clone()],
+            }
+        }
+
+        fn write_user_mime(&self, text: &str) {
+            std::fs::write(self.user_cfg.join("mimeapps.list"), text).unwrap();
+        }
+
+        fn write_sys_mime(&self, text: &str) {
+            std::fs::write(self.sys_cfg.join("mimeapps.list"), text).unwrap();
+        }
+
+        fn write_user_entry(&self, id: &str, text: &str) {
+            std::fs::write(
+                self.user_data.join("applications").join(id),
+                text.replace("{program}", &self.program),
+            )
+            .unwrap();
+        }
+
+        fn write_sys_entry(&self, id: &str, text: &str) {
+            std::fs::write(
+                self.sys_data.join("applications").join(id),
+                text.replace("{program}", &self.program),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for ScratchHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    const LINK_ID: &str = "dev.orgtree.hubchat.link.desktop";
+    const DEFAULT_OURS: &str =
+        "[Default Applications]\nx-scheme-handler/hubchat=dev.orgtree.hubchat.link.desktop;\n";
+
+    fn desktop_entry(exec: &str, mime: Option<&str>) -> String {
+        let mime_line = mime.map(|m| format!("MimeType={m}\n")).unwrap_or_default();
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Hubchat link\nNoDisplay=true\nExec={exec}\n{mime_line}"
+        )
+    }
+
+    #[test]
+    fn linux_dirs_follow_xdg_config_and_data_order() {
+        let home = Path::new("/home/steamos");
+        let defaults = linux_hubchat::dirs(home, |_| None);
+        assert_eq!(defaults.config, vec![home.join(".config"), PathBuf::from("/etc/xdg")]);
+        assert_eq!(
+            defaults.data,
+            vec![
+                home.join(".local").join("share"),
+                PathBuf::from("/usr/local/share"),
+                PathBuf::from("/usr/share"),
+            ]
+        );
+
+        let custom = linux_hubchat::dirs(home, |k| match k {
+            "XDG_CONFIG_HOME" => Some("/custom/cfg".into()),
+            "XDG_CONFIG_DIRS" => Some("/opt/xdg:relative/skip:/etc/xdg".into()),
+            "XDG_DATA_HOME" => Some("relative/ignored".into()),
+            "XDG_DATA_DIRS" => Some("/opt/share:/usr/share".into()),
+            _ => None,
+        });
+        assert_eq!(
+            custom.config,
+            vec![
+                PathBuf::from("/custom/cfg"),
+                PathBuf::from("/opt/xdg"),
+                PathBuf::from("/etc/xdg"),
+            ]
+        );
+        assert_eq!(
+            custom.data,
+            vec![
+                home.join(".local").join("share"),
+                PathBuf::from("/opt/share"),
+                PathBuf::from("/usr/share"),
+            ]
+        );
+    }
+
+    #[test]
+    fn linux_default_handlers_read_default_applications_and_reject_traversal() {
+        assert_eq!(linux_hubchat::default_handlers(DEFAULT_OURS), vec![LINK_ID]);
+        let multi = "[Added Associations]\nx-scheme-handler/hubchat=added.desktop;\n\n\
+            [Default Applications]\ntext/html=firefox.desktop\n\
+            x-scheme-handler/hubchat = first.desktop;../evil.desktop;second.desktop;\n";
+        assert_eq!(
+            linux_hubchat::default_handlers(multi),
+            vec!["first.desktop", "second.desktop"]
+        );
+        for none in [
+            "",
+            "[Default Applications]\nx-scheme-handler/hubchat=\n",
+            "[Added Associations]\nx-scheme-handler/hubchat=a.desktop;\n",
+            "[Default Applications]\nx-scheme-handler/hubchat=../evil.desktop\n",
+            "[Default Applications]\nx-scheme-handler/hubchat=sub/a.desktop\n",
+            "[Default Applications]\nx-scheme-handler/hubchat=.hidden.desktop\n",
+            "[Default Applications]\nx-scheme-handler/hubchat=notadesktop\n",
+        ] {
+            assert!(linux_hubchat::default_handlers(none).is_empty(), "{none:?}");
+        }
+    }
+
+    #[test]
+    fn linux_exec_program_handles_bare_quoted_and_env_prefixed() {
+        for (exec, expected) in [
+            ("/home/steamos/.local/opt/hubchat/hubchat %u", "/home/steamos/.local/opt/hubchat/hubchat"),
+            (
+                "env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 /home/steamos/.local/opt/hubchat/hubchat %u",
+                "/home/steamos/.local/opt/hubchat/hubchat",
+            ),
+            (
+                "env NO_CLEANUP=1 /home/steamos/.local/opt/hubchat/launch-hubchat %u",
+                "/home/steamos/.local/opt/hubchat/launch-hubchat",
+            ),
+            (
+                r#"/usr/bin/env NO_CLEANUP=1 "/home/u/My Apps/Hubchat.AppImage" %u"#,
+                "/home/u/My Apps/Hubchat.AppImage",
+            ),
+            (
+                r#""/a/\\$x\\`y\\"z\\\\w/50%%.AppImage" %u"#,
+                r#"/a/$x`y"z\w/50%.AppImage"#,
+            ),
+        ] {
+            assert_eq!(
+                linux_hubchat::exec_program(exec),
+                Some(PathBuf::from(expected)),
+                "{exec}"
+            );
+        }
+        for bad in ["", "   ", "env NO_CLEANUP=1", r#""/unterminated %u"#, "%u", r"/a/b\"] {
+            assert_eq!(linux_hubchat::exec_program(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn linux_default_with_existing_program_returns_true_in_xdg_order() {
+        // User XDG_CONFIG_HOME default with env-prefixed Exec
+        let h = ScratchHome::new("default-ok");
+        h.write_user_mime(DEFAULT_OURS);
+        h.write_user_entry(
+            LINK_ID,
+            &desktop_entry(
+                "env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 {program} %u",
+                Some("x-scheme-handler/hubchat;"),
+            ),
+        );
+        assert_eq!(
+            linux_hubchat::handler(&h.dirs(), |p| p.exists()),
+            Some(PathBuf::from(&h.program))
+        );
+
+        // XDG_CONFIG_DIRS fallback when XDG_CONFIG_HOME has no mimeapps.list
+        let h2 = ScratchHome::new("xdg-config-dirs");
+        h2.write_sys_mime(DEFAULT_OURS);
+        h2.write_sys_entry(
+            LINK_ID,
+            &desktop_entry(r#"env NO_CLEANUP=1 "{program}" %u"#, Some("x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(
+            linux_hubchat::handler(&h2.dirs(), |p| p.exists()),
+            Some(PathBuf::from(&h2.program))
+        );
+
+        // Deprecated $XDG_DATA_HOME/applications/mimeapps.list still works
+        let h3 = ScratchHome::new("deprecated-mimeapps");
+        h3.write_user_entry("mimeapps.list", DEFAULT_OURS);
+        h3.write_user_entry(
+            LINK_ID,
+            &desktop_entry("{program} %u", Some("x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(
+            linux_hubchat::handler(&h3.dirs(), |p| p.exists()),
+            Some(PathBuf::from(&h3.program))
+        );
+    }
+
+    #[test]
+    fn linux_missing_program_no_handler_hidden_or_malformed_returns_false() {
+        // Frame pre-fix state: hand-written desktop entry with no MimeType and no default
+        let frame = ScratchHome::new("frame-pre-fix");
+        frame.write_user_entry(
+            "dev.orgtree.hubchat.desktop",
+            &desktop_entry("{program}", None),
+        );
+        assert_eq!(linux_hubchat::handler(&frame.dirs(), |p| p.exists()), None);
+
+        // Default points to an existing .desktop whose program is missing -> false
+        // even if another .desktop declares the MimeType with an existing program.
+        let broken_default = ScratchHome::new("broken-default");
+        broken_default.write_user_mime(
+            "[Default Applications]\nx-scheme-handler/hubchat=broken.desktop;\n",
+        );
+        broken_default.write_user_entry(
+            "broken.desktop",
+            &desktop_entry("/nonexistent/hubchat %u", Some("x-scheme-handler/hubchat;")),
+        );
+        broken_default.write_user_entry(
+            LINK_ID,
+            &desktop_entry("{program} %u", Some("x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(linux_hubchat::handler(&broken_default.dirs(), |p| p.exists()), None);
+
+        // Default points to a missing .desktop and no fallback exists
+        let missing_entry = ScratchHome::new("missing-entry");
+        missing_entry.write_user_mime(DEFAULT_OURS);
+        assert_eq!(linux_hubchat::handler(&missing_entry.dirs(), |p| p.exists()), None);
+
+        // Malformed Exec or relative Exec program
+        let malformed = ScratchHome::new("malformed");
+        malformed.write_user_mime(DEFAULT_OURS);
+        malformed.write_user_entry(
+            LINK_ID,
+            &desktop_entry(r#""/unterminated %u"#, Some("x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(linux_hubchat::handler(&malformed.dirs(), |p| p.exists()), None);
+
+        let relative = ScratchHome::new("relative");
+        relative.write_user_mime(DEFAULT_OURS);
+        relative.write_user_entry(
+            LINK_ID,
+            &desktop_entry("hubchat %u", Some("x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(linux_hubchat::handler(&relative.dirs(), |_| true), None);
+
+        // Hidden=true desktop entry is ignored
+        let hidden = ScratchHome::new("hidden");
+        hidden.write_user_mime(DEFAULT_OURS);
+        hidden.write_user_entry(
+            LINK_ID,
+            "[Desktop Entry]\nType=Application\nHidden=true\nExec={program} %u\nMimeType=x-scheme-handler/hubchat;\n",
+        );
+        assert_eq!(linux_hubchat::handler(&hidden.dirs(), |p| p.exists()), None);
+    }
+
+    #[test]
+    fn linux_mimetype_fallback_finds_working_handler_when_no_default_set() {
+        let h = ScratchHome::new("mime-fallback");
+        h.write_user_mime("[Default Applications]\ntext/html=firefox.desktop;\n");
+        h.write_sys_entry(
+            "hubchat.desktop",
+            &desktop_entry("{program} %u", Some("text/plain;x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(
+            linux_hubchat::handler(&h.dirs(), |p| p.exists()),
+            Some(PathBuf::from(&h.program))
+        );
+
+        // MimeType fallback ignores an entry whose Exec program is missing
+        let h2 = ScratchHome::new("mime-fallback-missing");
+        h2.write_user_entry(
+            "hubchat.desktop",
+            &desktop_entry("/nonexistent/hubchat %u", Some("x-scheme-handler/hubchat;")),
+        );
+        assert_eq!(linux_hubchat::handler(&h2.dirs(), |p| p.exists()), None);
+    }
+
+    #[test]
+    fn rig_override_always_wins_over_linux_detection() {
+        let h = ScratchHome::new("rig-override");
+        let marker = h.root.join("rig-hubchat-installed");
+
+        // No Linux handler, but rig marker file exists -> true
+        std::fs::write(&marker, b"1").unwrap();
+        assert!(linux_hubchat::installed_with(Some(&marker), &h.dirs(), |p| p.exists()));
+
+        // Working Linux handler exists, but rig marker file is absent -> false
+        std::fs::remove_file(&marker).unwrap();
+        h.write_user_mime(DEFAULT_OURS);
+        h.write_user_entry(
+            LINK_ID,
+            &desktop_entry("{program} %u", Some("x-scheme-handler/hubchat;")),
+        );
+        assert!(!linux_hubchat::installed_with(Some(&marker), &h.dirs(), |p| p.exists()));
+
+        // Without rig override, the working Linux handler makes it true
+        assert!(linux_hubchat::installed_with(None, &h.dirs(), |p| p.exists()));
     }
 }
