@@ -551,3 +551,41 @@ test('M12: exclusive temp-open collision never deletes the pre-existing file at 
   })
   assert.equal(fs.readFileSync(collidingTmp, 'utf8'), 'do-not-delete-me')
 })
+
+test('M12: repair aborts and leaves destination absent when managed entry disappears before publish', () => {
+  const h = home('m12-repair-removed')
+  const appFile = path.join(h.apps, 'orgtree.desktop')
+  fs.mkdirSync(h.apps, { recursive: true })
+  fs.writeFileSync(appFile, [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Name=Orgtree',
+    'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 /home/steamos/Old/Orgtree.AppImage %U',
+    'Icon=orgtree',
+    'X-Orgtree-Version=4.6.8',
+    '',
+  ].join('\n'))
+
+  const res = registerLinuxOrgtreeApp(extractedInputs(h, {
+    beforePublish: (dest) => {
+      if (dest === appFile) fs.unlinkSync(appFile)
+    },
+  }))
+  assert.deepEqual({ ...res }, { entry: 'other', icon: 'skipped' })
+  assert.ok(!fs.existsSync(appFile), 'aborted repair must not recreate a concurrently removed file')
+  assert.deepEqual(fs.readdirSync(h.apps), [], 'temp file cleaned up when repair aborts')
+})
+
+test('M12: Linux XDG_DATA_DIRS splits on colon only so a literal semicolon in a path never hides a system entry', () => {
+  if (process.platform === 'linux') {
+    const h = home('m12-semicolon')
+    const sysWithSemi = path.join(h.dir, 'sys;dir')
+    const sysApps = path.join(sysWithSemi, 'applications')
+    fs.mkdirSync(sysApps, { recursive: true })
+    fs.writeFileSync(path.join(sysApps, 'orgtree.desktop'), '[Desktop Entry]\nType=Application\nName=Orgtree\nExec=/opt/Orgtree/orgtree %U\n')
+    const env = { ...extractedInputs(h).env, XDG_DATA_DIRS: `${sysWithSemi}:/usr/share` }
+    const res = registerLinuxOrgtreeApp(extractedInputs(h, { env }))
+    assert.deepEqual({ ...res }, { entry: 'other', icon: 'skipped' })
+    assert.ok(!fs.existsSync(path.join(h.apps, 'orgtree.desktop')))
+  }
+})
