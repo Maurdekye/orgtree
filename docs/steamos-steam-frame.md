@@ -9,10 +9,10 @@ Linux desktop builds remain prototypes.
 ## What you still do by hand
 
 1. **Download and verify the AppImage.**
-   Get the Linux AppImage for your architecture from [Orgtree releases](https://github.com/Maurdekye/orgtree/releases/latest) (`Orgtree-<version>-arm64.AppImage` on Steam Frame, `Orgtree-<version>.AppImage` on `x86_64`) together with the matching `latest-linux-arm64.yml` or `latest-linux.yml` from the same release. Check the file size and base64 SHA-512 digest against the YAML:
+   Get the Linux AppImage (Orgtree 4.6.9 or later for the automated desktop integration described below) for your architecture from [Orgtree releases](https://github.com/Maurdekye/orgtree/releases/latest) (`Orgtree-<version>-arm64.AppImage` on Steam Frame, `Orgtree-<version>.AppImage` on `x86_64`) together with the matching `latest-linux-arm64.yml` or `latest-linux.yml` from the same release. Check the file size and base64 SHA-512 digest against the YAML:
 
    ```sh
-   orgtree_download="$HOME/Downloads/Orgtree-4.6.8-arm64.AppImage"
+   orgtree_download="$HOME/Downloads/Orgtree-4.6.9-arm64.AppImage"
    file "$orgtree_download"
    wc -c < "$orgtree_download"
    openssl dgst -sha512 -binary "$orgtree_download" | openssl base64 -A
@@ -28,13 +28,13 @@ Linux desktop builds remain prototypes.
    ```
 
 3. **Run the first launch in extract-and-run mode.**
-   Start Orgtree once with `APPIMAGE_EXTRACT_AND_RUN=1` in its environment (do **not** use the `--appimage-extract-and-run` argument, which the AppImage launcher strips on updater relaunch):
+   Start Orgtree with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1` in its environment (do **not** use the `--appimage-extract-and-run` argument, which the AppImage launcher strips on updater relaunch; `NO_CLEANUP=1` keeps a second launch from deleting the running instance's extraction folder):
 
    ```sh
-   APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/Orgtree.AppImage"
+   APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "$HOME/Applications/Orgtree.AppImage"
    ```
 
-   If launching from Steam instead of a terminal, add the AppImage as a non-Steam game and set its launch options to `APPIMAGE_EXTRACT_AND_RUN=1 %command%`.
+   If launching from Steam instead of a terminal, add the AppImage as a non-Steam game and set its launch options to `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 %command%`.
 
 ## What Orgtree automates after first launch
 
@@ -79,6 +79,6 @@ If `desktop-file-validate` is installed, you can also validate both visible and 
 
 ### Hubchat identity storage boundary without a Secret Service
 
-The stock SteamVR Gamescope session has no `org.freedesktop.secrets` Secret Service keyring. When Hubchat confirms that no Secret Service is owned or activatable on the session bus, Hubchat falls back to storing its identity key in a user-owned private file (`~/.local/share/dev.orgtree.hubchat/identity-store/identity.key`, directory `0700`, file `0600`, no passphrase) and shows that state in **Settings › Privacy** and **Settings › Devices**.
+The stock SteamVR Gamescope session has no `org.freedesktop.secrets` Secret Service keyring. In Hubchat 1.3.12 or later, when Hubchat confirms that no Secret Service is owned or activatable on the session bus, Hubchat falls back to storing its identity key in a user-owned private file (`~/.local/share/dev.orgtree.hubchat/identity-store/identity.key`, directory `0700`, file `0600`, no passphrase) and shows that state in **Settings › Privacy** and **Settings › Devices**.
 
-**Security boundary:** file permissions isolate that key file from other OS users, **not** from other processes running under your own user account — anything running as the same user can read it. Hubchat never uses this fallback while a Secret Service is available (even if empty, locked, or returning an error). If a Secret Service becomes available later (such as switching to SteamOS Desktop Mode with KWallet), Hubchat does not silently migrate the file: it keeps your chats intact, prompts to restore or link your identity into the Secret Service, and removes the permissions-only file once saved there. Keep your Hubchat recovery words backed up. See Hubchat's `docs/steamos-steam-frame.md` for full Hubchat setup details.
+**Security boundary:** file permissions isolate that key file from other OS users, **not** from other processes running under your own user account — anything running as the same user can read it. Hubchat never uses this fallback while a Secret Service is available (even if empty, locked, or returning an error). If a Secret Service becomes available later (such as switching to SteamOS Desktop Mode with KWallet), Hubchat does not silently migrate the file and refuses to attach a conflicting keyring identity to another profile's chats: if the keyring holds no key or a different identity than the local profile, Hubchat keeps your chats and both keys intact and prompts on the lost-key screen so you can decide; if the keyring holds the matching identity, Hubchat starts with it and cleans up the matching permissions-only file. Keep your Hubchat recovery words backed up. See Hubchat's `docs/steamos-steam-frame.md` for full Hubchat setup details.
