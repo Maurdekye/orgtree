@@ -17,7 +17,16 @@ function load(file) {
   vm.runInNewContext(output, { module, exports: module.exports, require: createRequire(import.meta.url), Buffer, process })
   return module.exports
 }
-const { registerLinuxOrgtreeScheme, linkEntryText, desktopExecArg, LINK_ENTRY, LINK_MIME } = load('apps/desktop/main/orgtree-link-linux.ts')
+const {
+  registerLinuxOrgtreeScheme,
+  registerLinuxOrgtreeApp,
+  linkEntryText,
+  appEntryText,
+  desktopExecArg,
+  LINK_ENTRY,
+  LINK_MIME,
+  APP_ENTRY,
+} = load('apps/desktop/main/orgtree-link-linux.ts')
 
 function home(name) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `orgtree-linux-link-${name}-`))
@@ -187,4 +196,176 @@ test('an installed package (no AppImage) registers its own program', () => {
 test('shipping wiring: registered at start beside the Windows registration', () => {
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   assert.match(main, /registerLinuxOrgtreeScheme\(\{ platform: process\.platform, isPackaged: app\.isPackaged, home: os\.userInfo\(\)\.homedir, version: app\.getVersion\(\), execPath: process\.execPath, env: process\.env \}\)/)
+  assert.match(main, /registerLinuxOrgtreeApp\(\{[\s\S]*platform: process\.platform[\s\S]*isPackaged: app\.isPackaged[\s\S]*home: os\.userInfo\(\)\.homedir[\s\S]*version: app\.getVersion\(\)[\s\S]*execPath: process\.execPath[\s\S]*env: process\.env[\s\S]*iconSource:/)
+})
+
+// Request 1: visible orgtree.desktop in Linux extract-and-run mode (SteamOS / Steam Frame)
+
+const extractedInputs = (h, over = {}) => ({
+  ...inputs(h, {
+    version: '4.6.9',
+    execPath: '/tmp/appimage_extracted_0123abcd/orgtree',
+    env: {
+      HOME: h.dir,
+      APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage',
+      APPDIR: '/tmp/appimage_extracted_0123abcd',
+    },
+  }),
+  ...over,
+})
+
+test('visible app entry carries extract-and-run flags, original AppImage path, bare when plain, and no NoDisplay/MimeType', () => {
+  assert.equal(APP_ENTRY, 'orgtree.desktop')
+  const text = appEntryText({ program: '/home/steamos/Applications/Orgtree.AppImage', version: '4.6.9' })
+  assert.deepEqual(text.split('\n'), [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Name=Orgtree',
+    'Comment=Put a team of AI agents to work',
+    'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 /home/steamos/Applications/Orgtree.AppImage %U',
+    'Icon=orgtree',
+    'Terminal=false',
+    'Categories=Development;',
+    'StartupWMClass=Orgtree',
+    'X-Orgtree-Version=4.6.9',
+    '',
+  ])
+  assert.doesNotMatch(text, /^NoDisplay=/m)
+  assert.doesNotMatch(text, /^MimeType=/m)
+  assert.match(
+    appEntryText({ program: '/home/u/My Apps/Orgtree.AppImage', version: '4.6.9-alpha.1' }),
+    /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "\/home\/u\/My Apps\/Orgtree\.AppImage" %U$/m,
+  )
+})
+
+test('extract-and-run first launch writes orgtree.desktop and icon; repeat launch is a no-op', () => {
+  const h = home('app-first')
+  const srcIcon = path.join(h.dir, 'source-eye.png')
+  const iconBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+  fs.writeFileSync(srcIcon, iconBytes)
+  const appFile = path.join(h.apps, 'orgtree.desktop')
+  const destIcon = path.join(h.dir, '.local', 'share', 'icons', 'hicolor', '256x256', 'apps', 'orgtree.png')
+
+  const first = registerLinuxOrgtreeApp(extractedInputs(h, { iconSource: srcIcon }))
+  assert.deepEqual({ ...first }, { entry: 'written', icon: 'written' })
+  const text = fs.readFileSync(appFile, 'utf8')
+  assert.match(text, /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/home\/steamos\/Applications\/Orgtree\.AppImage %U$/m)
+  assert.doesNotMatch(text, /appimage_extracted_/)
+  assert.deepEqual(fs.readFileSync(destIcon), iconBytes)
+
+  const stamp = [fs.statSync(appFile).mtimeMs, fs.statSync(destIcon).mtimeMs]
+  const second = registerLinuxOrgtreeApp(extractedInputs(h, { iconSource: srcIcon }))
+  assert.deepEqual({ ...second }, { entry: 'current', icon: 'exists' })
+  assert.deepEqual([fs.statSync(appFile).mtimeMs, fs.statSync(destIcon).mtimeMs], stamp)
+  assert.deepEqual(fs.readdirSync(h.apps), ['orgtree.desktop'])
+})
+
+test('managed orgtree.desktop is repaired on update, moved AppImage, missing NO_CLEANUP, or quoted path', () => {
+  const h = home('app-repair')
+  const appFile = path.join(h.apps, 'orgtree.desktop')
+  fs.mkdirSync(h.apps, { recursive: true })
+  fs.writeFileSync(appFile, [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Name=Orgtree',
+    'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "/home/steamos/Old/Orgtree.AppImage" %U',
+    'Icon=orgtree',
+    'X-Orgtree-Version=4.6.8',
+    '',
+  ].join('\n'))
+
+  const res = registerLinuxOrgtreeApp(extractedInputs(h))
+  assert.deepEqual({ ...res }, { entry: 'written', icon: 'skipped' })
+  const text = fs.readFileSync(appFile, 'utf8')
+  assert.match(text, /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/home\/steamos\/Applications\/Orgtree\.AppImage %U$/m)
+  assert.match(text, /^X-Orgtree-Version=4\.6\.9$/m)
+  assert.deepEqual({ ...registerLinuxOrgtreeApp(extractedInputs(h)) }, { entry: 'current', icon: 'skipped' })
+})
+
+test('hand-written orgtree.desktop, other-named entries, and existing custom icons are preserved byte-for-byte', () => {
+  const h = home('app-handwritten')
+  fs.mkdirSync(h.apps, { recursive: true })
+  const handwritten = [
+    '[Desktop Entry]',
+    'Name=Orgtree',
+    'Comment=Custom Frame wrapper',
+    'Exec=/home/steamos/bin/my-orgtree %U',
+    'Icon=custom-orgtree',
+    'Type=Application',
+    '',
+  ].join('\n')
+  const appFile = path.join(h.apps, 'orgtree.desktop')
+  const otherFile = path.join(h.apps, 'frame-orgtree.desktop')
+  const otherText = '[Desktop Entry]\nType=Application\nName=My Orgtree\nExec=/opt/other\n'
+  fs.writeFileSync(appFile, handwritten)
+  fs.writeFileSync(otherFile, otherText)
+
+  // Hand-written orgtree.desktop (no X-Orgtree-Version=) is left untouched.
+  const srcIcon = path.join(h.dir, 'source-eye.png')
+  fs.writeFileSync(srcIcon, Buffer.from('new-png'))
+  const res = registerLinuxOrgtreeApp(extractedInputs(h, { iconSource: srcIcon }))
+  assert.deepEqual({ ...res }, { entry: 'other', icon: 'skipped' })
+  assert.equal(fs.readFileSync(appFile, 'utf8'), handwritten)
+  assert.equal(fs.readFileSync(otherFile, 'utf8'), otherText)
+  assert.ok(!fs.existsSync(path.join(h.dir, '.local', 'share', 'icons')))
+
+  // When orgtree.desktop is absent, an existing custom icon and other-named entry stay untouched.
+  fs.unlinkSync(appFile)
+  const destIcon = path.join(h.dir, '.local', 'share', 'icons', 'hicolor', '256x256', 'apps', 'orgtree.png')
+  fs.mkdirSync(path.dirname(destIcon), { recursive: true })
+  const customIcon = Buffer.from('user-custom-icon')
+  fs.writeFileSync(destIcon, customIcon)
+  const created = registerLinuxOrgtreeApp(extractedInputs(h, { iconSource: srcIcon }))
+  assert.deepEqual({ ...created }, { entry: 'written', icon: 'exists' })
+  assert.deepEqual(fs.readFileSync(destIcon), customIcon)
+  assert.equal(fs.readFileSync(otherFile, 'utf8'), otherText)
+})
+
+test('a failed optional icon write leaves orgtree.desktop and link registration usable', () => {
+  const h = home('app-icon-fail')
+  const srcIcon = path.join(h.dir, 'source-eye.png')
+  fs.writeFileSync(srcIcon, Buffer.from('png-bytes'))
+  // Block icons directory creation by placing a regular file at .local/share/icons
+  const iconsBlocker = path.join(h.dir, '.local', 'share', 'icons')
+  fs.mkdirSync(path.dirname(iconsBlocker), { recursive: true })
+  fs.writeFileSync(iconsBlocker, 'not a directory')
+
+  const appRes = registerLinuxOrgtreeApp(extractedInputs(h, { iconSource: srcIcon }))
+  assert.deepEqual({ ...appRes }, { entry: 'written', icon: 'skipped' })
+  assert.ok(fs.existsSync(path.join(h.apps, 'orgtree.desktop')))
+  const linkRes = registerLinuxOrgtreeScheme(extractedInputs(h))
+  assert.deepEqual({ ...linkRes }, { entry: 'written', default: 'set' })
+})
+
+test('XDG_DATA_HOME relocates orgtree.desktop and its icon', () => {
+  const h = home('app-xdg')
+  const srcIcon = path.join(h.dir, 'source-eye.png')
+  fs.writeFileSync(srcIcon, Buffer.from('png'))
+  const data = path.join(h.dir, 'xdg-data')
+  const env = { ...extractedInputs(h).env, XDG_DATA_HOME: data }
+  const res = registerLinuxOrgtreeApp(extractedInputs(h, { env, iconSource: srcIcon }))
+  assert.deepEqual({ ...res }, { entry: 'written', icon: 'written' })
+  assert.ok(fs.existsSync(path.join(data, 'applications', 'orgtree.desktop')))
+  assert.ok(fs.existsSync(path.join(data, 'icons', 'hicolor', '256x256', 'apps', 'orgtree.png')))
+  assert.ok(!fs.existsSync(path.join(h.apps, 'orgtree.desktop')))
+})
+
+test('guards skip non-extracted runs, non-Linux, dev builds, custom profiles, foreign HOME, and invalid APPIMAGE', () => {
+  for (const [why, over] of [
+    ['FUSE-mounted AppImage', h => ({ env: { HOME: h.dir, APPIMAGE: '/home/u/Orgtree.AppImage', APPDIR: '/tmp/.mount_OrgtreAbCdEf' } })],
+    ['installed package (no AppImage)', h => ({ env: { HOME: h.dir }, execPath: '/opt/Orgtree/orgtree' })],
+    ['Windows', { platform: 'win32' }],
+    ['macOS', { platform: 'darwin' }],
+    ['development', { isPackaged: false }],
+    ['custom data root', h => ({ env: { ...extractedInputs(h).env, ORGTREE_V2_DATA: '/scratch/data' } })],
+    ['custom profile', h => ({ env: { ...extractedInputs(h).env, ORGTREE_V2_PROFILE: '/scratch/profile' } })],
+    ['foreign HOME', h => ({ env: { ...extractedInputs(h).env, HOME: '/tmp/smoke-home' } })],
+    ['relative APPIMAGE', h => ({ env: { ...extractedInputs(h).env, APPIMAGE: 'relative/Orgtree.AppImage' } })],
+    ['control-char APPIMAGE', h => ({ env: { ...extractedInputs(h).env, APPIMAGE: '/a/bad\npath' } })],
+  ]) {
+    const h = home('app-guard')
+    const result = registerLinuxOrgtreeApp(extractedInputs(h, typeof over === 'function' ? over(h) : over))
+    assert.deepEqual({ ...result }, { entry: 'skipped', icon: 'skipped' }, why)
+    assert.deepEqual(fs.readdirSync(h.dir), [], why)
+  }
 })
