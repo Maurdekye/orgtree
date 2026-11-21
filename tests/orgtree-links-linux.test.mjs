@@ -32,10 +32,11 @@ const {
 function home(name) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `orgtree-linux-link-${name}-`))
   return { dir, entry: path.join(dir, '.local', 'share', 'applications', 'dev.orgtree.link.desktop'),
-    apps: path.join(dir, '.local', 'share', 'applications'), mime: path.join(dir, '.config', 'mimeapps.list') }
+    apps: path.join(dir, '.local', 'share', 'applications'), mime: path.join(dir, '.config', 'mimeapps.list'),
+    sysData: path.join(dir, 'sys-data') }
 }
-const inputs = (h, over = {}) => ({ platform: 'linux', isPackaged: true, home: h.dir, version: '4.6.6', execPath: '/tmp/.mount_x/orgtree',
-  env: { HOME: h.dir, APPIMAGE: '/home/u/Applications/Orgtree.AppImage', APPDIR: '/tmp/.mount_OrgtreAbCdEf' }, ...over })
+const inputs = (h, over = {}) => ({ platform: 'linux', isPackaged: true, home: h.dir, version: '4.6.6', execPath: '/tmp/.mount_OrgtreAbCdEf/orgtree',
+  env: { HOME: h.dir, APPIMAGE: '/home/u/Applications/Orgtree.AppImage', APPDIR: '/tmp/.mount_OrgtreAbCdEf', XDG_DATA_DIRS: h.sysData }, ...over })
 
 test('the entry is hidden, takes the scheme, starts this AppImage and carries the version', () => {
   assert.equal(LINK_ENTRY, 'dev.orgtree.link.desktop')
@@ -64,11 +65,11 @@ test('a plain program path is written bare: SteamOS keeps the quotes of a quoted
 })
 
 test('an entry 4.6.6 wrote with quotes is rewritten bare at the next start', () => {
-  for (const [name, env, before, after] of [
-    ['bare-extracted', { APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' },
+  for (const [name, execPath, env, before, after] of [
+    ['bare-extracted', '/tmp/appimage_extracted_0123abcd/orgtree', { APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' },
       'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "/home/steamos/Applications/Orgtree.AppImage" %u',
       'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 /home/steamos/Applications/Orgtree.AppImage %u'],
-    ['bare-mounted', { APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage', APPDIR: '/tmp/.mount_OrgtreAbCdEf' },
+    ['bare-mounted', '/tmp/.mount_OrgtreAbCdEf/orgtree', { APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage', APPDIR: '/tmp/.mount_OrgtreAbCdEf' },
       'Exec="/home/steamos/Applications/Orgtree.AppImage" %u', 'Exec=/home/steamos/Applications/Orgtree.AppImage %u'],
   ]) {
     const h = home(name)
@@ -78,7 +79,7 @@ test('an entry 4.6.6 wrote with quotes is rewritten bare at the next start', () 
     fs.writeFileSync(h.entry, lines(before))
     fs.mkdirSync(path.dirname(h.mime), { recursive: true })
     fs.writeFileSync(h.mime, '[Default Applications]\nx-scheme-handler/orgtree=dev.orgtree.link.desktop;\n')
-    const start = () => ({ ...registerLinuxOrgtreeScheme(inputs(h, { env: { HOME: h.dir, ...env } })) })
+    const start = () => ({ ...registerLinuxOrgtreeScheme(inputs(h, { execPath, env: { HOME: h.dir, ...env } })) })
     assert.deepEqual(start(), { entry: 'written', default: 'ours' }, name)
     assert.equal(fs.readFileSync(h.entry, 'utf8'), lines(after), name)
     assert.deepEqual(start(), { entry: 'current', default: 'ours' }, name)
@@ -107,7 +108,7 @@ test('a first start writes its own entry and becomes the default; a second start
 test('a moved AppImage, a new version or a run without FUSE rewrites only its own entry', () => {
   const h = home('rewrite')
   registerLinuxOrgtreeScheme(inputs(h))
-  const next = registerLinuxOrgtreeScheme(inputs(h, { version: '4.6.7',
+  const next = registerLinuxOrgtreeScheme(inputs(h, { version: '4.6.7', execPath: '/tmp/appimage_extracted_0123abcd/orgtree',
     env: { HOME: h.dir, APPIMAGE: '/opt/o/Orgtree.AppImage', APPDIR: '/tmp/appimage_extracted_0123abcd' } }))
   assert.deepEqual({ ...next }, { entry: 'written', default: 'ours' })
   const text = fs.readFileSync(h.entry, 'utf8')
@@ -125,9 +126,9 @@ test('an entry from before NO_CLEANUP is rewritten at the next start', () => {
     'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 "/opt/o/Orgtree.AppImage" %u', 'MimeType=x-scheme-handler/orgtree;', 'X-Orgtree-Version=4.6.6', ''].join('\n'))
   fs.mkdirSync(path.dirname(h.mime), { recursive: true })
   fs.writeFileSync(h.mime, '[Default Applications]\nx-scheme-handler/orgtree=dev.orgtree.link.desktop;\n')
-  assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { env })) }, { entry: 'written', default: 'ours' })
+  assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { execPath: '/tmp/appimage_extracted_0123abcd/orgtree', env })) }, { entry: 'written', default: 'ours' })
   assert.match(fs.readFileSync(h.entry, 'utf8'), /^Exec=env APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 \/opt\/o\/Orgtree\.AppImage %u$/m)
-  assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { env })) }, { entry: 'current', default: 'ours' })
+  assert.deepEqual({ ...registerLinuxOrgtreeScheme(inputs(h, { execPath: '/tmp/appimage_extracted_0123abcd/orgtree', env })) }, { entry: 'current', default: 'ours' })
 })
 
 test("another program's default is left alone, and no other entry is ever touched", () => {
@@ -179,7 +180,7 @@ test('only the real install registers: the same guards as Windows', () => {
     ['custom data root', h => ({ env: { ...inputs(h).env, ORGTREE_V2_DATA: '/scratch/data' } })],
     ['custom profile', h => ({ env: { ...inputs(h).env, ORGTREE_V2_PROFILE: '/scratch/profile' } })],
     ['a smoke run with a fake HOME', h => ({ env: { ...inputs(h).env, HOME: '/tmp/smoke-home' } })],
-    ['a program path that cannot be written', h => ({ env: { HOME: h.dir, APPIMAGE: '/a/line\nbreak' } })],
+    ['a program path that cannot be written', h => ({ env: { HOME: h.dir, APPIMAGE: '/a/line\nbreak', APPDIR: '/tmp/.mount_OrgtreAbCdEf' } })],
   ]) {
     const h = home('guard')
     const result = registerLinuxOrgtreeScheme(inputs(h, typeof over === 'function' ? over(h) : over))
@@ -210,6 +211,7 @@ const extractedInputs = (h, over = {}) => ({
       HOME: h.dir,
       APPIMAGE: '/home/steamos/Applications/Orgtree.AppImage',
       APPDIR: '/tmp/appimage_extracted_0123abcd',
+      XDG_DATA_DIRS: h.sysData,
     },
   }),
   ...over,
@@ -414,4 +416,138 @@ test('generated entries pass desktop-file-validate on Linux when installed', () 
   assert.equal(registerLinuxOrgtreeScheme(extractedInputs(h)).entry, 'written')
   execFileSync('desktop-file-validate', [path.join(h.apps, 'orgtree.desktop')], { stdio: 'pipe' })
   execFileSync('desktop-file-validate', [path.join(h.apps, 'dev.orgtree.link.desktop')], { stdio: 'pipe' })
+})
+
+// Round 1 review fixes: M10 (AppImage executable ownership) and M12 (concurrent write safety,
+// system-entry shadowing, and exclusive temp-file collision handling).
+
+test('M10: native install inheriting another apps AppImage/APPDIR never registers that foreign AppImage', () => {
+  const h = home('m10-foreign-appimage')
+  const inheritedEnv = {
+    HOME: h.dir,
+    APPIMAGE: '/home/u/Applications/OtherApp.AppImage',
+    APPDIR: '/tmp/appimage_extracted_deadbeef',
+    XDG_DATA_DIRS: h.sysData,
+  }
+  // Native .deb binary started as child of another extracted AppImage.
+  const appRes = registerLinuxOrgtreeApp(extractedInputs(h, {
+    execPath: '/opt/Orgtree/orgtree',
+    env: inheritedEnv,
+  }))
+  assert.deepEqual({ ...appRes }, { entry: 'skipped', icon: 'skipped' })
+  assert.ok(!fs.existsSync(path.join(h.apps, 'orgtree.desktop')))
+
+  // Scheme handler must also ignore the parent AppImage and register our own native executable.
+  const linkRes = registerLinuxOrgtreeScheme(extractedInputs(h, {
+    execPath: '/opt/Orgtree/orgtree',
+    env: inheritedEnv,
+  }))
+  assert.deepEqual({ ...linkRes }, { entry: 'written', default: 'set' })
+  const linkText = fs.readFileSync(h.entry, 'utf8')
+  assert.match(linkText, /^Exec=\/opt\/Orgtree\/orgtree %u$/m)
+  assert.doesNotMatch(linkText, /OtherApp|APPIMAGE_EXTRACT_AND_RUN/)
+
+  // Spoofed broad APPDIR (e.g. /opt or /) must not claim ownership of a native binary.
+  for (const spoofedDir of ['/', '/opt']) {
+    const hs = home('m10-spoof')
+    const r = registerLinuxOrgtreeScheme(inputs(hs, {
+      execPath: '/opt/Orgtree/orgtree',
+      env: { HOME: hs.dir, APPIMAGE: '/home/u/Other.AppImage', APPDIR: spoofedDir, XDG_DATA_DIRS: hs.sysData },
+    }))
+    assert.deepEqual({ ...r }, { entry: 'written', default: 'set' }, spoofedDir)
+    assert.match(fs.readFileSync(hs.entry, 'utf8'), /^Exec=\/opt\/Orgtree\/orgtree %u$/m, spoofedDir)
+  }
+})
+
+test('M12: first install of orgtree.desktop and icon uses no-replace semantics against concurrent writers', () => {
+  const h = home('m12-noreplace')
+  const appFile = path.join(h.apps, 'orgtree.desktop')
+  const destIcon = path.join(h.dir, '.local', 'share', 'icons', 'hicolor', '256x256', 'apps', 'orgtree.png')
+  const srcIcon = path.join(h.dir, 'source-eye.png')
+  fs.writeFileSync(srcIcon, Buffer.from('bundled-png'))
+  const concurrentDesktop = '[Desktop Entry]\nType=Application\nName=Custom\nExec=/opt/user-custom\n'
+  const concurrentIcon = Buffer.from('user-concurrent-icon')
+
+  // Concurrent custom orgtree.desktop lands after absence check, right before publish.
+  const res1 = registerLinuxOrgtreeApp(extractedInputs(h, {
+    iconSource: srcIcon,
+    beforePublish: (dest) => {
+      if (dest === appFile) fs.writeFileSync(appFile, concurrentDesktop)
+    },
+  }))
+  assert.deepEqual({ ...res1 }, { entry: 'other', icon: 'skipped' })
+  assert.equal(fs.readFileSync(appFile, 'utf8'), concurrentDesktop)
+  assert.deepEqual(fs.readdirSync(h.apps), ['orgtree.desktop'], 'temp file cleaned up on EEXIST')
+
+  // Concurrent custom icon lands after absence check, right before icon publish.
+  fs.unlinkSync(appFile)
+  const res2 = registerLinuxOrgtreeApp(extractedInputs(h, {
+    iconSource: srcIcon,
+    beforePublish: (dest) => {
+      if (dest === destIcon) fs.writeFileSync(destIcon, concurrentIcon)
+    },
+  }))
+  assert.deepEqual({ ...res2 }, { entry: 'written', icon: 'exists' })
+  assert.deepEqual(fs.readFileSync(destIcon), concurrentIcon)
+  assert.deepEqual(fs.readdirSync(path.dirname(destIcon)), ['orgtree.png'], 'icon temp file cleaned up on EEXIST')
+})
+
+test('M12: repair of managed orgtree.desktop refuses to clobber a concurrent user edit or replacement', () => {
+  const h = home('m12-repair-race')
+  const appFile = path.join(h.apps, 'orgtree.desktop')
+  fs.mkdirSync(h.apps, { recursive: true })
+  const oldManaged = [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Name=Orgtree',
+    'Exec=env APPIMAGE_EXTRACT_AND_RUN=1 /home/steamos/Old/Orgtree.AppImage %U',
+    'Icon=orgtree',
+    'X-Orgtree-Version=4.6.8',
+    '',
+  ].join('\n')
+  const concurrentCustom = '[Desktop Entry]\nType=Application\nName=Orgtree\nExec=/home/steamos/my-wrapper %U\n'
+  fs.writeFileSync(appFile, oldManaged)
+
+  const res = registerLinuxOrgtreeApp(extractedInputs(h, {
+    beforePublish: (dest) => {
+      if (dest === appFile) fs.writeFileSync(appFile, concurrentCustom)
+    },
+  }))
+  assert.deepEqual({ ...res }, { entry: 'other', icon: 'skipped' })
+  assert.equal(fs.readFileSync(appFile, 'utf8'), concurrentCustom)
+  assert.deepEqual(fs.readdirSync(h.apps), ['orgtree.desktop'], 'temp file cleaned up when repair aborts')
+})
+
+test('M12: administrator-installed system orgtree.desktop under XDG_DATA_DIRS is not shadowed', () => {
+  const h = home('m12-sys-entry')
+  const sysApps = path.join(h.sysData, 'applications')
+  fs.mkdirSync(sysApps, { recursive: true })
+  fs.writeFileSync(path.join(sysApps, 'orgtree.desktop'), '[Desktop Entry]\nType=Application\nName=Orgtree\nExec=/opt/Orgtree/orgtree %U\n')
+  const srcIcon = path.join(h.dir, 'source-eye.png')
+  fs.writeFileSync(srcIcon, Buffer.from('png'))
+
+  const res = registerLinuxOrgtreeApp(extractedInputs(h, { iconSource: srcIcon }))
+  assert.deepEqual({ ...res }, { entry: 'other', icon: 'skipped' })
+  assert.ok(!fs.existsSync(path.join(h.apps, 'orgtree.desktop')))
+  assert.ok(!fs.existsSync(path.join(h.dir, '.local', 'share', 'icons')))
+
+  // XDG_DATA_DIRS pointing only at dataHome itself must not block creating our own user entry.
+  const h2 = home('m12-sys-self')
+  const dataHome = path.join(h2.dir, '.local', 'share')
+  const envSelf = { ...extractedInputs(h2).env, XDG_DATA_DIRS: dataHome }
+  assert.equal(registerLinuxOrgtreeApp(extractedInputs(h2, { env: envSelf })).entry, 'written')
+})
+
+test('M12: exclusive temp-open collision never deletes the pre-existing file at the tentative temp path', () => {
+  const h = home('m12-tmp-collision')
+  fs.mkdirSync(h.apps, { recursive: true })
+  const collidingTmp = path.join(h.apps, 'preexisting-collision.tmp')
+  fs.writeFileSync(collidingTmp, 'do-not-delete-me')
+
+  assert.throws(() => {
+    registerLinuxOrgtreeApp(extractedInputs(h, {
+      makeTempPath: () => collidingTmp,
+    }))
+  })
+  assert.equal(fs.readFileSync(collidingTmp, 'utf8'), 'do-not-delete-me')
 })
