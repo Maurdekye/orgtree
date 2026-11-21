@@ -93,7 +93,7 @@ import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './t
 import { readRemotes, remoteAliases, REMOTE_WINDOW_REFUSAL } from './remotes'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import { isOrgtreeLinkArg, registerOrgtreeScheme } from './orgtree-link'
-import { registerLinuxOrgtreeScheme } from './orgtree-link-linux'
+import { registerLinuxOrgtreeApp, registerLinuxOrgtreeScheme } from './orgtree-link-linux'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
@@ -191,6 +191,14 @@ if (single && !installerUpgradeRequested) {
     const linux = registerLinuxOrgtreeScheme({ platform: process.platform, isPackaged: app.isPackaged, home: os.userInfo().homedir, version: app.getVersion(), execPath: process.execPath, env: process.env })
     if (linux.default === 'other') console.warn(`orgtree:// links stay with ${linux.other}: Orgtree left that default alone`)
   } catch (error) { console.warn('The orgtree:// link scheme could not be registered', error) }
+  // Linux extract-and-run AppImage: create or repair our visible orgtree.desktop (and icon if missing).
+  try {
+    registerLinuxOrgtreeApp({
+      platform: process.platform, isPackaged: app.isPackaged, home: os.userInfo().homedir,
+      version: app.getVersion(), execPath: process.execPath, env: process.env,
+      iconSource: path.join(process.resourcesPath, 'runtime-icons', 'orgtree-eye.png'),
+    })
+  } catch (error) { console.warn('The Linux desktop entry could not be registered', error) }
 }
 if (!single) app.quit()
 else if (installerUpgradeRequested) {

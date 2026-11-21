@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 const req = createRequire(process.env.ORGTREE_TEST_DEPS || import.meta.url)
 const { buildSync } = req('esbuild')
@@ -368,4 +369,49 @@ test('guards skip non-extracted runs, non-Linux, dev builds, custom profiles, fo
     assert.deepEqual({ ...result }, { entry: 'skipped', icon: 'skipped' }, why)
     assert.deepEqual(fs.readdirSync(h.dir), [], why)
   }
+})
+
+test('non-regular orgtree.desktop, commented or wrong-section markers, and symlinks are never overwritten', () => {
+  // Commented or other-section X-Orgtree-Version= does not claim ownership.
+  for (const [label, body] of [
+    ['commented', '[Desktop Entry]\nType=Application\nName=Orgtree\n# X-Orgtree-Version=4.6.8\nExec=/opt/custom\n'],
+    ['other section', '[Desktop Entry]\nType=Application\nName=Orgtree\nExec=/opt/custom\n\n[Other]\nX-Orgtree-Version=4.6.8\n'],
+    ['empty value', '[Desktop Entry]\nType=Application\nName=Orgtree\nExec=/opt/custom\nX-Orgtree-Version=\n'],
+  ]) {
+    const h = home('app-marker')
+    fs.mkdirSync(h.apps, { recursive: true })
+    const appFile = path.join(h.apps, 'orgtree.desktop')
+    fs.writeFileSync(appFile, body)
+    assert.deepEqual({ ...registerLinuxOrgtreeApp(extractedInputs(h)) }, { entry: 'other', icon: 'skipped' }, label)
+    assert.equal(fs.readFileSync(appFile, 'utf8'), body, label)
+  }
+
+  // Non-regular directory at orgtree.desktop is refused cleanly.
+  const hd = home('app-dir')
+  fs.mkdirSync(path.join(hd.apps, 'orgtree.desktop'), { recursive: true })
+  assert.deepEqual({ ...registerLinuxOrgtreeApp(extractedInputs(hd)) }, { entry: 'other', icon: 'skipped' })
+  assert.ok(fs.lstatSync(path.join(hd.apps, 'orgtree.desktop')).isDirectory())
+
+  // On Linux, symlinks at orgtree.desktop or icon target are left untouched.
+  if (process.platform === 'linux') {
+    const hs = home('app-symlink')
+    fs.mkdirSync(hs.apps, { recursive: true })
+    const target = path.join(hs.dir, 'target.desktop')
+    const targetBody = '[Desktop Entry]\nType=Application\nName=Orgtree\nExec=/opt/custom\nX-Orgtree-Version=4.6.8\n'
+    fs.writeFileSync(target, targetBody)
+    const linkPath = path.join(hs.apps, 'orgtree.desktop')
+    fs.symlinkSync(target, linkPath)
+    assert.deepEqual({ ...registerLinuxOrgtreeApp(extractedInputs(hs)) }, { entry: 'other', icon: 'skipped' })
+    assert.ok(fs.lstatSync(linkPath).isSymbolicLink())
+    assert.equal(fs.readFileSync(target, 'utf8'), targetBody)
+  }
+})
+
+test('generated entries pass desktop-file-validate on Linux when installed', () => {
+  if (process.platform !== 'linux') return
+  const h = home('validate')
+  assert.equal(registerLinuxOrgtreeApp(extractedInputs(h)).entry, 'written')
+  assert.equal(registerLinuxOrgtreeScheme(extractedInputs(h)).entry, 'written')
+  execFileSync('desktop-file-validate', [path.join(h.apps, 'orgtree.desktop')], { stdio: 'pipe' })
+  execFileSync('desktop-file-validate', [path.join(h.apps, 'dev.orgtree.link.desktop')], { stdio: 'pipe' })
 })
