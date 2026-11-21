@@ -1011,7 +1011,7 @@ pub struct Slow {
     pub sleep_minutes: Option<u64>,
     /// Tailscale keeps running after the user signs out of Windows
     pub unattended: Option<bool>,
-    /// Hubchat is installed for this Windows user (H1)
+    /// Hubchat is installed for this user (H1; Windows Uninstall registry, Linux hubchat:// handler)
     pub hubchat_pc: bool,
 }
 
@@ -1056,9 +1056,14 @@ async fn unattended() -> Option<bool> {
 /// Pure in-process path logic built on Windows tests too; no child process.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod linux_hubchat {
+    use std::collections::HashSet;
     use std::path::{Path, PathBuf};
 
     pub const SCHEME_MIME: &str = "x-scheme-handler/hubchat";
+    /// Far more than any real mimeapps.list or .desktop entry.
+    const MAX_BYTES: u64 = 256 * 1024;
+    /// Sanity bound on the MimeType fallback scan.
+    const MAX_DESKTOP_ENTRIES: usize = 2048;
 
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct Dirs {
@@ -1068,23 +1073,219 @@ pub(crate) mod linux_hubchat {
         pub data: Vec<PathBuf>,
     }
 
+    #[nolog] // Pure path predicate.
+    fn is_abs_path(path: &Path) -> bool {
+        path.is_absolute() || path.to_str().is_some_and(|s| s.starts_with('/'))
+    }
+
     #[nolog] // Pure XDG path resolver with closure lookup.
-    pub fn dirs(_home: &Path, _var: impl Fn(&str) -> Option<String>) -> Dirs {
-        Dirs::default()
+    pub fn dirs(home: &Path, var: impl Fn(&str) -> Option<String>) -> Dirs {
+        let abs = |name: &str| {
+            var(name)
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .filter(|p| is_abs_path(p))
+        };
+        let mut config = vec![abs("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"))];
+        let sys_cfg = var("XDG_CONFIG_DIRS")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/etc/xdg".into());
+        config.extend(sys_cfg.split(':').map(PathBuf::from).filter(|p| is_abs_path(p)));
+
+        let mut data = vec![abs("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local").join("share"))];
+        let sys_data = var("XDG_DATA_DIRS")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+        data.extend(sys_data.split(':').map(PathBuf::from).filter(|p| is_abs_path(p)));
+
+        Dirs { config, data }
     }
 
-    #[nolog] // Pure mimeapps.list parser.
-    pub fn default_handlers(_mimeapps: &str) -> Vec<String> {
-        Vec::new()
+    #[nolog] // Bounded helper read of small XDG desktop/mimeapps files.
+    fn read_small(path: &Path) -> Option<String> {
+        let meta = std::fs::metadata(path).ok()?;
+        (meta.is_file() && meta.len() <= MAX_BYTES)
+            .then(|| std::fs::read_to_string(path).ok())
+            .flatten()
     }
 
-    #[nolog] // Pure Desktop Entry Exec parser.
-    pub fn exec_program(_exec: &str) -> Option<PathBuf> {
+    #[nolog] // Pure INI section/key lookup.
+    fn value<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
+        let mut inside = false;
+        for line in text.lines().map(str::trim) {
+            if line.starts_with('[') {
+                inside = line == section;
+            } else if inside {
+                if let Some((k, v)) = line.split_once('=') {
+                    if k.trim() == key {
+                        return Some(v.trim());
+                    }
+                }
+            }
+        }
         None
     }
 
+    #[nolog] // Pure desktop entry id validation.
+    fn valid_desktop_id(id: &str) -> bool {
+        id.ends_with(".desktop") && !id.contains(['/', '\\']) && !id.starts_with('.')
+    }
+
+    /// The scheme's default desktop ids in `[Default Applications]` of a
+    /// `mimeapps.list`, in listed order, rejecting traversal or malformed ids.
+    #[nolog] // Pure mimeapps.list parser.
+    pub fn default_handlers(mimeapps: &str) -> Vec<String> {
+        let Some(raw) = value(mimeapps, "[Default Applications]", SCHEME_MIME) else {
+            return Vec::new();
+        };
+        raw.split(';')
+            .map(str::trim)
+            .filter(|id| valid_desktop_id(id))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The program an `Exec` value starts: its first argument, after an `env`
+    /// with its assignments, unquoting and unescaping per the Desktop Entry
+    /// specification. `None` for empty, malformed, or unterminated values.
+    #[nolog] // Pure Desktop Entry Exec parser.
+    pub fn exec_program(exec: &str) -> Option<PathBuf> {
+        let mut text = String::new();
+        let mut chars = exec.chars();
+        while let Some(c) = chars.next() {
+            if c != '\\' {
+                text.push(c);
+                continue;
+            }
+            match chars.next()? {
+                's' => text.push(' '),
+                'n' | 'r' | 't' => return None,
+                other => text.push(other),
+            }
+        }
+        let mut args: Vec<String> = Vec::new();
+        let mut chars = text.chars().peekable();
+        while args.len() < 16 {
+            while chars.peek().is_some_and(|c| *c == ' ') {
+                chars.next();
+            }
+            let Some(first) = chars.peek().copied() else { break };
+            let mut arg = String::new();
+            if first == '"' {
+                chars.next();
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => arg.push(chars.next()?),
+                        c => arg.push(c),
+                    }
+                }
+            } else {
+                while let Some(c) = chars.peek().copied().filter(|c| *c != ' ') {
+                    arg.push(c);
+                    chars.next();
+                }
+            }
+            args.push(arg.replace("%%", "%"));
+        }
+        let mut args = args.into_iter().peekable();
+        if args.peek().is_some_and(|a| a == "env" || a == "/usr/bin/env" || a == "/bin/env") {
+            args.next();
+            while args.peek().is_some_and(|a| !a.starts_with('/') && a.contains('=')) {
+                args.next();
+            }
+        }
+        args.next().filter(|p| !p.is_empty() && !p.starts_with('%')).map(PathBuf::from)
+    }
+
+    #[nolog] // Pure desktop entry evaluator with closure existence predicate.
+    fn entry_program(
+        entry: &str,
+        require_mime: bool,
+        exists: &impl Fn(&Path) -> bool,
+    ) -> Option<PathBuf> {
+        const ENTRY: &str = "[Desktop Entry]";
+        if value(entry, ENTRY, "Hidden").is_some_and(|v| v.eq_ignore_ascii_case("true")) {
+            return None;
+        }
+        if require_mime
+            && !value(entry, ENTRY, "MimeType")?
+                .split(';')
+                .any(|m| m.trim() == SCHEME_MIME)
+        {
+            return None;
+        }
+        let program = exec_program(value(entry, ENTRY, "Exec")?)?;
+        (is_abs_path(&program) && exists(&program)).then_some(program)
+    }
+
+    /// Resolve a working `x-scheme-handler/hubchat` handler in XDG order:
+    /// 1. `[Default Applications]` in `mimeapps.list` (`$XDG_CONFIG_HOME`,
+    ///    `$XDG_CONFIG_DIRS`, then deprecated `$XDG_DATA_HOME/applications` and
+    ///    `$XDG_DATA_DIRS/applications`). If a listed default `.desktop` file
+    ///    exists, only it counts (a broken default does not fall back).
+    /// 2. Otherwise, any non-hidden `.desktop` entry in `applications/` (XDG
+    ///    data order) declaring `MimeType` `x-scheme-handler/hubchat` whose
+    ///    `Exec` program is an absolute path that exists.
     #[nolog] // Pure XDG handler resolver with closure existence predicate.
-    pub fn handler(_dirs: &Dirs, _exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    pub fn handler(dirs: &Dirs, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+        let mut mimeapps_paths: Vec<PathBuf> = dirs
+            .config
+            .iter()
+            .map(|c| c.join("mimeapps.list"))
+            .collect();
+        mimeapps_paths.extend(
+            dirs.data
+                .iter()
+                .map(|d| d.join("applications").join("mimeapps.list")),
+        );
+
+        for list_path in &mimeapps_paths {
+            let Some(text) = read_small(list_path) else {
+                continue;
+            };
+            for id in default_handlers(&text) {
+                if let Some(entry) = dirs
+                    .data
+                    .iter()
+                    .find_map(|d| read_small(&d.join("applications").join(&id)))
+                {
+                    return entry_program(&entry, false, &exists);
+                }
+            }
+        }
+
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut checked = 0usize;
+        for data_dir in &dirs.data {
+            let apps = data_dir.join("applications");
+            let Ok(read_dir) = std::fs::read_dir(&apps) else {
+                continue;
+            };
+            let mut names: Vec<String> = read_dir
+                .flatten()
+                .filter_map(|e| {
+                    let name = e.file_name().into_string().ok()?;
+                    valid_desktop_id(&name).then_some(name)
+                })
+                .collect();
+            names.sort();
+            for name in names {
+                if !seen.insert(name.clone()) {
+                    continue;
+                }
+                checked += 1;
+                if checked > MAX_DESKTOP_ENTRIES {
+                    return None;
+                }
+                if let Some(entry) = read_small(&apps.join(&name)) {
+                    if let Some(program) = entry_program(&entry, true, &exists) {
+                        return Some(program);
+                    }
+                }
+            }
+        }
+
         None
     }
 
@@ -1099,22 +1300,52 @@ pub(crate) mod linux_hubchat {
         }
         handler(dirs, exists).is_some()
     }
+
+    #[cfg(target_os = "linux")]
+    #[logged]
+    pub fn installed() -> bool {
+        let Some(home) = std::env::var_os("HOME")
+            .filter(|h| !h.is_empty())
+            .map(PathBuf::from)
+        else {
+            return false;
+        };
+        let d = dirs(&home, |name| std::env::var(name).ok());
+        handler(&d, |p| p.exists()).is_some()
+    }
 }
 
 /// Hubchat in this user's (or the machine's) installed programs.
+///
+/// - Rig override (`rig-hubchat-installed`) always wins.
+/// - Windows: queries Uninstall registry entries for `Hubchat*`.
+/// - Linux: in-process XDG `x-scheme-handler/hubchat` resolution (`linux_hubchat`),
+///   no child process; only a working handler whose Exec program exists counts.
+/// - macOS (and other platforms): currently returns false (not yet implemented).
 #[logged]
 async fn hubchat_installed() -> bool {
     if let Some(home) = rig_dir("rig-hubchat-installed") {
         return home.is_file();
     }
-    let script = "$k = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',\
-                  'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; \
-                  if (Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'Hubchat*' }) { 'yes' }";
-    let Some(out) = output(tokio::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encode_ps(script)])).await
-    else {
-        return false;
-    };
-    String::from_utf8_lossy(&out.stdout).trim() == "yes"
+    #[cfg(windows)]
+    {
+        let script = "$k = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',\
+                      'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; \
+                      if (Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'Hubchat*' }) { 'yes' }";
+        let Some(out) = output(tokio::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encode_ps(script)])).await
+        else {
+            return false;
+        };
+        String::from_utf8_lossy(&out.stdout).trim() == "yes"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux_hubchat::installed()
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        false
+    }
 }
 
 /// The slow facts, at most a minute old.
