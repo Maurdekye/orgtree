@@ -234,9 +234,11 @@ function writeAtomic(file: string, data: string | Buffer, makeTempPath?: (file: 
 }
 
 /** Publish a brand-new file with atomic no-replace semantics (`link(tmp, dest)` + unlink).
- *  Returns `'exists'` without touching `file` if another writer created it first,
- *  or `'skipped'` on filesystems that do not support hard links rather than writing
- *  directly into the visible final path (which could leave a truncated file on crash). */
+ *  Returns `'exists'` without touching `file` if another writer created it first.
+ *  Known Low (accepted): on filesystems that do not support hard links
+ *  (`ENOSYS`/`EOPNOTSUPP`/`EXDEV`/`EPERM`), first install conservatively returns
+ *  `'skipped'` rather than writing directly into the visible final path (which
+ *  could leave a truncated launcher or icon on crash). */
 function writeNoReplace(file: string, data: string | Buffer, hooks: WriteHooks): 'written' | 'exists' | 'skipped' {
   const tmp = writeTempExclusive(file, data, hooks.makeTempPath)
   try {
@@ -447,9 +449,10 @@ export function registerLinuxOrgtreeApp(o: LinuxAppEntryInputs): LinuxAppEntryRe
           try { fs.unlinkSync(tmp) } catch { /* ignore */ }
           return { entry: 'other', icon: 'skipped' }
         }
-        // Known Low (Node.js lacks renameat2(RENAME_EXCHANGE)): a sub-millisecond
-        // TOCTOU window remains between the pre-rename snapshot check above and
-        // renameSync below; this is accepted in Orgtree's Node main process.
+        // Known Low (accepted; Node.js lacks renameat2(RENAME_EXCHANGE)): a TOCTOU
+        // window with no guaranteed wall-clock bound (e.g. under scheduling
+        // preemption) remains between the pre-rename snapshot check above and
+        // renameSync below.
         fs.renameSync(tmp, entryPath)
       } catch (error) {
         try { fs.unlinkSync(tmp) } catch { /* ignore */ }
