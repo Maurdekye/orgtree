@@ -24,6 +24,19 @@
 //   steered:  orgtree_status(done) + completed answer + delivered follow-up steer
 //             + INVALID_ARGUMENT (400) -> NOT soft-ended; terminal error,
 //             REPORT STALLED, and follow-up delivery custody preserved.
+//   older / newans: pre-delivery ACTIVE response finishes DONE after follow-up
+//             steer + status(done) + 400 -> older MUST stall (pre-delivery text
+//             cannot answer follow-up); newans (fresh response begun after
+//             delivery) MUST soft-end.
+//   statuslast / toollast: complete answer -> orgtree_status(done) -> 400 MUST
+//             soft-end (orgtree_status does not clear completion); complete
+//             answer -> orgtree_status(done) -> non-status tool -> 400 MUST stall.
+//   hangfresh: read hang -> resume -> write hang -> stop, then a fresh user
+//             assignment hangs on edit_file -> gets its OWN one automatic resume
+//             and recovers cleanly (per-original-turn reservation).
+//   faildedup: queued user mail arrives before an earlier failed turn ends, runs
+//             next with hard_fail_run=1, hangs, and retry-record write fails ->
+//             bypasses consecutive-failure dedup so a 2nd REPORT STALLED arrives.
 //   midnet:   mid-work Go DNS error ("dial tcp: ... no such host") without done
 //             -> P34 connection freeze & retry (not terminal REPORT STALLED).
 //   mid400:   mid-work INVALID_ARGUMENT (code 400) after status=working
@@ -55,10 +68,10 @@ import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const AGY_AGENTS = [
-  'hang1', 'hang2', 'hangdiff', 'hangmcp', 'cmdok',
-  'soft1', 'soft2', 'partial', 'steered',
+  'hang1', 'hang2', 'hangdiff', 'hangfresh', 'hangmcp', 'cmdok',
+  'soft1', 'soft2', 'statuslast', 'toollast', 'partial', 'steered', 'older', 'newans',
   'midnet', 'mid400', 'notext',
-  'failrec', 'failwake', 'sparse', 'unnamed',
+  'failrec', 'failwake', 'faildedup', 'sparse', 'unnamed',
 ]
 
 export async function setup() {
@@ -83,6 +96,14 @@ export default async function (rig) {
       state: 'ACTIVE',
       step_index: 18,
       text_delta: 'An unfinished second answer begins.',
+    },
+  }
+  const staleResponseDone = {
+    event: 'step_update',
+    step_update: {
+      step_type: 'agent_response',
+      state: 'DONE',
+      step_index: 18,
     },
   }
   const toolStep = (step_index, state, extra = {}) => ({
@@ -167,6 +188,46 @@ export default async function (rig) {
           },
         ],
       },
+      hangfresh: {
+        turns: [
+          {
+            name: 'fresh-edit-recover',
+            match: 'edit_file',
+            once: true,
+            steps: [
+              { tool: 'orgtree_status', args: { status: 'done', summary: 'Recovered fresh assignment after edit_file hang.' } },
+              { text: 'Recovered fresh assignment cleanly.' },
+            ],
+          },
+          {
+            name: 'fresh-new-assignment',
+            match: 'PROOF-HANG-FRESH-2',
+            once: true,
+            steps: [
+              { text: 'Starting fresh user assignment.' },
+              { tool: 'edit_file', args: { Path: 'fresh.txt', Target: 'a', Replacement: 'b' }, hang: true },
+            ],
+          },
+          {
+            name: 'fresh-first-resume-write',
+            match: 'read_file',
+            once: true,
+            steps: [
+              { text: 'Resuming first assignment with write_file.' },
+              { tool: 'write_file', args: { Path: 'first.txt', Content: 'retry' }, hang: true },
+            ],
+          },
+          {
+            name: 'fresh-first-read',
+            match: 'PROOF-HANG-FRESH-1',
+            once: true,
+            steps: [
+              { text: 'Starting first assignment.' },
+              { tool: 'read_file', args: { Path: 'first.txt' }, hang: true },
+            ],
+          },
+        ],
+      },
       hangmcp: {
         turns: [
           {
@@ -236,6 +297,35 @@ export default async function (rig) {
           },
         ],
       },
+      statuslast: {
+        turns: [
+          {
+            name: 'answer-then-done-then-400',
+            match: 'PROOF-STATUS-LAST',
+            once: true,
+            steps: [
+              { text: 'Complete final answer before status report.' },
+              { tool: 'orgtree_status', args: { status: 'done', summary: 'Done after complete final answer.' } },
+              { error: 'API error: INVALID_ARGUMENT (code 400): trailing call rejected after status' },
+            ],
+          },
+        ],
+      },
+      toollast: {
+        turns: [
+          {
+            name: 'answer-done-then-other-tool-400',
+            match: 'PROOF-TOOL-LAST',
+            once: true,
+            steps: [
+              { text: 'Complete answer before trailing non-status tool.' },
+              { tool: 'orgtree_status', args: { status: 'done', summary: 'Done before extra tool.' } },
+              { tool: 'orgtree_chart', args: {} },
+              { error: 'API error: INVALID_ARGUMENT (code 400): trailing error after non-status tool' },
+            ],
+          },
+        ],
+      },
       partial: {
         turns: [
           {
@@ -262,6 +352,39 @@ export default async function (rig) {
               { text: 'First request completed.' },
               { poll_mail: { every_ms: 200, timeout_ms: 16000 } },
               { error: 'API error: INVALID_ARGUMENT (code 400): failed after follow-up delivered' },
+            ],
+          },
+        ],
+      },
+      older: {
+        turns: [
+          {
+            name: 'old-answer-finishes-late',
+            match: 'PROOF-OLDER',
+            once: true,
+            steps: [
+              { raw: openSecondResponse },
+              { poll_mail: { every_ms: 200, timeout_ms: 16000 } },
+              { tool: 'orgtree_status', args: { status: 'done', summary: 'Reported done after follow-up.' } },
+              { raw: staleResponseDone },
+              { error: 'API error: INVALID_ARGUMENT (code 400): failed after old response completed' },
+            ],
+          },
+        ],
+      },
+      newans: {
+        turns: [
+          {
+            name: 'genuine-new-answer',
+            match: 'PROOF-NEWANS',
+            once: true,
+            steps: [
+              { raw: openSecondResponse },
+              { poll_mail: { every_ms: 200, timeout_ms: 16000 } },
+              { tool: 'orgtree_status', args: { status: 'done', summary: 'Finished follow-up cleanly.' } },
+              { raw: staleResponseDone },
+              { text: 'Genuine fresh answer begun after follow-up delivery.' },
+              { error: 'API error: INVALID_ARGUMENT (code 400): trailing error after fresh answer' },
             ],
           },
         ],
@@ -365,6 +488,29 @@ export default async function (rig) {
           },
         ],
       },
+      faildedup: {
+        turns: [
+          {
+            name: 'dedup-queued-hang',
+            match: 'PROOF-DEDUP-QUEUED',
+            once: true,
+            steps: [
+              { text: 'Running queued request after earlier failure.' },
+              { tool: 'read_file', args: { Path: 'dedup.txt' }, hang: true },
+            ],
+          },
+          {
+            name: 'dedup-first-fail',
+            match: 'PROOF-DEDUP-FIRST',
+            once: true,
+            steps: [
+              { text: 'Starting first failing request.' },
+              { sleep_ms: 2500 },
+              { error: 'API error: INVALID_ARGUMENT (code 400): first terminal failure' },
+            ],
+          },
+        ],
+      },
       slowmsg: {
         turns: [
           {
@@ -444,14 +590,16 @@ export default async function (rig) {
 
   const ALL_AGENTS = [...AGY_AGENTS, 'slowmsg', 'msgbob', 'clerr', 'cxerr']
   const ids = Object.fromEntries(ALL_AGENTS.map(a => [a, rig.agentRow(a)?.id]))
-  p.check('all 20 proof agents hired', ALL_AGENTS.every(a => ids[a]), ids)
+  p.check(`all ${ALL_AGENTS.length} proof agents hired`, ALL_AGENTS.every(a => ids[a]), ids)
 
-  // Inject real PostgreSQL write failures for failrec/failwake (Ruling 4) and
+  // Inject real PostgreSQL write failures for failrec/faildedup/failwake (Ruling 4) and
   // a post-commit delay in forget_hard_fail for msgbob (Ruling 5).
   rig.exec(`
     CREATE OR REPLACE FUNCTION ot._test_agy_stall_agents_guard() RETURNS trigger AS $$
     BEGIN
-      IF NEW.name = 'failrec' AND (NEW.extra ? 'agy_tool_hang_retry') AND NOT (OLD.extra ? 'agy_tool_hang_retry') THEN
+      IF NEW.name IN ('failrec', 'faildedup')
+         AND (NEW.extra ? 'agy_tool_hang_retry')
+         AND (NEW.extra->'agy_tool_hang_retry' IS DISTINCT FROM OLD.extra->'agy_tool_hang_retry') THEN
         RAISE EXCEPTION 'injected retry record write failure';
       END IF;
       IF NEW.name = 'msgbob' AND (OLD.extra ? 'hard_fail_run') AND NOT (NEW.extra ? 'hard_fail_run') THEN
@@ -495,12 +643,17 @@ export default async function (rig) {
     rig.userMail('hang1', 'PROOF-HANG-RECOVER: read breadcrumbs.'),
     rig.userMail('hang2', 'PROOF-HANG-REPEAT: write breadcrumbs.'),
     rig.userMail('hangdiff', 'PROOF-HANG-DIFF: read then write.'),
+    rig.userMail('hangfresh', 'PROOF-HANG-FRESH-1: first assignment read then write.'),
     rig.userMail('hangmcp', 'PROOF-HANG-MCP: record solo evidence.'),
     rig.userMail('cmdok', 'PROOF-RUN-CMD: build project.'),
     rig.userMail('soft1', 'PROOF-SOFT-NET: finish and report.'),
     rig.userMail('soft2', 'PROOF-SOFT-400: finish and report.'),
+    rig.userMail('statuslast', 'PROOF-STATUS-LAST: answer then mark done.'),
+    rig.userMail('toollast', 'PROOF-TOOL-LAST: answer then mark done then extra tool.'),
     rig.userMail('partial', 'PROOF-PARTIAL: finish then start second answer.'),
     rig.userMail('steered', 'PROOF-STEER: finish then accept follow-up.'),
+    rig.userMail('older', 'PROOF-OLDER: pre-delivery response completes after follow-up.'),
+    rig.userMail('newans', 'PROOF-NEWANS: fresh post-delivery response after follow-up.'),
     rig.userMail('midnet', 'PROOF-MID-NET: inspect remote.'),
     rig.userMail('mid400', 'PROOF-MID-400: do work.'),
     rig.userMail('notext', 'PROOF-NO-TEXT: check chart after done.'),
@@ -508,15 +661,36 @@ export default async function (rig) {
     rig.userMail('cxerr', 'PROOF-CROSS-LANE: codex stream interrupted.'),
     rig.userMail('failrec', 'PROOF-FAIL-REC: hang with retry write failure.'),
     rig.userMail('failwake', 'PROOF-FAIL-WAKE: hang with wake write failure.'),
+    rig.userMail('faildedup', 'PROOF-DEDUP-FIRST: first failing turn before queued hang.'),
     rig.userMail('slowmsg', 'PROOF-SLOW-MSG: send slow orgtree_message.'),
     rig.userMail('sparse', 'PROOF-SPARSE: sparse progress update.'),
     rig.userMail('unnamed', 'PROOF-UNNAMED: unnamed tool step.'),
   ])
 
-  // Deliver the follow-up instruction while `steered` is polling for mid-turn mail
-  await rig.waitFor(() => rig.fakeLog('steered').some(row => row.kind === 'step' && row.step?.poll_mail),
-    { what: 'steered fake CLI to wait for follow-up mail', timeout: 25000 })
-  await rig.userMail('steered', 'SECOND-REVIEW-INSTRUCTION')
+  // Deliver follow-up instructions while steered/older/newans are polling for mid-turn mail,
+  // and queue faildedup's second user mail while its first turn is still running (before 400).
+  await Promise.all([
+    (async () => {
+      await rig.waitFor(() => rig.fakeLog('steered').some(row => row.kind === 'step' && row.step?.poll_mail),
+        { what: 'steered fake CLI to wait for follow-up mail', timeout: 25000 })
+      await rig.userMail('steered', 'SECOND-REVIEW-INSTRUCTION')
+    })(),
+    (async () => {
+      await rig.waitFor(() => rig.fakeLog('older').some(row => row.kind === 'step' && row.step?.poll_mail),
+        { what: 'older fake CLI to wait for follow-up mail', timeout: 25000 })
+      await rig.userMail('older', 'OLD-ANSWER-FOLLOWUP')
+    })(),
+    (async () => {
+      await rig.waitFor(() => rig.fakeLog('newans').some(row => row.kind === 'step' && row.step?.poll_mail),
+        { what: 'newans fake CLI to wait for follow-up mail', timeout: 25000 })
+      await rig.userMail('newans', 'NEW-ANSWER-FOLLOWUP')
+    })(),
+    (async () => {
+      await rig.waitFor(() => rig.fakeLog('faildedup').some(row => row.kind === 'turn'),
+        { what: 'faildedup turn 1 to start before queueing second user mail', timeout: 25000 })
+      await rig.userMail('faildedup', 'PROOF-DEDUP-QUEUED: hang after earlier terminal failure.')
+    })(),
+  ])
 
   // ---------------------------------------------------------------- (a3) cmdok: run_command keeps turn idle limit
   const [c1] = await rig.waitTurns('cmdok', 1, { timeout: 30000 })
@@ -544,6 +718,24 @@ export default async function (rig) {
     !s2.error && !s2.killed && !soft2Row.last_error && !soft2Row.frozen && soft2Stalls.length === 0,
     { turn: s2, last_error: soft2Row.last_error, frozen: soft2Row.frozen, stalls: soft2Stalls })
 
+  // ---------------------------------------------------------------- (Follow-up 2) statuslast & toollast: ruled order
+  const [sl1] = await rig.waitTurns('statuslast', 1, { timeout: 30000 })
+  const slRow = rig.agentRow('statuslast')
+  const slStalls = stalledFor('statuslast')
+  p.check('statuslast: complete answer -> orgtree_status(done) -> 400 ends softly (orgtree_status does not clear completion)',
+    !sl1.error && !sl1.killed && !slRow.last_error && !slRow.frozen && slStalls.length === 0,
+    { turn: sl1, last_error: slRow.last_error, frozen: slRow.frozen, stalls: slStalls.length })
+
+  const [tl1] = await rig.waitTurns('toollast', 1, { timeout: 30000 })
+  const tlStalls = await rig.waitFor(() => {
+    const s = stalledFor('toollast')
+    return s.length ? s : null
+  }, { what: 'toollast REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('toollast'))
+  const tlDoor = tlStalls[0]?.ev?.door ?? ''
+  p.check('toollast: non-status tool after complete answer + done clears completion and stalls',
+    !!tl1.error && tlStalls.length === 1 && /last status: done at /i.test(tlDoor),
+    { turn: tl1, stalls: tlStalls.length, door: tlDoor })
+
   // ---------------------------------------------------------------- (Ruling 1a) partial: interrupted second answer -> NOT soft-ended
   const [pt1] = await rig.waitTurns('partial', 1, { timeout: 30000 })
   const ptStalls = await rig.waitFor(() => {
@@ -565,6 +757,28 @@ export default async function (rig) {
   p.check('steered: delivered follow-up unanswered before 400 is NOT soft-ended, reports stall, and preserves delivery custody',
     !!st1.error && stStalls.length === 1 && stInjected && stDelivery.length === 1 && stDelivery[0].state === 'delivered',
     { turn: st1, stalls: stStalls.length, injected: stInjected, delivery: stDelivery })
+
+  // ---------------------------------------------------------------- (Follow-up 1) older & newans: pre-delivery response cannot answer follow-up
+  const [old1] = await rig.waitTurns('older', 1, { timeout: 30000 })
+  const oldStalls = await rig.waitFor(() => {
+    const s = stalledFor('older')
+    return s.length ? s : null
+  }, { what: 'older REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('older'))
+  const oldDelivery = rig.sql("SELECT state, turn_id FROM ot.mail WHERE recipient_name='older' AND body LIKE '%OLD-ANSWER-FOLLOWUP%'")
+  const oldInjected = rig.fakeLog('older').some(r => r.kind === 'hook_mail' && r.text?.includes('OLD-ANSWER-FOLLOWUP'))
+  p.check('older: pre-delivery response finishing DONE after follow-up + done + 400 is NOT soft-ended and reports stall',
+    !!old1.error && oldStalls.length === 1 && oldInjected && oldDelivery.length === 1 && oldDelivery[0].state === 'delivered',
+    { turn: old1, stalls: oldStalls.length, injected: oldInjected, delivery: oldDelivery })
+
+  const [na1] = await rig.waitTurns('newans', 1, { timeout: 30000 })
+  const naRow = rig.agentRow('newans')
+  const naStalls = stalledFor('newans')
+  const naDelivery = rig.sql("SELECT state, turn_id FROM ot.mail WHERE recipient_name='newans' AND body LIKE '%NEW-ANSWER-FOLLOWUP%'")
+  const naInjected = rig.fakeLog('newans').some(r => r.kind === 'hook_mail' && r.text?.includes('NEW-ANSWER-FOLLOWUP'))
+  p.check('newans: fresh response begun after follow-up delivery + done + 400 ends softly',
+    !na1.error && !na1.killed && !naRow.last_error && !naRow.frozen && naStalls.length === 0
+      && naInjected && naDelivery.length === 1 && naDelivery[0].state === 'delivered',
+    { turn: na1, stalls: naStalls.length, injected: naInjected, delivery: naDelivery })
 
   // ---------------------------------------------------------------- (c2) mid400: mid-work 400 -> terminal REPORT STALLED
   const [m400] = await rig.waitTurns('mid400', 1, { timeout: 30000 })
@@ -684,6 +898,28 @@ export default async function (rig) {
       && /codex-force-kill.*agent hangdiff.*stuck in tool write_file/i.test(hdKills),
     { turns: hdAfter, door: hdDoor, stalls: hdStalls.length })
 
+  // ---------------------------------------------------------------- (Follow-up 3) hangfresh: per-original-turn reservation
+  const hfFirstTurns = await rig.waitTurns('hangfresh', 2, { timeout: 60000 }).catch(() => rig.turns('hangfresh'))
+  const hfFirstStalls = await rig.waitFor(() => {
+    const s = stalledFor('hangfresh')
+    return s.length ? s : null
+  }, { what: 'hangfresh first assignment REPORT STALLED', timeout: 12000 }).catch(() => stalledFor('hangfresh'))
+  await rig.userMail('hangfresh', 'PROOF-HANG-FRESH-2: fresh user assignment after prior stopped hang.')
+  const hfAllTurns = await rig.waitTurns('hangfresh', 4, { timeout: 35000 }).catch(() => rig.turns('hangfresh'))
+  const hfFinalStalls = stalledFor('hangfresh')
+  const hfPrompt4 = log('hangfresh', 'turn')[3]?.prompt ?? ''
+  p.check('hangfresh: fresh user assignment after read->write stop gets its own one automatic resume and recovers',
+    hfFirstTurns.length === 2
+      && hfFirstStalls.length === 1
+      && hfAllTurns.length === 4
+      && hfAllTurns[2].killed === true
+      && /stuck in tool edit_file since /i.test(hfAllTurns[2].error ?? '')
+      && /queued one automatic resume/i.test(hfAllTurns[2].error ?? '')
+      && !hfAllTurns[3].error
+      && /edit_file/.test(hfPrompt4)
+      && hfFinalStalls.length === 1,
+    { firstStalls: hfFirstStalls.length, finalStalls: hfFinalStalls.length, turns: hfAllTurns, prompt4: hfPrompt4.slice(0, 200) })
+
   // ---------------------------------------------------------------- (Ruling 4) failrec & failwake: injected write failure still notifies boss
   const [fr1] = await rig.waitTurns('failrec', 1, { timeout: 30000 }).catch(() => rig.turns('failrec'))
   const [fw1] = await rig.waitTurns('failwake', 1, { timeout: 30000 }).catch(() => rig.turns('failwake'))
@@ -705,6 +941,25 @@ export default async function (rig) {
       failrec: { turns: frTurns, stalls: frStalls.length, door: frStalls[0]?.ev?.door ?? '' },
       failwake: { turns: fwTurns, stalls: fwStalls.length, door: fwStalls[0]?.ev?.door ?? '' },
     })
+
+  // ---------------------------------------------------------------- (Follow-up 4) faildedup: queued user mail after prior failed turn still sends 2nd notice on failed reservation write
+  const fdTurns = await rig.waitTurns('faildedup', 2, { timeout: 40000 }).catch(() => rig.turns('faildedup'))
+  const fdStalls = await rig.waitFor(() => {
+    const s = stalledFor('faildedup')
+    return s.length >= 2 ? s : null
+  }, { what: 'faildedup second REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('faildedup'))
+  const fdWakes = rig.sql(`SELECT id, client_op FROM ot.mail WHERE recipient_agent_id = ${ids.faildedup} AND client_op LIKE 'agy-tool-hang-resume:%'`)
+  const fdHardFail = rig.agentRow('faildedup')?.extra?.hard_fail_run ?? 0
+  p.check('faildedup: queued user mail after prior failed turn still sends 2nd REPORT STALLED when reservation write fails (bypasses dedup)',
+    fdTurns.length === 2
+      && !!fdTurns[0].error
+      && !!fdTurns[1].killed
+      && /automatic resume failed/i.test(fdTurns[1].error ?? '')
+      && fdStalls.length === 2
+      && /stuck in tool read_file since /i.test(fdStalls[1]?.ev?.door ?? '')
+      && fdWakes.length === 0
+      && fdHardFail >= 2,
+    { turns: fdTurns, stalls: fdStalls.map(s => ({ id: s.id, door: s.ev?.door })), wakes: fdWakes, hardFail: fdHardFail })
 
   // ---------------------------------------------------------------- (Ruling 6a) sparse: progress omitting tool_name keeps read_file ceiling
   const spTurns = await rig.waitTurns('sparse', 2, { timeout: 45000 }).catch(() => rig.turns('sparse'))
