@@ -65,11 +65,24 @@ pub fn mcp_tool_timeout() -> Duration {
     Duration::from_secs(MCP_TOOL_TIMEOUT_S)
 }
 
+/// Fallback display name when an Antigravity tool step omits `tool_name` and
+/// no prior name was observed for that call id (never left blank).
+pub const UNNAMED_TOOL: &str = "an unnamed tool";
+
 /// Human-readable Antigravity tool name for stall reports and resume prompts.
+/// Never returns an empty/blank string.
 #[nolog]
 pub fn display_tool_name(name: &str) -> std::borrow::Cow<'_, str> {
-    let s = name.strip_prefix("default_api:").unwrap_or(name);
+    let trimmed = name.trim();
+    let s = trimmed.strip_prefix("default_api:").unwrap_or(trimmed).trim();
+    if s.is_empty() {
+        return std::borrow::Cow::Borrowed(UNNAMED_TOOL);
+    }
     if let Some(rest) = s.strip_prefix("mcp__orgtree__") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return std::borrow::Cow::Borrowed(UNNAMED_TOOL);
+        }
         return if rest.starts_with("orgtree_") {
             std::borrow::Cow::Borrowed(rest)
         } else {
@@ -77,9 +90,47 @@ pub fn display_tool_name(name: &str) -> std::borrow::Cow<'_, str> {
         };
     }
     if let Some(rest) = s.strip_prefix("mcp_orgtree_orgtree_") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return std::borrow::Cow::Borrowed(UNNAMED_TOOL);
+        }
         return std::borrow::Cow::Owned(format!("orgtree_{rest}"));
     }
     std::borrow::Cow::Borrowed(s)
+}
+
+/// Resolve the tool name and input for an Antigravity `tool` step update.
+/// If a progress update omits `tool_name` (or sends blank/whitespace), preserve
+/// `prev_name` for that call id; otherwise fall back to `UNNAMED_TOOL` so the
+/// name is never blank. Also preserves an already-unwrapped `call_mcp_tool`
+/// target when a partial update omits wrapper parameters.
+#[nolog]
+pub fn resolve_agy_tool_call(
+    raw_name: Option<&str>,
+    raw_params: &Value,
+    prev_name: Option<&str>,
+) -> (String, Value) {
+    let explicit = raw_name.map(str::trim).filter(|s| !s.is_empty());
+    let prev = prev_name.map(str::trim).filter(|s| !s.is_empty());
+    match explicit {
+        Some(raw) => {
+            let (name, input) = crate::runtime::convo::unwrap_tool_call(raw, raw_params);
+            let base = name.strip_prefix("default_api:").unwrap_or(&name);
+            let base = base.rsplit("__").next().unwrap_or(base);
+            if base.eq_ignore_ascii_case("call_mcp_tool") {
+                if let Some(known) = prev.filter(|s| *s != UNNAMED_TOOL) {
+                    return (known.to_string(), input);
+                }
+            }
+            let resolved = if name.trim().is_empty() {
+                prev.unwrap_or(UNNAMED_TOOL).to_string()
+            } else {
+                name
+            };
+            (resolved, input)
+        }
+        None => (prev.unwrap_or(UNNAMED_TOOL).to_string(), raw_params.clone()),
+    }
 }
 
 /// In-flight silence ceiling (seconds) for an active Antigravity tool call,
@@ -111,11 +162,29 @@ pub fn bounded_tool_ceiling_s(name: &str, turn_idle_s: u64) -> Option<u64> {
     Some(if turn_idle_s > 0 { limit.min(turn_idle_s) } else { limit })
 }
 
+/// Antigravity-only Go / Windows CLI transport and stream errors. Kept strictly
+/// scoped to the Antigravity lane so Claude and Codex error classification
+/// stays byte-identical to 4.6.8.
+#[nolog]
+pub fn looks_like_agy_connection_failure(blob: &str) -> bool {
+    let b = blob.to_lowercase();
+    [
+        "dial tcp",
+        "no such host",
+        "wsasend",
+        "wsarecv",
+        "forcibly closed by the remote host",
+        "the stream was interrupted",
+    ]
+    .iter()
+    .any(|p| b.contains(p))
+}
+
 /// Whether a trailing Antigravity error is eligible for soft end-of-turn
 /// classification once the turn has already settled cleanly.
 #[nolog]
 pub fn is_soft_post_final_error(err: &str) -> bool {
-    if crate::runtime::recovery::looks_like_connection_failure(err) {
+    if crate::runtime::recovery::looks_like_connection_failure(err) || looks_like_agy_connection_failure(err) {
         return true;
     }
     let b = err.to_lowercase();
@@ -124,8 +193,9 @@ pub fn is_soft_post_final_error(err: &str) -> bool {
 
 /// Complete predicate for classifying a trailing Antigravity error as a soft
 /// end-of-turn instead of a false `REPORT STALLED` (or a wasted P34 retry).
-/// Strictly Antigravity-only: requires `orgtree_status` `done`/`idle` during
-/// this turn, final assistant text after the last tool, zero open tools, and
+/// Strictly Antigravity-only: requires a fresh `orgtree_status` `done`/`idle`
+/// after the latest delivered input, a completed final assistant answer after
+/// the last tool (with zero open/unfinished responses), zero open tools, and
 /// no pending mid-turn steer mail.
 #[allow(clippy::too_many_arguments)]
 #[nolog]
@@ -134,16 +204,18 @@ pub fn is_soft_trailing_end(
     stopped_or_ended: bool,
     is_limit: bool,
     open_tools: usize,
+    open_responses: usize,
     pending_steer: bool,
-    status_reported: Option<&str>,
+    status_for_input: Option<&str>,
     final_text_after_tools: bool,
     err: &str,
 ) -> bool {
     agy && !stopped_or_ended
         && !is_limit
         && open_tools == 0
+        && open_responses == 0
         && !pending_steer
-        && matches!(status_reported, Some("done" | "idle"))
+        && matches!(status_for_input, Some("done" | "idle"))
         && final_text_after_tools
         && is_soft_post_final_error(err)
 }
@@ -449,12 +521,35 @@ async fn guarded_lines(mut stream: impl tokio::io::AsyncRead + Unpin, auth: &Run
     let mut chunk = vec![0u8; 4096];
     loop {
         let n = match stream.read(&mut chunk).await { Ok(0) | Err(_) => break, Ok(n) => n };
+        let prev_len = pending.len();
         pending.extend_from_slice(&chunk[..n]);
-        while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+        let mut search_from = prev_len;
+        while let Some(rel) = pending[search_from..].iter().position(|b| *b == b'\n') {
+            let end = search_from + rel;
             if !auth.inspect(&pending[..end]) || !line(&pending[..end]) { return; }
             pending.drain(..=end);
+            search_from = 0;
         }
-        if !auth.inspect(&pending) { return; }
+        // Inspect partial (no-newline) data in O(n) rather than O(n^2) so
+        // multi-MiB stream lines never stall CPU:
+        // - JSON objects only match auth_prompt when complete/parseable;
+        // - plain-text interactive prompts (max needle <= 30 B) are caught
+        //   across chunk boundaries with a 128-byte overlap.
+        let is_json = pending.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{');
+        if is_json {
+            if pending.len() <= 16 * 1024 && !auth.inspect(&pending) { return; }
+        } else if !pending.is_empty() {
+            let win_start = if search_from == 0 { 0 } else { prev_len.saturating_sub(128) };
+            let mut tail = &pending[win_start..];
+            while let Some(&b) = tail.first() {
+                if b.is_ascii_whitespace() || b == b'{' {
+                    tail = &tail[1..];
+                } else {
+                    break;
+                }
+            }
+            if !tail.is_empty() && !auth.inspect(tail) { return; }
+        }
         if pending.len() > 4 * 1024 * 1024 {
             tracing::warn!(bytes = pending.len(), "Antigravity stream line exceeded 4 MiB guard; closing stream reader");
             return;
@@ -1283,7 +1378,61 @@ mod tool_ceiling_tests {
         assert_eq!(display_tool_name("mcp_orgtree_orgtree_work"), "orgtree_work");
         assert_eq!(bounded_tool_ceiling_s(&display_tool_name("mcp__orgtree__work"), 1800), Some(305));
         assert_eq!(display_tool_name("default_api:read_file"), "read_file");
+        assert_eq!(display_tool_name(""), UNNAMED_TOOL);
+        assert_eq!(display_tool_name("   "), UNNAMED_TOOL);
+        assert_eq!(display_tool_name("default_api:"), UNNAMED_TOOL);
+        assert_eq!(display_tool_name("mcp__orgtree__"), UNNAMED_TOOL);
         assert_eq!(mcp_tool_timeout(), Duration::from_secs(300));
+    }
+
+    #[test]
+    fn sparse_and_unnamed_tool_progress_events_preserve_known_name_and_never_leave_blank() {
+        let empty = json!({});
+        // Omitted name on a progress event keeps the last known tool name (preserving its ceiling).
+        let (name, _) = resolve_agy_tool_call(None, &empty, Some("read_file"));
+        assert_eq!(name, "read_file");
+        assert_eq!(bounded_tool_ceiling_s(&display_tool_name(&name), 1800), Some(300));
+
+        // Blank/whitespace name also keeps the last known tool name.
+        let (name_ws, _) = resolve_agy_tool_call(Some("   "), &empty, Some("read_file"));
+        assert_eq!(name_ws, "read_file");
+
+        // Omitted or blank name with no known name falls back to "an unnamed tool" (never blank or "tool").
+        let (unnamed_none, _) = resolve_agy_tool_call(None, &empty, None);
+        assert_eq!(unnamed_none, UNNAMED_TOOL);
+        let (unnamed_blank, _) = resolve_agy_tool_call(Some(""), &empty, None);
+        assert_eq!(unnamed_blank, UNNAMED_TOOL);
+
+        // A later explicit name replaces "an unnamed tool".
+        let (named_later, _) = resolve_agy_tool_call(Some("write_file"), &empty, Some(UNNAMED_TOOL));
+        assert_eq!(named_later, "write_file");
+        assert_eq!(bounded_tool_ceiling_s(&display_tool_name(&named_later), 1800), Some(300));
+
+        // Unwrapped call_mcp_tool survives a partial progress event with empty wrapper params.
+        let (mcp_keep, _) = resolve_agy_tool_call(Some("call_mcp_tool"), &empty, Some("orgtree_work"));
+        assert_eq!(mcp_keep, "orgtree_work");
+        assert_eq!(bounded_tool_ceiling_s(&display_tool_name(&mcp_keep), 1800), Some(305));
+    }
+
+    #[test]
+    fn agy_only_network_matcher_covers_go_windows_and_stream_errors() {
+        for err in [
+            r#"Post "https://daily-cloudcode-pa.googleapis.com": dial tcp: lookup daily-cloudcode-pa.googleapis.com: no such host"#,
+            "wsasend: An existing connection was forcibly closed by the remote host.",
+            "wsarecv: call failed",
+            "The stream was interrupted.",
+            "The stream was interrupted. Please continue the task you were working on.",
+        ] {
+            assert!(looks_like_agy_connection_failure(err), "AGY matcher must match: {err}");
+            assert!(is_soft_post_final_error(err), "soft post-final must accept: {err}");
+        }
+        for other in [
+            "API error: INVALID_ARGUMENT (code 400): bad request",
+            "401 Unauthorized",
+            "Permission denied",
+        ] {
+            assert!(!looks_like_agy_connection_failure(other), "AGY matcher must reject: {other}");
+        }
     }
 
     #[test]
@@ -1295,18 +1444,19 @@ mod tool_ceiling_tests {
             "API error: INVALID_ARGUMENT (code 400): bad trailing request",
         ];
         for err in errs {
-            assert!(is_soft_trailing_end(true, false, false, 0, false, Some("done"), true, err), "done + final text: {err}");
-            assert!(is_soft_trailing_end(true, false, false, 0, false, Some("idle"), true, err), "idle + final text: {err}");
+            assert!(is_soft_trailing_end(true, false, false, 0, 0, false, Some("done"), true, err), "done + final text: {err}");
+            assert!(is_soft_trailing_end(true, false, false, 0, 0, false, Some("idle"), true, err), "idle + final text: {err}");
             // Flip each guard one at a time -> must refuse soft end-of-turn.
-            assert!(!is_soft_trailing_end(false, false, false, 0, false, Some("done"), true, err), "non-AGY untouched");
-            assert!(!is_soft_trailing_end(true, true, false, 0, false, Some("done"), true, err), "killed/interrupted");
-            assert!(!is_soft_trailing_end(true, false, true, 0, false, Some("done"), true, err), "usage limit");
-            assert!(!is_soft_trailing_end(true, false, false, 1, false, Some("done"), true, err), "open tool");
-            assert!(!is_soft_trailing_end(true, false, false, 0, true, Some("done"), true, err), "pending steer");
-            assert!(!is_soft_trailing_end(true, false, false, 0, false, None, true, err), "no status reported");
-            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("working"), true, err), "status working");
-            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("blocked"), true, err), "status blocked");
-            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("done"), false, err), "no final text after tool");
+            assert!(!is_soft_trailing_end(false, false, false, 0, 0, false, Some("done"), true, err), "non-AGY untouched");
+            assert!(!is_soft_trailing_end(true, true, false, 0, 0, false, Some("done"), true, err), "killed/interrupted");
+            assert!(!is_soft_trailing_end(true, false, true, 0, 0, false, Some("done"), true, err), "usage limit");
+            assert!(!is_soft_trailing_end(true, false, false, 1, 0, false, Some("done"), true, err), "open tool");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 1, false, Some("done"), true, err), "open unfinished response");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 0, true, Some("done"), true, err), "pending steer");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 0, false, None, true, err), "no status for latest input");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 0, false, Some("working"), true, err), "status working");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 0, false, Some("blocked"), true, err), "status blocked");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 0, false, Some("done"), false, err), "no final text after tool");
         }
         // Non-transport / non-400 errors stay terminal even after done + final text.
         for other in [
@@ -1315,7 +1465,7 @@ mod tool_ceiling_tests {
             "model pin refused: wrong model",
             "INTERNAL: unexpected crash",
         ] {
-            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("done"), true, other), "must not swallow: {other}");
+            assert!(!is_soft_trailing_end(true, false, false, 0, 0, false, Some("done"), true, other), "must not swallow: {other}");
         }
     }
 }
@@ -1345,6 +1495,31 @@ mod guarded_lines_tests {
             true
         }).await;
         assert_eq!(seen, vec!["{\"ok\":1}"], "lines before the 4 MiB guard are delivered and the reader stops cleanly");
+    }
+
+    #[tokio::test]
+    async fn plain_auth_prompt_split_across_chunk_boundary_stops_immediately() {
+        let engine = Engine::for_tests("unused-agy-guarded-split".into());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let auth = RuntimeAuth {
+            engine,
+            stamp: crate::providers::agy_auth::Stamp(0),
+            login: crate::providers::agy_auth::Login::Primary,
+            job: None,
+            actor: tx,
+            process: uuid::Uuid::new_v4(),
+            rejected: CancellationToken::new(),
+        };
+        let mut data = vec![b'a'; 4090];
+        data.extend_from_slice(b"Enter the authorization code: ");
+        let mut seen = Vec::new();
+        guarded_lines(std::io::Cursor::new(data), &auth, |line| {
+            seen.push(String::from_utf8_lossy(line).into_owned());
+            true
+        }).await;
+        assert!(auth.rejected.is_cancelled(), "split auth prompt without newline must cancel auth");
+        assert!(seen.is_empty(), "prompt bytes must not reach line callback");
+        assert!(rx.try_recv().is_ok(), "refusal error must be posted to actor");
     }
 }
 

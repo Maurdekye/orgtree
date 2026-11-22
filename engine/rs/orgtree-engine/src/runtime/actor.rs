@@ -542,9 +542,22 @@ struct Turn {
     /// Antigravity: true on the first in-flight tool hang when one automatic
     /// resumed turn is queued instead of emitting a terminal stall report
     agy_hung_auto_resume: bool,
-    /// Latest `orgtree_status` value reported during this turn (`working`/`done`/`blocked`/`idle`)
+    /// Latest `orgtree_status` value reported during this turn (`working`/`done`/`blocked`/`idle`),
+    /// retained for stall-door diagnostics across the whole turn.
     status_reported: Option<(String, DateTime<Utc>)>,
-    /// Antigravity: true once non-empty final assistant text landed after the last tool call
+    /// Antigravity: timestamp of the latest delivered follow-up steer input in
+    /// this turn, used to ensure status reports from an earlier input can never
+    /// satisfy soft end-of-turn for a later delivered input.
+    agy_input_delivered_at: Option<DateTime<Utc>>,
+    /// Antigravity: latest `orgtree_status` `(status, at)` reported AFTER the
+    /// latest delivered input (original prompt or last delivered follow-up steer).
+    agy_status_for_input: Option<(String, DateTime<Utc>)>,
+    /// Antigravity: `agent_response` step indices that started (`state != "DONE"`)
+    /// and have not yet completed `DONE`.
+    agy_open_responses: std::collections::HashSet<i64>,
+    /// Antigravity: true once a completed non-empty final assistant answer landed
+    /// after the latest delivered input and after the last tool call, with no
+    /// subsequent open or empty response step.
     agy_final_text_after_tools: bool,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
@@ -699,6 +712,9 @@ impl Turn {
             agy_stuck_tool: None,
             agy_hung_auto_resume: false,
             status_reported: None,
+            agy_input_delivered_at: None,
+            agy_status_for_input: None,
+            agy_open_responses: std::collections::HashSet::new(),
             agy_final_text_after_tools: false,
             exited: false,
             session_ended: false,
@@ -711,6 +727,48 @@ impl Turn {
         }
     }
     /// Shared by the live Claude stream and deterministic stream-path tests.
+    #[nolog]
+    fn agy_on_input_delivered(&mut self, delivered_at: DateTime<Utc>) {
+        self.agy_input_delivered_at = Some(match self.agy_input_delivered_at {
+            Some(prev) => prev.max(delivered_at),
+            None => delivered_at,
+        });
+        if self.agy_status_for_input.as_ref().is_some_and(|(_, at)| *at < delivered_at) {
+            self.agy_status_for_input = None;
+        }
+        self.agy_final_text_after_tools = false;
+        self.agy_open_responses.clear();
+    }
+
+    #[nolog]
+    fn agy_on_status(&mut self, status: String, at: DateTime<Utc>) {
+        if self.agy_input_delivered_at.is_none_or(|delivered| at >= delivered) {
+            self.agy_status_for_input = Some((status.clone(), at));
+        }
+        self.status_reported = Some((status, at));
+    }
+
+    #[nolog]
+    fn agy_on_response_started(&mut self, idx: i64) {
+        self.agy_final_text_after_tools = false;
+        self.agy_open_responses.insert(idx);
+    }
+
+    #[nolog]
+    fn agy_on_response_done(&mut self, idx: i64, has_nonempty_text: bool) {
+        self.agy_open_responses.remove(&idx);
+        if has_nonempty_text {
+            self.agy_final_text_after_tools = self.agy_open_responses.is_empty() && self.agy_text.is_empty();
+        } else {
+            self.agy_final_text_after_tools = false;
+        }
+    }
+
+    #[nolog]
+    fn agy_on_tool_step(&mut self) {
+        self.agy_final_text_after_tools = false;
+    }
+
     #[nolog]
     fn observe_claude_thought(&mut self, ev: &Value, now: Instant) {
         self.claude_thinking.observe(ev, now);
@@ -1871,34 +1929,45 @@ impl Actor {
         }
         if let Some((tool_name, since, waited)) = agy_tool_hung {
             let since_iso = iso(since);
-            let prev = recovery::agy_tool_hang_prev(&self.engine, self.id).await;
-            let repeat = prev.as_ref().is_some_and(|(p, c)| p == &tool_name || *c >= 2);
-            let auto_resume = !repeat && !self.stopping;
+            let turn_id = self.turn.as_ref().map(|t| t.id).unwrap_or(0);
             let door_str = format!("stuck in tool {tool_name} since {since_iso}");
-            let why = if auto_resume {
-                format!("{door_str}: tool produced no output for {waited}s and was stopped; queuing one automatic resume")
-            } else {
-                format!("{door_str}: tool hung again after automatic resume (no output for {waited}s; stopping without a third attempt)")
-            };
-            tracing::warn!(agent = %self.name, tool = %tool_name, since = %since_iso, waited, auto_resume, "ending turn");
+            let close_reason = format!("Antigravity {door_str}");
             if let Some(t) = self.turn.as_mut() {
                 t.killed = true;
                 t.agy_stuck_tool = Some((tool_name.clone(), since, waited));
+                t.agy_hung_auto_resume = false;
+            }
+            self.close_proc_with_reason(&close_reason).await;
+            let plan = recovery::plan_agy_tool_hang_resume(
+                self.stopping,
+                || recovery::agy_tool_hang_reserve(&self.engine, self.id, turn_id, &tool_name),
+                || crate::domain::runtime_notices::agy_tool_hang_resume(
+                    &self.engine, self.org_id, self.id, turn_id, &tool_name, &since_iso, waited,
+                ),
+                || crate::domain::runtime_notices::agy_tool_hang_resume_reconcile(
+                    &self.engine, self.org_id, self.id, turn_id,
+                ),
+            ).await;
+            let auto_resume = matches!(plan, recovery::AgyHangResumePlan::Resumed);
+            if let Some(t) = self.turn.as_mut() {
                 t.agy_hung_auto_resume = auto_resume;
             }
-            let close_reason = format!("Antigravity {door_str}");
-            self.close_proc_with_reason(&close_reason).await;
-            if auto_resume {
-                let next_count = prev.map(|(_, c)| c + 1).unwrap_or(1);
-                if let Err(e) = recovery::agy_tool_hang_record(&self.engine, self.id, &tool_name, next_count).await {
-                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "hung-tool retry record could not be saved");
+            let why = match &plan {
+                recovery::AgyHangResumePlan::Resumed => {
+                    format!("{door_str}: tool produced no output for {waited}s and was stopped; queued one automatic resume")
                 }
-                if let Err(e) = crate::domain::runtime_notices::agy_tool_hang_resume(
-                    &self.engine, self.org_id, self.id, &tool_name, &since_iso, waited,
-                ).await {
-                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "hung-tool resume wake could not be sent");
+                recovery::AgyHangResumePlan::AlreadyUsed => {
+                    format!("{door_str}: tool hung again after automatic resume (no output for {waited}s; stopping without a third attempt)")
                 }
-            }
+                recovery::AgyHangResumePlan::Stopping => {
+                    format!("{door_str}: tool produced no output for {waited}s and was stopped")
+                }
+                recovery::AgyHangResumePlan::Failed(reason) => {
+                    tracing::warn!(agent = %self.name, tool = %tool_name, %reason, "hung-tool automatic resume failed; reporting stall to superior");
+                    format!("{door_str}: tool produced no output for {waited}s and was stopped; automatic resume failed ({reason})")
+                }
+            };
+            tracing::warn!(agent = %self.name, tool = %tool_name, since = %since_iso, waited, auto_resume, "ending turn");
             self.end_turn(Some(why), Value::Null).await?;
         } else if let Some(why) = expired {
             let agy_active = self.turn.as_ref()
@@ -2102,7 +2171,7 @@ impl Actor {
             }
             AgentMsg::StateNote(at, status) => {
                 if let (Some(t), Some(st)) = (self.turn.as_mut(), status) {
-                    t.status_reported = Some((st, at));
+                    t.agy_on_status(st, at);
                 }
                 self.note_state(Some(at)).await;
             }
@@ -5028,9 +5097,18 @@ impl Actor {
             return Ok(false);
         }
         let _ = std::fs::remove_file(&receipt);
+        let delivered_at = emitted
+            .as_ref()
+            .and_then(|v| v["at"].as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
         let Some(turn_id) = self.turn.as_ref().map(|t| t.id) else { return Ok(false) };
         let Some((_, ids, raw, tokens)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
-        if let Some(t) = self.turn.as_mut() { t.activity = true; }
+        if let Some(t) = self.turn.as_mut() {
+            t.activity = true;
+            t.agy_on_input_delivered(delivered_at);
+        }
         let client = self.engine.db.get().await?;
         let mut row = mail_row(&raw, Some("Delivered into the running turn."));
         row["tokens"] = tokens;
@@ -7026,7 +7104,9 @@ impl Actor {
                     if let Some(t)=self.turn.as_mut() {
                         t.draft.clear();
                         t.draft_order=None;
-                        t.agy_final_text_after_tools = true;
+                        if error.is_none() {
+                            t.agy_final_text_after_tools = t.agy_open_responses.is_empty() && t.agy_text.is_empty();
+                        }
                     }
                     self.text_landed().await;
                 }
@@ -7065,6 +7145,11 @@ impl Actor {
         }
         match kind {
             "agent_response" => {
+                if state != "DONE" {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.agy_on_response_started(idx);
+                    }
+                }
                 if let Some(d) = step["text_delta"].as_str().filter(|d| !d.is_empty()) {
                     if let Some(t) = self.turn.as_mut() {
                         t.draft_key=step["conversation_id"].as_str().filter(|s|!s.is_empty() && idx>=0).map(|session|super::incomplete_response::key("agy",&format!("{session}:{idx}")));
@@ -7118,7 +7203,12 @@ impl Actor {
                     drop(client);
                     if let Some(t)=self.turn.as_mut() { t.agy_response_seen|=response_seen; }
                     let Some(saved)=saved else {
-                        if let Some(t)=self.turn.as_mut() { t.agy_text.remove(index); t.draft.clear(); t.draft_order=None; }
+                        if let Some(t)=self.turn.as_mut() {
+                            t.agy_open_responses.remove(index);
+                            t.agy_text.remove(index);
+                            t.draft.clear();
+                            t.draft_order=None;
+                        }
                         return Ok(());
                     };
                     if let Some(t)=self.turn.as_mut() {
@@ -7162,13 +7252,15 @@ impl Actor {
                     if let Some(output)=u["output_tokens"].as_u64() {token_counts::calibrate(Harness::Agy,text.clone(),output).await;}
                 }
                 if completed.is_some() {
-                    if !text.trim().is_empty() {
-                        if let Some(t) = self.turn.as_mut() { t.agy_final_text_after_tools = true; }
+                    let nonempty = !text.trim().is_empty();
+                    if let Some(t) = self.turn.as_mut() { t.agy_on_response_done(idx, nonempty); }
+                    if nonempty {
                         self.text_landed().await;
                     }
                     return Ok(());
                 }
                 if text.trim().is_empty() {
+                    if let Some(t) = self.turn.as_mut() { t.agy_on_response_done(idx, false); }
                     return Ok(());
                 }
                 let key = format!("agy-resp-{idx}");
@@ -7179,19 +7271,35 @@ impl Actor {
                 if let Some(t) = self.turn.as_mut() {
                     t.rows.insert(key.clone(), (seq, row));
                     t.codex_row = Some(key);
-                    t.agy_final_text_after_tools = true;
+                    t.agy_on_response_done(idx, true);
                 }
                 self.text_landed().await;
             }
             "tool" => {
                 if let Some(t) = self.turn.as_mut() {
-                    t.agy_final_text_after_tools = false;
+                    t.agy_on_tool_step();
                 }
                 let id = format!("agy-step-{idx}");
-                let raw_name = step["tool_name"].as_str().unwrap_or("tool");
                 let info = &step["tool_info"];
                 let raw_params = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
-                let (name, input) = convo::unwrap_tool_call(raw_name, &raw_params);
+                let prev_name: Option<String> = self.turn.as_ref().and_then(|t| {
+                    t.agy_active_tools
+                        .iter()
+                        .find(|a| a.id == id)
+                        .map(|a| a.name.clone())
+                        .or_else(|| {
+                            let key = t.tools.get(&id)?;
+                            let (_, row) = t.rows.get(key)?;
+                            row["tools"]
+                                .as_array()?
+                                .iter()
+                                .find(|c| c["id"].as_str() == Some(id.as_str()))
+                                .and_then(|c| c["name"].as_str())
+                                .map(str::to_string)
+                        })
+                });
+                let (name, input) = agyrt::resolve_agy_tool_call(step["tool_name"].as_str(), &raw_params, prev_name.as_deref());
+                let raw_name_for_mail = step["tool_name"].as_str().unwrap_or(&name);
                 let retained_read=state=="DONE" && token_counts::is_file_read(&name);
                 // A completed tool whose stream carried no output text is counted from its exact
                 // native step (any tool, not one row kind); a file read always is, never a summary.
@@ -7238,10 +7346,32 @@ impl Actor {
                     self.stream("tool", json!({ "id": id }));
                 }
                 if known && !tool_done {
-                    if let Some(t) = self.turn.as_mut() {
-                        if let Some(active) = t.agy_active_tools.iter_mut().find(|a| a.id == id) {
-                            active.name = agyrt::display_tool_name(&name).to_string();
+                    let renamed_chip = {
+                        if let Some(t) = self.turn.as_mut() {
+                            if let Some(active) = t.agy_active_tools.iter_mut().find(|a| a.id == id) {
+                                active.name = agyrt::display_tool_name(&name).to_string();
+                            }
+                            if name != agyrt::UNNAMED_TOOL {
+                                t.tools.get(&id).cloned().and_then(|key| {
+                                    let (seq, row) = t.rows.get_mut(&key)?;
+                                    let chip = row["tools"].as_array_mut()?.iter_mut().find(|c| c["id"].as_str() == Some(id.as_str()))?;
+                                    if chip["name"].as_str() == Some(agyrt::UNNAMED_TOOL) {
+                                        chip["name"] = json!(name);
+                                        Some((*seq, row.clone()))
+                                    } else {
+                                        None
+                                    }
+                                })
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
                         }
+                    };
+                    if let Some((seq, row)) = renamed_chip {
+                        self.convo.update(&client, seq, row).await?;
+                        self.stream("tool", json!({ "id": id }));
                     }
                     self.update_active_input(&client, &id, &name, &input).await?;
                 }
@@ -7267,7 +7397,7 @@ impl Actor {
                         }
                         let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
                         let base_tool = name.rsplit("__").next().unwrap_or(&name);
-                        if state=="DONE" { super::manual_mail::bind_fallback(&t.cards,&mut t.manual_reads,&[&id],raw_name,&raw_params,&result); }
+                        if state=="DONE" { super::manual_mail::bind_fallback(&t.cards,&mut t.manual_reads,&[&id],raw_name_for_mail,&raw_params,&result); }
                         let card = convo::take_matching_tool_card(&mut t.cards, &[&id], base_tool, &input, &result, state == "DONE");
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                         let (clipped, truncated) = convo::clip(&result, 4000);
@@ -7277,6 +7407,8 @@ impl Actor {
                                     chip["name"] = json!(name);
                                     chip["arg"] = json!(convo::tool_arg(&name, &input));
                                     chip["input"] = input.clone();
+                                } else if chip["name"].as_str() == Some(agyrt::UNNAMED_TOOL) && name != agyrt::UNNAMED_TOOL {
+                                    chip["name"] = json!(name);
                                 }
                                 chip["result"] = json!(clipped);
                                 token_counts::apply(chip,output_tokens.as_ref());
@@ -8870,9 +9002,10 @@ impl Actor {
             error = None;
         }
         // Antigravity: a trailing transport/stream error or post-final
-        // INVALID_ARGUMENT (400) after the turn already finished cleanly
-        // (`orgtree_status` done/idle + final text after last tool + zero open
-        // tools + no pending steer) is a soft end-of-turn, not a stall or retry.
+        // INVALID_ARGUMENT (400) after the latest delivered input already
+        // finished cleanly (fresh `orgtree_status` done/idle after that input +
+        // completed final answer after last tool with zero open responses +
+        // zero open tools + no pending steer) is a soft end-of-turn.
         let mut soft_trailing_err: Option<String> = None;
         if let Some(e) = error.as_deref() {
             let is_auth_or_ctx = prompt::input_length_refusal(e)
@@ -8883,8 +9016,9 @@ impl Actor {
                 turn.killed || turn.interrupted || turn.session_ended,
                 limit.is_some(),
                 turn.agy_active_tools.len(),
+                turn.agy_open_responses.len() + turn.agy_text.len(),
                 agy_steer_unconsumed || turn.agy_steer.is_some(),
-                turn.status_reported.as_ref().map(|(s, _)| s.as_str()),
+                turn.agy_status_for_input.as_ref().map(|(s, _)| s.as_str()),
                 turn.agy_final_text_after_tools,
                 e,
             ) {
@@ -8892,7 +9026,7 @@ impl Actor {
                     agent = %self.name,
                     turn = turn.id,
                     error = %e,
-                    status = ?turn.status_reported.as_ref().map(|(s, _)| s.as_str()),
+                    status = ?turn.agy_status_for_input.as_ref().map(|(s, _)| s.as_str()),
                     "Antigravity trailing error after completed turn classified as soft end-of-turn"
                 );
                 soft_trailing_err = error.take();
@@ -8915,7 +9049,9 @@ impl Actor {
             let class = if prompt::input_length_refusal(e) { None } else if let Some(r) = rate.clone() { Some(recovery::Class::Rate(r)) } else { match turn.muse_error.as_ref().filter(|_| muse) {
                 Some((kind, _)) if kind == "authRequired" => Some(recovery::Class::Auth),
                 Some((kind, true)) => Some(recovery::Class::Net(format!("Muse reported a retryable {kind} failure"))),
-                _ => recovery::classify(e, &res, openrouter || langserver, died),
+                _ => recovery::classify(e, &res, openrouter || langserver, died)
+                    .or_else(|| (agy && agyrt::looks_like_agy_connection_failure(e))
+                        .then(|| recovery::Class::Net("network interruption".into()))),
             } };
             match class {
                 Some(recovery::Class::Net(kind)) => {
@@ -11062,5 +11198,81 @@ mod acp_thinking_tests {
         let second = t.take_acp_thought().expect("second thought block");
         assert_ne!(second.0, "msg_kimi_thought_1");
         assert_eq!(second.1, "Second thought block after tool call");
+    }
+}
+
+#[cfg(test)]
+mod agy_soft_end_tests {
+    use super::*;
+
+    fn soft_allowed(t: &Turn, err: &str) -> bool {
+        agyrt::is_soft_trailing_end(
+            true,
+            t.killed || t.interrupted || t.session_ended,
+            false,
+            t.agy_active_tools.len(),
+            t.agy_open_responses.len() + t.agy_text.len(),
+            t.agy_steer.is_some(),
+            t.agy_status_for_input.as_ref().map(|(s, _)| s.as_str()),
+            t.agy_final_text_after_tools,
+            err,
+        )
+    }
+
+    #[test]
+    fn soft_end_requires_completed_latest_answer_and_fresh_status_after_steer() {
+        let reject = "API error: INVALID_ARGUMENT (code 400): request rejected";
+        let t0 = Utc::now();
+        let t1 = t0 + chrono::Duration::seconds(5);
+        let t2 = t0 + chrono::Duration::seconds(10);
+
+        // Positive finished control: done -> completed final answer -> trailing 400 -> soft-end allowed.
+        let mut t = Turn::new(1, false);
+        t.agy_on_status("done".into(), t0);
+        t.agy_on_response_started(2);
+        t.agy_text.insert(2, "First request complete.".into());
+        assert!(!soft_allowed(&t, reject), "in-flight response must not soft-end");
+        t.agy_text.remove(&2);
+        t.agy_on_response_done(2, true);
+        assert!(soft_allowed(&t, reject), "finished control must soft-end");
+
+        // Reviewer case 1: an interrupted later answer after an earlier completed one must NOT soft-end.
+        let mut partial = Turn::new(2, false);
+        partial.agy_on_status("done".into(), t0);
+        partial.agy_on_response_started(2);
+        partial.agy_on_response_done(2, true);
+        assert!(soft_allowed(&partial, reject));
+        partial.agy_on_response_started(18);
+        partial.agy_text.insert(18, "An unfinished second answer begins.".into());
+        assert!(!soft_allowed(&partial, reject), "interrupted second answer must go down stall path");
+
+        // Reviewer case 2: a delivered follow-up steer clears prior completion and status.
+        let mut steered = Turn::new(3, false);
+        steered.agy_on_status("done".into(), t0);
+        steered.agy_on_response_started(2);
+        steered.agy_on_response_done(2, true);
+        assert!(soft_allowed(&steered, reject));
+        steered.agy_on_input_delivered(t1);
+        assert!(!soft_allowed(&steered, reject), "unanswered follow-up must NOT soft-end");
+        assert!(steered.status_reported.is_some(), "diagnostic last status stays available for stall door");
+        // A late-arriving StateNote timestamped BEFORE the steer must not satisfy the new input.
+        steered.agy_on_status("done".into(), t0);
+        steered.agy_on_response_started(7);
+        steered.agy_on_response_done(7, true);
+        assert!(!soft_allowed(&steered, reject), "status report must come AFTER the latest delivered input");
+        // Once fresh status (at >= delivered_at) AND completed final answer arrive, soft-end is allowed again.
+        steered.agy_on_status("done".into(), t2);
+        steered.agy_on_tool_step();
+        steered.agy_on_response_started(9);
+        steered.agy_on_response_done(9, true);
+        assert!(soft_allowed(&steered, reject), "fresh status + completed final answer after steer allows soft-end");
+
+        // Race case: a fresh post-steer status arriving just before commit_agy_steer is preserved.
+        let mut racy = Turn::new(4, false);
+        racy.agy_on_status("done".into(), t2);
+        racy.agy_on_input_delivered(t1);
+        racy.agy_on_response_started(11);
+        racy.agy_on_response_done(11, true);
+        assert!(soft_allowed(&racy, reject), "status timestamped after steer delivery survives commit_agy_steer");
     }
 }

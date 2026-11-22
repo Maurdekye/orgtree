@@ -35,16 +35,63 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
     Ok(())
 }
 
+/// Deterministic `client_op` for an Antigravity hung-tool automatic resume wake,
+/// used to reconcile uncertain send results against `ot.mail`.
+#[nolog]
+pub fn agy_tool_hang_resume_client_op(agent_id: i64, turn_id: i64) -> String {
+    format!("agy-tool-hang-resume:{agent_id}:{turn_id}")
+}
+
 /// An Antigravity turn hit the in-flight tool ceiling and was stopped cleanly:
 /// queue one fresh turn naming the hung tool so the seat can check state and
 /// retry or continue without looping.
 #[logged]
-pub async fn agy_tool_hang_resume(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tool: &str, since_iso: &str, waited_s: u64) -> Result<()> {
+pub async fn agy_tool_hang_resume(
+    engine: &Arc<Engine>,
+    org_id: i64,
+    agent_id: i64,
+    turn_id: i64,
+    tool: &str,
+    since_iso: &str,
+    waited_s: u64,
+) -> Result<String> {
+    let client = engine.db.get().await?;
+    let name: String = client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&agent_id]).await?.get(0);
+    drop(client);
     let text = format!(
         "Your previous turn was stopped because tool `{tool}` hung (stuck in tool {tool} since {since_iso}; no output for {waited_s}s) and the Antigravity process was shut down.\n\n\
-         Whatever ran before `{tool}` was not undone, and `{tool}` itself may or may not have completed on disk or in Orgtree before hanging. Check the actual state before retrying, then retry or continue where you left off. If `{tool}` hangs again on this turn, Orgtree will stop and report instead of retrying a third time."
+         Whatever ran before `{tool}` was not undone, and `{tool}` itself may or may not have completed on disk or in Orgtree before hanging. Check the actual state before retrying, then retry or continue where you left off. If any bounded tool hangs again on this resumed turn, Orgtree will stop and report instead of starting a third turn."
     );
-    mail::system_event(engine, org_id, agent_id, &text, false, None).await
+    let mut out = Outgoing::new(From::System, &name, &text);
+    out.kind = "system".into();
+    out.notice = false;
+    out.client_op = Some(agy_tool_hang_resume_client_op(agent_id, turn_id));
+    Ok(mail::send(engine, org_id, out).await?.uid)
+}
+
+/// Reconcile an uncertain `agy_tool_hang_resume` failure: if the wake mail
+/// actually committed in `ot.mail`, ensure the agent is woken and return `Ok(true)`.
+#[logged]
+pub async fn agy_tool_hang_resume_reconcile(
+    engine: &Arc<Engine>,
+    org_id: i64,
+    agent_id: i64,
+    turn_id: i64,
+) -> Result<bool> {
+    let op = agy_tool_hang_resume_client_op(agent_id, turn_id);
+    let client = engine.db.get().await?;
+    let found = client
+        .query_opt(
+            "SELECT uid FROM ot.mail WHERE org_id = $1 AND recipient_agent_id = $2 AND client_op = $3 LIMIT 1",
+            &[&org_id, &agent_id, &op],
+        )
+        .await?
+        .is_some();
+    drop(client);
+    if found {
+        crate::runtime::wake(engine, org_id, agent_id);
+    }
+    Ok(found)
 }
 
 /// A turn that failed before its provider ran (3.x `_turn_abandoned` from the

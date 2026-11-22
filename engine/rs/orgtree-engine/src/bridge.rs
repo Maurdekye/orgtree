@@ -412,13 +412,48 @@ where
                 } else if msg["method"].as_str() == Some("tools/call") {
                     if let Some(limit) = tool_timeout {
                         let started = std::time::Instant::now();
-                        match tokio::time::timeout(limit, handle_mcp(engine, caller.clone(), msg.clone(), shape)).await {
-                            Ok(resp) => resp,
+                        let tool = msg.pointer("/params/name").and_then(Value::as_str).unwrap_or("unknown").to_string();
+                        let caller_name = caller.name.clone();
+                        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+                        let msg_bg = msg.clone();
+                        let tool_bg = tool.clone();
+                        let caller_bg = caller_name.clone();
+                        let call_span = tracing::Span::current();
+                        tokio::spawn(tracing::Instrument::instrument(
+                            async move {
+                                let resp = handle_mcp(engine, caller, msg_bg, shape).await;
+                                if done_tx.send(resp).is_err() {
+                                    tracing::info!(
+                                        agent = %caller_bg,
+                                        tool = %tool_bg,
+                                        elapsed_ms = started.elapsed().as_millis() as u64,
+                                        "detached timed-out Antigravity MCP tool call finished in background"
+                                    );
+                                }
+                            },
+                            call_span,
+                        ));
+                        match tokio::time::timeout(limit, done_rx).await {
+                            Ok(Ok(resp)) => resp,
+                            Ok(Err(_)) => {
+                                tracing::warn!(agent = %caller_name, tool = %tool,
+                                    "Antigravity MCP tool handler exited without replying");
+                                json!({
+                                    "jsonrpc": "2.0",
+                                    "id": msg["id"],
+                                    "result": crate::tools::result_timing::finish(
+                                        json!({
+                                            "content": [{ "type": "text", "text": format!("{tool} failed inside the engine before replying") }],
+                                            "isError": true
+                                        }),
+                                        started.elapsed(),
+                                    )
+                                })
+                            }
                             Err(_) => {
-                                let tool = msg.pointer("/params/name").and_then(Value::as_str).unwrap_or("unknown");
-                                tracing::warn!(agent = %caller.name, tool, timeout_ms = limit.as_millis() as u64,
-                                    "Antigravity MCP tool call timed out");
-                                timeout_tool_response(&msg["id"], tool, limit, started.elapsed())
+                                tracing::warn!(agent = %caller_name, tool = %tool, timeout_ms = limit.as_millis() as u64,
+                                    "Antigravity MCP tool call timed out; handler detached to finish in background");
+                                timeout_tool_response(&msg["id"], &tool, limit, started.elapsed())
                             }
                         }
                     } else {
@@ -472,7 +507,7 @@ pub fn steer(args: &[String]) -> ExitCode {
     println!("{out}");
     let _ = std::io::stdout().flush();
     let tmp = dir.join("emitted.tmp");
-    if std::fs::write(&tmp, json!({ "id": id }).to_string()).is_ok() {
+    if std::fs::write(&tmp, json!({ "id": id, "at": crate::util::now_iso() }).to_string()).is_ok() {
         let _ = std::fs::rename(&tmp, dir.join("emitted.json"));
     }
     let _ = std::fs::remove_file(&claimed);
@@ -648,7 +683,7 @@ mod tests {
             |_e, _c, msg, _s| async move {
                 let tool = msg.pointer("/params/name").and_then(Value::as_str).unwrap_or("");
                 if tool == "orgtree_work" {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    tokio::time::sleep(Duration::from_millis(250)).await;
                 }
                 json!({ "jsonrpc": "2.0", "id": msg["id"], "result": { "content": [{ "type": "text", "text": "fast ok" }] } })
             },
@@ -681,6 +716,67 @@ mod tests {
 
         to_srv.shutdown().await.unwrap();
         cancel.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+    }
+
+    /// On Antigravity MCP timeout, the slow handler is DETACHED rather than
+    /// dropped/cancelled so a committed `orgtree_message` still finishes its
+    /// post-commit bookkeeping and wakes its recipient, while the caller still
+    /// receives the check-before-retry timeout error.
+    #[tokio::test]
+    async fn agy_mcp_timeout_detaches_slow_handler_so_committed_mail_wakes_recipient() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let committed = Arc::new(AtomicBool::new(false));
+        let woken = Arc::new(AtomicBool::new(false));
+        let wake_done = Arc::new(tokio::sync::Notify::new());
+        let cancel = CancellationToken::new();
+        let (cli, srv) = tokio::io::duplex(1 << 20);
+        let engine = Engine::for_tests("unused-bridge-detach".into());
+        let (c_flag, w_flag, w_notify) = (committed.clone(), woken.clone(), wake_done.clone());
+        let task = tokio::spawn(connection_with(
+            engine,
+            caller(),
+            srv,
+            cancel.clone(),
+            None,
+            MailShape::Flat,
+            Some(Duration::from_millis(80)),
+            move |_e, _c, msg, _s| {
+                let (c_flag, w_flag, w_notify) = (c_flag.clone(), w_flag.clone(), w_notify.clone());
+                async move {
+                    // Simulate mail commit before timeout, then slow post-commit wake past deadline.
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    c_flag.store(true, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(160)).await;
+                    w_flag.store(true, Ordering::SeqCst);
+                    w_notify.notify_waiters();
+                    json!({ "jsonrpc": "2.0", "id": msg["id"], "result": { "content": [{ "type": "text", "text": "sent" }] } })
+                }
+            },
+        ));
+        let (from_srv, mut to_srv) = tokio::io::split(cli);
+        let mut lines = BufReader::new(from_srv).lines();
+
+        let timed_out = ask(&mut to_srv, &mut lines, json!({
+            "jsonrpc": "2.0", "id": 31, "method": "tools/call",
+            "params": { "name": "orgtree_message", "arguments": { "to": "bob", "body": "hello" } }
+        })).await;
+        assert_eq!(timed_out["id"], 31);
+        assert_eq!(timed_out["result"]["isError"], true, "{timed_out}");
+        let msg_text = timed_out["result"]["content"][0]["text"].as_str().unwrap_or("");
+        assert!(msg_text.contains("orgtree_message") && msg_text.contains("timed out") && msg_text.contains("may still have taken effect"), "{msg_text}");
+        assert!(committed.load(Ordering::SeqCst), "mail already committed before the timeout fired");
+
+        // Even if the client closes its bridge connection right after timeout,
+        // the detached handler finishes in the background and wakes its recipient.
+        to_srv.shutdown().await.unwrap();
+        cancel.cancel();
+        if !woken.load(Ordering::SeqCst) {
+            tokio::time::timeout(Duration::from_secs(2), wake_done.notified())
+                .await
+                .expect("detached handler must complete and wake recipient after timeout");
+        }
+        assert!(woken.load(Ordering::SeqCst), "recipient must be woken by detached handler");
         let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
     }
 

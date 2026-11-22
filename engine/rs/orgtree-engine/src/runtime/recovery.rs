@@ -72,9 +72,6 @@ pub fn looks_like_connection_failure(blob: &str) -> bool {
         "econnrefused", "econnreset", "etimedout", "econnaborted", "enetunreach", "ehostunreach", "enotfound",
         "eai_again", "socket hang up", "fetch failed", "network error", "networkerror", "connection refused",
         "connection reset", "connection error", "getaddrinfo", "dns lookup failed",
-        // Go / Windows Antigravity CLI transport & stream errors
-        "dial tcp", "no such host", "wsasend", "wsarecv", "forcibly closed by the remote host",
-        "the stream was interrupted",
     ]
     .iter()
     .any(|p| b.contains(p))
@@ -226,17 +223,28 @@ mod connection_failure_tests {
     use super::*;
 
     #[test]
-    fn go_windows_and_stream_transport_errors_classify_as_net() {
+    fn shared_connection_matcher_keeps_base_patterns_and_excludes_agy_only_errors() {
         for err in [
-            r#"Post "https://daily-cloudcode-pa.googleapis.com": dial tcp: lookup daily-cloudcode-pa.googleapis.com: no such host"#,
-            "wsasend: An existing connection was forcibly closed by the remote host.",
-            "read tcp 127.0.0.1:443: wsarecv: connection reset by peer",
-            "The stream was interrupted. Please continue the task you were working on.",
+            "connection reset",
             "fetch failed: ECONNRESET",
             "getaddrinfo ENOTFOUND api.example.invalid",
         ] {
-            assert!(looks_like_connection_failure(err), "must match: {err}");
+            assert!(looks_like_connection_failure(err), "must match shared base pattern: {err}");
             assert!(matches!(classify(err, &Value::Null, false, false), Some(Class::Net(_))), "must classify Net: {err}");
+        }
+        // Antigravity-only Go / Windows / stream strings must NOT match the
+        // shared matcher so Claude and Codex stay byte-identical to 4.6.8.
+        for agy_only in [
+            "The stream was interrupted.",
+            "The stream was interrupted. Please continue the task you were working on.",
+            r#"Post "https://daily-cloudcode-pa.googleapis.com": dial tcp: lookup daily-cloudcode-pa.googleapis.com: no such host"#,
+            "dial tcp: no such host",
+            "wsasend: call failed",
+            "wsasend: An existing connection was forcibly closed by the remote host.",
+            "wsarecv: An existing connection was forcibly closed by the remote host.",
+        ] {
+            assert!(!looks_like_connection_failure(agy_only), "shared matcher must reject AGY-only string: {agy_only}");
+            assert_eq!(classify(agy_only, &Value::Null, false, false), None, "shared classify must reject AGY-only string: {agy_only}");
         }
     }
 
@@ -258,6 +266,95 @@ mod connection_failure_tests {
             classify("401 Unauthorized: invalid_api_key", &json!({"api_error_status": 401}), false, false),
             Some(Class::Auth)
         );
+    }
+}
+
+#[cfg(test)]
+mod agy_tool_hang_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn first_hang_reserves_and_wakes_and_second_hang_stops_regardless_of_tool() {
+        let wake_called = AtomicBool::new(false);
+        let first = plan_agy_tool_hang_resume(
+            false,
+            || async { Ok(AgyToolHangReserve::Reserved) },
+            || async {
+                wake_called.store(true, Ordering::SeqCst);
+                Ok("m-resume-1".into())
+            },
+            || async { Ok(false) },
+        ).await;
+        assert_eq!(first, AgyHangResumePlan::Resumed);
+        assert!(wake_called.load(Ordering::SeqCst));
+
+        // Second hang on a different tool sees AlreadyUsed -> no wake, no 3rd turn.
+        let wake_called_2 = AtomicBool::new(false);
+        let second = plan_agy_tool_hang_resume(
+            false,
+            || async { Ok(AgyToolHangReserve::AlreadyUsed) },
+            || async {
+                wake_called_2.store(true, Ordering::SeqCst);
+                Ok("m-resume-2".into())
+            },
+            || async { Ok(false) },
+        ).await;
+        assert_eq!(second, AgyHangResumePlan::AlreadyUsed);
+        assert!(!wake_called_2.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn injected_write_failures_fail_toward_telling_the_boss() {
+        // Retry record write failure: never calls wake, returns Failed (stall NOT suppressed).
+        let wake_called = AtomicBool::new(false);
+        let rec_fail = plan_agy_tool_hang_resume(
+            false,
+            || async { Err(anyhow::anyhow!("injected retry record write failure")) },
+            || async {
+                wake_called.store(true, Ordering::SeqCst);
+                Ok("m-unused".into())
+            },
+            || async { Ok(false) },
+        ).await;
+        assert!(matches!(rec_fail, AgyHangResumePlan::Failed(ref s) if s.contains("retry record write failed")), "{rec_fail:?}");
+        assert!(!wake_called.load(Ordering::SeqCst));
+
+        // Wake write failure with reconcile finding no committed mail -> Failed (stall NOT suppressed).
+        let wake_fail = plan_agy_tool_hang_resume(
+            false,
+            || async { Ok(AgyToolHangReserve::Reserved) },
+            || async { Err(anyhow::anyhow!("injected wake write failure")) },
+            || async { Ok(false) },
+        ).await;
+        assert!(matches!(wake_fail, AgyHangResumePlan::Failed(ref s) if s.contains("resume wake failed")), "{wake_fail:?}");
+
+        // Uncertain wake error where reconciliation finds the committed wake -> Resumed.
+        let reconciled = plan_agy_tool_hang_resume(
+            false,
+            || async { Ok(AgyToolHangReserve::Reserved) },
+            || async { Err(anyhow::anyhow!("transient error after commit")) },
+            || async { Ok(true) },
+        ).await;
+        assert_eq!(reconciled, AgyHangResumePlan::Resumed);
+
+        // Wake error + reconcile error -> Failed (fail toward telling the boss).
+        let both_fail = plan_agy_tool_hang_resume(
+            false,
+            || async { Ok(AgyToolHangReserve::Reserved) },
+            || async { Err(anyhow::anyhow!("wake err")) },
+            || async { Err(anyhow::anyhow!("reconcile err")) },
+        ).await;
+        assert!(matches!(both_fail, AgyHangResumePlan::Failed(ref s) if s.contains("reconciliation failed")), "{both_fail:?}");
+
+        // Stopping seat never reserves or wakes.
+        let stopping = plan_agy_tool_hang_resume(
+            true,
+            || async { panic!("reserve must not run when stopping") },
+            || async { panic!("wake must not run when stopping") },
+            || async { Ok(false) },
+        ).await;
+        assert_eq!(stopping, AgyHangResumePlan::Stopping);
     }
 }
 
@@ -308,37 +405,99 @@ pub async fn bump(engine: &Engine, agent_id: i64, key: &str) -> Result<i64> {
 pub async fn forget_hard_fail(engine: &Engine, agent_id: i64) -> Result<()> {
     let client = engine.db.get().await?;
     client.execute(
-        "UPDATE ot.agents SET extra = extra - 'hard_fail_run' - 'agy_tool_hang_retry'
-          WHERE id = $1 AND (extra ? 'hard_fail_run' OR extra ? 'agy_tool_hang_retry')",
+        "UPDATE ot.agents SET extra = extra - 'hard_fail_run' WHERE id = $1 AND extra ? 'hard_fail_run'",
         &[&agent_id],
     ).await?;
     Ok(())
 }
 
-/// Previous Antigravity in-flight tool-hang auto-resume record `(tool, count)`.
-#[logged]
-pub async fn agy_tool_hang_prev(engine: &Engine, agent_id: i64) -> Option<(String, i64)> {
-    let client = engine.db.get().await.ok()?;
-    let row = client
-        .query_opt("SELECT extra->'agy_tool_hang_retry' FROM ot.agents WHERE id = $1", &[&agent_id])
-        .await
-        .ok()??;
-    let rec: Value = row.get::<_, Option<Value>>(0)?;
-    let tool = rec["tool"].as_str()?.to_string();
-    let count = rec["count"].as_i64().unwrap_or(1);
-    Some((tool, count))
+/// Outcome of atomically reserving the single automatic resume for an
+/// Antigravity in-flight tool-hang episode (at most one resume per original
+/// turn, regardless of which tool hangs next).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgyToolHangReserve {
+    Reserved,
+    AlreadyUsed,
 }
 
-/// Record that an Antigravity turn was auto-resumed after a hung tool call, so
-/// a repeat hang on the same tool stops and reports instead of looping.
+/// Atomically reserve the single automatic resume for an Antigravity tool hang
+/// episode. Fails closed (`Err`) on DB error so read/write faults never look
+/// like a fresh episode or grant extra retries.
 #[logged]
-pub async fn agy_tool_hang_record(engine: &Engine, agent_id: i64, tool: &str, count: i64) -> Result<()> {
+pub async fn agy_tool_hang_reserve(
+    engine: &Engine,
+    agent_id: i64,
+    turn_id: i64,
+    tool: &str,
+) -> Result<AgyToolHangReserve> {
     let client = engine.db.get().await?;
-    let rec = json!({ "tool": tool, "count": count, "at": now_iso() });
-    client
-        .execute("UPDATE ot.agents SET extra = jsonb_set(extra, '{agy_tool_hang_retry}', $2) WHERE id = $1", &[&agent_id, &rec])
+    let rec = json!({ "tool": tool, "count": 1, "turn_id": turn_id, "at": now_iso() });
+    let updated = client
+        .execute(
+            "UPDATE ot.agents
+                SET extra = jsonb_set(extra, '{agy_tool_hang_retry}', $2)
+              WHERE id = $1
+                AND NOT (extra ? 'agy_tool_hang_retry')",
+            &[&agent_id, &rec],
+        )
         .await?;
-    Ok(())
+    if updated > 0 {
+        Ok(AgyToolHangReserve::Reserved)
+    } else {
+        Ok(AgyToolHangReserve::AlreadyUsed)
+    }
+}
+
+/// Outcome of deciding and durably staging an Antigravity hung-tool auto-resume.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgyHangResumePlan {
+    /// Retry allowance durably reserved AND wake mail durably committed (or reconciled).
+    Resumed,
+    /// Episode already used its single automatic resume (same or different tool).
+    AlreadyUsed,
+    /// Seat is stopping; do not queue a resume.
+    Stopping,
+    /// Reserving the retry record or queueing the wake failed: MUST NOT suppress
+    /// the stall notice (fail toward telling the superior).
+    Failed(String),
+}
+
+/// Durably reserve the one automatic resume per episode and queue its wake,
+/// reconciling uncertain wake failures against `ot.mail`. Only `Resumed` may
+/// suppress the supervisor stall notice.
+#[nolog]
+pub async fn plan_agy_tool_hang_resume<R, RFut, W, WFut, C, CFut>(
+    stopping: bool,
+    reserve: R,
+    wake: W,
+    reconcile: C,
+) -> AgyHangResumePlan
+where
+    R: FnOnce() -> RFut,
+    RFut: std::future::Future<Output = Result<AgyToolHangReserve>>,
+    W: FnOnce() -> WFut,
+    WFut: std::future::Future<Output = Result<String>>,
+    C: FnOnce() -> CFut,
+    CFut: std::future::Future<Output = Result<bool>>,
+{
+    if stopping {
+        return AgyHangResumePlan::Stopping;
+    }
+    match reserve().await {
+        Ok(AgyToolHangReserve::AlreadyUsed) => return AgyHangResumePlan::AlreadyUsed,
+        Ok(AgyToolHangReserve::Reserved) => {}
+        Err(e) => return AgyHangResumePlan::Failed(format!("retry record write failed: {e:#}")),
+    }
+    match wake().await {
+        Ok(_) => AgyHangResumePlan::Resumed,
+        Err(wake_err) => match reconcile().await {
+            Ok(true) => AgyHangResumePlan::Resumed,
+            Ok(false) => AgyHangResumePlan::Failed(format!("resume wake failed: {wake_err:#}")),
+            Err(rec_err) => AgyHangResumePlan::Failed(format!(
+                "resume wake failed ({wake_err:#}) and reconciliation failed ({rec_err:#})"
+            )),
+        },
+    }
 }
 
 /// A turn completed: every failure run of this agent is over, and so is its
