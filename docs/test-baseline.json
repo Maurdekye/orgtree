@@ -1,21 +1,21 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-11-21T22:29:16.060Z",
+  "recorded_at": "2026-11-22T22:37:30.999Z",
   "recorded_by": "rig-sol-b",
   "max_age_days": 7,
-  "commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
-  "commit_subject": "docs: 4.6.8 release notes",
-  "commit_at": "2026-11-21T19:46:17+02:00",
-  "branch": "rig-sol-b/release-468-4e63b4b",
+  "commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
+  "commit_subject": "docs: 4.6.9 release notes",
+  "commit_at": "2026-11-22T21:31:49+02:00",
+  "branch": "rig-sol-b/release-469-bc6e6a9",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
-    "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
-    "engine": "ca75c0359bb9b2856de8128533c20376658c65fe",
-    "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
-    "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-    "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-    "package.json": "f652221d5c356d2962204e20286b4f8e2295c3f8"
+    "tests": "45d55d97ec3bfaa9c105fde66a018865b34c7f1b",
+    "engine": "1fedf923e279a6dbf773b078fd54a2d376c46d60",
+    "apps": "6b68505e1ff0c79f2b58e063d8ecdcb9f0190552",
+    "packages": "4f8a637de4497bfe0c5df0f767320188a10f1003",
+    "tools": "3e19f734bf1362cccb26e86b8d16dded1ef7307f",
+    "package.json": "0258fc8ef787fd97eded49510b48ccfb1758bb85"
   },
   "machine": {
     "host": "Pendragon",
@@ -26,9 +26,9 @@
     "concurrency": 2,
     "suite_concurrency": {
       "node-root": 1,
-      "renderer": 4
+      "renderer": 2
     },
-    "concurrency_scope": "Root used one worker. Carried renderer used its runner default four. Record serialized saved results."
+    "concurrency_scope": "Fresh root used one worker and renderer used two per bounded group. Record serialized saved results."
   },
   "suites": {
     "node-root": {
@@ -36,15 +36,15 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-21T22:29:15.882Z",
-      "commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
+      "recorded_at": "2026-11-22T22:37:30.706Z",
+      "commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
       "trees": {
-        "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
-        "engine": "ca75c0359bb9b2856de8128533c20376658c65fe",
-        "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
-        "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-        "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "package.json": "f652221d5c356d2962204e20286b4f8e2295c3f8"
+        "tests": "45d55d97ec3bfaa9c105fde66a018865b34c7f1b",
+        "engine": "1fedf923e279a6dbf773b078fd54a2d376c46d60",
+        "apps": "6b68505e1ff0c79f2b58e063d8ecdcb9f0190552",
+        "packages": "4f8a637de4497bfe0c5df0f767320188a10f1003",
+        "tools": "3e19f734bf1362cccb26e86b8d16dded1ef7307f",
+        "package.json": "0258fc8ef787fd97eded49510b48ccfb1758bb85"
       },
       "partial": null,
       "excluded": [
@@ -85,16 +85,16 @@
           "why": "Standing safety exclusion. NOT_EXECUTED."
         }
       ],
-      "duration_ms": 448775,
+      "duration_ms": 493451,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
       "files_that_produced_no_result": null,
       "env_overrides": null,
       "counts": {
-        "files": 145,
-        "tests": 1654,
-        "passed": 1633,
+        "files": 146,
+        "tests": 1689,
+        "passed": 1668,
         "failed": 7,
         "skipped": 14
       },
@@ -162,8 +162,8 @@
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
-          "error": "orgtree-link-linux.ts",
-          "error_digest": "834902ae98e8",
+          "error": "Expected values to be strictly equal:",
+          "error_digest": "64714361d7a9",
           "failing_since": "2026-10-22T16:48:41.178Z",
           "failing_since_is_lower_bound": false
         },
@@ -726,6 +726,7 @@
         "node-root::tests/org-windows.test.mjs::the internal holding page remains a trusted sender",
         "node-root::tests/org-windows.test.mjs::the last-used window is tracked separately from notification ownership",
         "node-root::tests/org-windows.test.mjs::the organization slug rule is the canonical route rule, with no invented cap",
+        "node-root::tests/orgtree-links-linux.test.mjs::a failed optional icon write leaves orgtree.desktop and link registration usable",
         "node-root::tests/orgtree-links-linux.test.mjs::a first start writes its own entry and becomes the default; a second start changes nothing",
         "node-root::tests/orgtree-links-linux.test.mjs::a moved AppImage, a new version or a run without FUSE rewrites only its own entry",
         "node-root::tests/orgtree-links-linux.test.mjs::a plain program path is written bare: SteamOS keeps the quotes of a quoted one",
@@ -735,10 +736,25 @@
         "node-root::tests/orgtree-links-linux.test.mjs::an existing list keeps every line; the default joins its section or a new one",
         "node-root::tests/orgtree-links-linux.test.mjs::an installed package (no AppImage) registers its own program",
         "node-root::tests/orgtree-links-linux.test.mjs::another program's default is left alone, and no other entry is ever touched",
+        "node-root::tests/orgtree-links-linux.test.mjs::extract-and-run first launch writes orgtree.desktop and icon; repeat launch is a no-op",
+        "node-root::tests/orgtree-links-linux.test.mjs::generated entries pass desktop-file-validate on Linux when installed",
+        "node-root::tests/orgtree-links-linux.test.mjs::guards skip non-extracted runs, non-Linux, dev builds, custom profiles, foreign HOME, and invalid APPIMAGE",
+        "node-root::tests/orgtree-links-linux.test.mjs::hand-written orgtree.desktop, other-named entries, and existing custom icons are preserved byte-for-byte",
+        "node-root::tests/orgtree-links-linux.test.mjs::M10: native install inheriting another apps AppImage/APPDIR never registers that foreign AppImage",
+        "node-root::tests/orgtree-links-linux.test.mjs::M12: administrator-installed system orgtree.desktop under XDG_DATA_DIRS is not shadowed",
+        "node-root::tests/orgtree-links-linux.test.mjs::M12: exclusive temp-open collision never deletes the pre-existing file at the tentative temp path",
+        "node-root::tests/orgtree-links-linux.test.mjs::M12: first install of orgtree.desktop and icon uses no-replace semantics against concurrent writers",
+        "node-root::tests/orgtree-links-linux.test.mjs::M12: Linux XDG_DATA_DIRS splits on colon only so a literal semicolon in a path never hides a system entry",
+        "node-root::tests/orgtree-links-linux.test.mjs::M12: repair aborts and leaves destination absent when managed entry disappears before publish",
+        "node-root::tests/orgtree-links-linux.test.mjs::M12: repair of managed orgtree.desktop refuses to clobber a concurrent user edit or replacement",
+        "node-root::tests/orgtree-links-linux.test.mjs::managed orgtree.desktop is repaired on update, moved AppImage, missing NO_CLEANUP, or quoted path",
+        "node-root::tests/orgtree-links-linux.test.mjs::non-regular orgtree.desktop, commented or wrong-section markers, and symlinks are never overwritten",
         "node-root::tests/orgtree-links-linux.test.mjs::only the real install registers: the same guards as Windows",
         "node-root::tests/orgtree-links-linux.test.mjs::shipping wiring: registered at start beside the Windows registration",
         "node-root::tests/orgtree-links-linux.test.mjs::the entry is hidden, takes the scheme, starts this AppImage and carries the version",
+        "node-root::tests/orgtree-links-linux.test.mjs::visible app entry carries extract-and-run flags, original AppImage path, bare when plain, and no NoDisplay/MimeType",
         "node-root::tests/orgtree-links-linux.test.mjs::XDG_CONFIG_HOME and XDG_DATA_HOME move the two files",
+        "node-root::tests/orgtree-links-linux.test.mjs::XDG_DATA_HOME relocates orgtree.desktop and its icon",
         "node-root::tests/orgtree-links.test.mjs::a link means exactly what its token means to the renderer parser (shared fixture)",
         "node-root::tests/orgtree-links.test.mjs::a link opens only in an org this Orgtree has; anything else opens nothing",
         "node-root::tests/orgtree-links.test.mjs::anything else is refused: no query, fragment, port, credentials, escapes, capitals or extra parts",
@@ -1173,6 +1189,7 @@
         "node-root::tests/startup-tray.test.mjs::closed-menu rebuild still constructs the complete menu from committed preferences",
         "node-root::tests/startup-tray.test.mjs::declined change restores authoritative checkmark while open: false",
         "node-root::tests/startup-tray.test.mjs::declined change restores authoritative checkmark while open: true",
+        "node-root::tests/startup-tray.test.mjs::non-default Unix data folder disables the tray startup item, refuses changes and skips login items",
         "node-root::tests/startup-tray.test.mjs::one change at a time: a second request is refused and leaves the first one pending",
         "node-root::tests/startup-tray.test.mjs::opening an existing menu resynchronizes saved startup without a second click",
         "node-root::tests/startup-tray.test.mjs::the switch reads \"Run on boot\" while the boot task exists and \"Run on sign-in\" without one",
@@ -1369,31 +1386,46 @@
         "node-root::tests/unix-boot-engine.test.mjs::a login bash skips ~/.bashrc unless its profile sources it: the login and the interactive reads are merged",
         "node-root::tests/unix-boot-engine.test.mjs::a session without a D-Bus bus (DBUS_SESSION_BUS_ADDRESS=disabled:) still reaches systemd --user",
         "node-root::tests/unix-boot-engine.test.mjs::an AppImage registers the AppImage file itself (its mount is temporary) and runs the host through it as node",
+        "node-root::tests/unix-boot-engine.test.mjs::blank or whitespace ORGTREE_V2_DATA with missing saved folder shows recovery with zero mkdir calls, and non-default profile resolves its own data folder",
+        "node-root::tests/unix-boot-engine.test.mjs::default root and env set to the exact default root still register and start the unit on Linux and macOS",
+        "node-root::tests/unix-boot-engine.test.mjs::early login path: macOS alternate root with OBS present makes zero setLoginItemSettings calls; empty/whitespace overrides are consistent; Windows traces stay identical",
         "node-root::tests/unix-boot-engine.test.mjs::Linux registering: systemd enables and starts the unit (restart only when it changed); the autostart entry is removed",
+        "node-root::tests/unix-boot-engine.test.mjs::Linux stable build with non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE leaves pre-seeded unit and autostart byte-unchanged with zero systemctl calls (startAtLogin true and false)",
         "node-root::tests/unix-boot-engine.test.mjs::Linux without systemd --user: an XDG autostart entry with the same command",
         "node-root::tests/unix-boot-engine.test.mjs::Linux without systemd --user: the autostart entry is written and this session's host is started now",
         "node-root::tests/unix-boot-engine.test.mjs::Linux: the autostart entry validates (desktop-file-validate, where present)",
         "node-root::tests/unix-boot-engine.test.mjs::Linux: the systemd user unit, quoted, restarting on failure like the task (a minute apart, three times)",
         "node-root::tests/unix-boot-engine.test.mjs::Linux: the unit verifies (systemd-analyze, where present)",
         "node-root::tests/unix-boot-engine.test.mjs::macOS registering: write, bootstrap and kickstart when new; an unchanged, loaded agent is only kickstarted",
+        "node-root::tests/unix-boot-engine.test.mjs::macOS stable build with non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE leaves pre-seeded LaunchAgent byte-unchanged with zero launchctl calls (startAtLogin true and false)",
         "node-root::tests/unix-boot-engine.test.mjs::macOS: the LaunchAgent runs at load, restarts only after a failure, no sooner than a minute, and skips a removed app",
         "node-root::tests/unix-boot-engine.test.mjs::macOS: the plist lints (plutil, on a Mac)",
+        "node-root::tests/unix-boot-engine.test.mjs::main and preload wire desktop:startup-capability for the startup switch guard",
+        "node-root::tests/unix-boot-engine.test.mjs::path canonicalisation in bootAttached: symlinked intermediate, missing intermediate and missing dir fail closed with info log; verified alias passes canonical path to both host and engine",
         "node-root::tests/unix-boot-engine.test.mjs::POSIX descriptor trust: this user's 0600 file in this user's folders; anything another user could write or read is refused",
+        "node-root::tests/unix-boot-engine.test.mjs::prerelease and dev builds keep skipping boot registration untouched",
         "node-root::tests/unix-boot-engine.test.mjs::real folders under a 0002 umask end up 0700",
         "node-root::tests/unix-boot-engine.test.mjs::removing undoes every registration",
         "node-root::tests/unix-boot-engine.test.mjs::run on startup off: nothing starts at the next login, and a running host is left running",
         "node-root::tests/unix-boot-engine.test.mjs::run on startup on: registered for the next login, nothing started now",
+        "node-root::tests/unix-boot-engine.test.mjs::saved Data location move: explicit current folder registers, explicit old pre-move folder skips (no write, restart or disable) on Linux and macOS",
         "node-root::tests/unix-boot-engine.test.mjs::the AppImage wrapper starts resources/engine/orgtree-engine host beside its own executable and passes its exit code on",
         "node-root::tests/unix-boot-engine.test.mjs::the command: the installed engine binary in host mode, with the data folder and a usual PATH",
         "node-root::tests/unix-boot-engine.test.mjs::the data folder is created private, and an install made group-writable is tightened up to Orgtree own folder",
         "node-root::tests/unix-boot-engine.test.mjs::the launchd guard: a present engine is exec'd with its arguments, a missing one exits 0",
         "node-root::tests/unix-boot-engine.test.mjs::the login shell PATH comes first, then the fixed list, each folder once, relative entries dropped",
         "node-root::tests/unix-boot-engine.test.mjs::the login shell PATH is read from the profile with a clean environment (not the caller's PATH)",
+        "node-root::tests/unix-boot-engine.test.mjs::Windows dev parity: unpackaged whitespace-only ORGTREE_V2_PROFILE stays rejected on Windows and treated as unset on Linux/macOS",
         "node-root::tests/unix-engine-launch.test.mjs::a build with a prerelease label never registers: it leaves the installed version's unit alone",
         "node-root::tests/unix-engine-launch.test.mjs::as before: no registration on Windows, in development, under another identity, or without an engine",
+        "node-root::tests/unix-engine-launch.test.mjs::default root and env vars resolving to the exact default root keep registering on Linux and macOS",
+        "node-root::tests/unix-engine-launch.test.mjs::non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE skips boot registration on Linux and macOS",
+        "node-root::tests/unix-engine-launch.test.mjs::path canonicalisation: symlinked intermediate, missing intermediate, missing dir and canonicalisation errors fail closed; verified alias returns canonical hostDataRoot",
+        "node-root::tests/unix-engine-launch.test.mjs::saved Data location move: effective default root owns startup; old pre-move folder is non-default on Linux and macOS",
         "node-root::tests/unix-engine-launch.test.mjs::the engine the desktop starts itself searches the same folders as the background engine",
         "node-root::tests/unix-engine-launch.test.mjs::the installed release registers the background engine on macOS and Linux",
         "node-root::tests/unix-engine-launch.test.mjs::the managed engine's environment: the given search path replaces PATH, everything else is kept",
+        "node-root::tests/unix-engine-launch.test.mjs::the managed engine's Unix environment drops blank/whitespace ORGTREE_V2_DATA and normalises active overrides; Windows is untouched",
         "node-root::tests/unix-engine-launch.test.mjs::Windows and a development run keep the PATH they were started with",
         "node-root::tests/update-channel.test.mjs::§1 ⚠ AN INSTALLED BETA MOVES ONTO STABLE",
         "node-root::tests/update-channel.test.mjs::§10 version ordering was never the problem, and is pinned so it stays that way",
@@ -1762,6 +1794,9 @@
         "node-root::tests/window-reveal.test.mjs::every notification kind takes the same path: only that organization's window is opened or touched",
         "node-root::tests/window-reveal.test.mjs::nothing in the main process minimizes or hides a window except that window's own controls",
         "node-root::tests/window-reveal.test.mjs::revealOnly acts on the window it is given and on nothing else",
+        "node-root::tests/windows-wording-main.test.mjs::O-02: packaged non-Windows build without update feed says updates are not available for this build",
+        "node-root::tests/windows-wording-main.test.mjs::O-05: tray omits admin checkbox off Windows and keeps it on Windows",
+        "node-root::tests/windows-wording-main.test.mjs::O-13, O-14, O-16, B-03: main-process wording helpers preserve Windows exact text and genericize non-Windows",
         "node-root::tests/worktree.test.mjs::against a real throwaway git repository",
         "node-root::tests/worktree.test.mjs::against a real throwaway git repository > a dirty worktree is refused, and --force removes it",
         "node-root::tests/worktree.test.mjs::against a real throwaway git repository > a node_modules junction to outside refuses removal, with and without --force; the target survives",
@@ -1848,36 +1883,14 @@
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_rename_repairs_only_contained_registered_paths",
         "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_setup_plan_is_lockfile_based_and_does_not_write_git_metadata"
       ],
-      "serialization_duration_ms": 29,
+      "serialization_duration_ms": 39,
       "measurement": {
         "mode": "fresh",
-        "measured_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
-        "vc_runtime_qualification": {
-          "authority": "@coordinator-opus m0f74821c0085",
-          "rawRoot": "fresh-node-root-outcomes.json",
-          "rawSha256": "e00f18fa5f068936f0fe900c6cd0a3c2414336fb8c2a64f46c05ee546ce76989",
-          "focusedEvidence": "vc-classification-verdict.json",
-          "focusedSha256": "6585e4e77be9e53331c4f1ff19eeaec46b089b3126a49ae914c2125a99c3754a",
-          "replacements": [
-            {
-              "id": "node-root::tests/vc-runtime.test.mjs::a recent runtime, or one Setup just installed, is logged and warns nobody",
-              "rootDurationMs": 10212,
-              "focusedDurationMs": 1966.8169
-            },
-            {
-              "id": "node-root::tests/vc-runtime.test.mjs::every other outcome is logged and warned about, and Setup still completes",
-              "rootDurationMs": 14355,
-              "focusedDurationMs": 2060.483
-            }
-          ],
-          "remainingAcceptedFailures": 7,
-          "rawRootRetained": true,
-          "noFullSuiteReplay": true
-        },
-        "authority": "@coordinator-opus me32f429ef026, USER m710139692c91",
+        "measured_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
+        "authority": "@coordinator-opus m64a6885e57ad, USER ma55bdd7e15ef",
         "same_saved_outcomes": true,
-        "source_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
-        "ran_at": "2026-11-21T22:20:57.407Z",
+        "source_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
+        "ran_at": "2026-11-22T21:04:41.616Z",
         "concurrency": 1,
         "no_suite_replay": true
       }
@@ -1887,21 +1900,25 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-11-21T22:29:16.059Z",
-      "commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
+      "recorded_at": "2026-11-22T22:37:30.998Z",
+      "commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
       "trees": {
-        "tests": "4dac9f29077a180d7ea62ae7c835f566ddd39f8a",
-        "engine": "ca75c0359bb9b2856de8128533c20376658c65fe",
-        "apps": "34294de83c8f3be1a75a544244ab245a3dc71b29",
-        "packages": "47ecb1b6fbd95a176f519aef89694697a0058311",
-        "tools": "50a340480709f113afce68b937b1cd18c9e00472",
-        "package.json": "f652221d5c356d2962204e20286b4f8e2295c3f8"
+        "tests": "45d55d97ec3bfaa9c105fde66a018865b34c7f1b",
+        "engine": "1fedf923e279a6dbf773b078fd54a2d376c46d60",
+        "apps": "6b68505e1ff0c79f2b58e063d8ecdcb9f0190552",
+        "packages": "4f8a637de4497bfe0c5df0f767320188a10f1003",
+        "tools": "3e19f734bf1362cccb26e86b8d16dded1ef7307f",
+        "package.json": "0258fc8ef787fd97eded49510b48ccfb1758bb85"
       },
       "partial": null,
       "excluded": [
         {
           "what": "probe scripts (*_probe.py, *-probe.tsx, *.probe.ts)",
           "why": "driven by hand or by a native probe runner, not by run.mjs"
+        },
+        {
+          "what": "agents drawer reclaims the rail for names while preserving hierarchy and controls in Edge",
+          "why": "Standing safety exclusion. NOT_EXECUTED."
         },
         {
           "what": "real process listing sees a stand-in obs64.exe and loses it after it exits",
@@ -1912,7 +1929,7 @@
           "why": "Standing safety exclusion. NOT_EXECUTED."
         }
       ],
-      "duration_ms": 1225749,
+      "duration_ms": 3332,
       "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
@@ -1922,9 +1939,9 @@
         "ORGTREE_TEST_RUN_TIMEOUT_MS": "900000"
       },
       "counts": {
-        "files": 945,
-        "tests": 7279,
-        "passed": 7232,
+        "files": 947,
+        "tests": 7297,
+        "passed": 7250,
         "failed": 42,
         "skipped": 5
       },
@@ -1973,15 +1990,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer\\renderer-group-00\\tmp\\orgtree-renderer-tests-umbOVR\\bundles\\agentrefs.test.mjs",
           "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer\\renderer-group-00\\tmp\\orgtree-renderer-tests-umbOVR\\bundles\\agentrefs.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-20T08:58:38.156Z",
+          "failing_since": "2026-11-22T22:37:30.998Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2177,15 +2194,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-10\\tmp\\orgtree-renderer-tests-Pz1HXs\\bundles\\foregroundtree.test.mjs",
           "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-10\\tmp\\orgtree-renderer-tests-Pz1HXs\\bundles\\foregroundtree.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-20T08:58:38.156Z",
+          "failing_since": "2026-11-22T22:37:30.998Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2267,8 +2284,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2279,8 +2296,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2291,8 +2308,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2303,8 +2320,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2315,8 +2332,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2327,8 +2344,8 @@
           "kind": "leaf",
           "failure_type": "unhandledRejection",
           "stability": "unconfirmed",
-          "error": "Cannot read properties of null (reading '_document')",
-          "error_digest": "266f954381ef",
+          "error": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+          "error_digest": "8c903e3c30fc",
           "failing_since": "2026-11-17T22:46:13.590Z",
           "failing_since_is_lower_bound": false
         },
@@ -2441,15 +2458,15 @@
           "failing_since_is_lower_bound": false
         },
         {
-          "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
+          "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-25\\tmp\\orgtree-renderer-tests-948beZ\\bundles\\treeview.test.mjs",
           "file": "apps/desktop/renderer/tests/treeview.test.ts",
-          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
+          "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-25\\tmp\\orgtree-renderer-tests-948beZ\\bundles\\treeview.test.mjs",
           "kind": "leaf",
           "failure_type": "testCodeFailure",
           "stability": "unconfirmed",
           "error": "test failed",
           "error_digest": "2512eeb638b3",
-          "failing_since": "2026-11-20T08:58:38.156Z",
+          "failing_since": "2026-11-22T22:37:30.998Z",
           "failing_since_is_lower_bound": false
         },
         {
@@ -2593,7 +2610,7 @@
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::an owner answered only for another catalog stays unconfirmed, never gone (review f7)",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::bare names in prose resolve omitted agents in a bounded lookup; items keep the collision",
         "renderer::apps/desktop/renderer/tests/agentoutcome.test.tsx::prose lookup skips numbers, timestamp pieces and UUIDs, but keeps real names (including digits)",
-        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
+        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer\\renderer-group-00\\tmp\\orgtree-renderer-tests-umbOVR\\bundles\\agentrefs.test.mjs",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1 a row offers the agent's own menu — the same entries, in the same order, as its card",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1a user audience action reflects current access on both menu surfaces",
         "renderer::apps/desktop/renderer/tests/agentrowmenu.test.tsx::§1b audience menu actions use the audited user-audience endpoint",
@@ -5102,7 +5119,7 @@
         "renderer::apps/desktop/renderer/tests/foregroundlineage.test.tsx::live lineage gate waits for actual rows rather than interpreting omission as an empty lineage",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::a metadata patch keeps the selected ETag: the next read is a delta, never a revalidated pre-patch body",
         "renderer::apps/desktop/renderer/tests/foregroundpatch.test.ts::an unchanged server answers the kept ETag with 304 and the kept body is kept",
-        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
+        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-10\\tmp\\orgtree-renderer-tests-Pz1HXs\\bundles\\foregroundtree.test.mjs",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§1 a leg per kind — each is classified as itself, not as `limit`",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§2 precedence is deliberate where kinds coexist",
         "renderer::apps/desktop/renderer/tests/freezelabel.test.ts::§3 both registers are TOTAL over the kinds and share no word",
@@ -6975,6 +6992,10 @@
         "renderer::apps/desktop/renderer/tests/people.test.tsx::in a window of a remote organization, one's own is the client this desktop is there",
         "renderer::apps/desktop/renderer/tests/people.test.tsx::undoing someone else's action asks first, by name; one's own does not",
         "renderer::apps/desktop/renderer/tests/people.test.tsx::whose a record is: someone else by name, one's own and an unnamed one as before",
+        "renderer::apps/desktop/renderer/tests/phonefirewall-platform.test.tsx::non-Windows (darwin): Turn on phone access skips addPhoneFirewallRule and calls engine access endpoint",
+        "renderer::apps/desktop/renderer/tests/phonefirewall-platform.test.tsx::non-Windows (linux): Turn on phone access skips addPhoneFirewallRule and calls engine access endpoint",
+        "renderer::apps/desktop/renderer/tests/phonefirewall-platform.test.tsx::Windows (win32): missing addPhoneFirewallRule capability or thrown error refuses before POST /api/desktop/phone/access",
+        "renderer::apps/desktop/renderer/tests/phonefirewall-platform.test.tsx::Windows (win32): Turn on phone access still calls addPhoneFirewallRule before engine access endpoint",
         "renderer::apps/desktop/renderer/tests/phonepanel-hubchatpc.test.tsx::Hubchat on this PC: \"Set up my phone with a code instead\" leads to the download and setup-code steps",
         "renderer::apps/desktop/renderer/tests/phonepanel-hubchatpc.test.tsx::linked phone still shows a sleep warning without a removed settings action",
         "renderer::apps/desktop/renderer/tests/phonepanel-hubchatpc.test.tsx::phone access has no power-preference checkbox even with a legacy field",
@@ -8313,6 +8334,8 @@
         "renderer::apps/desktop/renderer/tests/runasadmin.test.tsx::the one-off \"Run this session as admin\" is gone, even from a bridge that still offers it (user Q2)",
         "renderer::apps/desktop/renderer/tests/runasadmin.test.tsx::without a background engine the switch is disabled and says why",
         "renderer::apps/desktop/renderer/tests/runonboot.test.tsx::first-run setup shows the same switch",
+        "renderer::apps/desktop/renderer/tests/runonboot.test.tsx::Linux and macOS keep the startup switch disabled until capability responds (no enabled flash); Windows stays unchanged",
+        "renderer::apps/desktop/renderer/tests/runonboot.test.tsx::non-default data folder disables the startup switch with the one-line hint in Settings and Onboarding",
         "renderer::apps/desktop/renderer/tests/runonboot.test.tsx::Settings name the one startup switch for what starts: boot",
         "renderer::apps/desktop/renderer/tests/runonboot.test.tsx::Settings name the one startup switch for what starts: signin",
         "renderer::apps/desktop/renderer/tests/runonboot.test.tsx::Settings name the one startup switch for what starts: unsaid",
@@ -9297,7 +9320,7 @@
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::resetSync starts a connection over",
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::rev-less frames (sparks, older server) take no part in ordering",
         "renderer::apps/desktop/renderer/tests/treesync.test.ts::the buffer is bounded: overflow drops oldest first",
-        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
+        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-25\\tmp\\orgtree-renderer-tests-948beZ\\bundles\\treeview.test.mjs",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::canvas age surfaces share the authoritative completed-turn badge",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::cards retain LastTurnAge while focused desks use only the status banner",
         "renderer::apps/desktop/renderer/tests/turnageheader.test.tsx::fresh desk banner is neutral motionless Idle with no invented age",
@@ -9668,6 +9691,18 @@
         "renderer::apps/desktop/renderer/tests/windowretention.test.ts::closing an old open window makes its placement newest in the closed group",
         "renderer::apps/desktop/renderer/tests/windowretention.test.ts::legacy migration preserves an open row over a closed alias before pruning history",
         "renderer::apps/desktop/renderer/tests/windowretention.test.ts::the read path retains more than 100 open windows without changing restore identity",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::B-03 & M6: CharterTemplateDirsSetting uses Unix wording only when non-Windows is known, keeps Windows/unknown byte-identical, and avoids cloud-placeholder error on Unix",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::B-04: composerKeyHint shows Command+Enter on macOS and keeps Ctrl+Enter on Windows/Linux",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::M1 timeout regression: hung same-target /api/host times out at 45 s even with caller signal, then recovery issues a second request",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::M1: host-OS refresher handles target switch during in-flight read and retries on recovery",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-01: non-Windows DesktopSettings and Onboarding start as Run on sign-in with zero Run on boot flash",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-02: Automatic updates uses Linux AppImage / unavailable-build wording off Windows and keeps Windows exact",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-03 & O-04: Open questions and Run as admin are hidden on Linux/macOS and shown on Windows",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-06: Desktop session in NodeConfig and DraftScopeModal follows serving engine OS (hides on Linux, keeps on remote Windows)",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-07: AppFilePermissionPrompt whole-computer wording branches on host OS",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-09: Antigravity single sign-in notices omit Windows Credential Manager off Windows",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-10 & B-01: PhonePanel uses This computer / this computer and omits Windows prompt off Windows",
+        "renderer::apps/desktop/renderer/tests/windows-wording.test.tsx::O-12: ShortcutsSettings omits Windows Alt+Shift/Alt+Space note off Windows",
         "renderer::apps/desktop/renderer/tests/windowslinks.test.ts::§1 ⭐ the reported backslash form becomes a link carrying the exact path",
         "renderer::apps/desktop/renderer/tests/windowslinks.test.ts::§10 existing link kinds are untouched",
         "renderer::apps/desktop/renderer/tests/windowslinks.test.ts::§11 an angle destination inside a code fence stays literal",
@@ -9746,481 +9781,63 @@
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§7 zoomed in it is a live control again, and opens its document",
         "renderer::apps/desktop/renderer/tests/zoomoutcards.test.tsx::§8 the gate reuses the canvas threshold rather than inventing one"
       ],
-      "serialization_duration_ms": 170,
+      "serialization_duration_ms": 284,
       "measurement": {
-        "mode": "carried",
-        "measured_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-        "accepted_release": "a7e8408ac2cd2a9acc2006df719648f4798986d5",
-        "candidate": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
-        "changed_paths_since_release": [
-          "docs/collaborating.md",
-          "docs/release-notes-4.6.8.md",
-          "docs/releases.json",
-          "docs/skills/orgtree-app/mailhub/hubchat/SKILL.md",
-          "engine/rs/Cargo.lock",
-          "engine/rs/orgtree-engine/Cargo.toml",
-          "engine/rs/orgtree-engine/src/phone.rs",
-          "package-lock.json",
-          "package.json"
-        ],
-        "byte_identical_paths": [
-          "apps/desktop/renderer",
-          "packages",
-          "tools"
-        ],
-        "outcomes_sha256": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
-        "evidence_seal_sha256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
-        "groups": 24,
-        "authority": "@coordinator-opus me32f429ef026, USER m710139692c91",
+        "mode": "fresh",
+        "measured_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
+        "authority": "@coordinator-opus m64a6885e57ad, USER ma55bdd7e15ef",
         "same_saved_outcomes": true,
-        "source_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-        "ran_at": "2026-11-19T22:33:12.859Z",
-        "concurrency": 4,
+        "source_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012",
+        "ran_at": "2026-11-22T21:33:58.521Z",
+        "concurrency": 2,
         "no_suite_replay": true
       }
     }
   },
-  "measurement_authority": "@coordinator-opus me32f429ef026, USER m710139692c91",
+  "measurement_authority": "@coordinator-opus m64a6885e57ad, USER ma55bdd7e15ef",
   "composed_measurement": {
     "root": {
       "mode": "fresh",
-      "measured_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
-      "vc_runtime_qualification": {
-        "authority": "@coordinator-opus m0f74821c0085",
-        "rawRoot": "fresh-node-root-outcomes.json",
-        "rawSha256": "e00f18fa5f068936f0fe900c6cd0a3c2414336fb8c2a64f46c05ee546ce76989",
-        "focusedEvidence": "vc-classification-verdict.json",
-        "focusedSha256": "6585e4e77be9e53331c4f1ff19eeaec46b089b3126a49ae914c2125a99c3754a",
-        "replacements": [
-          {
-            "id": "node-root::tests/vc-runtime.test.mjs::a recent runtime, or one Setup just installed, is logged and warns nobody",
-            "rootDurationMs": 10212,
-            "focusedDurationMs": 1966.8169
-          },
-          {
-            "id": "node-root::tests/vc-runtime.test.mjs::every other outcome is logged and warned about, and Setup still completes",
-            "rootDurationMs": 14355,
-            "focusedDurationMs": 2060.483
-          }
-        ],
-        "remainingAcceptedFailures": 7,
-        "rawRootRetained": true,
-        "noFullSuiteReplay": true
-      }
+      "measured_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012"
     },
     "renderer": {
-      "mode": "carried",
-      "measured_commit": "835b7c34b5a6610f0cb272c40285efedc9ab29eb",
-      "accepted_release": "a7e8408ac2cd2a9acc2006df719648f4798986d5",
-      "candidate": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3",
-      "changed_paths_since_release": [
-        "docs/collaborating.md",
-        "docs/release-notes-4.6.8.md",
-        "docs/releases.json",
-        "docs/skills/orgtree-app/mailhub/hubchat/SKILL.md",
-        "engine/rs/Cargo.lock",
-        "engine/rs/orgtree-engine/Cargo.toml",
-        "engine/rs/orgtree-engine/src/phone.rs",
-        "package-lock.json",
-        "package.json"
-      ],
-      "byte_identical_paths": [
-        "apps/desktop/renderer",
-        "packages",
-        "tools"
-      ],
-      "outcomes_sha256": "ca4813f4a48b9ab08470ddd378da807faa7b4b732b2083e02787c642cb4b2fc9",
-      "evidence_seal_sha256": "a427da2532b0bc406087eee2cf1bc3f660c6910b9a4b8d04dd7273a686f92f82",
-      "groups": 24
+      "mode": "fresh",
+      "measured_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012"
     },
     "native": {
       "mode": "fresh",
-      "measured_commit": "4e63b4b1b98b2ec6cda851dc497d70c4c19e85e3"
+      "measured_commit": "bc6e6a93d9caaf296e5bf19779a9192fe5a85012"
     },
     "noAssertionsReplayed": true
   },
   "not_executed_qualification": {
-    "moduleDefinedCases": [
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "name": "an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
-            "full": "an answer for a newer catalog is remembered as asked: no re-request while the tree lags (review f3)",
-            "line": 100,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::an answer read from a newer catalog is not served to an older tree",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "name": "an answer read from a newer catalog is not served to an older tree",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "an answer read from a newer catalog is not served to an older tree",
-            "full": "an answer read from a newer catalog is not served to an older tree",
-            "line": 66,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::an unresolved omitted agent is never reported gone",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "name": "an unresolved omitted agent is never reported gone",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "an unresolved omitted agent is never reported gone",
-            "full": "an unresolved omitted agent is never reported gone",
-            "line": 87,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::cache batches at 128, answers only for its catalog, and never turns a failure into absence",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "name": "cache batches at 128, answers only for its catalog, and never turns a failure into absence",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "cache batches at 128, answers only for its catalog, and never turns a failure into absence",
-            "full": "cache batches at 128, answers only for its catalog, and never turns a failure into absence",
-            "line": 35,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::references use the exact landed route and refuse an answer that does not match the request",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "name": "references use the exact landed route and refuse an answer that does not match the request",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "references use the exact landed route and refuse an answer that does not match the request",
-            "full": "references use the exact landed route and refuse an answer that does not match the request",
-            "line": 22,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::the cache stays bounded per org and across orgs",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "name": "the cache stays bounded per org and across orgs",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "the cache stays bounded per org and across orgs",
-            "full": "the cache stays bounded per org and across orgs",
-            "line": 75,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::304 preserves identity and advances replay watermarks immutably",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "304 preserves identity and advances replay watermarks immutably",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "304 preserves identity and advances replay watermarks immutably",
-            "full": "304 preserves identity and advances replay watermarks immutably",
-            "line": 67,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::503 is an error and catalog churn falls back as a whole read",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "503 is an error and catalog churn falls back as a whole read",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "503 is an error and catalog churn falls back as a whole read",
-            "full": "503 is an error and catalog churn falls back as a whole read",
-            "line": 97,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
-            "full": "a server without the selected-tree route is a compatibility answer, never a failed tree (re-probed later, review f6)",
-            "line": 153,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::exact delta preserves fields, reparents and removes without mutating the base",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "exact delta preserves fields, reparents and removes without mutating the base",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "exact delta preserves fields, reparents and removes without mutating the base",
-            "full": "exact delta preserves fields, reparents and removes without mutating the base",
-            "line": 41,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::late old selection and invalidated requests cannot replace the current selected cache",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "late old selection and invalidated requests cannot replace the current selected cache",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "late old selection and invalidated requests cannot replace the current selected cache",
-            "full": "late old selection and invalidated requests cannot replace the current selected cache",
-            "line": 109,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::lookup and page use exact landed routes and keep explicit absence/reset distinct",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "lookup and page use exact landed routes and keep explicit absence/reset distinct",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "lookup and page use exact landed routes and keep explicit absence/reset distinct",
-            "full": "lookup and page use exact landed routes and keep explicit absence/reset distinct",
-            "line": 138,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::malformed topology and contradictory absence never become partial success",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "malformed topology and contradictory absence never become partial success",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "malformed topology and contradictory absence never become partial success",
-            "full": "malformed topology and contradictory absence never become partial success",
-            "line": 59,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::retained cache is one selection per org and eight orgs, independent of visits",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "retained cache is one selection per org and eight orgs, independent of visits",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "retained cache is one selection per org and eight orgs, independent of visits",
-            "full": "retained cache is one selection per org and eight orgs, independent of visits",
-            "line": 127,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
-            "full": "selected graph hydration stays constant across tenfold hidden history; lineage stays separate",
-            "line": 25,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "name": "wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
-            "full": "wrong-base delta retries unconditional; compatibility and selection overflow preserve full view",
-            "line": 81,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
-            "full": "a focus on an id the current plan already carries keeps the plan: one read, no edge re-plan (review f5)",
-            "line": 136,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
-            "full": "catalog churn during a browse retries coherently then uses whole compatibility answer; ordinary errors propagate",
-            "line": 110,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::changed catalog re-resolves piles on the server and keeps no old implicit fronts",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "changed catalog re-resolves piles on the server and keeps no old implicit fronts",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "changed catalog re-resolves piles on the server and keeps no old implicit fronts",
-            "full": "changed catalog re-resolves piles on the server and keeps no old implicit fronts",
-            "line": 122,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
-            "full": "collapsed view keeps first sibling position and last sibling front with flat tenfold history cost",
-            "line": 58,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::explicit pile browser loads coherent identities then closing releases them",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "explicit pile browser loads coherent identities then closing releases them",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "explicit pile browser loads coherent identities then closing releases them",
-            "full": "explicit pile browser loads coherent identities then closing releases them",
-            "line": 98,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
-            "full": "saved front is exact, missing saved front falls back, hide-retired excludes implicit edges",
-            "line": 84,
-            "callee": "test"
-          }
-        ]
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "name": "shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
-        "classification": "DEFINITION_STILL_EXISTS",
-        "declarations": [
-          {
-            "name": "shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
-            "full": "shown piles never fall back to the complete tree, however many piles there are (N1000 attempt 7b)",
-            "line": 75,
-            "callee": "test"
-          }
-        ]
-      }
-    ],
-    "moduleFailureEvents": [
-      {
-        "id": "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
-        "suite": "renderer",
-        "file": "apps/desktop/renderer/tests/agentrefs.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-02\\tmp\\orgtree-renderer-tests-by8T1A\\bundles\\agentrefs.test.mjs",
-        "status": "failed",
-        "kind": "leaf",
-        "failure_type": "testCodeFailure",
-        "error": "test failed",
-        "error_digest": "2512eeb638b3",
-        "duration_ms": 252,
-        "stability": "unconfirmed"
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
-        "suite": "renderer",
-        "file": "apps/desktop/renderer/tests/foregroundtree.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-09\\tmp\\orgtree-renderer-tests-OsF5mZ\\bundles\\foregroundtree.test.mjs",
-        "status": "failed",
-        "kind": "leaf",
-        "failure_type": "testCodeFailure",
-        "error": "test failed",
-        "error_digest": "2512eeb638b3",
-        "duration_ms": 97,
-        "stability": "unconfirmed"
-      },
-      {
-        "id": "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
-        "suite": "renderer",
-        "file": "apps/desktop/renderer/tests/treeview.test.ts",
-        "test": "S:\\orgtree\\build\\rig-sol-b\\release-gate-465-20261119\\phases\\fresh-renderer\\renderer-group-21\\tmp\\orgtree-renderer-tests-VSFm74\\bundles\\treeview.test.mjs",
-        "status": "failed",
-        "kind": "leaf",
-        "failure_type": "testCodeFailure",
-        "error": "test failed",
-        "error_digest": "2512eeb638b3",
-        "duration_ms": 91,
-        "stability": "unconfirmed"
-      }
-    ],
-    "moduleSourceProof": {
-      "apps/desktop/renderer/tests/agentrefs.test.ts": {
-        "currentObject": "cdb2bce938782dca54051eed7bc4afa28b212090",
-        "accepted464Object": "cdb2bce938782dca54051eed7bc4afa28b212090",
-        "unchanged": true
-      },
-      "apps/desktop/renderer/tests/foregroundtree.test.ts": {
-        "currentObject": "8b8da36bf75f5f530693718a3bac80382722becb",
-        "accepted464Object": "8b8da36bf75f5f530693718a3bac80382722becb",
-        "unchanged": true
-      },
-      "apps/desktop/renderer/tests/treeview.test.ts": {
-        "currentObject": "2e790d1eb27380a56849ef3fc998a88160060cf7",
-        "accepted464Object": "2e790d1eb27380a56849ef3fc998a88160060cf7",
-        "unchanged": true
-      }
+    "suites": {
+      "node-root": [
+        "node-root::tests/appimage-update.test.mjs::the relaunch waits for the old process to exit, then runs the AppImage",
+        "node-root::tests/run-as-administrator.test.mjs::the write script really creates an admin-only key with the value (throwaway key)",
+        "node-root::tests/unix-boot-engine.test.mjs::a login bash skips ~/.bashrc unless its profile sources it: the login and the interactive reads are merged",
+        "node-root::tests/unix-boot-engine.test.mjs::Linux: the autostart entry validates (desktop-file-validate, where present)",
+        "node-root::tests/unix-boot-engine.test.mjs::Linux: the unit verifies (systemd-analyze, where present)",
+        "node-root::tests/unix-boot-engine.test.mjs::macOS: the plist lints (plutil, on a Mac)",
+        "node-root::tests/unix-boot-engine.test.mjs::real folders under a 0002 umask end up 0700",
+        "node-root::tests/unix-boot-engine.test.mjs::the AppImage wrapper starts resources/engine/orgtree-engine host beside its own executable and passes its exit code on",
+        "node-root::tests/unix-boot-engine.test.mjs::the launchd guard: a present engine is exec'd with its arguments, a missing one exits 0",
+        "node-root::tests/unix-boot-engine.test.mjs::the login shell PATH is read from the profile with a clean environment (not the caller's PATH)",
+        "node-root::tests/worktree.test.mjs::BundledRuntimeDiscoveryTests > test_a_worktree_finds_the_runtime_owned_by_the_checkout_above_it",
+        "node-root::tests/worktree.test.mjs::BundledRuntimeDiscoveryTests > test_the_walk_terminates_at_the_filesystem_root",
+        "node-root::tests/worktree.test.mjs::JunctionGateTests > test_the_engine_surface_gates_the_junction_the_same_way",
+        "node-root::tests/worktree.test.mjs::WorktreeHelperTests > test_cleanup_protects_operation_only_worktree"
+      ],
+      "renderer": [
+        "renderer::apps/desktop/renderer/tests/agentrefs.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer\\renderer-group-00\\tmp\\orgtree-renderer-tests-umbOVR\\bundles\\agentrefs.test.mjs",
+        "renderer::apps/desktop/renderer/tests/foregroundtree.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-10\\tmp\\orgtree-renderer-tests-Pz1HXs\\bundles\\foregroundtree.test.mjs",
+        "renderer::apps/desktop/renderer/tests/treeview.test.ts::S:\\orgtree\\build\\rig-sol-b\\release-gate-469-bc6e6a9\\phases\\fresh-renderer-resume\\renderer-group-25\\tmp\\orgtree-renderer-tests-948beZ\\bundles\\treeview.test.mjs",
+        "renderer::apps/desktop/renderer/tests/recordnet.test.tsx::actual Python host frames update the mounted shared projection without reads",
+        "renderer::apps/desktop/renderer/tests/recordpgmembership.test.ts::actual SQL two-writer and seeded membership frames converge without refetch",
+        "renderer::apps/desktop/renderer/tests/recordpgselection.test.tsx::real PostgreSQL pages project full display for 300 pins, all and children, then live/archive catch-ups",
+        "renderer::apps/desktop/renderer/tests/recordpgsubtree.test.ts::actual snapshot subtree catch-up atomically replaces pinned ancestry without refetch",
+        "renderer::apps/desktop/renderer/tests/sparkbench.test.tsx::spark bench"
+      ]
     },
     "rootSafety": [
       "with no window open, the helper asks the background engine to stop and waits for its whole tree",
@@ -10231,19 +9848,62 @@
       "on an all-users installation an engine it cannot ask is left to the boot step, not waited for"
     ],
     "rendererSafety": [
+      "agents drawer reclaims the rail for names while preserving hierarchy and controls in Edge",
       "real process listing sees a stand-in obs64.exe and loses it after it exits",
       "§7 outside the Job, the watchdog ends a detached orphan once its parent is gone"
     ],
     "noSkippedCaseClaimedPassing": true
   },
-  "release_failure_disposition": "Current failures are contained in the sealed accepted 4.6.7 gate by case identity.",
+  "release_failure_disposition": "Current failure IDs are contained in the sealed accepted 4.6.8 gate. One changed root signature and six changed renderer signatures have signed dispositions.",
   "accepted_changed_signatures": [
     {
       "id": "node-root::tests/private-alpha-identity.test.mjs::startup path: the engine options take their data root from resolveDataRoot with this process's identity",
-      "file": "tests/private-alpha-identity.test.mjs",
-      "test": "startup path: the engine options take their data root from resolveDataRoot with this process's identity",
-      "before": "orgtree-link.ts",
-      "after": "orgtree-link-linux.ts"
+      "before": "orgtree-link-linux.ts",
+      "after": "Expected values to be strictly equal:",
+      "authority": "m4919aa7c6739",
+      "disposition": "known ID, signature changed by reviewed b5554d2; stale literal source assertion; accepted by @coordinator-opus m947a81f97218-reply"
+    },
+    {
+      "id": "renderer::apps/desktop/renderer/tests/popoutdrag.test.tsx::§1 a detached surface takes the title bar a pinned one has",
+      "before": "Cannot read properties of null (reading '_document')",
+      "after": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+      "authority": "m395da0720eca",
+      "disposition": "6 known IDs, first line changed, null jsdom window after teardown in both; no related source or dependency change in d54890c..bc6e6a9; accepted by @coordinator-opus"
+    },
+    {
+      "id": "renderer::apps/desktop/renderer/tests/popoutdrag.test.tsx::§2 one title, not two: the panel's own heading stands down",
+      "before": "Cannot read properties of null (reading '_document')",
+      "after": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+      "authority": "m395da0720eca",
+      "disposition": "6 known IDs, first line changed, null jsdom window after teardown in both; no related source or dependency change in d54890c..bc6e6a9; accepted by @coordinator-opus"
+    },
+    {
+      "id": "renderer::apps/desktop/renderer/tests/popoutdrag.test.tsx::§3 the title bar is inert to the pointer; its controls are not",
+      "before": "Cannot read properties of null (reading '_document')",
+      "after": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+      "authority": "m395da0720eca",
+      "disposition": "6 known IDs, first line changed, null jsdom window after teardown in both; no related source or dependency change in d54890c..bc6e6a9; accepted by @coordinator-opus"
+    },
+    {
+      "id": "renderer::apps/desktop/renderer/tests/popoutdrag.test.tsx::§4 pinned is untouched: its glyph, its handles and its drag still answer",
+      "before": "Cannot read properties of null (reading '_document')",
+      "after": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+      "authority": "m395da0720eca",
+      "disposition": "6 known IDs, first line changed, null jsdom window after teardown in both; no related source or dependency change in d54890c..bc6e6a9; accepted by @coordinator-opus"
+    },
+    {
+      "id": "renderer::apps/desktop/renderer/tests/popoutdrag.test.tsx::§5 a dialog in another surface’s window does not wear that window’s title bar",
+      "before": "Cannot read properties of null (reading '_document')",
+      "after": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+      "authority": "m395da0720eca",
+      "disposition": "6 known IDs, first line changed, null jsdom window after teardown in both; no related source or dependency change in d54890c..bc6e6a9; accepted by @coordinator-opus"
+    },
+    {
+      "id": "renderer::apps/desktop/renderer/tests/popoutdrag.test.tsx::§6 a popped-out project desk has the popped-out agent desk's one header row, the window controls inline at its right (user 2026-10-18 11:47Z)",
+      "before": "Cannot read properties of null (reading '_document')",
+      "after": "Cannot read properties of null (reading 'Symbol(error reporting mode)')",
+      "authority": "m395da0720eca",
+      "disposition": "6 known IDs, first line changed, null jsdom window after teardown in both; no related source or dependency change in d54890c..bc6e6a9; accepted by @coordinator-opus"
     }
   ]
 }
