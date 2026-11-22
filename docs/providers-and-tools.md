@@ -45,7 +45,7 @@ A **harness** runs tools and manages the agent session. A **model provider or se
 | --- | --- |
 | Claude Code | Hook-boundary mail delivery; native normal compaction; supported native models can accept live effort controls and fast mode. |
 | Codex | Exact-turn steering and interrupt, native command-output streaming and a human MCP permission bridge. Orgtree does not offer its normal compaction action. |
-| Antigravity | Invocation-hook mail, process-tree interrupt and recovered native thought/tool history where available. The Windows subscription login has a shared-keyring limitation. |
+| Antigravity | Invocation-hook mail, process-tree interrupt, recovered native thought/tool history where available, 300 s bounds for hung file/`orgtree_*` calls (one automatic resume; `run_command` keeps the turn silence limit) and soft end-of-turn handling for trailing transport/400 errors after a completed turn. The Windows subscription login has a shared-keyring limitation. |
 | Muse Code | Exact-turn steering, managed account profiles, native normal compaction and turn-observed allowance. No independent fresh usage query. |
 | OpenCode | Chat Completions routes, ACP tool/stream output and supported tool-boundary mail delivery; unavailable hooks leave mail for the next turn. |
 
