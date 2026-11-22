@@ -1,0 +1,438 @@
+# Test-only Steam Frame clean-profile headset kit build for Orgtree (arm64).
+# Builds N (4.6.9-alpha.1) and N+1 (4.6.9-alpha.2) from exact integ/4.6.9
+# (6a9cf2d8ef70cd9edb8930d62768d92837bb1042) with the loopback update feed
+# (http://127.0.0.1:47615/) baked in via electron-builder.update-test.cjs.
+# Never publishes, never creates a release, never tags, never merges.
+name: frame-kit-orgtree
+
+on:
+  push:
+    branches: ['ci-test/orgtree-frame-kit']
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: nightly-2025-12-12
+  NODE_VERSION: 24.12.0
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  ORGTREE_LINUX_ARCH: arm64
+  ARCH_SUFFIX: -arm64
+  KIT_BASE_SHA: 6a9cf2d8ef70cd9edb8930d62768d92837bb1042
+  KIT_VERSION_N: 4.6.9-alpha.1
+  KIT_VERSION_N1: 4.6.9-alpha.2
+  KIT_FEED_PORT: '47615'
+  KIT_FEED_URL: http://127.0.0.1:47615/
+
+jobs:
+  build-kit-arm64:
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify exact base SHA, architecture, and zero product diff
+        run: |
+          set -euo pipefail
+          echo "runner arch=$(uname -m), $(. /etc/os-release; echo "$PRETTY_NAME"), $(ldd --version | head -1)"
+          [ "$(uname -m)" = "aarch64" ] || { echo "::error::expected aarch64 runner"; exit 1; }
+          base="$(git rev-parse HEAD~1)"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "HEAD~1=$base (want $KIT_BASE_SHA)"
+          [ "$base" = "$KIT_BASE_SHA" ] || { echo "::error::HEAD~1 is $base, expected $KIT_BASE_SHA"; exit 1; }
+          changed="$(git diff --name-only HEAD~1..HEAD)"
+          echo "changed vs base: $changed"
+          [ "$changed" = ".github/workflows/frame-kit-orgtree.yml" ] || {
+            echo "::error::unexpected diff vs base SHA: $changed"
+            exit 1
+          }
+
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            patchelf file imagemagick librsvg2-bin xvfb xauth libfuse2 dbus \
+            zlib1g-dev pkg-config desktop-file-utils
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          echo "RUSTC_VERSION=$(rustc --version | tr ' ' '_')" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/rs/target
+            engine/mailhub/target
+          key: linux-arm64-cargo-${{ env.RUSTC_VERSION }}-${{ hashFiles('engine/rs/Cargo.lock', 'engine/mailhub/Cargo.lock') }}
+          restore-keys: linux-arm64-cargo-${{ env.RUSTC_VERSION }}-
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pg-cache
+        with:
+          path: build/linux/postgresql
+          key: linux-arm64-postgresql-${{ hashFiles('.github/ci/linux/build-postgres.sh') }}
+
+      - name: PostgreSQL 18.6 (from source on cache miss)
+        if: steps.pg-cache.outputs.cache-hit != 'true'
+        run: bash .github/ci/linux/build-postgres.sh build/linux/postgresql
+
+      - name: Rust engine (release)
+        working-directory: engine/rs
+        run: |
+          export ORGTREE_RELEASE_BUILD=1
+          export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD~1)"
+          echo "ORGTREE_BUILD_COMMIT=$ORGTREE_BUILD_COMMIT"
+          cargo build --release --locked -j "$(nproc)"
+
+      - name: Mail hub (release)
+        working-directory: engine/mailhub
+        run: cargo build --release --locked -j "$(nproc)"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: npm ci, typecheck, build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Linux icons and preflight
+        run: |
+          bash .github/ci/linux/icons.sh
+          bash .github/ci/linux/preflight.sh
+
+      - name: Package arm64 N (4.6.9-alpha.1) and N+1 (4.6.9-alpha.2) with loopback feed
+        env:
+          ELECTRON_RUN_AS_NODE: ''
+        run: |
+          set -euo pipefail
+          work="$(realpath -m build/linux/frame-kit-work)"
+          out="$(realpath -m build/linux/frame-kit-out)"
+          logs="$(realpath -m build/linux/frame-kit-logs)"
+          rm -rf "$work" "$out" "$logs"
+          mkdir -p "$work" "$out" "$logs"
+
+          pkg_one() {
+            local ver="$1" label="$2"
+            local dir="$work/$label"
+            mkdir -p "$dir"
+            node -e '
+              const fs = require("fs");
+              const info = JSON.parse(fs.readFileSync("dist/build-info.json", "utf8"));
+              info.version = process.argv[1];
+              info.commit = process.argv[2];
+              info.dirty = false;
+              info.channel = "release";
+              fs.writeFileSync(process.argv[3], JSON.stringify(info, null, 2) + "\n");
+            ' "$ver" "$KIT_BASE_SHA" "$dir/build-info.json"
+
+            UPDATE_TEST_VERSION="$ver" \
+            UPDATE_TEST_FEED="$KIT_FEED_URL" \
+            UPDATE_TEST_OUT="$dir/release" \
+            UPDATE_TEST_BUILD_INFO="$dir/build-info.json" \
+              npx electron-builder \
+                --config .github/ci/linux/electron-builder.update-test.cjs \
+                --linux AppImage --arm64 --publish never \
+                >"$logs/package-$label.log" 2>&1 || {
+                  tail -60 "$logs/package-$label.log"
+                  echo "::error::packaging $label ($ver) failed"
+                  exit 1
+                }
+
+            local app="$dir/release/Orgtree-${ver}-arm64.AppImage"
+            [ -f "$app" ] || { echo "::error::missing $app"; exit 1; }
+            echo "--- $label ($ver) app-update.yml ---"
+            cat "$dir/release/linux-arm64-unpacked/resources/app-update.yml"
+            grep -qxF "provider: generic" "$dir/release/linux-arm64-unpacked/resources/app-update.yml"
+            grep -qxF "url: $KIT_FEED_URL" "$dir/release/linux-arm64-unpacked/resources/app-update.yml"
+            grep -qxF "channel: alpha" "$dir/release/linux-arm64-unpacked/resources/app-update.yml"
+          }
+
+          pkg_one "$KIT_VERSION_N" N
+          pkg_one "$KIT_VERSION_N1" N1
+
+          echo "--- glibc floor and architecture check (N unpacked) ---"
+          node .github/ci/linux/glibc-floor.mjs \
+            "$work/N/release/linux-arm64-unpacked" arm64 2.35 \
+            "$logs/glibc-floor-linux-arm64.json"
+
+          echo "--- Validate N+1 update feed (alpha-linux-arm64.yml) ---"
+          node .github/ci/linux/check-update-feed.mjs "$work/N1/release" "$KIT_VERSION_N1" arm64
+          cat "$work/N1/release/alpha-linux-arm64.yml"
+
+          cp "$work/N/release/Orgtree-${KIT_VERSION_N}-arm64.AppImage" "$out/"
+          cp "$work/N1/release/Orgtree-${KIT_VERSION_N1}-arm64.AppImage" "$out/"
+          cp "$work/N1/release/alpha-linux-arm64.yml" "$out/"
+          cp "$work/N/build-info.json" "$out/build-info-${KIT_VERSION_N}-arm64.json"
+          cp "$work/N1/build-info.json" "$out/build-info-${KIT_VERSION_N1}-arm64.json"
+          chmod +x "$out/Orgtree-${KIT_VERSION_N}-arm64.AppImage" "$out/Orgtree-${KIT_VERSION_N1}-arm64.AppImage"
+
+          (
+            cd "$out"
+            sha256sum \
+              "Orgtree-${KIT_VERSION_N}-arm64.AppImage" \
+              "Orgtree-${KIT_VERSION_N1}-arm64.AppImage" \
+              "alpha-linux-arm64.yml" \
+              "build-info-${KIT_VERSION_N}-arm64.json" \
+              "build-info-${KIT_VERSION_N1}-arm64.json" \
+              | sort -k2 > SHA256SUMS-orgtree.txt
+            echo "--- Staged Orgtree kit assets ---"
+            ls -lh
+            echo "--- SHA256SUMS-orgtree.txt ---"
+            cat SHA256SUMS-orgtree.txt
+            file "Orgtree-${KIT_VERSION_N}-arm64.AppImage" "Orgtree-${KIT_VERSION_N1}-arm64.AppImage"
+          )
+
+      - name: Self-update smoke (extract-and-run without FUSE, 4.6.9-alpha.1 -> 4.6.9-alpha.2)
+        env:
+          ELECTRON_RUN_AS_NODE: ''
+        run: |
+          set -euo pipefail
+          out="$(realpath -m build/linux/frame-kit-out)"
+          logs="$(realpath -m build/linux/frame-kit-logs/update-smoke)"
+          work="$(realpath -m build/linux/frame-kit-smoke)"
+          rm -rf "$logs" "$work"
+          mkdir -p "$logs" "$work/feed"
+
+          sudo loginctl enable-linger "$USER"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for _ in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
+          systemctl --user show-environment >/dev/null 2>&1 || { echo "::error::systemd --user unavailable"; exit 1; }
+
+          bus_answers() { DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus" timeout 5 busctl --user list >/dev/null 2>&1; }
+          buspid=
+          if ! bus_answers; then
+            rm -f "$XDG_RUNTIME_DIR/bus"
+            dbus-daemon --session --address="unix:path=$XDG_RUNTIME_DIR/bus" --nofork --nopidfile >"$logs/dbus.out" 2>&1 &
+            buspid=$!
+            for _ in $(seq 1 20); do bus_answers && break; sleep 0.5; done
+          fi
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+          cp "$out/alpha-linux-arm64.yml" "$out/Orgtree-${KIT_VERSION_N1}-arm64.AppImage" "$work/feed/"
+          apps="$HOME/Applications"
+          app="$apps/Orgtree.AppImage"
+          profile="$HOME/.config/Orgtree v2"
+          unit=orgtree-engine.service
+          rm -rf "$profile" "$HOME/.local/share/applications/orgtree.desktop" "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+          mkdir -p "$apps"
+          cp "$out/Orgtree-${KIT_VERSION_N}-arm64.AppImage" "$app"
+          chmod 755 "$app"
+
+          shaN="$(sha256sum "$app" | cut -d' ' -f1)"
+          shaN1="$(sha256sum "$work/feed/Orgtree-${KIT_VERSION_N1}-arm64.AppImage" | cut -d' ' -f1)"
+          echo "N=$KIT_VERSION_N ($shaN) -> N+1=$KIT_VERSION_N1 ($shaN1)"
+
+          procs() { node .github/ci/linux/appimage-procs.mjs "$app" 2>/dev/null || true; }
+          desktop_pids() { procs | awk '$3 == "desktop" { print $1 }' || true; }
+          desktop_ver() { procs | awk '$3 == "desktop" { print $4; exit }' || true; }
+          engine_port() {
+            local f=""
+            if [ -d "$profile" ]; then
+              f="$(find "$profile" -name engine-port.json 2>/dev/null | head -1 || true)"
+            fi
+            if [ -n "$f" ]; then
+              grep -o '[0-9]*' "$f" 2>/dev/null | head -1 || true
+            fi
+            return 0
+          }
+          runtime_engine_pid() {
+            local prefix="$1" p exe
+            for p in /proc/[0-9]*; do
+              exe="$(readlink "$p/exe" 2>/dev/null || true)"
+              case "$exe" in
+                "$prefix/engine/orgtree-engine"*) echo "${p#/proc/}"; return 0 ;;
+              esac
+            done
+            return 0
+          }
+          main_pid() { systemctl --user show -p MainPID --value "$unit" 2>/dev/null || echo 0; }
+
+          feedpid=
+          xvfbpid=
+          teardown() {
+            set +e
+            cp "$profile/update-log.json" "$logs/" 2>/dev/null
+            cp "$HOME/.local/share/applications/orgtree.desktop" "$logs/" 2>/dev/null
+            cp "$HOME/.local/share/applications/dev.orgtree.link.desktop" "$logs/" 2>/dev/null
+            cp "$HOME/.config/systemd/user/$unit" "$logs/" 2>/dev/null
+            for p in $(desktop_pids); do kill -TERM "$p" 2>/dev/null; done
+            systemctl --user disable --now "$unit" >/dev/null 2>&1
+            rm -f "$HOME/.config/systemd/user/$unit"
+            systemctl --user daemon-reload >/dev/null 2>&1
+            for _ in $(seq 1 20); do [ -z "$(procs)" ] && break; sleep 1; done
+            pkill -KILL -f 'orgtree-engine|appimage_extracted_|orgtree-mailhub' 2>/dev/null
+            [ -n "$feedpid" ] && kill "$feedpid" 2>/dev/null
+            [ -n "$xvfbpid" ] && kill "$xvfbpid" 2>/dev/null
+            [ -n "$buspid" ] && { kill "$buspid" 2>/dev/null; rm -f "$XDG_RUNTIME_DIR/bus"; }
+            rm -rf "$profile/engine-runtime" /tmp/appimage_extracted_* "$app"
+          }
+          trap teardown EXIT
+
+          node .github/ci/linux/update-feed.mjs "$work/feed" "$KIT_FEED_PORT" "$logs/feed-requests.jsonl" >"$logs/feed.out" 2>&1 &
+          feedpid=$!
+          Xvfb :77 -screen 0 1280x800x24 -nolisten tcp >"$logs/xvfb.out" 2>&1 &
+          xvfbpid=$!
+          export DISPLAY=:77
+
+          for _ in $(seq 1 40); do
+            if [ -S /tmp/.X11-unix/X77 ] && curl -sf -o /dev/null "${KIT_FEED_URL}alpha-linux-arm64.yml"; then
+              break
+            fi
+            sleep 0.5
+          done
+          [ -S /tmp/.X11-unix/X77 ] || { echo "::error::Xvfb did not start"; exit 1; }
+          curl -sf -o /dev/null "${KIT_FEED_URL}alpha-linux-arm64.yml" || { echo "::error::loopback feed did not answer"; exit 1; }
+
+          # Launch exactly as the Frame does: APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1
+          start=$SECONDS
+          (
+            umask 0002
+            cd "$HOME"
+            setsid sh -c 'APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1 "$1"; echo "$?" >"$2"' \
+              launcher "$app" "$work/N-exit" >>"$logs/app.out" 2>&1 </dev/null &
+          )
+
+          short12="${KIT_BASE_SHA:0:12}"
+          want_copy_n="$profile/engine-runtime/${KIT_VERSION_N}-${short12}"
+          want_copy_n1="$profile/engine-runtime/${KIT_VERSION_N1}-${short12}"
+
+          pidN=
+          engN=
+          for _ in $(seq 1 120); do
+            pidN="$(desktop_pids | head -1 || true)"
+            port="$(engine_port || true)"
+            engN="$(runtime_engine_pid "$want_copy_n" || true)"
+            if [ -n "$pidN" ] && [ -n "$port" ] && [ -n "$engN" ] && [ -f "$HOME/.local/share/applications/orgtree.desktop" ]; then
+              break
+            fi
+            sleep 1
+          done
+          [ -n "$pidN" ] || { tail -40 "$logs/app.out"; echo "::error::N desktop did not start"; exit 1; }
+          echo "N started after $((SECONDS - start))s: desktop pid=$pidN ver=$(desktop_ver) port=$(engine_port) engine_pid=$engN"
+          [ "$(desktop_ver)" = "$KIT_VERSION_N" ] || { echo "::error::expected $KIT_VERSION_N, got $(desktop_ver)"; exit 1; }
+          [ -n "$engN" ] || { echo "::error::N engine did not start under $want_copy_n"; exit 1; }
+          engN_exe="$(readlink "/proc/$engN/exe" 2>/dev/null || true)"
+          echo "N persistent engine exe=$engN_exe (systemd MainPID=$(main_pid))"
+
+          echo "--- N desktop entries ---"
+          cat "$HOME/.local/share/applications/orgtree.desktop"
+          cat "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+          grep -qxF "X-Orgtree-Version=$KIT_VERSION_N" "$HOME/.local/share/applications/orgtree.desktop"
+          grep -qxF "X-Orgtree-Version=$KIT_VERSION_N" "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+          desktop-file-validate "$HOME/.local/share/applications/orgtree.desktop"
+          desktop-file-validate "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+          [ -f "$HOME/.local/share/icons/hicolor/256x256/apps/orgtree.png" ] || { echo "::error::missing installed icon"; exit 1; }
+
+          echo "--- Waiting up to 420s for N -> N+1 self-update ---"
+          deadline=$((SECONDS + 420))
+          swapped=
+          pidN1=
+          engN1=
+          while [ $SECONDS -lt $deadline ]; do
+            if [ -z "$swapped" ] && [ "$(sha256sum "$app" 2>/dev/null | cut -d' ' -f1)" = "$shaN1" ]; then
+              swapped=$SECONDS
+              echo "Swapped $app to N+1 after $((SECONDS - start))s"
+            fi
+            if [ -n "$swapped" ]; then
+              vnow="$(desktop_ver || true)"
+              pnow="$(desktop_pids | head -1 || true)"
+              engNow="$(runtime_engine_pid "$want_copy_n1")"
+              engOld="$(runtime_engine_pid "$want_copy_n")"
+              if [ "$vnow" = "$KIT_VERSION_N1" ] && [ -n "$pnow" ] && [ "$pnow" != "$pidN" ] \
+                 && [ -n "$engNow" ] && [ -z "$engOld" ] \
+                 && grep -qxF "X-Orgtree-Version=$KIT_VERSION_N1" "$HOME/.local/share/applications/orgtree.desktop" 2>/dev/null; then
+                pidN1="$pnow"
+                engN1="$engNow"
+                break
+              fi
+            fi
+            sleep 2
+          done
+
+          if [ -z "$pidN1" ]; then
+            echo "--- update-log.json ---"
+            cat "$profile/update-log.json" 2>/dev/null || true
+            echo "--- feed-requests.jsonl ---"
+            cat "$logs/feed-requests.jsonl" 2>/dev/null || true
+            echo "--- app.out tail ---"
+            grep -v appimage_extracted "$logs/app.out" | tail -40 || true
+            echo "::error::Orgtree did not complete N -> N+1 extract-and-run update within 420s"
+            exit 1
+          fi
+
+          port_now=
+          code=
+          for _ in $(seq 1 60); do
+            port_now="$(engine_port || true)"
+            if [ -n "$port_now" ]; then
+              code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port_now/" || true)"
+            fi
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            sleep 1
+          done
+          [ "$code" = "200" ] || { echo "::error::N+1 engine did not answer 200 (got $code on $port_now)"; exit 1; }
+
+          engN1_exe="$(readlink "/proc/$engN1/exe" 2>/dev/null || true)"
+          n_exit="$(cat "$work/N-exit" 2>/dev/null || echo '?')"
+          echo "PASS N->N+1 extract-and-run update: desktop pid=$pidN1 ver=$KIT_VERSION_N1, engine pid=$engN1 ($engN1_exe), systemd MainPID=$(main_pid), engine HTTP $code on port $port_now, N exit=$n_exit"
+          [ "$n_exit" = "0" ] || { echo "::error::N desktop exited $n_exit instead of 0"; exit 1; }
+
+          echo "--- N+1 desktop entries ---"
+          cat "$HOME/.local/share/applications/orgtree.desktop"
+          cat "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+          grep -qxF "X-Orgtree-Version=$KIT_VERSION_N1" "$HOME/.local/share/applications/orgtree.desktop"
+          grep -qxF "X-Orgtree-Version=$KIT_VERSION_N1" "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+          desktop-file-validate "$HOME/.local/share/applications/orgtree.desktop"
+          desktop-file-validate "$HOME/.local/share/applications/dev.orgtree.link.desktop"
+
+          echo "--- Feed requests ---"
+          cat "$logs/feed-requests.jsonl"
+          echo "--- Update log summary ---"
+          node -e '
+            const log = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            for (const e of log) console.log([e.at, e.stage, e.from && e.to ? `${e.from}->${e.to}` : "", e.detail ?? ""].filter(Boolean).join("  "));
+            const at = log.findLastIndex(e => e.stage === "handoff" && String(e.detail).includes("AppImage replaced in place at " + process.argv[2]));
+            if (at < 0) { console.error("missing handoff record"); process.exit(1); }
+            const after = log.slice(at + 1);
+            if (!after.some(e => e.stage === "startup" && String(e.detail).includes("relaunched by the updater"))) {
+              console.error("missing startup relaunch record"); process.exit(1);
+            }
+            const bad = after.filter(e => ["error", "not-installed", "handoff-refused", "failure-report-shown", "held"].includes(e.stage));
+            if (bad.length) { console.error("post-swap failure stages:", bad.map(e => e.stage)); process.exit(1); }
+            console.log("PASS update-log.json clean");
+          ' "$profile/update-log.json" "$app"
+
+      - name: Upload Orgtree Frame kit artifacts (arm64)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-frame-kit-arm64
+          path: build/linux/frame-kit-out/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Orgtree Frame kit logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-frame-kit-arm64-logs
+          path: build/linux/frame-kit-logs/
+          if-no-files-found: warn
+          retention-days: 7
