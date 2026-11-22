@@ -137,3 +137,41 @@ test('Windows (win32): Turn on phone access still calls addPhoneFirewallRule bef
   assert.equal(note, 'The firewall rule for phone access was removed.')
   assert.deepEqual(firewallCalls, ['add:tailnet', 'add:tailnet', 'remove'])
 })
+
+test('Windows (win32): missing addPhoneFirewallRule capability or thrown error refuses before POST /api/desktop/phone/access', async t => {
+  const oldFetch = g.fetch
+  const posts: { url: string; body: unknown }[] = []
+  g.fetch = (url: string, init?: RequestInit) => {
+    const u = new URL(String(url), 'http://localhost')
+    if (init?.method === 'POST') posts.push({ url: u.pathname, body: JSON.parse(String(init.body)) })
+    return Promise.resolve(new Response(JSON.stringify(phoneState('A0', null)), { status: 200 }))
+  }
+  t.after(() => { g.fetch = oldFetch; setBridge(undefined) })
+
+  // 1. Windows desktop bridge without addPhoneFirewallRule capability must refuse.
+  setBridge({ platform: 'win32' } as Partial<NativeDesktop>)
+  const vMissing = await mountView(<PhonePanel org="acme" onClose={() => {}} />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    const btn = [...vMissing.el.querySelectorAll('button')].find(b => b.textContent === 'Turn on phone access')
+    assert.ok(btn, 'Turn on phone access button rendered')
+    await inAct(async () => { btn.click(); await flush(6) })
+    assert.deepEqual(posts, [], 'must not activate phone access on Windows without firewall capability')
+    assert.match(vMissing.el.querySelector('.phone-note')?.textContent ?? '', /Windows Firewall/i)
+  } finally { await vMissing.unmount() }
+
+  // 2. Windows desktop bridge where addPhoneFirewallRule throws must also refuse.
+  setBridge({
+    platform: 'win32',
+    addPhoneFirewallRule: async () => { throw new Error('UAC prompt failed') },
+  } as Partial<NativeDesktop>)
+  const vThrow = await mountView(<PhonePanel org="acme" onClose={() => {}} />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    const btn = [...vThrow.el.querySelectorAll('button')].find(b => b.textContent === 'Turn on phone access')
+    assert.ok(btn)
+    await inAct(async () => { btn.click(); await flush(6) })
+    assert.deepEqual(posts, [], 'must not activate phone access on Windows when firewall IPC throws')
+    assert.match(vThrow.el.querySelector('.phone-note')?.textContent ?? '', /UAC prompt failed/)
+  } finally { await vThrow.unmount() }
+})

@@ -9,7 +9,7 @@ import {useDogRoute} from './watchdogroute'
 import {slotClaimLeaseState} from './slotclaim'
 import type {SlotClaimLeaseState} from './slotclaim'
 import { useSurfaceDocument } from '../popout'
-import { useIsWindowsHost } from '../hostos'
+import { useHostOs } from '../hostos'
 import { userGesture } from '../historyapi'
 import { historyUndo } from '../historyregistry'
 import { lineageCount } from '../archived'
@@ -845,7 +845,9 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     }).catch(() => {})
   }, [])
   const allMcp = tools.mcp.includes('*')
-  const windowsHost = useIsWindowsHost()
+  const hostOs = useHostOs()
+  const showDesktopSession = hostOs === 'windows' || hostOs === null
+  const sessionHint = hostOs === 'windows' ? SESSION_HINT : SESSION_HINT_UNKNOWN_HOST
   const tabId = useId()
   const [localTab, setLocalTab] = useState<DraftSettingsTab>('charter')
   const tab = chosenTab ?? localTab
@@ -949,7 +951,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         </SetBlock>
 
       </>}
-      {windowsHost && <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={e => setSess(e.target.value)}>
+      {showDesktopSession && <SetRow label="Desktop session" hint={sessionHint}><select aria-label="Desktop session" value={sess} onChange={e => setSess(e.target.value)}>
         {sessionOptions(sess).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select></SetRow>}
     </SettingsTabPanel>
@@ -1032,6 +1034,7 @@ const FILE_ACCESS_HINT = 'Unrestricted access removes approval prompts, includin
 const ORGTREE_TOOLS_HINT = 'Tools provided by Orgtree to manage work, agents and communication.'
 const MCP_SERVERS_HINT = 'Choose which registered MCP servers the agent can use.'
 const SESSION_HINT = "Where this agent's CLI runs while the user is signed in to Windows. Session 0 has no desktop: no apps, no screenshots. It applies from the agent's next turn."
+const SESSION_HINT_UNKNOWN_HOST = 'Windows engines only. ' + SESSION_HINT
 /** an ordered list set through orgtree_session, shown as it is */
 const sessionOptions = (current: string): [string, string][] => {
   if (SESSION_OPTIONS.some(([v]) => v === current)) return SESSION_OPTIONS
@@ -1430,7 +1433,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   useEffect(() => { if (target) setTab(target.tab as NodeConfigTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
   useSettingsTarget(stripRef, target, !!target && tab === target.tab)
   const history = useRecordHistory(slug, node.id)
-  const windowsHost = useIsWindowsHost()
+  const hostOs = useHostOs()
+  const showDesktopSession = hostOs === 'windows' || hostOs === null
+  const sessionHint = hostOs === 'windows' ? SESSION_HINT : SESSION_HINT_UNKNOWN_HOST
   const hasHistory = (history.value?.length ?? 0) > 0
   const tabId = useId()
   // the Model tab is a model choice: re-read agy's model list as it opens
@@ -2036,7 +2041,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></SetRow>
 
-        {windowsHost && <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={(e) => setSess(e.target.value)}>
+        {showDesktopSession && <SetRow label="Desktop session" hint={sessionHint}><select aria-label="Desktop session" value={sess} onChange={(e) => setSess(e.target.value)}>
           {sessionOptions(sess).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></SetRow>}
 

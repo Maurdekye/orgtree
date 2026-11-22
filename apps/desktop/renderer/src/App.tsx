@@ -84,6 +84,7 @@ import { RemoteBanner, RemoteChip, useRemoteAway } from './shell/remotes'
 import { SharedChip } from './canvas/remoteaccess'
 import { remoteOfOrg, useRemotes } from './remotes'
 import { treeHere, useRemoteHere } from './remotehere'
+import { clearHostOs, createHostRefresher } from './hostos'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
 import { SaveTemplateSetting } from './canvas/templates'
@@ -436,7 +437,6 @@ const bootAntigravityUsagePeek = afterBootGate(getAntigravityUsagePeek)
 const bootMuseUsagePeek = afterBootGate(getMuseUsagePeek)
 const bootOpenRouterUsagePeek = afterBootGate(getOpenRouterUsagePeek)
 const bootProviders = afterBootGate(getProviders)
-const bootHost = afterBootGate(getHost)
 
 const slugFromPath = () => {
   const m = location.pathname.match(/^\/o\/([a-z0-9@-]+)/)
@@ -915,7 +915,13 @@ export default function App() {
     }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug, v3, viewMode])
-  useEffect(() => { bootHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
+  const hostRefresher = useMemo(
+    () => createHostRefresher(() => getHost().then((h) => { setBuild(h.build) })),
+    [],
+  )
+  useEffect(() => {
+    void afterBootGate(() => hostRefresher.loadInitial())()
+  }, [hostRefresher])
   // The running APP version, shown beside the sidebar title (user 2026-09-10,
   // e.g. "2.0.0-alpha.8"). It comes from the desktop shell's own bridge —
   // packaging is what has a version, not the backend's git state — via the
@@ -976,7 +982,11 @@ export default function App() {
   // source makes is proof the backend is reachable again.
   const errStreak = useRef(0)
   const ERROR_STREAK = 2
-  const fetchOk = useCallback(() => { errStreak.current = 0; setError(null) }, [])
+  const fetchOk = useCallback(() => {
+    errStreak.current = 0
+    setError(null)
+    void hostRefresher.onRecovered()
+  }, [hostRefresher])
   const fetchErr = useCallback((e: Error) => {
     errStreak.current += 1
     if (errStreak.current >= ERROR_STREAK) setError(e.message)
@@ -998,8 +1008,25 @@ export default function App() {
   const orgs = orgStatus.orgs
   // An organization on a remote engine (remotes.ts): its engine's name marks the title, and while the
   // engine is away the window shows the last known state, dimmed, under a banner (shell/remotes.tsx).
-  const remoteName = remoteOfOrg(useRemotes(), slug)?.name ?? null
+  const remoteOrg = remoteOfOrg(useRemotes(), slug)
+  const remoteName = remoteOrg?.name ?? null
+  const remoteId = remoteOrg?.id ?? null
+  const remoteState = remoteOrg?.state ?? null
   const remoteAway = useRemoteAway(slug)
+  const prevRemoteHostRef = useRef<{ id: string | null; state: string | null } | null>(null)
+  useEffect(() => {
+    const prev = prevRemoteHostRef.current
+    prevRemoteHostRef.current = { id: remoteId, state: remoteState }
+    if (!prev) return
+    if (prev.id !== remoteId) {
+      clearHostOs()
+      void hostRefresher.onReconnect()
+      return
+    }
+    if (remoteState === 'connected' && (prev.state !== 'connected' || hostRefresher.hasFailed())) {
+      void hostRefresher.onReconnect()
+    }
+  }, [remoteId, remoteState, hostRefresher])
   useEffect(() => { setStreamerOrgs(orgs.filter(o => o.slug !== slug).flatMap(o => [o.name, o.slug])) }, [orgs, slug])
   // false until the FIRST successful /api/orgs: first-run setup must never
   // flash at an existing installation whose list simply hasn't loaded yet
@@ -1362,6 +1389,7 @@ export default function App() {
     // auto-reconnect every state indicator froze at its last value until a
     // manual page reload — the "states never line up" bug
     let dead = false
+    let hadClose = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let currentSocket: WebSocket | null = null
     let connection: number | null = null
@@ -1387,6 +1415,7 @@ export default function App() {
         }
       }, () => {
         if (socket !== currentSocket) return
+        hadClose = true
         if (connection !== null) recordSocket.current.close(connection)
         connection = null
         socketLost(slug)
@@ -1398,6 +1427,7 @@ export default function App() {
         opened(socket)
         epic?.frame(slug, { type: 'epic_link', up: true })
         void recordController.current?.feed.reconnect()
+        if (hadClose || hostRefresher.hasFailed()) void hostRefresher.onReconnect()
       })
       currentSocket = socket; wsRef.current = socket
       // Some already-open transports (and the DOM test transport) have no

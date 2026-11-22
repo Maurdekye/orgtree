@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
+import { clearHostOs, noteHostOs } from '../src/hostos'
 
 const account = (id: string, provider = 'claude', auth = 'authenticated') => ({
   id, provider, label: id, credential: { kind: 'managed', path: 'C:/fixture/' + id },
@@ -22,6 +23,7 @@ async function setup(t: TestContext, initial = [account('existing-claude'), acco
       id, label: ['Claude', 'Codex', 'Antigravity'][i], cli: id, status: { installed: true, connected: true }, tiers: [], hire_enabled: true,
     })) }
     else if (String(url).endsWith('/identity')) body = { auth: 'unauthenticated' }
+    else if (String(url) === '/api/host') body = { os: 'windows' }
     else if (String(url) === '/api/accounts' && method === 'POST') {
       if (state.failPost) return new Response(JSON.stringify({ detail: 'Folder does not exist' }), { status: 422 })
       const input = JSON.parse(String(init?.body))
@@ -32,8 +34,9 @@ async function setup(t: TestContext, initial = [account('existing-claude'), acco
   }) as typeof fetch
   const desk = window as unknown as { orgtreeDesktop?: unknown }
   desk.orgtreeDesktop = { getProviderLoginStatus: async () => ({ phase: 'idle' }), getPreferences: async () => ({}), onEvent: () => () => {} }
+  noteHostOs('windows')
   const view = await mountView(<AccountsPanel toast={lines => { notices.push(lines) }} close={() => { state.closed = true }} />, el => el)
-  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch; delete desk.orgtreeDesktop })
+  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch; delete desk.orgtreeDesktop; clearHostOs() })
   await inAct(async () => { await flush() })
   return { view, state, calls, notices }
 }

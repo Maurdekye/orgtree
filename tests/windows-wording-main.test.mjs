@@ -94,6 +94,25 @@ test('O-13, O-14, O-16, B-03: main-process wording helpers preserve Windows exac
 
     assert.equal(typeof pl.terminalUnsupportedError, 'function')
     assert.equal(pl.terminalUnsupportedError(), 'Opening a sign-in terminal is only supported on Windows. Sign in from your own terminal, then click Refresh.')
+    const museManaged = pl.terminalUnsupportedError({
+      provider: 'muse',
+      profileDir: '/home/user/.orgtree/accounts/muse-1',
+      exe: '/usr/local/bin/muse',
+      platform: 'linux',
+    })
+    assert.match(museManaged, /env -u META_API_KEY MUSE_NO_AUTO_UPDATE=1/)
+    assert.match(museManaged, /XDG_CONFIG_HOME='\/home\/user\/\.orgtree\/accounts\/muse-1\/config'/)
+    assert.match(museManaged, /XDG_DATA_HOME='\/home\/user\/\.orgtree\/accounts\/muse-1\/data'/)
+    assert.match(museManaged, /'\/usr\/local\/bin\/muse' login/)
+    assert.match(museManaged, /Refresh/)
+    const museUnsafe = pl.terminalUnsupportedError({
+      provider: 'muse',
+      profileDir: '/tmp/bad\npath',
+      exe: '/usr/local/bin/muse',
+      platform: 'linux',
+    })
+    assert.match(museUnsafe, /managed Muse profile.*not supported/i)
+    assert.doesNotMatch(museUnsafe, /Sign in from your own terminal/)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

@@ -144,7 +144,7 @@ export function CharterTemplateDirsSetting() {
       + 'name in different places are all offered, labelled by folder. '
       + (windowsHost
         ? 'Links, junctions and cloud-sync placeholder files (such as OneDrive files not kept on this device) are treated as links and not read.'
-        : 'Symbolic links and cloud-sync placeholder files are treated as links and not read.')}>
+        : 'Symbolic links are skipped, and only regular .md files are read.')}>
       <div className="dirlist" aria-label="Charter template folders">
         {data === null && !error && <p className="dim">Loading…</p>}
         {data !== null && dirs.length === 0 && <p className="dim">No folders listed</p>}

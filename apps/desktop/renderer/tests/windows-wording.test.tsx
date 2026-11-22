@@ -14,6 +14,7 @@ import { ShortcutsSettings } from '../src/canvas/shortcutsettings'
 import { CharterTemplateDirsSetting } from '../src/canvas/chartersettings'
 import { composerKeyHint } from '../src/composerkeys'
 import { getHost } from '../src/api'
+import { clearHostOs, createHostRefresher, currentHostOs } from '../src/hostos'
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
@@ -28,11 +29,12 @@ function setBridge(value: Partial<NativeDesktop> | undefined) {
   Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
 }
 
-async function seedHostOs(os: string) {
+async function seedHostOs(os: string | undefined) {
   const prev = g.fetch
-  g.fetch = (async () => new Response(JSON.stringify({
-    os, build: { commit: 'test', started_at: '2026-11-22T00:00:00Z' }, cli_version: '1.0',
-  }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+  const payload = os === undefined
+    ? { build: { commit: '4.6.8', started_at: '2026-11-22T00:00:00Z' }, cli_version: '1.0' }
+    : { os, build: { commit: 'test', started_at: '2026-11-22T00:00:00Z' }, cli_version: '1.0' }
+  g.fetch = (async () => new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
   try { await getHost() } finally { g.fetch = prev }
 }
 
@@ -224,7 +226,46 @@ test('O-06: Desktop session in NodeConfig and DraftScopeModal follows serving en
   try {
     await inAct(async () => { await flush(6) })
     assert.ok(document.body.querySelector('select[aria-label="Desktop session"]'), 'remote Windows engine shows DraftScopeModal Desktop session')
+    assert.doesNotMatch(document.body.textContent ?? '', /Windows engines only\./, 'known Windows engine keeps byte-identical hint')
   } finally { await vDraftRemoteWin.unmount() }
+
+  // Linux client + older engine /api/host without `os` -> unknown host OS, keeps control with "Windows engines only" qualification
+  setBridge({ platform: 'linux' })
+  await seedHostOs(undefined)
+  assert.equal(currentHostOs(), null, 'older /api/host without os must be unknown (null), never client OS')
+  mockApi()
+  const vNodeLegacy = await mountView(<NodeConfig node={node} map={new Map([[node.id, node]])} tree={tree} slug="org" op={async () => ({})} toast={() => {}} close={() => {}} />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    assert.ok(document.body.querySelector('select[aria-label="Desktop session"]'), 'Linux client + legacy /api/host without os keeps Desktop session')
+    assert.match(document.body.textContent ?? '', /Windows engines only\./, 'unknown host OS qualifies Desktop session')
+  } finally { await vNodeLegacy.unmount() }
+
+  const vDraftLegacy = await mountView(<DraftScopeModal draft={draft} map={new Map()} tree={tree} onSave={() => {}} close={() => {}} />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    assert.ok(document.body.querySelector('select[aria-label="Desktop session"]'), 'Linux client + legacy /api/host keeps DraftScopeModal Desktop session')
+    assert.match(document.body.textContent ?? '', /Windows engines only\./)
+  } finally { await vDraftLegacy.unmount() }
+
+  // Failed boot request stays unknown even on Windows desktop, then recovers on reconnect
+  setBridge({ platform: 'win32' })
+  clearHostOs()
+  assert.equal(currentHostOs(), null, 'failed/unloaded host OS must stay unknown even on Windows desktop')
+  let attempts = 0
+  let failNext = true
+  const refresher = createHostRefresher(async () => {
+    attempts++
+    if (failNext) throw new Error('offline')
+    await seedHostOs('linux')
+  })
+  await refresher.loadInitial()
+  assert.equal(attempts, 1)
+  assert.equal(currentHostOs(), null)
+  failNext = false
+  await refresher.onReconnect()
+  assert.equal(attempts, 2)
+  assert.equal(currentHostOs(), 'linux', 'reconnect retries /api/host and updates host OS')
 })
 
 test('O-07: AppFilePermissionPrompt whole-computer wording branches on host OS', async t => {
@@ -269,10 +310,11 @@ test('O-09: Antigravity single sign-in notices omit Windows Credential Manager o
   const vSecNix = await mountView(<AccountRegistrySection provider="google" registry={registry} toast={() => {}} />, el => el)
   const vDlgNix = await mountView(<AddAccountDialog provider="google" onAdded={async () => {}} close={() => {}} />, el => el)
   try {
-    assert.match(vSecNix.el.textContent ?? '', /Antigravity keeps one Google sign-in per system user:/)
-    assert.doesNotMatch(vSecNix.el.textContent ?? '', /Windows/)
-    assert.match(vDlgNix.el.textContent ?? '', /per system user, in the system keyring\./)
-    assert.doesNotMatch(vDlgNix.el.textContent ?? '', /Windows/)
+    assert.match(vSecNix.el.textContent ?? '', /Orgtree allows one default Antigravity Google sign-in per user:/)
+    assert.doesNotMatch(vSecNix.el.textContent ?? '', /Windows|system keyring/i)
+    assert.match(vDlgNix.el.textContent ?? '', /Orgtree currently allows one Antigravity Google subscription sign-in per user\./)
+    assert.match(vDlgNix.el.textContent ?? '', /platform and Antigravity CLI version/)
+    assert.doesNotMatch(vDlgNix.el.textContent ?? '', /Windows|system keyring/i)
   } finally { await vSecNix.unmount(); await vDlgNix.unmount() }
 
   await seedHostOs('windows')
@@ -357,7 +399,8 @@ test('B-03: CharterTemplateDirsSetting uses symbolic link and omits junction/One
     await inAct(async () => { await flush(6) })
     const txt = vNix.el.textContent ?? ''
     assert.match(txt, /refused — the path goes through a symbolic link/)
-    assert.doesNotMatch(txt, /junction|OneDrive/i)
+    assert.match(txt, /Symbolic links are skipped, and only regular \.md files are read\./)
+    assert.doesNotMatch(txt, /junction|OneDrive|placeholder/i)
   } finally { await vNix.unmount() }
 
   await seedHostOs('windows')

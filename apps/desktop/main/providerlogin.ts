@@ -142,7 +142,7 @@ let taskkill: Taskkill = (cmd, args, done) => hostExecFile(cmd, args, { windowsH
 export function _setTaskkillForTests(fn: Taskkill): void { taskkill = fn }
 
 function launchAntigravityTerminal(exe: string): { started: boolean; error?: string } {
-  return launchTerminal(exe, [])
+  return launchTerminal(exe, [], undefined, { provider: 'antigravity', exe })
 }
 
 /** Muse's sign-in, `muse login`, shows a code the user approves in the
@@ -166,7 +166,7 @@ function launchMuseTerminal(exe: string, profileDir?: string): { started: boolea
     env.XDG_CONFIG_HOME = path.join(profileDir, 'config')
     env.XDG_DATA_HOME = path.join(profileDir, 'data')
   }
-  return launchTerminal(exe, DOORS.muse.extraArgs, env)
+  return launchTerminal(exe, DOORS.muse.extraArgs, env, { provider: 'muse', profileDir, exe })
 }
 
 export function profileNotWritableError(platform: NodeJS.Platform = process.platform): string {
@@ -175,13 +175,42 @@ export function profileNotWritableError(platform: NodeJS.Platform = process.plat
     : 'The selected account profile is not writable. Its folder permissions must allow your user account before signing in.'
 }
 
-export function terminalUnsupportedError(): string {
+function shellQuotePosix(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function joinProfileRoot(profileDir: string, leaf: 'config' | 'data', platform: NodeJS.Platform): string {
+  return platform === 'win32' ? path.win32.join(profileDir, leaf) : path.posix.join(profileDir, leaf)
+}
+
+export interface TerminalUnsupportedOptions {
+  provider?: 'antigravity' | 'muse'
+  profileDir?: string
+  exe?: string
+  platform?: NodeJS.Platform
+}
+
+export function terminalUnsupportedError(opts?: TerminalUnsupportedOptions): string {
+  if (opts?.provider === 'muse' && opts.profileDir) {
+    const profileDir = opts.profileDir
+    const exe = opts.exe?.trim() ?? ''
+    const hasControl = /[\r\n\0]/.test(profileDir) || /[\r\n\0]/.test(exe)
+    if (!exe || hasControl) {
+      return 'Signing in a managed Muse profile from a terminal is not supported on this platform yet.'
+    }
+    const platform = opts.platform ?? process.platform
+    const configDir = joinProfileRoot(profileDir, 'config', platform)
+    const dataDir = joinProfileRoot(profileDir, 'data', platform)
+    return `Opening a sign-in terminal is only supported on Windows. For this managed Muse profile, run in your own terminal: env -u META_API_KEY MUSE_NO_AUTO_UPDATE=1 XDG_CONFIG_HOME=${shellQuotePosix(configDir)} XDG_DATA_HOME=${shellQuotePosix(dataDir)} ${shellQuotePosix(exe)} login — then click Refresh.`
+  }
   return 'Opening a sign-in terminal is only supported on Windows. Sign in from your own terminal, then click Refresh.'
 }
 
-function launchTerminal(exe: string, args: string[], env?: NodeJS.ProcessEnv): { started: boolean; error?: string } {
+function launchTerminal(
+  exe: string, args: string[], env?: NodeJS.ProcessEnv, unsupportedOpts?: TerminalUnsupportedOptions,
+): { started: boolean; error?: string } {
   if (process.platform !== 'win32') {
-    return { started: false, error: terminalUnsupportedError() }
+    return { started: false, error: terminalUnsupportedError(unsupportedOpts) }
   }
   try {
     const child = terminalSpawn('cmd', ['/c', 'start', '""', exe, ...args], {

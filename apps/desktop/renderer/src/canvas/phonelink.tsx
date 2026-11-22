@@ -281,9 +281,13 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
   }
   const turnOn = (scope: 'tailnet' | 'lan') => act(async () => {
     const bridge = desktopBridge()
-    if (bridge?.addPhoneFirewallRule && isWindowsDesktop(bridge)) {
+    if (bridge && isWindowsDesktop(bridge)) {
+      if (typeof bridge.addPhoneFirewallRule !== 'function') {
+        setNote('This desktop app cannot add the Windows Firewall rule required for phone access.')
+        return
+      }
       const r = await bridge.addPhoneFirewallRule(scope)
-      if (!r.ok) { setNote(r.error); return }
+      if (!r?.ok) { setNote(r?.error || 'The firewall rule for phone access was not added.'); return }
     }
     setState(await post<PhoneState>('/api/desktop/phone/access', { scope }))
     await reload()

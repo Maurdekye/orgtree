@@ -178,16 +178,16 @@ const ANTIGRAVITY_ONE_SIGNIN = [
     + 'For a second Antigravity account, use an API key below.',
 ]
 const ANTIGRAVITY_ONE_SIGNIN_NON_WINDOWS = [
-  'Antigravity keeps one Google sign-in per system user, in the system keyring. '
-    + 'A separate profile folder still uses that same sign-in (measured on Antigravity CLI 1.3.5), '
-    + 'so a second Google account cannot run beside your default one.',
+  'Orgtree currently allows one Antigravity Google subscription sign-in per user. '
+    + 'Depending on the platform and Antigravity CLI version, sign-in storage is shared outside the profile folder '
+    + 'or falls back to a single user token file without profile isolation, so a second Google account cannot run beside your default one.',
   'Signing in to Antigravity again would replace your default Antigravity sign-in for every agent. '
     + 'For a second Antigravity account, use an API key below.',
 ]
 const ANTIGRAVITY_ONE_SIGNIN_ROW = 'Antigravity keeps one Google sign-in per Windows user: this account runs '
   + 'only when Antigravity confirms it is signed in separately from your default account.'
-const ANTIGRAVITY_ONE_SIGNIN_ROW_NON_WINDOWS = 'Antigravity keeps one Google sign-in per system user: this account runs '
-  + 'only when Antigravity confirms it is signed in separately from your default account.'
+const ANTIGRAVITY_ONE_SIGNIN_ROW_NON_WINDOWS = 'Orgtree allows one default Antigravity Google sign-in per user: '
+  + 'this account runs only when Antigravity confirms it is signed in separately from your default account.'
 const COLORS: Record<AccountProvider, string> = {
   claude: THEMES.claude.accent, openai: THEMES.codex.accent, google: THEMES.antigravity.accent,
   // Muse's provider color (styles.css --prov-muse): no visual theme of its own

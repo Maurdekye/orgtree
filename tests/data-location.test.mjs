@@ -219,7 +219,8 @@ test('preflightDataLocation uses empty folders directly, appends "Orgtree data" 
     trustCheck: okTrust,
   })
   assert.equal(rJunction.ok, false)
-  assert.match(rJunction.error ?? '', /symbolic link or junction/i)
+  assert.match(rJunction.error ?? '', windows ? /symbolic link or junction/i : /symbolic link/i)
+  if (!windows) assert.doesNotMatch(rJunction.error ?? '', /junction/i)
 
   // 6. Low disk space refusal (mocking statfsSync temporarily).
   const origStatfs = fs.statfsSync
