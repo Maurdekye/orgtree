@@ -658,7 +658,7 @@ mod tests {
 
         let timed_out = ask(&mut to_srv, &mut lines, json!({
             "jsonrpc": "2.0", "id": 11, "method": "tools/call",
-            "params": { "name": "orgtree_work", "arguments": { "action": "update" } }
+            "params": { "name": "orgtree_work", "arguments": { "action": "evidence", "slug": "demo", "kind": "note", "note": "solo call" } }
         })).await;
         assert_eq!(timed_out["id"], 11);
         assert_eq!(timed_out["result"]["isError"], true, "{timed_out}");

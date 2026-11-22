@@ -253,7 +253,11 @@ mod connection_failure_tests {
             assert_eq!(classify(err, &Value::Null, false, false), None, "must stay terminal: {err}");
         }
         assert!(!looks_like_connection_failure("401 Unauthorized: invalid_api_key"));
-        assert_eq!(classify("401 Unauthorized: invalid_api_key", &Value::Null, false, false), Some(Class::Auth));
+        assert_eq!(classify("401 Unauthorized: invalid_api_key", &Value::Null, false, false), None);
+        assert_eq!(
+            classify("401 Unauthorized: invalid_api_key", &json!({"api_error_status": 401}), false, false),
+            Some(Class::Auth)
+        );
     }
 }
 

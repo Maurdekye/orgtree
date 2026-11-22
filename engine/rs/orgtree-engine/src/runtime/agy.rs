@@ -67,9 +67,19 @@ pub fn mcp_tool_timeout() -> Duration {
 
 /// Human-readable Antigravity tool name for stall reports and resume prompts.
 #[nolog]
-pub fn display_tool_name(name: &str) -> &str {
+pub fn display_tool_name(name: &str) -> std::borrow::Cow<'_, str> {
     let s = name.strip_prefix("default_api:").unwrap_or(name);
-    s.strip_prefix("mcp__orgtree__").unwrap_or(s)
+    if let Some(rest) = s.strip_prefix("mcp__orgtree__") {
+        return if rest.starts_with("orgtree_") {
+            std::borrow::Cow::Borrowed(rest)
+        } else {
+            std::borrow::Cow::Owned(format!("orgtree_{rest}"))
+        };
+    }
+    if let Some(rest) = s.strip_prefix("mcp_orgtree_orgtree_") {
+        return std::borrow::Cow::Owned(format!("orgtree_{rest}"));
+    }
+    std::borrow::Cow::Borrowed(s)
 }
 
 /// In-flight silence ceiling (seconds) for an active Antigravity tool call,
@@ -1269,6 +1279,9 @@ mod tool_ceiling_tests {
             assert_eq!(bounded_tool_ceiling_s(name, 1800), None, "{name} must keep ordinary turn idle");
         }
         assert_eq!(display_tool_name("mcp__orgtree__orgtree_work"), "orgtree_work");
+        assert_eq!(display_tool_name("mcp__orgtree__work"), "orgtree_work");
+        assert_eq!(display_tool_name("mcp_orgtree_orgtree_work"), "orgtree_work");
+        assert_eq!(bounded_tool_ceiling_s(&display_tool_name("mcp__orgtree__work"), 1800), Some(305));
         assert_eq!(display_tool_name("default_api:read_file"), "read_file");
         assert_eq!(mcp_tool_timeout(), Duration::from_secs(300));
     }

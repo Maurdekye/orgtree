@@ -3140,14 +3140,22 @@ mod parallel_mutation_pg_tests {
         })).await.unwrap();
         let slug_c = c_item["slug"].as_str().unwrap().to_string();
 
+        // Part 0: Sequential update followed immediately by solo evidence (neoja 5th-case pattern).
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            update(&e, &org, &who, &json!({ "slug": slug_a, "working_on_next": ["solo-before-evidence"] })),
+        ).await.expect("solo update must not hang").unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            evidence(&e, &org, &who, &slug_a, &json!({ "kind": "note", "note": "solo evidence after update" })),
+        ).await.expect("solo evidence must not hang").unwrap();
+
         // Part 1: 10 rounds of concurrent update + evidence on the exact same item.
         for i in 1..=10 {
-            let u = update(&e, &org, &who, &json!({
-                "slug": slug_a, "working_on_next": [format!("round-{i}")]
-            }));
-            let ev = evidence(&e, &org, &who, &slug_a, &json!({
-                "kind": "note", "note": format!("parallel evidence {i}")
-            }));
+            let u_args = json!({ "slug": slug_a, "working_on_next": [format!("round-{i}")] });
+            let ev_args = json!({ "kind": "note", "note": format!("parallel evidence {i}") });
+            let u = update(&e, &org, &who, &u_args);
+            let ev = evidence(&e, &org, &who, &slug_a, &ev_args);
             let (ur, er) = tokio::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(u, ev) })
                 .await
                 .expect("parallel update+evidence must never hang");
@@ -3158,7 +3166,7 @@ mod parallel_mutation_pg_tests {
             "SELECT jsonb_array_length(evidence)::bigint FROM ot.work_items WHERE org_id=$1 AND slug=$2",
             &[&org_id, &slug_a],
         ).await.unwrap().get(0);
-        assert_eq!(ev_count, 10, "all 10 concurrent evidence entries landed");
+        assert_eq!(ev_count, 11, "solo evidence plus all 10 concurrent evidence entries landed");
 
         // Part 2: Mark B and C dropped (archivable) without archived_at, lock B in a separate tx,
         // and verify `update` on A (which invokes `sweep`) returns immediately via SKIP LOCKED.
