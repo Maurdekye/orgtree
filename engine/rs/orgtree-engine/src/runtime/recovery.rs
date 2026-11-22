@@ -72,6 +72,9 @@ pub fn looks_like_connection_failure(blob: &str) -> bool {
         "econnrefused", "econnreset", "etimedout", "econnaborted", "enetunreach", "ehostunreach", "enotfound",
         "eai_again", "socket hang up", "fetch failed", "network error", "networkerror", "connection refused",
         "connection reset", "connection error", "getaddrinfo", "dns lookup failed",
+        // Go / Windows Antigravity CLI transport & stream errors
+        "dial tcp", "no such host", "wsasend", "wsarecv", "forcibly closed by the remote host",
+        "the stream was interrupted",
     ]
     .iter()
     .any(|p| b.contains(p))
@@ -215,6 +218,42 @@ pub fn dur(secs: f64) -> String {
         format!("{secs:.0}s")
     } else {
         format!("{}m{:02}s", (secs / 60.0) as i64, (secs % 60.0) as i64)
+    }
+}
+
+#[cfg(test)]
+mod connection_failure_tests {
+    use super::*;
+
+    #[test]
+    fn go_windows_and_stream_transport_errors_classify_as_net() {
+        for err in [
+            r#"Post "https://daily-cloudcode-pa.googleapis.com": dial tcp: lookup daily-cloudcode-pa.googleapis.com: no such host"#,
+            "wsasend: An existing connection was forcibly closed by the remote host.",
+            "read tcp 127.0.0.1:443: wsarecv: connection reset by peer",
+            "The stream was interrupted. Please continue the task you were working on.",
+            "fetch failed: ECONNRESET",
+            "getaddrinfo ENOTFOUND api.example.invalid",
+        ] {
+            assert!(looks_like_connection_failure(err), "must match: {err}");
+            assert!(matches!(classify(err, &Value::Null, false, false), Some(Class::Net(_))), "must classify Net: {err}");
+        }
+    }
+
+    #[test]
+    fn non_network_errors_remain_unclassified_or_auth() {
+        for err in [
+            "API error: INVALID_ARGUMENT (code 400): bad request",
+            "Individual quota reached. Resets in 2h53m47s.",
+            "unknown flag: --bogus",
+            "model pin refused: the session is serving gemini-3.8-flash, not gemini-4-neon",
+            "Permission denied",
+        ] {
+            assert!(!looks_like_connection_failure(err), "must NOT match net: {err}");
+            assert_eq!(classify(err, &Value::Null, false, false), None, "must stay terminal: {err}");
+        }
+        assert!(!looks_like_connection_failure("401 Unauthorized: invalid_api_key"));
+        assert_eq!(classify("401 Unauthorized: invalid_api_key", &Value::Null, false, false), Some(Class::Auth));
     }
 }
 

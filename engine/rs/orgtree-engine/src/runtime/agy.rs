@@ -101,6 +101,43 @@ pub fn bounded_tool_ceiling_s(name: &str, turn_idle_s: u64) -> Option<u64> {
     Some(if turn_idle_s > 0 { limit.min(turn_idle_s) } else { limit })
 }
 
+/// Whether a trailing Antigravity error is eligible for soft end-of-turn
+/// classification once the turn has already settled cleanly.
+#[nolog]
+pub fn is_soft_post_final_error(err: &str) -> bool {
+    if crate::runtime::recovery::looks_like_connection_failure(err) {
+        return true;
+    }
+    let b = err.to_lowercase();
+    b.contains("invalid_argument") && b.contains("400")
+}
+
+/// Complete predicate for classifying a trailing Antigravity error as a soft
+/// end-of-turn instead of a false `REPORT STALLED` (or a wasted P34 retry).
+/// Strictly Antigravity-only: requires `orgtree_status` `done`/`idle` during
+/// this turn, final assistant text after the last tool, zero open tools, and
+/// no pending mid-turn steer mail.
+#[allow(clippy::too_many_arguments)]
+#[nolog]
+pub fn is_soft_trailing_end(
+    agy: bool,
+    stopped_or_ended: bool,
+    is_limit: bool,
+    open_tools: usize,
+    pending_steer: bool,
+    status_reported: Option<&str>,
+    final_text_after_tools: bool,
+    err: &str,
+) -> bool {
+    agy && !stopped_or_ended
+        && !is_limit
+        && open_tools == 0
+        && !pending_steer
+        && matches!(status_reported, Some("done" | "idle"))
+        && final_text_after_tools
+        && is_soft_post_final_error(err)
+}
+
 /// What one Antigravity process is launched with.
 #[derive(Clone)]
 pub struct AgySpec {
@@ -1234,6 +1271,39 @@ mod tool_ceiling_tests {
         assert_eq!(display_tool_name("mcp__orgtree__orgtree_work"), "orgtree_work");
         assert_eq!(display_tool_name("default_api:read_file"), "read_file");
         assert_eq!(mcp_tool_timeout(), Duration::from_secs(300));
+    }
+
+    #[test]
+    fn soft_trailing_end_predicate_enforces_every_guard() {
+        let errs = [
+            "wsasend: An existing connection was forcibly closed by the remote host.",
+            "dial tcp: lookup daily-cloudcode-pa.googleapis.com: no such host",
+            "The stream was interrupted. Please continue the task you were working on.",
+            "API error: INVALID_ARGUMENT (code 400): bad trailing request",
+        ];
+        for err in errs {
+            assert!(is_soft_trailing_end(true, false, false, 0, false, Some("done"), true, err), "done + final text: {err}");
+            assert!(is_soft_trailing_end(true, false, false, 0, false, Some("idle"), true, err), "idle + final text: {err}");
+            // Flip each guard one at a time -> must refuse soft end-of-turn.
+            assert!(!is_soft_trailing_end(false, false, false, 0, false, Some("done"), true, err), "non-AGY untouched");
+            assert!(!is_soft_trailing_end(true, true, false, 0, false, Some("done"), true, err), "killed/interrupted");
+            assert!(!is_soft_trailing_end(true, false, true, 0, false, Some("done"), true, err), "usage limit");
+            assert!(!is_soft_trailing_end(true, false, false, 1, false, Some("done"), true, err), "open tool");
+            assert!(!is_soft_trailing_end(true, false, false, 0, true, Some("done"), true, err), "pending steer");
+            assert!(!is_soft_trailing_end(true, false, false, 0, false, None, true, err), "no status reported");
+            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("working"), true, err), "status working");
+            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("blocked"), true, err), "status blocked");
+            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("done"), false, err), "no final text after tool");
+        }
+        // Non-transport / non-400 errors stay terminal even after done + final text.
+        for other in [
+            "401 Unauthorized",
+            "Antigravity sign-in required; background authentication stopped",
+            "model pin refused: wrong model",
+            "INTERNAL: unexpected crash",
+        ] {
+            assert!(!is_soft_trailing_end(true, false, false, 0, false, Some("done"), true, other), "must not swallow: {other}");
+        }
     }
 }
 

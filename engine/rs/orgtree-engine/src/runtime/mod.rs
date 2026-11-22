@@ -108,8 +108,9 @@ pub enum AgentMsg {
     Unhalt(oneshot::Sender<Value>),
     /// a durable state fact changed outside the actor (a status report, a
     /// freeze set or released): re-derive the effective state at this
-    /// instant and record the change in the agent's history
-    StateNote(chrono::DateTime<chrono::Utc>),
+    /// instant and record the change in the agent's history; optional raw
+    /// status (`working`/`done`/`blocked`/`idle`) is recorded on the running turn
+    StateNote(chrono::DateTime<chrono::Utc>, Option<String>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is
     Command(String, oneshot::Sender<Value>),
     /// Native compact requested by an agent, with authority rechecked at admission.
@@ -385,7 +386,14 @@ pub fn wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
 /// records nothing.
 #[logged]
 pub fn state_note(engine: &Arc<Engine>, org_id: i64, agent_id: i64, at: chrono::DateTime<chrono::Utc>) {
-    actor(engine, org_id, agent_id).send(AgentMsg::StateNote(at));
+    actor(engine, org_id, agent_id).send(AgentMsg::StateNote(at, None));
+}
+
+/// Like `state_note`, carrying the raw `orgtree_status` value reported during
+/// the running turn (`working`, `done`, `blocked`, or `idle`).
+#[logged]
+pub fn status_note(engine: &Arc<Engine>, org_id: i64, agent_id: i64, status: &str, at: chrono::DateTime<chrono::Utc>) {
+    actor(engine, org_id, agent_id).send(AgentMsg::StateNote(at, Some(status.to_string())));
 }
 
 /// A queued switch or account: the agent applies it at once unless it is

@@ -592,7 +592,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     drop(client);
     changes::notify_id(engine, me.org_id, vec![Change::Agent(me.id), Change::Events, Change::History(me.id)]);
     // a blocked report (or one clearing it) is a state change in the agent's history
-    crate::runtime::state_note(engine, me.org_id, me.id, reported_at);
+    crate::runtime::status_note(engine, me.org_id, me.id, status, reported_at);
     let mut told = String::new();
     if status == "done" || status == "blocked" {
         if let Some(sup) = superior {

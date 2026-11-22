@@ -542,6 +542,10 @@ struct Turn {
     /// Antigravity: true on the first in-flight tool hang when one automatic
     /// resumed turn is queued instead of emitting a terminal stall report
     agy_hung_auto_resume: bool,
+    /// Latest `orgtree_status` value reported during this turn (`working`/`done`/`blocked`/`idle`)
+    status_reported: Option<(String, DateTime<Utc>)>,
+    /// Antigravity: true once non-empty final assistant text landed after the last tool call
+    agy_final_text_after_tools: bool,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
     /// its CLI ran in the user's session and ended with it (`on_exit`): the
@@ -694,6 +698,8 @@ impl Turn {
             agy_active_tools: Vec::new(),
             agy_stuck_tool: None,
             agy_hung_auto_resume: false,
+            status_reported: None,
+            agy_final_text_after_tools: false,
             exited: false,
             session_ended: false,
             restart: false,
@@ -2094,7 +2100,10 @@ impl Actor {
                 };
                 let _ = reply.send(r);
             }
-            AgentMsg::StateNote(at) => {
+            AgentMsg::StateNote(at, status) => {
+                if let (Some(t), Some(st)) = (self.turn.as_mut(), status) {
+                    t.status_reported = Some((st, at));
+                }
                 self.note_state(Some(at)).await;
             }
             AgentMsg::Halt(reply) => {
@@ -5056,20 +5065,21 @@ impl Actor {
     }
 
     /// The turn is ending: a handoff the hook emitted is delivered; one it
-    /// never took goes back to waiting for the next turn.
-    async fn settle_agy_steer(&mut self) -> Result<()> {
+    /// never took goes back to waiting for the next turn. Returns `true` when
+    /// an unconsumed steer handoff had to be returned to `pending`.
+    async fn settle_agy_steer(&mut self) -> Result<bool> {
         if !self.turn.as_ref().map(|t| t.agy_steer.is_some()).unwrap_or(false) {
-            return Ok(());
+            return Ok(false);
         }
         if self.commit_agy_steer().await? {
-            return Ok(());
+            return Ok(false);
         }
-        let Some(dir) = self.agy_steer_dir.clone() else { return Ok(()) };
+        let Some(dir) = self.agy_steer_dir.clone() else { return Ok(true) };
         if std::fs::remove_file(dir.join("pending.json")).is_err() {
             // the hook may be emitting it right now
             tokio::time::sleep(Duration::from_millis(300)).await;
             if self.commit_agy_steer().await? {
-                return Ok(());
+                return Ok(false);
             }
         }
         if let Some((_, ids, _, _)) = self.turn.as_ref().and_then(|t| t.agy_steer.as_ref()) {
@@ -5080,8 +5090,9 @@ impl Actor {
             // Retain custody if the database failed, so end_turn can exclude
             // this unconsumed handoff from its delivered batch.
             if let Some(t) = self.turn.as_mut() { t.agy_steer = None; }
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Hold a fresh process's first prompt until its MCP servers connect or
@@ -7012,7 +7023,11 @@ impl Actor {
                     let client = self.engine.db.get().await?;
                     self.convo.append(&client, row).await?;
                     drop(client);
-                    if let Some(t)=self.turn.as_mut() {t.draft.clear();t.draft_order=None;}
+                    if let Some(t)=self.turn.as_mut() {
+                        t.draft.clear();
+                        t.draft_order=None;
+                        t.agy_final_text_after_tools = true;
+                    }
                     self.text_landed().await;
                 }
                 self.end_turn(error, json!({ "agy": true })).await?;
@@ -7147,7 +7162,10 @@ impl Actor {
                     if let Some(output)=u["output_tokens"].as_u64() {token_counts::calibrate(Harness::Agy,text.clone(),output).await;}
                 }
                 if completed.is_some() {
-                    if !text.trim().is_empty() { self.text_landed().await; }
+                    if !text.trim().is_empty() {
+                        if let Some(t) = self.turn.as_mut() { t.agy_final_text_after_tools = true; }
+                        self.text_landed().await;
+                    }
                     return Ok(());
                 }
                 if text.trim().is_empty() {
@@ -7161,10 +7179,14 @@ impl Actor {
                 if let Some(t) = self.turn.as_mut() {
                     t.rows.insert(key.clone(), (seq, row));
                     t.codex_row = Some(key);
+                    t.agy_final_text_after_tools = true;
                 }
                 self.text_landed().await;
             }
             "tool" => {
+                if let Some(t) = self.turn.as_mut() {
+                    t.agy_final_text_after_tools = false;
+                }
                 let id = format!("agy-step-{idx}");
                 let raw_name = step["tool_name"].as_str().unwrap_or("tool");
                 let info = &step["tool_info"];
@@ -8622,9 +8644,13 @@ impl Actor {
         self.helpers.retain(|_, helper| helper.dirty);
         // Process exits and interrupts do not necessarily carry an `agy`
         // result. Settle the outstanding hook handoff on every exit path.
-        if let Err(e) = self.settle_agy_steer().await {
-            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mid-turn mail could not be settled");
-        }
+        let agy_steer_unconsumed = match self.settle_agy_steer().await {
+            Ok(unconsumed) => unconsumed,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mid-turn mail could not be settled");
+                true
+            }
+        };
         // the turn's message calls are over (typing in Hubchat)
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
@@ -8843,6 +8869,35 @@ impl Actor {
             }
             error = None;
         }
+        // Antigravity: a trailing transport/stream error or post-final
+        // INVALID_ARGUMENT (400) after the turn already finished cleanly
+        // (`orgtree_status` done/idle + final text after last tool + zero open
+        // tools + no pending steer) is a soft end-of-turn, not a stall or retry.
+        let mut soft_trailing_err: Option<String> = None;
+        if let Some(e) = error.as_deref() {
+            let is_auth_or_ctx = prompt::input_length_refusal(e)
+                || native_context_full(&turn.serving_provider, e)
+                || matches!(recovery::classify(e, &res, openrouter || langserver, false), Some(recovery::Class::Auth));
+            if !is_auth_or_ctx && agyrt::is_soft_trailing_end(
+                agy,
+                turn.killed || turn.interrupted || turn.session_ended,
+                limit.is_some(),
+                turn.agy_active_tools.len(),
+                agy_steer_unconsumed || turn.agy_steer.is_some(),
+                turn.status_reported.as_ref().map(|(s, _)| s.as_str()),
+                turn.agy_final_text_after_tools,
+                e,
+            ) {
+                tracing::warn!(
+                    agent = %self.name,
+                    turn = turn.id,
+                    error = %e,
+                    status = ?turn.status_reported.as_ref().map(|(s, _)| s.as_str()),
+                    "Antigravity trailing error after completed turn classified as soft end-of-turn"
+                );
+                soft_trailing_err = error.take();
+            }
+        }
         // P34/P35 (3.x): a transient failure retries behind a connection
         // freeze; a rejected credential or repeated balance refusals park the
         // agent with no reset time. Classified failures skip the generic
@@ -9046,13 +9101,30 @@ impl Actor {
                     .await;
             }
         }
-        let agy_door: Option<String> = if agy {
-            turn.agy_stuck_tool.as_ref().map(|(name, since, _)| format!("stuck in tool {name} since {}", iso(*since)))
+        let agy_door: Option<String> = if agy && error.is_some() {
+            let base = turn.agy_stuck_tool.as_ref()
+                .map(|(name, since, _)| format!("stuck in tool {name} since {}", iso(*since)))
+                .unwrap_or_else(|| "turn".to_string());
+            let status_note = turn.status_reported.as_ref()
+                .map(|(s, at)| format!("last status: {s} at {}", iso(*at)));
+            Some(match status_note {
+                Some(s) => format!("{base}; {s}"),
+                None => base,
+            })
         } else {
             None
         };
         if turn.session_ended {
             let row = json!({ "role": "system", "text": SESSION_ENDED_ROW, "ts": now_iso(), "kind": "session", "tokens": token_counts::not_counted(token_counts::NOT_SENT) });
+            let _ = self.convo.append(&client, row).await;
+        } else if let Some(e) = &soft_trailing_err {
+            let row = json!({
+                "role": "system",
+                "text": format!("Trailing Antigravity error after completed turn (soft end-of-turn): {e}"),
+                "ts": now_iso(),
+                "kind": "session",
+                "tokens": token_counts::not_counted(token_counts::NOT_SENT),
+            });
             let _ = self.convo.append(&client, row).await;
         } else if native_retry {
             let row=json!({"role":"system","kind":"error","ts":now_iso(),"tokens":token_counts::not_counted(token_counts::NOT_SENT),"text":format!("Turn {} exceeded its context; one recovery attempt is queued.",turn.id)});
@@ -9135,7 +9207,7 @@ impl Actor {
             self.close_proc().await;
             let _ = self.engine.accounts.reload(&self.engine).await;
             crate::accounts::publish(&self.engine);
-        } else if native_retry {
+        } else if native_retry || soft_trailing_err.is_some() {
             self.close_proc().await;
         } else if self.reconfigured {
             self.replace_idle_process().await;
