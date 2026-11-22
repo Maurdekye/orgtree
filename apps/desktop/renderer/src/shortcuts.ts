@@ -17,6 +17,7 @@
 // apps/desktop.
 
 import type { EnterKeyBehavior } from './composerkeys'
+import { desktop, isWindowsDesktop } from './desktop'
 import { APP_FKEYS, ORG_NAV_KEYS } from './shell/appshortcuts'
 
 export interface Shortcut {
@@ -47,7 +48,7 @@ export const NON_SHORTCUT_BINDINGS = [{
 
 /** The composer rows follow Display → Typing → Enter key, so the list shows
  *  what Enter does on this machine rather than both readings at once. */
-export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[] {
+export function shortcutGroups(enter: EnterKeyBehavior = 'send', windows = isWindowsDesktop()): ShortcutGroup[] {
   const composer = R('composerkeys.ts')
   return [
     { title: 'Anywhere', items: [
@@ -70,7 +71,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
     { title: 'Organization navigation', items: ORG_NAV_KEYS.map(({ keys, action, id }) =>
       ({ keys, action, sources: [R('shell/appshortcuts.ts')],
         note: id === 'switchboard' ? 'Physical S key, including Hebrew layouts.'
-          : id === 'fitOrg' ? 'Windows may reserve Alt+Shift / Alt+Space. No OS setting is changed.'
+          : id === 'fitOrg' ? (windows ? 'Windows may reserve Alt+Shift / Alt+Space. No OS setting is changed.' : undefined)
           : id === 'previousAgent' ? 'Session history per org, up to 256 visits; skips unavailable agents.'
             : 'Projects are stops. With no focused desk, continue from the last live visible agent/project desk in this org. Outside editors, dropdowns, sliders, IME composition, dialogs and menus.' })) },
     { title: 'Desk tabs', items: [
@@ -287,7 +288,10 @@ export function keyCaps(combo: string, mac: boolean): string[] {
   return combo.split('+').map(k => (mac && MAC_NAMES[k]) || NAMES[k] || k)
 }
 
-export function isMacPlatform(nav: { platform?: string; userAgent?: string } | undefined
-  = typeof navigator === 'undefined' ? undefined : navigator): boolean {
-  return /Mac/i.test(nav?.platform || nav?.userAgent || '')
+export function isMacPlatform(nav?: { platform?: string; userAgent?: string }): boolean {
+  if (nav !== undefined) return /Mac/i.test(nav.platform || nav.userAgent || '')
+  const p = desktop()?.platform
+  if (typeof p === 'string' && p) return p === 'darwin'
+  const current = typeof navigator === 'undefined' ? undefined : navigator
+  return /Mac/i.test(current?.platform || current?.userAgent || '')
 }

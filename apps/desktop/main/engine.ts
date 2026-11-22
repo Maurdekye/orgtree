@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import {recordManagedExit} from './core-exit-log'
+import { customDataFolderError, linkKindPhrase } from './datalocation'
 import { exeName } from './postgres-runtime'
 import { canonicalPath, isLocalAbsoluteDataPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, unsafeDescriptorMessage, validateDataRoot, verifyDataFolderTrust, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
@@ -355,11 +356,11 @@ export class Engine extends EventEmitter {
     if (this.child) throw new Error('Engine already started')
     this.lastOptions = options
     if (options.customDataRoot && !isLocalAbsoluteDataPath(options.dataRoot)) {
-      throw new Error(`${ENGINE_REFUSED}custom data folder must be a local drive-letter path: ${options.dataRoot}`)
+      throw new Error(`${ENGINE_REFUSED}${customDataFolderError(options.dataRoot)}`)
     }
     const reparseHit = findReparseInChain(options.dataRoot, options.customDataRoot === true)
     if (reparseHit) {
-      throw new Error(`${ENGINE_REFUSED}Orgtree cannot start on a symbolic link or junction (${reparseHit}).`)
+      throw new Error(`${ENGINE_REFUSED}Orgtree cannot start on a ${linkKindPhrase()} (${reparseHit}).`)
     }
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     const binary = options.binary
@@ -370,7 +371,7 @@ export class Engine extends EventEmitter {
     if (options.customDataRoot) {
       const realReparse = findReparseInChain(realRoot, true)
       if (realReparse) {
-        throw new Error(`${ENGINE_REFUSED}Orgtree cannot start on a symbolic link or junction (${realReparse}).`)
+        throw new Error(`${ENGINE_REFUSED}Orgtree cannot start on a ${linkKindPhrase()} (${realReparse}).`)
       }
       const checkDirTrust = async (dir: string): Promise<DescriptorOwner> =>
         this.trustCheck !== verifyDescriptorTrust

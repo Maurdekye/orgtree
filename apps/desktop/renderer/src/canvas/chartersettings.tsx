@@ -12,6 +12,7 @@ import {
 import { CloseIcon, FolderIcon } from '../icons'
 import { pickFolder } from '../picker'
 import { localFolder } from '../remotehere'
+import { useIsWindowsHost } from '../hostos'
 import type { CharterTemplateDirState, CharterTemplateDirsPayload } from '../types'
 import { SetBlock, SetGroup, SetRow } from './settingskit'
 
@@ -83,6 +84,10 @@ const DIR_STATUS: Record<CharterTemplateDirState['status'], string> = {
   invalid_path: 'not a usable folder path',
   unreadable: 'unreadable',
 }
+const DIR_STATUS_NON_WINDOWS: Record<CharterTemplateDirState['status'], string> = {
+  ...DIR_STATUS,
+  link_refused: 'refused — the path goes through a symbolic link',
+}
 
 function dirNotes(d: CharterTemplateDirState): string[] {
   const notes: string[] = []
@@ -104,6 +109,8 @@ const normalized = (p: Partial<CharterTemplateDirsPayload> | null | undefined):
 })
 
 export function CharterTemplateDirsSetting() {
+  const windowsHost = useIsWindowsHost()
+  const dirStatus = windowsHost ? DIR_STATUS : DIR_STATUS_NON_WINDOWS
   const [data, setDataRaw] = useState<CharterTemplateDirsPayload | null>(null)
   const setData = (p: Partial<CharterTemplateDirsPayload>) => setDataRaw(normalized(p))
   const [busy, setBusy] = useState(false)
@@ -134,9 +141,10 @@ export function CharterTemplateDirsSetting() {
     <SetBlock hint={'Every .md file directly inside a listed folder is offered in the '
       + 'hire form’s charter presets. Orgtree only reads these folders: it never '
       + 'creates, changes or copies anything in them, and templates with the same '
-      + 'name in different places are all offered, labelled by folder. Links, junctions '
-      + 'and cloud-sync placeholder files (such as OneDrive files not kept on this '
-      + 'device) are treated as links and not read.'}>
+      + 'name in different places are all offered, labelled by folder. '
+      + (windowsHost
+        ? 'Links, junctions and cloud-sync placeholder files (such as OneDrive files not kept on this device) are treated as links and not read.'
+        : 'Symbolic links and cloud-sync placeholder files are treated as links and not read.')}>
       <div className="dirlist" aria-label="Charter template folders">
         {data === null && !error && <p className="dim">Loading…</p>}
         {data !== null && dirs.length === 0 && <p className="dim">No folders listed</p>}
@@ -149,7 +157,7 @@ export function CharterTemplateDirsSetting() {
               <span className={d?.status === 'ok' ? 'dim' : 'ask-warn'}>
                 {d ? (d.status === 'ok'
                   ? `${d.count} template${d.count === 1 ? '' : 's'}`
-                  : DIR_STATUS[d.status]) : ''}
+                  : dirStatus[d.status]) : ''}
               </span>
               <button type="button" className="iconbtn" disabled={busy}
                 aria-label={`Remove ${path}`} title="Remove from the list (the folder itself is untouched)"

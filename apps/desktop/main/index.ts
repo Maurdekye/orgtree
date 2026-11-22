@@ -39,6 +39,7 @@ import {
   findReparseAncestor,
   formatBytes,
   interactiveRelaunchArgs,
+  linkKindPhrase,
   measureDataLocationSizes,
   openDataLocationMoveLogFile,
   orchestrateDesktopDataMove,
@@ -1103,6 +1104,11 @@ else {
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
     // place. Not "up to date" - a build with no feed cannot claim that.
+    const isWin = typeof process === 'undefined' || process.platform === 'win32'
+    const packagedNoFeed = typeof app !== 'undefined' && app.isPackaged
+      && (typeof identity === 'undefined' || identity.updatesSupported)
+      && (typeof updateFeed === 'undefined' || updateFeed.kind !== 'refused')
+      && !isWin
     const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported ? [
       { id: 'update-status', label: 'Updates have not been checked', enabled: false },
       { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
@@ -1111,7 +1117,7 @@ else {
         enabled: canInstallUnattended(),
         click: item => setPreferences({ automaticUpdates: item.checked }) },
       { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
-    ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    ] : [{ label: packagedNoFeed ? 'Automatic updates are not available for this build' : 'Updates are disabled in this development build', enabled: false }]
     // The mail hub's running status, on the right-click menu (user
     // requirement 2026-09-15). One honest line from the last stats poll:
     // running (with its port, and whether it is exposed beyond this
@@ -1140,14 +1146,14 @@ else {
           void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
         })
       } },
-      { id: 'run-as-admin', label: 'Run as admin' + (adminChanging ? ' (changing…)' : ''), type: 'checkbox',
+      ...(isWin ? [{ id: 'run-as-admin', label: 'Run as admin' + (adminChanging ? ' (changing…)' : ''), type: 'checkbox' as const,
         checked: adminState?.enabled ?? false, enabled: !!adminState?.available && !adminChanging,
-        click: item => {
+        click: (item: Electron.MenuItem) => {
           void changeRunAsAdministrator?.(item.checked).catch((error: Error) => {
             rebuildTray()
             void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
           })
-        } },
+        } }] : []),
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
       epicMuteTrayItem(prefs, setPreferences),
       { label: 'Notifications', submenu: [
@@ -2491,7 +2497,7 @@ else {
         defaultPath,
       ))
     handleApp('desktop:update-status', () => updater.current())
-    handleApp('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
+    handleApp('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory(), updatesSupported }))
     handleApp('desktop:check-for-updates', () => checkForUpdates())
     // Provider sign-in (D-231): the child spawn lives ONLY in this process —
     // see providerlogin.ts's module docstring for why. `resolveNativeSender`
@@ -3012,7 +3018,7 @@ else {
           dir = engineOptions.dataRoot
           if (!dir) return { ok: false, error: 'No folder is recorded for that selection.' }
           if (findReparseAncestor(dir)) {
-            return { ok: false, error: 'Refusing to open a symbolic link or junction.' }
+            return { ok: false, error: `Refusing to open a ${linkKindPhrase()}.` }
           }
         } else {
           const prev = readDataLocationConfig(app.getPath('userData'))?.previousRoot

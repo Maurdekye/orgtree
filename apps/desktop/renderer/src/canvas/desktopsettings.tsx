@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { desktop } from '../desktop'
+import { desktop, isWindowsDesktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
 import type {
   DataLocationLastMoveReport, DataLocationPreflight, DataLocationProgress,
@@ -27,10 +27,12 @@ export const startupHint = (kind: StartupKind) => (kind === 'boot'
   : 'Start Orgtree quietly in the system tray when you sign in, with its background engine. '
     + 'Off: nothing of Orgtree runs until you open it.')
 
-/** What the startup switch is here: "run on boot" until the desktop says. */
+/** What the startup switch is here: "run on boot" on Windows until the desktop
+ *  says otherwise; "run on sign-in" on non-Windows so Linux/macOS never flash
+ *  the Windows boot prompt text before IPC resolves. */
 export function useStartupKind(): StartupKind {
   const bridge = desktop()
-  const [kind, setKind] = useState<StartupKind>('boot')
+  const [kind, setKind] = useState<StartupKind>(() => (isWindowsDesktop(bridge) ? 'boot' : 'signin'))
   useEffect(() => {
     if (!bridge?.getStartupKind) return
     let alive = true
@@ -76,6 +78,9 @@ export function DesktopSettings() {
   }
   const currentPrefs = notificationPreferences(prefs ?? {})
   const masterOn = currentPrefs.notificationsEnabled
+  const win = isWindowsDesktop(bridge)
+  const updatesUnsupported = !win && capability?.updatesSupported === false
+  const unattendedBlocked = capability?.unattendedInstall === false
   return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
     <SetToggle label={startupLabel(kind)} checked={prefs?.startAtLogin ?? true}
@@ -89,21 +94,27 @@ export function DesktopSettings() {
       * give, so no update will ever install unattended and the switch is just
       * misleading. "Update now" still works, which is what the hint points at. */}
     <SetToggle label="Automatic updates" checked={prefs?.automaticUpdates ?? true}
-      disabled={!prefs || busy || capability?.unattendedInstall === false}
+      disabled={!prefs || busy || updatesUnsupported || unattendedBlocked}
       onChange={automaticUpdates => put({ automaticUpdates })}
-      title={capability?.unattendedInstall === false ? 'Unattended installation is unavailable for this installation.' : undefined}
-      hint={capability?.unattendedInstall === false
-        ? `Unavailable: Orgtree cannot write to ${capability.installDirectory}, so it can never install an update on its own. Use "Update now" and approve the Windows prompt.`
-        : 'Check, download and install updates when idle. Turn off to update manually; a download already started may finish.'} />
+      title={updatesUnsupported
+        ? 'Automatic updates are not available for this build.'
+        : unattendedBlocked ? 'Unattended installation is unavailable for this installation.' : undefined}
+      hint={updatesUnsupported
+        ? 'Automatic updates are not available for this build.'
+        : unattendedBlocked
+          ? win
+            ? `Unavailable: Orgtree cannot write to ${capability.installDirectory}, so it can never install an update on its own. Use "Update now" and approve the Windows prompt.`
+            : `Unavailable: Orgtree cannot write to ${capability.installDirectory}, so it cannot replace this AppImage automatically. Move the AppImage to a writable folder, or download updates manually.`
+          : 'Check, download and install updates when idle. Turn off to update manually; a download already started may finish.'} />
   </SetGroup>
   <SetGroup title="Notifications">
-    <SetRow label="Open questions" hint="Choose what a question in the taskbar menu opens. An existing pinned or popped-out desk is brought to the front.">
+    {win && <SetRow label="Open questions" hint="Choose what a question in the taskbar menu opens. An existing pinned or popped-out desk is brought to the front.">
       <select aria-label="Open questions" value={prefs?.questionTarget ?? 'desk'} disabled={!prefs || busy}
         onChange={e => put({ questionTarget: e.target.value === 'mail' ? 'mail' : 'desk' })}>
         <option value="desk">focus the agent desk</option>
         <option value="mail">open questions as mail</option>
       </select>
-    </SetRow>
+    </SetRow>}
     <SetToggle label="Notifications"
       checked={masterOn} disabled={!prefs || busy}
       onChange={notificationsEnabled => put({ notificationsEnabled })}
@@ -124,17 +135,18 @@ export function DesktopSettings() {
  *  then ask nothing. */
 export function RunAsAdministratorSetting() {
   const bridge = desktop()
+  const win = isWindowsDesktop(bridge)
   const [state, setState] = useState<RunAsAdministratorState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
-    if (!bridge?.getRunAsAdministrator) return
+    if (!win || !bridge?.getRunAsAdministrator) return
     let alive = true
     bridge.getRunAsAdministrator().then(s => { if (alive) setState(s) })
       .catch((e: Error) => { if (alive) setError(e.message) })
     return () => { alive = false }
-  }, [bridge])
-  if (!bridge?.getRunAsAdministrator || !bridge.setRunAsAdministrator) return null
+  }, [bridge, win])
+  if (!win || !bridge?.getRunAsAdministrator || !bridge.setRunAsAdministrator) return null
   const set = bridge.setRunAsAdministrator
   const change = (enabled: boolean) => {
     setBusy(true)

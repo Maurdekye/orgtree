@@ -7,6 +7,7 @@
 // one that does.
 
 import { Fragment } from 'react'
+import { isWindowsDesktop } from '../desktop'
 import { useComposerEnter } from '../enterkey'
 import { isMacPlatform, keyCaps, MOUSE_CONTROLS, shortcutGroups } from '../shortcuts'
 import { SetGroup, SetRow } from './settingskit'
@@ -21,7 +22,7 @@ export function ShortcutsSettings({ mac = isMacPlatform() }: { mac?: boolean }) 
         </SetRow>
       ))}
     </SetGroup>
-    {shortcutGroups(behavior).map(group => (
+    {shortcutGroups(behavior, mac ? false : isWindowsDesktop()).map(group => (
       <SetGroup key={group.title} title={group.title}>
         {group.items.map(item => (
           <SetRow key={item.action + item.keys.join()} label={item.action} hint={item.note}>

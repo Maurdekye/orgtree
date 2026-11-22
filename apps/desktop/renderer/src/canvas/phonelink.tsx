@@ -293,39 +293,44 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
   const newCode = () => act(async () => { await post('/api/desktop/phone/code', { org }); await reload() })
   const signIn = () => act(async () => { const r = await post<{ url: string }>('/api/desktop/phone/tailscale-login'); openExternal(r.url) })
 
-  const lead = wifi
-    ? 'Message your agents from Hubchat on your Android phone. Your phone reaches this PC over your home Wi-Fi.'
-    : 'Message your agents from Hubchat on your Android phone, from anywhere. Your phone reaches this PC through Tailscale, a free private network.'
+  const win = isWindowsDesktop()
+  const machine = win ? 'PC' : 'computer'
+  const thisMachine = win ? 'this PC' : 'this computer'
+  const ThisMachine = win ? 'This PC' : 'This computer'
 
-  // ---- left: this PC
+  const lead = wifi
+    ? `Message your agents from Hubchat on your Android phone. Your phone reaches ${thisMachine} over your home Wi-Fi.`
+    : `Message your agents from Hubchat on your Android phone, from anywhere. Your phone reaches ${thisMachine} through Tailscale, a free private network.`
+
+  // ---- left: this computer
   const left: React.ReactNode[] = []
   if (state && ts && access) {
     if (wifi) left.push(<Ok key="t">Using your home Wi-Fi instead of Tailscale.{' '}
       {access.scope !== 'lan' && <button type="button" className="linkish" onClick={() => setWifiChosen(false)}>Use Tailscale instead</button>}</Ok>)
-    else if (ts.state === 'T2') left.push(<Ok key="t">This PC is <b>{ts.pc}</b> on <b>{ts.account}</b>’s Tailscale network.</Ok>)
+    else if (ts.state === 'T2') left.push(<Ok key="t">{ThisMachine} is <b>{ts.pc}</b> on <b>{ts.account}</b>’s Tailscale network.</Ok>)
     else if (ts.state === 'T1') left.push(<div key="t" className="phone-step"><div className="phone-n">1 · Tailscale</div>
-      <p><b>Sign in to Tailscale on this PC.</b> Use an account you can also use on your phone.</p>
+      <p><b>Sign in to Tailscale on {thisMachine}.</b> Use an account you can also use on your phone.</p>
       <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={signIn}>Sign in</button></div></div>)
     else left.push(<div key="t" className="phone-step"><div className="phone-n">1 · Tailscale</div>
-      <p><b>Install Tailscale on this PC.</b> It’s free. Sign in with Google, Microsoft, GitHub or Apple when it asks. This page updates when it’s done.</p>
+      <p><b>Install Tailscale on {thisMachine}.</b> It’s free. Sign in with Google, Microsoft, GitHub or Apple when it asks. This page updates when it’s done.</p>
       <div className="phone-acts"><button type="button" className="primary" onClick={() => openExternal(TAILSCALE_DOWNLOAD)}>Get Tailscale</button>
         <button type="button" className="linkish" onClick={() => setWifiChosen(true)}>Use my home Wi-Fi instead</button></div></div>)
     if (step1done) {
       if (access.state === 'A0') left.push(<div key="a" className="phone-step"><div className="phone-n">2 · Phone access</div>
         <p>{wifi
-          ? <><b>Let your phone reach this PC.</b> Anyone on your Wi-Fi can reach the hub’s door: they can sign up and message your organizations, but can’t read anyone else’s mail. Windows asks for permission once.</>
-          : <><b>Let your phone reach this PC.</b> Only devices on your Tailscale network can connect. Windows asks for permission once.</>}</p>
+          ? <><b>Let your phone reach {thisMachine}.</b> Anyone on your Wi-Fi can reach the hub’s door: they can sign up and message your organizations, but can’t read anyone else’s mail.{win ? ' Windows asks for permission once.' : ''}</>
+          : <><b>Let your phone reach {thisMachine}.</b> Only devices on your Tailscale network can connect.{win ? ' Windows asks for permission once.' : ''}</>}</p>
         <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void turnOn(wifi ? 'lan' : 'tailnet') }}>Turn on phone access</button></div></div>)
-      else if (access.state === 'A2') left.push(<Ok key="a">Phone access is on, for every network this PC is on.{' '}
+      else if (access.state === 'A2') left.push(<Ok key="a">Phone access is on, for every network {thisMachine} is on.{' '}
         <button type="button" className="linkish" disabled={busy || ts.state !== 'T2'} onClick={() => { void turnOn('tailnet') }}>Limit it to Tailscale</button></Ok>)
       else left.push(<Ok key="a">{access.scope === 'lan' ? 'Phone access is on, for your home network.' : 'Phone access is on, for your Tailscale network only.'}</Ok>)
     } else left.push(<div key="a" className="phone-done dim"><span className="phone-tick" />2 · Phone access (after step 1)</div>)
     if (step1done && access.state !== 'A0') {
       const w = state.warnings
       if (w.sleep_minutes && state.link) left.push(<div key="ws" className="phone-warn">
-        This PC goes to sleep after {w.sleep_minutes} minutes, and your phone can’t reach it then.</div>)
+        {ThisMachine} goes to sleep after {w.sleep_minutes} minutes, and your phone can’t reach it then.</div>)
       if (!wifi && w.key_expiry) left.push(<div key="wk" className="phone-warn">
-        Tailscale will sign this PC out on {fmtDay(w.key_expiry)}.{' '}
+        Tailscale will sign {thisMachine} out on {fmtDay(w.key_expiry)}.{' '}
         <button type="button" className="linkish" onClick={() => openExternal(KEY_EXPIRY_HELP)}>Turn off key expiry ↗</button></div>)
       if (!wifi && bootEngine && w.unattended === false) left.push(<div key="wu" className="phone-warn">
         Tailscale stops when you sign out of Windows.{' '}
@@ -343,23 +348,23 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
     else if (state.link) right = <>
       <div className="phone-linked"><b>Your phone:</b> {state.link.name} · {state.link.address} · linked {fmtDay(state.link.at)}.
         <div className="phone-acts"><button type="button" className="linkish" disabled={busy} onClick={unlink}>Unlink</button></div></div>
-      <div className="phone-step"><p><b>Add another device:</b> install Tailscale and Hubchat on it, choose <b>I already use Hubchat › Scan the QR code from your other device</b> (on a PC: <b>Link through a hub</b>), and show the code from Hubchat on your phone (<b>Settings › Devices › Link a device</b>).</p>
+      <div className="phone-step"><p><b>Add another device:</b> install Tailscale and Hubchat on it, choose <b>I already use Hubchat › Scan the QR code from your other device</b> (on a {machine}: <b>Link through a hub</b>), and show the code from Hubchat on your phone (<b>Settings › Devices › Link a device</b>).</p>
         <p className="dim phone-small">On an Android phone, keep Tailscale on: turn on <b>Always-on VPN</b> for it in Android’s <b>Settings › VPN</b>, and set its battery use to <b>Unrestricted</b>.</p></div>
     </>
     else if (!code && persons.length && state.hubchat_pc) right = <div className="phone-step">
-      <p><b>You already use Hubchat on this PC.</b> Bring that identity to your phone: on the phone choose <b>I already use Hubchat › Scan the QR code from your other device</b>. Then scan the code from the <b>QR button</b> at the bottom of Hubchat’s chat list on this PC.</p>
+      <p><b>You already use Hubchat on {thisMachine}.</b> Bring that identity to your phone: on the phone choose <b>I already use Hubchat › Scan the QR code from your other device</b>. Then scan the code from the <b>QR button</b> at the bottom of Hubchat’s chat list on {thisMachine}.</p>
       <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void isMe(persons[0].address) }}>Is {persons[0].address} you? Yes</button>
         {/* a separate identity on the phone: the download and setup-code steps */}
         <button type="button" disabled={busy} onClick={() => setNotYou(n => [...n, ...persons.map(p => p.address)])}>Set up my phone with a code instead</button></div></div>
     else if (!code && persons.length) right = <div className="phone-step">
-      <p><b>Is this you?</b> Hubchat <b className="mono-sm">{persons[0].address}</b> already uses this PC’s hub.</p>
+      <p><b>Is this you?</b> Hubchat <b className="mono-sm">{persons[0].address}</b> already uses {thisMachine}’s hub.</p>
       <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void isMe(persons[0].address) }}>Yes, that’s me</button>
         <button type="button" disabled={busy} onClick={() => setNotYou(n => [...n, persons[0].address])}>No</button></div></div>
     else {
       const back = <div className="phone-back"><button type="button" className="linkish sm" onClick={() => setPhoneStep('download')}>← Back to the download code</button></div>
       right = <div className="phone-needs"><p><b>On your phone</b> (skip what you already have):</p><ol>
-        {wifi ? <li>Connect to the <b>same Wi-Fi</b> as this PC.</li>
-          : <li><b>Tailscale</b> from Google Play, signed in as <b>{ts?.account ?? 'the same account as this PC'}</b>.
+        {wifi ? <li>Connect to the <b>same Wi-Fi</b> as {thisMachine}.</li>
+          : <li><b>Tailscale</b> from Google Play, signed in as <b>{ts?.account ?? `the same account as ${thisMachine}`}</b>.
             <div className="dim phone-small">Keep Tailscale on: turn on <b>Always-on VPN</b> for it in Android’s <b>Settings › VPN</b>, and set its battery use to <b>Unrestricted</b>.</div></li>}
         <li>{phoneStep === 'download' ? <>
           <div className="phone-li-row"><div><b>Hubchat:</b> scan this with the camera.</div><Qr svg={state.download_qr} caption="Scan to get Hubchat" big /></div>
@@ -382,7 +387,7 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
       </div>
       {!state && <div className="phone-body dim">{error || 'Loading…'}</div>}
       {state && <div className="phone-cols">
-        <div className="phone-col"><div className="phone-col-h">This PC</div>{left}</div>
+        <div className="phone-col"><div className="phone-col-h">{ThisMachine}</div>{left}</div>
         <div className="phone-col"><div className="phone-col-h">Your phone</div>{right}</div>
       </div>}
       {note && <p className="phone-note" role="alert">{note}</p>}

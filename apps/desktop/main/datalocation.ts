@@ -33,6 +33,28 @@ import {
 } from './policy'
 
 export const DATA_LOCATION_SUBFOLDER = 'Orgtree data'
+
+export function linkKindPhrase(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? 'symbolic link or junction' : 'symbolic link'
+}
+
+export function localFolderPathHint(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? 'Choose an absolute local drive-letter folder path (network UNC and device paths are not supported).'
+    : 'Choose an absolute local folder path.'
+}
+
+export function invalidPreviousDataPathError(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? 'Previous data folder path is not a valid local drive path.'
+    : 'Previous data folder path is not a valid local folder path.'
+}
+
+export function customDataFolderError(dataRoot: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? `custom data folder must be a local drive-letter path: ${dataRoot}`
+    : `custom data folder must be an absolute local folder path: ${dataRoot}`
+}
 export const DATA_LOCATION_MOVED_STAMP = '.data-location-moved.json'
 export const DATA_MOVE_LOG_FILE = 'data-location-move.log'
 export const DATA_MOVE_LOG_PREV_FILE = 'data-location-move.previous.log'
@@ -834,7 +856,7 @@ export function validateDeletablePreviousFolder(params: {
 }): { ok: true; resolvedPrev: string; realPrev: string } | { ok: false; error: string } {
   const normalized = normalizeLocalDataPath(params.previousRoot)
   if (!normalized) {
-    return { ok: false, error: 'Previous data folder path is not a valid local drive path.' }
+    return { ok: false, error: invalidPreviousDataPathError() }
   }
   const resolvedPrev = path.resolve(normalized)
   if (path.dirname(resolvedPrev) === resolvedPrev) {
@@ -842,7 +864,7 @@ export function validateDeletablePreviousFolder(params: {
   }
   const reparseTyped = findReparseAncestor(resolvedPrev)
   if (reparseTyped) {
-    return { ok: false, error: `Refusing to delete through a symbolic link or junction (${reparseTyped}).` }
+    return { ok: false, error: `Refusing to delete through a ${linkKindPhrase()} (${reparseTyped}).` }
   }
   let realPrev: string
   try {
@@ -855,7 +877,7 @@ export function validateDeletablePreviousFolder(params: {
   }
   const reparseReal = findReparseAncestor(realPrev)
   if (reparseReal) {
-    return { ok: false, error: `Refusing to delete through a symbolic link or junction (${reparseReal}).` }
+    return { ok: false, error: `Refusing to delete through a ${linkKindPhrase()} (${reparseReal}).` }
   }
 
   let realCurr: string
@@ -942,7 +964,7 @@ export function removeDirectoryTreeNoFollow(targetDir: string): void {
   }
   const reparse = findReparseAncestor(resolved)
   if (reparse) {
-    throw new Error(`Refusing to remove directory through symbolic link or junction (${reparse})`)
+    throw new Error(`Refusing to remove directory through ${linkKindPhrase()} (${reparse})`)
   }
 
   const removeNode = (cur: string): void => {
@@ -1033,7 +1055,7 @@ export function removeDirectoryTreeSelectiveNoFollow(
   }
   const reparse = findReparseAncestor(resolved)
   if (reparse) {
-    throw new Error(`Refusing to remove directory through symbolic link or junction (${reparse})`)
+    throw new Error(`Refusing to remove directory through ${linkKindPhrase()} (${reparse})`)
   }
 
   const preserveSet = canonicalEntryKeySet(options.preservePaths)
@@ -1191,7 +1213,7 @@ export async function openDataLocationMoveLogFile(
   openFile: (file: string) => Promise<string>,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!userData || findReparseAncestor(userData)) {
-    return { ok: false, error: 'Refusing to open a symbolic link or junction.' }
+    return { ok: false, error: `Refusing to open a ${linkKindPhrase()}.` }
   }
   const logFile = path.join(userData, DATA_MOVE_LOG_FILE)
   if (!hasDataLocationMoveLog(userData)) {
@@ -1475,7 +1497,7 @@ export async function preflightDataLocation(params: {
       rawPick,
       rawPick,
       false,
-      'Choose an absolute local drive-letter folder path (network UNC and device paths are not supported).',
+      localFolderPathHint(),
     )
   }
 
@@ -1492,7 +1514,7 @@ export async function preflightDataLocation(params: {
       pickedPath,
       pickedPath,
       false,
-      `Orgtree cannot store its data inside a symbolic link or junction (${reparseOnPick}). Choose a real local folder.`,
+      `Orgtree cannot store its data inside a ${linkKindPhrase()} (${reparseOnPick}). Choose a real local folder.`,
     )
   }
 
@@ -1561,7 +1583,7 @@ export async function preflightDataLocation(params: {
       pickedPath,
       resolvedRoot,
       usedSubfolder,
-      `Orgtree cannot store its data inside a symbolic link or junction (${reparseOnResolved}). Choose a real local folder.`,
+      `Orgtree cannot store its data inside a ${linkKindPhrase()} (${reparseOnResolved}). Choose a real local folder.`,
     )
   }
 
@@ -2782,7 +2804,7 @@ export async function resolveMissingDataLocationChoice(
   if (!normalizedPick) {
     return {
       ok: false,
-      error: 'Choose an absolute local drive-letter folder path (network UNC and device paths are not supported).',
+      error: localFolderPathHint(),
     }
   }
   const picked = path.resolve(normalizedPick)
@@ -2790,7 +2812,7 @@ export async function resolveMissingDataLocationChoice(
   if (reparsePicked) {
     return {
       ok: false,
-      error: `Orgtree cannot store its data inside a symbolic link or junction (${reparsePicked}). Choose a real local folder.`,
+      error: `Orgtree cannot store its data inside a ${linkKindPhrase()} (${reparsePicked}). Choose a real local folder.`,
     }
   }
   if (!fs.existsSync(picked)) {
@@ -2822,7 +2844,7 @@ export async function resolveMissingDataLocationChoice(
   if (reparseChosen) {
     return {
       ok: false,
-      error: `Orgtree cannot store its data inside a symbolic link or junction (${reparseChosen}). Choose a real local folder.`,
+      error: `Orgtree cannot store its data inside a ${linkKindPhrase()} (${reparseChosen}). Choose a real local folder.`,
     }
   }
 
@@ -2873,7 +2895,7 @@ export async function resolveMissingDataLocationChoice(
   if (reparseReal) {
     return {
       ok: false,
-      error: `Orgtree cannot store its data inside a symbolic link or junction (${reparseReal}). Choose a real local folder.`,
+      error: `Orgtree cannot store its data inside a ${linkKindPhrase()} (${reparseReal}). Choose a real local folder.`,
     }
   }
 

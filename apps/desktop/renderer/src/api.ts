@@ -8,6 +8,7 @@ import type { NodeDetail } from './archived'
 import { bumpLive, flushLive } from './livebus'
 import { backendRestart } from './windowlife'
 import { desktop } from './desktop'
+import { noteHostOs } from './hostos'
 import { applyWorkDelta } from './workdelta'
 import { ForegroundWorkReader } from './workforeground'
 import { WorkReferenceReader } from './workreferences'
@@ -1082,7 +1083,8 @@ export const audienceAction = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, node, target }),
   })
-export const getHost = (): Promise<HostPayload> => req('/api/host')
+export const getHost = (): Promise<HostPayload> =>
+  req<HostPayload>('/api/host').then(h => { noteHostOs(h?.os); return h })
 // the provider axis (FR-15 preview): per-vendor tier families + this
 // machine's CLI install/connect state — App settings and all hire surfaces
 let providerSnapshot: ProvidersPayload | null = null

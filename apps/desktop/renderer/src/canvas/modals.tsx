@@ -9,6 +9,7 @@ import {useDogRoute} from './watchdogroute'
 import {slotClaimLeaseState} from './slotclaim'
 import type {SlotClaimLeaseState} from './slotclaim'
 import { useSurfaceDocument } from '../popout'
+import { useIsWindowsHost } from '../hostos'
 import { userGesture } from '../historyapi'
 import { historyUndo } from '../historyregistry'
 import { lineageCount } from '../archived'
@@ -844,6 +845,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     }).catch(() => {})
   }, [])
   const allMcp = tools.mcp.includes('*')
+  const windowsHost = useIsWindowsHost()
   const tabId = useId()
   const [localTab, setLocalTab] = useState<DraftSettingsTab>('charter')
   const tab = chosenTab ?? localTab
@@ -947,9 +949,9 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         </SetBlock>
 
       </>}
-      <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={e => setSess(e.target.value)}>
+      {windowsHost && <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={e => setSess(e.target.value)}>
         {sessionOptions(sess).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select></SetRow>
+      </select></SetRow>}
     </SettingsTabPanel>
     <SettingsTabPanel id="tools" idBase={tabId} active={tab === 'tools'}>
       {superior ? <p className="set-hint">Tools are inherited from <span className="mono">{superior}</span> when hired.</p> : <>
@@ -1428,6 +1430,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   useEffect(() => { if (target) setTab(target.tab as NodeConfigTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
   useSettingsTarget(stripRef, target, !!target && tab === target.tab)
   const history = useRecordHistory(slug, node.id)
+  const windowsHost = useIsWindowsHost()
   const hasHistory = (history.value?.length ?? 0) > 0
   const tabId = useId()
   // the Model tab is a model choice: re-read agy's model list as it opens
@@ -2033,9 +2036,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></SetRow>
 
-        <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={(e) => setSess(e.target.value)}>
+        {windowsHost && <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={(e) => setSess(e.target.value)}>
           {sessionOptions(sess).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select></SetRow>
+        </select></SetRow>}
 
         <SetBlock label="Folders" hint={FOLDERS_HINT}><div className="dirlist">
           {dirs.map((d, i) => (

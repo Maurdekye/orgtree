@@ -139,7 +139,9 @@ export type NativeDesktop = Omit<DesktopBridge,
 } & NativeWindowBridge
 
 export const desktop = (): NativeDesktop | undefined =>
-  (window as Window & { orgtreeDesktop?: NativeDesktop }).orgtreeDesktop
+  typeof window === 'undefined'
+    ? undefined
+    : (window as Window & { orgtreeDesktop?: NativeDesktop }).orgtreeDesktop
 
 /** Local desktop OS (Node `process.platform` values: 'win32', 'linux', 'darwin',
  *  ...). Prefers the synchronous preload bridge, then falls back to navigator

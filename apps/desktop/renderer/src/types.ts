@@ -1619,6 +1619,8 @@ export interface HostPayload {
   // on-disk `git pull` alone
   build: { commit: string, branch?: string | null, started_at: string }
   cli_version: string
+  /** Serving engine OS (`std::env::consts::OS`, e.g. 'windows', 'linux', 'macos'). */
+  os?: string
 }
 
 /** GET /api/providers — the provider axis (FR-15 preview): which model

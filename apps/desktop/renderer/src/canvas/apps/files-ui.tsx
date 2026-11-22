@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react'
 import {customAppsFiles} from '../../api'
+import {useIsWindowsHost} from '../../hostos'
 import {SetGroup,SetRow} from '../settingskit'
 import {appCapabilities,appPermission} from './policy'
 import {AppDialog} from './dialog'
@@ -13,6 +14,7 @@ const changeSize=(bytes:number|null,none:'new file'|'deleted')=>bytes===null?`no
 /** This picker is part of the trusted native shell. Its paths never travel
  * through the app's message port or saved JSON. */
 export function AppFilePermissionPrompt({slug,prompt,owner}:{slug:string;prompt:FilePrompt;owner:Document}){
+  const windowsHost=useIsWindowsHost()
   const [page,setPage]=useState<FileBrowse|null>(null),[path,setPath]=useState(''),[selected,setSelected]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false)
   const view=useRef<HTMLDivElement>(null),alive=useRef(true),serial=useRef(0)
   const request=prompt.request.request,confirmation=!!prompt.request.detail,write=prompt.request.capability==='files.write',recovery=request.action==='recovery'
@@ -32,11 +34,11 @@ export function AppFilePermissionPrompt({slug,prompt,owner}:{slug:string;prompt:
   },[prompt,owner])
   return <AppDialog title={recovery?'File change result':confirmation?'Confirm file change':write?'Allow app to write files?':'Allow app to read files?'} label="App file permission" owner={owner} close={()=>prompt.finish(null)} className="custom-app-permission"><div ref={view}>
     <p><strong>{prompt.request.name}</strong> · {prompt.request.label}</p>
-    <p>{recovery?'The original bytes remain in this recovery file beside the selected target. Review the app result before trying again.':confirmation?'Review this exact file change before continuing.':folder?`Choose a folder this app may ${write?'write':'read'}, including its subfolders.`:choose?'Choose one file this app may read.':request.action==='grant'&&request.scope==='computer'?`Allow this app to ${write?'write':'read'} files across the whole computer as your Windows user?`:request.action==='open'||request.scope==='orgtree'?`Allow this app to ${write?'write':'read'} this organization's scratch, uploads and retained artifacts?`:'Allow this app to read its remembered file?'}</p>
+    <p>{recovery?'The original bytes remain in this recovery file beside the selected target. Review the app result before trying again.':confirmation?'Review this exact file change before continuing.':folder?`Choose a folder this app may ${write?'write':'read'}, including its subfolders.`:choose?'Choose one file this app may read.':request.action==='grant'&&request.scope==='computer'?(windowsHost?`Allow this app to ${write?'write':'read'} files across the whole computer as your Windows user?`:`Allow this app to ${write?'write':'read'} files across the whole computer as your user account?`):request.action==='open'||request.scope==='orgtree'?`Allow this app to ${write?'write':'read'} this organization's scratch, uploads and retained artifacts?`:'Allow this app to read its remembered file?'}</p>
     {request.action==='open'&&<p>Requested: <code>{String(request.root)}/{String(request.path)}</code></p>}
     {/* Hide keeps a running panel with its Once scopes (USER 2026-10-26 mf7add4fda093); power off ends them (4.5.0 review B9). */}
     {!confirmation&&<p className="dim">{write?'Write access is separate from read access. Changes outside this org’s files also need native confirmation.':'Read-only.'} Always allow remembers this scope for every panel of this app. Allow once lasts until this panel is powered off, even while hidden. Revoke access in App settings → Permissions → Files.</p>}
-    {request.scope==='computer'&&<p role="note">This includes private files and settings that Windows lets you access. It does not elevate Orgtree. Choose a folder instead when that is enough.</p>}
+    {request.scope==='computer'&&<p role="note">{windowsHost?'This includes private files and settings that Windows lets you access. It does not elevate Orgtree. Choose a folder instead when that is enough.':'This includes private files and settings that your system account can access. It does not elevate Orgtree. Choose a folder instead when that is enough.'}</p>}
     {prompt.request.detail&&<div className="custom-app-file-change"><p><strong>{prompt.request.detail.operation}</strong>: <code>{prompt.request.detail.path}</code></p><p>Existing size: {changeSize(prompt.request.detail.previous_bytes,'new file')}{prompt.request.detail.bytes!==null&&<> · New size: {changeSize(prompt.request.detail.bytes,'deleted')}</>}</p>{prompt.request.detail.sha256&&<p>New content SHA256: <code>{prompt.request.detail.sha256}</code></p>}<p>This confirmation applies only to this change. It expires after two minutes.</p></div>}
     {choose&&<div className="custom-app-file-picker">
       <form onSubmit={e=>{e.preventDefault();void browse(path)}}><label>Folder <input aria-label="File picker folder" value={path} onChange={e=>setPath(e.target.value)}/></label><button disabled={busy}>Open folder</button><button type="button" disabled={busy} onClick={()=>void browse(page?.parent??'')}>Up</button></form>

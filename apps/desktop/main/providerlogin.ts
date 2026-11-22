@@ -169,9 +169,19 @@ function launchMuseTerminal(exe: string, profileDir?: string): { started: boolea
   return launchTerminal(exe, DOORS.muse.extraArgs, env)
 }
 
+export function profileNotWritableError(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? 'The selected account profile is not writable. Its folder permissions must allow your Windows user before signing in.'
+    : 'The selected account profile is not writable. Its folder permissions must allow your user account before signing in.'
+}
+
+export function terminalUnsupportedError(): string {
+  return 'Opening a sign-in terminal is only supported on Windows. Sign in from your own terminal, then click Refresh.'
+}
+
 function launchTerminal(exe: string, args: string[], env?: NodeJS.ProcessEnv): { started: boolean; error?: string } {
   if (process.platform !== 'win32') {
-    return { started: false, error: 'opening a terminal is only supported on Windows' }
+    return { started: false, error: terminalUnsupportedError() }
   }
   try {
     const child = terminalSpawn('cmd', ['/c', 'start', '""', exe, ...args], {
@@ -457,7 +467,7 @@ export async function startProviderLogin(
       try { await verifyProfileWritable(opts.profileDir) }
       catch {
         return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
-          error: 'The selected account profile is not writable. Its folder permissions must allow your Windows user before signing in.' })
+          error: profileNotWritableError() })
       }
     }
     let rows: ProviderRow[]

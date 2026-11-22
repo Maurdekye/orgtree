@@ -1,6 +1,7 @@
 /** Account management belongs to each provider; usage belongs to Usage. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { req } from '../api'
+import { useIsWindowsHost } from '../hostos'
 import { useAppValue } from '../appfeed'
 import { accountTint } from '../accounttint'
 import { accountDisplayId, accountIdentity } from '../accountidentity'
@@ -176,7 +177,16 @@ const ANTIGRAVITY_ONE_SIGNIN = [
   'Signing in to Antigravity again would replace your default Antigravity sign-in for every agent. '
     + 'For a second Antigravity account, use an API key below.',
 ]
+const ANTIGRAVITY_ONE_SIGNIN_NON_WINDOWS = [
+  'Antigravity keeps one Google sign-in per system user, in the system keyring. '
+    + 'A separate profile folder still uses that same sign-in (measured on Antigravity CLI 1.3.5), '
+    + 'so a second Google account cannot run beside your default one.',
+  'Signing in to Antigravity again would replace your default Antigravity sign-in for every agent. '
+    + 'For a second Antigravity account, use an API key below.',
+]
 const ANTIGRAVITY_ONE_SIGNIN_ROW = 'Antigravity keeps one Google sign-in per Windows user: this account runs '
+  + 'only when Antigravity confirms it is signed in separately from your default account.'
+const ANTIGRAVITY_ONE_SIGNIN_ROW_NON_WINDOWS = 'Antigravity keeps one Google sign-in per system user: this account runs '
   + 'only when Antigravity confirms it is signed in separately from your default account.'
 const COLORS: Record<AccountProvider, string> = {
   claude: THEMES.claude.accent, openai: THEMES.codex.accent, google: THEMES.antigravity.accent,
@@ -244,6 +254,7 @@ const INACTIVE_NOTE = 'Inactive: its agents wait until it is active again or the
 export function AccountRegistrySection({ provider, registry, toast, native }: {
   provider: AccountProvider; registry: AccountRegistry; toast: ToastFn; native?: NativeLogin
 }) {
+  const windowsHost = useIsWindowsHost()
   const [busy, setBusy] = useState<string | null>(null)
   const setActive = async (row: AccountRow, active: boolean) => {
     setBusy(row.id)
@@ -355,7 +366,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         <AccountMarks row={row} toast={toast} />
         {row.origin_org && <div className="dim">Available only to {row.origin_org}</div>}
         {provider === 'google' && row.mode !== 'apikey' && !row.ambient &&
-          <div className="dim account-note agy-one-signin">{ANTIGRAVITY_ONE_SIGNIN_ROW}</div>}
+          <div className="dim account-note agy-one-signin">{windowsHost ? ANTIGRAVITY_ONE_SIGNIN_ROW : ANTIGRAVITY_ONE_SIGNIN_ROW_NON_WINDOWS}</div>}
       </div>
     })}
   </div>
@@ -364,6 +375,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
 export function AddAccountDialog({ provider, onAdded, close }: {
   provider: AccountProvider; onAdded: () => Promise<void>; close: () => void
 }) {
+  const windowsHost = useIsWindowsHost()
   const [path, setPath] = useState('')
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -402,7 +414,7 @@ export function AddAccountDialog({ provider, onAdded, close }: {
     {provider === 'google' ? (
       <section className="account-add-option account-upstream-note">
         <h4>A second Antigravity subscription is not possible yet</h4>
-        {ANTIGRAVITY_ONE_SIGNIN.map(text => <p key={text} className="dim">{text}</p>)}
+        {(windowsHost ? ANTIGRAVITY_ONE_SIGNIN : ANTIGRAVITY_ONE_SIGNIN_NON_WINDOWS).map(text => <p key={text} className="dim">{text}</p>)}
         <a className="account-upstream-link" href={ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE}
           target="_blank" rel="noopener noreferrer">
           Track Antigravity CLI account-profile support (issue #381)

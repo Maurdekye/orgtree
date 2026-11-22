@@ -157,7 +157,7 @@ export interface UpdateStatus { state: UpdateState; version?: string; percent?: 
  *  all-users installation is the usual cause; a read-only volume or a
  *  restrictive ACL is indistinguishable from here, and the consequence is the
  *  same either way. */
-export interface UpdateCapability { unattendedInstall: boolean; installDirectory: string }
+export interface UpdateCapability { unattendedInstall: boolean; installDirectory: string; updatesSupported?: boolean }
 /** "Run as admin": whether the Session 0 engine and the sign-in helper, and so
  *  every agent, keep administrator rights, both or neither (invariant 7).
  *  Stored in HKLM (admin-writable only), so changing it asks Windows for

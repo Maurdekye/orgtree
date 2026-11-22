@@ -1,3 +1,5 @@
+import { isMacDesktop } from './desktop'
+
 export type EnterKeyBehavior = 'send' | 'newline'
 
 /** Shared by message composers, never by single-line inputs or document editors. */
@@ -13,8 +15,8 @@ export function composerSendKey(e: {
   return e.ctrlKey || e.metaKey || (behavior === 'send' && !mobile)
 }
 
-export function composerKeyHint(behavior: EnterKeyBehavior, mobile = false): string {
+export function composerKeyHint(behavior: EnterKeyBehavior, mobile = false, mac = isMacDesktop()): string {
   return behavior === 'newline' || mobile
-    ? 'Enter inserts a new line; Ctrl+Enter sends'
+    ? (mac ? 'Enter inserts a new line; Command+Enter sends' : 'Enter inserts a new line; Ctrl+Enter sends')
     : 'Enter sends; Shift+Enter inserts a new line'
 }
