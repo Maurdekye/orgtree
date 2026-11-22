@@ -41,6 +41,13 @@ const TOOLS_SUBAGENT: &[&str] = &["invoke_subagent", "manage_subagents", "browse
 pub const HOOK_DENIED: &str = "tool call denied by pre-tool hook: orgtree:";
 /// Antigravity-only per-MCP-tool-call timeout in seconds (300 s).
 pub const MCP_TOOL_TIMEOUT_S: u64 = 300;
+/// Antigravity-only in-flight silence ceiling (300 s) for `read_file`,
+/// `write_file`, `edit_file` and `orgtree_*` calls. `run_command` keeps the
+/// ordinary turn idle limit so foreground builds are not cut off early.
+pub const TOOL_CEILING_S: u64 = 300;
+/// Short grace past `MCP_TOOL_TIMEOUT_S` so an engine-side MCP timeout error
+/// reaches `agy` before the in-flight tool ceiling stops the CLI process.
+pub const MCP_REPLY_GRACE_S: u64 = 5;
 
 /// Bounded per-MCP-tool timeout for Antigravity seats (300 s, or
 /// `ORGTREE_RIG_AGY_MCP_TIMEOUT_MS` in rig mode).
@@ -56,6 +63,42 @@ pub fn mcp_tool_timeout() -> Duration {
         }
     }
     Duration::from_secs(MCP_TOOL_TIMEOUT_S)
+}
+
+/// Human-readable Antigravity tool name for stall reports and resume prompts.
+#[nolog]
+pub fn display_tool_name(name: &str) -> &str {
+    let s = name.strip_prefix("default_api:").unwrap_or(name);
+    s.strip_prefix("mcp__orgtree__").unwrap_or(s)
+}
+
+/// In-flight silence ceiling (seconds) for an active Antigravity tool call,
+/// or `None` for tools that keep the ordinary `turn_idle_s` limit (e.g. `run_command`).
+#[nolog]
+pub fn bounded_tool_ceiling_s(name: &str, turn_idle_s: u64) -> Option<u64> {
+    let base = name.strip_prefix("default_api:").unwrap_or(name);
+    let is_file = matches!(base, "read_file" | "write_file" | "edit_file");
+    let is_orgtree = base.starts_with("orgtree_")
+        || base.starts_with("mcp__orgtree__")
+        || base.rsplit("__").next().is_some_and(|b| b.starts_with("orgtree_"));
+    if !is_file && !is_orgtree {
+        return None;
+    }
+    let configured = if crate::rig::active() {
+        std::env::var("ORGTREE_RIG_AGY_TOOL_CEILING_S")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|&n| n >= 1 && n <= TOOL_CEILING_S)
+            .unwrap_or(TOOL_CEILING_S)
+    } else {
+        TOOL_CEILING_S
+    };
+    let limit = if is_orgtree && configured == TOOL_CEILING_S {
+        configured + MCP_REPLY_GRACE_S
+    } else {
+        configured
+    };
+    Some(if turn_idle_s > 0 { limit.min(turn_idle_s) } else { limit })
 }
 
 /// What one Antigravity process is launched with.
@@ -272,20 +315,28 @@ impl AgyProc {
     }
 
     pub async fn close(&mut self) {
+        self.close_with_reason("Antigravity close requested").await;
+    }
+
+    /// Graceful-first shutdown: close stdin and wait up to 5 s, writing a
+    /// durable graceful-exit or forced-kill record before terminating the job.
+    pub async fn close_with_reason(&mut self, reason: &str) {
         let (tx, _) = mpsc::unbounded_channel();
         self.stdin = tx;
         if let Some(mut c) = self.child.take() {
             let started = std::time::Instant::now();
-            let status = c.wait_exit(self.pid, self.process, "close requested", Duration::from_secs(5)).await;
+            let status = c.wait_exit(self.pid, self.process, reason, Duration::from_secs(5)).await;
+            let waited = started.elapsed().as_millis() as u64;
             if status.starts_with("exit status unavailable") {
                 // graceful first; a forced end goes to the durable kill record
-                crate::codex_kills::force(self.pid, self.job.is_some(), &self.who, "Antigravity close requested", true,
-                    started.elapsed().as_millis() as u64);
+                crate::codex_kills::force(self.pid, self.job.is_some(), &self.who, reason, true, waited);
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
                 c.start_kill();
                 let _ = c.wait_exit(self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
+            } else {
+                crate::codex_kills::graceful(self.pid, &self.who, reason, waited);
             }
         }
         self.pipe.cancel();
@@ -1159,6 +1210,30 @@ mod workspace_notes_tests {
         assert!(write_identity_rules(&spec.cwd, &spec.identity, spec.identity.len()).is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), "my own unrelated rule");
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tool_ceiling_tests {
+    use super::*;
+
+    #[test]
+    fn file_and_orgtree_tools_get_300s_ceiling_while_run_command_keeps_turn_idle() {
+        for name in ["read_file", "write_file", "edit_file", "default_api:read_file"] {
+            assert_eq!(bounded_tool_ceiling_s(name, 1800), Some(300), "{name}");
+            assert_eq!(bounded_tool_ceiling_s(name, 0), Some(300), "{name} with idle off");
+            assert_eq!(bounded_tool_ceiling_s(name, 120), Some(120), "{name} respects shorter org idle");
+        }
+        for name in ["orgtree_work", "orgtree_message", "mcp__orgtree__orgtree_work", "mcp__orgtree__work"] {
+            assert_eq!(bounded_tool_ceiling_s(name, 1800), Some(305), "{name} allows 5s MCP reply grace");
+            assert_eq!(bounded_tool_ceiling_s(name, 120), Some(120), "{name} respects shorter org idle");
+        }
+        for name in ["run_command", "default_api:run_command", "send_command_input", "search_web"] {
+            assert_eq!(bounded_tool_ceiling_s(name, 1800), None, "{name} must keep ordinary turn idle");
+        }
+        assert_eq!(display_tool_name("mcp__orgtree__orgtree_work"), "orgtree_work");
+        assert_eq!(display_tool_name("default_api:read_file"), "read_file");
+        assert_eq!(mcp_tool_timeout(), Duration::from_secs(300));
     }
 }
 

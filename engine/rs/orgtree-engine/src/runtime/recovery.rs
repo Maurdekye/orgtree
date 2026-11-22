@@ -264,7 +264,37 @@ pub async fn bump(engine: &Engine, agent_id: i64, key: &str) -> Result<i64> {
 #[logged]
 pub async fn forget_hard_fail(engine: &Engine, agent_id: i64) -> Result<()> {
     let client = engine.db.get().await?;
-    client.execute("UPDATE ot.agents SET extra = extra - 'hard_fail_run' WHERE id = $1 AND extra ? 'hard_fail_run'", &[&agent_id]).await?;
+    client.execute(
+        "UPDATE ot.agents SET extra = extra - 'hard_fail_run' - 'agy_tool_hang_retry'
+          WHERE id = $1 AND (extra ? 'hard_fail_run' OR extra ? 'agy_tool_hang_retry')",
+        &[&agent_id],
+    ).await?;
+    Ok(())
+}
+
+/// Previous Antigravity in-flight tool-hang auto-resume record `(tool, count)`.
+#[logged]
+pub async fn agy_tool_hang_prev(engine: &Engine, agent_id: i64) -> Option<(String, i64)> {
+    let client = engine.db.get().await.ok()?;
+    let row = client
+        .query_opt("SELECT extra->'agy_tool_hang_retry' FROM ot.agents WHERE id = $1", &[&agent_id])
+        .await
+        .ok()??;
+    let rec: Value = row.get::<_, Option<Value>>(0)?;
+    let tool = rec["tool"].as_str()?.to_string();
+    let count = rec["count"].as_i64().unwrap_or(1);
+    Some((tool, count))
+}
+
+/// Record that an Antigravity turn was auto-resumed after a hung tool call, so
+/// a repeat hang on the same tool stops and reports instead of looping.
+#[logged]
+pub async fn agy_tool_hang_record(engine: &Engine, agent_id: i64, tool: &str, count: i64) -> Result<()> {
+    let client = engine.db.get().await?;
+    let rec = json!({ "tool": tool, "count": count, "at": now_iso() });
+    client
+        .execute("UPDATE ot.agents SET extra = jsonb_set(extra, '{agy_tool_hang_retry}', $2) WHERE id = $1", &[&agent_id, &rec])
+        .await?;
     Ok(())
 }
 
@@ -276,10 +306,10 @@ pub async fn clear_runs(engine: &Engine, agent_id: i64) -> Result<()> {
     client
         .execute(
             "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run' - 'last_wall'
-                    - 'ctx_reset_run' - 'native_ctx_retry_run' - 'rate_limit_run'
+                    - 'ctx_reset_run' - 'native_ctx_retry_run' - 'rate_limit_run' - 'agy_tool_hang_retry'
               WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run'
                                  OR extra ? 'hard_fail_run' OR extra ? 'last_wall' OR extra ? 'ctx_reset_run' OR extra ? 'native_ctx_retry_run'
-                                 OR extra ? 'rate_limit_run')",
+                                 OR extra ? 'rate_limit_run' OR extra ? 'agy_tool_hang_retry')",
             &[&agent_id],
         )
         .await?;

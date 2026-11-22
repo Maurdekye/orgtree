@@ -8,7 +8,7 @@ use super::mail::{self, From, Outgoing};
 
 /// `tell` false: a failure in a run already reported; its event still fires.
 #[logged]
-pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: Option<&str>, freeze: Option<&Value>, tell: bool) -> Result<()> {
+pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: Option<&str>, freeze: Option<&Value>, door: Option<&str>, tell: bool) -> Result<()> {
     if error.is_none() && freeze.is_none() { return Ok(()) }
     if freeze.is_none() {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));}
     if !tell { return Ok(()) }
@@ -26,13 +26,25 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
         ("runtime.report_limited",json!({"report":name,"report_name":name,"audience":audience,"lane":lane,"reset_at":f["until"],"err":f["error"]}),format!("{name} reached its usage limit and is held until {}.",f["until"].as_str().unwrap_or("its reset")))
     } else {
         let err=error.unwrap_or("");
-        ("runtime.report_stalled",json!({"report":name,"report_name":name,"audience":audience,"cause":"terminal","attempts":null,"classified":null,"door":null,"err":err}),format!("{name}'s turn ended with an error: {err}"))
+        ("runtime.report_stalled",json!({"report":name,"report_name":name,"audience":audience,"cause":"terminal","attempts":null,"classified":null,"door":door,"err":err}),format!("{name}'s turn ended with an error: {err}"))
     };
     let mut out=Outgoing::new(From::System,target,&body);
     out.kind="status".into();
     out.ev=Some(crate::events::typed(variant,"@system",object,fields));
     mail::send(engine,org_id,out).await?;
     Ok(())
+}
+
+/// An Antigravity turn hit the in-flight tool ceiling and was stopped cleanly:
+/// queue one fresh turn naming the hung tool so the seat can check state and
+/// retry or continue without looping.
+#[logged]
+pub async fn agy_tool_hang_resume(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tool: &str, since_iso: &str, waited_s: u64) -> Result<()> {
+    let text = format!(
+        "Your previous turn was stopped because tool `{tool}` hung (stuck in tool {tool} since {since_iso}; no output for {waited_s}s) and the Antigravity process was shut down.\n\n\
+         Whatever ran before `{tool}` was not undone, and `{tool}` itself may or may not have completed on disk or in Orgtree before hanging. Check the actual state before retrying, then retry or continue where you left off. If `{tool}` hangs again on this turn, Orgtree will stop and report instead of retrying a third time."
+    );
+    mail::system_event(engine, org_id, agent_id, &text, false, None).await
 }
 
 /// A turn that failed before its provider ran (3.x `_turn_abandoned` from the

@@ -331,6 +331,16 @@ enum KeepaliveEnd {
     Failed(&'static str),
 }
 
+/// Antigravity: one tool call of the running turn that has not reached a
+/// terminal step state (`DONE`/`ERROR`/`CANCELLED`/`CANCELED`).
+#[derive(Debug, Clone)]
+struct AgyActiveTool {
+    id: String,
+    name: String,
+    started: Instant,
+    started_at: DateTime<Utc>,
+}
+
 /// Muse: one tool call of the running turn that has not settled.
 #[derive(Debug, Clone)]
 struct MuseTool {
@@ -523,6 +533,15 @@ struct Turn {
     /// Antigravity: mid-turn mail handed to the steer hook and not yet
     /// emitted: (handoff id, mail ids, the claimed mail rows)
     agy_steer: Option<(String, Vec<i64>, Vec<Value>, Value)>,
+    /// Antigravity: active in-flight tool calls for the bounded tool ceiling
+    /// and `"stuck in tool <name> since <T>"` stall diagnostics
+    agy_active_tools: Vec<AgyActiveTool>,
+    /// Antigravity: `(tool_name, started_at, waited_s)` when stopped while
+    /// stuck inside a tool call
+    agy_stuck_tool: Option<(String, DateTime<Utc>, u64)>,
+    /// Antigravity: true on the first in-flight tool hang when one automatic
+    /// resumed turn is queued instead of emitting a terminal stall report
+    agy_hung_auto_resume: bool,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
     /// its CLI ran in the user's session and ended with it (`on_exit`): the
@@ -672,6 +691,9 @@ impl Turn {
             agy_text: HashMap::new(),
             agy_response_seen: false,
             agy_steer: None,
+            agy_active_tools: Vec::new(),
+            agy_stuck_tool: None,
+            agy_hung_auto_resume: false,
             exited: false,
             session_ended: false,
             restart: false,
@@ -874,6 +896,13 @@ impl Proc {
             Proc::Agy(p) => p.close().await,
             Proc::Muse(p) => p.close().await,
             Proc::Acp(p) => p.close().await,
+        }
+    }
+
+    async fn close_with_reason(&mut self, reason: &str) {
+        match self {
+            Proc::Agy(p) => p.close_with_reason(reason).await,
+            other => other.close().await,
         }
     }
 
@@ -1702,6 +1731,13 @@ impl Actor {
             if idle_limit > 0 {
                 d = d.min(t.last_event + Duration::from_secs(idle_limit));
             }
+            if t.serving_provider == catalog::GOOGLE {
+                for tool in &t.agy_active_tools {
+                    if let Some(ceil) = agyrt::bounded_tool_ceiling_s(&tool.name, idle_limit) {
+                        d = d.min(tool.started + Duration::from_secs(ceil));
+                    }
+                }
+            }
             let total = self.engine.settings.turn_timeout_s().min(86_400 * 365);
             if total > 0 {
                 d = d.min(t.started + Duration::from_secs(total));
@@ -1791,6 +1827,17 @@ impl Actor {
             self.bg_in_turn.clear();
             self.release_held().await;
         }
+        let agy_tool_hung = self.turn.as_ref().and_then(|t| {
+            if t.serving_provider != catalog::GOOGLE {
+                return None;
+            }
+            let idle_limit = self.engine.settings.turn_idle_s();
+            t.agy_active_tools.iter().find_map(|tool| {
+                let ceil = agyrt::bounded_tool_ceiling_s(&tool.name, idle_limit)?;
+                let waited = tool.started.elapsed().as_secs();
+                (waited >= ceil).then(|| (tool.name.clone(), tool.started_at, waited))
+            })
+        });
         let (silent, over) = self.turn.as_ref().map_or((false, false), |t| {
             // a model the login's own list lacks is offered anyway (Hydrogen): its silence ends soon
             let idle_limit = match self.engine.settings.turn_idle_s() {
@@ -1816,13 +1863,60 @@ impl Actor {
         {
             self.steer_late().await;
         }
-        if let Some(why) = expired {
-            tracing::warn!(agent = %self.name, why, "ending turn");
+        if let Some((tool_name, since, waited)) = agy_tool_hung {
+            let since_iso = iso(since);
+            let prev = recovery::agy_tool_hang_prev(&self.engine, self.id).await;
+            let repeat = prev.as_ref().is_some_and(|(p, c)| p == &tool_name || *c >= 2);
+            let auto_resume = !repeat && !self.stopping;
+            let door_str = format!("stuck in tool {tool_name} since {since_iso}");
+            let why = if auto_resume {
+                format!("{door_str}: tool produced no output for {waited}s and was stopped; queuing one automatic resume")
+            } else {
+                format!("{door_str}: tool hung again after automatic resume (no output for {waited}s; stopping without a third attempt)")
+            };
+            tracing::warn!(agent = %self.name, tool = %tool_name, since = %since_iso, waited, auto_resume, "ending turn");
             if let Some(t) = self.turn.as_mut() {
                 t.killed = true;
+                t.agy_stuck_tool = Some((tool_name.clone(), since, waited));
+                t.agy_hung_auto_resume = auto_resume;
             }
-            self.kill_proc().await;
-            self.end_turn(Some(why.to_string()), Value::Null).await?;
+            let close_reason = format!("Antigravity {door_str}");
+            self.close_proc_with_reason(&close_reason).await;
+            if auto_resume {
+                let next_count = prev.map(|(_, c)| c + 1).unwrap_or(1);
+                if let Err(e) = recovery::agy_tool_hang_record(&self.engine, self.id, &tool_name, next_count).await {
+                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "hung-tool retry record could not be saved");
+                }
+                if let Err(e) = crate::domain::runtime_notices::agy_tool_hang_resume(
+                    &self.engine, self.org_id, self.id, &tool_name, &since_iso, waited,
+                ).await {
+                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "hung-tool resume wake could not be sent");
+                }
+            }
+            self.end_turn(Some(why), Value::Null).await?;
+        } else if let Some(why) = expired {
+            let agy_active = self.turn.as_ref()
+                .filter(|t| t.serving_provider == catalog::GOOGLE)
+                .and_then(|t| t.agy_active_tools.first())
+                .map(|a| (a.name.clone(), a.started_at, a.started.elapsed().as_secs()));
+            let is_agy = self.turn.as_ref().is_some_and(|t| t.serving_provider == catalog::GOOGLE);
+            let why = if let Some((ref tool_name, since, waited)) = agy_active {
+                format!("stuck in tool {tool_name} since {}: {why} (no output for {waited}s)", iso(since))
+            } else {
+                why.to_string()
+            };
+            tracing::warn!(agent = %self.name, %why, "ending turn");
+            if let Some(t) = self.turn.as_mut() {
+                t.killed = true;
+                t.agy_stuck_tool = agy_active;
+            }
+            if is_agy {
+                let reason = format!("Antigravity turn timeout: {}", gist(&why, 120));
+                self.close_proc_with_reason(&reason).await;
+            } else {
+                self.kill_proc().await;
+            }
+            self.end_turn(Some(why), Value::Null).await?;
         }
         if self.admit_retry.is_some_and(|at| Instant::now() >= at) {
             self.admit_retry = None;
@@ -5050,6 +5144,28 @@ impl Actor {
         self.close_proc_as(false).await
     }
 
+    /// Graceful-first close with an explicit reason for durable kill records
+    /// (used when stopping a hung Antigravity process).
+    async fn close_proc_with_reason(&mut self, reason: &str) {
+        self.engine.credential_bridge.revoke(self.id);
+        self.unpark();
+        if let Some(mut p) = self.proc.take() {
+            let opencode = p.is_acp();
+            p.close_with_reason(reason).await;
+            if opencode && self.settle_opencode_mail().await.is_err() {
+                tracing::warn!(agent=self.id,"OpenCode mail recovery pending; custody retained");
+            }
+        }
+        self.proc_skills = None;
+        self.proc_print = None;
+        self.proc_notes = None;
+        self.bg_reset();
+        self.claude_own = false;
+        self.orphans("the CLI was closed");
+        self.claude_lost("the CLI was closed").await;
+        self.muse_lost("the host was closed").await;
+    }
+
     /// `close_proc`, but an idle Claude CLI being replaced closes off the
     /// loop (alpha.4 measured 151-570 ms on it): it is no longer this
     /// agent's at once, and the next Claude CLI's spec waits for it
@@ -7071,6 +7187,8 @@ impl Actor {
                     } else {None}
                 } else {None};
                 let client = self.engine.db.get().await?;
+                let tool_done = matches!(state, "DONE" | "ERROR" | "CANCELLED" | "CANCELED");
+                let tool_failed = matches!(state, "ERROR" | "CANCELLED" | "CANCELED");
                 let known = self.turn.as_ref().map(|t| t.tools.contains_key(&id)).unwrap_or(false);
                 if !known {
                     crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
@@ -7078,22 +7196,37 @@ impl Actor {
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                        let started_at = Utc::now();
                         if let Some(tools) = row["tools"].as_array_mut() {
-                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": now_iso(), "refs": convo::tool_refs(&name, &input, None) }));
+                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": iso(started_at), "refs": convo::tool_refs(&name, &input, None) }));
                         }
                         t.tools.insert(id.clone(), key.clone());
+                        if !tool_done {
+                            t.agy_active_tools.push(AgyActiveTool {
+                                id: id.clone(),
+                                name: agyrt::display_tool_name(&name).to_string(),
+                                started: Instant::now(),
+                                started_at,
+                            });
+                        }
                         (*seq, row.clone())
                     };
                     self.convo.update(&client, update.0, update.1).await?;
                     self.set_activity("tool", Some(name.clone()));
                     self.stream("tool", json!({ "id": id }));
                 }
-                let tool_done = matches!(state, "DONE" | "ERROR" | "CANCELLED" | "CANCELED");
-                let tool_failed = matches!(state, "ERROR" | "CANCELLED" | "CANCELED");
                 if known && !tool_done {
+                    if let Some(t) = self.turn.as_mut() {
+                        if let Some(active) = t.agy_active_tools.iter_mut().find(|a| a.id == id) {
+                            active.name = agyrt::display_tool_name(&name).to_string();
+                        }
+                    }
                     self.update_active_input(&client, &id, &name, &input).await?;
                 }
                 if tool_done {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.agy_active_tools.retain(|a| a.id != id);
+                    }
                     let err = info.pointer("/error/message").and_then(Value::as_str).map(str::to_string);
                     let result = ["result", "output", "response"]
                         .iter()
@@ -8913,6 +9046,11 @@ impl Actor {
                     .await;
             }
         }
+        let agy_door: Option<String> = if agy {
+            turn.agy_stuck_tool.as_ref().map(|(name, since, _)| format!("stuck in tool {name} since {}", iso(*since)))
+        } else {
+            None
+        };
         if turn.session_ended {
             let row = json!({ "role": "system", "text": SESSION_ENDED_ROW, "ts": now_iso(), "kind": "session", "tokens": token_counts::not_counted(token_counts::NOT_SENT) });
             let _ = self.convo.append(&client, row).await;
@@ -8920,9 +9058,10 @@ impl Actor {
             let row=json!({"role":"system","kind":"error","ts":now_iso(),"tokens":token_counts::not_counted(token_counts::NOT_SENT),"text":format!("Turn {} exceeded its context; one recovery attempt is queued.",turn.id)});
             let _=self.convo.append(&client,row).await;
         } else if let Some(e) = &error {
+            let door_field = agy_door.as_deref().unwrap_or("turn");
             let ev = crate::events::typed("runtime.turn_failed_terminal", "@system",
                 json!({"kind":"session","org":self.org.slug,"node":self.name,"session_id":session.clone().unwrap_or_default()}),
-                json!({"door":"turn","err":e}));
+                json!({"door":door_field,"err":e}));
             let row = json!({ "role": "system", "text": format!("The turn ended with an error: {e}"), "ts": now_iso(), "kind": "error", "ev":ev, "tokens": token_counts::not_counted(token_counts::NOT_SENT) });
             let _ = self.convo.append(&client, row).await;
         }
@@ -8942,7 +9081,7 @@ impl Actor {
         if let Err(error) = self.complete_next_turn_namespace().await {
             tracing::warn!(agent=self.id, %error, "next-turn session evidence could not be completed");
         }
-        if !turn.interrupted && !turn.session_ended && !classified {
+        if !turn.interrupted && !turn.session_ended && !classified && !turn.agy_hung_auto_resume {
             // 3.x `hard_fail_run`: a run of terminal failures, a turn the idle
             // or time limit killed included, is told once; cleared by a completed
             // turn or a deliberate wake (recovery::forget_hard_fail).
@@ -8951,7 +9090,7 @@ impl Actor {
                     .map(|run| run == 1 || prompt::input_length_refusal(e)).unwrap_or(true),
                 _ => true,
             };
-            if let Err(e) = crate::domain::runtime_notices::end_turn(&self.engine, self.org_id, self.id, error.as_deref(), freeze_rec.as_ref(), tell).await {
+            if let Err(e) = crate::domain::runtime_notices::end_turn(&self.engine, self.org_id, self.id, error.as_deref(), freeze_rec.as_ref(), agy_door.as_deref(), tell).await {
                 tracing::warn!(agent = self.id, error = %format!("{e:#}"), "typed turn outcome could not be sent");
             }
         }
@@ -9072,7 +9211,8 @@ impl Actor {
             }
             return Ok(());
         }
-        if native_retry || error.is_none() || (!native_full && !self.followup_mail.is_empty() && !error.as_deref().is_some_and(prompt::input_length_refusal)) {
+        let agy_repeat_hang_stop = turn.agy_stuck_tool.is_some() && !turn.agy_hung_auto_resume;
+        if native_retry || error.is_none() || (!agy_repeat_hang_stop && !native_full && !self.followup_mail.is_empty() && !error.as_deref().is_some_and(prompt::input_length_refusal)) {
             // All lanes share normal halt/freeze/killswitch and slot admission.
             // Confirmed boundary mail is no longer pending, so is not replayed.
             self.on_wake().await?;
