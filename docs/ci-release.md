@@ -390,13 +390,16 @@ Ubuntu 22.04's glibc 2.35 (inferred).
   working; one it opens later would be missing.
 - A build whose version has a prerelease label (a test build such as `4.6.3-frame.1`),
   or a Linux/macOS run launched with a non-default `ORGTREE_V2_DATA` or
-  `ORGTREE_V2_PROFILE` override, never writes, enables, disables or removes
-  `orgtree-engine.service`, the autostart entry, or the macOS LaunchAgent: the
-  registration belongs to the installed release's default profile
-  (`unixboot.ts registersBootEngine`, `isNonDefaultDataRoot`). It attaches to a
-  background engine that already answers for its folder, or starts its own, and
-  disables the **Run on sign-in** switch for that session. Setting the variable to
-  the exact default folder keeps registering as usual.
+  `ORGTREE_V2_PROFILE` override (compared against the effective default folder,
+  including a saved `data-location.json` move, and failing closed when path
+  canonicalisation fails), never writes, enables, disables or removes
+  `orgtree-engine.service`, the autostart entry, the macOS LaunchAgent, or login
+  items: the registration belongs to the installed release's effective default
+  profile (`unixboot.ts resolveUnixStartupOwnership`, `registersBootEngine`). It
+  attaches to a background engine that already answers for its folder, or starts its
+  own, and disables the **Run on sign-in** switch for that session. Setting the
+  variable to the exact effective default folder (empty/whitespace treated as unset)
+  keeps registering with the verified canonical path shared by host and engine.
 - The engine the desktop starts itself gets the same `PATH` as the registered one (the
   login shell's, then `~/.local/bin` and the usual folders), not the desktop's own,
   which under Steam is `/usr/local/bin:/usr/bin`. Codex is also looked for in
