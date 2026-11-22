@@ -915,12 +915,16 @@ export default function App() {
     }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug, v3, viewMode])
+  const remoteHostIdRef = useRef<string | null>(null)
   const hostRefresher = useMemo(
-    () => createHostRefresher(() => getHost().then((h) => { setBuild(h.build) })),
+    () => createHostRefresher(async ({ signal, isCurrent }) => {
+      const h = await getHost(signal)
+      if (isCurrent()) setBuild(h.build)
+    }),
     [],
   )
   useEffect(() => {
-    void afterBootGate(() => hostRefresher.loadInitial())()
+    void afterBootGate(() => hostRefresher.loadInitial(remoteHostIdRef.current))()
   }, [hostRefresher])
   // The running APP version, shown beside the sidebar title (user 2026-09-10,
   // e.g. "2.0.0-alpha.8"). It comes from the desktop shell's own bridge —
@@ -983,9 +987,10 @@ export default function App() {
   const errStreak = useRef(0)
   const ERROR_STREAK = 2
   const fetchOk = useCallback(() => {
+    const hadError = errStreak.current > 0
     errStreak.current = 0
     setError(null)
-    void hostRefresher.onRecovered()
+    if (hadError || hostRefresher.hasFailed()) void hostRefresher.onRecovered(remoteHostIdRef.current)
   }, [hostRefresher])
   const fetchErr = useCallback((e: Error) => {
     errStreak.current += 1
@@ -1012,6 +1017,7 @@ export default function App() {
   const remoteName = remoteOrg?.name ?? null
   const remoteId = remoteOrg?.id ?? null
   const remoteState = remoteOrg?.state ?? null
+  remoteHostIdRef.current = remoteId
   const remoteAway = useRemoteAway(slug)
   const prevRemoteHostRef = useRef<{ id: string | null; state: string | null } | null>(null)
   useEffect(() => {
@@ -1020,11 +1026,11 @@ export default function App() {
     if (!prev) return
     if (prev.id !== remoteId) {
       clearHostOs()
-      void hostRefresher.onReconnect()
+      void hostRefresher.onReconnect(remoteId)
       return
     }
     if (remoteState === 'connected' && (prev.state !== 'connected' || hostRefresher.hasFailed())) {
-      void hostRefresher.onReconnect()
+      void hostRefresher.onReconnect(remoteId)
     }
   }, [remoteId, remoteState, hostRefresher])
   useEffect(() => { setStreamerOrgs(orgs.filter(o => o.slug !== slug).flatMap(o => [o.name, o.slug])) }, [orgs, slug])
@@ -1427,7 +1433,7 @@ export default function App() {
         opened(socket)
         epic?.frame(slug, { type: 'epic_link', up: true })
         void recordController.current?.feed.reconnect()
-        if (hadClose || hostRefresher.hasFailed()) void hostRefresher.onReconnect()
+        if (hadClose || hostRefresher.hasFailed()) void hostRefresher.onReconnect(remoteHostIdRef.current)
       })
       currentSocket = socket; wsRef.current = socket
       // Some already-open transports (and the DOM test transport) have no

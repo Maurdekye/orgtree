@@ -14,7 +14,7 @@ import { ShortcutsSettings } from '../src/canvas/shortcutsettings'
 import { CharterTemplateDirsSetting } from '../src/canvas/chartersettings'
 import { composerKeyHint } from '../src/composerkeys'
 import { getHost } from '../src/api'
-import { clearHostOs, createHostRefresher, currentHostOs } from '../src/hostos'
+import { clearHostOs, createHostRefresher, currentHostOs, noteHostOs } from '../src/hostos'
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
@@ -268,6 +268,60 @@ test('O-06: Desktop session in NodeConfig and DraftScopeModal follows serving en
   assert.equal(currentHostOs(), 'linux', 'reconnect retries /api/host and updates host OS')
 })
 
+test('M1: host-OS refresher handles target switch during in-flight read and retries on recovery', async t => {
+  const prevFetch = g.fetch
+  t.after(async () => { g.fetch = prevFetch; await seedHostOs('windows') })
+
+  // Reviewer switch-during-read fixture: Windows read in flight -> target switches to Linux ->
+  // must not coalesce into the old Windows read, ends on Linux, then recovery triggers a retry.
+  let finishPrior!: () => void
+  let source = 'windows'
+  let calls = 0
+  const pending = new Promise<void>(resolve => { finishPrior = resolve })
+  const switching = createHostRefresher(async () => {
+    const captured = source
+    calls++
+    if (captured === 'windows') await pending
+    noteHostOs(captured)
+  })
+  clearHostOs()
+  const first = switching.loadInitial('win-target')
+  source = 'linux'
+  clearHostOs()
+  const afterSwitch = switching.onReconnect('linux-target')
+  finishPrior()
+  await Promise.all([first, afterSwitch])
+  assert.equal(currentHostOs(), 'linux', 'Windows -> Linux switch during in-flight read must end on Linux')
+  assert.equal(calls, 2, 'target switch must issue a fresh read rather than coalescing into the old promise')
+  assert.equal(switching.hasFailed(), false)
+
+  await switching.onRecovered('linux-target')
+  assert.equal(calls, 3, 'transport recovery triggers a retry even after a read already succeeded')
+  assert.equal(currentHostOs(), 'linux')
+
+  // Stale getHost() resolving after clearHostOs() + newer target read must be discarded (no deadlock if awaited first).
+  let resolveStale!: (r: Response) => void
+  const stalePromise = new Promise<Response>(r => { resolveStale = r })
+  let fetchCount = 0
+  g.fetch = (async () => {
+    fetchCount++
+    if (fetchCount === 1) return stalePromise
+    return new Response(JSON.stringify({ os: 'linux', build: { commit: 'b', started_at: '2026-11-22T00:00:00Z' }, cli_version: '1.0' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+  clearHostOs()
+  const staleGet = getHost()
+  clearHostOs()
+  await getHost()
+  assert.equal(currentHostOs(), 'linux')
+  resolveStale(new Response(JSON.stringify({ os: 'windows', build: { commit: 'a', started_at: '2026-11-22T00:00:00Z' }, cli_version: '1.0' }), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  }))
+  await staleGet
+  assert.equal(currentHostOs(), 'linux', 'late stale /api/host reply must not overwrite the current target OS')
+})
+
 test('O-07: AppFilePermissionPrompt whole-computer wording branches on host OS', async t => {
   t.after(async () => { setBridge(undefined); await seedHostOs('windows') })
   const prompt = {
@@ -384,12 +438,17 @@ test('O-12: ShortcutsSettings omits Windows Alt+Shift/Alt+Space note off Windows
   } finally { await vWin.unmount() }
 })
 
-test('B-03: CharterTemplateDirsSetting uses symbolic link and omits junction/OneDrive off Windows', async t => {
+test('B-03 & M6: CharterTemplateDirsSetting uses Unix wording only when non-Windows is known, keeps Windows/unknown byte-identical, and avoids cloud-placeholder error on Unix', async t => {
   const prevFetch = g.fetch
   t.after(async () => { setBridge(undefined); await seedHostOs('windows'); g.fetch = prevFetch })
   g.fetch = (async () => new Response(JSON.stringify({
     dirs: ['/tmp/link'],
-    directories: [{ path: '/tmp/link', status: 'link_refused', count: 0 }],
+    directories: [{
+      path: '/tmp/link',
+      status: 'link_refused',
+      error: 'Links, reparse points and cloud placeholders are not read',
+      count: 0,
+    }],
     duplicates: [],
   }), { status: 200 })) as typeof fetch
 
@@ -400,17 +459,31 @@ test('B-03: CharterTemplateDirsSetting uses symbolic link and omits junction/One
     const txt = vNix.el.textContent ?? ''
     assert.match(txt, /refused — the path goes through a symbolic link/)
     assert.match(txt, /Symbolic links are skipped, and only regular \.md files are read\./)
-    assert.doesNotMatch(txt, /junction|OneDrive|placeholder/i)
+    assert.match(txt, /Symbolic links are not followed or read/)
+    assert.doesNotMatch(txt, /junction|reparse|OneDrive|placeholder/i)
   } finally { await vNix.unmount() }
 
   await seedHostOs('windows')
   const vWin = await mountView(<CharterTemplateDirsSetting />, el => el)
+  let winTxt = ''
   try {
     await inAct(async () => { await flush(6) })
-    const txt = vWin.el.textContent ?? ''
-    assert.match(txt, /refused — the path goes through a link or junction/)
-    assert.match(txt, /OneDrive/)
+    winTxt = vWin.el.textContent ?? ''
+    assert.match(winTxt, /refused — the path goes through a link or junction/)
+    assert.match(winTxt, /Links, reparse points and cloud placeholders are not read/)
+    assert.match(winTxt, /OneDrive/)
   } finally { await vWin.unmount() }
+
+  // Unknown host OS (before /api/host resolves or legacy engine without os): keep existing Windows/default wording.
+  setBridge({ platform: 'win32' })
+  clearHostOs()
+  const vUnknown = await mountView(<CharterTemplateDirsSetting />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    const unknownTxt = vUnknown.el.textContent ?? ''
+    assert.equal(unknownTxt, winTxt, 'unknown host OS must keep Windows/default charter wording until OS is known')
+    assert.doesNotMatch(unknownTxt, /only regular \.md files/)
+  } finally { await vUnknown.unmount() }
 })
 
 test('B-04: composerKeyHint shows Command+Enter on macOS and keeps Ctrl+Enter on Windows/Linux', t => {

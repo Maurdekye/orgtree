@@ -174,4 +174,34 @@ test('Windows (win32): missing addPhoneFirewallRule capability or thrown error r
     assert.deepEqual(posts, [], 'must not activate phone access on Windows when firewall IPC throws')
     assert.match(vThrow.el.querySelector('.phone-note')?.textContent ?? '', /UAC prompt failed/)
   } finally { await vThrow.unmount() }
+
+  // 3. M5: Unavailable desktop bridge (no preload) must refuse with the same refusal note.
+  setBridge(undefined)
+  const vNoBridge = await mountView(<PhonePanel org="acme" onClose={() => {}} />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    const btn = [...vNoBridge.el.querySelectorAll('button')].find(b => b.textContent === 'Turn on phone access')
+    assert.ok(btn, 'Turn on phone access button rendered without bridge')
+    await inAct(async () => { btn.click(); await flush(6) })
+    assert.deepEqual(posts, [], 'must not activate phone access when desktop bridge is unavailable')
+    assert.equal(
+      vNoBridge.el.querySelector('.phone-note')?.textContent,
+      'This desktop app cannot add the Windows Firewall rule required for phone access.',
+    )
+  } finally { await vNoBridge.unmount() }
+
+  // 4. M5: Present bridge with unidentified platform and no firewall method must also refuse.
+  setBridge({} as Partial<NativeDesktop>)
+  const vUnknownBridge = await mountView(<PhonePanel org="acme" onClose={() => {}} />, el => el)
+  try {
+    await inAct(async () => { await flush(6) })
+    const btn = [...vUnknownBridge.el.querySelectorAll('button')].find(b => b.textContent === 'Turn on phone access')
+    assert.ok(btn)
+    await inAct(async () => { btn.click(); await flush(6) })
+    assert.deepEqual(posts, [], 'must not activate phone access without an identified Linux/macOS desktop')
+    assert.equal(
+      vUnknownBridge.el.querySelector('.phone-note')?.textContent,
+      'This desktop app cannot add the Windows Firewall rule required for phone access.',
+    )
+  } finally { await vUnknownBridge.unmount() }
 })

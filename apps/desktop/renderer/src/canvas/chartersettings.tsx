@@ -12,7 +12,7 @@ import {
 import { CloseIcon, FolderIcon } from '../icons'
 import { pickFolder } from '../picker'
 import { localFolder } from '../remotehere'
-import { useIsWindowsHost } from '../hostos'
+import { useIsNonWindowsHost } from '../hostos'
 import type { CharterTemplateDirState, CharterTemplateDirsPayload } from '../types'
 import { SetBlock, SetGroup, SetRow } from './settingskit'
 
@@ -109,8 +109,8 @@ const normalized = (p: Partial<CharterTemplateDirsPayload> | null | undefined):
 })
 
 export function CharterTemplateDirsSetting() {
-  const windowsHost = useIsWindowsHost()
-  const dirStatus = windowsHost ? DIR_STATUS : DIR_STATUS_NON_WINDOWS
+  const nonWindowsHost = useIsNonWindowsHost()
+  const dirStatus = nonWindowsHost ? DIR_STATUS_NON_WINDOWS : DIR_STATUS
   const [data, setDataRaw] = useState<CharterTemplateDirsPayload | null>(null)
   const setData = (p: Partial<CharterTemplateDirsPayload>) => setDataRaw(normalized(p))
   const [busy, setBusy] = useState(false)
@@ -142,15 +142,20 @@ export function CharterTemplateDirsSetting() {
       + 'hire form’s charter presets. Orgtree only reads these folders: it never '
       + 'creates, changes or copies anything in them, and templates with the same '
       + 'name in different places are all offered, labelled by folder. '
-      + (windowsHost
-        ? 'Links, junctions and cloud-sync placeholder files (such as OneDrive files not kept on this device) are treated as links and not read.'
-        : 'Symbolic links are skipped, and only regular .md files are read.')}>
+      + (nonWindowsHost
+        ? 'Symbolic links are skipped, and only regular .md files are read.'
+        : 'Links, junctions and cloud-sync placeholder files (such as OneDrive files not kept on this device) are treated as links and not read.')}>
       <div className="dirlist" aria-label="Charter template folders">
         {data === null && !error && <p className="dim">Loading…</p>}
         {data !== null && dirs.length === 0 && <p className="dim">No folders listed</p>}
         {dirs.map(path => {
           const d = state(path)
           const notes = d ? dirNotes(d) : []
+          const dirError = d?.error && d.status !== 'ok'
+            ? (nonWindowsHost && d.status === 'link_refused'
+              ? 'Symbolic links are not followed or read'
+              : d.error)
+            : null
           return <div key={path}>
             <div className="dirrow">
               <span className="chip mono grow" title={path}>{path}</span>
@@ -163,7 +168,7 @@ export function CharterTemplateDirsSetting() {
                 aria-label={`Remove ${path}`} title="Remove from the list (the folder itself is untouched)"
                 onClick={() => save(dirs.filter(x => x !== path))}><CloseIcon fontSize="inherit" /></button>
             </div>
-            {d?.error && d.status !== 'ok' && <p className="dim mono">{d.error}</p>}
+            {dirError && <p className="dim mono">{dirError}</p>}
             {notes.map(n => <p key={n} className="dim">{n}</p>)}
           </div>
         })}

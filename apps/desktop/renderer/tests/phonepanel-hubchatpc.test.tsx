@@ -89,12 +89,20 @@ test('linked phone still shows a sleep warning without a removed settings action
 
 test('turning on phone access submits only its network scope', async t => {
   const calls:{url:string;body:unknown}[]=[]
+  const prevBridge = (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop
+  Object.defineProperty(window, 'orgtreeDesktop', {
+    value: { platform: 'win32', addPhoneFirewallRule: async () => ({ ok: true }) },
+    configurable: true,
+  })
   g.fetch=(url:string,init?:RequestInit)=>{
     if(init?.method==='POST')calls.push({url:String(url),body:JSON.parse(String(init.body))})
     return Promise.resolve(new Response(JSON.stringify({...state,access:{...state.access,state:'A0'}}),{status:200}))
   }
   const view=await mountView(<PhonePanel org="acme" onClose={()=>{}}/>,el=>el)
-  t.after(()=>view.unmount())
+  t.after(async ()=>{
+    await view.unmount()
+    Object.defineProperty(window, 'orgtreeDesktop', { value: prevBridge, configurable: true })
+  })
   await inAct(async()=>{await flush(5)})
   const button=[...view.el.querySelectorAll('button')].find(b=>b.textContent==='Turn on phone access')
   assert.ok(button)
