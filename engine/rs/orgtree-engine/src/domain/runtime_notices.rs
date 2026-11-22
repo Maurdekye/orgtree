@@ -36,10 +36,19 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
 }
 
 /// Deterministic `client_op` for an Antigravity hung-tool automatic resume wake,
-/// used to reconcile uncertain send results against `ot.mail`.
+/// used to reconcile uncertain send results against `ot.mail` and to bind the
+/// recovery turn back to its original turn's single resume allowance.
 #[nolog]
-pub fn agy_tool_hang_resume_client_op(agent_id: i64, turn_id: i64) -> String {
-    format!("agy-tool-hang-resume:{agent_id}:{turn_id}")
+pub fn agy_tool_hang_resume_client_op(agent_id: i64, origin_turn_id: i64) -> String {
+    format!("agy-tool-hang-resume:{agent_id}:{origin_turn_id}")
+}
+
+/// Extract the original `turn_id` from an Antigravity hung-tool automatic
+/// resume `client_op` belonging to `agent_id`, or `None` for any non-recovery mail.
+#[nolog]
+pub fn parse_agy_tool_hang_resume_origin(client_op: &str, agent_id: i64) -> Option<i64> {
+    let prefix = format!("agy-tool-hang-resume:{agent_id}:");
+    client_op.strip_prefix(&prefix)?.parse::<i64>().ok().filter(|id| *id > 0)
 }
 
 /// An Antigravity turn hit the in-flight tool ceiling and was stopped cleanly:

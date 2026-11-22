@@ -420,25 +420,36 @@ pub enum AgyToolHangReserve {
     AlreadyUsed,
 }
 
-/// Atomically reserve the single automatic resume for an Antigravity tool hang
-/// episode. Fails closed (`Err`) on DB error so read/write faults never look
-/// like a fresh episode or grant extra retries.
+/// Atomically reserve the single automatic resume for an Antigravity original
+/// turn (`origin_turn_id`). Keyed by `origin_turn_id`, NOT by the agent: a
+/// recovery turn resumes with the same `origin_turn_id` and sees `AlreadyUsed`,
+/// while any fresh user assignment or non-recovery turn gets its own `origin_turn_id`
+/// and starts with a fresh allowance. Fails closed (`Err`) on DB error.
 #[logged]
 pub async fn agy_tool_hang_reserve(
     engine: &Engine,
     agent_id: i64,
-    turn_id: i64,
+    origin_turn_id: i64,
     tool: &str,
 ) -> Result<AgyToolHangReserve> {
     let client = engine.db.get().await?;
-    let rec = json!({ "tool": tool, "count": 1, "turn_id": turn_id, "at": now_iso() });
+    let origin_key = origin_turn_id.to_string();
+    let rec = json!({
+        "tool": tool,
+        "count": 1,
+        "turn_id": origin_turn_id,
+        "origin_turn_id": origin_turn_id,
+        "at": now_iso(),
+    });
     let updated = client
         .execute(
             "UPDATE ot.agents
-                SET extra = jsonb_set(extra, '{agy_tool_hang_retry}', $2)
+                SET extra = jsonb_set(extra, '{agy_tool_hang_retry}', $3)
               WHERE id = $1
-                AND NOT (extra ? 'agy_tool_hang_retry')",
-            &[&agent_id, &rec],
+                AND COALESCE(extra->'agy_tool_hang_retry'->>'origin_turn_id',
+                             extra->'agy_tool_hang_retry'->>'turn_id',
+                             '') <> $2",
+            &[&agent_id, &origin_key, &rec],
         )
         .await?;
     if updated > 0 {

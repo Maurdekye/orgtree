@@ -542,9 +542,20 @@ struct Turn {
     /// Antigravity: true on the first in-flight tool hang when one automatic
     /// resumed turn is queued instead of emitting a terminal stall report
     agy_hung_auto_resume: bool,
+    /// Antigravity: when this turn was started by a hung-tool automatic resume
+    /// wake, the original turn ID whose single resume allowance it shares.
+    /// `None` for any fresh/non-recovery turn (which keys by its own `id`).
+    agy_hang_origin_turn: Option<i64>,
+    /// Antigravity: true when automatic hung-tool resume failed to reserve or
+    /// queue its wake, so the terminal `REPORT STALLED` bypasses `hard_fail_run`
+    /// consecutive-failure deduplication.
+    agy_force_stall_notice: bool,
     /// Latest `orgtree_status` value reported during this turn (`working`/`done`/`blocked`/`idle`),
     /// retained for stall-door diagnostics across the whole turn.
     status_reported: Option<(String, DateTime<Utc>)>,
+    /// Antigravity: monotonically increasing epoch for delivered inputs in this
+    /// turn (0 = opening prompt, +1 per delivered follow-up steer).
+    agy_input_epoch: u64,
     /// Antigravity: timestamp of the latest delivered follow-up steer input in
     /// this turn, used to ensure status reports from an earlier input can never
     /// satisfy soft end-of-turn for a later delivered input.
@@ -552,12 +563,16 @@ struct Turn {
     /// Antigravity: latest `orgtree_status` `(status, at)` reported AFTER the
     /// latest delivered input (original prompt or last delivered follow-up steer).
     agy_status_for_input: Option<(String, DateTime<Utc>)>,
+    /// Antigravity: input epoch in which each `agent_response` step index first
+    /// appeared, so a response begun before follow-up delivery can never count
+    /// as the final answer for a later delivered input.
+    agy_response_epoch: HashMap<i64, u64>,
     /// Antigravity: `agent_response` step indices that started (`state != "DONE"`)
     /// and have not yet completed `DONE`.
     agy_open_responses: std::collections::HashSet<i64>,
-    /// Antigravity: true once a completed non-empty final assistant answer landed
-    /// after the latest delivered input and after the last tool call, with no
-    /// subsequent open or empty response step.
+    /// Antigravity: true once a completed non-empty final assistant answer begun
+    /// in the current input epoch landed with no subsequent non-status tool call
+    /// or open/empty response step.
     agy_final_text_after_tools: bool,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
@@ -711,9 +726,13 @@ impl Turn {
             agy_active_tools: Vec::new(),
             agy_stuck_tool: None,
             agy_hung_auto_resume: false,
+            agy_hang_origin_turn: None,
+            agy_force_stall_notice: false,
             status_reported: None,
+            agy_input_epoch: 0,
             agy_input_delivered_at: None,
             agy_status_for_input: None,
+            agy_response_epoch: HashMap::new(),
             agy_open_responses: std::collections::HashSet::new(),
             agy_final_text_after_tools: false,
             exited: false,
@@ -729,6 +748,7 @@ impl Turn {
     /// Shared by the live Claude stream and deterministic stream-path tests.
     #[nolog]
     fn agy_on_input_delivered(&mut self, delivered_at: DateTime<Utc>) {
+        self.agy_input_epoch = self.agy_input_epoch.saturating_add(1);
         self.agy_input_delivered_at = Some(match self.agy_input_delivered_at {
             Some(prev) => prev.max(delivered_at),
             None => delivered_at,
@@ -738,6 +758,9 @@ impl Turn {
         }
         self.agy_final_text_after_tools = false;
         self.agy_open_responses.clear();
+        self.agy_text.clear();
+        self.draft.clear();
+        self.draft_order = None;
     }
 
     #[nolog]
@@ -750,13 +773,20 @@ impl Turn {
 
     #[nolog]
     fn agy_on_response_started(&mut self, idx: i64) {
+        self.agy_response_epoch.entry(idx).or_insert(self.agy_input_epoch);
         self.agy_final_text_after_tools = false;
         self.agy_open_responses.insert(idx);
     }
 
     #[nolog]
     fn agy_on_response_done(&mut self, idx: i64, has_nonempty_text: bool) {
+        let epoch = *self.agy_response_epoch.entry(idx).or_insert(self.agy_input_epoch);
         self.agy_open_responses.remove(&idx);
+        // Text buffered before delivery or a response that started before
+        // delivery can never count as the final answer to a newer input.
+        if epoch != self.agy_input_epoch {
+            return;
+        }
         if has_nonempty_text {
             self.agy_final_text_after_tools = self.agy_open_responses.is_empty() && self.agy_text.is_empty();
         } else {
@@ -765,8 +795,13 @@ impl Turn {
     }
 
     #[nolog]
-    fn agy_on_tool_step(&mut self) {
-        self.agy_final_text_after_tools = false;
+    fn agy_on_tool_step(&mut self, tool_name: &str) {
+        // `orgtree_status` itself does not invalidate a completed final answer
+        // (both `done -> answer -> error` and `answer -> done -> error` soft-end);
+        // any non-status tool call after the answer clears completion.
+        if agyrt::display_tool_name(tool_name) != "orgtree_status" {
+            self.agy_final_text_after_tools = false;
+        }
     }
 
     #[nolog]
@@ -1930,27 +1965,33 @@ impl Actor {
         if let Some((tool_name, since, waited)) = agy_tool_hung {
             let since_iso = iso(since);
             let turn_id = self.turn.as_ref().map(|t| t.id).unwrap_or(0);
+            let origin_turn_id = self.turn.as_ref()
+                .and_then(|t| t.agy_hang_origin_turn)
+                .unwrap_or(turn_id);
             let door_str = format!("stuck in tool {tool_name} since {since_iso}");
             let close_reason = format!("Antigravity {door_str}");
             if let Some(t) = self.turn.as_mut() {
                 t.killed = true;
                 t.agy_stuck_tool = Some((tool_name.clone(), since, waited));
                 t.agy_hung_auto_resume = false;
+                t.agy_force_stall_notice = false;
             }
             self.close_proc_with_reason(&close_reason).await;
             let plan = recovery::plan_agy_tool_hang_resume(
                 self.stopping,
-                || recovery::agy_tool_hang_reserve(&self.engine, self.id, turn_id, &tool_name),
+                || recovery::agy_tool_hang_reserve(&self.engine, self.id, origin_turn_id, &tool_name),
                 || crate::domain::runtime_notices::agy_tool_hang_resume(
-                    &self.engine, self.org_id, self.id, turn_id, &tool_name, &since_iso, waited,
+                    &self.engine, self.org_id, self.id, origin_turn_id, &tool_name, &since_iso, waited,
                 ),
                 || crate::domain::runtime_notices::agy_tool_hang_resume_reconcile(
-                    &self.engine, self.org_id, self.id, turn_id,
+                    &self.engine, self.org_id, self.id, origin_turn_id,
                 ),
             ).await;
             let auto_resume = matches!(plan, recovery::AgyHangResumePlan::Resumed);
+            let force_stall_notice = matches!(plan, recovery::AgyHangResumePlan::Failed(_));
             if let Some(t) = self.turn.as_mut() {
                 t.agy_hung_auto_resume = auto_resume;
+                t.agy_force_stall_notice = force_stall_notice;
             }
             let why = match &plan {
                 recovery::AgyHangResumePlan::Resumed => {
@@ -5680,6 +5721,9 @@ impl Actor {
         turn.alert_turn = alert_turn;
         turn.input_shape = Some((text.len(), text.chars().count(), budget));
         turn.opening_mail = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
+        turn.agy_hang_origin_turn = raw.iter()
+            .filter_map(|m| m["client_op"].as_str())
+            .find_map(|op| crate::domain::runtime_notices::parse_agy_tool_hang_resume_origin(op, self.id));
         turn.admitted_at = admitted_at;
         turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
@@ -7276,9 +7320,6 @@ impl Actor {
                 self.text_landed().await;
             }
             "tool" => {
-                if let Some(t) = self.turn.as_mut() {
-                    t.agy_on_tool_step();
-                }
                 let id = format!("agy-step-{idx}");
                 let info = &step["tool_info"];
                 let raw_params = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
@@ -7299,6 +7340,9 @@ impl Actor {
                         })
                 });
                 let (name, input) = agyrt::resolve_agy_tool_call(step["tool_name"].as_str(), &raw_params, prev_name.as_deref());
+                if let Some(t) = self.turn.as_mut() {
+                    t.agy_on_tool_step(&name);
+                }
                 let raw_name_for_mail = step["tool_name"].as_str().unwrap_or(&name);
                 let retained_read=state=="DONE" && token_counts::is_file_read(&name);
                 // A completed tool whose stream carried no output text is counted from its exact
@@ -9295,7 +9339,8 @@ impl Actor {
             // turn or a deliberate wake (recovery::forget_hard_fail).
             let tell = match (&error, &freeze_rec) {
                 (Some(e), None) => recovery::bump(&self.engine, self.id, "hard_fail_run").await
-                    .map(|run| run == 1 || prompt::input_length_refusal(e)).unwrap_or(true),
+                    .map(|run| run == 1 || turn.agy_force_stall_notice || prompt::input_length_refusal(e))
+                    .unwrap_or(true),
                 _ => true,
             };
             if let Err(e) = crate::domain::runtime_notices::end_turn(&self.engine, self.org_id, self.id, error.as_deref(), freeze_rec.as_ref(), agy_door.as_deref(), tell).await {
@@ -11262,10 +11307,58 @@ mod agy_soft_end_tests {
         assert!(!soft_allowed(&steered, reject), "status report must come AFTER the latest delivered input");
         // Once fresh status (at >= delivered_at) AND completed final answer arrive, soft-end is allowed again.
         steered.agy_on_status("done".into(), t2);
-        steered.agy_on_tool_step();
+        steered.agy_on_tool_step("orgtree_status");
         steered.agy_on_response_started(9);
         steered.agy_on_response_done(9, true);
         assert!(soft_allowed(&steered, reject), "fresh status + completed final answer after steer allows soft-end");
+
+        // Follow-up 1: pre-delivery response finishing DONE after steer + fresh status must NEVER count as the new input's answer.
+        let mut older = Turn::new(5, false);
+        older.agy_on_response_started(18);
+        older.agy_text.insert(18, "Buffered text from request A.".into());
+        older.agy_on_input_delivered(t1);
+        assert!(older.agy_text.is_empty(), "delivery must clear pre-delivery buffered response text");
+        assert!(older.agy_open_responses.is_empty());
+        older.agy_on_status("done".into(), t2);
+        older.agy_on_tool_step("orgtree_status");
+        // Even if step 18 completes DONE (with empty or late-delta text), it began before delivery.
+        older.agy_on_response_done(18, false);
+        assert!(!soft_allowed(&older, reject), "pre-delivery response finishing with empty text must NOT soft-end");
+        older.agy_on_response_done(18, true);
+        assert!(!soft_allowed(&older, reject), "pre-delivery response finishing even with late text must NOT soft-end");
+        // A fresh response begun AFTER delivery qualifies once DONE.
+        older.agy_on_response_started(19);
+        older.agy_text.insert(19, "Fresh answer to request B.".into());
+        older.agy_text.remove(&19);
+        older.agy_on_response_done(19, true);
+        assert!(soft_allowed(&older, reject), "fresh response begun after delivery qualifies for soft-end");
+
+        // Follow-up 2: BOTH orders (`done -> answer -> error` AND `answer -> done -> error`) soft-end,
+        // while any non-status tool after the answer clears completion and stalls.
+        for status_tool in ["orgtree_status", "default_api:orgtree_status", "mcp__orgtree__status", "mcp__orgtree__orgtree_status"] {
+            let mut status_last = Turn::new(6, false);
+            status_last.agy_on_response_started(2);
+            status_last.agy_on_response_done(2, true);
+            status_last.agy_on_tool_step(status_tool);
+            status_last.agy_on_status("done".into(), t0);
+            assert!(soft_allowed(&status_last, reject), "{status_tool} after final answer must allow soft-end");
+            status_last.agy_on_tool_step("orgtree_chart");
+            assert!(!soft_allowed(&status_last, reject), "non-status tool after final answer must clear completion");
+        }
+        // `orgtree_status(working)` after final answer still stalls because status is not done/idle.
+        let mut working_last = Turn::new(7, false);
+        working_last.agy_on_response_started(2);
+        working_last.agy_on_response_done(2, true);
+        working_last.agy_on_tool_step("orgtree_status");
+        working_last.agy_on_status("working".into(), t0);
+        assert!(!soft_allowed(&working_last, reject), "working status after final answer must NOT soft-end");
+
+        // Follow-up 3: recovery client_op parser distinguishes recovery turns from fresh assignments.
+        let op = crate::domain::runtime_notices::agy_tool_hang_resume_client_op(8, 42);
+        assert_eq!(crate::domain::runtime_notices::parse_agy_tool_hang_resume_origin(&op, 8), Some(42));
+        assert_eq!(crate::domain::runtime_notices::parse_agy_tool_hang_resume_origin(&op, 9), None);
+        assert_eq!(crate::domain::runtime_notices::parse_agy_tool_hang_resume_origin("other-op:8:42", 8), None);
+        assert_eq!(crate::domain::runtime_notices::parse_agy_tool_hang_resume_origin("agy-tool-hang-resume:8:0", 8), None);
 
         // Race case: a fresh post-steer status arriving just before commit_agy_steer is preserved.
         let mut racy = Turn::new(4, false);
