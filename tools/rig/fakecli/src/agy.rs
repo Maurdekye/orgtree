@@ -365,6 +365,11 @@ impl Turn<'_> {
         }
         let (text, is_error) = if let Some(reason) = &denied {
             (format!("tool call denied by pre-tool hook: {reason}"), true)
+        } else if step["hang"].as_bool() == Some(true) {
+            self.agy.log("tool_hang", json!({ "tool": name, "step_index": i }));
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+            }
         } else if name.starts_with("orgtree_") {
             if mcp.is_none() {
                 *mcp = Mcp::start(self.agy);
@@ -374,12 +379,6 @@ impl Turn<'_> {
                 None => ("the orgtree MCP server could not be started".into(), true),
             }
         } else {
-            if step["hang"].as_bool() == Some(true) {
-                self.agy.log("tool_hang", json!({ "tool": name, "step_index": i }));
-                loop {
-                    std::thread::sleep(Duration::from_secs(1));
-                }
-            }
             if let Some(ms) = step["run_ms"].as_u64() {
                 std::thread::sleep(Duration::from_millis(ms));
             }

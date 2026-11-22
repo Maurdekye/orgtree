@@ -62,6 +62,8 @@ async function up(flags) {
     quietLog: !!flags['quiet-log'],
     session0: flags.session0 == null ? null : String(flags.session0),
     steerLateS: flags.steerLateS && Number(flags.steerLateS),
+    agyToolCeilingS: flags.agyToolCeilingS && Number(flags.agyToolCeilingS),
+    agyMcpTimeoutMs: flags.agyMcpTimeoutMs && Number(flags.agyMcpTimeoutMs),
     maxParked: flags.maxParked && Number(flags.maxParked),
     warming: !!flags.warming,
     fsync: !!flags.fsync })

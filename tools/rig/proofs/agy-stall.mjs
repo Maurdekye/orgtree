@@ -30,7 +30,7 @@ import path from 'node:path'
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
-const AGENTS = ['hang1', 'hang2', 'cmdok', 'soft1', 'soft2', 'midnet', 'mid400', 'notext']
+const AGENTS = ['hang1', 'hang2', 'hangmcp', 'cmdok', 'soft1', 'soft2', 'midnet', 'mid400', 'notext']
 
 export async function setup() {
   return { agyToolCeilingS: 4 }
@@ -80,6 +80,28 @@ export default async function (rig) {
             steps: [
               { text: 'Writing breadcrumbs.' },
               { tool: 'write_file', args: { Path: 'breadcrumbs.md', Content: 'first' }, hang: true },
+            ],
+          },
+        ],
+      },
+      hangmcp: {
+        turns: [
+          {
+            name: 'resume-mcp',
+            match: 'orgtree_work',
+            once: true,
+            steps: [
+              { tool: 'orgtree_status', args: { status: 'done', summary: 'Recovered after hung orgtree_work.' } },
+              { text: 'Recovered cleanly after solo orgtree_work evidence hang.' },
+            ],
+          },
+          {
+            name: 'hang-solo-evidence',
+            match: 'PROOF-HANG-MCP',
+            once: true,
+            steps: [
+              { text: 'Recording solo evidence.' },
+              { tool: 'orgtree_work', args: { action: 'evidence', slug: 'demo', kind: 'note', note: 'solo' }, hang: true },
             ],
           },
         ],
@@ -189,7 +211,7 @@ export default async function (rig) {
     await rig.op({ op: 'hire', name, parent: 'boss', tier: 'flash', title: 'Antigravity stall proof agent' })
   }
   const ids = Object.fromEntries(AGENTS.map(a => [a, rig.agentRow(a)?.id]))
-  p.check('all 8 Antigravity proof agents hired', AGENTS.every(a => ids[a]), ids)
+  p.check('all 9 Antigravity proof agents hired', AGENTS.every(a => ids[a]), ids)
 
   const log = (agent, kind) => rig.fakeLog(agent).filter(l => !kind || l.kind === kind)
   const stalledFor = name => rig.sql(
@@ -204,6 +226,7 @@ export default async function (rig) {
   await Promise.all([
     rig.userMail('hang1', 'PROOF-HANG-RECOVER: read breadcrumbs.'),
     rig.userMail('hang2', 'PROOF-HANG-REPEAT: write breadcrumbs.'),
+    rig.userMail('hangmcp', 'PROOF-HANG-MCP: record solo evidence.'),
     rig.userMail('cmdok', 'PROOF-RUN-CMD: build project.'),
     rig.userMail('soft1', 'PROOF-SOFT-NET: finish and report.'),
     rig.userMail('soft2', 'PROOF-SOFT-400: finish and report.'),
@@ -281,6 +304,19 @@ export default async function (rig) {
       && /stuck in tool write_file since /i.test(h2Door)
       && /codex-force-kill.*agent hang2.*graceful_tried=true/.test(killLogText()),
     { turns: h2After, door: h2Door, stalls: h2Stalls.length })
+
+  // ---------------------------------------------------------------- (a2b) hangmcp: solo hung orgtree_work evidence -> ceiling + auto-resume -> recovers
+  const hmTurns = await rig.waitTurns('hangmcp', 2, { timeout: 45000 }).catch(() => rig.turns('hangmcp'))
+  const hmPrompt2 = log('hangmcp', 'turn')[1]?.prompt ?? ''
+  p.check('hangmcp: solo hung orgtree_work evidence stopped at ceiling, auto-resumed naming orgtree_work, and recovered',
+    hmTurns.length === 2
+      && hmTurns[0].killed === true
+      && /stuck in tool orgtree_work since /i.test(hmTurns[0].error ?? '')
+      && !hmTurns[1].error
+      && /orgtree_work/.test(hmPrompt2) && /hung/i.test(hmPrompt2)
+      && stalledFor('hangmcp').length === 0
+      && /codex-force-kill.*agent hangmcp.*graceful_tried=true/.test(killLogText()),
+    { turns: hmTurns, prompt2: hmPrompt2.slice(0, 240), stalls: stalledFor('hangmcp').length })
 
   // ---------------------------------------------------------------- (c1) midnet: Go DNS error mid-work -> P34 connection freeze & retry
   const midFrozen = await rig.waitFor(() => {
