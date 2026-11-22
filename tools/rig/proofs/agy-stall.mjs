@@ -669,25 +669,28 @@ export default async function (rig) {
 
   // Deliver follow-up instructions while steered/older/newans are polling for mid-turn mail,
   // and queue faildedup's second user mail while its first turn is still running (before 400).
+  // Use SEED_SETTLE_TIMEOUT (120 s): with zero seed turns in this fixture, a Session 0 run
+  // spends up to 60 s in Actor::session_settle waiting for a sign-in helper before any first
+  // turn spawns its fake CLI (see tools/rig/seed-settle.mjs).
   await Promise.all([
     (async () => {
       await rig.waitFor(() => rig.fakeLog('steered').some(row => row.kind === 'step' && row.step?.poll_mail),
-        { what: 'steered fake CLI to wait for follow-up mail', timeout: 25000 })
+        { what: 'steered fake CLI to wait for follow-up mail', timeout: SEED_SETTLE_TIMEOUT })
       await rig.userMail('steered', 'SECOND-REVIEW-INSTRUCTION')
     })(),
     (async () => {
       await rig.waitFor(() => rig.fakeLog('older').some(row => row.kind === 'step' && row.step?.poll_mail),
-        { what: 'older fake CLI to wait for follow-up mail', timeout: 25000 })
+        { what: 'older fake CLI to wait for follow-up mail', timeout: SEED_SETTLE_TIMEOUT })
       await rig.userMail('older', 'OLD-ANSWER-FOLLOWUP')
     })(),
     (async () => {
       await rig.waitFor(() => rig.fakeLog('newans').some(row => row.kind === 'step' && row.step?.poll_mail),
-        { what: 'newans fake CLI to wait for follow-up mail', timeout: 25000 })
+        { what: 'newans fake CLI to wait for follow-up mail', timeout: SEED_SETTLE_TIMEOUT })
       await rig.userMail('newans', 'NEW-ANSWER-FOLLOWUP')
     })(),
     (async () => {
       await rig.waitFor(() => rig.fakeLog('faildedup').some(row => row.kind === 'turn'),
-        { what: 'faildedup turn 1 to start before queueing second user mail', timeout: 25000 })
+        { what: 'faildedup turn 1 to start before queueing second user mail', timeout: SEED_SETTLE_TIMEOUT })
       await rig.userMail('faildedup', 'PROOF-DEDUP-QUEUED: hang after earlier terminal failure.')
     })(),
   ])
@@ -848,10 +851,123 @@ export default async function (rig) {
     !un1.error && unnamedChips.length === 1 && unnamedChips[0].name === 'an unnamed tool',
     { turn: un1, chips: unnamedChips })
 
-  // ---------------------------------------------------------------- (a1) hang1: hung read_file -> graceful stop + kill log + auto-resume -> recovers
-  const h1Turns = await rig.waitTurns('hang1', 2, { timeout: 45000 }).catch(() => rig.turns('hang1'))
-  const h1Prompt2 = log('hang1', 'turn')[1]?.prompt ?? ''
-  const h1Kills = killLogText()
+  // Await the already-launched independent hang/retry cases concurrently so both GREEN and
+  // RED (against an unpatched engine where hangs never stop early) stay bounded well under
+  // the rig job timeout, then record every check in deterministic order.
+  const [
+    h1Res, h2Res, hdRes, hfRes, fwRecRes, fdRes, spRes, hmRes, midRes,
+  ] = await Promise.all([
+    // (a1) hang1: hung read_file -> graceful stop + kill log + auto-resume -> recovers
+    (async () => {
+      const h1Turns = await rig.waitTurns('hang1', 2, { timeout: 45000 }).catch(() => rig.turns('hang1'))
+      return { h1Turns, h1Prompt2: log('hang1', 'turn')[1]?.prompt ?? '', h1Kills: killLogText() }
+    })(),
+    // (a2) hang2: repeated write_file hang -> stops after 2 turns, reports to boss, NO 3rd attempt
+    (async () => {
+      const h2Turns = await rig.waitTurns('hang2', 2, { timeout: 60000 }).catch(() => rig.turns('hang2'))
+      const h2Stalls = h2Turns.length >= 2
+        ? await rig.waitFor(() => {
+            const s = stalledFor('hang2')
+            return s.length ? s : null
+          }, { what: 'hang2 REPORT STALLED after repeat hang', timeout: 15000 }).catch(() => stalledFor('hang2'))
+        : stalledFor('hang2')
+      if (h2Turns.length >= 2) await new Promise(r => setTimeout(r, 3000))
+      return { h2Turns, h2Stalls, h2After: rig.turns('hang2'), h2Kills: killLogText() }
+    })(),
+    // (Ruling 2) hangdiff: read_file hang then write_file hang -> exactly 2 turns, no 3rd turn
+    (async () => {
+      const hdTurns = await rig.waitTurns('hangdiff', 2, { timeout: 60000 }).catch(() => rig.turns('hangdiff'))
+      const hdStalls = hdTurns.length >= 2
+        ? await rig.waitFor(() => {
+            const s = stalledFor('hangdiff')
+            return s.length ? s : null
+          }, { what: 'hangdiff REPORT STALLED after different-tool repeat hang', timeout: 12000 }).catch(() => stalledFor('hangdiff'))
+        : stalledFor('hangdiff')
+      if (hdTurns.length >= 2) await new Promise(r => setTimeout(r, 3000))
+      return { hdTurns, hdStalls, hdAfter: rig.turns('hangdiff'), hdKills: killLogText() }
+    })(),
+    // (Follow-up 3) hangfresh: per-original-turn reservation
+    (async () => {
+      const hfFirstTurns = await rig.waitTurns('hangfresh', 2, { timeout: 60000 }).catch(() => rig.turns('hangfresh'))
+      const hfFirstStalls = hfFirstTurns.length >= 2
+        ? await rig.waitFor(() => {
+            const s = stalledFor('hangfresh')
+            return s.length ? s : null
+          }, { what: 'hangfresh first assignment REPORT STALLED', timeout: 12000 }).catch(() => stalledFor('hangfresh'))
+        : stalledFor('hangfresh')
+      let hfAllTurns = hfFirstTurns
+      if (hfFirstTurns.length >= 2) {
+        await rig.userMail('hangfresh', 'PROOF-HANG-FRESH-2: fresh user assignment after prior stopped hang.')
+        hfAllTurns = await rig.waitTurns('hangfresh', 4, { timeout: 35000 }).catch(() => rig.turns('hangfresh'))
+      }
+      return { hfFirstTurns, hfFirstStalls, hfAllTurns, hfFinalStalls: stalledFor('hangfresh'), hfPrompt4: log('hangfresh', 'turn')[3]?.prompt ?? '' }
+    })(),
+    // (Ruling 4) failrec & failwake: injected write failure still notifies boss
+    (async () => {
+      const [[fr1], [fw1]] = await Promise.all([
+        rig.waitTurns('failrec', 1, { timeout: 30000 }).catch(() => rig.turns('failrec')),
+        rig.waitTurns('failwake', 1, { timeout: 30000 }).catch(() => rig.turns('failwake')),
+      ])
+      const [frStalls, fwStalls] = await Promise.all([
+        fr1?.ended_at
+          ? rig.waitFor(() => {
+              const s = stalledFor('failrec')
+              return s.length ? s : null
+            }, { what: 'failrec REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('failrec'))
+          : Promise.resolve(stalledFor('failrec')),
+        fw1?.ended_at
+          ? rig.waitFor(() => {
+              const s = stalledFor('failwake')
+              return s.length ? s : null
+            }, { what: 'failwake REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('failwake'))
+          : Promise.resolve(stalledFor('failwake')),
+      ])
+      if (fr1?.ended_at || fw1?.ended_at) await new Promise(r => setTimeout(r, 2000))
+      return { fr1, fw1, frStalls, fwStalls, frTurns: rig.turns('failrec'), fwTurns: rig.turns('failwake') }
+    })(),
+    // (Follow-up 4) faildedup: queued user mail after prior failed turn still sends 2nd notice on failed reservation write
+    (async () => {
+      const fdTurns = await rig.waitTurns('faildedup', 2, { timeout: 40000 }).catch(() => rig.turns('faildedup'))
+      const fdStalls = fdTurns.length >= 2 && fdTurns[1]?.ended_at
+        ? await rig.waitFor(() => {
+            const s = stalledFor('faildedup')
+            return s.length >= 2 ? s : null
+          }, { what: 'faildedup second REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('faildedup'))
+        : stalledFor('faildedup')
+      const fdWakes = rig.sql(`SELECT id, client_op FROM ot.mail WHERE recipient_agent_id = ${ids.faildedup} AND client_op LIKE 'agy-tool-hang-resume:%'`)
+      const fdHardFail = rig.agentRow('faildedup')?.extra?.hard_fail_run ?? 0
+      return { fdTurns, fdStalls, fdWakes, fdHardFail }
+    })(),
+    // (Ruling 6a) sparse: progress omitting tool_name keeps read_file ceiling
+    (async () => {
+      const spTurns = await rig.waitTurns('sparse', 2, { timeout: 45000 }).catch(() => rig.turns('sparse'))
+      return { spTurns, spPrompt2: log('sparse', 'turn')[1]?.prompt ?? '' }
+    })(),
+    // (a2b) hangmcp: solo hung orgtree_work evidence -> ceiling + auto-resume -> recovers
+    (async () => {
+      const hmTurns = await rig.waitTurns('hangmcp', 2, { timeout: 45000 }).catch(() => rig.turns('hangmcp'))
+      return { hmTurns, hmPrompt2: log('hangmcp', 'turn')[1]?.prompt ?? '', hmKills: killLogText() }
+    })(),
+    // (c1) midnet: Go DNS error mid-work -> P34 connection freeze & retry
+    (async () => {
+      const midFrozen = await rig.waitFor(() => {
+        const row = rig.agentRow('midnet')
+        if (row?.frozen?.connection) return row.frozen
+        const ts = rig.turns('midnet')
+        if (ts.length >= 2 && ts[1].ended_at) return { retried_already: true }
+        return null
+      }, { what: 'midnet P34 connection freeze or retry', timeout: 25000 }).catch(() => null)
+      const midTurns = midFrozen
+        ? await rig.waitFor(() => {
+            const ts = rig.turns('midnet')
+            return ts.length >= 2 && ts.every(x => x.ended_at) ? ts : null
+          }, { what: 'midnet P34 retry turn to finish', timeout: 70000, every: 1000 }).catch(() => rig.turns('midnet'))
+        : rig.turns('midnet')
+      return { midFrozen, midTurns }
+    })(),
+  ])
+
+  const { h1Turns, h1Prompt2, h1Kills } = h1Res
   p.check('hang1: hung read_file stopped at ceiling, recorded durable forced kill, auto-resumed naming read_file, and recovered',
     h1Turns.length === 2
       && h1Turns[0].killed === true
@@ -862,33 +978,18 @@ export default async function (rig) {
       && /codex-force-kill.*agent hang1.*graceful_tried=true/.test(h1Kills),
     { turns: h1Turns, prompt2: h1Prompt2.slice(0, 240), stalls: stalledFor('hang1').length, killsMatch: /codex-force-kill.*hang1/.test(h1Kills) })
 
-  // ---------------------------------------------------------------- (a2) hang2: repeated write_file hang -> stops after 2 turns, reports to boss, NO 3rd attempt
-  const h2Turns = await rig.waitTurns('hang2', 2, { timeout: 60000 }).catch(() => rig.turns('hang2'))
-  const h2Stalls = await rig.waitFor(() => {
-    const s = stalledFor('hang2')
-    return s.length ? s : null
-  }, { what: 'hang2 REPORT STALLED after repeat hang', timeout: 15000 }).catch(() => stalledFor('hang2'))
-  await new Promise(r => setTimeout(r, 3000))
-  const h2After = rig.turns('hang2')
+  const { h2Turns, h2Stalls, h2After, h2Kills } = h2Res
   const h2Door = h2Stalls[0]?.ev?.door ?? ''
   p.check('hang2: repeated write_file hang stops after 2nd attempt (no 3rd turn) and reports stuck in tool write_file since T',
     h2Turns.length === 2
       && h2After.length === 2
       && h2Stalls.length === 1
       && /stuck in tool write_file since /i.test(h2Door)
-      && /codex-force-kill.*agent hang2.*graceful_tried=true/.test(killLogText()),
+      && /codex-force-kill.*agent hang2.*graceful_tried=true/.test(h2Kills),
     { turns: h2After, door: h2Door, stalls: h2Stalls.length })
 
-  // ---------------------------------------------------------------- (Ruling 2) hangdiff: read_file hang then write_file hang -> exactly 2 turns, no 3rd turn
-  const hdTurns = await rig.waitTurns('hangdiff', 2, { timeout: 60000 }).catch(() => rig.turns('hangdiff'))
-  const hdStalls = await rig.waitFor(() => {
-    const s = stalledFor('hangdiff')
-    return s.length ? s : null
-  }, { what: 'hangdiff REPORT STALLED after different-tool repeat hang', timeout: 12000 }).catch(() => stalledFor('hangdiff'))
-  await new Promise(r => setTimeout(r, 3000))
-  const hdAfter = rig.turns('hangdiff')
+  const { hdTurns, hdStalls, hdAfter, hdKills } = hdRes
   const hdDoor = hdStalls[0]?.ev?.door ?? ''
-  const hdKills = killLogText()
   p.check('hangdiff: read_file hang then write_file hang stops at exactly 2 turns (no 3rd turn) and reports stuck in tool write_file',
     hdTurns.length === 2
       && hdAfter.length === 2
@@ -898,16 +999,7 @@ export default async function (rig) {
       && /codex-force-kill.*agent hangdiff.*stuck in tool write_file/i.test(hdKills),
     { turns: hdAfter, door: hdDoor, stalls: hdStalls.length })
 
-  // ---------------------------------------------------------------- (Follow-up 3) hangfresh: per-original-turn reservation
-  const hfFirstTurns = await rig.waitTurns('hangfresh', 2, { timeout: 60000 }).catch(() => rig.turns('hangfresh'))
-  const hfFirstStalls = await rig.waitFor(() => {
-    const s = stalledFor('hangfresh')
-    return s.length ? s : null
-  }, { what: 'hangfresh first assignment REPORT STALLED', timeout: 12000 }).catch(() => stalledFor('hangfresh'))
-  await rig.userMail('hangfresh', 'PROOF-HANG-FRESH-2: fresh user assignment after prior stopped hang.')
-  const hfAllTurns = await rig.waitTurns('hangfresh', 4, { timeout: 35000 }).catch(() => rig.turns('hangfresh'))
-  const hfFinalStalls = stalledFor('hangfresh')
-  const hfPrompt4 = log('hangfresh', 'turn')[3]?.prompt ?? ''
+  const { hfFirstTurns, hfFirstStalls, hfAllTurns, hfFinalStalls, hfPrompt4 } = hfRes
   p.check('hangfresh: fresh user assignment after read->write stop gets its own one automatic resume and recovers',
     hfFirstTurns.length === 2
       && hfFirstStalls.length === 1
@@ -920,20 +1012,7 @@ export default async function (rig) {
       && hfFinalStalls.length === 1,
     { firstStalls: hfFirstStalls.length, finalStalls: hfFinalStalls.length, turns: hfAllTurns, prompt4: hfPrompt4.slice(0, 200) })
 
-  // ---------------------------------------------------------------- (Ruling 4) failrec & failwake: injected write failure still notifies boss
-  const [fr1] = await rig.waitTurns('failrec', 1, { timeout: 30000 }).catch(() => rig.turns('failrec'))
-  const [fw1] = await rig.waitTurns('failwake', 1, { timeout: 30000 }).catch(() => rig.turns('failwake'))
-  const frStalls = await rig.waitFor(() => {
-    const s = stalledFor('failrec')
-    return s.length ? s : null
-  }, { what: 'failrec REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('failrec'))
-  const fwStalls = await rig.waitFor(() => {
-    const s = stalledFor('failwake')
-    return s.length ? s : null
-  }, { what: 'failwake REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('failwake'))
-  await new Promise(r => setTimeout(r, 2000))
-  const frTurns = rig.turns('failrec')
-  const fwTurns = rig.turns('failwake')
+  const { fr1, fw1, frStalls, fwStalls, frTurns, fwTurns } = fwRecRes
   p.check('failrec & failwake: injected retry-record or wake write failure still sends REPORT STALLED to boss (no silent suppression)',
     !!fr1?.killed && frTurns.length === 1 && frStalls.length === 1 && /stuck in tool read_file since /i.test(frStalls[0]?.ev?.door ?? '')
       && !!fw1?.killed && fwTurns.length === 1 && fwStalls.length === 1 && /stuck in tool read_file since /i.test(fwStalls[0]?.ev?.door ?? ''),
@@ -942,14 +1021,7 @@ export default async function (rig) {
       failwake: { turns: fwTurns, stalls: fwStalls.length, door: fwStalls[0]?.ev?.door ?? '' },
     })
 
-  // ---------------------------------------------------------------- (Follow-up 4) faildedup: queued user mail after prior failed turn still sends 2nd notice on failed reservation write
-  const fdTurns = await rig.waitTurns('faildedup', 2, { timeout: 40000 }).catch(() => rig.turns('faildedup'))
-  const fdStalls = await rig.waitFor(() => {
-    const s = stalledFor('faildedup')
-    return s.length >= 2 ? s : null
-  }, { what: 'faildedup second REPORT STALLED', timeout: 8000 }).catch(() => stalledFor('faildedup'))
-  const fdWakes = rig.sql(`SELECT id, client_op FROM ot.mail WHERE recipient_agent_id = ${ids.faildedup} AND client_op LIKE 'agy-tool-hang-resume:%'`)
-  const fdHardFail = rig.agentRow('faildedup')?.extra?.hard_fail_run ?? 0
+  const { fdTurns, fdStalls, fdWakes, fdHardFail } = fdRes
   p.check('faildedup: queued user mail after prior failed turn still sends 2nd REPORT STALLED when reservation write fails (bypasses dedup)',
     fdTurns.length === 2
       && !!fdTurns[0].error
@@ -961,9 +1033,7 @@ export default async function (rig) {
       && fdHardFail >= 2,
     { turns: fdTurns, stalls: fdStalls.map(s => ({ id: s.id, door: s.ev?.door })), wakes: fdWakes, hardFail: fdHardFail })
 
-  // ---------------------------------------------------------------- (Ruling 6a) sparse: progress omitting tool_name keeps read_file ceiling
-  const spTurns = await rig.waitTurns('sparse', 2, { timeout: 45000 }).catch(() => rig.turns('sparse'))
-  const spPrompt2 = log('sparse', 'turn')[1]?.prompt ?? ''
+  const { spTurns, spPrompt2 } = spRes
   p.check('sparse: progress update omitting tool_name keeps known read_file ceiling, stops at 4 s, and auto-resumes naming read_file',
     spTurns.length === 2
       && spTurns[0].killed === true
@@ -972,9 +1042,7 @@ export default async function (rig) {
       && /read_file/.test(spPrompt2),
     { turns: spTurns, prompt2: spPrompt2.slice(0, 240) })
 
-  // ---------------------------------------------------------------- (a2b) hangmcp: solo hung orgtree_work evidence -> ceiling + auto-resume -> recovers
-  const hmTurns = await rig.waitTurns('hangmcp', 2, { timeout: 45000 }).catch(() => rig.turns('hangmcp'))
-  const hmPrompt2 = log('hangmcp', 'turn')[1]?.prompt ?? ''
+  const { hmTurns, hmPrompt2, hmKills } = hmRes
   p.check('hangmcp: solo hung orgtree_work evidence stopped at ceiling, auto-resumed naming orgtree_work, and recovered',
     hmTurns.length === 2
       && hmTurns[0].killed === true
@@ -982,21 +1050,10 @@ export default async function (rig) {
       && !hmTurns[1].error
       && /orgtree_work/.test(hmPrompt2) && /hung/i.test(hmPrompt2)
       && stalledFor('hangmcp').length === 0
-      && /codex-force-kill.*agent hangmcp.*graceful_tried=true/.test(killLogText()),
+      && /codex-force-kill.*agent hangmcp.*graceful_tried=true/.test(hmKills),
     { turns: hmTurns, prompt2: hmPrompt2.slice(0, 240), stalls: stalledFor('hangmcp').length })
 
-  // ---------------------------------------------------------------- (c1) midnet: Go DNS error mid-work -> P34 connection freeze & retry
-  const midFrozen = await rig.waitFor(() => {
-    const row = rig.agentRow('midnet')
-    if (row?.frozen?.connection) return row.frozen
-    const ts = rig.turns('midnet')
-    if (ts.length >= 2 && ts[1].ended_at) return { retried_already: true }
-    return null
-  }, { what: 'midnet P34 connection freeze or retry', timeout: 25000 }).catch(() => null)
-  const midTurns = await rig.waitFor(() => {
-    const ts = rig.turns('midnet')
-    return ts.length >= 2 && ts.every(x => x.ended_at) ? ts : null
-  }, { what: 'midnet P34 retry turn to finish', timeout: 70000, every: 1000 }).catch(() => rig.turns('midnet'))
+  const { midFrozen, midTurns } = midRes
   p.check('midnet: mid-work Go DNS error triggers P34 connection freeze and recovers on retry (no terminal REPORT STALLED)',
     !!midFrozen && midTurns.length >= 2 && !midTurns[1].error && stalledFor('midnet').length === 0,
     { frozen: midFrozen, turns: midTurns, stalls: stalledFor('midnet').length })
