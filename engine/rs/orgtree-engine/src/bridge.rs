@@ -587,6 +587,14 @@ mod tests {
         dir
     }
 
+    struct TempRoot(PathBuf);
+    impl TempRoot {
+        fn new(tag: &str) -> Self { Self(data_root(tag)) }
+    }
+    impl Drop for TempRoot {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
     fn caller() -> Caller {
         Caller { org_id: 1, org_slug: "bridge-test".into(), agent_id: 7, name: "tester".into() }
     }
@@ -671,7 +679,8 @@ mod tests {
     async fn agy_mcp_timeout_fails_call_with_check_before_retry_and_keeps_connection_alive() {
         let cancel = CancellationToken::new();
         let (cli, srv) = tokio::io::duplex(1 << 20);
-        let engine = Engine::for_tests("unused-bridge-timeout".into());
+        let root = TempRoot::new("timeout");
+        let engine = Engine::for_tests(root.0.clone());
         let task = tokio::spawn(connection_with(
             engine,
             caller(),
@@ -731,7 +740,8 @@ mod tests {
         let wake_done = Arc::new(tokio::sync::Notify::new());
         let cancel = CancellationToken::new();
         let (cli, srv) = tokio::io::duplex(1 << 20);
-        let engine = Engine::for_tests("unused-bridge-detach".into());
+        let root = TempRoot::new("detach");
+        let engine = Engine::for_tests(root.0.clone());
         let (c_flag, w_flag, w_notify) = (committed.clone(), woken.clone(), wake_done.clone());
         let task = tokio::spawn(connection_with(
             engine,
@@ -785,7 +795,8 @@ mod tests {
     async fn no_timeout_leaves_non_agy_bridges_untouched() {
         let cancel = CancellationToken::new();
         let (cli, srv) = tokio::io::duplex(1 << 20);
-        let engine = Engine::for_tests("unused-bridge-no-timeout".into());
+        let root = TempRoot::new("no-timeout");
+        let engine = Engine::for_tests(root.0.clone());
         let task = tokio::spawn(connection_with(
             engine,
             caller(),

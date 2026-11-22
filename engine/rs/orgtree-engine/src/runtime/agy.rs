@@ -1474,9 +1474,22 @@ mod tool_ceiling_tests {
 mod guarded_lines_tests {
     use super::*;
 
+    struct TempRoot(PathBuf);
+    impl TempRoot {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("orgtree-agy-{tag}-{}", crate::util::random_hex(8)));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+    impl Drop for TempRoot {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
     #[tokio::test]
     async fn oversized_stream_line_stops_reader_without_hanging() {
-        let engine = Engine::for_tests("unused-agy-guarded-lines".into());
+        let root = TempRoot::new("guarded-lines");
+        let engine = Engine::for_tests(root.0.clone());
         let (tx, _rx) = mpsc::unbounded_channel();
         let auth = RuntimeAuth {
             engine,
@@ -1499,7 +1512,8 @@ mod guarded_lines_tests {
 
     #[tokio::test]
     async fn plain_auth_prompt_split_across_chunk_boundary_stops_immediately() {
-        let engine = Engine::for_tests("unused-agy-guarded-split".into());
+        let root = TempRoot::new("guarded-split");
+        let engine = Engine::for_tests(root.0.clone());
         let (tx, mut rx) = mpsc::unbounded_channel();
         let auth = RuntimeAuth {
             engine,
