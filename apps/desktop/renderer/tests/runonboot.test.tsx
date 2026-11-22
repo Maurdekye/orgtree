@@ -13,10 +13,11 @@ import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { StartupKind } from '../../../../packages/contracts'
 
 const prefs = { startAtLogin: true, exitOnClose: false, routineNotifications: false, onboarded: false } as NativePreferences
-function native(kind?: StartupKind) {
-  const value: Partial<NativeDesktop> = {
+function native(kind?: StartupKind, startupCapability?: { available: boolean; reason?: string }) {
+  const value: Partial<NativeDesktop> & { getStartupCapability?: () => Promise<{ available: boolean; reason?: string }> } = {
     getPreferences: async () => prefs, setPreferences: async patch => ({ ...prefs, ...patch }), onEvent: () => () => {},
     ...(kind ? { getStartupKind: async () => kind } : {}),
+    ...(startupCapability ? { getStartupCapability: async () => startupCapability } : {}),
   }
   Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
 }
@@ -54,6 +55,28 @@ test('first-run setup shows the same switch', async () => {
       await inAct(async () => { await flush(5) })
       assert.equal(startupSwitch(v.el)?.getAttribute('aria-label'), label)
       assert.doesNotMatch(v.el.textContent ?? '', /run on startup/i)
+    } finally { await v.unmount() }
+  }
+})
+
+test('non-default data folder disables the startup switch with the one-line hint in Settings and Onboarding', async () => {
+  const reason = 'Run on startup is only available for the default data folder.'
+  for (const [name, node] of [
+    ['Settings', <DesktopSettings />],
+    ['Onboarding', <Onboarding><div /></Onboarding>],
+  ] as const) {
+    native('signin', { available: false, reason })
+    const v = await mountView(node, el => el)
+    try {
+      await inAct(async () => { await flush(5) })
+      const sw = startupSwitch(v.el)
+      assert.ok(sw, `${name}: startup switch rendered`)
+      assert.equal(sw.getAttribute('aria-label'), 'Run on sign-in')
+      assert.equal(sw.disabled, true, `${name}: switch must be disabled`)
+      assert.equal(sw.checked, false, `${name}: disabled non-default switch must not show on`)
+      const text = v.el.textContent ?? ''
+      assert.ok(text.includes(reason), `${name}: must show the exact default-folder hint`)
+      assert.doesNotMatch(text, SIGNIN, `${name}: must not show the active sign-in hint while disabled`)
     } finally { await v.unmount() }
   }
 })

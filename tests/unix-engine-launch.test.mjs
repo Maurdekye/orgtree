@@ -50,6 +50,79 @@ test('as before: no registration on Windows, in development, under another ident
   assert.equal(boot.registersBootEngine({ ...installed, hasEngine: false }), false)
 })
 
+test('non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE skips boot registration on Linux and macOS', () => {
+  const linuxDefault = '/home/alex/.config/Orgtree v2/data'
+  const macDefault = '/Users/alex/Library/Application Support/Orgtree v2/data'
+  for (const [platform, defaultDataRoot] of [['linux', linuxDefault], ['darwin', macDefault]]) {
+    const base = { ...installed, platform, defaultDataRoot }
+    // Non-default ORGTREE_V2_DATA skips registration
+    assert.equal(boot.registersBootEngine({
+      ...base,
+      env: { ORGTREE_V2_DATA: '/tmp/second-orgtree-data' },
+      dataRoot: '/tmp/second-orgtree-data',
+    }), false, `${platform}: non-default ORGTREE_V2_DATA`)
+    // Non-default ORGTREE_V2_PROFILE skips registration even if dataRoot stayed default
+    assert.equal(boot.registersBootEngine({
+      ...base,
+      env: { ORGTREE_V2_PROFILE: '/tmp/second-orgtree-profile' },
+      dataRoot: defaultDataRoot,
+    }), false, `${platform}: non-default ORGTREE_V2_PROFILE`)
+    // Relative or whitespace-only ORGTREE_V2_DATA fails closed
+    assert.equal(boot.registersBootEngine({
+      ...base,
+      env: { ORGTREE_V2_DATA: 'relative/data' },
+      dataRoot: 'relative/data',
+    }), false, `${platform}: relative ORGTREE_V2_DATA`)
+    assert.equal(boot.registersBootEngine({
+      ...base,
+      env: { ORGTREE_V2_DATA: '   ' },
+      dataRoot: '   ',
+    }), false, `${platform}: whitespace ORGTREE_V2_DATA`)
+    // Missing defaultDataRoot with override fails closed
+    assert.equal(boot.registersBootEngine({
+      ...installed,
+      platform,
+      env: { ORGTREE_V2_DATA: '/tmp/second-orgtree-data' },
+      dataRoot: '/tmp/second-orgtree-data',
+    }), false, `${platform}: missing defaultDataRoot`)
+  }
+})
+
+test('default root and env vars resolving to the exact default root keep registering on Linux and macOS', () => {
+  const linuxProfile = '/home/alex/.config/Orgtree v2'
+  const linuxDefault = `${linuxProfile}/data`
+  const macProfile = '/Users/alex/Library/Application Support/Orgtree v2'
+  const macDefault = `${macProfile}/data`
+  for (const [platform, profile, defaultDataRoot] of [['linux', linuxProfile, linuxDefault], ['darwin', macProfile, macDefault]]) {
+    const base = { ...installed, platform, defaultDataRoot }
+    // No override: registers
+    assert.equal(boot.registersBootEngine({ ...base, env: {}, dataRoot: defaultDataRoot }), true, `${platform}: unset env`)
+    // Empty override with default dataRoot: registers
+    assert.equal(boot.registersBootEngine({ ...base, env: { ORGTREE_V2_DATA: '', ORGTREE_V2_PROFILE: '' }, dataRoot: defaultDataRoot }), true, `${platform}: empty env`)
+    // No env override with data-location.json custom folder: registers (single primary profile)
+    assert.equal(boot.registersBootEngine({ ...base, env: {}, dataRoot: '/mnt/bigdrive/orgtree-data' }), true, `${platform}: data-location.json without env override`)
+    // ORGTREE_V2_DATA equal to default root (exact, trailing slash, normalized segments): registers
+    for (const same of [defaultDataRoot, `${defaultDataRoot}/`, `${profile}/./sub/../data/`]) {
+      assert.equal(boot.registersBootEngine({
+        ...base,
+        env: { ORGTREE_V2_DATA: same },
+        dataRoot: same,
+      }), true, `${platform}: ORGTREE_V2_DATA=${same}`)
+    }
+    // ORGTREE_V2_PROFILE equal to default profile dir (exact and trailing slash): registers
+    for (const sameProfile of [profile, `${profile}/`]) {
+      assert.equal(boot.registersBootEngine({
+        ...base,
+        env: { ORGTREE_V2_PROFILE: sameProfile },
+        dataRoot: defaultDataRoot,
+      }), true, `${platform}: ORGTREE_V2_PROFILE=${sameProfile}`)
+    }
+    // Prerelease and dev guards remain false even when env equals default root
+    assert.equal(boot.registersBootEngine({ ...base, version: '4.6.9-alpha.1', env: { ORGTREE_V2_DATA: defaultDataRoot }, dataRoot: defaultDataRoot }), false, `${platform}: prerelease`)
+    assert.equal(boot.registersBootEngine({ ...base, appId: 'com.maurdekye.orgtree.dev', env: { ORGTREE_V2_DATA: defaultDataRoot }, dataRoot: defaultDataRoot }), false, `${platform}: dev appId`)
+  }
+})
+
 test('the engine the desktop starts itself searches the same folders as the background engine', () => {
   const shellPath = '/home/alex/.nvm/versions/node/v22/bin:/usr/bin'
   const own = boot.managedEnginePath({ packaged: true, platform: 'linux', home: '/home/alex', shellPath })
