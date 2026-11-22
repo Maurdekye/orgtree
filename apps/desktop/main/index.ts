@@ -87,7 +87,7 @@ import releaseList from '../../../docs/releases.json'
 import { appImagePath, appImageRelaunch, appImageRelaunchEnv, replaceAppImage } from './appimage-update'
 import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
-import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../../packages/contracts/index'
+import type { DesktopEvent, RunAsAdministratorState, StartupCapability, StartupKind } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, stopProviderLoginsForQuit, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './traylist'
@@ -100,7 +100,7 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
 import { readStartupTasks, startEngineTask, startHelperTask, startupOn, writeRunOnStartup } from './runonstartup'
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
-import { bootInputsFor, disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, type BootInputs } from './unixboot'
+import { bootInputsFor, disableBootEngine, enableBootEngine, ensureBootEngine, isNonDefaultDataRoot, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, STARTUP_DEFAULT_FOLDER_ONLY, type BootInputs } from './unixboot'
 import { appImageExtracted, ensureRuntimeCopy, runtimeCopyName, RUNTIME_FOLDER } from './engine-runtime'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { addRemoteFirewallRule, removeRemoteFirewallRule, validDoorPort } from './remotefirewall'
@@ -154,6 +154,7 @@ const relaunchApp = (args: string[] = [], options?: { interactive?: boolean }) =
   child.unref()
 }
 installMacWindowIconShim()
+const defaultUserData = app.getPath('userData')
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 // ⚠ MINIDUMPS, LOCALLY, AND NOTHING SENT ANYWHERE. Electron's crash reporter
@@ -903,8 +904,9 @@ else {
     popup.show()
   }
   const loginPreference = () => {
-    // Never register the development electron.exe as a login application.
-    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: preferences.get().startAtLogin, path: process.execPath, args: ['--background'] })
+    // Never register the development electron.exe as a login application,
+    // and never overwrite macOS/Linux login items from a non-default data folder.
+    if (app.isPackaged && (process.platform === 'win32' || !unixStartupDisabled)) app.setLoginItemSettings({ openAtLogin: preferences.get().startAtLogin, path: process.execPath, args: ['--background'] })
   }
   const setPreferences = (patch: unknown) => {
     // Renderer theme resolution is authoritative; discard the previous
@@ -933,6 +935,11 @@ else {
   // start at boot (no boot task: a per-user installation; macOS, Linux) the
   // same switch reads "Run on sign-in" (coordinator ruling A, 2026-10-16).
   let unixBootInputs: BootInputs | null = null
+  /** True on macOS/Linux when ORGTREE_V2_DATA or ORGTREE_V2_PROFILE points to a
+   *  non-default data folder or profile: startup registration is skipped and the
+   *  switch stays disabled so a second profile never overwrites or disables the
+   *  default installation's unit or LaunchAgent. */
+  let unixStartupDisabled = false
   /** Whether this installation has the boot engine task; undefined until
    *  Orgtree has read its tasks once (reconcileRunOnStartup). */
   let bootTask: boolean | undefined
@@ -948,6 +955,7 @@ else {
   const changeRunOnStartup = async (enabled: boolean) => {
     // Set before anything asynchronous, and cleared only by the change that set it.
     if (startupChanging) throw new Error('Orgtree is still changing how it starts. Try again once that has finished.')
+    if (process.platform !== 'win32' && unixStartupDisabled) throw new Error(STARTUP_DEFAULT_FOLDER_ONLY)
     startupChanging = true
     try {
       rebuildTray()
@@ -1093,7 +1101,7 @@ else {
     // old preference. Keep that SAME menu accurate even while it is open;
     // replacing an open native menu is deliberately avoided below.
     const startup = trayMenu?.getMenuItemById('run-on-startup')
-    if (startup) { startup.checked = prefs.startAtLogin; startup.enabled = !startupChanging }
+    if (startup) { startup.checked = !unixStartupDisabled && prefs.startAtLogin; startup.enabled = !startupChanging && !unixStartupDisabled }
     const admin = trayMenu?.getMenuItemById('run-as-admin')
     if (admin) { admin.checked = adminState?.enabled ?? false; admin.enabled = !!adminState?.available && !adminChanging }
     refreshTrayEpic(trayMenu, prefs)
@@ -1140,7 +1148,7 @@ else {
       // label says so instead, and the item cannot start a second one.
       // "Run on boot", or "Run on sign-in" where there is no boot task.
       { id: 'run-on-startup', label: (startupKind() === 'boot' ? 'Run on boot' : 'Run on sign-in') + (startupChanging ? ' (changing…)' : ''), type: 'checkbox',
-        checked: prefs.startAtLogin, enabled: !startupChanging, click: item => {
+        checked: !unixStartupDisabled && prefs.startAtLogin, enabled: !startupChanging && !unixStartupDisabled, click: item => {
         void changeRunOnStartup(item.checked).catch((error: Error) => {
           rebuildTray()
           void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
@@ -2158,6 +2166,10 @@ else {
     await settleStartupVerdict(streamerAuto, () => preferences.get(), setNativeStreamer)
     streamerAuto.start()
     app.on('will-quit', () => streamerAuto.stop())
+    unixStartupDisabled = process.platform !== 'win32' && isNonDefaultDataRoot({
+      env: process.env,
+      defaultDataRoot: path.join(defaultUserData, 'data'),
+    })
     loginPreference()
     void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())
@@ -2330,7 +2342,7 @@ else {
       // permission prompt, the engine's login registration); only once that
       // has happened may the stored value change.
       const patch = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
-      if (patch && typeof patch.startAtLogin === 'boolean' && patch.startAtLogin !== preferences.get().startAtLogin) {
+      if (patch && typeof patch.startAtLogin === 'boolean' && (patch.startAtLogin !== preferences.get().startAtLogin || (process.platform !== 'win32' && unixStartupDisabled))) {
         const { startAtLogin, ...rest } = patch
         const next = await changeRunOnStartup(startAtLogin as boolean)
         return Object.keys(rest).length ? setPreferences(rest) : next
@@ -2565,6 +2577,15 @@ else {
         launchBackground: undefined as EngineOptions['launchBackground'],
         searchPath: undefined as EngineOptions['searchPath'] }
       engineOptions.customDataRoot = isCustomRoot(engineOptions.dataRoot)
+      const nextUnixStartupDisabled = process.platform !== 'win32' && isNonDefaultDataRoot({
+        env: process.env,
+        dataRoot: engineOptions.dataRoot,
+        defaultDataRoot: path.join(defaultUserData, 'data'),
+      })
+      if (nextUnixStartupDisabled !== unixStartupDisabled) {
+        unixStartupDisabled = nextUnixStartupDisabled
+        rebuildTray()
+      }
       // An AppImage running WITHOUT a FUSE mount (--appimage-extract-and-run): its
       // extraction is shared by every launch and deleted when any of them exits, so
       // the engine, its PostgreSQL and the ui it serves run from the engine's own
@@ -2695,8 +2716,20 @@ else {
         engineOptions.searchPath = managedEnginePath({ packaged: true, platform: process.platform, home: os.homedir(), shellPath: await unixShellPath() })
       }
       const bootAttached = async () => {
-        if (!registersBootEngine({ packaged: app.isPackaged, platform: process.platform, appId: identity.appId, releaseAppId: RELEASE_APP_ID,
-          version: app.getVersion(), hasEngine: !!engineOptions.binary })) return false
+        const bootReg = {
+          packaged: app.isPackaged, platform: process.platform, appId: identity.appId, releaseAppId: RELEASE_APP_ID,
+          version: app.getVersion(), hasEngine: !!engineOptions.binary,
+          env: process.env, dataRoot: engineOptions.dataRoot, defaultDataRoot: defaultDataFolder,
+        }
+        if (!registersBootEngine(bootReg)) {
+          if (process.platform !== 'win32' && isNonDefaultDataRoot(bootReg)) {
+            const detail = process.env.ORGTREE_V2_PROFILE && !process.env.ORGTREE_V2_DATA
+              ? `ORGTREE_V2_PROFILE=${process.env.ORGTREE_V2_PROFILE}`
+              : engineOptions.dataRoot
+            console.info(`background engine: skipping boot service registration because a non-default data folder or profile is in use (${detail})`)
+          }
+          return false
+        }
         // without FUSE the AppImage cannot be the registered program, and without
         // the copy there is nothing stable to register
         if (runtimeCopyFailed) return false
@@ -2918,6 +2951,10 @@ else {
         }
         return startupKind()
       })
+      handleApp('desktop:startup-capability', (): StartupCapability =>
+        unixStartupDisabled
+          ? { available: false, reason: STARTUP_DEFAULT_FOLDER_ONLY }
+          : { available: true })
       // Data location (App settings › Runtime, this computer): app-wide local-PC
       // handlers, available in remote-org windows too under <ThisComputer>.
       let dataPreflightAbort: AbortController | undefined

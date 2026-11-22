@@ -33,7 +33,7 @@ async function fixture(initial = false, { platform = 'win32', installed = true }
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { this.menu = menu } },
     runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0, startupFailure: undefined, showStartupFailure: async () => ({ response: 0 }),
     BrowserWindow: { getAllWindows: () => [] }, applyWindowIcon() {},
-    preferences: { get: () => ({ startAtLogin: true }) }, startupKind: () => 'boot', startupChanging: false,
+    preferences: { get: () => ({ startAtLogin: true }) }, startupKind: () => 'boot', startupChanging: false, unixStartupDisabled: false,
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {}, refreshTrayEpic() {},
     epicMuteTrayItem: () => ({}), label: () => 'Ready', updatesSupported: false,
     hubMenuItem: () => ({ label: 'Mail hub' }), NOTIFICATION_OPTIONS: [],

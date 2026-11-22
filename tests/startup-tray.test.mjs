@@ -38,7 +38,7 @@ function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
   // Streamer mode as main/streamer-native.ts keeps it: setPreferences reads it before and after a change and
   // closes the tray list when it flipped. Nothing here turns it on.
   let streamer = false
-  const writes = [], extra = [], warnings = [], pending = []
+  const writes = [], extra = [], warnings = [], pending = [], loginItemCalls = []
   class MenuDouble {
     constructor(items) { this.items = items; this.events = new Map() }
     getMenuItemById(id) { return this.items.find(i => i.id === id) }
@@ -61,8 +61,9 @@ function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
     NOTIFICATION_OPTIONS: [], harnessCache: { current: () => [] }, harnessSetupMenu: () => [], trayHarnesses: null,
     Menu: { buildFromTemplate(items) { buildCount++; return new MenuDouble(items) } },
     dialog: { showMessageBox(options) { warnings.push(options.message); return Promise.resolve({}) } },
-    app: { isPackaged: true, quit() { throw new Error('not part of this test') }, setLoginItemSettings() {} },
+    app: { isPackaged: true, quit() { throw new Error('not part of this test') }, setLoginItemSettings(opts) { loginItemCalls.push(opts) } },
     process: { platform },
+    STARTUP_DEFAULT_FOLDER_ONLY: 'Run on startup is only available for the default data folder.',
     notifications: { configure() {} }, broadcastAll() {}, setTimeout,
     // the tasks as Windows reports them; a write waits until the test decides
     readStartupTasks: async () => bootTask ? { boot, helper: boot } : { boot: null, helper: null },
@@ -72,10 +73,10 @@ function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
       return new Promise((yes, no) => pending.push({ yes: () => { boot = next; yes() }, no }))
     },
   }
-  vm.runInNewContext(code + '\nthis.rebuild = rebuildTray; this.change = changeRunOnStartup', ctx)
+  vm.runInNewContext(code + '\nthis.rebuild = rebuildTray; this.change = changeRunOnStartup; this.loginPreference = loginPreference; this.setUnixStartupDisabled = v => { unixStartupDisabled = v }', ctx)
   ctx.rebuild()
   return {
-    ctx, writes, extra, warnings,
+    ctx, writes, extra, warnings, loginItemCalls,
     get menu() { return ctx.tray.menu }, get builds() { return buildCount },
     get prefs() { return prefs },
     // the permission prompt answered and the change read back (or declined)
@@ -267,5 +268,23 @@ test('the switch reads "Run on boot" while the boot task exists and "Run on sign
     assert.equal(unix.menu.startup.label, 'Run on sign-in', platform)
     assert.equal((await unix.ctx.change(true)).startAtLogin, true)
     assert.deepEqual(unix.writes, [], platform)
+  }
+})
+
+test('non-default Unix data folder disables the tray startup item, refuses changes and skips login items', async () => {
+  for (const platform of ['linux', 'darwin']) {
+    const f = fixture(true, { platform })
+    f.ctx.setUnixStartupDisabled(true)
+    f.ctx.rebuild()
+    assert.equal(f.menu.startup.enabled, false, `${platform}: tray item disabled`)
+    assert.equal(f.menu.startup.checked, false, `${platform}: tray item unchecked while disabled`)
+    f.menu.emit('menu-will-show')
+    assert.equal(f.menu.startup.enabled, false, `${platform}: open tray stays disabled`)
+    assert.equal(f.menu.startup.checked, false, `${platform}: open tray stays unchecked`)
+    await assert.rejects(f.ctx.change(false), /Run on startup is only available for the default data folder\./)
+    await assert.rejects(f.ctx.change(true), /Run on startup is only available for the default data folder\./)
+    assert.equal(f.prefs.startAtLogin, true, `${platform}: saved default profile preference untouched`)
+    f.ctx.loginPreference()
+    assert.deepEqual(f.loginItemCalls, [], `${platform}: loginPreference skips setLoginItemSettings`)
   }
 })

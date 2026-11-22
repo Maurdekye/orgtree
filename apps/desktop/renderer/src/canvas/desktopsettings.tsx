@@ -4,7 +4,7 @@ import type { NativePreferences } from '../desktop'
 import type {
   DataLocationLastMoveReport, DataLocationPreflight, DataLocationProgress,
   DataLocationState, DataLocationUnreadableEntry,
-  RunAsAdministratorState, StartupKind, UpdateCapability,
+  RunAsAdministratorState, StartupCapability, StartupKind, UpdateCapability,
 } from '../../../../../packages/contracts'
 import { initiatingDocument, popoutNameForDocument } from '../windowlife'
 import { PinFrame } from './modalpin'
@@ -27,6 +27,8 @@ export const startupHint = (kind: StartupKind) => (kind === 'boot'
   : 'Start Orgtree quietly in the system tray when you sign in, with its background engine. '
     + 'Off: nothing of Orgtree runs until you open it.')
 
+export const STARTUP_DEFAULT_FOLDER_HINT = 'Run on startup is only available for the default data folder.'
+
 /** What the startup switch is here: "run on boot" on Windows until the desktop
  *  says otherwise; "run on sign-in" on non-Windows so Linux/macOS never flash
  *  the Windows boot prompt text before IPC resolves. */
@@ -43,9 +45,28 @@ export function useStartupKind(): StartupKind {
   return kind
 }
 
+/** Whether startup registration is available for this launch (false on Linux/macOS
+ *  when running with a non-default data folder or profile override). */
+export function useStartupCapability(): StartupCapability {
+  const bridge = desktop()
+  const [capability, setCapability] = useState<StartupCapability>({ available: true })
+  useEffect(() => {
+    if (!bridge?.getStartupCapability) return
+    let alive = true
+    bridge.getStartupCapability().then(c => {
+      if (alive && c && typeof c.available === 'boolean') setCapability(c)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [bridge])
+  return capability
+}
+
 export function DesktopSettings() {
   const bridge = desktop()
   const kind = useStartupKind()
+  const startupCapability = useStartupCapability()
+  const startupUnavailable = startupCapability.available === false
+  const startupUnavailableReason = startupCapability.reason || STARTUP_DEFAULT_FOLDER_HINT
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -83,9 +104,10 @@ export function DesktopSettings() {
   const unattendedBlocked = capability?.unattendedInstall === false
   return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
-    <SetToggle label={startupLabel(kind)} checked={prefs?.startAtLogin ?? true}
-      disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
-      hint={startupHint(kind)} />
+    <SetToggle label={startupLabel(kind)} checked={startupUnavailable ? false : (prefs?.startAtLogin ?? true)}
+      disabled={!prefs || busy || startupUnavailable} onChange={startAtLogin => put({ startAtLogin })}
+      title={startupUnavailable ? startupUnavailableReason : undefined}
+      hint={startupUnavailable ? startupUnavailableReason : startupHint(kind)} />
     <SetToggle label="Exit when the last window closes" checked={prefs?.exitOnClose ?? false}
       disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
       hint="Closing the main window keeps your other windows open." />

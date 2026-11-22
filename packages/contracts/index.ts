@@ -252,6 +252,11 @@ export interface DataLocationMoveResult {
  *  `signin` where there is no boot task (a per-user installation, macOS,
  *  Linux), "Run on sign-in" (coordinator ruling A). */
 export type StartupKind = 'boot' | 'signin'
+/** Whether this launch can manage the OS login registration ("Run on boot" /
+ *  "Run on sign-in"). False on Linux/macOS when ORGTREE_V2_DATA or
+ *  ORGTREE_V2_PROFILE points to a non-default data folder or profile so a
+ *  second profile never overwrites or disables the default unit/LaunchAgent. */
+export interface StartupCapability { available: boolean; reason?: string }
 /** Which provider CLIs an app-driven sign-in exists for (D-231). Native,
  *  not domain/HTTP: the actual child process MUST be spawned by this
  *  (always-interactive) main process, never by the engine, which may be a
@@ -371,6 +376,9 @@ export interface DesktopBridge {
   takeDataLocationMoveResult?(): Promise<DataLocationLastMoveReport | null>
   /** What the startup switch is called here: "run on boot" or "run on sign-in". */
   getStartupKind?(): Promise<StartupKind>
+  /** Whether this launch can manage startup registration (disabled on Linux/macOS
+   *  for a non-default data folder or profile). */
+  getStartupCapability?(): Promise<StartupCapability>
   /** "Chat from your phone" › Turn on phone access: add the Windows Firewall
    *  rule for the hub's relay-only door (Tailscale addresses, or the local
    *  subnet for home Wi-Fi) behind ONE UAC prompt. `declined`: the user said

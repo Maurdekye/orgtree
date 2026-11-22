@@ -23,7 +23,7 @@ function buildTray({ platform, isPackaged = true, updatesSupported = false, iden
     setPreferences() {},
     trayMenu: undefined, trayMenuOpen: false,
     adminState: { available: platform === 'win32', enabled: false }, adminChanging: false,
-    startupKind: () => (platform === 'win32' ? 'boot' : 'signin'), startupChanging: false,
+    startupKind: () => (platform === 'win32' ? 'boot' : 'signin'), startupChanging: false, unixStartupDisabled: false,
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { items = menu.items } },
     runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0, startupFailure: undefined,
     BrowserWindow: { getAllWindows: () => [] }, applyWindowIcon() {},

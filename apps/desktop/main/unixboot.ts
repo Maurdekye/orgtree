@@ -2,6 +2,7 @@ import { execFile, launchDetached } from './probe-host'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { resolveExisting } from './policy'
 import { run, type Runner } from './runasadmin'
 
 /** The background engine on macOS and Linux (docket
@@ -27,6 +28,7 @@ import { run, type Runner } from './runasadmin'
 export const LAUNCH_AGENT_SUFFIX = '.engine'
 export const SYSTEMD_UNIT = 'orgtree-engine.service'
 export const AUTOSTART_ENTRY = 'orgtree-engine.desktop'
+export const STARTUP_DEFAULT_FOLDER_ONLY = 'Run on startup is only available for the default data folder.'
 
 /** The host under `ELECTRON_RUN_AS_NODE`, for the AppImage: its files live in
  *  a mount that exists only while the AppImage runs, so the registration
@@ -113,16 +115,91 @@ export async function loginShellPath(shell = process.env.SHELL || '/bin/sh', hom
   return [...login.split(':'), ...interactive.split(':')].filter(d => d && !seen.has(d) && !!seen.add(d)).join(':')
 }
 
+export interface DataRootGuardInputs {
+  /** Process environment inspected for ORGTREE_V2_DATA / ORGTREE_V2_PROFILE overrides. */
+  env?: Record<string, string | undefined>
+  /** Resolved data root for this launch (from policy.ts resolveDataRoot). */
+  dataRoot?: string
+  /** The installation's default data root (<userData>/data). */
+  defaultDataRoot?: string
+}
+
+export interface BootRegistrationInputs extends DataRootGuardInputs {
+  packaged: boolean
+  platform: NodeJS.Platform
+  appId: string
+  releaseAppId: string
+  version: string
+  hasEngine: boolean
+}
+
+/** Normalize an absolute data/profile path (resolve `.`/`..`, strip trailing
+ *  slash, and resolve existing symlink prefixes) so two spellings of the same
+ *  folder compare equal. Returns null for empty or relative paths. */
+function normalizeDataPath(raw: string): string | null {
+  if (!raw || !raw.trim()) return null
+  // Synthetic POSIX paths tested on Windows hosts stay POSIX-resolved
+  // (no drive prefix, case preserved, no trailing slash).
+  if (process.platform === 'win32' && raw.startsWith('/')) {
+    return path.posix.resolve(raw)
+  }
+  if (!path.isAbsolute(raw)) return null
+  const resolved = path.resolve(raw)
+  try { return resolveExisting(resolved) } catch { return resolved }
+}
+
+function parentPath(p: string): string {
+  return process.platform === 'win32' && p.startsWith('/') ? path.posix.dirname(p) : path.dirname(p)
+}
+
+/** True when ORGTREE_V2_DATA or ORGTREE_V2_PROFILE is set and non-empty and
+ *  points to anything other than the installation's default data root
+ *  (<userData>/data) / default profile (<userData>). Unset/empty env variables
+ *  return false so a normal single-profile install (including a saved
+ *  data-location.json folder) keeps registering; setting the variable to the
+ *  exact default path also returns false. */
+export function isNonDefaultDataRoot(o: DataRootGuardInputs): boolean {
+  if (o.dataRoot !== undefined && !o.dataRoot.trim()) return true
+  const envData = o.env?.ORGTREE_V2_DATA
+  const envProfile = o.env?.ORGTREE_V2_PROFILE
+  const hasDataOverride = typeof envData === 'string' && envData.length > 0
+  const hasProfileOverride = typeof envProfile === 'string' && envProfile.length > 0
+  if (!hasDataOverride && !hasProfileOverride) return false
+  const normDefault = o.defaultDataRoot ? normalizeDataPath(o.defaultDataRoot) : null
+  if (!normDefault) return true
+  if (hasDataOverride) {
+    const normEnv = normalizeDataPath(envData)
+    if (!normEnv || normEnv !== normDefault) return true
+    if (o.dataRoot !== undefined) {
+      const effective = normalizeDataPath(o.dataRoot)
+      if (!effective || effective !== normDefault) return true
+    }
+  }
+  if (hasProfileOverride) {
+    const normProfile = normalizeDataPath(envProfile)
+    if (!normProfile || normProfile !== parentPath(normDefault)) return true
+    if (o.dataRoot !== undefined) {
+      const effective = normalizeDataPath(o.dataRoot)
+      if (!effective || effective !== normDefault) return true
+    }
+  }
+  return false
+}
+
 /** Whether THIS build owns the background engine's registration (the LaunchAgent,
- *  the systemd user unit, the autostart entry): the installed release only. A build
- *  whose version carries a prerelease label (4.6.3-frame.1, an alpha, a release
- *  candidate) is a test build beside an installed version, and one registration
- *  serves the whole account: such a build once rewrote the installed version's unit
- *  to its own file. It never writes, enables, disables or removes any of them; it
- *  attaches to a host that already answers, or starts an engine of its own. */
-export function registersBootEngine(o: { packaged: boolean; platform: NodeJS.Platform; appId: string; releaseAppId: string; version: string; hasEngine: boolean }): boolean {
+ *  the systemd user unit, the autostart entry): the installed release using the
+ *  default profile/data folder only. A build whose version carries a prerelease
+ *  label (4.6.3-frame.1, an alpha, a release candidate) or a run started with a
+ *  non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE override is beside the
+ *  default installation, and one registration serves the whole account: such a
+ *  run would overwrite or disable the default org's unit/LaunchAgent. It never
+ *  writes, enables, disables or removes any of them; it attaches to a host that
+ *  already answers, or starts an engine of its own. */
+export function registersBootEngine(o: BootRegistrationInputs): boolean {
   if (!o.packaged || o.platform === 'win32' || o.appId !== o.releaseAppId || !o.hasEngine) return false
-  return !/^\d+\.\d+\.\d+-/.test(o.version.trim())
+  if (/^\d+\.\d+\.\d+-/.test(o.version.trim())) return false
+  if (isNonDefaultDataRoot(o)) return false
+  return true
 }
 
 export function bootCommand(o: BootInputs): BootCommand {

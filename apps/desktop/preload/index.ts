@@ -123,6 +123,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     openDataLocationMoveLog: () => ipcRenderer.invoke('desktop:data-location-open-log'),
     takeDataLocationMoveResult: () => ipcRenderer.invoke('desktop:data-location-take-result'),
     getStartupKind: () => ipcRenderer.invoke('desktop:startup-kind'),
+    getStartupCapability: () => ipcRenderer.invoke('desktop:startup-capability'),
     addPhoneFirewallRule: (scope: 'tailnet' | 'lan') => ipcRenderer.invoke('desktop:phone-firewall', scope),
     removePhoneFirewallRule: () => ipcRenderer.invoke('desktop:phone-firewall-remove'),
     addRemoteAccessFirewallRule: (port: number, lan: boolean, tailscale = true) => ipcRenderer.invoke('desktop:remote-access-firewall', { port, lan, tailscale }),

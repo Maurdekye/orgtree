@@ -576,3 +576,9 @@ test('prerelease and dev builds keep skipping boot registration untouched', asyn
     assert.deepEqual(h.calls, [])
   }
 })
+
+test('main and preload wire desktop:startup-capability for the startup switch guard', () => {
+  const preload = fs.readFileSync('apps/desktop/preload/index.ts', 'utf8')
+  assert.match(mainSource, /handleApp\('desktop:startup-capability', \(\): StartupCapability =>/)
+  assert.match(preload, /getStartupCapability: \(\) => ipcRenderer\.invoke\('desktop:startup-capability'\)/)
+})
