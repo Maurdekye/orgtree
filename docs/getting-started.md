@@ -26,8 +26,8 @@ If you already have a connected provider, an organization and an agent working o
 The published installer is for **64-bit Windows**. Windows builds are unsigned; macOS and Linux builds remain prototypes.
 
 1. Open the [latest release](https://github.com/Maurdekye/orgtree/releases/latest).
-2. On Windows, download **`Orgtree-Setup-<version>.exe`** and run it. On Linux or macOS, download the prototype build for your platform (see below for Linux AppImage notes). GitHub's source-code ZIP is for source, not installation.
-3. Open **Orgtree** (from the Start menu on Windows, or your app launcher / AppImage on Linux and macOS). The centered Welcome card lets you choose a theme and startup behavior, then create an organization. Narrow windows keep side padding; shorter windows scroll to the remaining actions.
+2. On Windows, download **`Orgtree-Setup-<version>.exe`** and run it. On macOS, download the prototype DMG or ZIP and install or extract **Orgtree.app**. On Linux, download the prototype AppImage (see below for Linux AppImage notes). GitHub's source-code ZIP is for source, not installation.
+3. Open **Orgtree** (from the Start menu on Windows, from **Applications** or the extracted app on macOS, or from your app launcher or AppImage on Linux). The centered Welcome card lets you choose a theme and startup behavior, then create an organization. Narrow windows keep side padding; shorter windows scroll to the remaining actions.
 
 <a id="linux-appimage-without-fuse"></a>
 

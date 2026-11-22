@@ -26,15 +26,18 @@ The dialog supplies independent paths rather than converting a subscription into
 | Import folder | Profile-folder path typed or chosen with Browse; uses that existing provider profile. Available for supported Claude/Codex paths, not Muse. |
 | Use API key | Required secret key; bills that provider's API credits. Offered independently of a working subscription. |
 
-Google's dialog explains the measured Antigravity CLI 1.3.5 limit: one Google
-sign-in per user in the OS credential store (Windows Credential Manager on Windows;
-the system keyring on Linux/macOS), even with different profile
-folders. A second sign-in would replace the default for all agents. It offers
-an API key and links upstream account-profile support, with no second
-subscription terminal or managed/import path. Existing registered Google
-subscription rows run only when their silent identity check proves a distinct
-login; otherwise they fail closed rather than using the default credentials.
-Their usage and admission checks use their own quota reading. See
+Google's dialog explains Orgtree's single-subscription limit: Orgtree currently
+allows one Antigravity Google subscription sign-in per user because Antigravity
+CLI does not reliably isolate separate profile folders across platforms and
+versions (Windows Credential Manager on Windows, measured on CLI 1.3.5;
+file-backed token storage in keyring-less Linux sessions, measured on CLI 1.5.9,
+where registered profiles are refused). A second sign-in would replace the
+default for all agents. It offers an API key and links upstream account-profile
+support, with no second subscription terminal or managed/import path. Existing
+registered Google subscription rows run only when their silent identity check
+proves a distinct login; otherwise they fail closed rather than using the
+default credentials. Their usage and admission checks use their own quota
+reading. See
 [Antigravity accounts](../../harnesses/harness-antigravity/SKILL.md#registered-accounts-and-the-windows-sign-in-limit).
 Muse manages separate config/data roots and refuses an imported-folder shortcut.
 Busy submissions prevent another create/close operation; errors stay in the dialog.

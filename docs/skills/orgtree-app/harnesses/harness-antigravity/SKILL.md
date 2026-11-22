@@ -113,8 +113,12 @@ AGY maps `none` and `minimal` to `low`. Flash, Argon, Carbon, Hydrogen, Neon and
 
 ## Registered accounts and the Windows sign-in limit
 
-Antigravity CLI 1.3.5 was measured to share one OS credential-store
-sign-in (Windows Credential Manager on Windows; the system keyring off Windows) even when given a fresh profile folder. Signing in again can replace
+Orgtree currently restricts Antigravity to one Google subscription sign-in per
+user. On Windows, Antigravity CLI 1.3.5 was measured keeping its sign-in in
+Windows Credential Manager under one fixed entry even with a fresh profile
+folder; on Linux without a desktop keyring (measured on CLI 1.5.9), AGY falls
+back to file-backed token storage (`~/.gemini/antigravity-cli/antigravity-oauth-token`)
+where registered profiles are refused (below). Signing in again can replace
 the default login for every AGY agent. The Add account dialog explains this
 limit and offers a Gemini API key, not a second subscription sign-in terminal.
 API billing is separate from a second Google subscription.
