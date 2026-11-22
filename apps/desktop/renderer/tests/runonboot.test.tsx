@@ -80,3 +80,96 @@ test('non-default data folder disables the startup switch with the one-line hint
     } finally { await v.unmount() }
   }
 })
+
+test('Linux and macOS keep the startup switch disabled until capability responds (no enabled flash); Windows stays unchanged', async () => {
+  const reason = 'Run on startup is only available for the default data folder.'
+  for (const platform of ['linux', 'darwin'] as const) {
+    for (const [name, makeNode] of [
+      ['Settings', () => <DesktopSettings />],
+      ['Onboarding', () => <Onboarding><div /></Onboarding>],
+    ] as const) {
+      let resolveCap!: (c: { available: boolean; reason?: string }) => void
+      const writes: unknown[] = []
+      const value: Partial<NativeDesktop> & {
+        platform?: string
+        getStartupCapability?: () => Promise<{ available: boolean; reason?: string }>
+      } = {
+        platform,
+        getPreferences: async () => prefs,
+        setPreferences: async patch => { writes.push(patch); return { ...prefs, ...patch } },
+        onEvent: () => () => {},
+        getStartupKind: async () => 'signin',
+        getStartupCapability: () => new Promise(resolve => { resolveCap = resolve }),
+      }
+      Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
+      const v = await mountView(makeNode(), el => el)
+      try {
+        // Preferences resolve while capability is still pending: switch must stay disabled (no enabled flash)
+        await inAct(async () => { await flush(5) })
+        const sw = startupSwitch(v.el)!
+        assert.ok(sw, `${platform} ${name}: switch rendered`)
+        assert.equal(sw.disabled, true, `${platform} ${name}: disabled while capability pending`)
+        assert.equal(sw.checked, false, `${platform} ${name}: unchecked while capability pending`)
+        assert.doesNotMatch(v.el.textContent ?? '', SIGNIN, `${platform} ${name}: no active hint flash while pending`)
+        await inAct(async () => { sw.click(); await flush(3) })
+        assert.deepEqual(writes, [], `${platform} ${name}: clicking while pending writes nothing`)
+
+        // Resolving unavailable keeps it disabled with exact hint
+        await inAct(async () => { resolveCap({ available: false, reason }); await flush(5) })
+        assert.equal(sw.disabled, true)
+        assert.equal(sw.checked, false)
+        assert.ok((v.el.textContent ?? '').includes(reason))
+      } finally { await v.unmount() }
+
+      // Resolving available enables the switch
+      let resolveAvail!: (c: { available: boolean; reason?: string }) => void
+      Object.defineProperty(window, 'orgtreeDesktop', {
+        value: { ...value, getStartupCapability: () => new Promise(resolve => { resolveAvail = resolve }) },
+        configurable: true,
+      })
+      const v2 = await mountView(makeNode(), el => el)
+      try {
+        await inAct(async () => { await flush(5) })
+        assert.equal(startupSwitch(v2.el)!.disabled, true, `${platform} ${name}: disabled before available arrives`)
+        await inAct(async () => { resolveAvail({ available: true }); await flush(5) })
+        assert.equal(startupSwitch(v2.el)!.disabled, false, `${platform} ${name}: enabled once available arrives`)
+        assert.equal(startupSwitch(v2.el)!.checked, true)
+        assert.match(v2.el.textContent ?? '', SIGNIN)
+      } finally { await v2.unmount() }
+
+      // Failed capability read stays disabled (fail closed)
+      Object.defineProperty(window, 'orgtreeDesktop', {
+        value: { ...value, getStartupCapability: () => Promise.reject(new Error('ipc failed')) },
+        configurable: true,
+      })
+      const v3 = await mountView(makeNode(), el => el)
+      try {
+        await inAct(async () => { await flush(5) })
+        assert.equal(startupSwitch(v3.el)!.disabled, true, `${platform} ${name}: stays disabled on capability error`)
+      } finally { await v3.unmount() }
+    }
+  }
+
+  // Windows unchanged: switch enables as soon as preferences arrive even while capability is pending
+  let resolveWin!: (c: { available: boolean; reason?: string }) => void
+  Object.defineProperty(window, 'orgtreeDesktop', {
+    value: {
+      platform: 'win32',
+      getPreferences: async () => prefs,
+      setPreferences: async patch => ({ ...prefs, ...patch }),
+      onEvent: () => () => {},
+      getStartupKind: async () => 'boot',
+      getStartupCapability: () => new Promise(resolve => { resolveWin = resolve }),
+    },
+    configurable: true,
+  })
+  const vWin = await mountView(<DesktopSettings />, el => el)
+  try {
+    await inAct(async () => { await flush(5) })
+    const sw = startupSwitch(vWin.el)!
+    assert.equal(sw.disabled, false, 'Windows: switch is not held disabled while capability is pending')
+    assert.equal(sw.checked, true, 'Windows: switch shows stored startAtLogin immediately')
+    assert.match(vWin.el.textContent ?? '', BOOT, 'Windows: shows boot hint immediately')
+    resolveWin({ available: true })
+  } finally { await vWin.unmount() }
+})

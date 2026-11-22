@@ -21,7 +21,7 @@ import vm from 'node:vm'
 import { build, transformSync } from 'esbuild'
 import { createRequire } from 'node:module'
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-unixboot-'))
+const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-unixboot-')))
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }))
 const load = async (source, name) => {
   const out = path.join(dir, `${name}.cjs`)
@@ -30,6 +30,8 @@ const load = async (source, name) => {
 }
 const boot = await load('apps/desktop/main/unixboot.ts', 'unixboot')
 const policy = await load('apps/desktop/main/policy.ts', 'policy')
+const streamerAutoMod = await load('apps/desktop/main/streamer-auto.ts', 'streamer-auto')
+const linkType = process.platform === 'win32' ? 'junction' : 'dir'
 
 const mac = { platform: 'darwin', home: '/Users/alex', appId: 'com.maurdekye.orgtree',
   engine: '/Applications/Orgtree.app/Contents/Resources/engine/orgtree-engine', dataRoot: '/Users/alex/Library/Application Support/Orgtree v2/data' }
@@ -336,14 +338,32 @@ test('real folders under a 0002 umask end up 0700', { skip: process.platform ===
 // executes the real `bootAttached` closure from apps/desktop/main/index.ts with
 // real files in a temporary HOME and a fake systemctl/launchctl runner (never
 // invoking a real service manager).
-const mainSource = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
-function bootAttachedSnippet() {
-  const from = '      const bootAttached = async () => {'
-  const to = "      if (process.platform === 'win32' && engineOptions.binary) {"
+const mainSource = fs.readFileSync('apps/desktop/main/index.ts', 'utf8').replace(/\r\n/g, '\n')
+function sliceMain(from, to) {
   const start = mainSource.indexOf(from)
-  const end = mainSource.indexOf(to, start)
-  assert.ok(start >= 0 && end > start, 'apps/desktop/main/index.ts must contain bootAttached')
-  return transformSync(mainSource.slice(start, end) + '\nthis.runBootAttached = bootAttached; this.getUnixBootInputs = () => unixBootInputs;', { loader: 'ts', target: 'node22' }).code
+  const end = mainSource.indexOf(to, start + from.length)
+  assert.ok(start >= 0 && end > start, `apps/desktop/main/index.ts must contain ${from.trim()} ... ${to.trim()}`)
+  return mainSource.slice(start, end)
+}
+
+function bootAttachedSnippet() {
+  const early = sliceMain('    app.on(\'will-quit\', () => preferences.flushSync())\n', '    // Streamer mode while a streaming app')
+  const postEarly = sliceMain('    app.on(\'will-quit\', () => streamerAuto.stop())\n', '    loginPreference()')
+  const dataRootSetup = sliceMain('      const defaultDataFolder = ', '      // An AppImage running WITHOUT a FUSE mount')
+  const bootFn = sliceMain('      const bootAttached = async () => {', "      if (process.platform === 'win32' && engineOptions.binary) {")
+  const combined = [
+    'let unixStartupDisabled = false;',
+    'const appHandlers = [];',
+    early.replace("app.on('will-quit', () => preferences.flushSync())", ''),
+    postEarly.replace("app.on('will-quit', () => streamerAuto.stop())", ''),
+    dataRootSetup,
+    bootFn,
+    'this.runBootAttached = bootAttached;',
+    'this.getUnixBootInputs = () => unixBootInputs;',
+    'this.getEngineDataRoot = () => engineOptions.dataRoot;',
+    'this.getUnixStartupDisabled = () => unixStartupDisabled;',
+  ].join('\n')
+  return transformSync(combined, { loader: 'ts', target: 'node22' }).code
 }
 
 function makeTempHomeBootHarness({
@@ -355,17 +375,25 @@ function makeTempHomeBootHarness({
   env = {},
   dataRoot,
   seedFiles = {},
+  createDefaultDataDir = false,
+  savedDataLocation = null,
 }) {
-  const homeNative = fs.mkdtempSync(path.join(dir, `home-${platform}-`))
+  const homeNative = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, `home-${platform}-`)))
   const home = homeNative.replace(/\\/g, '/')
   const userData = platform === 'darwin'
     ? path.posix.join(home, 'Library', 'Application Support', 'Orgtree v2')
     : path.posix.join(home, '.config', 'Orgtree v2')
   const defaultDataFolder = path.posix.join(userData, 'data')
+  if (createDefaultDataDir) fs.mkdirSync(defaultDataFolder, { recursive: true })
+  if (savedDataLocation) {
+    fs.mkdirSync(userData, { recursive: true })
+    fs.writeFileSync(
+      path.join(userData, 'data-location.json'),
+      JSON.stringify({ version: 1, dataRoot: savedDataLocation, previousRoot: defaultDataFolder }, null, 2),
+      'utf8',
+    )
+  }
   const resolvedEnv = typeof env === 'function' ? env({ home, userData, defaultDataFolder }) : env
-  const resolvedDataRoot = typeof dataRoot === 'function'
-    ? dataRoot({ home, userData, defaultDataFolder })
-    : (dataRoot ?? (resolvedEnv.ORGTREE_V2_DATA !== undefined ? resolvedEnv.ORGTREE_V2_DATA : defaultDataFolder))
   const engineBinary = platform === 'darwin'
     ? '/Applications/Orgtree.app/Contents/Resources/engine/orgtree-engine'
     : '/opt/Orgtree/resources/engine/orgtree-engine'
@@ -410,25 +438,42 @@ function makeTempHomeBootHarness({
   }
 
   const ctx = {
+    fs: {
+      ...fs,
+      existsSync: p => p === engineBinary ? true : fs.existsSync(p),
+    },
+    path,
+    os: { homedir: () => home },
     app: {
       isPackaged: packaged,
       getVersion: () => version,
+      getAppPath: () => home,
       getPath: name => {
         if (name === 'userData') return userData
         throw new Error(`unexpected app.getPath(${name})`)
       },
     },
-    process: { platform, env: resolvedEnv },
-    os: { homedir: () => home },
-    identity: { appId },
+    process: { platform, env: resolvedEnv, resourcesPath: home },
+    identity: { appId, ownDataRootOnly: false },
     RELEASE_APP_ID: 'com.maurdekye.orgtree',
-    engineOptions: { binary: engineBinary, dataRoot: resolvedDataRoot },
-    defaultDataFolder,
+    defaultUserData: userData,
+    directory: path.join(home, 'engine'),
+    rustEngine: engineBinary,
+    postgresLaunchOptions: () => ({}),
+    resolveDataRoot: (req, ud, id) => {
+      const r = policy.resolveDataRoot(req, ud, id)
+      return typeof dataRoot === 'function' ? dataRoot({ home, userData, defaultDataFolder, resolved: r }) : (dataRoot ?? r)
+    },
+    isDataRootFromEnv: policy.isDataRootFromEnv,
+    readDataLocationConfig: policy.readDataLocationConfig,
+    canonicalPath: policy.canonicalPath,
+    rebuildTray: () => {},
     runtimeCopyFailed: false,
     extractedAppDir: null,
     unixBootInputs: null,
     unixShellPath: async () => '',
     preferences: { get: () => ({ startAtLogin }) },
+    resolveUnixStartupOwnership: boot.resolveUnixStartupOwnership,
     registersBootEngine: boot.registersBootEngine,
     isNonDefaultDataRoot: boot.isNonDefaultDataRoot,
     privateDataFolders: (d, u) => boot.privateDataFolders(d, u, folderIo),
@@ -445,7 +490,7 @@ function makeTempHomeBootHarness({
     },
   }
   vm.runInNewContext(bootAttachedSnippet(), ctx)
-  return { home, userData, defaultDataFolder, resolvedDataRoot, engineBinary, calls, detached, infoLogs, warnLogs, ctx }
+  return { home, userData, defaultDataFolder, engineBinary, calls, detached, infoLogs, warnLogs, ctx }
 }
 
 test('Linux stable build with non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE leaves pre-seeded unit and autostart byte-unchanged with zero systemctl calls (startAtLogin true and false)', async () => {
@@ -511,7 +556,7 @@ test('default root and env set to the exact default root still register and star
   assert.equal(await linDefault.ctx.runBootAttached(), true)
   const expectedUnit = boot.systemdUnit({
     platform: 'linux', home: linDefault.home, appId: 'com.maurdekye.orgtree',
-    engine: linDefault.engineBinary, dataRoot: linDefault.defaultDataFolder, shellPath: '',
+    engine: linDefault.engineBinary, dataRoot: path.join(linDefault.userData, 'data'), shellPath: '',
   })
   const linUnitPath = path.posix.join(linDefault.home, '.config/systemd/user/orgtree-engine.service')
   assert.equal(fs.readFileSync(linUnitPath, 'utf8'), expectedUnit, 'default Linux unit is byte-identical')
@@ -529,6 +574,7 @@ test('default root and env set to the exact default root still register and star
   const hSame = makeTempHomeBootHarness({
     platform: 'linux',
     startAtLogin: true,
+    createDefaultDataDir: true,
     env: ({ defaultDataFolder }) => ({ ORGTREE_V2_DATA: `${defaultDataFolder}/` }),
   })
   assert.equal(await hSame.ctx.runBootAttached(), true, 'ORGTREE_V2_DATA equal to default root still registers on Linux')
@@ -541,7 +587,7 @@ test('default root and env set to the exact default root still register and star
   assert.equal(await macDefault.ctx.runBootAttached(), true)
   const expectedPlist = boot.launchAgentPlist({
     platform: 'darwin', home: macDefault.home, appId: 'com.maurdekye.orgtree',
-    engine: macDefault.engineBinary, dataRoot: macDefault.defaultDataFolder, shellPath: '',
+    engine: macDefault.engineBinary, dataRoot: path.join(macDefault.userData, 'data'), shellPath: '',
   })
   const macPlistPath = path.posix.join(macDefault.home, 'Library/LaunchAgents/com.maurdekye.orgtree.engine.plist')
   assert.equal(fs.readFileSync(macPlistPath, 'utf8'), expectedPlist, 'default macOS plist is byte-identical')
@@ -551,11 +597,222 @@ test('default root and env set to the exact default root still register and star
   const macSame = makeTempHomeBootHarness({
     platform: 'darwin',
     startAtLogin: true,
+    createDefaultDataDir: true,
     env: ({ defaultDataFolder }) => ({ ORGTREE_V2_DATA: `${defaultDataFolder}/` }),
   })
   assert.equal(await macSame.ctx.runBootAttached(), true, 'ORGTREE_V2_DATA equal to default root still registers on macOS')
   assert.ok(macSame.calls.some(c => c.startsWith('launchctl bootstrap gui/501 ')))
   assert.deepEqual(macSame.infoLogs, [])
+})
+
+test('saved Data location move: explicit current folder registers, explicit old pre-move folder skips (no write, restart or disable) on Linux and macOS', async () => {
+  const sentinelLinux = '[Unit]\nDescription=Moved Primary Org\n# keep-moved-linux\n'
+  const sentinelMac = '<?xml version="1.0" encoding="UTF-8"?>\n<!-- keep-moved-mac -->\n'
+  for (const platform of ['linux', 'darwin']) {
+    const movedRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, `moved-primary-${platform}-`)))
+    // 1. Explicitly opening the moved-to current folder registers as normal
+    const hCurrent = makeTempHomeBootHarness({
+      platform,
+      startAtLogin: true,
+      createDefaultDataDir: true,
+      savedDataLocation: movedRoot,
+      env: { ORGTREE_V2_DATA: movedRoot },
+    })
+    assert.equal(await hCurrent.ctx.runBootAttached(), true, `${platform}: explicit current moved folder must register`)
+    assert.equal(hCurrent.ctx.getUnixStartupDisabled(), false, `${platform}: switch stays enabled for explicit current moved folder`)
+    assert.equal(hCurrent.ctx.getUnixBootInputs()?.dataRoot, movedRoot, `${platform}: host receives canonical moved root`)
+    assert.equal(hCurrent.ctx.getEngineDataRoot(), movedRoot, `${platform}: engine receives exact same canonical moved root`)
+    assert.deepEqual(hCurrent.infoLogs, [])
+
+    // 2. Explicitly opening the old pre-move factory folder skips (no write, no restart, no disable)
+    for (const startAtLogin of [true, false]) {
+      const seedFiles = platform === 'linux'
+        ? { '.config/systemd/user/orgtree-engine.service': sentinelLinux }
+        : { 'Library/LaunchAgents/com.maurdekye.orgtree.engine.plist': sentinelMac }
+      const hOld = makeTempHomeBootHarness({
+        platform,
+        startAtLogin,
+        createDefaultDataDir: true,
+        savedDataLocation: movedRoot,
+        env: ({ defaultDataFolder }) => ({ ORGTREE_V2_DATA: defaultDataFolder }),
+        seedFiles,
+      })
+      assert.equal(await hOld.ctx.runBootAttached(), false, `${platform} startAtLogin=${startAtLogin}: old pre-move folder must skip`)
+      assert.equal(hOld.ctx.getUnixStartupDisabled(), true, `${platform} startAtLogin=${startAtLogin}: switch disabled for old pre-move folder`)
+      assert.equal(hOld.ctx.getUnixBootInputs(), null)
+      assert.deepEqual(hOld.calls, [], `${platform} startAtLogin=${startAtLogin}: zero service calls or file edits`)
+      const file = platform === 'linux'
+        ? path.posix.join(hOld.home, '.config/systemd/user/orgtree-engine.service')
+        : path.posix.join(hOld.home, 'Library/LaunchAgents/com.maurdekye.orgtree.engine.plist')
+      assert.equal(fs.readFileSync(file, 'utf8'), platform === 'linux' ? sentinelLinux : sentinelMac)
+      assert.equal(hOld.infoLogs.length, 1)
+      assert.match(hOld.infoLogs[0], /non-default data/i)
+    }
+  }
+})
+
+test('path canonicalisation in bootAttached: symlinked intermediate, missing intermediate and missing dir fail closed with info log; verified alias passes canonical path to both host and engine', async () => {
+  const sentinelUnit = '[Unit]\nDescription=Keep Untouched Canon\n'
+  for (const platform of ['linux', 'darwin']) {
+    const otherBase = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, `canon-other-${platform}-`)))
+    const otherSub = path.join(otherBase, 'sub')
+    const otherData = path.join(otherBase, 'data')
+    fs.mkdirSync(otherSub, { recursive: true })
+    fs.mkdirSync(otherData, { recursive: true })
+
+    // 1. Symlinked intermediate + `..` resolving to another dir
+    const hSymlink = makeTempHomeBootHarness({
+      platform,
+      startAtLogin: true,
+      createDefaultDataDir: true,
+      seedFiles: platform === 'linux'
+        ? { '.config/systemd/user/orgtree-engine.service': sentinelUnit }
+        : { 'Library/LaunchAgents/com.maurdekye.orgtree.engine.plist': sentinelUnit },
+      env: ({ userData }) => {
+        const sneaky = path.join(userData, 'sneaky')
+        fs.symlinkSync(otherSub, sneaky, linkType)
+        return { ORGTREE_V2_DATA: path.join(sneaky, '..', 'data') }
+      },
+    })
+    assert.equal(await hSymlink.ctx.runBootAttached(), false, `${platform}: symlinked intermediate to other dir must skip`)
+    assert.deepEqual(hSymlink.calls, [])
+    assert.equal(hSymlink.infoLogs.length, 1)
+    assert.match(hSymlink.infoLogs[0], /non-default data/i)
+
+    // 2. Missing intermediate + `..` and missing directory fail closed with info log
+    for (const kind of ['missing-intermediate', 'missing-dir']) {
+      const hMissing = makeTempHomeBootHarness({
+        platform,
+        startAtLogin: true,
+        createDefaultDataDir: true,
+        seedFiles: platform === 'linux'
+          ? { '.config/systemd/user/orgtree-engine.service': sentinelUnit }
+          : { 'Library/LaunchAgents/com.maurdekye.orgtree.engine.plist': sentinelUnit },
+        env: ({ home, userData }) => ({
+          ORGTREE_V2_DATA: kind === 'missing-intermediate'
+            ? path.join(userData, 'missing-mid', '..', 'data')
+            : path.join(home, 'no-such-dir'),
+        }),
+      })
+      assert.equal(await hMissing.ctx.runBootAttached(), false, `${platform} ${kind}: must fail closed`)
+      assert.deepEqual(hMissing.calls, [], `${platform} ${kind}: zero service calls`)
+      assert.equal(hMissing.infoLogs.length, 1, `${platform} ${kind}: logs info line`)
+      assert.match(hMissing.infoLogs[0], /non-default data/i)
+    }
+
+    // 3. Symlinked alias to real default root: canonicalised path is passed identically to BOTH host and engine
+    const hAlias = makeTempHomeBootHarness({
+      platform,
+      startAtLogin: true,
+      createDefaultDataDir: true,
+      env: ({ home, userData }) => {
+        const aliasProfile = path.join(home, 'profile-alias')
+        fs.symlinkSync(userData, aliasProfile, linkType)
+        return { ORGTREE_V2_DATA: path.join(aliasProfile, 'data') }
+      },
+    })
+    assert.equal(await hAlias.ctx.runBootAttached(), true, `${platform}: verified alias to default root registers`)
+    const canonicalDefault = fs.realpathSync.native(hAlias.defaultDataFolder)
+    assert.equal(hAlias.ctx.getEngineDataRoot(), canonicalDefault, `${platform}: engine receives canonicalised path`)
+    assert.equal(hAlias.ctx.getUnixBootInputs()?.dataRoot, canonicalDefault, `${platform}: host receives exact same canonicalised path`)
+  }
+})
+
+test('early login path: macOS alternate root with OBS present makes zero setLoginItemSettings calls; empty/whitespace overrides are consistent; Windows traces stay identical', async () => {
+  async function runEarlyStartup({ platform, env, storedStartAtLogin, processes }) {
+    const homeNative = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, `early-${platform}-`)))
+    const userData = path.join(homeNative, 'Orgtree v2')
+    fs.mkdirSync(path.join(userData, 'data'), { recursive: true })
+    let prefs = { startAtLogin: storedStartAtLogin, streamerMode: false }
+    const loginCalls = []
+    const declarations = sliceMain('  const loginPreference = () => {', '  // "RUN ON BOOT"')
+    const order = sliceMain("    app.on('will-quit', () => preferences.flushSync())\n", '    void reconcileRunOnStartup()')
+    const snippet = transformSync([
+      'let unixStartupDisabled = false;',
+      'let effectiveTheme;',
+      declarations,
+      'this.run = async () => {',
+      order.replace("app.on('will-quit', () => preferences.flushSync())", ''),
+      '  return { unixStartupDisabled };',
+      '};',
+    ].join('\n'), { loader: 'ts', target: 'node22' }).code
+    const ctx = {
+      fs,
+      path,
+      process: { platform, env, execPath: '/Applications/Orgtree.app/Contents/MacOS/Orgtree' },
+      defaultUserData: userData,
+      identity: { appId: 'com.maurdekye.orgtree', ownDataRootOnly: false },
+      app: {
+        isPackaged: true,
+        on: () => {},
+        getPath: name => { assert.equal(name, 'userData'); return userData },
+        setLoginItemSettings: opts => { loginCalls.push(opts.openAtLogin) },
+      },
+      preferences: {
+        get: () => ({ ...prefs }),
+        set: patch => { prefs = { ...prefs, ...patch }; return { ...prefs } },
+      },
+      resolveUnixStartupOwnership: boot.resolveUnixStartupOwnership,
+      isNonDefaultDataRoot: boot.isNonDefaultDataRoot,
+      StreamerAuto: streamerAutoMod.StreamerAuto,
+      settleStartupVerdict: streamerAutoMod.settleStartupVerdict,
+      listProcessNames: async () => new Set(processes),
+      nativeStreamerOn: () => prefs.streamerMode === true,
+      setNativeStreamer: () => {},
+      closeTrayPopup: () => {},
+      rebuildTray: () => {},
+      notifications: { configure: () => {} },
+      broadcastAll: () => {},
+      console,
+    }
+    vm.runInNewContext(snippet, ctx)
+    const state = await ctx.run()
+    return { loginCalls, prefs, unixStartupDisabled: state.unixStartupDisabled }
+  }
+
+  const altMac = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, 'alt-mac-obs-')))
+  // macOS alternate root + OBS present -> StreamerAuto saves its first preference, yet ZERO login-item calls occur
+  for (const storedStartAtLogin of [false, true]) {
+    const r = await runEarlyStartup({
+      platform: 'darwin',
+      env: { ORGTREE_V2_DATA: altMac },
+      storedStartAtLogin,
+      processes: ['obs'],
+    })
+    assert.equal(r.prefs.streamerMode, true, `stored=${storedStartAtLogin}: StreamerAuto really saved its first preference`)
+    assert.equal(r.unixStartupDisabled, true)
+    assert.deepEqual(r.loginCalls, [], `macOS alternate root + OBS + stored=${storedStartAtLogin}: must make ZERO setLoginItemSettings calls`)
+  }
+
+  // Empty and whitespace ORGTREE_V2_DATA treated consistently as unset in early startup AND bootAttached
+  for (const blank of ['', '   ']) {
+    for (const platform of ['linux', 'darwin']) {
+      const early = await runEarlyStartup({
+        platform,
+        env: { ORGTREE_V2_DATA: blank },
+        storedStartAtLogin: true,
+        processes: ['app'],
+      })
+      assert.equal(early.unixStartupDisabled, false, `${platform} blank=${JSON.stringify(blank)}: early guard treats blank as unset`)
+      const h = makeTempHomeBootHarness({
+        platform,
+        startAtLogin: true,
+        createDefaultDataDir: true,
+        env: { ORGTREE_V2_DATA: blank },
+      })
+      assert.equal(h.ctx.getUnixStartupDisabled(), false, `${platform} blank=${JSON.stringify(blank)}: final switch agrees`)
+      assert.equal(await h.ctx.runBootAttached(), true, `${platform} blank=${JSON.stringify(blank)}: bootAttached agrees`)
+      assert.equal(h.ctx.getEngineDataRoot(), path.join(h.userData, 'data'), `${platform} blank=${JSON.stringify(blank)}: engine gets effective default root`)
+    }
+  }
+
+  // Windows parity: unchanged login-item call traces for both stored values and quiet/OBS conditions
+  for (const storedStartAtLogin of [false, true]) {
+    const quiet = await runEarlyStartup({ platform: 'win32', env: { ORGTREE_V2_DATA: altMac }, storedStartAtLogin, processes: ['app'] })
+    const obs = await runEarlyStartup({ platform: 'win32', env: { ORGTREE_V2_DATA: altMac }, storedStartAtLogin, processes: ['obs'] })
+    assert.deepEqual(quiet.loginCalls, [storedStartAtLogin], `win32 quiet stored=${storedStartAtLogin}`)
+    assert.deepEqual(obs.loginCalls, [storedStartAtLogin, storedStartAtLogin], `win32 OBS stored=${storedStartAtLogin}`)
+  }
 })
 
 test('prerelease and dev builds keep skipping boot registration untouched', async () => {
