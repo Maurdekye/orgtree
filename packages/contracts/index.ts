@@ -467,6 +467,10 @@ export interface DesktopBridge {
    *  exposed. Present before the first render, so the shell never paints the
    *  wrong view for a frame; null only where the bridge itself is refused. */
   windowIdentity?: OrgWindowIdentity | null
+  /** This desktop's OS (`process.platform`: 'win32', 'linux', 'darwin', ...),
+   *  resolved synchronously before the first render. Optional so older shells
+   *  and plain browsers fall back to navigator metadata. */
+  platform?: string
   // Provider sign-in (D-231): the ONE piece of "domain" surface on this
   // bridge, and deliberately so — see LoginProvider's own comment for why
   // the spawn cannot live on the engine side of the HTTP boundary.

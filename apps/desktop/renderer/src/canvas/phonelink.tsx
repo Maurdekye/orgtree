@@ -12,7 +12,7 @@
 // a renderer without that bridge member (a plain browser, the rig) skips it.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { req } from '../api'
-import { desktop as desktopBridge } from '../desktop'
+import { desktop as desktopBridge, isWindowsDesktop } from '../desktop'
 import { onHeldEvent } from '../events/heldbus'
 import { noteUserAccountLink, setHubchatInstalled } from './agentmentions'
 import { useEsc } from './shared'
@@ -82,7 +82,7 @@ export function usePhoneState(org: string | null, active = true, everyMs = 3000)
  *  one (one administrator prompt). Returns a note for the user, or ''. */
 export async function removePhoneRuleAfterOff(): Promise<string> {
   const bridge = desktopBridge()
-  if (!bridge?.removePhoneFirewallRule) return ''
+  if (!bridge?.removePhoneFirewallRule || !isWindowsDesktop(bridge)) return ''
   try {
     const s = await readPhone<PhoneState>(route(null), ['card', 'access'])
     if (!s.access.firewall) return ''
@@ -281,7 +281,7 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
   }
   const turnOn = (scope: 'tailnet' | 'lan') => act(async () => {
     const bridge = desktopBridge()
-    if (bridge?.addPhoneFirewallRule) {
+    if (bridge?.addPhoneFirewallRule && isWindowsDesktop(bridge)) {
       const r = await bridge.addPhoneFirewallRule(scope)
       if (!r.ok) { setNote(r.error); return }
     }

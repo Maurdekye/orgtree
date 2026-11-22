@@ -47,6 +47,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
   } catch { windowIdentity = null; documentToken = '' }
   const bridge: DesktopBridge = {
     windowIdentity,
+    platform: process.platform,
     getWindowIdentity: () => ipcRenderer.invoke('desktop:window-identity'),
     openHomepageWindow: () => ipcRenderer.invoke('desktop:open-homepage-window'),
     openCreateOrgWindow: () => ipcRenderer.invoke('desktop:open-create-window'),

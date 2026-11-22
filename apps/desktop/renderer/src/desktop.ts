@@ -141,6 +141,22 @@ export type NativeDesktop = Omit<DesktopBridge,
 export const desktop = (): NativeDesktop | undefined =>
   (window as Window & { orgtreeDesktop?: NativeDesktop }).orgtreeDesktop
 
+/** Local desktop OS (Node `process.platform` values: 'win32', 'linux', 'darwin',
+ *  ...). Prefers the synchronous preload bridge, then falls back to navigator
+ *  metadata for plain browsers and older shells. */
+export const desktopPlatform = (bridge = desktop()): string => {
+  if (typeof bridge?.platform === 'string' && bridge.platform) return bridge.platform
+  const nav = typeof navigator === 'undefined' ? undefined : navigator
+  const raw = `${nav?.platform ?? ''} ${nav?.userAgent ?? ''}`
+  if (/Mac/i.test(raw)) return 'darwin'
+  if (/Win/i.test(raw)) return 'win32'
+  if (/Linux|X11/i.test(raw)) return 'linux'
+  return 'win32'
+}
+
+export const isWindowsDesktop = (bridge = desktop()): boolean => desktopPlatform(bridge) === 'win32'
+export const isMacDesktop = (bridge = desktop()): boolean => desktopPlatform(bridge) === 'darwin'
+
 /** True only in a shell that actually implements the v3 window model.
  *
  *  ⚠ THE PROBE IS `requestOrg`, NOT `desktop()`. Today's shipped preload
