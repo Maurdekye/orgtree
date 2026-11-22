@@ -388,11 +388,15 @@ Ubuntu 22.04's glibc 2.35 (inferred).
   Not fixed: a second launch still deletes the first launch's Electron files, which
   the runtime does after the app has exited. Files the first desktop has open keep
   working; one it opens later would be missing.
-- A build whose version has a prerelease label (a test build such as `4.6.3-frame.1`)
-  never writes, enables, disables or removes `orgtree-engine.service` or the autostart
-  entry: the registration belongs to the installed release
-  (`unixboot.ts registersBootEngine`). It attaches to a background engine that already
-  answers, or starts its own.
+- A build whose version has a prerelease label (a test build such as `4.6.3-frame.1`),
+  or a Linux/macOS run launched with a non-default `ORGTREE_V2_DATA` or
+  `ORGTREE_V2_PROFILE` override, never writes, enables, disables or removes
+  `orgtree-engine.service`, the autostart entry, or the macOS LaunchAgent: the
+  registration belongs to the installed release's default profile
+  (`unixboot.ts registersBootEngine`, `isNonDefaultDataRoot`). It attaches to a
+  background engine that already answers for its folder, or starts its own, and
+  disables the **Run on sign-in** switch for that session. Setting the variable to
+  the exact default folder keeps registering as usual.
 - The engine the desktop starts itself gets the same `PATH` as the registered one (the
   login shell's, then `~/.local/bin` and the usual folders), not the desktop's own,
   which under Steam is `/usr/local/bin:/usr/bin`. Codex is also looked for in

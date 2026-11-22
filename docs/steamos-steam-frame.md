@@ -48,7 +48,7 @@ After the first launch, you can open **Orgtree** directly from the SteamVR overl
 
 ## Verify the background engine
 
-Orgtree's persistent engine runs from `~/.config/Orgtree v2/engine-runtime/<version>-<commit>/engine/orgtree-engine`. When systemd user units are reachable, `orgtree-engine.service` should point there; otherwise check `~/.config/autostart/orgtree-engine.desktop`.
+Orgtree's persistent engine runs from `~/.config/Orgtree v2/engine-runtime/<version>-<commit>/engine/orgtree-engine`. When systemd user units are reachable, `orgtree-engine.service` should point there; otherwise check `~/.config/autostart/orgtree-engine.desktop`. Launches with a non-default `ORGTREE_V2_DATA` or `ORGTREE_V2_PROFILE` leave both files untouched and run their own engine for that session.
 
 A nested Plasma shell can set `XDG_RUNTIME_DIR` to a nested subdirectory and make a healthy user unit look unreachable. Probe against the canonical runtime directory when diagnosing:
 
