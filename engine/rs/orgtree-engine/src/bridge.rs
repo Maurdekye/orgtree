@@ -112,7 +112,15 @@ async fn connect(path: &str) -> std::io::Result<tokio::net::UnixStream> {
 /// mail tools are listed in `shape`.
 #[logged]
 pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, shape: MailShape) -> Result<String> {
-    serve_observed(engine, caller, cancel, None, shape)
+    serve_observed_with_timeout(engine, caller, cancel, None, shape, None)
+}
+
+/// Like `serve`, with a bounded per-`tools/call` timeout (used by Antigravity
+/// seats only; other harnesses pass `None`).
+#[logged]
+pub fn serve_with_timeout(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, shape: MailShape,
+                          tool_timeout: Option<std::time::Duration>) -> Result<String> {
+    serve_observed_with_timeout(engine, caller, cancel, None, shape, tool_timeout)
 }
 
 /// Serve this agent's tools on a fresh named pipe until `cancel`, the mail
@@ -121,6 +129,13 @@ pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, sha
 #[logged]
 pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
                       shape: MailShape) -> Result<String> {
+    serve_observed_with_timeout(engine, caller, cancel, ready, shape, None)
+}
+
+#[cfg(windows)]
+#[logged]
+fn serve_observed_with_timeout(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
+                               shape: MailShape, tool_timeout: Option<std::time::Duration>) -> Result<String> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let name = format!(r"\\.\pipe\orgtree-mcp-{}", crate::util::random_hex(16));
     // a CLI the sign-in helper hosts in the user's session connects too,
@@ -139,7 +154,7 @@ pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationT
                 Ok(s) => s,
                 Err(_) => break,
             };
-            tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone(), shape));
+            tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone(), shape, tool_timeout));
         }
     });
     Ok(name)
@@ -151,13 +166,20 @@ pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationT
 #[logged]
 pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
                       shape: MailShape) -> Result<String> {
+    serve_observed_with_timeout(engine, caller, cancel, ready, shape, None)
+}
+
+#[cfg(unix)]
+#[logged]
+fn serve_observed_with_timeout(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
+                               shape: MailShape, tool_timeout: Option<std::time::Duration>) -> Result<String> {
     let name = format!("orgtree-mcp-{}", crate::util::random_hex(8));
     let mut refused = Vec::new();
     for dir in socket_dirs(&engine.cfg.data_root) {
         let path = dir.join(&name);
         match listen(&dir, &path) {
             Ok((listener, text)) => {
-                tokio::spawn(accept(engine, caller, listener, path, cancel, ready, shape));
+                tokio::spawn(accept(engine, caller, listener, path, cancel, ready, shape, tool_timeout));
                 return Ok(text);
             }
             Err(e) => refused.push(format!("{}: {e:#}", dir.display())),
@@ -248,7 +270,7 @@ pub(crate) fn listen(dir: &std::path::Path, path: &std::path::Path) -> Result<(t
 #[cfg(unix)]
 #[logged]
 async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixListener, path: std::path::PathBuf, cancel: CancellationToken,
-                ready: Option<tokio::sync::watch::Sender<bool>>, shape: MailShape) {
+                ready: Option<tokio::sync::watch::Sender<bool>>, shape: MailShape, tool_timeout: Option<std::time::Duration>) {
     struct Unlink(std::path::PathBuf);
     impl Drop for Unlink {
         fn drop(&mut self) {
@@ -266,7 +288,7 @@ async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixL
         match r {
             // the folder admits only this user; any other peer is refused all the same
             Ok((conn, _)) if conn.peer_cred().map(|c| c.uid()).ok() == Some(me) => {
-                tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone(), shape));
+                tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone(), shape, tool_timeout));
             }
             Ok(_) => {}
             // a peer that left before it was accepted, or no file handles to spare: keep serving
@@ -298,16 +320,59 @@ pub fn clear_stale(data_root: &std::path::Path) {
     }
 }
 
+/// Format the MCP `isError: true` response returned when an Antigravity tool
+/// call exceeds its bounded engine timeout.
+#[nolog]
+fn timeout_tool_response(id: &Value, tool: &str, limit: std::time::Duration, elapsed: std::time::Duration) -> Value {
+    let shown = if limit.subsec_nanos() == 0 {
+        format!("{}s", limit.as_secs())
+    } else {
+        format!("{:.1}s", limit.as_secs_f64())
+    };
+    let result = crate::tools::result_timing::finish(
+        json!({
+            "content": [{
+                "type": "text",
+                "text": format!("{tool} timed out after {shown} waiting for the Orgtree engine; the action may still have taken effect — check the current state before retrying.")
+            }],
+            "isError": true
+        }),
+        elapsed,
+    );
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
+
 /// One CLI-side MCP session: each request answered as its own request, the
 /// mail tools listed in `shape`.
 async fn connection<S>(engine: Arc<Engine>, caller: Caller, conn: S, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
-                       shape: MailShape)
+                       shape: MailShape, tool_timeout: Option<std::time::Duration>)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
+{
+    connection_with(engine, caller, conn, cancel, ready, shape, tool_timeout, |engine, caller, msg, shape| async move {
+        crate::tools::handle_mcp_as(&engine, &caller, &msg, shape).await
+    }).await;
+}
+
+async fn connection_with<S, F, Fut>(
+    engine: Arc<Engine>,
+    caller: Caller,
+    conn: S,
+    cancel: CancellationToken,
+    ready: Option<tokio::sync::watch::Sender<bool>>,
+    shape: MailShape,
+    tool_timeout: Option<std::time::Duration>,
+    handle_mcp: F,
+)
+where
+    S: AsyncRead + AsyncWrite + Send + 'static,
+    F: Fn(Arc<Engine>, Caller, Value, MailShape) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Value> + Send + 'static,
 {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (read, mut write) = tokio::io::split(conn);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Option<&'static str>)>();
+    let handle_mcp = Arc::new(handle_mcp);
     tokio::spawn(async move {
         let mut initialized = false;
         while let Some((line, observed)) = rx.recv().await {
@@ -334,7 +399,7 @@ where
         if msg.get("id").map(Value::is_null).unwrap_or(true) {
             continue;
         }
-        let (engine, caller, tx) = (engine.clone(), caller.clone(), tx.clone());
+        let (engine, caller, tx, handle_mcp) = (engine.clone(), caller.clone(), tx.clone(), handle_mcp.clone());
         let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
         tokio::spawn(tracing::Instrument::instrument(
             async move {
@@ -344,7 +409,24 @@ where
                             |reply|crate::runtime::AgentMsg::InterruptBoundary{process,reply}).await
                     } else {json!({"interrupted":false})};
                     json!({"jsonrpc":"2.0","id":msg["id"],"result":value})
-                } else { crate::tools::handle_mcp_as(&engine, &caller, &msg, shape).await };
+                } else if msg["method"].as_str() == Some("tools/call") {
+                    if let Some(limit) = tool_timeout {
+                        let started = std::time::Instant::now();
+                        match tokio::time::timeout(limit, handle_mcp(engine, caller.clone(), msg.clone(), shape)).await {
+                            Ok(resp) => resp,
+                            Err(_) => {
+                                let tool = msg.pointer("/params/name").and_then(Value::as_str).unwrap_or("unknown");
+                                tracing::warn!(agent = %caller.name, tool, timeout_ms = limit.as_millis() as u64,
+                                    "Antigravity MCP tool call timed out");
+                                timeout_tool_response(&msg["id"], tool, limit, started.elapsed())
+                            }
+                        }
+                    } else {
+                        handle_mcp(engine, caller, msg.clone(), shape).await
+                    }
+                } else {
+                    handle_mcp(engine, caller, msg.clone(), shape).await
+                };
                 let observed = if resp.get("error").is_none() && resp.get("result").is_some() {
                     match msg["method"].as_str() {
                         Some("initialize") => Some("initialize"),
@@ -543,6 +625,128 @@ mod tests {
         to_bridge.shutdown().await.unwrap();
         let ended = tokio::time::timeout(Duration::from_secs(10), relay).await.expect("the relay ends").unwrap();
         assert!(ended.is_ok(), "{ended:?}");
+        cancel.cancel();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Antigravity MCP timeout returns a structured `isError: true` response
+    /// naming the tool and warning that the action may still have taken effect,
+    /// while keeping the MCP connection alive for subsequent calls.
+    #[tokio::test]
+    async fn agy_mcp_timeout_fails_call_with_check_before_retry_and_keeps_connection_alive() {
+        let cancel = CancellationToken::new();
+        let (cli, srv) = tokio::io::duplex(1 << 20);
+        let engine = Engine::for_tests("unused-bridge-timeout".into());
+        let task = tokio::spawn(connection_with(
+            engine,
+            caller(),
+            srv,
+            cancel.clone(),
+            None,
+            MailShape::Flat,
+            Some(Duration::from_millis(80)),
+            |_e, _c, msg, _s| async move {
+                let tool = msg.pointer("/params/name").and_then(Value::as_str).unwrap_or("");
+                if tool == "orgtree_work" {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+                json!({ "jsonrpc": "2.0", "id": msg["id"], "result": { "content": [{ "type": "text", "text": "fast ok" }] } })
+            },
+        ));
+        let (from_srv, mut to_srv) = tokio::io::split(cli);
+        let mut lines = BufReader::new(from_srv).lines();
+
+        let timed_out = ask(&mut to_srv, &mut lines, json!({
+            "jsonrpc": "2.0", "id": 11, "method": "tools/call",
+            "params": { "name": "orgtree_work", "arguments": { "action": "update" } }
+        })).await;
+        assert_eq!(timed_out["id"], 11);
+        assert_eq!(timed_out["result"]["isError"], true, "{timed_out}");
+        let msg_text = timed_out["result"]["content"][0]["text"].as_str().unwrap_or("");
+        assert!(msg_text.contains("orgtree_work"), "{msg_text}");
+        assert!(msg_text.contains("timed out"), "{msg_text}");
+        assert!(msg_text.contains("may still have taken effect"), "{msg_text}");
+        assert!(msg_text.to_lowercase().contains("check"), "{msg_text}");
+        assert_eq!(timed_out["result"]["content"].as_array().unwrap().len(), 2);
+        crate::tools::result_timing::assert_time_line(timed_out["result"]["content"][1]["text"].as_str().unwrap());
+
+        // Connection stays usable for subsequent tool calls in the same turn.
+        let next = ask(&mut to_srv, &mut lines, json!({
+            "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+            "params": { "name": "orgtree_chart", "arguments": {} }
+        })).await;
+        assert_eq!(next["id"], 12);
+        assert!(next["result"]["isError"].is_null());
+        assert_eq!(next["result"]["content"][0]["text"], "fast ok");
+
+        to_srv.shutdown().await.unwrap();
+        cancel.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+    }
+
+    /// Bridges without a tool timeout (non-Antigravity harnesses) wait normally.
+    #[tokio::test]
+    async fn no_timeout_leaves_non_agy_bridges_untouched() {
+        let cancel = CancellationToken::new();
+        let (cli, srv) = tokio::io::duplex(1 << 20);
+        let engine = Engine::for_tests("unused-bridge-no-timeout".into());
+        let task = tokio::spawn(connection_with(
+            engine,
+            caller(),
+            srv,
+            cancel.clone(),
+            None,
+            MailShape::Split,
+            None,
+            |_e, _c, msg, _s| async move {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                json!({ "jsonrpc": "2.0", "id": msg["id"], "result": { "content": [{ "type": "text", "text": "completed" }] } })
+            },
+        ));
+        let (from_srv, mut to_srv) = tokio::io::split(cli);
+        let mut lines = BufReader::new(from_srv).lines();
+        let resp = ask(&mut to_srv, &mut lines, json!({
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": { "name": "orgtree_work", "arguments": {} }
+        })).await;
+        assert_eq!(resp["id"], 21);
+        assert!(resp["result"]["isError"].is_null(), "{resp}");
+        assert_eq!(resp["result"]["content"][0]["text"], "completed");
+        to_srv.shutdown().await.unwrap();
+        cancel.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+    }
+
+    /// Two concurrent JSON-RPC requests sent back-to-back over `relay_io`
+    /// both receive their own id-matched replies without deadlocking the pipe.
+    #[tokio::test]
+    async fn parallel_requests_over_relay_io_both_complete() {
+        let root = data_root("par");
+        let cancel = CancellationToken::new();
+        let name = serve_with_timeout(
+            Engine::for_tests(root.clone()), caller(), cancel.clone(), MailShape::Flat, Some(Duration::from_secs(10))
+        ).expect("serve");
+        let (cli, stdio) = tokio::io::duplex(1 << 20);
+        let (stdin, stdout) = tokio::io::split(stdio);
+        let relay = tokio::spawn(async move { relay_io(&name, stdin, stdout).await });
+        let (from_bridge, mut to_bridge) = tokio::io::split(cli);
+        let mut lines = BufReader::new(from_bridge).lines();
+
+        let req1 = json!({ "jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": { "name": "orgtree_work", "arguments": [] } });
+        let req2 = json!({ "jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": { "name": "orgtree_work", "arguments": [] } });
+        to_bridge.write_all(format!("{req1}\n{req2}\n").as_bytes()).await.unwrap();
+        to_bridge.flush().await.unwrap();
+
+        let mut got = std::collections::HashSet::new();
+        for _ in 0..2 {
+            let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.expect("reply within 5 s").unwrap().unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            got.insert(v["id"].as_i64().unwrap());
+        }
+        assert!(got.contains(&101) && got.contains(&102), "both parallel requests answered: {got:?}");
+
+        to_bridge.shutdown().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), relay).await.unwrap().unwrap().unwrap();
         cancel.cancel();
         let _ = std::fs::remove_dir_all(&root);
     }

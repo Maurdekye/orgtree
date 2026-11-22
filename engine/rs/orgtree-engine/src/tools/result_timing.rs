@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 /// Append presentation metadata without changing the tool's primary JSON/text.
 #[nolog] // hot, pure presentation helper; tool text may contain private data
-pub(super) fn finish(mut result: Value, elapsed: Duration) -> Value {
+pub(crate) fn finish(mut result: Value, elapsed: Duration) -> Value {
     if let Some(content) = result.get_mut("content").and_then(Value::as_array_mut) {
         content.push(json!({"type":"text", "text":format!(
             "execution time: {:.3}ms", elapsed.as_secs_f64() * 1000.0)}));

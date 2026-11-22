@@ -39,6 +39,24 @@ const TOOLS_WEB: &[&str] = &[
 const TOOLS_SUBAGENT: &[&str] = &["invoke_subagent", "manage_subagents", "browser_subagent"];
 /// how a denial by our hook reads in a tool step's error
 pub const HOOK_DENIED: &str = "tool call denied by pre-tool hook: orgtree:";
+/// Antigravity-only per-MCP-tool-call timeout in seconds (300 s).
+pub const MCP_TOOL_TIMEOUT_S: u64 = 300;
+
+/// Bounded per-MCP-tool timeout for Antigravity seats (300 s, or
+/// `ORGTREE_RIG_AGY_MCP_TIMEOUT_MS` in rig mode).
+#[nolog]
+pub fn mcp_tool_timeout() -> Duration {
+    if crate::rig::active() {
+        if let Some(ms) = std::env::var("ORGTREE_RIG_AGY_MCP_TIMEOUT_MS")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|&n| n >= 50 && n <= MCP_TOOL_TIMEOUT_S * 1000)
+        {
+            return Duration::from_millis(ms);
+        }
+    }
+    Duration::from_secs(MCP_TOOL_TIMEOUT_S)
+}
 
 /// What one Antigravity process is launched with.
 #[derive(Clone)]
@@ -158,8 +176,11 @@ impl AgyProc {
         let auth_stamp = crate::providers::agy_auth::preflight_for(&engine, &spec.exe, &spec.login).await?;
         let pipe = CancellationToken::new();
         // the mail tools in their flat shape: the nested one is unchecked on
-        // this CLI (coordinator 2026-10-13 21:36Z, tools::defs::MailShape)
-        let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Flat)?;
+        // this CLI (coordinator 2026-10-13 21:36Z, tools::defs::MailShape).
+        // Antigravity seats bound each MCP call at 300 s (other harnesses pass None).
+        let pipe_name = crate::bridge::serve_with_timeout(
+            engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Flat, Some(mcp_tool_timeout()),
+        )?;
         write_workspace(&spec, &pipe_name, &engine.cfg.data_root)?;
         if let Some(failure) = crate::providers::agy_auth::blocked_for(&engine, &spec.login) { return Err(failure.into()); }
         let process = uuid::Uuid::new_v4();
