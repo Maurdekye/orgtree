@@ -65,7 +65,7 @@ Agents are instructed to read the relevant page before first acting in its area.
 
 ## Connect Hubchat and the mail hub
 
-[Hubchat](https://github.com/Maurdekye/orgtree-hubchat) is the human chat client for Android and Windows. A mail hub relays messages and files between people and Orgtree organizations. It does not run the agents or provider sessions on another person's computer. Download Hubchat from its [releases](https://github.com/Maurdekye/orgtree-hubchat/releases/latest).
+[Hubchat](https://github.com/Maurdekye/orgtree-hubchat) is the human chat client for Android and desktop. A mail hub relays messages and files between people and Orgtree organizations. It does not run the agents or provider sessions on another person's computer. Download Hubchat from its [releases](https://github.com/Maurdekye/orgtree-hubchat/releases/latest).
 
 In Hubchat use **Settings > Hubs > Add a hub** with the operator's relay-only address, then use its directory to find people and organizations. In Orgtree, connect each org through **Organization settings > Connections > Add a mail hub**. Joining the same hub does not merge identities or make a person the owner of an org.
 
@@ -74,9 +74,9 @@ Each org has a permanent network address and ownership secret; each person has a
 Hub membership changes in Connections are immediate; its external-inbox mode and multiple-holder fields also save immediately. Rows distinguish disabled, connecting, connected and retrying, with errors and queued counts. Each hub's contacts are rows with a green dot for online, an amber dot for busy, a red dot for Do not disturb or a grey ring for offline, as in Hubchat; hover a contact's link for its status and type. Busy means connected, but no one can answer right now: an org none of whose org-mailbox holders can start a turn, or a person who hasn't had Hubchat in front on any device for an hour (mail hubs 2.3.0 and later). Do not disturb means an org has set its outside mail to Do not disturb (mail hubs 2.3.0 and later). Online contacts come first, then busy, then Do not disturb, then offline, each by the most recent correspondence. While none of your org-mailbox holders can start a turn (none, or all halted, frozen or retired, or Stop all latched), your org shows busy to the hubs it is connected to; mail still arrives and waits as before. While its external-inbox mode is Do not disturb, it shows Do not disturb instead. App settings > Mail hub lists everyone on this computer's hub the same way. A Test helps discover a final endpoint; a failed test does not prevent saving a route that will become available later. Explicit URLs/ports stay explicit and redirects are refused, so use the operator's final relay address. Removing a working route can leave mail waiting or using another enabled connection.
 
 An outside address link in Orgtree can open its conversation in desktop Hubchat when installed. This is independent of linking a phone. Local-org links open the local org instead. Right-click a link for **Open in org mailbox**, which shows the mail the organization exchanged with that address; mail headers show outside senders as these links too. Contacts in the organization's and the user Inbox's contact lists are shown as these same links: click to open in Hubchat, right-click for more. A link to your own account (the person Connect your phone linked) opens your chat with the organization it is shown in, not your Hubchat settings, and that chat starts empty until you write; if the organization has no network address yet, the link stays inert and says so. Other people's links are unchanged. On Linux (Orgtree 4.6.8 and later), Orgtree detects desktop Hubchat by a working `hubchat://` scheme handler (registered automatically by Hubchat at start); macOS detection is not yet available.
-On the PC and Windows account that run Orgtree, desktop Hubchat 1.2.6 or later shows the **Orgtree org** badge in a local organization's contact info as a link: click it to open that organization in Orgtree, which starts Orgtree if it isn't running. Organizations on other computers, and Hubchat on your phone, keep a plain badge.
+On the computer and account that run Orgtree (Windows with Hubchat 1.2.6 or later; Linux with Orgtree 4.6.6+ and Hubchat 1.3.10+), desktop Hubchat shows the **Orgtree org** badge in a local organization's contact info as a link: click it to open that organization in Orgtree, which starts Orgtree if it isn't running. Organizations on other computers, and Hubchat on your phone, keep a plain badge.
 
-Hubchat 1.3.3 or later shows Orgtree's mentions (tickets, documents, apps, panels, mails, agents and projects) as chips. On the PC that runs the mentioned organization, with Orgtree 4.5.9 or later, clicking a chip opens it in Orgtree, and its right-click menu opens just that organization. Elsewhere the chip is only a label.
+Hubchat 1.3.3 or later shows Orgtree's mentions (tickets, documents, apps, panels, mails, agents and projects) as chips. On the computer that runs the mentioned organization, with Orgtree 4.5.9 or later (4.6.6+ and Hubchat 1.3.10+ on Linux), clicking a chip opens it in Orgtree, and its right-click menu opens just that organization. Elsewhere the chip is only a label.
 
 ### What an outside conversation does
 
@@ -106,16 +106,16 @@ Only you can change this mode, through the desktop or the standalone **user** MC
 
 Open **Connect your phone** from Connections, App settings > Mail hub, the introductory card or tray. Confirm the selected org before linking.
 
-1. Install/sign into Tailscale on PC and Android using the same account, or choose **Use my home Wi-Fi instead** for the same local network.
-2. Choose **Turn on phone access**. The Windows bridge requests the scoped firewall permission and enables a relay-only door. Inspect whether its scope is Tailscale, home network or unrestricted.
-3. Install Hubchat using the download QR. Choose **I have Hubchat on my phone > Next** to replace it with the setup QR when the PC is ready.
+1. Install/sign into Tailscale on your computer and Android using the same account, or choose **Use my home Wi-Fi instead** for the same local network.
+2. Choose **Turn on phone access**. On Windows, the native bridge requests the scoped firewall permission before enabling the relay-only door; on Linux and macOS, open port 7371 in your firewall if needed. Inspect whether its scope is Tailscale, home network or unrestricted.
+3. Install Hubchat using the download QR. Choose **I have Hubchat on my phone > Next** to replace it with the setup QR when this computer is ready.
 4. In Hubchat choose **Scan setup code**. The code is single-use and normally expires after ten minutes. **New code** replaces earlier ones.
 
 If you already use desktop Hubchat, carry that existing identity to the phone with its QR/device-link flow instead of creating another identity accidentally. Confirm **Is this you?** only for your actual person identity. Additional devices use **Settings > Devices > Link a device**.
 
 Linking writes the exact trusted-address note into the selected org's charter and reconfigures agents for later turns. **Unlink** removes the generated authority notes and saved phone link. It does not disable the relay, delete mail, delete the Hubchat identity or unlink every device. If removal of a note fails, repair the reported problem before assuming the delegation ended.
 
-The PC/hub and network must remain reachable. Use your computer's power settings and real reachability checks when diagnosing sleep-related loss of access. Tailscale sign-out behavior, key expiry and Android battery restrictions can also affect access.
+This computer/hub and network must remain reachable. Use your computer's power settings and real reachability checks when diagnosing sleep-related loss of access. Tailscale sign-out behavior, key expiry and Android battery restrictions can also affect access.
 
 ## Open an organization from another computer
 
@@ -133,7 +133,7 @@ The list of organizations decides what the other computer's window shows, and it
    - **This computer only.** For an SSH tunnel or a local https proxy, which carry the connection to this computer and encrypt it on the way. See [Without Tailscale](#without-tailscale) below.
 
    It never listens on a public address by itself.
-2. Open the organization's settings > **Connections**. Under **Remote access** turn on **Let other computers open this organization**. Windows asks for an administrator's permission to add the firewall rules. If you answer No, nothing changes and the switch stays off.
+2. Open the organization's settings > **Connections**. Under **Remote access** turn on **Let other computers open this organization**. On Windows, Windows asks for an administrator's permission to add the firewall rules (if you answer No, nothing changes and the switch stays off).
 3. Choose **Add a computer...**. The dialog shows this computer's address and a one-time code, and both in one line with **Copy both**. Send that line to whoever sits at the other computer. The code works once, for one computer, for 15 minutes.
 
 The group then lists the computers that have this organization: the name others see for each, since when it is connected or when it was last seen, and **Revoke**. Revoke asks first; it takes the computer out of every organization of yours and disconnects it at once. Revoking ends its access from then on. It cannot take back what was copied or changed while the computer had access: if you stopped trusting it, also change the provider sign-ins and keys on your computer, as you would after removing somebody's SSH key. While another computer is connected, the organization's status bar shows "1 computer connected".
@@ -142,13 +142,13 @@ To let a computer you already added into a second organization, turn that organi
 
 Turning the switch off disconnects everybody from that organization and keeps the list of computers, so turning it on again lets the same computers back in. App settings > **Remote access** shows where this computer listens, the port (7431 unless you change it), what it does now, the organizations that are shared, and **Stop all remote access**, which turns every switch off. Nothing listens while no organization is shared.
 
-If the group says **Windows Firewall is blocking this**, choose **Allow**: the firewall rules are missing. If turning the switch on is refused because no other computer could reach this one, start Tailscale or choose another place to listen, as the sentence says.
+On Windows, if the group says **Windows Firewall is blocking this**, choose **Allow**: the firewall rules are missing. If turning the switch on is refused because no other computer could reach this one, start Tailscale or choose another place to listen, as the sentence says.
 
 Agents cannot turn remote access on, add a computer or make a code.
 
 ### Without Tailscale
 
-Both ways below use **This computer only**: Orgtree listens on `127.0.0.1` and another program carries the connection there, encrypted. Turn that switch on in App settings > **Remote access** (you can turn **Tailscale** off), then turn the organization's switch on. No firewall rule is needed, and Windows does not ask for one.
+Both ways below use **This computer only**: Orgtree listens on `127.0.0.1` and another program carries the connection there, encrypted. Turn that switch on in App settings > **Remote access** (you can turn **Tailscale** off), then turn the organization's switch on. No firewall rule is needed (and on Windows, Windows does not ask for one).
 
 **Through an SSH tunnel.** The hosting computer runs an SSH server (on Windows: Settings > System > Optional features > OpenSSH Server) that the other computer can sign in to.
 

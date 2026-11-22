@@ -7,7 +7,7 @@ Up: [orgtree-mailhub](../SKILL.md)
 
 # Human chat through a hub
 
-Hubchat is the human chat client for people and organizations on a mail hub. It is available on the phone and on a PC. It is distinct from the hub's operator web page, which exposes stored correspondence to its operator; do not call that operator page the phone chat client.
+Hubchat is the human chat client for people and organizations on a mail hub. It is available on the phone and on desktop. It is distinct from the hub's operator web page, which exposes stored correspondence to its operator; do not call that operator page the phone chat client.
 
 For a developer team, the repository recommends each person install Orgtree and Hubchat and connect both to a shared standalone hub reachable on the company's private network. The built-in hub suits individuals and small teams; this is a deployment recommendation, not a client-count limit or a required migration.
 
@@ -38,23 +38,24 @@ under the name they have here, whether or not their computer is reachable right
 now. Hubchat 1.3.9 or later follows a moved data root;
 older versions find no local orgs after a move, so the badge and Orgtree mention
 chips stay plain.
-Desktop Hubchat 1.2.6 or later, on the same PC and Windows account, reads it:
+On Windows, desktop Hubchat 1.2.6 or later on the same PC and Windows account reads it (for Linux support, see below):
 the **Orgtree org** badge in a local org's contact info opens that org in
 Orgtree, starting Orgtree when it isn't running, through the taskbar argument
 `--orgtree-taskbar=org:<slug>`. A remote org listed there opens the same way, in
-its window on this PC. Orgs this Orgtree can't open and Hubchat on a phone
+its window on this computer. Orgs this Orgtree can't open and Hubchat on a phone
 keep a plain badge. Verified: `local_orgs.rs`, `appfeed.rs`, `main/jumplist.ts`.
 
 Desktop Hubchat 1.3.3 or later also draws Orgtree's mentions as chips: tickets,
 documents, apps, panels, mails, `@agent:`/`@project:` and, in a conversation with
 an org, a bare `@name` (one icon for agents and projects). It uses the mention
 text only. A chip opens its target in Orgtree 4.5.9 or later through an
-`orgtree://` link when this PC's Orgtree can open the message's org and the
+`orgtree://` link when this computer's Orgtree can open the message's org and the
 mentioned org: its own orgs and, from Orgtree 4.6.7, its remote orgs, matched by
 address. A remote org whose name here differs from its name on its own computer
 gets the badge link, but its chips stay display-only. Its right-click menu also opens just that org. Every other
 chip, and every chip on a phone, is display-only, with the hint "Opens in
-Orgtree on the PC that runs <org>". The contract is `docs/rust-engine/orgtree-links.md`
+Orgtree on the PC that runs <org>" on Windows or "Opens in Orgtree on the device
+that runs <org>" off Windows. The contract is `docs/rust-engine/orgtree-links.md`
 in the Orgtree repository.
 
 On Linux this needs Orgtree 4.6.6 or later and Hubchat 1.3.10 or later. The data
@@ -86,7 +87,7 @@ Connection, upload, hub acceptance, agent delivery and a person's read are diffe
 
 ## Phone entrypoint and availability
 
-For the built-in hub, use [Connect your phone](../phone-link/SKILL.md) for the current download/setup sequence and link management. Other devices normally use the relay-only door on port 7371; the hosting page owns port/exposure settings. That PC and hub must stay available for communication through it. A standalone team hub can stay available independently of a developer's desktop engine, but it does not run that developer's provider sessions or agents.
+For the built-in hub, use [Connect your phone](../phone-link/SKILL.md) for the current download/setup sequence and link management. Other devices normally use the relay-only door on port 7371; the hosting page owns port/exposure settings. That computer and hub must stay available for communication through it. A standalone team hub can stay available independently of a developer's desktop engine, but it does not run that developer's provider sessions or agents.
 
 This page describes the integration checked in Orgtree source and repository setup docs. It does not establish every current Hubchat app control or notification behavior; use the Hubchat setup guide linked by the phone panel for device-specific help.
 

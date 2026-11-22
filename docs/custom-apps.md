@@ -339,8 +339,8 @@ Orgtree shows the request in its
 own dialog outside the HTML. Choose a file in that native picker, then select
 **Allow once**, **Always allow**, **Deny** or **Cancel**.
 Outside-org writes require a separate native write grant.
-Whole-computer access includes private files/settings your Windows account can
-reach, without elevation. Prefer a chosen folder when that is enough.
+Whole-computer access includes private files/settings your user account (your
+Windows user on Windows) can reach, without elevation. Prefer a chosen folder when that is enough.
 
 For files, Allow once lasts while this panel runs, hidden or popped out included.
 Always allow remembers the selected file or org collection for this app.

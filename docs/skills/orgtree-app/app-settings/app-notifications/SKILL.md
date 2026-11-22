@@ -11,7 +11,7 @@ Runtime > Notifications controls native desktop alerts for every organization on
 
 | Control | Storage | Default | Meaning |
 | --- | --- | --- | --- |
-| Open questions | `np:questionTarget` | focus the agent desk | Taskbar question entries focus the asking agent; an existing pin or popped-out desk comes to the front. Choose **Open questions as mail** to open the question in the inbox instead. Independent of banner switches. |
+| Open questions (Windows only) | `np:questionTarget` | focus the agent desk | Shown on Windows only (hidden on macOS and Linux). Taskbar question entries focus the asking agent; an existing pin or popped-out desk comes to the front. Choose **Open questions as mail** to open the question in the inbox instead. Independent of banner switches. |
 | Notifications | `np:notificationsEnabled` | On | Master gate. Off suspends all listed desktop alerts and disables their subordinate controls without erasing their selections. |
 | Questions | `np:notifyQuestions` | On | Desktop question/request alerts. A click goes to the asker's desk when it is already open (below), otherwise to the inbox or the Attention queue. |
 | Urgent mail | `np:notifyUrgentMail` | On | Mail marked urgent for the user. All mail also permits this kind. |

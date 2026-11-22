@@ -39,7 +39,7 @@ The initial value is saved configuration, with `acceptEdits` as the missing-valu
 
 ## Desktop session
 
-`node:session` is where the agent's CLI runs among the user's Windows sessions while the user is signed in (Run on boot starts the engine in Session 0, which has no desktop):
+Shown only when the serving engine runs on Windows (hidden for Linux and macOS engines, while a non-Windows desktop viewing a remote Windows engine still shows it). `node:session` is where the agent's CLI runs among the user's Windows sessions while the user is signed in (Run on boot starts the engine in Session 0, which has no desktop):
 
 | Label | Stored value |
 |---|---|

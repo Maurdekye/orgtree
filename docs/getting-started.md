@@ -26,8 +26,8 @@ If you already have a connected provider, an organization and an agent working o
 The published installer is for **64-bit Windows**. Windows builds are unsigned; macOS and Linux builds remain prototypes.
 
 1. Open the [latest release](https://github.com/Maurdekye/orgtree/releases/latest).
-2. Download **`Orgtree-Setup-<version>.exe`** and run it. GitHub's source-code ZIP is for source, not installation.
-3. Open **Orgtree** from the Start menu. The centered Welcome card lets you choose a theme and startup behavior, then create an organization. Narrow windows keep side padding; shorter windows scroll to the remaining actions.
+2. On Windows, download **`Orgtree-Setup-<version>.exe`** and run it. On Linux or macOS, download the prototype build for your platform (see below for Linux AppImage notes). GitHub's source-code ZIP is for source, not installation.
+3. Open **Orgtree** (from the Start menu on Windows, or your app launcher / AppImage on Linux and macOS). The centered Welcome card lets you choose a theme and startup behavior, then create an organization. Narrow windows keep side padding; shorter windows scroll to the remaining actions.
 
 <a id="linux-appimage-without-fuse"></a>
 
@@ -44,7 +44,7 @@ If an update's restart does not come back, start the AppImage once more the same
 
 The installer includes the desktop app, local engine and PostgreSQL database. You do not need to install Node.js, Rust or PostgreSQL to use the packaged app, and from 4.6.1 the installer carries no Python at all. A newer installation keeps your organization data. Model access and provider applications are set up separately.
 
-The database needs the Microsoft Visual C++ runtime (2015-2022, x64), version 14.44 or newer. Setup checks it. When it is missing or too old, Setup downloads Microsoft's own runtime and installs it; Windows may ask for administrator approval. If that cannot be done, for example without an internet connection, Setup tells you: Orgtree's database will not start until you install the runtime from <https://aka.ms/vs/17/release/vc_redist.x64.exe>. An update that installs in the background only checks, and does not install it.
+On Windows, the database needs the Microsoft Visual C++ runtime (2015-2022, x64), version 14.44 or newer. Setup checks it. When it is missing or too old, Setup downloads Microsoft's own runtime and installs it; Windows may ask for administrator approval. If that cannot be done, for example without an internet connection, Setup tells you: Orgtree's database will not start until you install the runtime from <https://aka.ms/vs/17/release/vc_redist.x64.exe>. An update that installs in the background only checks, and does not install it.
 
 If the background engine cannot start, Orgtree shows the reason with **Retry**
 and **Quit**. A disabled background-engine task needs an installation repair:

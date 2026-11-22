@@ -6,7 +6,7 @@ Up: [orgtree-app](../SKILL.md)
 
 # orgtree-desk
 
-Agent and project desks and the work panels: chat, inboxes, ask cards, dockets, presentations and watchdogs. Agent event history is in the agent settings panel; scratch folders open in the OS file explorer.
+Agent and project desks and the work panels: chat, inboxes, ask cards, dockets, presentations and watchdogs. Agent event history is in the agent settings panel; scratch folders open in the OS file manager.
 
 ## Screens
 

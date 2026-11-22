@@ -16,11 +16,11 @@ While running, organizations are grouped into their own taskbar identities using
 | Menu entry | Action |
 |---|---|
 | Update status / Update now | Shows progress or applies a downloaded update when offered |
-| Automatic updates / Check for updates | Controls or requests updates; unsupported development builds show a disabled explanation |
+| Automatic updates / Check for updates | Controls or requests updates; development builds and packaged builds without an update feed show a disabled explanation |
 | Mail hub status | Shows running/stopped/error state and opens the hub in the browser when available |
 | Connect your phone | Opens the phone panel in the last-used window, creating a homepage if needed |
 | Run on boot ("Run on sign-in" where Orgtree cannot start at boot) | Changes the native startup preference; a pending change disables the checkbox |
-| Run as admin | Same protected administrator setting as App settings: ON shows the full-admin warning then one Windows permission prompt; OFF asks permission once. Disabled while unavailable or changing; cancellation restores the saved checkmark. Applies at once: the engine restarts, and the sign-in helper follows with the same rights. |
+| Run as admin (Windows only) | Shown on Windows only (hidden on macOS and Linux). Same protected administrator setting as App settings: ON shows the full-admin warning then one Windows permission prompt; OFF asks permission once. Disabled while unavailable or changing; cancellation restores the saved checkmark. Applies at once: the engine restarts, and the sign-in helper follows with the same rights. |
 | Exit on close | Changes the native last-window-close preference |
 | Notifications | Master checkbox and per-event notification switches; subordinate switches are disabled when the master is off |
 | Mute EPIC sounds | Visible only while EPIC is enabled. Saves `epicMuted` across restarts and broadcasts it to all windows/popouts. Mutes audio while visuals, heat and activity continue; unmuting follows current activity rather than replaying missed sounds. |

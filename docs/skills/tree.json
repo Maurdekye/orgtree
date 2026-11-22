@@ -3751,7 +3751,7 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Agent and project desks, mail, questions, dockets, presentations and watchdogs. Agent event history is in settings; scratch folders open in the OS file explorer.",
+   "purpose": "Agent and project desks, mail, questions, dockets, presentations and watchdogs. Agent event history is in settings; scratch folders open in the OS file manager.",
    "children": [
     "agent-desk",
     "project-desk",

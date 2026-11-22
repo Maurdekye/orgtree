@@ -330,7 +330,7 @@ persists per app/code revision. File and media links survive Hide, pop-out and h
 session renewal (user 2026-10-26); Deny, a change to Ask that removes access, code
 replacement, per-grant Revoke and power off end them and cancel active media bodies. Chosen folders (with descendants) and
 the whole computer can also be granted through native consent. Read and write remain separately overridable. External writes need a write grant. Whole-computer
-access has current Windows user rights, without elevation. Imported grants and paths
+access has the current user account's rights (Windows user on Windows), without elevation. Imported grants and paths
 are always refused.
 
 - file_permissions needs app. It reports bounded grant metadata, revisions and

@@ -9,20 +9,20 @@ Up: [orgtree-mailhub](../SKILL.md)
 
 Open **Connect your phone** from an org's Connections tab, the first-use/Home card, App settings > Mail hub, or the tray action. The panel uses the selected org; from Home/tray it resolves a candidate org. Confirm the org named in the panel before linking. Dismissing the introductory card hides both Home and org versions; App settings keeps the entry available.
 
-The panel separates **This PC** from **Your phone** and shows one QR code at a time. Its state distinguishes missing/signed-out/ready Tailscale, phone access off/restricted/unrestricted, setup waiting, and a linked identity. Loading or hub errors are actionable states, not proof the setup completed.
+The panel separates **This PC** (**This computer** off Windows) from **Your phone** and shows one QR code at a time. Its state distinguishes missing/signed-out/ready Tailscale, phone access off/restricted/unrestricted, setup waiting, and a linked identity. Loading or hub errors are actionable states, not proof the setup completed.
 
 ## Setup path
 
-1. On the PC install and sign in to Tailscale, or choose **Use my home Wi-Fi instead**. The Tailscale route uses the same account on the phone; the Wi-Fi route requires the same local network.
-2. Choose **Turn on phone access**. The native Windows bridge requests permission for the scoped firewall rule before enabling the relay-only door. Tailscale scope limits access to the tailnet; home-network scope permits reachable local clients to register and message, without exposing the operator's full mail page. Already unrestricted access offers **Limit it to Tailscale** when Tailscale is ready.
-3. On Android, install/sign in to Tailscale where using that route, then scan the download QR to get Hubchat. Choose **I have Hubchat on my phone → Next** on the PC to replace the download QR with the setup QR after the PC is ready.
+1. On this computer install and sign in to Tailscale, or choose **Use my home Wi-Fi instead**. The Tailscale route uses the same account on the phone; the Wi-Fi route requires the same local network.
+2. Choose **Turn on phone access**. On Windows, the native bridge requests permission for the scoped firewall rule before enabling the relay-only door; on Linux and macOS, the panel skips the Windows firewall prompt and enables the door directly (allow port 7371 in your firewall if needed). Tailscale scope limits access to the tailnet; home-network scope permits reachable local clients to register and message, without exposing the operator's full mail page. Already unrestricted access offers **Limit it to Tailscale** when Tailscale is ready.
+3. On Android, install/sign in to Tailscale where using that route, then scan the download QR to get Hubchat. Choose **I have Hubchat on my phone → Next** on this computer to replace the download QR with the setup QR after this computer is ready.
 4. In Hubchat choose **Scan setup code**. A setup code is single-use and normally lasts ten minutes. **New code** replaces earlier codes; an expired/used code needs a new one. The panel shows Waiting while the setup is being handled.
 
 The setup needs the org connected to the computer's hub. When code creation reports that local membership is missing, the panel attempts to turn it on. A person already in the local roster can instead be offered **Is this you?**; confirm only your actual identity. A desktop Hubchat user is guided to carry that identity to the phone rather than create another one accidentally.
 
-When Hubchat already runs on this PC, use the QR button at the bottom of its
+When Hubchat already runs on this computer, use the QR button at the bottom of its
 chat list. On the phone choose **I already use Hubchat > Scan the QR code from
-your other device**, then scan that code. For another PC the corresponding
+your other device**, then scan that code. For another desktop computer the corresponding
 existing-identity choice is **Link through a hub**. Confirming **Is this you?**
 authorizes that actual identity in every org; it is not a new phone
 account. Desktop Hubchat-link availability is checked independently of this
@@ -30,7 +30,7 @@ panel. Verified 2026-10-21: `canvas/phonelink.tsx`, `canvas/agentmentions.tsx`.
 
 ## Link, more devices and Unlink
 
-The PC keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the **instructions for all orgs** (App settings > Runtime), naming the exact `@net:` address, so the link holds in every org, not only the one the panel was opened from. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). Every org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight. After a link the panel says "The instructions for all orgs now say this address is you and carries your authority." The note is ordinary text in that editor, as in an org charter.
+This computer keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the **instructions for all orgs** (App settings > Runtime), naming the exact `@net:` address, so the link holds in every org, not only the one the panel was opened from. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). Every org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight. After a link the panel says "The instructions for all orgs now say this address is you and carries your authority." The note is ordinary text in that editor, as in an org charter.
 
 To add another device for the same identity, use Hubchat's **Settings > Devices > Link a device** on the existing device and the matching existing-identity flow on the new one. A new phone link requires **Unlink** first.
 
@@ -38,9 +38,9 @@ To add another device for the same identity, use Hubchat's **Settings > Devices 
 
 ## Availability
 
-The PC/hub and network must remain reachable. Use the computer's own power settings and reachability checks when diagnosing sleep-related loss of access.
+This computer/hub and network must remain reachable. Use the computer's own power settings and reachability checks when diagnosing sleep-related loss of access.
 
-The panel can warn about a sleep timeout, Tailscale key expiry, or Tailscale stopping on Windows sign-out, with appropriate help links. The Android instructions recommend Always-on VPN and unrestricted battery use for Tailscale. Network access still depends on the PC/hub and the chosen network remaining available.
+The panel can warn about a sleep timeout, Tailscale key expiry, or (on Windows with the boot engine) Tailscale stopping on Windows sign-out, with appropriate help links. The Android instructions recommend Always-on VPN and unrestricted battery use for Tailscale. Network access still depends on this computer/hub and the chosen network remaining available.
 
 ## See also
 

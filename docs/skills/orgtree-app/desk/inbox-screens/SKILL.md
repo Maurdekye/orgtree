@@ -75,7 +75,7 @@ Monitor senders use watchdog identity and detail navigation, even when their
 name matches an agent. They never acquire that agent's model chip or desk link.
 If live monitor metadata is unavailable, the recorded name and handle remain.
 
-Mail bodies support inline Markdown images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
+Mail bodies support inline Markdown images. Relative image paths resolve within the author's files; absolute local file paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
 The checked image endpoint has shared [Markdown image limits](../desk-chat/SKILL.md#markdown-image-limits), including size/dimensions, private-address and local-link refusals. A link fallback can mean an embed was rejected rather than that the message's URL is absent.
 

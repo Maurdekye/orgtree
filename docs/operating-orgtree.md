@@ -102,13 +102,15 @@ After an engine stop or Windows sign-out interrupts work, an affected agent can 
 
 ## Windows sessions and administrator rights
 
+These controls apply on Windows only and are hidden on macOS and Linux (a non-Windows desktop viewing a remote Windows engine still shows **Desktop session** for that engine).
+
 The all-users engine stays in **Session 0**, including restarts and updates. While signed in, its helper runs eligible agent CLIs in your signed-in session. Agents move between sessions at turn boundaries. Session 0 has no interactive desktop; screen/app automation and interactive sign-ins cannot work there as if a person were present.
 
-An agent's Scope settings can prefer the signed-in, console, remote or Session 0 route for later turns. The Session 0 badge reports actual placement and can explain why the fallback happened; a saved preference alone is not proof of where the current process runs. After restart, turns can wait for the sign-in helper before falling back.
+An agent's Scope settings can prefer the signed-in, console, remote or Session 0 route for later turns (**Desktop session**, shown only when the serving engine runs on Windows). The Session 0 badge reports actual placement and can explain why the fallback happened; a saved preference alone is not proof of where the current process runs. After restart, turns can wait for the sign-in helper before falling back.
 
 For Muse normal-write agents, actual CLI placement also changes sandbox enforcement: in Session 0 the OS sandbox is disabled, so native operations can exceed folder grants without an approval callback. A normal-write CLI hosted in the signed-in session keeps it. See [Managing agents](managing-agents.md#give-the-agent-the-right-access) for the permission choices and the separate read-only/Unrestricted policies.
 
-**Run as admin**, in Runtime or the tray, changes both the engine and helper together. It is off by default, requires the warning/Windows permission flow and applies by restarting them, interrupting turns. With it on, their agents have full administrator rights on later starts without further prompts. Choose it only for work requiring those rights. Declining or failing the change leaves the saved choice unchanged and reports the reason. There is no separate one-off elevation button. The bundled PostgreSQL database still runs without administrator rights.
+**Run as admin**, in Runtime or the tray on Windows (hidden on macOS and Linux), changes both the engine and helper together. It is off by default, requires the warning/Windows permission flow and applies by restarting them, interrupting turns. With it on, their agents have full administrator rights on later starts without further prompts. Choose it only for work requiring those rights. Declining or failing the change leaves the saved choice unchanged and reports the reason. There is no separate one-off elevation button. The bundled PostgreSQL database still runs without administrator rights.
 
 ## Restart only when needed
 
@@ -130,7 +132,7 @@ The **engine debug view** displays measured memory, socket backlog and docket tr
 
 The quiet area below Developer controls reveals optional **EPIC mode**. While enabled, observed thinking, writing, tools, waiting and compaction add activity heat and action sounds (no continuous drone); this does not measure useful progress. The tray's **Mute EPIC sounds** appears while enabled, saves across restarts and applies to all windows/popouts. Muting leaves visuals and activity detection running; unmuting follows current activity without replaying missed sounds. Disabling EPIC stops its audiovisual effect.
 
-When [reporting a bug](https://github.com/Maurdekye/orgtree/issues), include app/engine identity, Windows version, reproducible steps, actual error and relevant redacted evidence. Say what was observed versus what you inferred. Do not publish keys, verification codes, private correspondence or personal paths.
+When [reporting a bug](https://github.com/Maurdekye/orgtree/issues), include app/engine identity, operating system and version, reproducible steps, actual error and relevant redacted evidence. Say what was observed versus what you inferred. Do not publish keys, verification codes, private correspondence or personal paths.
 
 ## Data and privacy
 

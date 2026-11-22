@@ -241,8 +241,8 @@ Retained artifacts means exact catalog entries, not their parent directories.
 
 Org collections have default read/write access. For outside files, ask through a native dialog. Select a
 single file, a folder with descendants, this org's scratch/uploads/retained-delivery
-collection, or the whole computer. Whole-computer access uses your Windows account
-without elevation and can include private files/settings; prefer a narrower folder.
+collection, or the whole computer. Whole-computer access uses your user account
+(your Windows user on Windows) without elevation and can include private files/settings; prefer a narrower folder.
 Allow once lasts while the panel runs, hidden or popped out included; Always
 allow remembers that file or collection. Deny saves a refusal; Cancel leaves grants unchanged.
 Imported apps and replaced code have no remembered grants.

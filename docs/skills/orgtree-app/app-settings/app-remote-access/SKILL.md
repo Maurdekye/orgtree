@@ -20,7 +20,7 @@ Adding a computer is like giving it SSH access to this one. Through the organiza
 Turning the switch on goes in this order and stops at the first No:
 
 1. Orgtree checks that another computer could reach this one. If none could, the switch stays off and says why, for example "Tailscale is not running on this computer, so no other computer could reach it. Start Tailscale, or choose another place for remote access to listen (App settings, Remote access)."
-2. When a firewall rule is needed and not there yet, Windows asks for an administrator's permission to add it. A No leaves the switch off. With **This computer only** as the one place to listen, no rule is needed and Windows is not asked.
+2. On Windows, when a firewall rule is needed and not there yet, Windows asks for an administrator's permission to add it. A No leaves the switch off. With **This computer only** as the one place to listen, no rule is needed and Windows is not asked.
 3. The switch turns on and this computer starts to listen.
 
 While it is on, the group shows these rows:

@@ -27,7 +27,8 @@ The dialog supplies independent paths rather than converting a subscription into
 | Use API key | Required secret key; bills that provider's API credits. Offered independently of a working subscription. |
 
 Google's dialog explains the measured Antigravity CLI 1.3.5 limit: one Google
-sign-in per Windows user in Credential Manager, even with different profile
+sign-in per user in the OS credential store (Windows Credential Manager on Windows;
+the system keyring on Linux/macOS), even with different profile
 folders. A second sign-in would replace the default for all agents. It offers
 an API key and links upstream account-profile support, with no second
 subscription terminal or managed/import path. Existing registered Google

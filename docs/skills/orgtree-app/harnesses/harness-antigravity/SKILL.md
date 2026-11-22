@@ -113,8 +113,8 @@ AGY maps `none` and `minimal` to `low`. Flash, Argon, Carbon, Hydrogen, Neon and
 
 ## Registered accounts and the Windows sign-in limit
 
-Antigravity CLI 1.3.5 was measured to share one Windows Credential Manager
-sign-in even when given a fresh profile folder. Signing in again can replace
+Antigravity CLI 1.3.5 was measured to share one OS credential-store
+sign-in (Windows Credential Manager on Windows; the system keyring off Windows) even when given a fresh profile folder. Signing in again can replace
 the default login for every AGY agent. The Add account dialog explains this
 limit and offers a Gemini API key, not a second subscription sign-in terminal.
 API billing is separate from a second Google subscription.

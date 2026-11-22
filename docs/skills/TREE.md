@@ -491,7 +491,7 @@ The org canvas: the agent tree, cards, the user node, piles, the agents list, me
 
 #### Section `desk` — `orgtree-app/desk/` — writer providers-sol
 
-Agent and project desks, mail, questions, dockets, presentations and watchdogs. Agent event history is in settings; scratch folders open in the OS file explorer.
+Agent and project desks, mail, questions, dockets, presentations and watchdogs. Agent event history is in settings; scratch folders open in the OS file manager.
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
