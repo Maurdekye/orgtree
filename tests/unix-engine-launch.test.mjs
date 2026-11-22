@@ -121,7 +121,9 @@ test('default root and env vars resolving to the exact default root keep registe
       }), false, `${platform}: early check blank profile ${JSON.stringify(blank)}`)
     }
     // ORGTREE_V2_DATA equal to default root (exact, trailing slash, existing sub/..): registers
-    for (const same of [d.factory, d.factory + path.sep, path.join(d.profile, '.', 'sub', '..', 'data') + path.sep]) {
+    const viaSub = `${d.profile}${path.sep}.${path.sep}sub${path.sep}..${path.sep}data${path.sep}`
+    assert.ok(viaSub.includes('..'))
+    for (const same of [d.factory, d.factory + path.sep, viaSub]) {
       assert.equal(boot.registersBootEngine({
         ...base,
         env: { ORGTREE_V2_DATA: same },
@@ -208,7 +210,8 @@ test('path canonicalisation: symlinked intermediate, missing intermediate, missi
     fs.mkdirSync(otherData, { recursive: true })
     const sneakyLink = path.join(d.profile, 'sneaky')
     fs.symlinkSync(otherSub, sneakyLink, linkType)
-    const sneakyPath = path.join(sneakyLink, '..', 'data')
+    const sneakyPath = `${sneakyLink}${path.sep}..${path.sep}data`
+    assert.ok(sneakyPath.includes('..'), 'test fixture must pass literal .. segments')
     assert.equal(boot.registersBootEngine({
       ...base,
       env: { ORGTREE_V2_DATA: sneakyPath },
@@ -216,7 +219,8 @@ test('path canonicalisation: symlinked intermediate, missing intermediate, missi
     }), false, `${platform}: symlinked intermediate + .. pointing elsewhere must fail closed`)
 
     // 2. Missing intermediate + `..` must fail closed (never lexically discard missing/..)
-    const missingIntermediate = path.join(d.profile, 'does-not-exist', '..', 'data')
+    const missingIntermediate = `${d.profile}${path.sep}does-not-exist${path.sep}..${path.sep}data`
+    assert.ok(missingIntermediate.includes('..'), 'test fixture must pass literal .. segments')
     assert.equal(boot.registersBootEngine({
       ...base,
       env: { ORGTREE_V2_DATA: missingIntermediate },

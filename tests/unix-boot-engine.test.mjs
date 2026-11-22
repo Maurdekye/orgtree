@@ -671,7 +671,9 @@ test('path canonicalisation in bootAttached: symlinked intermediate, missing int
       env: ({ userData }) => {
         const sneaky = path.join(userData, 'sneaky')
         fs.symlinkSync(otherSub, sneaky, linkType)
-        return { ORGTREE_V2_DATA: path.join(sneaky, '..', 'data') }
+        const raw = `${sneaky}${path.sep}..${path.sep}data`
+        assert.ok(raw.includes('..'))
+        return { ORGTREE_V2_DATA: raw }
       },
     })
     assert.equal(await hSymlink.ctx.runBootAttached(), false, `${platform}: symlinked intermediate to other dir must skip`)
@@ -690,7 +692,7 @@ test('path canonicalisation in bootAttached: symlinked intermediate, missing int
           : { 'Library/LaunchAgents/com.maurdekye.orgtree.engine.plist': sentinelUnit },
         env: ({ home, userData }) => ({
           ORGTREE_V2_DATA: kind === 'missing-intermediate'
-            ? path.join(userData, 'missing-mid', '..', 'data')
+            ? `${userData}${path.sep}missing-mid${path.sep}..${path.sep}data`
             : path.join(home, 'no-such-dir'),
         }),
       })
@@ -838,4 +840,5 @@ test('main and preload wire desktop:startup-capability for the startup switch gu
   const preload = fs.readFileSync('apps/desktop/preload/index.ts', 'utf8')
   assert.match(mainSource, /handleApp\('desktop:startup-capability', \(\): StartupCapability =>/)
   assert.match(preload, /getStartupCapability: \(\) => ipcRenderer\.invoke\('desktop:startup-capability'\)/)
+  assert.match(preload, /platform: process\.platform,/)
 })
