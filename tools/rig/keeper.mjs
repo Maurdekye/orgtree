@@ -71,6 +71,9 @@ if (run.bootIsolated) env.ORGTREE_RIG_BOOT_ISOLATED = '1'
 if (run.session0 != null) env.ORGTREE_RIG_SESSION0 = String(run.session0)
 // a shortened "still unread" threshold (src/runtime/recovery.rs `steer_late_after`)
 if (run.steerLateS) env.ORGTREE_RIG_STEER_LATE_S = String(run.steerLateS)
+// shortened Antigravity in-flight tool ceiling and MCP timeout (src/runtime/agy.rs)
+if (run.agyToolCeilingS) env.ORGTREE_RIG_AGY_TOOL_CEILING_S = String(run.agyToolCeilingS)
+if (run.agyMcpTimeoutMs) env.ORGTREE_RIG_AGY_MCP_TIMEOUT_MS = String(run.agyMcpTimeoutMs)
 // a smaller cap on idle CLI processes (src/runtime/sched.rs `max_parked`)
 if (run.maxParked) env.ORGTREE_RIG_MAX_PARKED = String(run.maxParked)
 // warming, which a safe start holds back: the engine's start and a hire warm

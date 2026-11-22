@@ -374,6 +374,12 @@ impl Turn<'_> {
                 None => ("the orgtree MCP server could not be started".into(), true),
             }
         } else {
+            if step["hang"].as_bool() == Some(true) {
+                self.agy.log("tool_hang", json!({ "tool": name, "step_index": i }));
+                loop {
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
             if let Some(ms) = step["run_ms"].as_u64() {
                 std::thread::sleep(Duration::from_millis(ms));
             }
