@@ -156,7 +156,7 @@ const relaunchApp = (args: string[] = [], options?: { interactive?: boolean }) =
 installMacWindowIconShim()
 const defaultUserData = app.getPath('userData')
 // Isolated development/test profiles never touch the operator's installed data.
-if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE?.trim()) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
+if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE && (process.platform === 'win32' || process.env.ORGTREE_V2_PROFILE.trim())) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 // ⚠ MINIDUMPS, LOCALLY, AND NOTHING SENT ANYWHERE. Electron's crash reporter
 // was never started, so a renderer or GPU process dying produced no dump at
 // all — Crashpad was not running, and there was no `Crashpad` directory beside
@@ -2574,10 +2574,11 @@ else {
         !isDataRootFromEnv() &&
         readDataLocationConfig(app.getPath('userData')) !== null &&
         canonicalPath(candidateRoot) !== canonicalPath(defaultDataFolder)
+      const requestedDataRoot = unixStartup ? unixStartup.dataRootOverride : process.env.ORGTREE_V2_DATA
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
         binary: rustEngine && fs.existsSync(rustEngine) ? rustEngine : undefined,
-        dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
+        dataRoot: resolveDataRoot(requestedDataRoot, app.getPath('userData'), identity),
         customDataRoot: false,
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer'),

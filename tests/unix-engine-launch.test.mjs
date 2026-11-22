@@ -106,6 +106,13 @@ test('default root and env vars resolving to the exact default root keep registe
     assert.equal(boot.registersBootEngine({ ...base, env: {}, dataRoot: d.factory }), true, `${platform}: unset env`)
     // Empty and whitespace overrides are treated as unset consistently (even with empty/whitespace dataRoot)
     for (const blank of ['', '   ', '\t ']) {
+      const ownedBlank = boot.resolveUnixStartupOwnership({
+        defaultUserData: d.profile,
+        env: { ORGTREE_V2_DATA: blank },
+      })
+      assert.equal(ownedBlank.nonDefault, false, `${platform}: ownership blank data ${JSON.stringify(blank)}`)
+      assert.equal('dataRootOverride' in ownedBlank, true, `${platform}: ownership exposes normalised dataRootOverride`)
+      assert.equal(ownedBlank.dataRootOverride, undefined, `${platform}: blank dataRootOverride is undefined`)
       assert.equal(boot.registersBootEngine({
         ...base,
         env: { ORGTREE_V2_DATA: blank, ORGTREE_V2_PROFILE: blank },
@@ -286,4 +293,21 @@ test('the managed engine\'s environment: the given search path replaces PATH, ev
   // none given (Windows, development): the same variables, PATH as it was, whatever its spelling
   assert.deepEqual(engine.withSearchPath({ Path: 'C:\\Windows', TEMP: 'C:\\t' }, undefined), { Path: 'C:\\Windows', TEMP: 'C:\\t' })
   assert.deepEqual(engine.withSearchPath(base, ''), base)
+})
+
+test('the managed engine\'s Unix environment drops blank/whitespace ORGTREE_V2_DATA and normalises active overrides; Windows is untouched', () => {
+  assert.equal(typeof engine.withUnixDataRootEnv, 'function', 'engine exports withUnixDataRootEnv')
+  for (const platform of ['linux', 'darwin']) {
+    for (const blank of ['', '   ', '\t ']) {
+      const env = engine.withUnixDataRootEnv({ HOME: '/home/deck', ORGTREE_V2_DATA: blank }, platform, '/vol/primary')
+      assert.equal('ORGTREE_V2_DATA' in env, false, `${platform} ${JSON.stringify(blank)}: blank ORGTREE_V2_DATA stripped`)
+      assert.equal(env.HOME, '/home/deck')
+    }
+    const unset = engine.withUnixDataRootEnv({ HOME: '/home/deck' }, platform, '/vol/primary')
+    assert.equal('ORGTREE_V2_DATA' in unset, false, `${platform}: unset stays unset`)
+    const active = engine.withUnixDataRootEnv({ HOME: '/home/deck', ORGTREE_V2_DATA: '/alias' }, platform, '/vol/primary')
+    assert.equal(active.ORGTREE_V2_DATA, '/vol/primary', `${platform}: active override receives canonical root`)
+  }
+  const win = engine.withUnixDataRootEnv({ ORGTREE_V2_DATA: '   ', Path: 'C:\\Windows' }, 'win32', 'C:\\Orgtree\\data')
+  assert.equal(win.ORGTREE_V2_DATA, '   ', 'win32: environment left completely untouched')
 })

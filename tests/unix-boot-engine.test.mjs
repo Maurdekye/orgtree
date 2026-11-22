@@ -350,6 +350,9 @@ function bootAttachedSnippet() {
   const early = sliceMain('    app.on(\'will-quit\', () => preferences.flushSync())\n', '    // Streamer mode while a streaming app')
   const postEarly = sliceMain('    app.on(\'will-quit\', () => streamerAuto.stop())\n', '    loginPreference()')
   const dataRootSetup = sliceMain('      const defaultDataFolder = ', '      // An AppImage running WITHOUT a FUSE mount')
+  const missingGate = sliceMain('      while (\n        isCustomRoot(engineOptions.dataRoot)', '        const { response }')
+    .replace(/^[\s\S]*?while\s*\(/, '')
+    .replace(/\)\s*\{\s*$/, '')
   const bootFn = sliceMain('      const bootAttached = async () => {', "      if (process.platform === 'win32' && engineOptions.binary) {")
   const combined = [
     'let unixStartupDisabled = false;',
@@ -359,8 +362,12 @@ function bootAttachedSnippet() {
     dataRootSetup,
     bootFn,
     'this.runBootAttached = bootAttached;',
+    'this.offersMissingRecovery = () => (' + missingGate + ');',
+    'this.runStartupFlow = async () => { if (this.offersMissingRecovery()) return { recovery: true, attached: false }; return { recovery: false, attached: await bootAttached() }; };',
     'this.getUnixBootInputs = () => unixBootInputs;',
     'this.getEngineDataRoot = () => engineOptions.dataRoot;',
+    'this.getCustomDataRoot = () => engineOptions.customDataRoot;',
+    'this.getFromEnv = () => isDataRootFromEnv();',
     'this.getUnixStartupDisabled = () => unixStartupDisabled;',
   ].join('\n')
   return transformSync(combined, { loader: 'ts', target: 'node22' }).code
@@ -374,6 +381,7 @@ function makeTempHomeBootHarness({
   startAtLogin = true,
   env = {},
   dataRoot,
+  activeProfile = null,
   seedFiles = {},
   createDefaultDataDir = false,
   savedDataLocation = null,
@@ -383,6 +391,7 @@ function makeTempHomeBootHarness({
   const userData = platform === 'darwin'
     ? path.posix.join(home, 'Library', 'Application Support', 'Orgtree v2')
     : path.posix.join(home, '.config', 'Orgtree v2')
+  const effectiveUserData = activeProfile ?? userData
   const defaultDataFolder = path.posix.join(userData, 'data')
   if (createDefaultDataDir) fs.mkdirSync(defaultDataFolder, { recursive: true })
   if (savedDataLocation) {
@@ -408,6 +417,7 @@ function makeTempHomeBootHarness({
   const detached = []
   const infoLogs = []
   const warnLogs = []
+  const createdDirs = []
   const io = {
     runner: async (file, args) => {
       const cmd = [file, ...args].join(' ')
@@ -431,7 +441,7 @@ function makeTempHomeBootHarness({
   }
 
   const folderIo = {
-    mkdir: d => { fs.mkdirSync(d, { recursive: true }) },
+    mkdir: d => { createdDirs.push(d); fs.mkdirSync(d, { recursive: true }) },
     stat: () => ({ uid: 501, mode: 0o40700 }),
     chmod: () => {},
     uid: () => 501,
@@ -449,7 +459,7 @@ function makeTempHomeBootHarness({
       getVersion: () => version,
       getAppPath: () => home,
       getPath: name => {
-        if (name === 'userData') return userData
+        if (name === 'userData') return effectiveUserData
         throw new Error(`unexpected app.getPath(${name})`)
       },
     },
@@ -490,7 +500,7 @@ function makeTempHomeBootHarness({
     },
   }
   vm.runInNewContext(bootAttachedSnippet(), ctx)
-  return { home, userData, defaultDataFolder, engineBinary, calls, detached, infoLogs, warnLogs, ctx }
+  return { home, userData, defaultDataFolder, engineBinary, calls, detached, infoLogs, warnLogs, createdDirs, ctx }
 }
 
 test('Linux stable build with non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE leaves pre-seeded unit and autostart byte-unchanged with zero systemctl calls (startAtLogin true and false)', async () => {
@@ -833,6 +843,80 @@ test('prerelease and dev builds keep skipping boot registration untouched', asyn
     assert.equal(await h.ctx.runBootAttached(), false)
     assert.equal(fs.readFileSync(path.posix.join(h.home, '.config/systemd/user/orgtree-engine.service'), 'utf8'), sentinelUnit)
     assert.deepEqual(h.calls, [])
+  }
+})
+
+test('blank or whitespace ORGTREE_V2_DATA with missing saved folder shows recovery with zero mkdir calls, and non-default profile resolves its own data folder', async () => {
+  for (const platform of ['linux', 'darwin']) {
+    const missingBase = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, `offline-vol-${platform}-`)))
+    const missingSavedRoot = path.join(missingBase, 'unmounted-primary')
+    assert.equal(fs.existsSync(missingSavedRoot), false, 'precondition: saved volume is missing')
+
+    // 1. Offline saved folder: absent, "", and "   " all trigger missing-folder recovery with ZERO mkdir calls
+    for (const [label, val] of [['absent', undefined], ['empty', ''], ['spaces', '   ']]) {
+      const h = makeTempHomeBootHarness({
+        platform,
+        startAtLogin: true,
+        createDefaultDataDir: true,
+        savedDataLocation: missingSavedRoot,
+        env: val === undefined ? {} : { ORGTREE_V2_DATA: val },
+      })
+      const flow = await h.ctx.runStartupFlow()
+      assert.equal(h.ctx.getFromEnv(), false, `${platform} ${label}: isDataRootFromEnv must be false`)
+      assert.equal(h.ctx.getCustomDataRoot(), true, `${platform} ${label}: customDataRoot must be true`)
+      assert.equal(h.ctx.getEngineDataRoot(), path.normalize(missingSavedRoot), `${platform} ${label}: keeps configured saved root`)
+      assert.equal(flow.recovery, true, `${platform} ${label}: must show missing-folder recovery screen`)
+      assert.equal(flow.attached, false, `${platform} ${label}: must not proceed to boot registration while missing`)
+      assert.deepEqual(h.createdDirs, [], `${platform} ${label}: zero mkdir calls`)
+      assert.equal(fs.existsSync(missingSavedRoot), false, `${platform} ${label}: missing folder was not recreated on disk`)
+      assert.deepEqual(h.calls, [], `${platform} ${label}: zero service calls`)
+    }
+
+    // 2. Non-default profile with blank/3-space ORGTREE_V2_DATA resolves its own data folder (never passes blank path to engine)
+    const otherProfile = fs.realpathSync.native(fs.mkdtempSync(path.join(dir, `other-prof-blank-${platform}-`)))
+    for (const [label, val] of [['absent', undefined], ['empty', ''], ['spaces', '   ']]) {
+      const h = makeTempHomeBootHarness({
+        platform,
+        startAtLogin: true,
+        createDefaultDataDir: true,
+        activeProfile: otherProfile,
+        env: { ORGTREE_V2_PROFILE: otherProfile, ...(val === undefined ? {} : { ORGTREE_V2_DATA: val }) },
+      })
+      assert.equal(h.ctx.getUnixStartupDisabled(), true, `${platform} non-default ${label}: switch disabled`)
+      assert.equal(h.ctx.getFromEnv(), false, `${platform} non-default ${label}: blank data override is unset`)
+      assert.equal(h.ctx.getEngineDataRoot(), path.join(otherProfile, 'data'), `${platform} non-default ${label}: engine gets profile's own data dir`)
+      assert.equal(await h.ctx.runBootAttached(), false, `${platform} non-default ${label}: skips boot registration`)
+      assert.deepEqual(h.createdDirs, [], `${platform} non-default ${label}: zero mkdir calls`)
+      assert.deepEqual(h.calls, [], `${platform} non-default ${label}: zero service calls`)
+    }
+  }
+})
+
+test('Windows dev parity: unpackaged whitespace-only ORGTREE_V2_PROFILE stays rejected on Windows and treated as unset on Linux/macOS', () => {
+  const line = mainSource.split(/\r?\n/).find(l => l.includes('!app.isPackaged') && l.includes('ORGTREE_V2_PROFILE'))
+  assert.ok(line, 'bootstrap profile override line exists in index.ts')
+  const jsLine = transformSync(line, { loader: 'ts', target: 'node22' }).code
+  function runBootstrap({ platform, isPackaged, value }) {
+    const setPaths = []
+    const ctx = {
+      app: { isPackaged, setPath: (name, p) => setPaths.push([name, p]) },
+      process: { platform, env: value === undefined ? {} : { ORGTREE_V2_PROFILE: value } },
+      path: platform === 'win32' ? path.win32 : path.posix,
+      os: { homedir: () => (platform === 'win32' ? 'C:\\Users\\fixture' : '/home/fixture') },
+      validateDataRoot: policy.validateDataRoot,
+    }
+    vm.runInNewContext(jsLine, ctx)
+    return setPaths
+  }
+  // Windows dev: whitespace-only profile is rejected by validateDataRoot (exact 4.6.8 / 6a9cf2d behavior)
+  assert.throws(() => runBootstrap({ platform: 'win32', isPackaged: false, value: '   ' }), /V2 data root must be absolute/)
+  assert.deepEqual(runBootstrap({ platform: 'win32', isPackaged: false, value: '' }), [])
+  assert.deepEqual(runBootstrap({ platform: 'win32', isPackaged: true, value: '   ' }), [])
+  // Linux and macOS dev: empty and whitespace-only profile treated as unset
+  for (const platform of ['linux', 'darwin']) {
+    assert.deepEqual(runBootstrap({ platform, isPackaged: false, value: '' }), [], `${platform}: empty profile unset`)
+    assert.deepEqual(runBootstrap({ platform, isPackaged: false, value: '   ' }), [], `${platform}: whitespace profile unset`)
+    assert.throws(() => runBootstrap({ platform, isPackaged: false, value: 'relative/profile' }), /V2 data root must be absolute/)
   }
 })
 

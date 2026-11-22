@@ -154,6 +154,10 @@ export interface UnixStartupOwnership {
    *    (preserving byte-identical 4.6.8 registration files);
    *  - null when `nonDefault` is true. */
   hostDataRoot: string | null
+  /** Normalised ORGTREE_V2_DATA override (blank/whitespace treated as unset),
+   *  computed once here so the guard, data-root resolver, missing-folder recovery
+   *  and managed engine environment all share the same verdict. */
+  dataRootOverride: string | undefined
   /** Short detail naming why registration is skipped (when `nonDefault` is true). */
   reason?: string
 }
@@ -269,6 +273,10 @@ export function resolveUnixStartupOwnership(o: DataRootGuardInputs): UnixStartup
 
   const envData = trimmedEnvOverride(o.env?.ORGTREE_V2_DATA)
   const envProfile = trimmedEnvOverride(o.env?.ORGTREE_V2_PROFILE)
+  const verdict = (r: Omit<UnixStartupOwnership, 'dataRootOverride'>): UnixStartupOwnership => ({
+    ...r,
+    dataRootOverride: envData,
+  })
   const hasDataOverride = envData !== undefined
   const hasProfileOverride = envProfile !== undefined
   const profileRedirected = Boolean(o.userData && o.defaultUserData && o.userData !== o.defaultUserData)
@@ -277,7 +285,7 @@ export function resolveUnixStartupOwnership(o: DataRootGuardInputs): UnixStartup
     const canonDefaultProfile = canonicalizeExistingPath(o.defaultUserData!, pathFs)
     const canonUserProfile = canonicalizeExistingPath(o.userData!, pathFs)
     if (!canonDefaultProfile || !canonUserProfile || canonUserProfile !== canonDefaultProfile) {
-      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `userData=${o.userData}` }
+      return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `userData=${o.userData}` })
     }
   }
 
@@ -287,38 +295,38 @@ export function resolveUnixStartupOwnership(o: DataRootGuardInputs): UnixStartup
       const canonDefault = canonicalizeExistingPath(effectiveDefaultRoot, pathFs)
       const canonData = canonicalizeExistingPath(explicitData, pathFs)
       if (!canonDefault || !canonData || canonData !== canonDefault) {
-        return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData }
+        return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData })
       }
-      return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonData }
+      return verdict({ nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonData })
     }
-    return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: effectiveDefaultRoot }
+    return verdict({ nonDefault: false, effectiveDefaultRoot, hostDataRoot: effectiveDefaultRoot })
   }
 
   if (!effectiveDefaultRoot) {
-    return {
+    return verdict({
       nonDefault: true,
       effectiveDefaultRoot: null,
       hostDataRoot: null,
       reason: envData ? `ORGTREE_V2_DATA=${envData}` : `ORGTREE_V2_PROFILE=${envProfile}`,
-    }
+    })
   }
 
   if (hasProfileOverride) {
     if (!o.defaultUserData) {
-      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_PROFILE=${envProfile}` }
+      return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_PROFILE=${envProfile}` })
     }
     const canonDefaultProfile = canonicalizeExistingPath(o.defaultUserData, pathFs)
     const canonEnvProfile = canonicalizeExistingPath(envProfile, pathFs)
     if (!canonDefaultProfile || !canonEnvProfile) {
-      return {
+      return verdict({
         nonDefault: true,
         effectiveDefaultRoot,
         hostDataRoot: null,
         reason: `ORGTREE_V2_PROFILE=${envProfile} (could not be canonicalised)`,
-      }
+      })
     }
     if (canonEnvProfile !== canonDefaultProfile) {
-      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_PROFILE=${envProfile}` }
+      return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_PROFILE=${envProfile}` })
     }
   }
 
@@ -326,24 +334,24 @@ export function resolveUnixStartupOwnership(o: DataRootGuardInputs): UnixStartup
     const canonDefault = canonicalizeExistingPath(effectiveDefaultRoot, pathFs)
     const canonEnvData = canonicalizeExistingPath(envData, pathFs)
     if (!canonDefault || !canonEnvData) {
-      return {
+      return verdict({
         nonDefault: true,
         effectiveDefaultRoot,
         hostDataRoot: null,
         reason: `ORGTREE_V2_DATA=${envData} (could not be canonicalised)`,
-      }
+      })
     }
     if (canonEnvData !== canonDefault) {
-      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_DATA=${envData}` }
+      return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_DATA=${envData}` })
     }
     const explicitData = trimmedEnvOverride(o.dataRoot)
     if (explicitData) {
       const canonExplicit = canonicalizeExistingPath(explicitData, pathFs)
       if (!canonExplicit || canonExplicit !== canonDefault) {
-        return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData }
+        return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData })
       }
     }
-    return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonEnvData }
+    return verdict({ nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonEnvData })
   }
 
   const explicitData = trimmedEnvOverride(o.dataRoot)
@@ -351,11 +359,11 @@ export function resolveUnixStartupOwnership(o: DataRootGuardInputs): UnixStartup
     const canonDefault = canonicalizeExistingPath(effectiveDefaultRoot, pathFs)
     const canonExplicit = canonicalizeExistingPath(explicitData, pathFs)
     if (!canonDefault || !canonExplicit || canonExplicit !== canonDefault) {
-      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData }
+      return verdict({ nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData })
     }
-    return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonExplicit }
+    return verdict({ nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonExplicit })
   }
-  return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: effectiveDefaultRoot }
+  return verdict({ nonDefault: false, effectiveDefaultRoot, hostDataRoot: effectiveDefaultRoot })
 }
 
 /** True when ORGTREE_V2_DATA or ORGTREE_V2_PROFILE points to anything other

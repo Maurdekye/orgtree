@@ -64,10 +64,22 @@ import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 import { readHarnessRegistry } from './harnesses'
+import { trimmedEnvOverride } from './unixboot'
 
 /** A copy of `env` whose PATH is `searchPath`, when one is given. */
 export function withSearchPath(env: NodeJS.ProcessEnv, searchPath?: string): NodeJS.ProcessEnv {
   return searchPath ? { ...env, PATH: searchPath } : { ...env }
+}
+
+/** Normalise inherited ORGTREE_V2_DATA for a managed Unix engine process:
+ *  blank/whitespace overrides are dropped (treated as unset), while an active
+ *  override carries the verified canonical root. Windows is untouched. */
+export function withUnixDataRootEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, realRoot: string): NodeJS.ProcessEnv {
+  if (platform === 'win32') return env
+  const next = { ...env }
+  if (trimmedEnvOverride(next.ORGTREE_V2_DATA) === undefined) delete next.ORGTREE_V2_DATA
+  else next.ORGTREE_V2_DATA = realRoot
+  return next
 }
 
 export interface EngineOptions { directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
@@ -407,7 +419,7 @@ export class Engine extends EventEmitter {
       this.stopping = false
       return
     }
-    const env = { ...withSearchPath(process.env, options.searchPath),
+    const env = { ...withUnixDataRootEnv(withSearchPath(process.env, options.searchPath), process.platform, realRoot),
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid) }
     if (process.platform === 'win32') Object.assign(env, {ORGTREE_CORE_MODE: 'managed'})
