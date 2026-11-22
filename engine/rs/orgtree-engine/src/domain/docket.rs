@@ -1078,14 +1078,21 @@ async fn live_agent(client: &impl GenericClient, org_id: i64, name: &str) -> Res
 }
 
 /// Physically archive what the rules say is archived (after each docket write).
+/// Locks eligible rows in deterministic id order with `SKIP LOCKED` so
+/// opportunistic housekeeping never blocks or deadlocks active item writers.
 #[logged]
 async fn sweep(client: &impl GenericClient, org_id: i64) -> Result<()> {
     client
         .execute(
             "UPDATE ot.work_items SET archived_at = now()
-              WHERE org_id = $1 AND archived_at IS NULL AND manual_attention IS NULL
-                AND (status = 'dropped' OR (status IN ('done', 'superseded') AND coalesce(docket_at, updated_at) < now() - interval '1 hour'))
-                AND NOT (slug = ANY(SELECT unnest(work_items) FROM ot.asks WHERE org_id = $1 AND status = 'open'))",
+              WHERE id IN (
+                SELECT id FROM ot.work_items
+                 WHERE org_id = $1 AND archived_at IS NULL AND manual_attention IS NULL
+                   AND (status = 'dropped' OR (status IN ('done', 'superseded') AND coalesce(docket_at, updated_at) < now() - interval '1 hour'))
+                   AND NOT (slug = ANY(SELECT unnest(work_items) FROM ot.asks WHERE org_id = $1 AND status = 'open'))
+                 ORDER BY id
+                 FOR UPDATE SKIP LOCKED
+              )",
             &[&org_id],
         )
         .await?;
@@ -3077,5 +3084,107 @@ mod loosening_tests {
         assert!(!assign_write("item", Some("owner"), "owner").unwrap());
         assert!(assign_write("item", Some("owner"), "other").unwrap());
         assert!(assign_write("item", None, "other").unwrap());
+    }
+}
+
+#[cfg(test)]
+mod parallel_mutation_pg_tests {
+    use super::*;
+
+    /// Isolated disposable PG fixture proving:
+    /// (1) parallel `orgtree_work update` + `evidence` on the same item serialize cleanly without deadlock;
+    /// (2) `sweep()` inside `update` uses `ORDER BY id FOR UPDATE SKIP LOCKED`, so holding a row lock on an
+    ///     archivable item never blocks or deadlocks a concurrent `update` on another item.
+    #[tokio::test]
+    #[ignore = "requires isolated docket_parallel_fixture database"]
+    #[nolog]
+    async fn docket_parallel_update_and_evidence_and_sweep_skip_locked() {
+        let url = std::env::var("ORGTREE_DOCKET_PARALLEL_TEST_URL").expect("explicit synthetic fixture URL");
+        let cfg: tokio_postgres::Config = url.parse().unwrap();
+        assert_eq!(cfg.get_dbname(), Some("docket_parallel_fixture"));
+        assert_eq!(cfg.get_user(), Some("docket_parallel_fixture"));
+        let (mut c, connection) = cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        tokio::spawn(async move { let _ = connection.await; });
+        c.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; DROP TABLE IF EXISTS public.ot_migrations").await.unwrap();
+        crate::migrate::run(&mut c, &|_| {}).await.unwrap();
+        let org_id: i64 = c.query_one(
+            "INSERT INTO ot.orgs(uuid,slug,name) VALUES(gen_random_uuid(),'docket-par-fixture','synthetic') RETURNING id",
+            &[],
+        ).await.unwrap().get(0);
+        let agent_id: i64 = c.query_one(
+            "INSERT INTO ot.agents(org_id,name,tier,state,born) VALUES($1,'worker','neon','live','synthetic') RETURNING id",
+            &[&org_id],
+        ).await.unwrap().get(0);
+        let root = std::path::PathBuf::from(std::env::var("ORGTREE_DOCKET_PARALLEL_TEST_ROOT").expect("owned synthetic root"));
+        let mut e = Engine::for_tests(root);
+        let mgr = deadpool_postgres::Manager::from_config(cfg.clone(), tokio_postgres::NoTls,
+            deadpool_postgres::ManagerConfig { recycling_method: deadpool_postgres::RecyclingMethod::Fast });
+        Arc::get_mut(&mut e).unwrap().db = deadpool_postgres::Pool::builder(mgr).max_size(8)
+            .runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+        e.stopping.store(true, std::sync::atomic::Ordering::SeqCst);
+        let org = crate::orgs::provisional(org_id, "synthetic".into(), "docket-par-fixture".into(), "synthetic".into());
+        e.orgs.insert(org.clone());
+        let who = Who::Agent { id: agent_id, name: "worker".into(), generation: 1 };
+
+        // Create primary item A, plus two archivable dropped items B (locked) and C (unlocked).
+        let a = create(&e, &org, &who, &json!({
+            "title": "Primary parallel item", "kind": "code", "objective": "Parallel update+evidence test."
+        })).await.unwrap();
+        let slug_a = a["slug"].as_str().unwrap().to_string();
+        let b = create(&e, &org, &who, &json!({
+            "title": "Archivable locked item", "kind": "code", "objective": "Locked while sweep runs."
+        })).await.unwrap();
+        let slug_b = b["slug"].as_str().unwrap().to_string();
+        let c_item = create(&e, &org, &who, &json!({
+            "title": "Archivable unlocked item", "kind": "code", "objective": "Archived by sweep."
+        })).await.unwrap();
+        let slug_c = c_item["slug"].as_str().unwrap().to_string();
+
+        // Part 1: 10 rounds of concurrent update + evidence on the exact same item.
+        for i in 1..=10 {
+            let u = update(&e, &org, &who, &json!({
+                "slug": slug_a, "working_on_next": [format!("round-{i}")]
+            }));
+            let ev = evidence(&e, &org, &who, &slug_a, &json!({
+                "kind": "note", "note": format!("parallel evidence {i}")
+            }));
+            let (ur, er) = tokio::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(u, ev) })
+                .await
+                .expect("parallel update+evidence must never hang");
+            ur.unwrap_or_else(|err| panic!("round {i} update failed: {err:#}"));
+            er.unwrap_or_else(|err| panic!("round {i} evidence failed: {err:#}"));
+        }
+        let ev_count: i64 = c.query_one(
+            "SELECT jsonb_array_length(evidence)::bigint FROM ot.work_items WHERE org_id=$1 AND slug=$2",
+            &[&org_id, &slug_a],
+        ).await.unwrap().get(0);
+        assert_eq!(ev_count, 10, "all 10 concurrent evidence entries landed");
+
+        // Part 2: Mark B and C dropped (archivable) without archived_at, lock B in a separate tx,
+        // and verify `update` on A (which invokes `sweep`) returns immediately via SKIP LOCKED.
+        c.execute(
+            "UPDATE ot.work_items SET status = 'dropped', archived_at = NULL WHERE org_id = $1 AND slug = ANY($2)",
+            &[&org_id, &vec![slug_b.clone(), slug_c.clone()]],
+        ).await.unwrap();
+        let tx = c.transaction().await.unwrap();
+        tx.query_one("SELECT id FROM ot.work_items WHERE org_id = $1 AND slug = $2 FOR UPDATE", &[&org_id, &slug_b]).await.unwrap();
+
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            update(&e, &org, &who, &json!({ "slug": slug_a, "working_on_next": ["after-sweep"] })),
+        ).await.expect("update+sweep must not block on a locked archivable sibling row");
+        res.unwrap();
+
+        // Unlocked C was archived; locked B was skipped while its lock was held.
+        let b_arch: bool = tx.query_one("SELECT archived_at IS NOT NULL FROM ot.work_items WHERE org_id=$1 AND slug=$2", &[&org_id, &slug_b]).await.unwrap().get(0);
+        let c_arch: bool = tx.query_one("SELECT archived_at IS NOT NULL FROM ot.work_items WHERE org_id=$1 AND slug=$2", &[&org_id, &slug_c]).await.unwrap().get(0);
+        assert!(!b_arch, "locked item B must be skipped by SKIP LOCKED");
+        assert!(c_arch, "unlocked archivable item C must still be archived");
+        tx.commit().await.unwrap();
+
+        // Once B's lock is released, a later sweep archives B cleanly.
+        sweep(&c, org_id).await.unwrap();
+        let b_arch_after: bool = c.query_one("SELECT archived_at IS NOT NULL FROM ot.work_items WHERE org_id=$1 AND slug=$2", &[&org_id, &slug_b]).await.unwrap().get(0);
+        assert!(b_arch_after, "item B is archived once its lock is released");
     }
 }

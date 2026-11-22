@@ -4944,6 +4944,9 @@ impl Actor {
         committed["event_id"] = json!(format!("e{seq}"));
         self.changed(vec![Change::Mailbox(self.id)]);
         self.stream("steered", json!({ "committed_row": committed }));
+        // The handed-off batch settled; clear the unread-mail timer so
+        // steer_late does not fire spuriously 10 min later.
+        self.steer_since = None;
         self.continue_released_mail().await?;
         Ok(true)
     }
@@ -7085,10 +7088,12 @@ impl Actor {
                     self.set_activity("tool", Some(name.clone()));
                     self.stream("tool", json!({ "id": id }));
                 }
-                if known && state != "DONE" && state != "ERROR" {
+                let tool_done = matches!(state, "DONE" | "ERROR" | "CANCELLED" | "CANCELED");
+                let tool_failed = matches!(state, "ERROR" | "CANCELLED" | "CANCELED");
+                if known && !tool_done {
                     self.update_active_input(&client, &id, &name, &input).await?;
                 }
-                if state == "DONE" || state == "ERROR" {
+                if tool_done {
                     let err = info.pointer("/error/message").and_then(Value::as_str).map(str::to_string);
                     let result = ["result", "output", "response"]
                         .iter()
@@ -7127,10 +7132,10 @@ impl Actor {
                                 if truncated {
                                     chip["truncated"] = json!(true);
                                 }
-                                if state == "ERROR" {
+                                if tool_failed {
                                     chip["error"] = json!(gist(&result, 500));
                                 }
-                                convo::retain_failed_shell_output(chip, &result, state == "ERROR", false);
+                                convo::retain_failed_shell_output(chip, &result, tool_failed, false);
                                 if let Some(extra) = card.as_ref() {
                                     convo::apply_tool_card(chip, extra);
                                 }

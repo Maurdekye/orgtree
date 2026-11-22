@@ -336,7 +336,10 @@ async fn guarded_lines(mut stream: impl tokio::io::AsyncRead + Unpin, auth: &Run
             pending.drain(..=end);
         }
         if !auth.inspect(&pending) { return; }
-        if pending.len() > 4 * 1024 * 1024 { return; }
+        if pending.len() > 4 * 1024 * 1024 {
+            tracing::warn!(bytes = pending.len(), "Antigravity stream line exceeded 4 MiB guard; closing stream reader");
+            return;
+        }
     }
     if !pending.is_empty() && auth.inspect(&pending) { line(&pending); }
 }
@@ -1135,6 +1138,34 @@ mod workspace_notes_tests {
         assert!(write_identity_rules(&spec.cwd, &spec.identity, spec.identity.len()).is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), "my own unrelated rule");
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod guarded_lines_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn oversized_stream_line_stops_reader_without_hanging() {
+        let engine = Engine::for_tests("unused-agy-guarded-lines".into());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let auth = RuntimeAuth {
+            engine,
+            stamp: crate::providers::agy_auth::Stamp(0),
+            login: crate::providers::agy_auth::Login::Primary,
+            job: None,
+            actor: tx,
+            process: uuid::Uuid::new_v4(),
+            rejected: CancellationToken::new(),
+        };
+        let mut data = b"{\"ok\":1}\n".to_vec();
+        data.extend(vec![b'x'; 4 * 1024 * 1024 + 64]);
+        let mut seen = Vec::new();
+        guarded_lines(std::io::Cursor::new(data), &auth, |line| {
+            seen.push(String::from_utf8_lossy(line).into_owned());
+            true
+        }).await;
+        assert_eq!(seen, vec!["{\"ok\":1}"], "lines before the 4 MiB guard are delivered and the reader stops cleanly");
     }
 }
 
