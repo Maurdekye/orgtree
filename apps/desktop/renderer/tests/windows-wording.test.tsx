@@ -13,7 +13,7 @@ import { PhonePanel } from '../src/canvas/phonelink'
 import { ShortcutsSettings } from '../src/canvas/shortcutsettings'
 import { CharterTemplateDirsSetting } from '../src/canvas/chartersettings'
 import { composerKeyHint } from '../src/composerkeys'
-import { getHost } from '../src/api'
+import { getHost, isRequestCancelled } from '../src/api'
 import { clearHostOs, createHostRefresher, currentHostOs, noteHostOs } from '../src/hostos'
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -320,6 +320,100 @@ test('M1: host-OS refresher handles target switch during in-flight read and retr
   }))
   await staleGet
   assert.equal(currentHostOs(), 'linux', 'late stale /api/host reply must not overwrite the current target OS')
+})
+
+test('M1 timeout regression: hung same-target /api/host times out at 45 s even with caller signal, then recovery issues a second request', async t => {
+  const prevFetch = g.fetch
+  const pendingRejects: Array<(err: unknown) => void> = []
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.after(async () => {
+    for (const reject of pendingRejects.splice(0)) reject(new Error('test cleanup'))
+    t.mock.timers.reset()
+    g.fetch = prevFetch
+    await seedHostOs('windows')
+  })
+
+  const signals: Array<AbortSignal | null | undefined> = []
+  let calls = 0
+  g.fetch = ((_url: unknown, init?: RequestInit) => {
+    calls++
+    const sig = init?.signal
+    signals.push(sig)
+    if (calls === 1) {
+      return new Promise<Response>((_resolve, reject) => {
+        pendingRejects.push(reject)
+        const onAbort = () => reject(sig?.reason ?? new DOMException('Aborted', 'AbortError'))
+        if (sig?.aborted) { onAbort(); return }
+        sig?.addEventListener('abort', onAbort, { once: true })
+      })
+    }
+    return Promise.resolve(new Response(JSON.stringify({
+      os: 'linux',
+      build: { commit: 'recovered', started_at: '2026-11-22T00:00:00Z' },
+      cli_version: '1.0',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  }) as typeof fetch
+
+  clearHostOs()
+  const refresher = createHostRefresher(async ({ signal }) => {
+    await getHost(signal)
+  })
+  const first = refresher.loadInitial('target-a')
+  assert.equal(calls, 1)
+  assert.ok(signals[0], 'getHost(signal) must pass a signal to fetch')
+  assert.equal(signals[0]?.aborted, false)
+
+  // Still pending right before the 45 s deadline
+  t.mock.timers.tick(44_999)
+  assert.equal(signals[0]?.aborted, false, 'hung /api/host must not time out before 45 s')
+  assert.equal(refresher.onRecovered('target-a'), first, 'live same-target read still coalesces before timeout')
+  assert.equal(calls, 1)
+
+  // At exactly 45 s the request deadline aborts the combined signal with TimeoutError
+  t.mock.timers.tick(1)
+  assert.equal(signals[0]?.aborted, true, 'hung same-target /api/host must time out at 45 s even when caller signal is passed')
+  assert.equal((signals[0]?.reason as { name?: string } | undefined)?.name, 'TimeoutError')
+  assert.equal(isRequestCancelled(signals[0]?.reason), false, '45 s timeout is TimeoutError, not caller AbortError')
+
+  await first
+  assert.equal(refresher.hasFailed(), true, 'timed-out /api/host read must mark refresher failed')
+  assert.equal(currentHostOs(), null, 'timed-out read leaves host OS unknown')
+
+  // Same-target recovery now starts a fresh second request instead of returning the old hung promise
+  const second = refresher.onRecovered('target-a')
+  assert.notEqual(second, first, 'recovery after timeout must not return the old promise')
+  await second
+  assert.equal(calls, 2, 'recovery after 45 s timeout must issue a second /api/host request')
+  assert.equal(signals[1]?.aborted, false)
+  assert.equal(refresher.hasFailed(), false)
+  assert.equal(currentHostOs(), 'linux', 'second /api/host request updates host OS on recovery')
+
+  // Caller abort (target switch) still cancels immediately with AbortError
+  const third = refresher.onReconnect('target-a')
+  assert.equal(calls, 3)
+  let resolveSlow!: (r: Response) => void
+  g.fetch = ((_url: unknown, init?: RequestInit) => {
+    calls++
+    const sig = init?.signal
+    signals.push(sig)
+    return new Promise<Response>((resolve, reject) => {
+      resolveSlow = resolve
+      pendingRejects.push(reject)
+      const onAbort = () => reject(sig?.reason ?? new DOMException('Aborted', 'AbortError'))
+      if (sig?.aborted) { onAbort(); return }
+      sig?.addEventListener('abort', onAbort, { once: true })
+    })
+  }) as typeof fetch
+  await third
+  const slow = refresher.onReconnect('target-a')
+  const switched = refresher.onReconnect('target-b')
+  assert.equal(signals[3]?.aborted, true, 'target switch must immediately abort superseded read')
+  assert.equal(isRequestCancelled(signals[3]?.reason), true, 'target-switch abort must keep AbortError')
+  resolveSlow(new Response(JSON.stringify({ os: 'macos', build: { commit: 'b', started_at: '2026-11-22T00:00:00Z' }, cli_version: '1.0' }), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  }))
+  await Promise.all([slow, switched])
+  assert.equal(currentHostOs(), 'macos')
 })
 
 test('O-07: AppFilePermissionPrompt whole-computer wording branches on host OS', async t => {

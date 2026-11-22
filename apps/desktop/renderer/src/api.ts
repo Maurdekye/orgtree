@@ -100,6 +100,43 @@ const timeoutSignal = (ms: number): AbortSignal | undefined => {
   const f = (AbortSignal as { timeout?: (n: number) => AbortSignal }).timeout
   return typeof f === 'function' ? f(ms) : undefined
 }
+const timeoutError = (): Error =>
+  typeof DOMException === 'function'
+    ? new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+    : Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+const requestDeadline = (ms: number): { signal: AbortSignal; clear: () => void } => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(timeoutError()), ms)
+  if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') {
+    timer.unref()
+  }
+  return { signal: controller.signal, clear: () => clearTimeout(timer) }
+}
+const combineAbortSignals = (
+  caller: AbortSignal | null | undefined,
+  deadline: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } => {
+  if (!caller) return { signal: deadline, cleanup: () => {} }
+  const any = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+  if (typeof any === 'function') return { signal: any([caller, deadline]), cleanup: () => {} }
+  const controller = new AbortController()
+  const forward = (src: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(src.reason)
+  }
+  if (caller.aborted) { forward(caller); return { signal: controller.signal, cleanup: () => {} } }
+  if (deadline.aborted) { forward(deadline); return { signal: controller.signal, cleanup: () => {} } }
+  const onCaller = () => { deadline.removeEventListener('abort', onDeadline); forward(caller) }
+  const onDeadline = () => { caller.removeEventListener('abort', onCaller); forward(deadline) }
+  caller.addEventListener('abort', onCaller, { once: true })
+  deadline.addEventListener('abort', onDeadline, { once: true })
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      caller.removeEventListener('abort', onCaller)
+      deadline.removeEventListener('abort', onDeadline)
+    },
+  }
+}
 
 /** AbortError is caller/browser cancellation; the request ceiling uses
  * TimeoutError and remains a genuine failure. Check names across windows. */
@@ -203,10 +240,22 @@ export const nothingSentToRemote = (error: unknown): boolean =>
 export const req = <T,>(path: string, init?: RequestInit,
                  timeoutMs: number = DEFAULT_TIMEOUT_MS,
                  expectedStatuses: readonly number[] = [],
-                 invalidateOrg = true): Promise<T> =>
-  fetch(path, init?.signal || !timeoutMs
-    ? init
-    : { ...init, signal: timeoutSignal(timeoutMs) }).then((r) => {
+                 invalidateOrg = true): Promise<T> => {
+  const deadline = timeoutMs && !init?.signal?.aborted ? requestDeadline(timeoutMs) : null
+  const combined = deadline ? combineAbortSignals(init?.signal, deadline.signal) : null
+  const cleanup = () => {
+    combined?.cleanup()
+    deadline?.clear()
+  }
+  const requestInit = combined ? { ...init, signal: combined.signal } : init
+  let fetched: Promise<Response>
+  try {
+    fetched = fetch(path, requestInit)
+  } catch (e) {
+    cleanup()
+    throw e
+  }
+  return fetched.then((r) => {
     // before the ok/not-ok split: a restart is worth noticing even when the
     // call it rode in on failed
     noteInstance(r)
@@ -242,7 +291,8 @@ export const req = <T,>(path: string, init?: RequestInit,
         + `(content-type ${r.headers.get('Content-Type') || 'unset'}): `
         + (e instanceof Error ? e.message : String(e)))
     })
-  })
+  }).finally(cleanup)
+}
 
 export const listOrgs = (): Promise<OrgListEntry[]> => req('/api/orgs')
 export const retryOrg = (slug: string): Promise<OrgListEntry> =>

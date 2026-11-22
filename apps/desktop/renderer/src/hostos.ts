@@ -80,7 +80,9 @@ export function createHostRefresher(
   } | null = null
 
   const start = (target: string | null | undefined, force: boolean): Promise<void> => {
-    if (!force && inFlight && inFlight.target === target) return inFlight.promise
+    if (!force && inFlight && inFlight.target === target && !inFlight.controller.signal.aborted) {
+      return inFlight.promise
+    }
     if (inFlight) inFlight.controller.abort()
     const mySeq = ++seq
     const controller = new AbortController()
@@ -93,6 +95,7 @@ export function createHostRefresher(
       target: target ?? null,
     })
       .then(() => {
+        if (inFlight?.seq === mySeq) inFlight = null
         if (mySeq === seq) {
           failed = false
           latestApplied = { seq: mySeq, epoch: currentHostOsEpoch(), os: currentHostOs() }
@@ -108,6 +111,7 @@ export function createHostRefresher(
         }
       })
       .catch(() => {
+        if (inFlight?.seq === mySeq) inFlight = null
         if (mySeq === seq) {
           failed = true
           latestApplied = null
