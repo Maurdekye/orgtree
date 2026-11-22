@@ -2,7 +2,7 @@ import { execFile, launchDetached } from './probe-host'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { resolveExisting } from './policy'
+import { readDataLocationConfig } from './policy'
 import { run, type Runner } from './runasadmin'
 
 /** The background engine on macOS and Linux (docket
@@ -115,13 +115,47 @@ export async function loginShellPath(shell = process.env.SHELL || '/bin/sh', hom
   return [...login.split(':'), ...interactive.split(':')].filter(d => d && !seen.has(d) && !!seen.add(d)).join(':')
 }
 
+export interface OwnershipFs {
+  realpathSync: { native(p: string): string }
+  readFileSync: typeof fs.readFileSync
+  lstatSync?: typeof fs.lstatSync
+  readlinkSync?: typeof fs.readlinkSync
+  statSync?: typeof fs.statSync
+}
+
 export interface DataRootGuardInputs {
   /** Process environment inspected for ORGTREE_V2_DATA / ORGTREE_V2_PROFILE overrides. */
   env?: Record<string, string | undefined>
-  /** Resolved data root for this launch (from policy.ts resolveDataRoot). */
+  /** The installation's default profile directory (`app.getPath('userData')` before
+   *  any profile override). Resolved independently of `dataRoot` to read the saved
+   *  `data-location.json` effective default root and compare `ORGTREE_V2_PROFILE`. */
+  defaultUserData?: string
+  /** The active profile directory (`app.getPath('userData')`). Defaults to `defaultUserData`. */
+  userData?: string
+  /** When true (3.0.0-alpha.0), ignores saved `data-location.json` and uses `<defaultUserData>/data`. */
+  ownDataRootOnly?: boolean
+  /** Optional explicit resolved data root (if already computed by the caller). */
   dataRoot?: string
-  /** The installation's default data root (<userData>/data). */
+  /** Explicit effective default data root when `defaultUserData` is omitted. */
   defaultDataRoot?: string
+  /** Optional filesystem test seam (defaults to `node:fs`). */
+  fs?: Partial<OwnershipFs>
+}
+
+export interface UnixStartupOwnership {
+  /** True when a non-default data folder or profile is in use, or when path
+   *  canonicalisation fails (fail closed). */
+  nonDefault: boolean
+  /** The effective default data root for the primary profile, or null if unknown. */
+  effectiveDefaultRoot: string | null
+  /** The verified data root passed to both the boot host and the engine:
+   *  - when an env override was accepted, the canonicalised physical path;
+   *  - on an ordinary launch with no env override, `effectiveDefaultRoot` unchanged
+   *    (preserving byte-identical 4.6.8 registration files);
+   *  - null when `nonDefault` is true. */
+  hostDataRoot: string | null
+  /** Short detail naming why registration is skipped (when `nonDefault` is true). */
+  reason?: string
 }
 
 export interface BootRegistrationInputs extends DataRootGuardInputs {
@@ -131,74 +165,220 @@ export interface BootRegistrationInputs extends DataRootGuardInputs {
   releaseAppId: string
   version: string
   hasEngine: boolean
+  /** Pre-computed ownership verdict from `resolveUnixStartupOwnership` so startup
+   *  computes the guard once and shares its exact result across all paths. */
+  ownership?: UnixStartupOwnership
 }
 
-/** Normalize an absolute data/profile path (resolve `.`/`..`, strip trailing
- *  slash, and resolve existing symlink prefixes) so two spellings of the same
- *  folder compare equal. Returns null for empty or relative paths. */
-function normalizeDataPath(raw: string): string | null {
-  if (!raw || !raw.trim()) return null
-  // Synthetic POSIX paths tested on Windows hosts stay POSIX-resolved
-  // (no drive prefix, case preserved, no trailing slash).
-  if (process.platform === 'win32' && raw.startsWith('/')) {
-    return path.posix.resolve(raw)
+/** Treat an unset, empty, or whitespace-only environment override as unset. */
+export function trimmedEnvOverride(value: string | undefined): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  return value
+}
+
+function splitAbsolutePath(raw: string): { root: string; parts: string[] } | null {
+  if (!raw || raw.includes('\0') || !path.isAbsolute(raw)) return null
+  const parsed = path.parse(raw)
+  if (!parsed.root) return null
+  const rest = raw.slice(parsed.root.length)
+  const sep = process.platform === 'win32' ? /[\\/]+/ : /\/+/
+  return { root: parsed.root, parts: rest.split(sep).filter(Boolean) }
+}
+
+function stripTrailingSep(resolved: string): string {
+  const root = path.parse(resolved).root
+  if (!root || resolved === root) return resolved
+  const re = process.platform === 'win32' ? /[\\/]+$/ : /\/+$/
+  return resolved.replace(re, '') || root
+}
+
+/** Canonicalise an existing absolute directory path without discarding `..`
+ *  lexically before resolving symlinks or verifying intermediate existence.
+ *  Fails closed (returns null) if the path is relative, missing, traverses a
+ *  missing or non-directory intermediate, is not a directory, or realpath fails. */
+export function canonicalizeExistingPath(
+  raw: string,
+  pathFs: Pick<OwnershipFs, 'realpathSync' | 'statSync'> = fs,
+): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  const split = splitAbsolutePath(raw)
+  if (!split) return null
+  try {
+    let resolved: string
+    if (split.parts.includes('..')) {
+      let cur = split.root
+      for (const seg of split.parts) {
+        if (seg === '.') {
+          cur = pathFs.realpathSync.native(cur)
+          if (typeof pathFs.statSync === 'function' && !pathFs.statSync(cur).isDirectory()) return null
+          continue
+        }
+        if (seg === '..') {
+          cur = pathFs.realpathSync.native(cur)
+          if (typeof pathFs.statSync === 'function' && !pathFs.statSync(cur).isDirectory()) return null
+          cur = path.dirname(cur)
+        } else {
+          cur = path.join(cur, seg)
+        }
+      }
+      resolved = pathFs.realpathSync.native(cur)
+    } else {
+      resolved = pathFs.realpathSync.native(raw)
+    }
+    if (typeof resolved !== 'string' || !resolved || !path.isAbsolute(resolved)) return null
+    if (typeof pathFs.statSync === 'function' && !pathFs.statSync(resolved).isDirectory()) return null
+    const norm = splitAbsolutePath(resolved)
+    if (!norm || norm.parts.includes('..')) return null
+    if (norm.parts.includes('.')) resolved = path.normalize(resolved)
+    return stripTrailingSep(resolved)
+  } catch {
+    return null
   }
-  if (!path.isAbsolute(raw)) return null
-  const resolved = path.resolve(raw)
-  try { return resolveExisting(resolved) } catch { return resolved }
 }
 
-function parentPath(p: string): string {
-  return process.platform === 'win32' && p.startsWith('/') ? path.posix.dirname(p) : path.dirname(p)
+/** The effective default data root for a normal launch with no env override:
+ *  the validated saved `<defaultUserData>/data-location.json` target when
+ *  present (unless `ownDataRootOnly`), otherwise `<defaultUserData>/data`. */
+export function effectiveDefaultDataRoot(
+  defaultUserData: string,
+  ownDataRootOnly = false,
+  pathFs: Pick<OwnershipFs, 'readFileSync' | 'lstatSync' | 'readlinkSync'> = fs,
+): string {
+  const own = path.join(defaultUserData, 'data')
+  if (ownDataRootOnly) return own
+  return readDataLocationConfig(defaultUserData, pathFs)?.dataRoot ?? own
 }
 
-/** True when ORGTREE_V2_DATA or ORGTREE_V2_PROFILE is set and non-empty and
- *  points to anything other than the installation's default data root
- *  (<userData>/data) / default profile (<userData>). Unset/empty env variables
- *  return false so a normal single-profile install (including a saved
- *  data-location.json folder) keeps registering; setting the variable to the
- *  exact default path also returns false. */
-export function isNonDefaultDataRoot(o: DataRootGuardInputs): boolean {
-  if (o.dataRoot !== undefined && !o.dataRoot.trim()) return true
-  const envData = o.env?.ORGTREE_V2_DATA
-  const envProfile = o.env?.ORGTREE_V2_PROFILE
-  const hasDataOverride = typeof envData === 'string' && envData.length > 0
-  const hasProfileOverride = typeof envProfile === 'string' && envProfile.length > 0
-  if (!hasDataOverride && !hasProfileOverride) return false
-  const normDefault = o.defaultDataRoot ? normalizeDataPath(o.defaultDataRoot) : null
-  if (!normDefault) return true
-  if (hasDataOverride) {
-    const normEnv = normalizeDataPath(envData)
-    if (!normEnv || normEnv !== normDefault) return true
-    if (o.dataRoot !== undefined) {
-      const effective = normalizeDataPath(o.dataRoot)
-      if (!effective || effective !== normDefault) return true
+/** Shared Unix startup-ownership resolver used by early login-item checks,
+ *  the startup switch capability, engine dataRoot normalisation, and boot
+ *  service registration. Compares any non-blank ORGTREE_V2_DATA or
+ *  ORGTREE_V2_PROFILE override against the EFFECTIVE default root (including
+ *  saved `data-location.json`) and independent `defaultUserData` profile dir.
+ *  Fails closed whenever canonicalisation fails. */
+export function resolveUnixStartupOwnership(o: DataRootGuardInputs): UnixStartupOwnership {
+  const pathFs: OwnershipFs = {
+    realpathSync: o.fs?.realpathSync ?? fs.realpathSync,
+    readFileSync: o.fs?.readFileSync ?? fs.readFileSync,
+    lstatSync: o.fs && 'lstatSync' in o.fs ? o.fs.lstatSync : fs.lstatSync,
+    readlinkSync: o.fs && 'readlinkSync' in o.fs ? o.fs.readlinkSync : fs.readlinkSync,
+    statSync: o.fs && 'statSync' in o.fs ? o.fs.statSync : fs.statSync,
+  }
+  const effectiveDefaultRoot = o.defaultUserData
+    ? effectiveDefaultDataRoot(o.defaultUserData, o.ownDataRootOnly === true, pathFs)
+    : (o.defaultDataRoot ?? null)
+
+  const envData = trimmedEnvOverride(o.env?.ORGTREE_V2_DATA)
+  const envProfile = trimmedEnvOverride(o.env?.ORGTREE_V2_PROFILE)
+  const hasDataOverride = envData !== undefined
+  const hasProfileOverride = envProfile !== undefined
+  const profileRedirected = Boolean(o.userData && o.defaultUserData && o.userData !== o.defaultUserData)
+
+  if (profileRedirected) {
+    const canonDefaultProfile = canonicalizeExistingPath(o.defaultUserData!, pathFs)
+    const canonUserProfile = canonicalizeExistingPath(o.userData!, pathFs)
+    if (!canonDefaultProfile || !canonUserProfile || canonUserProfile !== canonDefaultProfile) {
+      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `userData=${o.userData}` }
     }
   }
+
+  if (!hasDataOverride && !hasProfileOverride) {
+    const explicitData = trimmedEnvOverride(o.dataRoot)
+    if (explicitData && effectiveDefaultRoot && explicitData !== effectiveDefaultRoot) {
+      const canonDefault = canonicalizeExistingPath(effectiveDefaultRoot, pathFs)
+      const canonData = canonicalizeExistingPath(explicitData, pathFs)
+      if (!canonDefault || !canonData || canonData !== canonDefault) {
+        return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData }
+      }
+      return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonData }
+    }
+    return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: effectiveDefaultRoot }
+  }
+
+  if (!effectiveDefaultRoot) {
+    return {
+      nonDefault: true,
+      effectiveDefaultRoot: null,
+      hostDataRoot: null,
+      reason: envData ? `ORGTREE_V2_DATA=${envData}` : `ORGTREE_V2_PROFILE=${envProfile}`,
+    }
+  }
+
   if (hasProfileOverride) {
-    const normProfile = normalizeDataPath(envProfile)
-    if (!normProfile || normProfile !== parentPath(normDefault)) return true
-    if (o.dataRoot !== undefined) {
-      const effective = normalizeDataPath(o.dataRoot)
-      if (!effective || effective !== normDefault) return true
+    if (!o.defaultUserData) {
+      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_PROFILE=${envProfile}` }
+    }
+    const canonDefaultProfile = canonicalizeExistingPath(o.defaultUserData, pathFs)
+    const canonEnvProfile = canonicalizeExistingPath(envProfile, pathFs)
+    if (!canonDefaultProfile || !canonEnvProfile) {
+      return {
+        nonDefault: true,
+        effectiveDefaultRoot,
+        hostDataRoot: null,
+        reason: `ORGTREE_V2_PROFILE=${envProfile} (could not be canonicalised)`,
+      }
+    }
+    if (canonEnvProfile !== canonDefaultProfile) {
+      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_PROFILE=${envProfile}` }
     }
   }
-  return false
+
+  if (hasDataOverride) {
+    const canonDefault = canonicalizeExistingPath(effectiveDefaultRoot, pathFs)
+    const canonEnvData = canonicalizeExistingPath(envData, pathFs)
+    if (!canonDefault || !canonEnvData) {
+      return {
+        nonDefault: true,
+        effectiveDefaultRoot,
+        hostDataRoot: null,
+        reason: `ORGTREE_V2_DATA=${envData} (could not be canonicalised)`,
+      }
+    }
+    if (canonEnvData !== canonDefault) {
+      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: `ORGTREE_V2_DATA=${envData}` }
+    }
+    const explicitData = trimmedEnvOverride(o.dataRoot)
+    if (explicitData) {
+      const canonExplicit = canonicalizeExistingPath(explicitData, pathFs)
+      if (!canonExplicit || canonExplicit !== canonDefault) {
+        return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData }
+      }
+    }
+    return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonEnvData }
+  }
+
+  const explicitData = trimmedEnvOverride(o.dataRoot)
+  if (explicitData && explicitData !== effectiveDefaultRoot) {
+    const canonDefault = canonicalizeExistingPath(effectiveDefaultRoot, pathFs)
+    const canonExplicit = canonicalizeExistingPath(explicitData, pathFs)
+    if (!canonDefault || !canonExplicit || canonExplicit !== canonDefault) {
+      return { nonDefault: true, effectiveDefaultRoot, hostDataRoot: null, reason: explicitData }
+    }
+    return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: canonExplicit }
+  }
+  return { nonDefault: false, effectiveDefaultRoot, hostDataRoot: effectiveDefaultRoot }
+}
+
+/** True when ORGTREE_V2_DATA or ORGTREE_V2_PROFILE points to anything other
+ *  than the effective default data root (saved data-location.json included) or
+ *  default profile directory, or when path canonicalisation fails. */
+export function isNonDefaultDataRoot(o: DataRootGuardInputs): boolean {
+  return resolveUnixStartupOwnership(o).nonDefault
 }
 
 /** Whether THIS build owns the background engine's registration (the LaunchAgent,
  *  the systemd user unit, the autostart entry): the installed release using the
- *  default profile/data folder only. A build whose version carries a prerelease
- *  label (4.6.3-frame.1, an alpha, a release candidate) or a run started with a
- *  non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE override is beside the
- *  default installation, and one registration serves the whole account: such a
- *  run would overwrite or disable the default org's unit/LaunchAgent. It never
- *  writes, enables, disables or removes any of them; it attaches to a host that
- *  already answers, or starts an engine of its own. */
+ *  effective default profile/data folder only. A build whose version carries a
+ *  prerelease label (4.6.3-frame.1, an alpha, a release candidate) or a run
+ *  started with a non-default ORGTREE_V2_DATA or ORGTREE_V2_PROFILE override
+ *  is beside the default installation, and one registration serves the whole
+ *  account: such a run would overwrite or disable the default org's unit or
+ *  LaunchAgent. It never writes, enables, disables or removes any of them; it
+ *  attaches to a host that already answers, or starts an engine of its own. */
 export function registersBootEngine(o: BootRegistrationInputs): boolean {
   if (!o.packaged || o.platform === 'win32' || o.appId !== o.releaseAppId || !o.hasEngine) return false
   if (/^\d+\.\d+\.\d+-/.test(o.version.trim())) return false
-  if (isNonDefaultDataRoot(o)) return false
+  const ownership = o.ownership ?? resolveUnixStartupOwnership(o)
+  if (ownership.nonDefault) return false
   return true
 }
 

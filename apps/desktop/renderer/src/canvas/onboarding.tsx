@@ -71,6 +71,7 @@ export function Onboarding({ children, windowControls }: {
   const bridge = desktop()
   const kind = useStartupKind()
   const startupCapability = useStartupCapability()
+  const startupPending = startupCapability.pending
   const startupUnavailable = startupCapability.available === false
   const startupUnavailableReason = startupCapability.reason || STARTUP_DEFAULT_FOLDER_HINT
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
@@ -155,10 +156,10 @@ export function Onboarding({ children, windowControls }: {
       </div>
 
       <div className="field-label">Startup</div>
-      <SetToggle label={startupLabel(kind)} checked={startupUnavailable ? false : (prefs?.startAtLogin ?? true)}
-        disabled={!prefs || busy || startupUnavailable} onChange={startAtLogin => put({ startAtLogin })}
+      <SetToggle label={startupLabel(kind)} checked={startupPending || startupUnavailable ? false : (prefs?.startAtLogin ?? true)}
+        disabled={!prefs || busy || startupPending || startupUnavailable} onChange={startAtLogin => put({ startAtLogin })}
         title={startupUnavailable ? startupUnavailableReason : undefined}
-        hint={startupUnavailable ? startupUnavailableReason : startupHint(kind)} />
+        hint={startupPending ? undefined : startupUnavailable ? startupUnavailableReason : startupHint(kind)} />
       <SetToggle label="Exit when the last window closes" checked={prefs?.exitOnClose ?? false}
         disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
         hint="Off keeps agents running in the tray when the window closes." />

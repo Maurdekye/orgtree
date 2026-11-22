@@ -100,7 +100,7 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
 import { readStartupTasks, startEngineTask, startHelperTask, startupOn, writeRunOnStartup } from './runonstartup'
 import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
-import { bootInputsFor, disableBootEngine, enableBootEngine, ensureBootEngine, isNonDefaultDataRoot, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, STARTUP_DEFAULT_FOLDER_ONLY, type BootInputs } from './unixboot'
+import { bootInputsFor, disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, managedEnginePath, privateDataFolders, registersBootEngine, resolveUnixStartupOwnership, STARTUP_DEFAULT_FOLDER_ONLY, type BootInputs } from './unixboot'
 import { appImageExtracted, ensureRuntimeCopy, runtimeCopyName, RUNTIME_FOLDER } from './engine-runtime'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { addRemoteFirewallRule, removeRemoteFirewallRule, validDoorPort } from './remotefirewall'
@@ -156,7 +156,7 @@ const relaunchApp = (args: string[] = [], options?: { interactive?: boolean }) =
 installMacWindowIconShim()
 const defaultUserData = app.getPath('userData')
 // Isolated development/test profiles never touch the operator's installed data.
-if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
+if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE?.trim()) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 // ⚠ MINIDUMPS, LOCALLY, AND NOTHING SENT ANYWHERE. Electron's crash reporter
 // was never started, so a renderer or GPU process dying produced no dump at
 // all — Crashpad was not running, and there was no `Crashpad` directory beside
@@ -2159,6 +2159,17 @@ else {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     // preference writes are async (preferences.ts); whatever is still pending is written before the process ends
     app.on('will-quit', () => preferences.flushSync())
+    // Compute Unix startup ownership ONCE before ANY preference write,
+    // StreamerAuto sample, loginPreference(), tray build, or boot registration.
+    const unixStartup = process.platform !== 'win32'
+      ? resolveUnixStartupOwnership({
+        env: process.env,
+        defaultUserData,
+        userData: app.getPath('userData'),
+        ownDataRootOnly: identity.ownDataRootOnly,
+      })
+      : null
+    unixStartupDisabled = unixStartup?.nonDefault === true
     // Streamer mode while a streaming app (OBS, Streamlabs, XSplit) runs, decided
     // BEFORE any window exists, so nothing can paint unmasked first. Native
     // masking stays on (its default) until this first verdict is in.
@@ -2166,10 +2177,6 @@ else {
     await settleStartupVerdict(streamerAuto, () => preferences.get(), setNativeStreamer)
     streamerAuto.start()
     app.on('will-quit', () => streamerAuto.stop())
-    unixStartupDisabled = process.platform !== 'win32' && isNonDefaultDataRoot({
-      env: process.env,
-      defaultDataRoot: path.join(defaultUserData, 'data'),
-    })
     loginPreference()
     void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())
@@ -2576,16 +2583,10 @@ else {
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer'),
         launchBackground: undefined as EngineOptions['launchBackground'],
         searchPath: undefined as EngineOptions['searchPath'] }
-      engineOptions.customDataRoot = isCustomRoot(engineOptions.dataRoot)
-      const nextUnixStartupDisabled = process.platform !== 'win32' && isNonDefaultDataRoot({
-        env: process.env,
-        dataRoot: engineOptions.dataRoot,
-        defaultDataRoot: path.join(defaultUserData, 'data'),
-      })
-      if (nextUnixStartupDisabled !== unixStartupDisabled) {
-        unixStartupDisabled = nextUnixStartupDisabled
-        rebuildTray()
+      if (unixStartup && !unixStartup.nonDefault && unixStartup.hostDataRoot) {
+        engineOptions.dataRoot = unixStartup.hostDataRoot
       }
+      engineOptions.customDataRoot = isCustomRoot(engineOptions.dataRoot)
       // An AppImage running WITHOUT a FUSE mount (--appimage-extract-and-run): its
       // extraction is shared by every launch and deleted when any of them exits, so
       // the engine, its PostgreSQL and the ui it serves run from the engine's own
@@ -2719,14 +2720,11 @@ else {
         const bootReg = {
           packaged: app.isPackaged, platform: process.platform, appId: identity.appId, releaseAppId: RELEASE_APP_ID,
           version: app.getVersion(), hasEngine: !!engineOptions.binary,
-          env: process.env, dataRoot: engineOptions.dataRoot, defaultDataRoot: defaultDataFolder,
+          ...(unixStartup ? { ownership: unixStartup } : {}),
         }
         if (!registersBootEngine(bootReg)) {
-          if (process.platform !== 'win32' && isNonDefaultDataRoot(bootReg)) {
-            const detail = process.env.ORGTREE_V2_PROFILE && !process.env.ORGTREE_V2_DATA
-              ? `ORGTREE_V2_PROFILE=${process.env.ORGTREE_V2_PROFILE}`
-              : engineOptions.dataRoot
-            console.info(`background engine: skipping boot service registration because a non-default data folder or profile is in use (${detail})`)
+          if (unixStartup?.nonDefault && app.isPackaged && identity.appId === RELEASE_APP_ID && !!engineOptions.binary && !/^\d+\.\d+\.\d+-/.test(app.getVersion().trim())) {
+            console.info(`background engine: skipping boot service registration because a non-default data folder or profile is in use (${unixStartup.reason ?? engineOptions.dataRoot})`)
           }
           return false
         }

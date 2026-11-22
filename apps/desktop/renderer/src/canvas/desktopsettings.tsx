@@ -45,17 +45,38 @@ export function useStartupKind(): StartupKind {
   return kind
 }
 
+export interface StartupCapabilityState extends StartupCapability {
+  /** True on Linux/macOS before `getStartupCapability()` responds (keeps the switch disabled; Windows unchanged). */
+  pending: boolean
+}
+
 /** Whether startup registration is available for this launch (false on Linux/macOS
- *  when running with a non-default data folder or profile override). */
-export function useStartupCapability(): StartupCapability {
+ *  when running with a non-default data folder or profile override). On Linux/macOS,
+ *  stays pending/disabled until the capability response arrives; Windows is unchanged. */
+export function useStartupCapability(): StartupCapabilityState {
   const bridge = desktop()
-  const [capability, setCapability] = useState<StartupCapability>({ available: true })
+  const waitForCapability = Boolean(bridge?.getStartupCapability) && !isWindowsDesktop(bridge)
+  const [capability, setCapability] = useState<StartupCapabilityState>(() =>
+    waitForCapability ? { available: true, pending: true } : { available: true, pending: false },
+  )
   useEffect(() => {
-    if (!bridge?.getStartupCapability) return
+    if (!bridge?.getStartupCapability) {
+      setCapability({ available: true, pending: false })
+      return
+    }
+    if (!isWindowsDesktop(bridge)) {
+      setCapability(prev => (prev.pending ? prev : { available: true, pending: true }))
+    } else {
+      setCapability({ available: true, pending: false })
+    }
     let alive = true
     bridge.getStartupCapability().then(c => {
-      if (alive && c && typeof c.available === 'boolean') setCapability(c)
-    }).catch(() => {})
+      if (alive && c && typeof c.available === 'boolean') {
+        setCapability({ available: c.available, pending: false, ...(c.reason ? { reason: c.reason } : {}) })
+      }
+    }).catch(() => {
+      // On Linux/macOS a failed capability read keeps the switch disabled; Windows stays unchanged.
+    })
     return () => { alive = false }
   }, [bridge])
   return capability
@@ -65,6 +86,7 @@ export function DesktopSettings() {
   const bridge = desktop()
   const kind = useStartupKind()
   const startupCapability = useStartupCapability()
+  const startupPending = startupCapability.pending
   const startupUnavailable = startupCapability.available === false
   const startupUnavailableReason = startupCapability.reason || STARTUP_DEFAULT_FOLDER_HINT
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
@@ -104,10 +126,10 @@ export function DesktopSettings() {
   const unattendedBlocked = capability?.unattendedInstall === false
   return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
-    <SetToggle label={startupLabel(kind)} checked={startupUnavailable ? false : (prefs?.startAtLogin ?? true)}
-      disabled={!prefs || busy || startupUnavailable} onChange={startAtLogin => put({ startAtLogin })}
+    <SetToggle label={startupLabel(kind)} checked={startupPending || startupUnavailable ? false : (prefs?.startAtLogin ?? true)}
+      disabled={!prefs || busy || startupPending || startupUnavailable} onChange={startAtLogin => put({ startAtLogin })}
       title={startupUnavailable ? startupUnavailableReason : undefined}
-      hint={startupUnavailable ? startupUnavailableReason : startupHint(kind)} />
+      hint={startupPending ? undefined : startupUnavailable ? startupUnavailableReason : startupHint(kind)} />
     <SetToggle label="Exit when the last window closes" checked={prefs?.exitOnClose ?? false}
       disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
       hint="Closing the main window keeps your other windows open." />
