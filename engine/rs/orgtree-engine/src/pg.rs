@@ -157,11 +157,7 @@ impl Cluster {
             }
             if let Some(child) = self.child.as_mut() {
                 if let Ok(Some(status)) = child.try_wait() {
-                    bail!(
-                        "postgres.exe exited during startup ({status}); see {}.{}",
-                        self.cluster_dir.join("log").join("postgres.log").display(),
-                        vc_runtime_hint(status.code())
-                    );
+                    bail!("{}", startup_exit_message(cfg!(windows), &status, status.code(), &self.cluster_dir.join("log").join("postgres.log")));
                 }
             }
             if last_progress.elapsed() > Duration::from_secs(10) {
@@ -368,6 +364,15 @@ fn is_postgres(_pid: u32) -> bool {
 /// end this way before they can say anything (user 2026-11-12). Setup checks the runtime
 /// (tools/vc-runtime.ps1), but a silent update only reports it, and the runtime can be removed later. The text
 /// follows the error's own words; "" for every other exit.
+#[nolog]
+fn startup_exit_message(windows: bool, status: &impl std::fmt::Display, code: Option<i32>, log: &Path) -> String {
+    if windows {
+        format!("postgres.exe exited during startup ({status}); see {}.{}", log.display(), vc_runtime_hint(code))
+    } else {
+        format!("postgres exited during startup ({status}); see {}.", log.display())
+    }
+}
+
 pub(crate) fn vc_runtime_hint(code: Option<i32>) -> &'static str {
     match code.map(|c| c as u32) {
         Some(0xC000_0135 | 0xC000_0139 | 0xC000_0142 | 0xC000_007B | 0xC000_0005) => {
@@ -480,5 +485,20 @@ mod vc_runtime_hint_tests {
         // control-C and a stack overflow are not about a DLL
         assert_eq!(vc_runtime_hint(Some(0xC000_013Au32 as i32)), "");
         assert_eq!(vc_runtime_hint(Some(0xC000_00FDu32 as i32)), "");
+    }
+
+    #[test]
+    fn startup_exit_message_keeps_windows_exact_and_omits_exe_off_windows() {
+        let log = std::path::Path::new("/tmp/cluster/log/postgres.log");
+        assert_eq!(
+            super::startup_exit_message(true, &"exit code: 1", Some(1), log),
+            format!("postgres.exe exited during startup (exit code: 1); see {}.", log.display())
+        );
+        let with_vc = super::startup_exit_message(true, &"exit code: 0xc0000135", Some(0xC000_0135u32 as i32), log);
+        assert!(with_vc.starts_with(&format!("postgres.exe exited during startup (exit code: 0xc0000135); see {}.", log.display())));
+        assert!(with_vc.contains("Microsoft Visual C++ runtime"));
+        let non_win = super::startup_exit_message(false, &"exit status: 1", Some(0xC000_0135u32 as i32), log);
+        assert_eq!(non_win, format!("postgres exited during startup (exit status: 1); see {}.", log.display()));
+        assert!(!non_win.contains(".exe") && !non_win.contains("Visual C++"));
     }
 }

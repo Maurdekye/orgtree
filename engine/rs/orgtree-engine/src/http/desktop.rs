@@ -68,6 +68,7 @@ pub async fn host(State(e): State<Arc<Engine>>, scope: Option<axum::Extension<cr
     Json(json!({
         "mode": mode,
         "computer": e.remotes.computer(),
+        "os": std::env::consts::OS,
         "build": {
             "commit": option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),
             "branch": option_env!("ORGTREE_BUILD_BRANCH"),

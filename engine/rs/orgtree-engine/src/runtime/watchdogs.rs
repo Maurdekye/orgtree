@@ -33,6 +33,21 @@ const NOT_BELOW: &str = "its activity target is no longer itself or a descendant
 // 3.x `_wd_owner_lost` wording: why an armed dog lost the authority it runs with
 const NO_BASH: &str = "its owner no longer holds bash — the hands it runs with";
 const NO_BASH_EXE: &str = "it was created with shell='bash' and no bash exists on this machine any more — running it in cmd.exe instead would silently match nothing (re-create it with shell='native' and a cmd target, or reinstall Git)";
+const NO_BASH_EXE_NON_WINDOWS: &str = "it was created with shell='bash' and no bash exists on this machine any more — running it in sh instead would silently match nothing (re-create it with shell='native' and a sh target, or install bash)";
+
+#[nolog]
+fn no_bash_exe_reason(windows: bool) -> &'static str {
+    if windows { NO_BASH_EXE } else { NO_BASH_EXE_NON_WINDOWS }
+}
+
+#[nolog]
+fn missing_bash_refusal(windows: bool) -> &'static str {
+    if windows {
+        "shell \"bash\" was asked for but no bash is installed on this machine; write the command for cmd.exe instead"
+    } else {
+        "shell \"bash\" was asked for but no bash is installed on this machine; write the command for sh instead"
+    }
+}
 const NO_FOLDER: &str = "its owner no longer holds the folder it watches";
 const FLOOR_S: i64 = 15;
 const STREAM_FLOOR_S: i64 = 5;
@@ -930,7 +945,7 @@ async fn authority_lost(engine: &Engine, dog: &Dog) -> Result<Option<&'static st
                 return Ok(Some(NO_BASH));
             }
             if dog.shell.as_deref() == Some("bash") && resolve_bash().is_none() {
-                return Ok(Some(NO_BASH_EXE));
+                return Ok(Some(no_bash_exe_reason(cfg!(windows))));
             }
         }
         "file" => {
@@ -3090,7 +3105,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         refuse!(BadRequest, "only command/stream watchdogs run a shell at all — file and process dogs have no target to interpret");
     }
     if shell == "bash" && resolve_bash().is_none() {
-        refuse!(Unprocessable, "shell \"bash\" was asked for but no bash is installed on this machine; write the command for cmd.exe instead");
+        refuse!(Unprocessable, "{}", missing_bash_refusal(cfg!(windows)));
     }
     let shell_col: Option<String> = (shell == "bash").then(|| shell.clone());
     let pattern = args["pattern"].as_str().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
@@ -4535,5 +4550,25 @@ mod tests {
         assert_eq!(unnamed("process", "pid:4242"), "process-pid-4242");
         assert_eq!(unnamed("event", "engine.started"), "event-engine-started");
         assert_eq!(unnamed("command", "tasklist | findstr cargo.exe"), "command-tasklist-findstr");
+    }
+
+    #[test]
+    fn missing_bash_messages_keep_windows_exact_and_name_sh_off_windows() {
+        assert_eq!(
+            no_bash_exe_reason(true),
+            "it was created with shell='bash' and no bash exists on this machine any more — running it in cmd.exe instead would silently match nothing (re-create it with shell='native' and a cmd target, or reinstall Git)"
+        );
+        assert_eq!(
+            no_bash_exe_reason(false),
+            "it was created with shell='bash' and no bash exists on this machine any more — running it in sh instead would silently match nothing (re-create it with shell='native' and a sh target, or install bash)"
+        );
+        assert_eq!(
+            missing_bash_refusal(true),
+            "shell \"bash\" was asked for but no bash is installed on this machine; write the command for cmd.exe instead"
+        );
+        assert_eq!(
+            missing_bash_refusal(false),
+            "shell \"bash\" was asked for but no bash is installed on this machine; write the command for sh instead"
+        );
     }
 }

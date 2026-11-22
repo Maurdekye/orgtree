@@ -107,6 +107,11 @@ pub fn identity(i: &Identity) -> String {
 /// with a per-file limit delivers them apart from the rules (Antigravity, D2).
 #[logged]
 pub fn identity_parts(i: &Identity) -> (String, String) {
+    identity_parts_for_os(i, cfg!(windows))
+}
+
+#[nolog]
+fn identity_parts_for_os(i: &Identity, windows: bool) -> (String, String) {
     let top = i.superior.is_none();
     let trim = i.builtin_skills;
     let pm = i.scope["permission_mode"].as_str().unwrap_or("acceptEdits");
@@ -248,9 +253,17 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     if on("bash") && i.lane == Lane::OpenCode {
         s.push_str("Terminal: OpenCode shell executes commands (PowerShell on Windows). ");
     } else if on("bash") && i.lane == Lane::Muse && !muse_no_shell {
-        s.push_str("Terminal: Muse Code's shell tool runs your commands (PowerShell on Windows); for a cmd command, run `cmd /c …`. ");
+        s.push_str(if windows {
+            "Terminal: Muse Code's shell tool runs your commands (PowerShell on Windows); for a cmd command, run `cmd /c …`. "
+        } else {
+            "Terminal: Muse Code's shell tool runs your commands. "
+        });
     } else if on("bash") && !agy_no_shell && !muse_no_shell {
-        s.push_str("Terminal: Bash and PowerShell are both available to you; for a cmd command, run `cmd /c …` from either. ");
+        s.push_str(if windows {
+            "Terminal: Bash and PowerShell are both available to you; for a cmd command, run `cmd /c …` from either. "
+        } else {
+            "Terminal: your system shell is available to you. "
+        });
     } else if on("bash") && muse_no_shell {
         s.push_str(MUSE_NO_SHELL);
     } else if on("bash") {
@@ -259,7 +272,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     if i.lane == Lane::Codex {
         match i.codex_sandbox {
             Some("workspace-write") => s.push_str(&if trim { codex_sandbox_short(&dirs) } else { codex_sandbox(&dirs) }),
-            Some("read-only") => s.push_str(CODEX_READ_ONLY),
+            Some("read-only") => s.push_str(if windows { CODEX_READ_ONLY } else { CODEX_READ_ONLY_NON_WINDOWS }),
             Some("untrusted") => s.push_str(CODEX_READ_ONLY_UNSANDBOXED),
             _ => {}
         }
@@ -350,8 +363,9 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         if group("messaging") { s.push_str("Ask agents with orgtree_message kind=question, then end your turn; replies arrive as mail. "); }
         if group("user") { s.push_str(TRIM_PRESENT); }
     } else if group("user") {
-        let text = if group("messaging") { QUESTIONS_AND_FILES.to_owned() } else {
-            QUESTIONS_AND_FILES.replace("To ask another AGENT, send orgtree_message kind=question and end your turn; their reply arrives as a future turn. ", "")
+        let qf = if windows { QUESTIONS_AND_FILES } else { QUESTIONS_AND_FILES_NON_WINDOWS };
+        let text = if group("messaging") { qf.to_owned() } else {
+            qf.replace("To ask another AGENT, send orgtree_message kind=question and end your turn; their reply arrives as a future turn. ", "")
         };
         let text = if native { text.replace("You run headless: interactive tools (AskUserQuestion, plan mode) do not exist here. ", "")
             .replace("Never attempt AskUserQuestion (it is blocked). ", "") } else {text};
@@ -380,7 +394,11 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     } else {
         " — that is how your superior learns of it. "
     });
-    s.push_str(if trim { TRIM_CHECKUPS } else { CHECKUPS });
+    s.push_str(if trim {
+        if windows { TRIM_CHECKUPS } else { TRIM_CHECKUPS_NON_WINDOWS }
+    } else {
+        CHECKUPS
+    });
     s.push_str(if trim { TRIM_QUEUED_RESTART } else { QUEUED_RESTART });
     let org_dir = org_notes_dir.and_then(|d| d["path"].as_str().map(|p| (p, d["mode"].as_str() != Some("ro"))));
     if trim {
@@ -1100,6 +1118,16 @@ it with no escalation at all; that adjusts Git's ownership trust only, not OS wr
 write. Use the repository's own path, never a parent path, a wildcard, or a global config change. Read, search and plan \
 freely; when the work genuinely needs a write, raise it rather than looking for a way around. ";
 
+const CODEX_READ_ONLY_NON_WINDOWS: &str = "Sandbox: this is a READ-ONLY seat, and that is enforced, not advisory. Your shell runs in an \
+OS sandbox that restricts writes, and a command it blocks is reported to you as a plain 'Permission denied' or a similar \
+refusal. Asking to retry a blocked command with elevated permission WILL BE REFUSED — that route exists for write-enabled \
+seats and is closed to yours, so a refused retry is not a mistake and not worth a second attempt. Some commands that only \
+READ can be blocked as well: git may refuse a repository it is not explicitly trusted for with 'detected dubious ownership' \
+— including one nested inside a directory you hold. For a repository inside your granted scope, `git -c safe.directory=<that repo's exact path> -C <that repo> ...` reads \
+it with no escalation at all; that adjusts Git's ownership trust only, not OS write permissions, so it will not get you a \
+write. Use the repository's own path, never a parent path, a wildcard, or a global config change. Read, search and plan \
+freely; when the work genuinely needs a write, raise it rather than looking for a way around. ";
+
 const TOOLS_SENTENCE: &str = "The tools: orgtree_message (reach your reports at any depth, your superior, your peers (a directional audience is required between direct siblings when their parent turns off Subordinates may message each other); \
 `to` may be a list, so one call sends the same message to several recipients — for example the user's inbox and their \
 @net: hub address — with each recipient's outcome reported back; nothing is ever forwarded on your behalf, so name every \
@@ -1207,6 +1235,39 @@ is still not a delivery — but when you do name an absolute file on the user's 
 the target in ANGLE BRACKETS: `[Setup.exe](<C:\\Users\\you\\outbox\\Setup 1.2.exe>)`. The angle brackets are REQUIRED \
 whenever the path contains a space, which real Windows paths usually do — a bare target with a space in it is not a link \
 at all and the user sees your raw markdown instead. Backslashes and forward slashes both work and reach the same file. \
+CLICKING IT REVEALS THE FILE IN THE OS FILE MANAGER — the folder opens with the file selected, and nothing is ever \
+launched or run (user ruling 2026-09-13), so do not describe such a link to the user as opening or running anything. ";
+
+const QUESTIONS_AND_FILES_NON_WINDOWS: &str = "You run headless: interactive tools (AskUserQuestion, plan mode) do not exist here. To \
+ask the USER a question, use orgtree_ask — it renders a real question card (omit `options` for a dedicated free-response \
+text field; otherwise use 2-4 options with descriptions and optional multi-select; several related questions batch into one \
+card via `questions`) on your desk and in the user's inbox; ask, then END YOUR TURN — the answer arrives as mail. The \
+question STAYS OPEN across turns (other mail does not void it; one active request per agent): it ends only when the user \
+answers or dismisses it, you pose a new request, or you withdraw it with orgtree_withdraw_ask. Withdrawing is YOUR job and \
+its usual trigger is NEW INFORMATION: whenever a turn brings you something — the user says something that settles it, a \
+peer or your superior supplies the fact you were missing, the premise dies, you work it out yourself — re-read your open \
+question and take it back if it stopped mattering. A question left standing after it is moot is a chore on the user's screen \
+with your name on it. Never attempt AskUserQuestion (it is blocked). Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question. To ask another AGENT, send orgtree_message \
+kind=question and end your turn; their reply arrives as a future turn. ⚠ DOCUMENTS ARE PRESENTED, FILES ARE SENT (user \
+rule 2026-10-09). Anything the user is meant to READ themselves — a report, plan, proposal, write-up, summary, any .md — \
+goes through orgtree_present, ALWAYS, never as a download card, even when they ask you to 'send' it: it renders as an \
+in-page document card beside your node (non-blocking; pass a .md file as `path`, or the markdown as `body`). Presenting \
+needs a direct user audience — top-level or granted — \
+everyone else sends the document to their superior instead. orgtree_send_file is ONLY for what they want AS A FILE — an \
+installer, log, export, image or archive: it copies the file to your outbox and puts a real DOWNLOAD CARD in the chat, the \
+only way they can get the bytes. Never answer a request for a document or a file by pasting it into a message, describing \
+where it sits on disk, or naming a path they would have to go and open themselves — a path is not a delivery. Say in your \
+reply what you presented or sent; the card sits where you put it. IMAGES render, not just download (user spec 2026-08-25): \
+an image file sent with orgtree_send_file appears in the chat AS THE PICTURE (click = full size), so sending a screenshot, \
+render or diagram that way IS presenting it. In USER-FACING markdown — your replies, mail to the user, presented documents — \
+`![](outbox/plot.png)`-style RELATIVE image paths resolve against your own working folder and render inline, so put the file \
+there (outbox/ is a good home) and reference it. (Mail to another AGENT renders on THEIR desk against THEIR folder — \
+relative images break there; send the file or name the path instead.) Images the user attaches to their messages display \
+back to them the same way. NAMING A LOCAL FILE PATH: this replaces neither orgtree_present nor orgtree_send_file — a path \
+is still not a delivery — but when you do name an absolute file on the user's machine, write it as a markdown link with \
+the target in ANGLE BRACKETS: `[report.pdf](</home/you/outbox/My Report.pdf>)`. The angle brackets are REQUIRED \
+whenever the path contains a space — a bare target with a space in it is not a link \
+at all and the user sees your raw markdown instead. \
 CLICKING IT REVEALS THE FILE IN THE OS FILE MANAGER — the folder opens with the file selected, and nothing is ever \
 launched or run (user ruling 2026-09-13), so do not describe such a link to the user as opening or running anything. ";
 
@@ -1390,6 +1451,8 @@ const TRIM_QUEUED_RESTART: &str = "An effort-only change on an eligible Claude s
 const QUEUED_RESTART: &str = "An effort-only change on an eligible Claude seat applies at its next model call, mid-turn, with no interrupt or restart. For other pending account/model/session changes or retool, use orgtree_interrupt on the running report with queued=true,restart=true. It waits for a completion boundary; asynchronous harnesses may cut the next step off early (orgtree-tool-interrupt). ";
 
 const TRIM_CHECKUPS: &str = "While working, automatic checkups may wake you after 20 minutes (orgtree-checkups-and-reminders). Always available: orgtree_next_turn (prefix/namespace and compaction forecast), orgtree_session (session/placement), and orgtree_interrupt on yourself (end this turn); see their Guides. Session 0 has no desktop; check your session and use orgtree-session-0-ui-testing for UI work. ";
+
+const TRIM_CHECKUPS_NON_WINDOWS: &str = "While working, automatic checkups may wake you after 20 minutes (orgtree-checkups-and-reminders). Always available: orgtree_next_turn (prefix/namespace and compaction forecast), orgtree_session (session/placement), and orgtree_interrupt on yourself (end this turn); see their Guides. ";
 
 /// The trimmed instructions (docket shrink-agents-built-in-instructions-by-moving-ho,
 /// user approval 2026-10-15 12:41Z: D1 split approved, D3 docket summary about 1.3 KB).
@@ -1646,8 +1709,14 @@ mod trim_tests {
         assert!(s.contains("[ORGTREE MAIL — delivered mid-task]") && s.contains("REQUIRED: call orgtree_status"));
         assert!(s.contains("Write @user (plain text, never in backticks)"));
         assert!(s.contains("it does NOT message the user"));
-        assert!(s.contains("orgtree_next_turn") && s.contains("orgtree_session") && s.contains("Session 0"));
-        assert!(s.contains("orgtree-session-0-ui-testing"));
+        assert!(s.contains("orgtree_next_turn") && s.contains("orgtree_session"));
+        if cfg!(windows) {
+            assert!(s.contains("Session 0"));
+            assert!(s.contains("orgtree-session-0-ui-testing"));
+        } else {
+            assert!(!s.contains("Session 0"));
+            assert!(!s.contains("orgtree-session-0-ui-testing"));
+        }
         for gone in [DOCKET, QUESTIONS_AND_FILES, ACCOUNT_LANES, CACHE_CONTINUITY, READ_REPORTS, GATE_GATED] {
             assert!(!s.contains(gone));
         }
@@ -1707,5 +1776,77 @@ mod trim_tests {
             assert!(builtin_skills_lane(lane), "synthetic skill-read proof passed for {lane:?}");
             assert!(render(&all_on(), lane, false, builtin_skills_lane(lane)).contains("HOW-TO LIVES IN SKILLS"));
         }
+    }
+
+    #[test]
+    fn non_windows_prompts_omit_windows_only_guidance_while_windows_stays_byte_identical() {
+        let render_os = |lane: Lane, builtin_skills: bool, codex_sandbox: Option<&str>, windows: bool| {
+            let teams = crate::domain::teams::workspaces(std::path::Path::new("D:/data/scratch/org/_teams"), &[(601, "lead".into())]);
+            let base = all_on();
+            let scope = crate::domain::scope::with_team_workspaces(
+                &crate::domain::scope::with_org_notes(&base, "D:/data/scratch/org/_shared"), &teams);
+            let id = Identity {
+                name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
+                charter: None, team_charter: None, cascade: &[],
+                superior: Some("coordinator"), org_md: None, app_md: None, lane, scope: &scope,
+                codex_sandbox, mcp_servers: &[], extern_holder: true, folder_notes: &[],
+                own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills, suggest_agent_feedback: true,
+            };
+            let (rules, notes) = identity_parts_for_os(&id, windows);
+            rules + &notes
+        };
+
+        // Windows build output matches identity_parts_for_os(..., true) byte for byte
+        if cfg!(windows) {
+            for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+                for trim in [false, true] {
+                    assert_eq!(render(&all_on(), lane, false, trim), render_os(lane, trim, None, true));
+                }
+            }
+            let teams = crate::domain::teams::workspaces(std::path::Path::new("D:/data/scratch/org/_teams"), &[(601, "lead".into())]);
+            let base = all_on();
+            let scope = crate::domain::scope::with_team_workspaces(
+                &crate::domain::scope::with_org_notes(&base, "D:/data/scratch/org/_shared"), &teams);
+            let codex_ro = Identity {
+                name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
+                charter: None, team_charter: None, cascade: &[],
+                superior: Some("coordinator"), org_md: None, app_md: None, lane: Lane::Codex, scope: &scope,
+                codex_sandbox: Some("read-only"), mcp_servers: &[], extern_holder: true, folder_notes: &[],
+                own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills: true, suggest_agent_feedback: true,
+            };
+            assert_eq!(identity(&codex_ro), render_os(Lane::Codex, true, Some("read-only"), true));
+        }
+
+        // OA-01: terminal lines (default bash & Muse)
+        let win_claude = render_os(Lane::Claude, true, None, true);
+        let nix_claude = render_os(Lane::Claude, true, None, false);
+        assert!(win_claude.contains("Terminal: Bash and PowerShell are both available to you; for a cmd command, run `cmd /c …` from either. "));
+        assert!(nix_claude.contains("Terminal: your system shell is available to you. "));
+        assert!(!nix_claude.contains("PowerShell") && !nix_claude.contains("cmd /c"));
+
+        let win_muse = render_os(Lane::Muse, true, None, true);
+        let nix_muse = render_os(Lane::Muse, true, None, false);
+        assert!(win_muse.contains("Terminal: Muse Code's shell tool runs your commands (PowerShell on Windows); for a cmd command, run `cmd /c …`. "));
+        assert!(nix_muse.contains("Terminal: Muse Code's shell tool runs your commands. "));
+        assert!(!nix_muse.contains("PowerShell") && !nix_muse.contains("cmd /c"));
+
+        // OA-01: Codex read-only sandbox note
+        let win_codex = render_os(Lane::Codex, true, Some("read-only"), true);
+        let nix_codex = render_os(Lane::Codex, true, Some("read-only"), false);
+        assert!(win_codex.contains("and PowerShell refuses .NET method calls under constrained language mode."));
+        assert!(!nix_codex.contains("PowerShell") && !nix_codex.contains("constrained language mode"));
+        assert!(nix_codex.contains("— including one nested inside a directory you hold. For a repository inside your granted scope"));
+
+        // OA-01: untrimmed QUESTIONS_AND_FILES file-link example
+        let win_full = render_os(Lane::Claude, false, None, true);
+        let nix_full = render_os(Lane::Claude, false, None, false);
+        assert!(win_full.contains("[Setup.exe](<C:\\Users\\you\\outbox\\Setup 1.2.exe>)"));
+        assert!(win_full.contains("which real Windows paths usually do"));
+        assert!(nix_full.contains("[report.pdf](</home/you/outbox/My Report.pdf>)"));
+        assert!(!nix_full.contains("Setup.exe") && !nix_full.contains("real Windows paths"));
+
+        // OA-02: TRIM_CHECKUPS Session 0 note
+        assert!(win_claude.contains("Session 0 has no desktop; check your session and use orgtree-session-0-ui-testing for UI work. "));
+        assert!(!nix_claude.contains("Session 0") && !nix_claude.contains("orgtree-session-0-ui-testing"));
     }
 }

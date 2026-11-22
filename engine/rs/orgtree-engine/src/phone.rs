@@ -243,6 +243,49 @@ pub async fn tailscale(engine: &Engine) -> Tailscale {
     t
 }
 
+#[nolog]
+fn tailscale_not_installed_msg(windows: bool) -> &'static str {
+    if windows { "Tailscale is not installed on this PC." } else { "Tailscale is not installed on this computer." }
+}
+
+#[nolog]
+fn tailscale_no_login_url_msg(windows: bool) -> &'static str {
+    if windows {
+        "Tailscale did not give a sign-in address. Open Tailscale from the Start menu and sign in there."
+    } else {
+        "Tailscale did not give a sign-in address. Open Tailscale on this computer and sign in there."
+    }
+}
+
+#[nolog]
+fn tailscale_not_connected_msg(windows: bool) -> &'static str {
+    if windows { "Tailscale is not connected on this PC" } else { "Tailscale is not connected on this computer" }
+}
+
+#[nolog]
+fn host_address_not_found_msg(windows: bool) -> &'static str {
+    if windows {
+        "This PC's address for your phone could not be found."
+    } else {
+        "This computer's address for your phone could not be found."
+    }
+}
+
+#[nolog]
+fn link_save_failed_reply(windows: bool, err: &impl std::fmt::Display, code: &str) -> String {
+    let dev = if windows { "the PC" } else { "this computer" };
+    format!("The link could not be saved on {dev} ({err}). Try again with a new code.\n\nSetup code: {code} expired")
+}
+
+#[nolog]
+fn setup_code_expired_reply(windows: bool, code: &str) -> String {
+    let dev = if windows { "your PC" } else { "your computer" };
+    format!(
+        "That setup code didn't work: it was already used, replaced by a newer one, or more than 10 minutes old. \
+         On {dev}, click New code and scan again.\n\nSetup code: {code} expired"
+    )
+}
+
 /// T1's "Sign in": start `tailscale login` and hand back the sign-in address
 /// it prints, for the desktop to open in the browser. The CLI keeps waiting
 /// for the sign-in to finish (at most 10 minutes); the panel sees T2 then.
@@ -250,7 +293,7 @@ pub async fn tailscale(engine: &Engine) -> Tailscale {
 pub async fn tailscale_login() -> Result<Value, crate::http::error::ApiError> {
     use crate::http::error::ApiError;
     use tokio::io::AsyncBufReadExt;
-    let Some(bin) = tailscale_bin() else { return Err(ApiError::conflict("Tailscale is not installed on this PC.")) };
+    let Some(bin) = tailscale_bin() else { return Err(ApiError::conflict(tailscale_not_installed_msg(cfg!(windows)))) };
     let mut cmd = tokio::process::Command::new(&bin);
     cmd.arg("login")
         .stdin(std::process::Stdio::null())
@@ -283,7 +326,7 @@ pub async fn tailscale_login() -> Result<Value, crate::http::error::ApiError> {
     });
     match found {
         Some(url) => Ok(json!({ "url": url })),
-        None => Err(ApiError::conflict("Tailscale did not give a sign-in address. Open Tailscale from the Start menu and sign in there.")),
+        None => Err(ApiError::conflict(tailscale_no_login_url_msg(cfg!(windows)))),
     }
 }
 
@@ -491,7 +534,7 @@ pub async fn turn_on(engine: &Arc<Engine>, scope: &str) -> Result<Value, crate::
         return Err(ApiError::bad_request("scope must be tailnet or lan"));
     }
     if scope == "tailnet" && tailscale(engine).await.state != "T2" {
-        return Err(ApiError::conflict("Tailscale is not connected on this PC"));
+        return Err(ApiError::conflict(tailscale_not_connected_msg(cfg!(windows))));
     }
     engine.phone.rule.store(None);
     crate::mailhub::configure(engine, &json!({ "public_listener": true, "public_scope": scope })).await.map_err(ApiError::unprocessable)?;
@@ -577,7 +620,7 @@ pub async fn mint(engine: &Arc<Engine>, org_slug: &str) -> Result<Value, crate::
     } else {
         lan_ipv4()
     };
-    let Some(host) = host else { return Err(ApiError::conflict("This PC's address for your phone could not be found.")) };
+    let Some(host) = host else { return Err(ApiError::conflict(host_address_not_found_msg(cfg!(windows)))) };
     let net = crate::net::ensure_identity(engine, org.id, &org.slug).await.map_err(|e| ApiError::internal(format!("{e:#}")))?;
     let Some(address) = net.pointer("/identity/slug").and_then(Value::as_str).map(str::to_string) else {
         return Err(ApiError::internal("this organization has no hub address"));
@@ -1505,13 +1548,10 @@ pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &st
             ),
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "the phone link could not be written");
-                format!("The link could not be saved on the PC ({e}). Try again with a new code.\n\nSetup code: {code} expired")
+                link_save_failed_reply(cfg!(windows), &e, &code)
             }
         },
-        Outcome::Expired => format!(
-            "That setup code didn't work: it was already used, replaced by a newer one, or more than 10 minutes old. \
-             On your PC, click New code and scan again.\n\nSetup code: {code} expired"
-        ),
+        Outcome::Expired => setup_code_expired_reply(cfg!(windows), &code),
     };
     if let Err(e) = crate::net::queue(engine, org_id, from, &reply, "orgtree", None, "message", &[], None, &[], None).await {
         tracing::warn!(error = %format!("{e:#}"), %from, "the setup code answer could not be queued");
@@ -2162,5 +2202,50 @@ mod linux_hubchat_tests {
 
         // Without rig override, the working Linux handler makes it true
         assert!(linux_hubchat::installed_with(None, &h.dirs(), |p| p.exists()));
+    }
+
+    #[test]
+    fn phone_messages_keep_windows_exact_and_genericize_non_windows() {
+        use super::{
+            host_address_not_found_msg, link_save_failed_reply, setup_code_expired_reply,
+            tailscale_no_login_url_msg, tailscale_not_connected_msg, tailscale_not_installed_msg,
+        };
+        assert_eq!(tailscale_not_installed_msg(true), "Tailscale is not installed on this PC.");
+        assert_eq!(tailscale_not_installed_msg(false), "Tailscale is not installed on this computer.");
+
+        assert_eq!(
+            tailscale_no_login_url_msg(true),
+            "Tailscale did not give a sign-in address. Open Tailscale from the Start menu and sign in there."
+        );
+        assert_eq!(
+            tailscale_no_login_url_msg(false),
+            "Tailscale did not give a sign-in address. Open Tailscale on this computer and sign in there."
+        );
+
+        assert_eq!(tailscale_not_connected_msg(true), "Tailscale is not connected on this PC");
+        assert_eq!(tailscale_not_connected_msg(false), "Tailscale is not connected on this computer");
+
+        assert_eq!(host_address_not_found_msg(true), "This PC's address for your phone could not be found.");
+        assert_eq!(host_address_not_found_msg(false), "This computer's address for your phone could not be found.");
+
+        assert_eq!(
+            link_save_failed_reply(true, &"disk full", "ABCD-EFGH"),
+            "The link could not be saved on the PC (disk full). Try again with a new code.\n\nSetup code: ABCD-EFGH expired"
+        );
+        assert_eq!(
+            link_save_failed_reply(false, &"disk full", "ABCD-EFGH"),
+            "The link could not be saved on this computer (disk full). Try again with a new code.\n\nSetup code: ABCD-EFGH expired"
+        );
+
+        assert_eq!(
+            setup_code_expired_reply(true, "ABCD-EFGH"),
+            "That setup code didn't work: it was already used, replaced by a newer one, or more than 10 minutes old. \
+             On your PC, click New code and scan again.\n\nSetup code: ABCD-EFGH expired"
+        );
+        assert_eq!(
+            setup_code_expired_reply(false, "ABCD-EFGH"),
+            "That setup code didn't work: it was already used, replaced by a newer one, or more than 10 minutes old. \
+             On your computer, click New code and scan again.\n\nSetup code: ABCD-EFGH expired"
+        );
     }
 }

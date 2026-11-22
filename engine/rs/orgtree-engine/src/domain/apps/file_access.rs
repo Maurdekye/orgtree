@@ -375,6 +375,10 @@ pub(crate) async fn media(engine:&Arc<Engine>,org:&Arc<OrgHandle>,ticket:&str)->
     Ok((file,reference.path,lease))
 }
 #[nolog]
+fn computer_grant_name(windows: bool) -> &'static str {
+    if windows { "Whole computer (current Windows user)" } else { "Whole computer (current user)" }
+}
+#[nolog]
 async fn permissions(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,caller:Option<&Caller>)->Result<Value>{
     if let Some(caller)=caller{super::storage::file_authority(engine,org,caller).await?;}
     let client=engine.db.get().await?;
@@ -389,7 +393,7 @@ async fn permissions(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,caller:Opt
             if let Some(caller)=caller{if agent_scope(engine,org,caller,std::path::Path::new(&path)).await.is_err(){continue;}}
             grant["name"]=json!(std::path::Path::new(&path).file_name().map(|s|s.to_string_lossy().to_string()).unwrap_or_default());
             if caller.is_none(){grant["path"]=json!(path);}
-        }else{grant["name"]=json!(if grant["scope"]=="computer"{"Whole computer (current Windows user)"}else{"This organization's scratch, uploads and retained artifacts"});}
+        }else{grant["name"]=json!(if grant["scope"]=="computer"{computer_grant_name(cfg!(windows))}else{"This organization's scratch, uploads and retained artifacts"});}
         grants.push(grant);
     }
     Ok(json!({"app":app,"rev":rev,"permission_rev":permission_rev,"permission":modes["files.read"].as_str().unwrap_or("ask"),"grants":grants,"write":modes["files.write"].as_str().unwrap_or("ask"),"orgtree_read":super::policy::org_allowed(&json!({"origin":row.get::<_,String>(3),"capabilities":row.get::<_,Value>(4),"permissions":modes}),"files.read"),"orgtree_write":super::policy::org_allowed(&json!({"origin":row.get::<_,String>(3),"capabilities":row.get::<_,Value>(4),"permissions":modes}),"files.write")}))
@@ -515,5 +519,9 @@ mod tests{
         std::thread::sleep(Duration::from_millis(1));let newest=files.media(&bound,"file").unwrap();
         assert!(files.lease(1,&first).is_err()&&first_lease.cancel.is_cancelled(),"one more ends only the oldest");
         assert!(files.lease(1,&tickets[1]).is_ok()&&files.lease(1,&newest).is_ok()&&files.lease(1,&kept).is_ok());
+    }
+    #[test] fn computer_grant_name_is_platform_specific_and_keeps_windows_byte_identical(){
+        assert_eq!(computer_grant_name(true),"Whole computer (current Windows user)");
+        assert_eq!(computer_grant_name(false),"Whole computer (current user)");
     }
 }
