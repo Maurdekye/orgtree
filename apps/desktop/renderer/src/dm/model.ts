@@ -108,9 +108,88 @@ export interface DmInput {
 const byTime = (a: DmEntry, b: DmEntry) =>
   a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0
 
-/** The chats to list. NOT BUILT YET: the red control for dmmodel.test.tsx. */
-export function dmChats(_input: DmInput): DmChat[] {
-  return []
+/** The chats to list, newest message first; those nobody has written in come
+ *  after, in tree order, and retired holders last. */
+export function dmChats(input: DmInput): DmChat[] {
+  const { nodes, grants, box, isRead, hideRetired, selected } = input
+  const entries = new Map<string, DmEntry[]>()
+  const add = (peer: string, e: DmEntry) => {
+    const list = entries.get(peer)
+    if (list) list.push(e); else entries.set(peer, [e])
+  }
+  const received = (m: MailEntry, pending: boolean) => {
+    if (typeof m.from !== 'string' || !m.from) return
+    const unread = pending && !(m.id && isRead?.(m.id))
+    add(m.from, { key: m.id, at: m.at ?? '', out: false, unread, mail: unread ? { ...m, _wait: true } : m })
+  }
+  for (const m of box?.pending ?? []) received(m, true)
+  for (const m of box?.delivered ?? []) received(m, false)
+  for (const m of box?.sent ?? []) {
+    const to = (m as MailRow).to
+    if (typeof to !== 'string' || !to) continue
+    add(to, { key: m.id, at: m.at ?? '', out: true, unread: false, mail: m as MailRow })
+  }
+  for (const a of input.openAsks) add(a.node, { key: 'ask:' + a.id, at: a.at ?? '', out: false, unread: true, ask: a })
+  for (const a of input.doneAsks) add(a.node, { key: 'ask:' + a.id, at: a.at ?? '', out: false, unread: false, ask: a })
+
+  const granted = new Set<string>()
+  if (grants) { for (const g of grants) if (g.grantor === USER) granted.add(g.grantee) }
+  else for (const n of nodes.values()) {
+    if ((n.audiences_explicit ?? n.audiences_held ?? []).includes(USER)) granted.add(n.id)
+  }
+
+  const order = new Map<string, number>()
+  for (const id of nodes.keys()) order.set(id, order.size)
+  const chats = new Map<string, DmChat>()
+  const open = (peer: string): DmChat => {
+    const existing = chats.get(peer)
+    if (existing) return existing
+    const node = nodes.get(peer) ?? null
+    const list = (entries.get(peer) ?? []).slice().sort(byTime)
+    const inherited = node?.audiences_inherited?.find(a => a.grantor === USER)?.project ?? null
+    const chat: DmChat = {
+      peer, node,
+      kind: peer === SYSTEM ? 'system' : !node ? 'other' : isProject(node) ? 'project' : 'agent',
+      live: node?.state === 'live',
+      topLevel: !!node && node.state === 'live' && topLevelAgent(nodes, node),
+      grant: granted.has(peer),
+      inherited: granted.has(peer) ? null : inherited,
+      unread: list.filter(e => e.unread && e.mail).length,
+      asks: list.filter(e => e.unread && e.ask).length,
+      entries: list,
+      last: list[list.length - 1] ?? null,
+    }
+    chats.set(peer, chat)
+    return chat
+  }
+
+  // a direct line, or a grant of the user's audience
+  for (const n of nodes.values()) {
+    if (n.state === 'live' && topLevelAgent(nodes, n)) open(n.id)
+  }
+  for (const peer of granted) {
+    const node = nodes.get(peer)
+    if (node && node.state !== 'live' && hideRetired) continue
+    open(peer)
+  }
+  // …and whoever else has written
+  for (const [peer, list] of entries) {
+    if (chats.has(peer)) continue
+    const node = nodes.get(peer)
+    const waiting = list.some(e => e.unread)
+    const viaProject = node?.state === 'live' && node.audiences_inherited?.some(a => a.grantor === USER)
+    if (waiting || peer === SYSTEM || viaProject) open(peer)
+  }
+  if (selected) open(selected)
+
+  const rank = (c: DmChat) => !c.live && c.kind !== 'system' && c.kind !== 'other' ? 2 : c.last ? 0 : 1
+  return [...chats.values()].sort((a, b) => {
+    const ra = rank(a), rb = rank(b)
+    if (ra !== rb) return ra - rb
+    if (ra === 0 && a.last!.at !== b.last!.at) return a.last!.at < b.last!.at ? 1 : -1
+    const oa = order.get(a.peer) ?? Infinity, ob = order.get(b.peer) ?? Infinity
+    return oa !== ob ? oa - ob : a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0
+  })
 }
 
 /** A chat's timeline, oldest first. */
@@ -130,8 +209,29 @@ export interface DmClose {
   title: string
 }
 
-export function dmClose(_chat: DmChat): DmClose {
-  return { can: false, stays: false, title: '' }
+export function dmClose(chat: DmChat): DmClose {
+  if (chat.kind === 'system') {
+    return { can: false, stays: true, title: "Orgtree's own notices. This chat can't be closed." }
+  }
+  if (chat.grant) {
+    if (chat.topLevel) {
+      return { can: true, stays: true,
+        title: `Revoke ${chat.peer}'s audience grant. The chat stays: a top-level agent always has a direct line to you.` }
+    }
+    return { can: true, stays: false,
+      title: `Close this chat: revoke ${chat.peer}'s audience with you. Its history is kept.` }
+  }
+  if (chat.topLevel) {
+    return { can: false, stays: true,
+      title: `${chat.peer} is a top-level agent: it always has a direct line to you, so this chat can't be closed.` }
+  }
+  if (chat.inherited) {
+    return { can: false, stays: true,
+      title: `${chat.peer}'s audience with you comes through project ${chat.inherited}. `
+        + `Revoke the project's audience to close this chat.` }
+  }
+  return { can: false, stays: false,
+    title: `${chat.peer} holds no audience with you. This chat leaves the list once nothing of its waits on you.` }
 }
 
 /** How many things wait on the user across the listed chats. */
