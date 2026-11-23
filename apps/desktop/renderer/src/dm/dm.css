@@ -57,6 +57,10 @@
   border-radius: 0 3px 3px 0; background: var(--accent);
 }
 .dm-row.off { opacity: .6; }
+/* the close under the pointer would take the audience from these too */
+.dm-row.losing, .dm-row.losing:hover, .dm-row.losing.sel {
+  background: color-mix(in srgb, var(--bad) 16%, transparent); box-shadow: inset 0 0 0 1.5px var(--bad);
+}
 /* an audience request is a new chat that waits on the user: marked, first in the list */
 .dm-row.request { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
 .dm-row.request:hover, .dm-row.request.sel { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
@@ -109,7 +113,7 @@
   display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
 }
 .dm-av .project-mark { display: inline-flex; font-size: 22px; }
-.dm-av.dm-av-system { color: var(--dim); border: 1px dashed var(--line); background: transparent; }
+.dm-av .tier.letter-chip.t-system { color: var(--dim); background: var(--panel-2); border: 1px solid var(--line); }
 .dm-av.dm-av-other { color: var(--dim); }
 
 /* ---------------------------------------------------------- the conversation */
@@ -135,6 +139,9 @@
 }
 /* the name is the agent link, at a header's size */
 .dm-panel .dm-who-name .ref-chip { font-size: 15.5px; font-weight: 600; }
+/* the projects an audience comes through, after the audience badge */
+.dm-via-projects { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); white-space: nowrap; }
+.dm-kind .project-mark { display: inline-flex; font-size: 12px; }
 /* why the chat exists: the audience badge's box for every chip beside the
    name, each in its own colour (USER 2026-11-23 mae2b1aa37a9b) */
 .badge.dm-standing { border-color: color-mix(in srgb, var(--dim) 40%, transparent); }
