@@ -742,6 +742,9 @@ const hover = async (el: Element | null | undefined, on: boolean) => {
   await inAct(async () => { el!.dispatchEvent(new W.MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true })); await flush(2) })
 }
 const losing = () => [...document.querySelectorAll<HTMLElement>('.dm-row.losing')].map(r => r.dataset.dmChat)
+/** the app's own confirmation (canvas/modals.tsx ConfirmModal), never the system's dialog */
+const asked = () => document.querySelector<HTMLElement>('.confirm-box[role="dialog"]')
+const answer = (label: string) => [...(asked()?.querySelectorAll('button') ?? [])].find(b => b.textContent === label)
 
 test('an audience through a project reads "via" the project link; with its own grant too, "(and via …)"', async (t) => {
   const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
@@ -766,16 +769,20 @@ test('hovering a project\'s close marks every agent that would lose the audience
   await hover(close, false)
   assert.deepEqual(losing(), [], 'the mark goes with the pointer')
   await s.click(close, 'the project\'s close')
-  assert.equal(s.confirms.length, 1, 'the one close that asks')
-  assert.match(s.confirms[0]!, /Revoke project desk's audience with you\?[\s\S]*1 agent reaches you only through it and loses its audience too: clerk\./)
+  assert.equal(s.confirms.length, 0, 'not the system\'s dialog')
+  assert.equal(asked()?.querySelector('h3')?.textContent, "Revoke project desk's audience with you?", 'the app\'s own confirmation: the one close that asks')
+  assert.match(asked()?.querySelector('.confirm-body')?.textContent ?? '', /^1 agent reaches you only through it and loses its audience too: clerk\.$/)
+  assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'nothing is revoked before the answer')
+  await s.click(answer('Revoke'), 'Revoke')
+  assert.equal(asked(), null)
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'desk' }])
 })
 
 test('declining the confirmation revokes nothing', async (t) => {
   const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
-  window.confirm = (text?: string) => { s.confirms.push(String(text)); return false }
   await s.click(s.row('desk')!.querySelector('.dm-row-close'), 'the project\'s close')
-  assert.equal(s.confirms.length, 1)
+  await s.click(answer('cancel'), 'cancel')
+  assert.equal(asked(), null, 'the question is gone')
   assert.equal(posts(s.server.calls, /\/audiences$/).length, 0)
   assert.equal(s.row('desk') !== undefined, true, 'the chat is still there')
 })
@@ -783,7 +790,7 @@ test('declining the confirmation revokes nothing', async (t) => {
 test('a project whose close takes the audience from nobody else asks nothing', async (t) => {
   const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
   await s.click(s.row('crew')!.querySelector('.dm-row-close'), 'the close of crew')
-  assert.equal(s.confirms.length, 0, 'its members are top-level and keep their direct line')
+  assert.equal(asked(), null, 'its members are top-level and keep their direct line')
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'crew' }])
 })
 
@@ -796,7 +803,8 @@ test('the close of an agent that reaches the user only through a project is that
   await hover(close, true)
   assert.deepEqual(losing().sort(), ['clerk', 'desk'], 'the same mark as on the project\'s own close')
   await s.click(close, 'the close in clerk\'s chat')
-  assert.equal(s.confirms.length, 1, 'and the same question')
+  assert.equal(asked()?.querySelector('h3')?.textContent, "Revoke project desk's audience with you?", 'and the same question')
+  await s.click(answer('Revoke'), 'Revoke')
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'desk' }], 'the PROJECT\'s grant, not clerk\'s')
 })
 
@@ -807,13 +815,15 @@ test('with a grant of its own and a project\'s audience: the first close revokes
   await hover(close(), true)
   assert.deepEqual(losing(), [], 'the first close affects nobody else')
   await s.click(close(), 'the first close')
-  assert.equal(s.confirms.length, 0)
+  assert.equal(asked(), null, 'nothing is asked')
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'runner' }])
   assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'runner', 'its chat stays: it still reaches the user through the project')
   assert.match(document.querySelector('.dm-head .dm-via-projects')?.textContent ?? '', /^via\s*desk$/, 'now through the project only')
   await s.click(close(), 'the second close')
-  assert.equal(s.confirms.length, 1, 'the project\'s close asks: clerk and runner lose the audience')
-  assert.match(s.confirms[0]!, /2 agents reach you only through it and lose their audience too: clerk, runner\./)
+  assert.match(asked()?.querySelector('.confirm-body')?.textContent ?? '', /^2 agents reach you only through it and lose their audience too: clerk, runner\.$/,
+    'the project\'s close asks: clerk and runner lose the audience')
+  await s.click(answer('Revoke'), 'Revoke')
+  assert.equal(s.confirms.length, 0, 'the system\'s dialog was never used')
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body)[1], { action: 'revoke', node: 'desk' })
 })
 
@@ -902,4 +912,11 @@ test('a fold never hides the chat on screen, and a search shows through it', asy
     await flush(4)
   })
   assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['page'], 'a match inside a folded group is found')
+})
+
+test('a row\'s time gives way to its close control on hover, so the two never overlap', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  assert.match(css, /\.dm-row:hover:has\(\.dm-row-close\) \.dm-row-l1 \.mtime,\s*\.dm-row:focus-within:has\(\.dm-row-close\) \.dm-row-l1 \.mtime \{ visibility: hidden; \}/)
 })
