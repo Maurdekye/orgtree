@@ -14,6 +14,7 @@ The root guide contains only before-work constraints. These topic references ret
 | [Fable costs 8 credits](providers-and-accounts.md#fable-costs-8-credits-2026-11-13-4513) | Current Fable seat price, existing-seat retention and template totals (2026-11-13, 4.5.13). |
 | [Instructions and skills](instructions-and-skills.md) | Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery. |
 | [Organization tree and tools](org-tree-and-tools.md) | Scope, authority, topology, credits, hiring, lifecycle and typed tool contracts. |
+| [Export, import and duplicate](org-tree-and-tools.md#export-import-and-duplicate-2026-11-23-470) | What an import may and may not do, the transcript rows it writes, and the marks it must not use (2026-11-23, 4.7.0). |
 | [Projects and concurrency](projects-and-concurrency.md) | Project folders, policy, slots, listeners, watchdogs, queues and coordination. |
 | [Mail and hub](mail-and-hub.md) | Delivery, mentions, inboxes, outside authority, files, Hubchat and hub transport. |
 | [Docket and presentations](docket-and-presentations.md) | Work records, questions, documents, attachments, viewers and attention. |

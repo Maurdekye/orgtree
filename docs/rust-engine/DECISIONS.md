@@ -2791,3 +2791,38 @@ still to come. See the current
     does: the ONE exception to "no confirmation". A member inherits from its direct project only
     (migration 0032), so "several projects" cannot occur today; the label and the close rule take a list.
     A chat row's menu has "Agent…" or "Project…", the node's canvas menu. Frontend only.
+
+108. **Agents, teams and projects are exported, imported and duplicated**
+    (USER 2026-11-23 10:32Z mb05f4fda0d92 and 10:43Z m3c072bcdc19a; the design
+    approved with changes 20:30Z m2106530cca00, 20:31Z, 20:32Z and 20:44Z
+    m36ba89488717; docket agent-team-project-export-import-and-duplication;
+    4.7.0). One zip holds a node, alone or with everything under it: settings,
+    charters, credits, folders, transcript, CLI session, documents, docket
+    items, watchdogs. An import creates the nodes through the canonical hire
+    as the importer, so an agent's import is bounded by its credits and its
+    authority and the user's by the app's bubbling switch, then brings the
+    history in. What comes in stays history: mail is restored only between
+    the imported nodes, questions and other mail go to a folder of the
+    agent's own, watchdogs arrive paused, nothing waits or is asked again.
+    Signed choices: nothing is stripped unless the app's setting is ticked,
+    and the user's own export then stops for a confirmation that names what
+    it found; sealed watchdog credentials travel only in that confirmed
+    export, never in an agent's; names clash by numbering; grants are the
+    saved ones, clamped by a shrink strategy (the app's default for the
+    user, named or refused for an agent); a model this computer cannot staff
+    arrives retired; an agent goes on with its own CLI session where its
+    harness keeps one as files; one export holds at most 256 GiB, and mail to
+    `@org:` carries files up to that; the user's own import or duplicate is
+    one entry of the undo history. A duplicate copies no docket items, cost
+    or mail. Never mark such a node `extra.imported_from` (the 3.x upgrade's
+    mark): the mark is `extra.ported`. See
+    [agent-export.md](agent-export.md).
+
+109. **The tool description budget is 14056 bytes** (coordinator 2026-11-23
+    m4d2654168ca8, for docket
+    agent-team-project-export-import-and-duplication). Raised from 12500 by
+    1556, the bytes of the three new cards (`orgtree_export` 555,
+    `orgtree_import` 578, `orgtree_duplicate` 423); no other card was trimmed
+    for it. The three are deferred cards. Every seat's tool list changes, so
+    each starts a new prompt-cache prefix at its first start after the
+    upgrade.

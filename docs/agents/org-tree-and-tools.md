@@ -1,5 +1,33 @@
 # Organization tree and tools
 
+## Export, import and duplicate (2026-11-23, 4.7.0)
+
+Engine `portable/`, `domain/ops/import.rs`, `tools/portable.rs`, `http/portable.rs`; the design and what is measured:
+[agent-export.md](../rust-engine/agent-export.md); decision 108. What is easy to break:
+
+- **The mark of an imported node is `extra.ported`.** `extra.imported_from` is the 3.x upgrade's: `runtime::history::ensure`
+  claims an agent that has it and replaces its rows at seq 0 and below. [verified: `runtime/history.rs`]
+- **An importer of transcript rows leaves a row at seq 0.** `ConvoWriter::load` continues at `max(seq) + 1`, and a row at 0 or
+  below is never amended (`update_batch` takes `seq > 0`, `count_turn_rows` skips `seq <= 0`). Rows ending at -1 put the
+  actor's first row at 0. The import writes its marker line there. [verified: `runtime/convo.rs`, `runtime/actor.rs`;
+  measured in the rig 2026-11-23]
+- **Nodes are created by the canonical ops, as the importer.** Credits, authority, name rules and placement are the hire's
+  own; nothing about them is decided again in `portable/`. The plan (`portable/plan.rs`) is pure and is what both the preview
+  and the import run. [decided: user 2026-11-23]
+- **A hire stores its notices inside the op** (`lifecycle::record`, called from `event`). The import deletes the ones addressed
+  to nodes it created, in the same transaction; the nodes that were there keep theirs. [verified: `domain/lifecycle.rs`]
+- **`ot.agents.provider` is the provider of the stored session.** A Codex thread is resumed only when it equals the seat's own,
+  so whoever stores a `session_id` stores it too, with a row of `ot.agent_sessions`. [verified: `runtime/actor.rs`]
+- **Nothing an import brings in is live.** No mail waits, no question is open, no watchdog runs unless the importer asked.
+  Mail with anyone who did not come along is a file in `imported-history/`, never a row. [decided: user 2026-11-23]
+- **Provider keys, sign-ins, the hub identity, client tokens and the engine's launch files in a folder are never exported.**
+  Sealed watchdog credentials travel only in the user's own confirmed export. [decided: user 2026-11-23]
+- **A file for another organization on this computer is copied into that organization's mailbox folder** before the mail is
+  sent, after the refusals that cost nothing (`orginbox::attachment_room`). [decided: user 2026-11-23]
+- The proof is `tools/rig/proofs/agent-export.mjs` (headless, two organizations in one engine). Run it after any change here.
+- The skills inventory (`tests/skills-tree-coverage.test.mjs`) finds exported screen components by a pattern without anchors:
+  a comment ending in "export" directly above `function ExportDialog` counted as an exported component. [measured 2026-11-23]
+
 ## Full-depth launch inheritance (2026-10-23)
 
 Runtime launch scopes and charter cascades retain every ancestor, root first;

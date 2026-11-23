@@ -1,0 +1,11 @@
+## Export, import and duplicate
+
+- **Export an agent, a team or a project as one zip file.** Right-click a node and choose Export…: only that node, or it and everything under it. The file holds its settings, charters, credits, scratch and team folders, full transcript and history, CLI session, documents, docket items and watchdog definitions. Files outside its folders are left out. Nobody is interrupted.
+- **Import here…** creates what a file holds directly under the node you chose, in this or another organization. Before anything is created the dialog shows the plan: where the file came from, the new names, and the credits it costs. A name that is taken is numbered, as a hire's is (alice becomes alice-2). Imported agents arrive idle and run when someone writes to them.
+- **Duplicate…** makes a second agent, team or project beside the first, with the same settings, credits, folders, transcript and documents. Its docket items, cost history and mail are not copied.
+- **Secrets stay in the file unless you say otherwise.** When an export finds passwords, keys, tokens or credential files, it stops, names what it found and where, and asks whether to keep them or export again without them. The new setting App settings › Runtime › Strip secrets from exports (off by default) takes them out of every export without asking.
+- **Saved grants are kept, and shrunk only when they don't fit.** When the credits that can be drawn are short, your import or duplicate takes spare credits away from the bottom up, from the top down or evenly. The dialog shows the result and lets you choose another way; the default is the new setting Shrink grants that do not fit. With cost bubbling on, your imports are not limited.
+- **Undo** takes an import or a duplicate back as one step, as it does a hire.
+- **Agents can do all three** with the new tools orgtree_export, orgtree_import and orgtree_duplicate, on themselves and the nodes below them only. Their imports are always limited by their credits, and need no approval from you.
+- **Mail to another organization on this computer can carry files**, up to 256 GiB, so an agent can send a whole team to another organization, which imports it from the attachment.
+- An export is limited to 256 GiB. An agent on a model this computer can't staff arrives retired, with its team.
