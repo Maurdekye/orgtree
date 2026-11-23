@@ -50,7 +50,7 @@ const grant = grantee => ({ grantee, grantor: USER, granted_at: ago(9 * D), reas
 const mail = (id, from, when, body, extra = {}) => ({ id, from, at: ago(when), kind: 'message', body, ...extra })
 const sent = (id, to, when, body, extra = {}) => ({ id, from: USER, to, at: ago(when), kind: 'message', body, ...extra })
 const world = {
-  audiences: [grant('worker'), grant('solo')],
+  audiences: [grant('worker'), grant('solo'), grant('crew')],
   requests: [
     { from: 'scout', target: USER, currently_at: USER, reason: 'to report the nightly check to you directly', at: ago(20 * M) },
     { from: 'drafter', target: USER, currently_at: USER, reason: 'to ask you about the wording of the 4.7.0 notes', at: ago(40 * M) },
@@ -62,6 +62,9 @@ const world = {
     mail('l1', 'lead', 5 * H, 'Plan for today: finish the 4.7.0 notes, then the review of the export.'),
     mail('so1', 'solo', 25 * H, 'The import is at 80%. Two files need a second pass.'),
     mail('mem1', 'member', 3 * D, 'The crew finished the weekly report.'),
+    // member holds the user's job in crew's queue and answered its copy of it
+    mail('ca1', 'member', 3.5 * H, 'Two numbers were off: the March total and the returns. Both are fixed.',
+      { reply_to: { id: 'cj1c', kind: 'mail', from: USER, at: ago(4 * H), gist: 'Please check the numbers in the weekly report.', org: 'mine', box: 'user' } }),
     mail('sys0', '@system', 2 * D, 'Orgtree restarted after an update.', { notice: true, kind: 'system' }),
   ],
   pending: [
@@ -73,6 +76,13 @@ const world = {
   sent: [
     sent('s1', 'worker', 26.9 * H, 'Thanks. Send me the summary when the review is done.'),
     sent('s2', 'solo', 26 * H, 'How is the import going?'),
+    // a megaphone send to crew: one copy per member, sharing one send id
+    sent('g1a', 'member', 6 * H, 'The standup moves to 10:00 from tomorrow.', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
+    sent('g1b', 'mate', 6 * H, 'The standup moves to 10:00 from tomorrow.', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
+    // the user's message to crew is a job in its queue; the engine keeps a copy for the member it handed it to
+    sent('cj1', 'crew', 4 * H, 'Please check the numbers in the weekly report.', { queue: { held_by: 'member', ack: true } }),
+    sent('cj1c', 'member', 4 * H - 4000, 'Please check the numbers in the weekly report.', { queue: { job: { id: 9, name: 'crew', mail: 'cj1', ack: true } } }),
+    sent('cj2', 'crew', 3.4 * H, 'Also: who owns the chart on page 3?'),
   ],
 }
 const everyMail = () => [...world.delivered, ...world.pending, ...world.sent]
@@ -121,10 +131,17 @@ const server = createServer(async (req, res) => {
   if (p === '/inbox/clear') { world.delivered.push(...world.pending); world.pending = []; return send({ ok: true }) }
   const message = p.match(/^\/nodes\/([^/]+)\/message$/)
   if (message && req.method === 'POST') {
-    const id = `sent-${++seq}`, to = decodeURIComponent(message[1])
+    const id = `sent-${++seq}`
+    let to = decodeURIComponent(message[1]), queue
     // a reply keeps a small snapshot of what it answers, as the engine's sent mail does
     const answered = body.target?.kind === 'mail' ? everyMail().find(m => m.id === body.target.id) : null
-    world.sent.push({ id, from: USER, to, at: new Date().toISOString(), kind: 'message', body: body.text, notice: !!body.notice,
+    // the user's follow-up to their own job in a project goes to the job's holder, marked as following
+    // that job (engine follow_up_plain, held and not acknowledged)
+    if (answered && answered.from === USER && answered.to === to && answered.queue?.held_by && !answered.queue.acked_at) {
+      queue = { job: { id: 9, name: to, mail: answered.id }, follow_up_to: answered.id }
+      to = answered.queue.held_by
+    }
+    world.sent.push({ id, from: USER, to, at: new Date().toISOString(), kind: 'message', body: body.text, notice: !!body.notice, ...(queue ? { queue } : {}),
       ...(answered ? { reply_to: { id: answered.id, kind: 'mail', from: answered.from, at: answered.at, gist: answered.body.slice(0, 120), org: 'mine', box: 'user' } } : {}) })
     return send({ accepted: true, id, ref: `@mail:${id}` })
   }
@@ -164,7 +181,7 @@ if (flag === '--expect') {
 
   // ---- 6: newest first, each with its unread count; a chat is bubbles, the user's on the right
   for (const [theme, s] of Object.entries(v.themes)) {
-    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'solo', 'member'], `${theme}: the two audience requests, then newest message first`)
+    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'crew', 'member', 'mate', 'solo'], `${theme}: the two audience requests, then newest message first`)
     assert.deepEqual(s.rows.filter(r => r.request).map(r => r.peer), ['scout', 'drafter'], `${theme}: the requests are marked`)
     assert.equal(s.strip, 0, `${theme}: no request strip above the chats`)
     const of = peer => s.rows.find(r => r.peer === peer)
@@ -207,7 +224,7 @@ if (flag === '--expect') {
   assert.equal(v.read.active.newmark, '2 new messages', 'the new-messages line stays while the chat is on screen')
   assert.equal(v.read.system.badgeBefore, '1'); assert.equal(v.read.system.badgeAfter, null)
   // w3 is the mail the reply answered: a reply marks its original read, as in the classic mailbox
-  assert.deepEqual(posts(/\/inbox\/read$/).map(c => c.body.ids), [['w4', 'w5'], ['w3'], ['sys1']], 'each chat read once, when seen')
+  assert.deepEqual(posts(/\/inbox\/read$/).map(c => c.body.ids), [['w4', 'w5'], ['w3'], ['sys1'], ['ca1']], 'each chat read once, when seen; a reply reads what it answers')
   checked.push('read on view')
 
   // ---- 1: a top-level agent's chat cannot be closed, and says why
@@ -232,12 +249,12 @@ if (flag === '--expect') {
 
   // ---- 3: New chat is the agents list, and picking grants an audience
   assert.equal(v.picker.title, 'New chat')
-  assert.deepEqual(v.picker.rows, ['lead', 'worker', 'helper', 'scout', 'drafter', 'solo', 'crew', 'member'])
+  assert.deepEqual(v.picker.rows, ['lead', 'worker', 'helper', 'scout', 'drafter', 'solo', 'crew', 'member', 'mate'])
   assert.equal(v.picker.filter, true); assert.deepEqual(v.picker.active, { checked: false }); assert.match(v.picker.archivedToggle, /show 1 archived/)
   assert.ok(v.picker.withArchived.rows.includes('archivist') && !v.picker.rows.includes('archivist'), 'the archived fold')
   assert.deepEqual(v.picker.activeOnly.rows, ['lead', 'solo'], 'only agents running a turn')
   assert.deepEqual(v.picker.filtered.rows, ['lead', 'helper'], 'the filter box: the match, under its superior')
-  assert.deepEqual(v.picker.open, ['lead', 'solo', 'member'], 'the agents that can already write to the user are marked')
+  assert.deepEqual(v.picker.open, ['lead', 'solo', 'crew', 'member', 'mate'], 'the agents and the project that can already write to the user are marked')
   assert.deepEqual(v.search.rows, ['solo'], 'the chat search')
   assert.equal(v.picker.opened.peer, 'helper'); assert.equal(v.picker.closedAfterPick, true)
   assert.ok(v.picker.opened.badges.some(b => /audience/.test(b)), 'the new chat holds an audience')
@@ -294,6 +311,23 @@ if (flag === '--expect') {
   assert.equal(v.agentbox.head.link.tag, 'BUTTON'); assert.match(v.agentbox.head.link.cls, /ref-chip ref-agent ref-ready/); assert.equal(v.agentbox.head.link.agent, 'solo')
   assert.deepEqual(v.agentbox.focused, ['solo'])
   checked.push('header and message box')
+
+  // ---- a project's chat is one thread (R1-R4) and records a megaphone send once
+  const thread = v.project.bubbles
+  assert.deepEqual(thread.map(b => b.id), ['megaphone:g1', 'cj1', 'ca1', 'cj2'], 'no bubble for the queue\'s copy; the megaphone send once')
+  for (const b of thread) onScreen(b.box, `the project chat bubble ${b.id}`)
+  assert.equal(thread[0].megaphone, 'Megaphone · 2 agents'); assert.equal(thread[0].job, null)
+  assert.match(thread[1].job, /^held by .*member$/, 'R1: the message says who holds it'); assert.equal(thread[3].job, 'waiting in the queue')
+  assert.equal(thread[2].via, 'member', 'R2: the member\'s answer is in the project\'s chat'); assert.match(thread[2].viaText, /member$/)
+  assert.equal(v.project.replyPlaceholder, 'reply to member…'); assert.equal(v.project.followPlaceholder, 'follow up on your message to crew…')
+  const toMember = posts(/\/nodes\/member\/message$/).map(c => c.body), toCrew = posts(/\/nodes\/crew\/message$/).map(c => c.body)
+  assert.deepEqual(toMember.map(b => b.target), [{ kind: 'mail', org: 'mine', box: 'user', id: 'ca1' }], 'R3: Reply on the member\'s bubble writes to the member')
+  assert.deepEqual(toCrew.map(b => b.target), [{ kind: 'mail', org: 'mine', box: 'user', id: 'cj1' }], 'a follow-up goes to the project, naming the user\'s own message')
+  const after = v.project.after
+  assert.deepEqual(after.map(b => [b.out, b.via]), [[true, null], [true, null], [false, 'member'], [true, null], [true, 'member'], [true, 'member']],
+    'the reply and the follow-up are in the thread, each marked with the member it went to')
+  assert.deepEqual(v.project.mate, [{ id: 'g1b', megaphone: 'Megaphone · crew', job: null }], 'a member\'s chat: its megaphone copy only')
+  checked.push('project thread')
 
   // ---- narrow: the list becomes the overlay the other two-pane panels use
   assert.equal(v.narrow.collapsed, true); onScreen(v.narrow.rail, 'the list control'); assert.equal(v.narrow.closedOnPick, true)

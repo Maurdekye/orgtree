@@ -45,7 +45,10 @@ module.exports = async (page) => {
       return { id: m.dataset.dmEntry, out: m.classList.contains('out'), unread: m.classList.contains('unread'), box: box(b),
         inView: !!view && r.bottom > view.top && r.top < view.bottom,
         background: cs.backgroundColor, color: cs.color, borderStyle: cs.borderTopStyle, borderColor: cs.borderTopColor, borderWidth: cs.borderTopWidth,
-        label: text(m.querySelector('.dm-kind')) || null, notice: b.classList.contains('notice'),
+        label: text(m.querySelector('.dm-kind:not(.dm-kind-megaphone)')) || null, notice: b.classList.contains('notice'),
+        // a project's thread: the agent a bubble is from or to, where the user's message stands, the megaphone mark
+        via: m.dataset.dmVia ?? null, viaText: text(m.querySelector('.dm-via')) || null, job: text(m.querySelector('.dm-job')) || null,
+        megaphone: text(m.querySelector('.dm-kind-megaphone')) || null,
         // a notice's border is a layer over the bubble's edge: its colour, and the mask that cuts it to dashes
         edge: edge.content === 'none' ? null : { background: edge.backgroundColor, mask: (edge.maskImage || edge.webkitMaskImage || '').slice(0, 400) },
         files: [...m.querySelectorAll('.attach-row > *')].map(a => text(a).replace(/\s*\d+ KB$/, '') || a.getAttribute('title') || a.querySelector('img')?.getAttribute('alt') || a.className),
@@ -344,6 +347,46 @@ module.exports = async (page) => {
   v.agentbox.focused = await page.eval(() => window.__dm.focused.slice())
   await page.hover('.dm-head .dm-gear')
   await shot('21g-chat-header-agent-link-and-settings-gear')
+
+  // ---- 10d. A PROJECT'S CHAT IS ONE THREAD (USER 2026-11-23 mb52269db6058)
+  await openChat('crew')
+  const crew = await snap()
+  v.project = { head: crew.head, bubbles: crew.bubbles.map(b => ({ id: b.id, out: b.out, via: b.via, viaText: b.viaText, job: b.job, megaphone: b.megaphone, box: b.box })) }
+  await shot('21h-project-chat-is-one-thread')
+  await page.eval(() => window.__dm.theme('light'))
+  await page.sleep(300)
+  await shot('21i-light-project-chat')
+  await page.eval(() => window.__dm.theme('charcoal'))
+  await page.sleep(300)
+  // Reply on the member's answer writes to that member
+  await page.hover({ selector: '[data-dm-entry="ca1"] .dm-bubble', scroll: true })
+  await page.click('[data-dm-entry="ca1"] .dm-actions button[aria-label="Reply"]')
+  await page.waitFor('.dm-replybar')
+  v.project.replyPlaceholder = (await snap()).placeholder
+  await page.click('.dm-compose .mail-reply textarea')
+  await page.type('Thanks. Send the corrected report when it is ready.')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the reply to reach the member', async () => (await posted('/nodes/member/message$')).length === 1)
+  await until('the reply to show in the project chat', async () => (await snap()).bubbles.some(b => b.id === 'sent-4' && b.out && b.via === 'member'))
+  await shot('21j-reply-to-a-member-stays-in-the-thread')
+  // Reply on the user's own message is a follow-up: to the project, which hands it to the holder
+  await page.hover({ selector: '[data-dm-entry="cj1"] .dm-bubble', scroll: true })
+  await page.click('[data-dm-entry="cj1"] .dm-actions button[aria-label="Follow up on this message"]')
+  await page.waitFor('.dm-replybar')
+  v.project.followPlaceholder = (await snap()).placeholder
+  await page.click('.dm-compose .mail-reply textarea')
+  await page.type('And the totals on page 2, please.')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the follow-up to reach the project', async () => (await posted('/nodes/crew/message$')).length === 1)
+  await until('the follow-up to show in the thread', async () => (await snap()).bubbles.some(b => b.id === 'sent-5' && b.out))
+  const threaded = await snap()
+  v.project.after = threaded.bubbles.map(b => ({ id: b.id, out: b.out, via: b.via, job: b.job, megaphone: b.megaphone, text: b.text.slice(0, 60) }))
+  await shot('21k-follow-up-on-my-own-message')
+  // each member's chat has its copy of the megaphone send, and not the queue's copies
+  await openChat('mate')
+  const mate = await snap()
+  v.project.mate = mate.bubbles.map(b => ({ id: b.id, megaphone: b.megaphone, job: b.job }))
+  await shot('21l-a-members-chat-has-its-megaphone-copy')
 
   // ------------------------------------------------ 11. a narrow panel
   await page.resize('760x900')

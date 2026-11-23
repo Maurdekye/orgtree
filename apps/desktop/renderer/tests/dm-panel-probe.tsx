@@ -62,7 +62,9 @@ function tree(at: string, answer: Answer | null, unread: number): TreePayload {
       ], { busy: true, inflight_at: at, last_status: { status: 'working', summary: 'preparing the 4.7.0 notes', at }, ...(answer ? {} : { ask }) }),
       node('solo', 'sonnet', [], { audiences_held: ['@user'], audiences_explicit: ['@user'], busy: true, inflight_at: at,
         last_status: { status: 'working', summary: 'importing the second batch', at } }),
-      node('crew', 'opus', [node('member', 'haiku')], { kind: 'project', tier: null }),
+      // a project holding the user's audience (the user wrote to it), with two members
+      node('crew', 'opus', [node('member', 'haiku'), node('mate', 'haiku')],
+        { kind: 'project', tier: null, audiences_held: ['@user'], audiences_explicit: ['@user'] }),
     ],
     asks: answer ? resolved : [ask],
     asks_open: answer ? 0 : 1, user_inbox_count: unread, urgent_unread: 0,
