@@ -553,11 +553,15 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     // (user 2026-10-18 08:01Z), kept as a read record and never queued
     let replied = out.reply_to.as_ref().and_then(|q| q["id"].as_str())
         .or_else(|| out.replies.first().and_then(|q| q["id"].as_str())).map(str::to_string);
-    if let (Some(a), Some(r)) = (sender_agent, &replied) {
-        if let Some(done) = super::orginbox::jobs::follow_up_plain(&tx, org.id, &project, &out, &mail_uid, a, sender_gen, r).await? {
+    // the user's follow-up in a project thread follows the same rule (USER 2026-11-23 mb52269db6058)
+    let follows = sender_agent.is_some() || matches!(out.from, From::User);
+    if let (true, Some(r)) = (follows, &replied) {
+        if let Some(done) = super::orginbox::jobs::follow_up_plain(&tx, org.id, &project, &out, &mail_uid, sender_agent, sender_gen, r).await? {
             tx.commit().await?;
             drop(client);
-            changes::notify(engine, org, vec![Change::Mailbox(project.id), Change::Mailbox(a), Change::Mailbox(done.holder.unwrap_or(project.id))]);
+            let mut changed = vec![Change::Mailbox(project.id), Change::Mailbox(done.holder.unwrap_or(project.id))];
+            if let Some(a) = sender_agent { changed.push(Change::Mailbox(a)); }
+            changes::notify(engine, org, changed);
             if let Some(h) = done.holder { if out.wake { crate::runtime::wake(engine, org.id, h); } }
             return Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name.clone(), recipient_state: "live".into(),
                 delivery: done.note, deferred: false });

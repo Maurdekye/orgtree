@@ -531,15 +531,18 @@ pub(crate) async fn job_route(client: &impl tokio_postgres::GenericClient, org: 
 /// G3 (relay spec 2b): `sender` mails project `project` naming its OWN earlier mail there. While that job waits the
 /// follow-up is bundled with it; while a holder has it un-ACKed (ACK mode) it goes straight to the holder, stamped so G1
 /// holds; otherwise None (a new job, as before). Runs in the send's transaction; the caller commits.
+/// `sender` None is the USER naming their own mail to the project (USER 2026-11-23 mb52269db6058): the same three
+/// outcomes. A job the user's own desk listener holds has no agent holder, so its follow-up is a new job.
 #[logged]
 pub(crate) async fn follow_up_plain(tx: &Transaction<'_>, org: i64, project: &crate::domain::projects::Project, out: &Outgoing, mail_uid: &str,
-                                    sender: i64, generation: Option<i32>, job: &str) -> Result<Option<FollowedUp>> {
+                                    sender: Option<i64>, generation: Option<i32>, job: &str) -> Result<Option<FollowedUp>> {
     // decided under the project row lock, as the queue's hand-out does, so a hand-out or an ACK cannot interleave
     tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND kind='project' FOR NO KEY UPDATE", &[&project.id]).await?;
     let Some(j) = tx
         .query_opt(
             "SELECT state, extra->'claimed', extra->>'revoked', extra ? 'org_inbox' FROM ot.mail
-              WHERE org_id=$1 AND uid=$2 AND sender_agent_id=$3 AND recipient_agent_id=$4 AND NOT (extra ? 'bundled_with') FOR UPDATE",
+              WHERE org_id=$1 AND uid=$2 AND sender_agent_id IS NOT DISTINCT FROM $3 AND ($3::bigint IS NOT NULL OR sender='@user')
+                AND recipient_agent_id=$4 AND NOT (extra ? 'bundled_with') FOR UPDATE",
             &[&org, &job, &sender, &project.id],
         )
         .await?
