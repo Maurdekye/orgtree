@@ -2767,3 +2767,21 @@ still to come. See the current
     window sends none. A second setting, on by default, opens the recipient's chat after a reply on a
     presentation or a ticket. Choices made where the rulings were silent are listed in the
     [desktop notes](../agents/desktop-and-renderer.md#the-users-inbox-as-chats-2026-11-23-470).
+    PROTOTYPE FEEDBACK (USER 2026-11-23 mae2b1aa37a9b, m7012356beca4, m212aefce0372): a notice keeps its
+    fill and has a thick, widely dashed border in the chat background's colour, with no label; an audience
+    request is a chat of its own, approved or denied there and approved by writing to it; the header's name
+    is the agent link and a gear opens the agent's settings; the message box has the agent's fast mode and
+    effort; megaphone messages are teal. PROJECT CHATS (USER m56126a050ed7 "keep project chats",
+    mdb38bc9999eb "follow similar semantics to how projects with an org mailbox audience function",
+    mb52269db6058 "R1-R4 now, engine part too / also megaphone appears both in individual agent chats and
+    the project chat as record"): a project's chat is one thread. The queue's copies of the user's message
+    fold into it, a member's answer to its job is shown there under the agent's name, and a megaphone send
+    is in each member's chat and once in the project's. This needed THREE MORE engine exceptions, none with
+    a migration: (a) the user's follow-up that names their own mail to a project follows the rule agents'
+    and outside senders' follow-ups follow (`follow_up_plain`: bundled while the job waits, to the holder
+    while it is held un-ACKed, a new job otherwise); before, it was always a new job; (b) every copy of the
+    user's megaphone send stores `extra.megaphone {id, name, send, to}`, shown on a mail row as `megaphone`;
+    (c) a relayed job's mail row shows `queue.relayed_from {name, job}`, read-only. NOT carried over from
+    the org mailbox: an answer goes out under the agent's own name, and a project's direct members do
+    inherit the user's audience, so a member may also write to the user unprompted (that mail stays in its
+    own chat).

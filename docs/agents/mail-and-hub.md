@@ -1,5 +1,31 @@
 # Mail and hub
 
+## The user's mail to a project, as the user's chats read it (2026-11-23, 4.7.0)
+
+The user's sent list is every mail whose sender is `@user` (`feed/compute.rs`), and the queue writes several
+such rows for ONE message to a project: the job itself (recipient the project), a copy for each hand-out and
+re-hand-out (`domain/projects.rs` `hand_batch_in`, `extra.via_project {name, mail}`), a child job for each relay
+(`domain/projects/relay.rs`, `extra.relayed_from`) and a copy of each bundled follow-up. `mail_entry` shows them
+as `queue.job {name, mail}`, `queue.relayed_from {name, job}` (new) and `queue.follow_up_to`. The chats fold
+them (`apps/desktop/renderer/src/dm/model.ts`): a row that names another through `queue.job.mail` or
+`queue.relayed_from.job` is a copy, EXCEPT a follow-up sent straight to the holder, whose `queue.job.mail`
+equals its `queue.follow_up_to` and which is a message of its own.
+
+- The user's follow-up: `domain/mail.rs` `send_project` now calls `follow_up_plain` for `From::User` too
+  (`domain/orginbox_jobs.rs`; `sender` is `None` and the job is matched by `sender = '@user'`). A job held by
+  the user's own desk listener has no agent holder, so its follow-up stays a new job.
+- The megaphone: `http/nodes.rs` `broadcast` stamps every copy of one send with `megaphone_mark` (the project,
+  one `send` id, the number of agents) through `Outgoing.megaphone` into `extra.megaphone`; `mail_entry` shows
+  `megaphone {name, send, to}`. Only the user's megaphone route is marked; an agent's project broadcast is not.
+- A member's answer is ordinary mail from the agent, with a reply reference to ITS COPY of the job. The chats
+  thread it by that reference; it carries no project mark of its own, and it does not ACK the job.
+- The grant notice to a project no longer says its members inherit the org mailbox (`domain/audiences.rs`
+  `grant_notice_body`): migration 0032 leaves `@extern` out of the members' view.
+
+[decided: USER mdb38bc9999eb, mb52269db6058; verified: `queue_tests` u3 and u4 on the fixture database,
+`project_thread_tests`, `grant_notice_tests`, `a_megaphone_copy_stores_its_project_mark`,
+`every_megaphone_copy_names_its_project_and_its_send`]
+
 ## A message typed in the user's chats tells the agent to answer by mail (2026-11-23, 4.7.0)
 
 `POST /api/orgs/{org}/nodes/{nid}/message` takes an optional `surface`. `"dm"` on a NEW message (no reply

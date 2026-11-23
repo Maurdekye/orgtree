@@ -46,6 +46,24 @@ are a second view over the same reads and calls.
   `document.hasFocus()` false, and ANY CDP input focuses it, so the "not read while inactive" proof runs before
   the first input; a production bundle carries no MUI `data-testid`, so an icon is told by the path it draws.
 
+- AFTER THE PROTOTYPE (USER mae2b1aa37a9b, m7012356beca4, m212aefce0372, mb52269db6058): a notice's border is
+  a `::before` layer in `var(--bg)` cut to dashes by an SVG mask (CSS `dashed` has no gap length); an audience
+  request is a chat (`DmChat.request`, ranked first; `dmClose` answers with `deny`); the header name is
+  `NodeLink` and the gear calls `openSettingsAt` with no target (`SettingsAsk.target` is optional now, and the
+  canvas just opens the window); the message box gets `FastModeButton` and `AgentEffortButton` (the desk
+  composer's effort control, moved out of `desk.tsx`'s composer into a component both use) through
+  `MailReplyBox`'s `controls`. A project's chat is one thread: `dm/model.ts` folds the queue's copies
+  (`copyOf`, `rootOf`), threads answers by their reply references (`thread`), and adds one record per megaphone
+  send; an entry carries `via`, `job` and `megaphone`. In a project's chat a reply goes to the member whose
+  bubble it answers, or to the project when it follows up on the user's own message; the two cannot be mixed.
+  The engine side is in the [mail notes](mail-and-hub.md#the-users-mail-to-a-project-as-the-users-chats-read-it-2026-11-23-470).
+- CHOICES in that round, where the user's words were silent: closing a request-only chat denies it; request
+  chats come first, the newest request on top; every chip beside the name got the audience badge's box, not
+  only top-level; the header keeps its picture beside the link's own chip; fast mode and effort show for live
+  agents only; the gear shows for any chat that is a node (agent or project); an answer is threaded into a
+  project's chat only while the copy it answers is inside the loaded sent mail (older ones fall back to the
+  agent's chat); megaphone teal is `color-mix(in srgb, #3fd0b6 36%, var(--bg))`, in the chats only.
+
 [verified: `tests/dmmodel.test.tsx`, `tests/dmpanel.test.tsx`, `appsettings` §3c, `scopedmodals`, `gallery` §11,
 `docket` §13 and §13d; engine `cargo test dm_panel`; the capture receipt named in the hand-in]
 

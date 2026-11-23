@@ -69,7 +69,7 @@ For exact load-balancer/FIFO job, acknowledgement, retry/dead-letter and signal-
 
 ## Replies and follow-ups on any job
 
-Whoever holds a job may reply to its sender, and the sender may answer back, without any other audience (the job route; see `orgtree-tool-message`). A sender's follow-up that names its own earlier mail to the project is bundled with the pending job, or goes straight to the holder while the job is un-ACKed; after the ACK it is a new job.
+Whoever holds a job may reply to its sender, and the sender may answer back, without any other audience (the job route; see `orgtree-tool-message`). A sender's follow-up that names its own earlier mail to the project is bundled with the pending job, or goes straight to the holder while the job is un-ACKed; after the ACK it is a new job. Since 4.7.0 this holds for the user's mail too: **Follow up on this message** in a project's chat of the user's Inbox sends such a follow-up.
 
 ## Chains of queues
 
