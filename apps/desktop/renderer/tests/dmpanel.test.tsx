@@ -628,3 +628,82 @@ test('a chat row\'s preview reads as plain words, without the mail\'s markdown m
   assert.equal(s.row('worker')!.querySelector('.dm-row-text')?.textContent,
     'Status The beta list has 3 bounces, see the report for some_file_name.')
 })
+
+// ---- a project's chat is one thread (USER 2026-11-23 mb52269db6058) ----
+
+const projectNode = (id: string, children: unknown[]) => node(id, children, { kind: 'project', tier: null })
+/** crew is a top-level project holding the user's audience; member and mate work under it */
+const crewTree = () => tree({ roots: [node('lead'), projectNode('crew', [node('member'), node('mate')])] })
+const crewWorld = (): World => ({
+  audiences: [grant('crew')],
+  sent: [
+    sent('j1', 'crew', '2026-11-20T10:00:00Z', { queue: { held_by: 'member', ack: true } }),
+    sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1', ack: true } } }),
+    sent('j2', 'crew', '2026-11-20T11:00:00Z'),
+    sent('g1a', 'member', '2026-11-20T12:00:00Z', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
+    sent('g1b', 'mate', '2026-11-20T12:00:00Z', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
+  ],
+  delivered: [mail('a1', 'member', '2026-11-20T10:30:00Z', { reply_to: { id: 'c1', kind: 'mail', from: USER } })],
+})
+const entry = (key: string) => [...document.querySelectorAll<HTMLElement>('.dm-msg')].find(m => m.dataset.dmEntry === key)
+
+test('a project\'s chat is one thread: the message says who holds it, the member\'s answer names the member, the megaphone send is recorded once', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['j1', 'a1', 'j2', 'megaphone:g1'],
+    'no bubble for the queue\'s copy; one for the megaphone send')
+  assert.match(entry('j1')!.querySelector('.dm-job')?.textContent ?? '', /^held by /)
+  assert.equal(entry('j1')!.querySelector('.dm-job b')?.textContent, 'member')
+  assert.equal(entry('j1')!.querySelector('.dm-job')?.classList.contains('dm-job-held'), true)
+  assert.equal(entry('j2')!.querySelector('.dm-job')?.textContent, 'waiting in the queue')
+  assert.equal(entry('a1')!.dataset.dmVia, 'member')
+  assert.equal(entry('a1')!.querySelector('.dm-via b')?.textContent, 'member', 'the answer is under the agent\'s name')
+  assert.equal(entry('megaphone:g1')!.querySelector('.dm-kind-megaphone')?.textContent?.trim(), 'Megaphone · 2 agents')
+  assert.match(entry('megaphone:g1')!.querySelector('.dm-kind-megaphone')?.getAttribute('title') ?? '', /member, mate/)
+  assert.equal(entry('megaphone:g1')!.querySelector('.dm-job') === null, true)
+  // each member's chat has its own copy of the megaphone send, and not the queue's copy of j1
+  await s.openChat('member')
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['g1a'])
+  assert.equal(entry('g1a')!.querySelector('.dm-kind-megaphone')?.textContent?.trim(), 'Megaphone · crew')
+})
+
+test('in a project\'s chat, Reply on a member\'s bubble writes to that member', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  await s.click(entry('a1')!.querySelector('.dm-actions button[aria-label="Reply"]'), 'Reply on the member\'s answer')
+  assert.equal(document.querySelector('.dm-compose textarea')?.getAttribute('placeholder'), 'reply to member…')
+  await s.type('Thanks, go on.')
+  await s.send()
+  const posted = posts(s.server.calls, /\/message$/)
+  assert.deepEqual(posted.map(c => c.path.replace(/^.*\/orgs\/mine/, '')), ['/nodes/member/message'], 'to the member, not to the project\'s queue')
+  assert.deepEqual(posted[0]!.body!.target, { kind: 'mail', org: 'mine', box: 'user', id: 'a1' })
+  assert.equal('surface' in posted[0]!.body!, false, 'a reply carries no panel mark')
+})
+
+test('in a project\'s chat, Reply on the user\'s own message is a follow-up: to the project, naming that message', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  const follow = entry('j1')!.querySelector<HTMLButtonElement>('.dm-actions button[aria-label="Follow up on this message"]')
+  await s.click(follow, 'Follow up on the user\'s own message')
+  assert.equal(document.querySelector('.dm-compose textarea')?.getAttribute('placeholder'), 'follow up on your message to crew…')
+  await s.type('One more thing.')
+  await s.send()
+  const posted = posts(s.server.calls, /\/message$/)
+  assert.deepEqual(posted.map(c => c.path.replace(/^.*\/orgs\/mine/, '')), ['/nodes/crew/message'],
+    'to the project: the engine hands a follow-up to the job\'s holder')
+  assert.deepEqual(posted[0]!.body!.target, { kind: 'mail', org: 'mine', box: 'user', id: 'j1' })
+  assert.equal(posts(s.server.calls, /\/inbox\/read$/).length, 0, 'the user\'s own message is not "read"')
+  // the megaphone record and a plain agent chat offer no follow-up
+  assert.equal(entry('megaphone:g1')!.querySelector('.dm-actions button[aria-label="Follow up on this message"]') === null, true)
+})
+
+test('in a project\'s chat, one reply cannot answer a member and follow up on the user\'s own message at once', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  await s.click(entry('a1')!.querySelector('.dm-actions button[aria-label="Reply"]'), 'Reply')
+  await s.click(entry('j1')!.querySelector('.dm-actions button[aria-label="Follow up on this message"]'), 'Follow up')
+  await s.type('Both?')
+  await s.send()
+  assert.equal(posts(s.server.calls, /\/message$/).length, 0, 'nothing is sent')
+  assert.match(document.querySelector('.dm-compose [role="alert"]')?.textContent ?? '', /reply to one agent at a time, or follow up on your own message/)
+})

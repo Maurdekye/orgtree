@@ -239,3 +239,151 @@ test('closing a chat that is only a request denies it; a holder of the audience 
   assert.equal(held.request, null)
   assert.equal(dmClose(held).deny, undefined, 'closing a held audience revokes, as before')
 })
+
+// ---- a project's chat is one thread (USER 2026-11-23 mb52269db6058) ----
+// The engine keeps one row for the user's message to a project and one more
+// "sent by the user" for every hand-out, relay and bundled follow-up.
+
+/** crew holds the user's audience; member and mate work under it; pool is a
+ *  project under lead that relays crew's queue, with pooled under it */
+const CREW = {
+  slug: 'mine', roots: [
+    node('lead', [node('worker'), project('pool', [node('pooled')])]),
+    project('crew', [node('member'), node('mate')]),
+  ],
+} as unknown as TreePayload
+const crewChats = (b: Partial<InboxPayload>) => dmChats({
+  nodes: dmNodes(CREW), grants: [grant('crew')], box: box(b), openAsks: [], doneAsks: [] })
+const keys = (c: DmChat) => c.entries.map(e => e.key)
+
+test('R1: the copy the queue hands a member folds into the user\'s message, which says who holds it', () => {
+  const list = crewChats({ sent: [
+    sent('j1', 'crew', '2026-11-20T10:00:00Z', { queue: { held_by: 'member' } }),
+    sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1' } } }),
+    sent('j2', 'crew', '2026-11-20T11:00:00Z'),
+  ] })
+  const crew = chat(list, 'crew')
+  assert.deepEqual(keys(crew), ['j1', 'j2'], 'one bubble per message: the copy is not a message')
+  assert.deepEqual(crew.entries[0]!.job, { state: 'held', holders: ['member'] })
+  assert.deepEqual(crew.entries[1]!.job, { state: 'waiting', holders: [] }, 'nobody has taken the second one')
+  assert.deepEqual(keys(chat(list, 'member')), [], 'and the copy is not in the member\'s own chat')
+})
+
+test('R2: a member\'s answer to its copy is in the project\'s chat under the agent\'s name; its own mail stays in its own chat', () => {
+  const list = crewChats({
+    sent: [
+      sent('j1', 'crew', '2026-11-20T10:00:00Z', { queue: { held_by: 'member' } }),
+      sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1' } } }),
+    ],
+    pending: [mail('a1', 'member', '2026-11-20T10:30:00Z', { reply_to: { id: 'c1', kind: 'mail', from: '@user' } })],
+    delivered: [mail('own1', 'member', '2026-11-20T09:00:00Z')],
+  })
+  const crew = chat(list, 'crew')
+  assert.deepEqual(keys(crew), ['j1', 'a1'])
+  assert.equal(crew.entries[1]!.via, 'member', 'the answer names the agent that wrote it')
+  assert.equal(crew.unread, 1, 'and it is the project chat\'s unread mail')
+  assert.deepEqual(keys(chat(list, 'member')), ['own1'], 'what the member wrote on its own stays in its chat')
+  assert.equal(chat(list, 'member').unread, 0)
+})
+
+test('R3: the user\'s reply to a member\'s answer stays in the project\'s thread, marked with whom it went to', () => {
+  const list = crewChats({
+    sent: [
+      sent('j1', 'crew', '2026-11-20T10:00:00Z'),
+      sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1' } } }),
+      sent('r1', 'member', '2026-11-20T10:40:00Z', { reply_to: { id: 'a1', kind: 'mail', from: 'member' } }),
+    ],
+    delivered: [
+      mail('a1', 'member', '2026-11-20T10:30:00Z', { reply_to: { id: 'c1', kind: 'mail', from: '@user' } }),
+      mail('a2', 'member', '2026-11-20T10:50:00Z', { reply_to: { id: 'r1', kind: 'mail', from: '@user' } }),
+    ],
+  })
+  const crew = chat(list, 'crew')
+  assert.deepEqual(keys(crew), ['j1', 'a1', 'r1', 'a2'], 'the whole exchange is one thread')
+  assert.deepEqual(crew.entries.map(e => [e.out, e.via ?? null]), [[true, null], [false, 'member'], [true, 'member'], [false, 'member']])
+  assert.equal(crew.entries[2]!.job, undefined, 'a reply to a member is no queue job')
+})
+
+test('R4: a relay and a re-hand-out fold the same way, and name each agent the job went to', () => {
+  const list = crewChats({ sent: [
+    sent('j1', 'crew', '2026-11-20T10:00:00Z', { queue: { held_by: 'pool' } }),
+    // pool's relay took it: a child job in pool, naming the job it came from
+    sent('j1b', 'pool', '2026-11-20T10:00:02Z', { queue: { relayed_from: { name: 'crew', job: 'j1' }, held_by: 'pooled' } }),
+    sent('c1', 'pooled', '2026-11-20T10:00:04Z', { queue: { job: { id: 5, name: 'pool', mail: 'j1b' } } }),
+    // a second message, abandoned by member and handed to mate
+    sent('j2', 'crew', '2026-11-20T11:00:00Z', { queue: { held_by: 'mate' } }),
+    sent('c2', 'member', '2026-11-20T11:00:03Z', { queue: { job: { id: 9, name: 'crew', mail: 'j2' }, released: { by: 'crew', why: 'stale' } } }),
+    sent('c3', 'mate', '2026-11-20T11:20:00Z', { queue: { job: { id: 9, name: 'crew', mail: 'j2' } } }),
+  ] })
+  const crew = chat(list, 'crew')
+  assert.deepEqual(keys(crew), ['j1', 'j2'], 'two messages, however many copies')
+  assert.deepEqual(crew.entries[0]!.job, { state: 'held', holders: ['pooled'] }, 'the relayed job: the agent that finally got it')
+  assert.deepEqual(crew.entries[1]!.job, { state: 'held', holders: ['member', 'mate'] }, 'the re-hand-out: both, oldest first')
+  assert.equal(list.some(c => c.peer === 'pool' || c.peer === 'pooled'), false, 'no chat appears for the relay or its worker')
+  // an answer from the relay's worker threads back to the first project
+  const answered = crewChats({
+    sent: [
+      sent('j1', 'crew', '2026-11-20T10:00:00Z'),
+      sent('j1b', 'pool', '2026-11-20T10:00:02Z', { queue: { relayed_from: { name: 'crew', job: 'j1' } } }),
+      sent('c1', 'pooled', '2026-11-20T10:00:04Z', { queue: { job: { id: 5, name: 'pool', mail: 'j1b' } } }),
+    ],
+    delivered: [mail('a1', 'pooled', '2026-11-20T10:30:00Z', { reply_to: { id: 'c1', kind: 'mail', from: '@user' } })],
+  })
+  assert.deepEqual(chat(answered, 'crew').entries.map(e => [e.key, e.via ?? null]), [['j1', null], ['a1', 'pooled']])
+})
+
+test('a follow-up: bundled with the waiting job it is one bubble; sent straight to the holder it is in the thread, marked', () => {
+  const list = crewChats({ sent: [
+    sent('j1', 'crew', '2026-11-20T10:00:00Z', { queue: { held_by: 'member', ack: true } }),
+    sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1', ack: true } } }),
+    // bundled while the job waited, then handed with it
+    sent('b1', 'crew', '2026-11-20T10:00:03Z', { queue: { follow_up_to: 'j1' } }),
+    sent('b1c', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'b1' }, follow_up_to: 'j1' } }),
+    // sent to the holder directly: it names the JOB, and is a message of its own
+    sent('f1', 'member', '2026-11-20T10:20:00Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1' }, follow_up_to: 'j1' } }),
+  ] })
+  const crew = chat(list, 'crew')
+  assert.deepEqual(keys(crew), ['j1', 'b1', 'f1'])
+  assert.equal(crew.entries[1]!.job, undefined, 'a follow-up follows its job: it has no state of its own')
+  assert.equal(crew.entries[2]!.via, 'member', 'the direct follow-up says whom it went to')
+  assert.deepEqual(keys(chat(list, 'member')), [])
+})
+
+test('a job\'s state: acknowledged, and not delivered', () => {
+  const list = crewChats({ sent: [
+    sent('j1', 'crew', '2026-11-20T10:00:00Z', { queue: { held_by: 'member', ack: true, acked_at: '2026-11-20T10:30:00Z' } }),
+    sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1', ack: true } } }),
+    sent('j2', 'crew', '2026-11-20T11:00:00Z', { queue: { dead_letter: { by: 'crew', why: 'attempts', attempts: 3 } } }),
+  ] })
+  assert.deepEqual(chat(list, 'crew').entries.map(e => e.job?.state), ['done', 'dead'])
+})
+
+test('a copy whose message is older than the loaded mail stands for it, once, in the project\'s chat', () => {
+  const list = crewChats({ sent: [
+    sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'gone' } } }),
+    sent('c2', 'mate', '2026-11-20T10:30:00Z', { queue: { job: { id: 9, name: 'crew', mail: 'gone' } } }),
+  ] })
+  assert.deepEqual(chat(list, 'crew').entries.map(e => [e.key, e.via ?? null]), [['c1', 'member']])
+})
+
+test('megaphone: each member\'s chat has its copy, and the project\'s chat has the send once, as a record', () => {
+  const mega = { name: 'crew', send: 'g1', to: 2 }
+  const list = crewChats({ sent: [
+    sent('g1a', 'member', '2026-11-20T10:00:00Z', { megaphone: mega }),
+    sent('g1b', 'mate', '2026-11-20T10:00:00Z', { megaphone: mega }),
+  ] })
+  assert.deepEqual(keys(chat(list, 'member')), ['g1a'])
+  assert.deepEqual(chat(list, 'member').entries[0]!.megaphone, { project: 'crew', record: false, to: 2, names: ['member', 'mate'] })
+  assert.deepEqual(keys(chat(list, 'mate')), ['g1b'])
+  const crew = chat(list, 'crew')
+  assert.deepEqual(keys(crew), ['megaphone:g1'], 'once')
+  assert.deepEqual(crew.entries[0]!.megaphone, { project: 'crew', record: true, to: 2, names: ['member', 'mate'] })
+  assert.equal(crew.entries[0]!.job, undefined, 'a megaphone send is no queue job')
+  // an answer to a megaphone copy is that member's own conversation
+  const answered = crewChats({
+    sent: [sent('g1a', 'member', '2026-11-20T10:00:00Z', { megaphone: mega })],
+    delivered: [mail('a1', 'member', '2026-11-20T10:10:00Z', { reply_to: { id: 'g1a', kind: 'mail', from: '@user' } })],
+  })
+  assert.deepEqual(keys(chat(answered, 'member')), ['g1a', 'a1'])
+  assert.deepEqual(keys(chat(answered, 'crew')), ['megaphone:g1'])
+})

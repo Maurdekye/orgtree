@@ -38,6 +38,31 @@ export interface DmEntry {
   unread: boolean
   mail?: MailRow
   ask?: AskInfo
+  /** in a PROJECT's chat, the agent this bubble is from, or was sent to: a
+   *  member's answer in the project's thread, the user's reply to it, a
+   *  follow-up that went straight to the job's holder */
+  via?: string
+  /** the user's message to a project is a job in its queue: where it stands */
+  job?: DmJob
+  /** a megaphone send: its copy in a member's chat, or its one record in the
+   *  project's chat */
+  megaphone?: DmMegaphone
+}
+
+/** Where the user's message to a project stands. `holders`: the agents the
+ *  queue has handed it to, oldest first (a re-hand-out or a relay adds one). */
+export interface DmJob {
+  state: 'waiting' | 'held' | 'done' | 'dead'
+  holders: string[]
+}
+
+export interface DmMegaphone {
+  project: string
+  /** true in the project's chat: the one record of the send */
+  record: boolean
+  /** how many agents the send went to, and those whose copy is loaded */
+  to: number
+  names: string[]
 }
 
 export interface DmChat {
