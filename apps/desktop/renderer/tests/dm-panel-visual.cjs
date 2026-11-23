@@ -32,6 +32,9 @@ module.exports = async (page) => {
     const rows = [...document.querySelectorAll('.dm-row')].map(r => ({
       peer: r.dataset.dmChat, name: text(r.querySelector('.dm-row-name')), unread: badge(r),
       asks: r.querySelector('.dm-badge-asks') ? text(r.querySelector('.dm-badge-asks')) : null,
+      losing: r.classList.contains('losing'), chip: text(r.querySelector('.dm-av .letter-chip')) || null,
+      // a project's own mark: its colour, and the icon it draws
+      mark: (() => { const m = r.querySelector('.dm-av .project-mark'); return m ? { color: getComputedStyle(m).color, d: m.querySelector('svg path')?.getAttribute('d') ?? null } : null })(),
       preview: text(r.querySelector('.dm-row-prev')), selected: r.classList.contains('sel'),
       request: r.classList.contains('request'), requestBadge: !!r.querySelector('.dm-badge-request'), background: getComputedStyle(r).backgroundColor,
       closable: !!r.querySelector('.dm-row-close'), closeTitle: r.querySelector('.dm-row-close')?.getAttribute('title') ?? null,
@@ -72,6 +75,10 @@ module.exports = async (page) => {
           border: `${cs.borderTopWidth} ${cs.borderTopStyle}`, borderShown: cs.borderTopColor !== 'rgba(0, 0, 0, 0)', display: cs.display, gap: cs.columnGap, font: cs.fontSize, h: Math.round(b.getBoundingClientRect().height) } }),
         link: (() => { const l = head.querySelector('.dm-who-name .ref-chip'); return l ? { tag: l.tagName, cls: l.className, agent: l.getAttribute('data-copy-agent-name') } : null })(),
         gear: head.querySelector('.dm-gear')?.getAttribute('aria-label') ?? null,
+        via: text(head.querySelector('.dm-via-projects')) || null,
+        viaLink: (() => { const l = head.querySelector('.dm-via-projects .ref-chip'); const m = l?.querySelector('.project-mark')
+          return l ? { project: l.getAttribute('data-copy-agent-name'), tag: l.tagName, color: m ? getComputedStyle(m).color : null } : null })(),
+        chip: text(head.querySelector('.dm-av .letter-chip')) || null,
         status: text(head.querySelector('.dm-who-l2')), closeDisabled: close ? close.disabled : null, closeTitle: close?.getAttribute('title') ?? null,
         closeLabel: close?.getAttribute('aria-label') ?? null, box: box(head) } : null,
       timeline: scroller ? { ...box(scroller), scrollTop: Math.round(scroller.scrollTop), scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight } : null,
@@ -387,7 +394,59 @@ module.exports = async (page) => {
   await openChat('mate')
   const mate = await snap()
   v.project.mate = mate.bubbles.map(b => ({ id: b.id, megaphone: b.megaphone, job: b.job }))
+  v.project.mateMark = await page.eval(() => !!document.querySelector('.dm-kind-megaphone .project-mark'))
   await shot('21l-a-members-chat-has-its-megaphone-copy')
+
+  // ---- 10e. AUDIENCES THROUGH A PROJECT (USER 2026-11-23 m0ca89ba635fd)
+  const marked = async () => (await snap()).rows.filter(r => r.losing).map(r => r.peer)
+  await openChat('clerk')
+  const clerk = await snap()
+  v.via = { clerk: clerk.head, desk: row(clerk, 'desk'), crew: row(clerk, 'crew') }
+  await shot('21m-audience-via-a-project')
+  await openChat('runner')
+  v.via.runner = (await snap()).head
+  await shot('21n-own-audience-and-via-a-project')
+  // the first close revokes runner's own grant: nobody else is affected, nothing is asked
+  await page.hover('.dm-head .dm-close')
+  v.via.firstHover = await marked()
+  await page.click('.dm-head .dm-close')
+  await until('runner\'s own grant to be revoked', async () => (await posted('/audiences$')).length === 6)
+  await until('the label to say via the project only', async () => (await snap()).head?.via === 'via desk')
+  v.via.afterFirst = { head: (await snap()).head, confirms: (await snap()).confirms }
+  // the second close is the project's: it marks who loses the audience, and asks
+  await page.hover('.dm-row[data-dm-chat="lead"]')
+  await page.hover('.dm-head .dm-close')
+  await until('the rows that lose the audience to be marked', async () => (await marked()).length > 0)
+  v.via.secondHover = await marked()
+  await shot('21o-closing-a-projects-audience-marks-who-loses-it')
+  await page.click('.dm-head .dm-close')
+  await until('the project\'s grant to be revoked', async () => (await posted('/audiences$')).length === 7)
+  await until('the chats that came through it to leave', async () => !row(await snap(), 'desk') && !row(await snap(), 'runner'))
+  const gone = await snap()
+  v.via.afterSecond = { confirms: gone.confirms, asked: await page.eval(() => window.__dm.asked.slice()), rows: gone.rows.map(r => r.peer), open: gone.head?.peer ?? null }
+  await shot('21p-the-projects-audience-is-revoked')
+
+  // ---- 10f. A ROW'S MENU, AND THE SYSTEM'S CHIP (USER 2026-11-23 mf47548121ae5)
+  const menuOf = async (peer) => {
+    await page.rightClick(`.dm-row[data-dm-chat="${peer}"] .dm-row-prev`)
+    await page.waitFor('.ctxmenu')
+    const labels = await page.eval(() => { const menus = [...document.querySelectorAll('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu'))
+      const menu = menus[menus.length - 1]
+      return [...menu.children].filter(c => !c.matches('[role="separator"]')).map(c => ((c.querySelector('[role="menuitem"]') ?? c).textContent || '').trim()) })
+    return labels
+  }
+  v.menu = { agent: await menuOf('lead') }
+  await shot('21q-a-chat-rows-menu-agent')
+  await page.press('Escape')
+  await page.waitFor('.ctxmenu', { gone: true })
+  v.menu.project = await menuOf('crew')
+  await shot('21r-a-chat-rows-menu-project')
+  await page.press('Escape')
+  await page.waitFor('.ctxmenu', { gone: true })
+  v.menu.system = await menuOf('@system')
+  await page.press('Escape')
+  await page.waitFor('.ctxmenu', { gone: true })
+  v.menu.systemChip = row(await snap(), '@system')?.chip ?? null
 
   // ------------------------------------------------ 11. a narrow panel
   await page.resize('760x900')

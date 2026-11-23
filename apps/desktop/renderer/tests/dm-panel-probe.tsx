@@ -10,6 +10,7 @@ import { AskBell, UserMailbox } from '../src/App'
 import { CurrentOrg } from '../src/popout'
 import { applyContrast } from '../src/contrast'
 import { syncFastModes } from '../src/canvas/fastmode'
+import { noteProjectThemes } from '../src/projecttheme'
 import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
 import type { TreePayload } from '../src/types'
 
@@ -40,7 +41,10 @@ interface Answer { answers: unknown[]; scope: string[]; when: string }
  *  and the organization's request history lists what was resolved in the
  *  shapes the ledger gives a resolved batch: the question card with each
  *  tab's answer, and the scope request with each item's decision. */
-function tree(at: string, answer: Answer | null, unread: number): TreePayload {
+function tree(at: string, answer: Answer | null, unread: number, granted: readonly string[]): TreePayload {
+  /** what the engine's tree says of a project's direct agent while the project holds the user's audience */
+  const through = (project: string) => granted.includes(project) ? { audiences_inherited: [{ grantor: '@user', project }] } : {}
+  const own = (id: string) => granted.includes(id) ? { audiences_held: ['@user'], audiences_explicit: ['@user'] } : {}
   const ask = { ...ASK, at }
   const resolved = answer ? [
     // (the top-level question mirrors the first tab, for surfaces that read one question)
@@ -59,12 +63,16 @@ function tree(at: string, answer: Answer | null, unread: number): TreePayload {
         node('scout', 'haiku'),
         node('drafter', 'haiku'),
         node('archivist', 'haiku', [], { state: 'archived' }),
+        // a project with its own icon and colour, holding the user's audience: clerk reaches the user only
+        // through it, runner also holds a grant of its own
+        node('desk', 'opus', [node('clerk', 'haiku', [], through('desk')), node('runner', 'haiku', [], { ...through('desk'), ...own('runner') })],
+          { kind: 'project', tier: null, theme_color: '#e11d48', theme_icon: 'rocket', ...own('desk') }),
       ], { busy: true, inflight_at: at, last_status: { status: 'working', summary: 'preparing the 4.7.0 notes', at }, ...(answer ? {} : { ask }) }),
       node('solo', 'sonnet', [], { audiences_held: ['@user'], audiences_explicit: ['@user'], busy: true, inflight_at: at,
         last_status: { status: 'working', summary: 'importing the second batch', at } }),
       // a project holding the user's audience (the user wrote to it), with two members
-      node('crew', 'opus', [node('member', 'haiku'), node('mate', 'haiku')],
-        { kind: 'project', tier: null, audiences_held: ['@user'], audiences_explicit: ['@user'] }),
+      node('crew', 'opus', [node('member', 'haiku', [], through('crew')), node('mate', 'haiku', [], through('crew'))],
+        { kind: 'project', tier: null, ...own('crew') }),
     ],
     asks: answer ? resolved : [ask],
     asks_open: answer ? 0 : 1, user_inbox_count: unread, urgent_unread: 0,
@@ -77,6 +85,8 @@ declare global {
   interface Window {
     __dm: {
       confirms: number; toasts: string[]; focused: string[]; closed: number; opened: string[]
+      /** what each confirmation asked */
+      asked: string[]
       /** every request for a settings window the panel made (the canvas answers these in the app) */
       settings: unknown[]
       /** the engine's next tree: the request is resolved with what was submitted */
@@ -94,9 +104,15 @@ function Probe({ at }: { at: string }) {
   const [chat, setChat] = useState<{ peer: string; seq: number } | null>(null)
   // the tree's unread count is the engine's own: how much mail still waits there
   const [unread, setUnread] = useState(3)
+  // who holds the user's audience on the engine now: what a project's agents inherit follows it
+  const [granted, setGranted] = useState<string[]>(['worker', 'solo', 'crew', 'desk', 'runner'])
   useEffect(() => {
     let live = true
-    const read = () => { void fetch('/__state').then(r => r.json()).then((s: { unread: number }) => { if (live) setUnread(s.unread) }).catch(() => {}) }
+    const read = () => { void fetch('/__state').then(r => r.json()).then((s: { unread: number; granted: string[] }) => {
+      if (!live) return
+      setUnread(s.unread)
+      setGranted(old => old.join('|') === s.granted.join('|') ? old : s.granted)
+    }).catch(() => {}) }
     read()
     const timer = window.setInterval(read, 400)
     return () => { live = false; window.clearInterval(timer) }
@@ -104,7 +120,9 @@ function Probe({ at }: { at: string }) {
   window.__dm.answered = a => setAnswer({ ...a, when: new Date().toISOString() })
   window.__dm.jump = id => setJump({ id, seq: Date.now() })
   window.__dm.open = peer => setChat({ peer, seq: Date.now() })
-  const t = tree(at, answer, unread)
+  const t = tree(at, answer, unread, granted)
+  // every tree the app receives feeds the projects' icons and colours (archived.ts hydrateTree)
+  noteProjectThemes(t)
   return (
     <CurrentOrg.Provider value="mine">
       <header className="dm-probe-bar">
@@ -120,12 +138,12 @@ function Probe({ at }: { at: string }) {
   )
 }
 
-window.__dm = { confirms: 0, toasts: [], focused: [], closed: 0, opened: [], settings: [], answered() {}, jump() {}, open() {}, theme: id => applyContrast(id) }
+window.__dm = { confirms: 0, toasts: [], focused: [], closed: 0, opened: [], asked: [], settings: [], answered() {}, jump() {}, open() {}, theme: id => applyContrast(id) }
 window.addEventListener(OPEN_SETTINGS_AT_EVENT, e => { window.__dm.settings.push((e as CustomEvent).detail) })
 // what the providers read tells the app in a real window: these models offer fast mode
 syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }, { tier: 'sonnet', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
 // "no confirmation on close": any confirm the panel raised would be counted here
-window.confirm = () => { window.__dm.confirms++; return true }
+window.confirm = (text?: string) => { window.__dm.confirms++; window.__dm.asked.push(String(text)); return true }
 // when the open request was asked: the driver's clock, so ages read naturally
 const at = (window as unknown as { __dmAt?: string }).__dmAt ?? new Date().toISOString()
 createRoot(document.getElementById('root')!).render(<Probe at={at} />)

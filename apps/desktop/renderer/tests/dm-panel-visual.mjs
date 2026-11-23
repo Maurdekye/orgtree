@@ -50,7 +50,7 @@ const grant = grantee => ({ grantee, grantor: USER, granted_at: ago(9 * D), reas
 const mail = (id, from, when, body, extra = {}) => ({ id, from, at: ago(when), kind: 'message', body, ...extra })
 const sent = (id, to, when, body, extra = {}) => ({ id, from: USER, to, at: ago(when), kind: 'message', body, ...extra })
 const world = {
-  audiences: [grant('worker'), grant('solo'), grant('crew')],
+  audiences: [grant('worker'), grant('solo'), grant('crew'), grant('desk'), grant('runner')],
   requests: [
     { from: 'scout', target: USER, currently_at: USER, reason: 'to report the nightly check to you directly', at: ago(20 * M) },
     { from: 'drafter', target: USER, currently_at: USER, reason: 'to ask you about the wording of the 4.7.0 notes', at: ago(40 * M) },
@@ -62,6 +62,7 @@ const world = {
     mail('l1', 'lead', 5 * H, 'Plan for today: finish the 4.7.0 notes, then the review of the export.'),
     mail('so1', 'solo', 25 * H, 'The import is at 80%. Two files need a second pass.'),
     mail('mem1', 'member', 3 * D, 'The crew finished the weekly report.'),
+    mail('dk1', 'clerk', 7 * H, 'The front desk queue is empty.'),
     // member holds the user's job in crew's queue and answered its copy of it
     mail('ca1', 'member', 3.5 * H, 'Two numbers were off: the March total and the returns. Both are fixed.',
       { reply_to: { id: 'cj1c', kind: 'mail', from: USER, at: ago(4 * H), gist: 'Please check the numbers in the weekly report.', org: 'mine', box: 'user' } }),
@@ -102,7 +103,7 @@ const server = createServer(async (req, res) => {
   // the page script's own view of what the page has asked so far (not an engine route)
   if (url.pathname === '/__calls') return send(calls)
   // the probe's tree takes its unread count from here, as the engine's tree counts its own inbox
-  if (url.pathname === '/__state') return send({ unread: world.pending.length })
+  if (url.pathname === '/__state') return send({ unread: world.pending.length, granted: world.audiences.map(g => g.grantee) })
   if (!url.pathname.startsWith('/api/')) return send('not found', 'text/plain', 404)
   let body = null
   if (req.method !== 'GET') {
@@ -182,8 +183,10 @@ if (flag === '--expect') {
   assert.equal(v.start.hasFocus, false, 'the walk starts with the window inactive (an offscreen window has no user)')
 
   // ---- 6: newest first, each with its unread count; a chat is bubbles, the user's on the right
+  const of0 = (s, peer) => s.rows.find(r => r.peer === peer)
   for (const [theme, s] of Object.entries(v.themes)) {
-    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'crew', 'member', 'mate', 'solo'], `${theme}: the two audience requests, then newest message first`)
+    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'crew', 'member', 'mate', 'clerk', 'solo', 'desk', 'runner'], `${theme}: the two audience requests, then newest message first, then the chats nobody has written in`)
+    assert.equal(of0(s, '@system').chip, 'S', `${theme}: the system's chat wears an S`)
     assert.deepEqual(s.rows.filter(r => r.request).map(r => r.peer), ['scout', 'drafter'], `${theme}: the requests are marked`)
     assert.equal(s.strip, 0, `${theme}: no request strip above the chats`)
     const of = peer => s.rows.find(r => r.peer === peer)
@@ -232,7 +235,9 @@ if (flag === '--expect') {
   // ---- 1: a top-level agent's chat cannot be closed, and says why
   assert.equal(v.lead.closeDisabled, true); assert.equal(v.lead.rowClosable, false)
   assert.match(v.lead.closeTitle, /lead is a top-level agent: it always has a direct line to you, so this chat can't be closed\./)
-  assert.equal(v.member.closeDisabled, true, 'a top-level agent inside a project is top-level too')
+  // a top-level agent inside a project that holds the audience: its close is that project's, and its chat stays
+  assert.equal(v.member.closeDisabled, false)
+  assert.match(v.member.closeTitle, /member reaches you only through project crew: closing revokes that project's audience with you\. The chat stays/)
   assert.equal(v.system.head.closeDisabled, true); assert.match(v.system.head.closeTitle, /can't be closed/)
   // …with a grant: close revokes the grant, the chat stays, and the tooltip said so
   assert.equal(v.solo.before.closeDisabled, false)
@@ -244,19 +249,20 @@ if (flag === '--expect') {
   assert.match(v.workerClose.title, /Close this chat: revoke worker's audience with you\. Its history is kept\./)
   assert.equal(v.workerClose.listedAfter, false)
   assert.deepEqual(posts(/\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'solo' }, { action: 'revoke', node: 'worker' }, { action: 'grant', node: 'helper' },
-    { action: 'deny', node: 'drafter', target: USER }, { action: 'grant', node: 'scout' }])
+    { action: 'deny', node: 'drafter', target: USER }, { action: 'grant', node: 'scout' },
+    { action: 'revoke', node: 'runner' }, { action: 'revoke', node: 'desk' }])
   // ---- 2: no confirmation
-  assert.equal(v.end.confirms, 0, 'closing asked for no confirmation'); assert.deepEqual(v.end.toasts, [])
+  assert.equal(v.end.confirms, 1, 'only the close of a project\'s audience that others lose asked'); assert.deepEqual(v.end.toasts, [])
   checked.push('close rules')
 
   // ---- 3: New chat is the agents list, and picking grants an audience
   assert.equal(v.picker.title, 'New chat')
-  assert.deepEqual(v.picker.rows, ['lead', 'worker', 'helper', 'scout', 'drafter', 'solo', 'crew', 'member', 'mate'])
+  assert.deepEqual(v.picker.rows, ['lead', 'worker', 'helper', 'scout', 'drafter', 'desk', 'clerk', 'runner', 'solo', 'crew', 'member', 'mate'])
   assert.equal(v.picker.filter, true); assert.deepEqual(v.picker.active, { checked: false }); assert.match(v.picker.archivedToggle, /show 1 archived/)
   assert.ok(v.picker.withArchived.rows.includes('archivist') && !v.picker.rows.includes('archivist'), 'the archived fold')
   assert.deepEqual(v.picker.activeOnly.rows, ['lead', 'solo'], 'only agents running a turn')
   assert.deepEqual(v.picker.filtered.rows, ['lead', 'helper'], 'the filter box: the match, under its superior')
-  assert.deepEqual(v.picker.open, ['lead', 'solo', 'crew', 'member', 'mate'], 'the agents and the project that can already write to the user are marked')
+  assert.deepEqual(v.picker.open, ['lead', 'desk', 'clerk', 'runner', 'solo', 'crew', 'member', 'mate'], 'the agents and the projects that can already write to the user are marked')
   assert.deepEqual(v.search.rows, ['solo'], 'the chat search')
   assert.equal(v.picker.opened.peer, 'helper'); assert.equal(v.picker.closedAfterPick, true)
   assert.ok(v.picker.opened.badges.some(b => /audience/.test(b)), 'the new chat holds an audience')
@@ -340,6 +346,31 @@ if (flag === '--expect') {
     'the reply and the follow-up are in the thread, each marked with the member it went to')
   assert.deepEqual(v.project.mate, [{ id: 'g1b', megaphone: 'Megaphone · crew', job: null }], 'a member\'s chat: its megaphone copy only')
   checked.push('project thread')
+
+  // ---- audiences through a project: the label, the mark on hover, the one confirmation
+  assert.equal(v.via.clerk.via, 'via desk'); assert.equal(v.via.clerk.viaLink.project, 'desk'); assert.equal(v.via.clerk.viaLink.tag, 'BUTTON')
+  assert.ok(v.via.clerk.badges.some(b => /audience/.test(b)), 'after the audience badge')
+  assert.equal(v.via.runner.via, '(and via desk)', 'its own grant comes first')
+  assert.deepEqual(v.via.firstHover, [], 'the first close affects nobody else')
+  assert.equal(v.via.afterFirst.confirms, 0, 'and asks nothing'); assert.equal(v.via.afterFirst.head.peer, 'runner')
+  assert.deepEqual(v.via.secondHover.slice().sort(), ['clerk', 'desk', 'runner'], 'the project and the two agents that reach the user only through it')
+  assert.equal(v.via.afterSecond.confirms, 1)
+  assert.match(v.via.afterSecond.asked[0], /Revoke project desk's audience with you\?[\s\S]*2 agents reach you only through it and lose their audience too: clerk, runner\./)
+  for (const gone of ['desk', 'runner']) assert.equal(v.via.afterSecond.rows.includes(gone), false)
+  // a project's own icon and colour: desk is a rose rocket; crew has none set and keeps the default folder
+  const rose = 'rgb(225, 29, 72)'
+  assert.equal(v.via.desk.mark.color, rose, 'the row\'s picture is in the project\'s colour')
+  assert.equal(v.via.clerk.viaLink.color, rose, 'and so is the "via" link\'s mark')
+  assert.notEqual(v.via.crew.mark.color, rose); assert.notEqual(v.via.desk.mark.d, v.via.crew.mark.d, 'its own icon, not the folder')
+  assert.equal(v.project.mateMark, true, 'the megaphone label carries the project\'s mark')
+  checked.push('audience via a project')
+
+  // ---- a row's menu: Agent… or Project…, and neither for the system's chat
+  const has = (list, label) => list.some(x => x.startsWith(label))
+  assert.equal(v.menu.agent[0], 'Open chat'); assert.ok(has(v.menu.agent, 'Agent…') && !has(v.menu.agent, 'Project…'))
+  assert.ok(has(v.menu.project, 'Project…') && !has(v.menu.project, 'Agent…'))
+  assert.deepEqual(v.menu.system, ['Open chat']); assert.equal(v.menu.systemChip, 'S')
+  checked.push('row menu')
 
   // ---- narrow: the list becomes the overlay the other two-pane panels use
   assert.equal(v.narrow.collapsed, true); onScreen(v.narrow.rail, 'the list control'); assert.equal(v.narrow.closedOnPick, true)
