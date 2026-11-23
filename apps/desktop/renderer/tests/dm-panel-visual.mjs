@@ -251,7 +251,7 @@ if (flag === '--expect') {
   assert.equal(v.workerClose.listedAfter, false)
   assert.deepEqual(posts(/\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'solo' }, { action: 'revoke', node: 'worker' }, { action: 'grant', node: 'helper' },
     { action: 'deny', node: 'drafter', target: USER }, { action: 'grant', node: 'scout' },
-    { action: 'revoke', node: 'runner' }, { action: 'revoke', node: 'desk' }])
+    { action: 'grant', node: 'clerk' }, { action: 'revoke', node: 'runner' }, { action: 'revoke', node: 'desk' }])
   // ---- 2: no confirmation
   assert.equal(v.end.confirms, 0, 'the system\'s dialog was never used'); assert.deepEqual(v.end.toasts, [])
   assert.equal(v.workerClose.time.time, 'hidden', 'on hover the time gives way to the close control'); assert.notEqual(v.workerClose.time.close, 'none', 'which is showing')
@@ -355,11 +355,14 @@ if (flag === '--expect') {
   assert.equal(v.via.runner.via, '(and via desk)', 'its own grant comes first')
   assert.deepEqual(v.via.firstHover, [], 'the first close affects nobody else')
   assert.equal(v.via.afterFirst.confirms, 0, 'and asks nothing'); assert.equal(v.via.afterFirst.head.peer, 'runner')
-  assert.deepEqual(v.via.secondHover.slice().sort(), ['clerk', 'desk', 'runner'], 'the project and the two agents that reach the user only through it')
+  assert.deepEqual(v.via.secondHover.slice().sort(), ['desk', 'runner'], 'the project and runner, which reaches the user only through it; clerk acquired its own audience')
   assert.equal(v.via.afterSecond.confirms, 0, 'the app\'s own dialog asked, not the system\'s')
   assert.equal(v.via.dialog.title, "Revoke project desk's audience with you?")
-  assert.equal(v.via.dialog.body, '2 agents reach you only through it and lose their audience too: clerk, runner.')
-  assert.deepEqual(v.via.dialog.buttons, ['Revoke', 'cancel']); assert.equal(v.via.revokedBeforeAnswer, 6, 'nothing is revoked before the answer')
+  assert.equal(v.via.dialog.body, '1 agent reaches you only through it and loses its audience too: runner.')
+  assert.deepEqual(v.via.dialog.buttons, ['Revoke', 'cancel']); assert.equal(v.via.revokedBeforeAnswer, 7, 'nothing is revoked before the answer')
+  // "Acquire audience" in the row menu of an agent under a project
+  assert.deepEqual(v.acquire.menu.slice(0, 2), ['Open chat', 'Acquire audience'])
+  assert.deepEqual(v.acquire.after, { parent: null, via: '(and via desk)', deskFold: null }, 'clerk is out of the group, and desk has nothing under it to fold')
   for (const gone of ['desk', 'runner']) assert.equal(v.via.afterSecond.rows.includes(gone), false)
   // a project's own icon and colour: desk is a rose rocket; crew has none set and keeps the default folder
   const rose = 'rgb(225, 29, 72)'

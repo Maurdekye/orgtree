@@ -459,6 +459,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
         : !shown.length ? <div className="dim pad dm-empty-list">{q ? 'no chat matches' : 'no chats yet'}</div>
         : shown.map(c => <DmRow key={c.peer} chat={c} selected={c.peer === sel} losing={!!losing?.includes(c.peer)} toast={toast}
             child={!!c.parent && listed.has(c.parent)} hidden={hidden(c)}
+            onAcquire={c.parent ? () => { approve(c.peer).catch((e: Error) => toast([`error: ${e.message}`])) } : undefined}
             fold={c.kids > 0 ? { folded: folded.has(c.peer), locked: !!q, toggle: () => toggleFold(c.peer) } : undefined}
             onOpen={() => select(c.peer)} onClose={() => closeChat(c)} onCloseHover={on => closeHover(on ? c : null)} />)}
       {waiting.unread > 0 && <div className="dm-list-foot">
@@ -540,7 +541,7 @@ const closeHoverProps = (on: (hover: boolean) => void) => ({
   onMouseEnter: () => on(true), onMouseLeave: () => on(false), onFocus: () => on(true), onBlur: () => on(false),
 })
 
-function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onClose, onCloseHover }: {
+function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onClose, onCloseHover, onAcquire }: {
   chat: DmChat; selected: boolean; losing: boolean; toast: ToastFn; onOpen: () => void; onClose: () => void
   onCloseHover: (hover: boolean) => void
   /** listed under its project's row */
@@ -549,6 +550,8 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
   hidden: number
   /** a project with chats under it: its fold */
   fold?: { folded: boolean; locked: boolean; toggle: () => void }
+  /** an agent listed under a project: grant it its own audience (the existing grant) */
+  onAcquire?: () => void
 }) {
   const rule = dmClose(chat)
   const name = dmName(chat)
@@ -561,10 +564,19 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
   const menu = useContextMenu(toast)
   const registry = useAgentNavRegistry()
   const rowMenu = (anchor: Element): MenuEntry[] => {
-    const node = chat.node ? nodeMenuAction(chat.kind === 'project' ? 'Project…' : 'Agent…', anchor, chat.peer,
-      registry?.current?.(chat.peer, anchor) ?? [], toast) : undefined
+    const entries = chat.node ? registry?.current?.(chat.peer, anchor) ?? [] : []
+    const node = chat.node ? nodeMenuAction(chat.kind === 'project' ? 'Project…' : 'Agent…', anchor, chat.peer, entries, toast) : undefined
+    // AN AGENT UNDER A PROJECT can be given its own audience from here (USER
+    // 2026-11-23 mb5a815755600): the SAME entry its Agent… submenu has, lifted
+    // to the top. Where no canvas supplies that menu, the panel's own grant
+    // (the one New chat and Approve use) stands in. It then leaves the group.
+    const lifted = entries.find(e => e !== 'sep' && e.label === 'Acquire audience')
+    const acquire: MenuEntry | undefined = !onAcquire ? undefined
+      : lifted && lifted !== 'sep' ? lifted
+      : { label: 'Acquire audience', title: 'Grant this agent the user audience', onSelect: onAcquire }
     return [
       { label: 'Open chat', onSelect: onOpen },
+      ...(acquire ? [acquire] : []),
       ...(rule.can ? [{ label: rule.deny ? 'Deny the audience request' : rule.project ? 'Revoke the project\u2019s audience'
         : 'Revoke its audience', onSelect: onClose }] : []),
       ...(node ? ['sep' as const, node] : []),

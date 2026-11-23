@@ -418,6 +418,19 @@ module.exports = async (page) => {
   const clerk = await snap()
   v.via = { clerk: clerk.head, desk: row(clerk, 'desk'), crew: row(clerk, 'crew') }
   await shot('21m-audience-via-a-project')
+  // "Acquire audience" at the top of the row menu of an agent under a project: it moves out of the group
+  await page.rightClick('.dm-row[data-dm-chat="clerk"] .dm-row-prev')
+  await page.waitFor('.ctxmenu')
+  v.acquire = { menu: await page.eval(() => { const menus = [...document.querySelectorAll('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu'))
+    return [...menus[menus.length - 1].children].filter(c => !c.matches('[role="separator"]')).map(c => ((c.querySelector('[role="menuitem"]') ?? c).textContent || '').trim()) }) }
+  await shot('21m2-acquire-audience-in-the-row-menu')
+  await page.eval(() => { const menus = [...document.querySelectorAll('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu'))
+    ;[...menus[menus.length - 1].querySelectorAll('[role="menuitem"]')].find(b => (b.textContent || '').trim() === 'Acquire audience').click() })
+  await until('clerk to be granted its own audience', async () => (await posted('/audiences$')).length === 6)
+  await until('clerk to leave the group', async () => { const s = await snap(); return row(s, 'clerk')?.parent == null && s.head?.via === '(and via desk)' })
+  const acquired = await snap()
+  v.acquire.after = { parent: row(acquired, 'clerk')?.parent ?? null, via: acquired.head?.via, deskFold: row(acquired, 'desk')?.fold ?? null }
+  await shot('21m3-acquired-out-from-under-the-project')
   await openChat('runner')
   v.via.runner = (await snap()).head
   await shot('21n-own-audience-and-via-a-project')
@@ -425,7 +438,7 @@ module.exports = async (page) => {
   await page.hover('.dm-head .dm-close')
   v.via.firstHover = await marked()
   await page.click('.dm-head .dm-close')
-  await until('runner\'s own grant to be revoked', async () => (await posted('/audiences$')).length === 6)
+  await until('runner\'s own grant to be revoked', async () => (await posted('/audiences$')).length === 7)
   await until('the label to say via the project only', async () => (await snap()).head?.via === 'via desk')
   v.via.afterFirst = { head: (await snap()).head, confirms: (await snap()).confirms }
   // the second close is the project's: it marks who loses the audience, and asks
@@ -441,7 +454,7 @@ module.exports = async (page) => {
   v.via.revokedBeforeAnswer = (await posted('/audiences$')).length
   await shot('21o2-the-apps-own-confirmation')
   await page.click('.confirm-box[role="dialog"] button.danger')
-  await until('the project\'s grant to be revoked', async () => (await posted('/audiences$')).length === 7)
+  await until('the project\'s grant to be revoked', async () => (await posted('/audiences$')).length === 8)
   await until('the chats that came through it to leave', async () => !row(await snap(), 'desk') && !row(await snap(), 'runner'))
   const gone = await snap()
   v.via.afterSecond = { confirms: gone.confirms, asked: await page.eval(() => window.__dm.asked.slice()), rows: gone.rows.map(r => r.peer), open: gone.head?.peer ?? null }
