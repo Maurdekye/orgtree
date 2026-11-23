@@ -54,6 +54,9 @@ export interface DmEntry {
   via?: string
   /** the user's message to a project is a job in its queue: where it stands */
   job?: DmJob
+  /** the queue's copies folded into this message: a reference to one of them
+   *  (a member's answer quotes ITS copy) is a reference to this message */
+  copies?: string[]
   /** a megaphone send: its copy in a member's chat, or its one record in the
    *  project's chat */
   megaphone?: DmMegaphone

@@ -387,3 +387,13 @@ test('megaphone: each member\'s chat has its copy, and the project\'s chat has t
   assert.deepEqual(keys(chat(answered, 'member')), ['g1a', 'a1'])
   assert.deepEqual(keys(chat(answered, 'crew')), ['megaphone:g1'])
 })
+
+test('a message keeps the ids of the copies folded into it, so a reference to a copy finds it', () => {
+  const list = crewChats({ sent: [
+    sent('j1', 'crew', '2026-11-20T10:00:00Z'),
+    sent('c1', 'member', '2026-11-20T10:00:05Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1' } } }),
+    sent('c2', 'mate', '2026-11-20T10:20:00Z', { queue: { job: { id: 9, name: 'crew', mail: 'j1' } } }),
+    sent('j2', 'crew', '2026-11-20T11:00:00Z'),
+  ] })
+  assert.deepEqual(chat(list, 'crew').entries.map(e => e.copies ?? null), [['c1', 'c2'], null])
+})

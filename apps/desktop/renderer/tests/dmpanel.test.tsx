@@ -717,3 +717,11 @@ test('in a project\'s chat, one reply cannot answer a member and follow up on th
   assert.equal(posts(s.server.calls, /\/message$/).length, 0, 'nothing is sent')
   assert.match(document.querySelector('.dm-compose [role="alert"]')?.textContent ?? '', /reply to one agent at a time, or follow up on your own message/)
 })
+
+test('a reference to the queue\u2019s copy of a message opens the project\u2019s chat at the message itself', async (t) => {
+  // the quote on a member's answer names the member's COPY of the job, which is no bubble
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false, jumpTo: 'c1' })
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'crew')
+  assert.equal(entry('j1')?.classList.contains('flash'), true, 'the message the copy was made from is shown')
+  assert.deepEqual(s.state.toasts, [], 'and nothing says the mail is gone')
+})
