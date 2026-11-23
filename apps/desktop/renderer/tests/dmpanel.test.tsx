@@ -943,3 +943,22 @@ test('a row\'s time gives way to its close control on hover, so the two never ov
   const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
   assert.match(css, /\.dm-row:hover:has\(\.dm-row-close\) \.dm-row-l1 \.mtime,\s*\.dm-row:focus-within:has\(\.dm-row-close\) \.dm-row-l1 \.mtime \{ visibility: hidden; \}/)
 })
+
+// USER 2026-11-23 mb5a815755600: "for agents under a project with indirect audience only, add a top level
+// "acquire audience" context menu option that moves them out from under the project"
+test('an agent listed under a project has "Acquire audience" at the top of its row menu; it then moves out, labelled "(and via …)"', async (t) => {
+  const s = await setup(t, officeWorld(), { tree: officeTree(), active: false, openChat: { peer: 'lead', seq: 1 } })
+  const has = (list: string[] | null, label: string) => !!list?.some(x => x.startsWith(label))
+  assert.equal(has(await rowMenu(s.row('envoy')), 'Acquire audience'), false, 'not for an agent with its own audience')
+  assert.equal(has(await rowMenu(s.row('office')), 'Acquire audience'), false, 'nor for the project')
+  const menu = await rowMenu(s.row('aide'))
+  assert.deepEqual(menu?.slice(0, 2), ['Open chat', 'Acquire audience'], 'at the top level, under Open chat')
+  const menus = [...document.querySelectorAll('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu'))
+  const item = [...menus[menus.length - 1]!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b => b.textContent?.trim() === 'Acquire audience')
+  await s.click(item, 'Acquire audience')
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'grant', node: 'aide' }], 'the existing grant')
+  assert.equal(s.row('aide')!.classList.contains('dm-child'), false, 'it is out from under the project')
+  assert.equal(s.row('aide')!.dataset.dmParent, undefined)
+  await s.openChat('aide')
+  assert.match(document.querySelector('.dm-head .dm-via-projects')?.textContent ?? '', /^\(and via\s*office\)$/)
+})
