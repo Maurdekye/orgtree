@@ -484,12 +484,12 @@ test('a project is placed by the newest activity of itself or of the chats under
     delivered: [mail('a1', 'aide', '2026-11-20T08:00:00Z'), mail('s1', 'solo', '2026-11-20T09:00:00Z')],
     sent: [sent('o1', 'office', '2026-11-20T07:00:00Z')],
   })
-  assert.deepEqual(names(quiet), ['solo', 'office', 'aide', 'lead', 'envoy'], 'solo wrote last')
+  assert.deepEqual(names(quiet), ['solo', 'office', 'aide', 'page', 'lead', 'envoy'], 'solo wrote last; page, silent, is last under its project')
   const busy = officeChats({
     delivered: [mail('a1', 'aide', '2026-11-20T10:00:00Z'), mail('s1', 'solo', '2026-11-20T09:00:00Z')],
     sent: [sent('o1', 'office', '2026-11-20T07:00:00Z')],
   })
-  assert.deepEqual(names(busy), ['office', 'aide', 'solo', 'lead', 'envoy'], 'aide wrote last: its project moves up with it')
+  assert.deepEqual(names(busy), ['office', 'aide', 'page', 'solo', 'lead', 'envoy'], 'aide wrote last: its project moves up with it')
 })
 
 test('a top-level agent under a project, and an agent whose project has no chat, are listed on their own', () => {
@@ -498,4 +498,17 @@ test('a top-level agent under a project, and an agent whose project has no chat,
   // the project's grant is hidden (retired holders hidden, or revoked a moment ago): nothing to sit under
   const alone = dmChats({ nodes: OFFICE, grants: [grant('envoy')], box: box({ pending: [mail('a1', 'aide', '2026-11-20T10:00:00Z')] }), openAsks: [], doneAsks: [] })
   assert.equal(chat(alone, 'aide').parent, null)
+})
+
+// USER 2026-11-23 mb673f241b650: "list them, since it can be collapsed"
+test('every agent that reaches the user only through a project is listed under it, also one that has never written', () => {
+  const list = officeChats({ delivered: [mail('a1', 'aide', '2026-11-20T10:00:00Z')] })
+  assert.deepEqual(list.map(c => [c.peer, c.parent]), [
+    ['office', null], ['aide', 'office'], ['page', 'office'], ['lead', null], ['envoy', null], ['solo', null],
+  ], 'page has never written: last under its project; envoy holds its own grant and is on its own')
+  assert.equal(chat(list, 'office').kids, 2)
+  assert.deepEqual(chat(list, 'page').entries, [], 'its chat is empty')
+  // not while the project holds no audience, and never a retired agent or a top-level one
+  assert.equal(dmChats({ nodes: OFFICE, grants: [grant('envoy')], box: box(), openAsks: [], doneAsks: [] }).some(c => c.peer === 'page'), false)
+  assert.equal(chat(dmChats({ nodes: DESK, grants: [grant('crew')], box: box(), openAsks: [], doneAsks: [] }), 'member').parent, null)
 })

@@ -854,10 +854,33 @@ test('a chat row\'s menu has "Agent…" for an agent and "Project…" for a proj
 test('the system\'s chat wears an S in the chip a model letter is drawn in', async (t) => {
   const s = await setup(t, { delivered: [mail('sys1', '@system', '2026-11-20T09:00:00Z')] }, { active: false })
   const chip = s.row('@system')!.querySelector('.dm-av .tier.letter-chip')
-  assert.equal(chip?.textContent, 'S')
+  // USER 2026-11-23 m2561610f7494 "system chat called "System" not "Orgtree"", m619caab7c62b "give it an icon
+  // appropriate for system messages so it isnt confused with an agent": the S chip is on its MESSAGES
+  assert.equal(chip === null, true, 'its picture is no letter chip: it is not an agent')
+  assert.equal(s.row('@system')!.querySelector('.dm-av.dm-av-system svg') !== null, true, 'but the system\'s own icon')
+  assert.equal(s.row('@system')!.querySelector('.dm-row-name')?.textContent, 'System')
   assert.equal(s.row('lead')!.querySelector('.dm-av .tier.letter-chip') !== null, true, 'POSITIVE CONTROL: an agent\'s letter is that chip')
   await s.openChat('@system')
-  assert.equal(document.querySelector('.dm-head .dm-av .tier.letter-chip')?.textContent, 'S', 'in its header too')
+  assert.equal(document.querySelector('.dm-head .dm-av.dm-av-system svg') !== null, true, 'in its header too')
+  assert.match(document.querySelector('.dm-head .dm-who-name')?.textContent ?? '', /^System$/)
+  const tag = document.querySelector('.dm-msg[data-dm-entry="sys1"] .dm-via')
+  assert.equal(tag?.querySelector('.tier.letter-chip')?.textContent, 'S', 'each of its messages is tagged S, in the chip a model letter is drawn in')
+  assert.match(tag?.textContent ?? '', /^S\s*System$/)
+})
+
+// USER 2026-11-23 mb673f241b650: "list them, since it can be collapsed"
+test('a project\'s silent agents are listed under it, last; opening one is an empty chat; a fold hides them', async (t) => {
+  const s = await setup(t, { audiences: [grant('office'), grant('envoy')], delivered: [mail('a1', 'aide', '2026-11-20T10:00:00Z')] },
+    { tree: officeTree(), active: false, openChat: { peer: 'lead', seq: 1 } })
+  assert.deepEqual(order(s), [['office', false], ['aide', true], ['page', true], ['lead', false], ['envoy', false], ['solo', false]])
+  await s.openChat('page')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'page')
+  assert.equal(document.querySelectorAll('.dm-msg').length, 0, 'nothing has been written')
+  assert.equal(document.querySelector('.dm-compose .mail-reply textarea') !== null, true, 'and it can be written to')
+  assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'opening it grants nothing: it already reaches the user through its project')
+  await s.openChat('lead')
+  await s.click(s.row('office')!.querySelector('.dm-fold'), 'the fold arrow')
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'lead', 'envoy', 'solo'], 'folded: neither has anything waiting')
 })
 
 // ---- the grouped list (USER 2026-11-23 ma97ab61a248c) ----
