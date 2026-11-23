@@ -3086,6 +3086,14 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
   return useRefRoutes(slug, nodes, { ...routes, tierOf, view: tree?.foreground })
 }
 
+/** THE USER'S MAILBOX PANEL. RED-COMMIT SEAM: today's mailbox, under the name
+ *  the 4.7.0 chats will be mounted by. `openChat` is accepted and ignored. */
+export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
+  openChat?: { peer: string; seq: number } | null
+}) {
+  return <InboxPanel {...props} />
+}
+
 export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   onFocusAgent, onOpenItem, onOpenDoc, onOpenMail }: {
   slug: string

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
 import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import { AccountUsagePanel } from '../src/accountusage'
+import { classicMailbox, setClassicMailbox } from '../src/mailboxpref'
 import type { AccountsPayload, ProviderInfo, ProvidersPayload } from '../src/types'
 
 const ACCOUNTS: AccountsPayload = {
@@ -529,4 +530,53 @@ test('§5 a durable off choice keeps its recovery switch after uninstall, but '
     assert.match(view.el.textContent ?? '', /Codex/)
     assert.doesNotMatch(view.el.textContent ?? '', /Codex CLI not installed/)
   } finally { await view.unmount(); delete g.fetch }
+})
+
+// 4.7.0: the user's mailbox panel is their chats; the classic mailbox and the
+// reply-opens-chat behaviour are Display settings of this computer (USER
+// 2026-11-22 m1454e651500e "have the check aslo in app display settings";
+// 2026-11-23 me0241bccf7b4 "custom setting enabled by default"; group and
+// names accepted m034b5c83b8f2).
+test('§3c Display has a Mailbox group: Classic mailbox is off and Open the chat on a reply is on by default, '
+  + 'both saved on this computer, and the first is the switch the mailbox panel carries', async () => {
+  localStorage.clear()
+  stubFetch([])
+  const open = async () => {
+    const view = await mountSettings()
+    const displayTab = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      .find((b) => b.textContent?.includes('Display'))!
+    await inAct(async () => { displayTab.click() })
+    const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+    const classic = panel.querySelector<HTMLInputElement>('input[aria-label="Classic mailbox"]')!
+    const onReply = panel.querySelector<HTMLInputElement>(
+      'input[aria-label="Open the chat when replying to a presentation or ticket"]')!
+    return { view, panel, classic, onReply }
+  }
+  let v = await open()
+  try {
+    assert.ok(v.classic && v.onReply, 'both are ordinary Display rows')
+    const group = v.classic.closest('.set-group')
+    assert.equal(group?.querySelector('.set-group-head')?.textContent?.trim(), 'Mailbox')
+    assert.ok(v.onReply.closest('.set-group') === group, 'one group holds both')
+    assert.ok(v.classic.closest('.set-row') && v.onReply.closest('.set-row'))
+    assert.equal(v.classic.checked, false, 'unset means the chats')
+    assert.equal(v.onReply.checked, true, 'unset means on')
+    await inAct(async () => { v.classic.click() })
+    await inAct(async () => { v.onReply.click() })
+    assert.equal(localStorage.getItem('orgtree-classic-mailbox'), '1')
+    assert.equal(localStorage.getItem('orgtree-chat-on-object-reply'), '0')
+    assert.equal(classicMailbox(), true, 'the store the mailbox panel and the header icon read')
+  } finally { await v.view.unmount() }
+
+  // a fresh mount is the reload boundary: only the two saved keys carry over
+  v = await open()
+  try {
+    assert.equal(v.classic.checked, true)
+    assert.equal(v.onReply.checked, false)
+    // the mailbox panel's own title-bar checkbox writes the same store: it shows here at once
+    await inAct(async () => { setClassicMailbox(false) })
+    assert.equal(v.classic.checked, false, 'one switch in two places')
+  } finally {
+    await v.view.unmount(); delete g.fetch; localStorage.clear()
+  }
 })

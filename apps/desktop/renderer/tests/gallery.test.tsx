@@ -24,6 +24,7 @@ import { activeDocCount } from '../src/canvas/shared'
 import type { DocCountNode } from '../src/canvas/shared'
 import type { DocRow } from '../src/api'
 import { CollapsibleMailer } from '../src/canvas/narrowlist'
+import { onChatRequest } from '../src/mailboxpref'
 
 interface Call { method: string; url: string }
 
@@ -394,6 +395,9 @@ uiTest('§10b agent name link still functions for a retired agent',
 uiTest('§11 reply box is present below document for live owner and sends message',
   async (mount) => {
     let replied: { node: string; text: string; target: unknown } | null = null
+    // 4.7.0 (USER 2026-11-23 me0241bccf7b4): the reply asks for the chat of the agent that received it
+    const chats: [string, string][] = []
+    const stopChats = onChatRequest((org, peer) => { chats.push([org, peer]) })
     mockDocs([row({ id: 'd1', title: 'the plan', node: 'agent-live', node_state: 'live' })], { d1: 'body markdown' })
     const { el } = await mount(gallery({
       onReply: (node, text, target) => { replied = { node, text, target } },
@@ -418,6 +422,8 @@ uiTest('§11 reply box is present below document for live owner and sends messag
     await inAct(() => sendBtn.click())
     await flush()
     assert.deepEqual(replied, { node: 'agent-live', text: 'Looks good, proceed!', target: {kind:'document',org:'org1',id:'d1'} })
+    stopChats()
+    assert.deepEqual(chats, [['org1', 'agent-live']], "the presenter's chat is asked for, once the reply is sent")
   })
 
 // notice-toggle parity (user 2026-09-17): the presentation reply is one of

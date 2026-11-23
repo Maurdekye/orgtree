@@ -12,6 +12,7 @@ import { AgentDocketView, DocketModal, DocketToolbarButton } from '../src/canvas
 import { fmtAge, fmtFull } from '../src/timefmt'
 import { pinModal, unpinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
+import { onChatRequest } from '../src/mailboxpref'
 import { InboxPanel, SenderChip } from '../src/App'
 // The inbox now scrolls to its oldest unread on mount; jsdom has no layout.
 window.HTMLElement.prototype.scrollIntoView = () => {}
@@ -66,7 +67,11 @@ function mockWorkItems(activeItems: WorkItem[], archivedItems: WorkItem[] = [],
         // impossible notice to ordinary mail, so the panel must read this
         // field rather than its own toggle
         const asNotice = Boolean((body as { notice?: boolean } | undefined)?.notice)
-        return ok({ accepted: true, to: found?.owner?.node ?? 'agent',
+        // ...and WHO it reached: the recipient the request named, when it named
+        // one (domain/docket.rs answers `"to": target`), else the owner. The
+        // panel reads this, not its own picker, to say and to open who got it.
+        const named = (body as { to?: string } | undefined)?.to
+        return ok({ accepted: true, to: named ?? found?.owner?.node ?? 'agent',
           deferred: isDeferred, notice: asNotice })
       }
       if (method === 'GET' && /\/work-items\/[^/]+$/.test(path)) {
@@ -695,6 +700,8 @@ uiTest('§12 dismiss button is ABSENT when attention is question-only', async (m
 
 uiTest('§13 general reply box targets the ASSIGNMENT and handles deferred (archived) recipient', async (mount) => {
   let toasted: string[] = []
+  const chats: [string, string][] = []
+  const stopChats = onChatRequest((org, peer) => { chats.push([org, peer]) })
   // the backend routes an item reply to the OWNER and to nobody else
   // (ledger.work_reply_target), so the label and the button must name the
   // same agent the mail will actually reach
@@ -732,6 +739,8 @@ uiTest('§13 general reply box targets the ASSIGNMENT and handles deferred (arch
   assert.equal(replyCalls.length, 1)
   assert.deepEqual(replyCalls[0]!.body, { body: 'Great work!', to: 'archived-agent' })
   assert.match(toasted[0] ?? '', /archived-agent is archived — the reply waits for rehire/)
+  stopChats()
+  assert.deepEqual(chats, [], 'a reply that waits for a rehire reached nobody: no chat opens (4.7.0)')
 })
 
 uiTest('§13d a standing attention flag routes the default reply to its raiser', async (mount) => {
@@ -747,6 +756,9 @@ uiTest('§13d a standing attention flag routes the default reply to its raiser',
     ],
   })
   const calls = mockWorkItems([flagItem])
+  // 4.7.0 (USER 2026-11-23 me0241bccf7b4, m265fe1ac5d5d): the chat of the agent the reply is delivered to
+  const chats: [string, string][] = []
+  const stopChats = onChatRequest((org, peer) => { chats.push([org, peer]) })
   const { el } = await mount(docketModal())
   await flush()
 
@@ -768,6 +780,8 @@ uiTest('§13d a standing attention flag routes the default reply to its raiser',
   const replyCalls = calls.filter((c) => c.method === 'POST' && c.url.includes('/reply'))
   assert.equal(replyCalls.length, 1)
   assert.deepEqual(replyCalls[0]!.body, { body: 'Please take a look', to: 'flag-raiser' })
+  stopChats()
+  assert.deepEqual(chats, [['org1', 'flag-raiser']], "the ticket reply asks for its recipient's chat")
 })
 
 // allow-attachments-in-contextual-reply-composers. The docket's "ticket"
