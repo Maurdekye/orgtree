@@ -33,6 +33,7 @@ module.exports = async (page) => {
       peer: r.dataset.dmChat, name: text(r.querySelector('.dm-row-name')), unread: badge(r),
       asks: r.querySelector('.dm-badge-asks') ? text(r.querySelector('.dm-badge-asks')) : null,
       preview: text(r.querySelector('.dm-row-prev')), selected: r.classList.contains('sel'),
+      request: r.classList.contains('request'), requestBadge: !!r.querySelector('.dm-badge-request'), background: getComputedStyle(r).backgroundColor,
       closable: !!r.querySelector('.dm-row-close'), closeTitle: r.querySelector('.dm-row-close')?.getAttribute('title') ?? null,
       box: box(r) }))
     const head = document.querySelector('.dm-head')
@@ -40,11 +41,13 @@ module.exports = async (page) => {
     const scroller = document.querySelector('.dm-timeline')
     const view = scroller ? scroller.getBoundingClientRect() : null
     const bubbles = [...document.querySelectorAll('.dm-msg[data-dm-entry]')].filter(m => !m.classList.contains('dm-ask')).map(m => {
-      const b = m.querySelector('.dm-bubble'), cs = getComputedStyle(b), r = b.getBoundingClientRect()
+      const b = m.querySelector('.dm-bubble'), cs = getComputedStyle(b), r = b.getBoundingClientRect(), edge = getComputedStyle(b, '::before')
       return { id: m.dataset.dmEntry, out: m.classList.contains('out'), unread: m.classList.contains('unread'), box: box(b),
         inView: !!view && r.bottom > view.top && r.top < view.bottom,
         background: cs.backgroundColor, color: cs.color, borderStyle: cs.borderTopStyle, borderColor: cs.borderTopColor, borderWidth: cs.borderTopWidth,
-        label: text(m.querySelector('.dm-kind:not(.dm-kind-notice)')) || null, notice: !!m.querySelector('.dm-kind-notice'),
+        label: text(m.querySelector('.dm-kind')) || null, notice: b.classList.contains('notice'),
+        // a notice's border is a layer over the bubble's edge: its colour, and the mask that cuts it to dashes
+        edge: edge.content === 'none' ? null : { background: edge.backgroundColor, mask: (edge.maskImage || edge.webkitMaskImage || '').slice(0, 400) },
         files: [...m.querySelectorAll('.attach-row > *')].map(a => text(a).replace(/\s*\d+ KB$/, '') || a.getAttribute('title') || a.querySelector('img')?.getAttribute('alt') || a.className),
         reply: text(m.querySelector('.mail-reply-quote, .reply-quote, .mail-inreply')) || null,
         time: text(m.querySelector('.dm-meta time')), text: text(m.querySelector('.dm-bubble')).slice(0, 90) }
@@ -58,15 +61,23 @@ module.exports = async (page) => {
       bellIcon: drawn('.dm-probe-bar svg path'), bell: text(document.querySelector('.dm-probe-bar button, .dm-probe-bar .bell, .dm-probe-bar [role=button]')),
       bellTitle: document.querySelector('.dm-probe-bar button')?.getAttribute('title') ?? null,
       classicBox: (() => { const c = document.querySelector('input[aria-label="Classic mailbox"]'); return c ? { checked: c.checked, box: box(c) } : null })(),
-      requests: [...document.querySelectorAll('.dm-requests .hist-row')].map(text),
+      strip: document.querySelectorAll('.dm-requests').length, chatBackground: (() => { const c = document.querySelector('.dm-conv'); return c ? getComputedStyle(c).backgroundColor : null })(),
       rows, list: box(document.querySelector('.dm-list')),
       head: head ? { peer: head.dataset.dmPeer, name: text(head.querySelector('.dm-who-name, .dm-who-l1')), badges: [...head.querySelectorAll('.dm-who-l1 .badge')].map(text),
+        // each chip's box: what "the same spacing, padding and shape" is measured by
+        badgeBoxes: [...head.querySelectorAll('.dm-who-l1 .badge')].map(b => { const cs = getComputedStyle(b); return { text: text(b), padding: cs.padding, radius: cs.borderRadius,
+          border: `${cs.borderTopWidth} ${cs.borderTopStyle}`, borderShown: cs.borderTopColor !== 'rgba(0, 0, 0, 0)', display: cs.display, gap: cs.columnGap, font: cs.fontSize, h: Math.round(b.getBoundingClientRect().height) } }),
+        link: (() => { const l = head.querySelector('.dm-who-name .ref-chip'); return l ? { tag: l.tagName, cls: l.className, agent: l.getAttribute('data-copy-agent-name') } : null })(),
+        gear: head.querySelector('.dm-gear')?.getAttribute('aria-label') ?? null,
         status: text(head.querySelector('.dm-who-l2')), closeDisabled: close ? close.disabled : null, closeTitle: close?.getAttribute('title') ?? null,
         closeLabel: close?.getAttribute('aria-label') ?? null, box: box(head) } : null,
       timeline: scroller ? { ...box(scroller), scrollTop: Math.round(scroller.scrollTop), scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight } : null,
       days: [...document.querySelectorAll('.dm-day')].map(text), newmark: text(document.querySelector('.dm-newmark')) || null,
       bubbles, asks: [...document.querySelectorAll('.dm-msg.dm-ask')].map(a => ({ key: a.dataset.dmEntry, open: a.classList.contains('open'), box: box(a) })),
       composer: box(document.querySelector('.dm-compose .mail-reply textarea')), sendLabel: text(document.querySelector('.dm-compose .mail-reply-send')) || null,
+      controls: { effort: (() => { const e = document.querySelector('.dm-compose .mail-reply-controls .cc-eff'); return e ? { label: text(e), box: box(e) } : null })(),
+        fast: (() => { const f = document.querySelector('.dm-compose .mail-reply-controls .cc-fast'); return f ? { label: f.getAttribute('aria-label'), box: box(f) } : null })() },
+      audreq: (() => { const c = document.querySelector('.dm-audreq'); return c ? { peer: c.dataset.dmRequest, text: text(c), buttons: [...c.querySelectorAll('button')].map(text), box: box(c.querySelector('.dm-bubble')) } : null })(),
       placeholder: document.querySelector('.dm-compose .mail-reply textarea')?.getAttribute('placeholder') ?? null,
       nowrite: text(document.querySelector('.dm-nowrite')) || null, none: text(document.querySelector('.dm-none b')) || null,
       start: text(document.querySelector('.dm-start')) || null,
@@ -285,6 +296,54 @@ module.exports = async (page) => {
   await shot('21-search-chats')
   for (let i = 0; i < 2; i++) await page.press('Backspace')
   v.search.cleared = (await snap()).rows.map(r => r.peer)
+
+  // ---- 10b. AUDIENCE REQUESTS ARE CHATS (USER 2026-11-23 mae2b1aa37a9b):
+  // marked and first in the list; denied or approved in the chat; writing approves
+  await openChat('drafter')
+  const asked = await snap()
+  v.audreq = { rows: asked.rows.filter(r => r.request).map(r => ({ peer: r.peer, preview: r.preview, badge: r.requestBadge, background: r.background, box: r.box })),
+    plainRow: row(asked, 'lead')?.background, first: asked.rows.slice(0, 2).map(r => r.peer), strip: asked.strip, card: asked.audreq,
+    closeTitle: asked.head?.closeTitle, sendsBefore: (await posted('/audiences$')).length }
+  await shot('21a-audience-request-is-a-chat')
+  await page.eval(() => window.__dm.theme('light'))
+  await page.sleep(300)
+  await shot('21b-light-audience-request')
+  await page.eval(() => window.__dm.theme('charcoal'))
+  await page.sleep(300)
+  await page.click('.dm-audreq .dm-request-acts button:not(.primary)')
+  await until('the request to be denied', async () => (await posted('/audiences$')).length === 4)
+  await until('its chat to leave the list', async () => !row(await snap(), 'drafter'))
+  v.audreq.denied = { rows: (await snap()).rows.map(r => r.peer), open: (await snap()).head?.peer ?? null }
+  await shot('21c-request-denied-its-chat-is-gone')
+  await openChat('scout')
+  await page.click('.dm-compose .mail-reply textarea')
+  await page.type('Yes, report the nightly check to me here.')
+  await shot('21d-writing-to-a-request-approves-it')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the audience to be granted', async () => (await posted('/audiences$')).length === 5)
+  await until('the message to be sent', async () => (await posted('/nodes/scout/message$')).length === 1)
+  await until('the request to leave the chat', async () => { const s = await snap(); return !s.audreq && s.bubbles.some(b => b.out) && s.head?.badges.some(b => /audience/.test(b)) })
+  const approved = await snap()
+  v.audreq.approved = { head: approved.head, row: row(approved, 'scout'), card: approved.audreq, bubbles: approved.bubbles.map(b => ({ out: b.out, text: b.text })) }
+  await shot('21e-request-approved-by-writing')
+
+  // ---- 10c. the chat header's link and gear; the message box's fast mode and effort
+  await openChat('solo')
+  const box = await snap()
+  v.agentbox = { head: box.head, controls: box.controls, composer: box.composer }
+  await page.click('.dm-compose .mail-reply-controls .cc-eff')
+  await page.waitFor('.dm-compose .eff-pop')
+  v.agentbox.effortTrack = await page.eval(() => { const t = document.querySelector('.dm-compose .eff-pop [role="slider"]'); const r = t?.getBoundingClientRect()
+    return t ? { text: t.getAttribute('aria-valuetext'), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } : null })
+  await shot('21f-message-box-fast-mode-and-effort')
+  await page.press('Escape')
+  await page.waitFor('.dm-compose .eff-pop', { gone: true })
+  await page.click('.dm-head .dm-gear')
+  v.agentbox.settings = await page.eval(() => window.__dm.settings.slice())
+  await page.click('.dm-head .dm-who-name .ref-chip')
+  v.agentbox.focused = await page.eval(() => window.__dm.focused.slice())
+  await page.hover('.dm-head .dm-gear')
+  await shot('21g-chat-header-agent-link-and-settings-gear')
 
   // ------------------------------------------------ 11. a narrow panel
   await page.resize('760x900')

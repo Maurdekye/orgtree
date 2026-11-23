@@ -9,6 +9,8 @@ import { useEffect, useState } from 'react'
 import { AskBell, UserMailbox } from '../src/App'
 import { CurrentOrg } from '../src/popout'
 import { applyContrast } from '../src/contrast'
+import { syncFastModes } from '../src/canvas/fastmode'
+import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
 import type { TreePayload } from '../src/types'
 
 const node = (id: string, tier: string, children: unknown[] = [], extra: Record<string, unknown> = {}) => ({
@@ -55,6 +57,7 @@ function tree(at: string, answer: Answer | null, unread: number): TreePayload {
         node('worker', 'sonnet', [], { audiences_held: ['@user'], audiences_explicit: ['@user'] }),
         node('helper', 'haiku'),
         node('scout', 'haiku'),
+        node('drafter', 'haiku'),
         node('archivist', 'haiku', [], { state: 'archived' }),
       ], { busy: true, inflight_at: at, last_status: { status: 'working', summary: 'preparing the 4.7.0 notes', at }, ...(answer ? {} : { ask }) }),
       node('solo', 'sonnet', [], { audiences_held: ['@user'], audiences_explicit: ['@user'], busy: true, inflight_at: at,
@@ -72,6 +75,8 @@ declare global {
   interface Window {
     __dm: {
       confirms: number; toasts: string[]; focused: string[]; closed: number; opened: string[]
+      /** every request for a settings window the panel made (the canvas answers these in the app) */
+      settings: unknown[]
       /** the engine's next tree: the request is resolved with what was submitted */
       answered(answer: { answers: unknown[]; scope: string[] }): void
       jump(id: string): void; open(peer: string): void
@@ -113,7 +118,10 @@ function Probe({ at }: { at: string }) {
   )
 }
 
-window.__dm = { confirms: 0, toasts: [], focused: [], closed: 0, opened: [], answered() {}, jump() {}, open() {}, theme: id => applyContrast(id) }
+window.__dm = { confirms: 0, toasts: [], focused: [], closed: 0, opened: [], settings: [], answered() {}, jump() {}, open() {}, theme: id => applyContrast(id) }
+window.addEventListener(OPEN_SETTINGS_AT_EVENT, e => { window.__dm.settings.push((e as CustomEvent).detail) })
+// what the providers read tells the app in a real window: these models offer fast mode
+syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }, { tier: 'sonnet', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
 // "no confirmation on close": any confirm the panel raised would be counted here
 window.confirm = () => { window.__dm.confirms++; return true }
 // when the open request was asked: the driver's clock, so ages read naturally

@@ -51,7 +51,10 @@ const mail = (id, from, when, body, extra = {}) => ({ id, from, at: ago(when), k
 const sent = (id, to, when, body, extra = {}) => ({ id, from: USER, to, at: ago(when), kind: 'message', body, ...extra })
 const world = {
   audiences: [grant('worker'), grant('solo')],
-  requests: [{ from: 'scout', target: USER, currently_at: USER, reason: 'to report the nightly check to you directly' }],
+  requests: [
+    { from: 'scout', target: USER, currently_at: USER, reason: 'to report the nightly check to you directly', at: ago(20 * M) },
+    { from: 'drafter', target: USER, currently_at: USER, reason: 'to ask you about the wording of the 4.7.0 notes', at: ago(40 * M) },
+  ],
   delivered: [
     mail('w1', 'worker', 27 * H, 'The export finished: **214 rows**, 3 of them flagged.\n\n- 2 duplicates\n- 1 with an empty date'),
     mail('w2', 'worker', 3 * H, 'The nightly check passed (38 of 38).', { notice: true }),
@@ -161,7 +164,9 @@ if (flag === '--expect') {
 
   // ---- 6: newest first, each with its unread count; a chat is bubbles, the user's on the right
   for (const [theme, s] of Object.entries(v.themes)) {
-    assert.deepEqual(s.rows.map(r => r.peer), ['@system', 'lead', 'worker', 'solo', 'member'], `${theme}: newest message first`)
+    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'solo', 'member'], `${theme}: the two audience requests, then newest message first`)
+    assert.deepEqual(s.rows.filter(r => r.request).map(r => r.peer), ['scout', 'drafter'], `${theme}: the requests are marked`)
+    assert.equal(s.strip, 0, `${theme}: no request strip above the chats`)
     const of = peer => s.rows.find(r => r.peer === peer)
     assert.equal(of('worker').unread, '2'); assert.equal(of('@system').unread, '1'); assert.equal(of('lead').asks, '?')
     assert.equal(of('@system').name, 'Orgtree')
@@ -172,11 +177,16 @@ if (flag === '--expect') {
     assert.ok(out.box.x + out.box.w > incoming.box.x + incoming.box.w, `${theme}: the user's bubble sits to the right`)
     assert.ok(incoming.box.x - s.timeline.x < 80, `${theme}: an incoming bubble starts at the left`)
     assert.notEqual(out.background, incoming.background, `${theme}: the two sides are different fills`)
-    // 5: a notice is dashed in its own text colour; a request has its label; files are chips
+    // 5, as changed on the prototype (USER 2026-11-23 mae2b1aa37a9b, m7012356beca4): a notice keeps its
+    // fill; its border is the chat background's colour, thick, with wide gaps; it wears no label
     const notice = s.bubbles.find(b => b.id === 'w2')
-    assert.equal(notice.borderStyle, 'dashed', `${theme}: a notice has a dashed border`)
-    assert.equal(notice.borderColor, notice.color, `${theme}: in the colour of its text`)
-    assert.equal(notice.notice, true); assert.notEqual(incoming.borderStyle, 'dashed')
+    assert.equal(notice.notice, true); assert.equal(notice.label, null, `${theme}: a notice wears no label`)
+    assert.equal(notice.background, incoming.background, `${theme}: a notice has the fill of any incoming bubble`)
+    assert.ok(notice.edge, `${theme}: a notice has its drawn border`)
+    assert.equal(notice.edge.background, s.chatBackground, `${theme}: in the chat background's colour`)
+    assert.notEqual(notice.edge.background, notice.background, `${theme}: which is not the bubble's fill, so it shows`)
+    assert.match(decodeURIComponent(notice.edge.mask), /stroke-width='4' stroke-dasharray='7 7'/, `${theme}: 2px inside the edge, 7px dashes, 7px gaps`)
+    assert.equal(incoming.edge, null, `${theme}: an ordinary message has none`)
     assert.equal(s.bubbles.find(b => b.id === 'w3').label, 'Request')
     assert.equal(s.bubbles.find(b => b.id === 'w4').files.length, 2, 'two files on the message')
     assert.match(s.bubbles.find(b => b.id === 'w4').files[0], /summary\.pdf/)
@@ -214,14 +224,15 @@ if (flag === '--expect') {
   assert.equal(v.worker.header.closeDisabled, false)
   assert.match(v.workerClose.title, /Close this chat: revoke worker's audience with you\. Its history is kept\./)
   assert.equal(v.workerClose.listedAfter, false)
-  assert.deepEqual(posts(/\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'solo' }, { action: 'revoke', node: 'worker' }, { action: 'grant', node: 'helper' }])
+  assert.deepEqual(posts(/\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'solo' }, { action: 'revoke', node: 'worker' }, { action: 'grant', node: 'helper' },
+    { action: 'deny', node: 'drafter', target: USER }, { action: 'grant', node: 'scout' }])
   // ---- 2: no confirmation
   assert.equal(v.end.confirms, 0, 'closing asked for no confirmation'); assert.deepEqual(v.end.toasts, [])
   checked.push('close rules')
 
   // ---- 3: New chat is the agents list, and picking grants an audience
   assert.equal(v.picker.title, 'New chat')
-  assert.deepEqual(v.picker.rows, ['lead', 'worker', 'helper', 'scout', 'solo', 'crew', 'member'])
+  assert.deepEqual(v.picker.rows, ['lead', 'worker', 'helper', 'scout', 'drafter', 'solo', 'crew', 'member'])
   assert.equal(v.picker.filter, true); assert.deepEqual(v.picker.active, { checked: false }); assert.match(v.picker.archivedToggle, /show 1 archived/)
   assert.ok(v.picker.withArchived.rows.includes('archivist') && !v.picker.rows.includes('archivist'), 'the archived fold')
   assert.deepEqual(v.picker.activeOnly.rows, ['lead', 'solo'], 'only agents running a turn')
@@ -254,6 +265,35 @@ if (flag === '--expect') {
   assert.equal(v.reply.quote.role, 'link', 'the sent reply\'s quote leads to its original'); assert.deepEqual(v.reply.quote.flashed, ['w3'])
   assert.equal(v.message.after.last.id, 'sent-2'); assert.equal(v.message.after.last.out, true)
   checked.push('send')
+
+  // ---- audience requests are chats (c): marked, first, answered in the chat, approved by writing
+  assert.deepEqual(v.audreq.first, ['scout', 'drafter']); assert.equal(v.audreq.strip, 0)
+  for (const r of v.audreq.rows) { onScreen(r.box, `the request row of ${r.peer}`); assert.equal(r.badge, true); assert.match(r.preview, /^Audience request · /); assert.notEqual(r.background, v.audreq.plainRow, 'a request row is marked') }
+  assert.equal(v.audreq.card.peer, 'drafter'); assert.deepEqual(v.audreq.card.buttons, ['Approve', 'Deny']); onScreen(v.audreq.card.box, 'the request in its chat')
+  assert.match(v.audreq.card.text, /drafter asks for an audience with you: ?to ask you about the wording of the 4\.7\.0 notes/)
+  assert.match(v.audreq.closeTitle, /Deny drafter's audience request and close this chat\./)
+  assert.equal(v.audreq.denied.rows.includes('drafter'), false); assert.equal(v.audreq.denied.open, null)
+  assert.equal(v.audreq.approved.card, null); assert.equal(v.audreq.approved.row.request, false)
+  assert.ok(v.audreq.approved.head.badges.some(b => /audience/.test(b)), 'scout holds the audience after the user wrote to it')
+  const toScout = posts(/\/nodes\/scout\/message$/).map(c => c.body)
+  assert.equal(toScout.length, 1); assert.equal(toScout[0].text, 'Yes, report the nightly check to me here.'); assert.equal(toScout[0].surface, 'dm')
+  const order = calls.filter(c => c.method === 'POST' && (/\/nodes\/scout\/message$/.test(c.path) || (/\/audiences$/.test(c.path) && c.body.node === 'scout'))).map(c => c.path.replace(/^.*\/mine/, ''))
+  assert.deepEqual(order, ['/audiences', '/nodes/scout/message'], 'the grant first, then the message')
+  checked.push('audience requests')
+
+  // ---- (d) the top-level chip has the audience badge's box
+  const chips = v.solo.before.badgeBoxes, top = chips.find(b => b.text === 'top-level'), aud = chips.find(b => /audience/.test(b.text))
+  assert.ok(top && aud, 'both chips are beside the name')
+  for (const k of ['padding', 'radius', 'border', 'display', 'gap', 'font', 'h']) assert.equal(top[k], aud[k], `the top-level chip's ${k} is the audience badge's`)
+  assert.equal(top.borderShown, true, 'with a visible border, as the audience badge has')
+  // ---- (e) fast mode and effort in the message box; (f) the gear; (g) the agent link
+  onScreen(v.agentbox.controls.effort.box, 'the effort control'); onScreen(v.agentbox.controls.fast.box, 'the fast mode control')
+  assert.equal(v.agentbox.controls.fast.label, 'Fast mode'); onScreen(v.agentbox.effortTrack, 'the effort track')
+  assert.ok(v.agentbox.controls.effort.box.x > v.agentbox.composer.x + v.agentbox.composer.w - 4, 'the controls sit after the text, beside send')
+  assert.equal(v.agentbox.head.gear, "Open solo's settings"); assert.deepEqual(v.agentbox.settings, [{ scope: 'agent', org: 'mine', agentId: 'solo' }])
+  assert.equal(v.agentbox.head.link.tag, 'BUTTON'); assert.match(v.agentbox.head.link.cls, /ref-chip ref-agent ref-ready/); assert.equal(v.agentbox.head.link.agent, 'solo')
+  assert.deepEqual(v.agentbox.focused, ['solo'])
+  checked.push('header and message box')
 
   // ---- narrow: the list becomes the overlay the other two-pane panels use
   assert.equal(v.narrow.collapsed, true); onScreen(v.narrow.rail, 'the list control'); assert.equal(v.narrow.closedOnPick, true)
