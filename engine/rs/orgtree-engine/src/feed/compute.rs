@@ -329,6 +329,10 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(a) = x.get("ack_of").filter(|v| v.is_string()) {
         q.insert("ack_of".into(), a.clone());
     }
+    // a job another project's relay took: the project and the job it came from (read-only, for a thread's view)
+    if let Some(r) = x.get("relayed_from").filter(|v| v.is_object()) {
+        q.insert("relayed_from".into(), json!({ "name": r["name"], "job": r["job"] }));
+    }
     // an org-mailbox follow-up: bundled with a job (the stored row) or handed alongside it (the copy)
     let follows = x.get("bundled_with").and_then(Value::as_str).or_else(|| {
         let v = &x["via_project"];
