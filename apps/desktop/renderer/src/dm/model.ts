@@ -97,6 +97,12 @@ export interface DmChat {
    *  gives a member its direct project's audience only, so this is one name
    *  today; the list is what the label and the close rule read. */
   via: string[]
+  /** the project's chat this one is listed UNDER: an agent that reaches the
+   *  user only through that project (USER 2026-11-23 ma97ab61a248c). An agent
+   *  with a grant or a direct line of its own is listed on its own. */
+  parent: string | null
+  /** for a project's chat: how many chats are listed under it */
+  kids: number
   /** unread mail from it */
   unread: number
   /** its open requests */
@@ -338,6 +344,8 @@ export function dmChats(input: DmInput): DmChat[] {
       grant: granted.has(peer),
       inherited: granted.has(peer) ? null : via[0] ?? null,
       via,
+      parent: null,
+      kids: 0,
       unread: list.filter(e => e.unread && e.mail).length,
       asks: list.filter(e => e.unread && e.ask).length,
       entries: list,
@@ -369,17 +377,40 @@ export function dmChats(input: DmInput): DmChat[] {
   }
   if (selected) open(selected)
 
+  // ---- an agent that reaches the user only through a project is listed
+  // under that project's chat, as a sub-item is under its ticket
+  const kidsOf = new Map<string, DmChat[]>()
+  for (const c of chats.values()) {
+    const project = c.kind === 'agent' && !c.grant && !c.topLevel && !c.request ? c.via[0] : undefined
+    if (!project || !chats.has(project)) continue
+    c.parent = project
+    kidsOf.set(project, [...(kidsOf.get(project) ?? []), c])
+  }
+  for (const [project, kids] of kidsOf) chats.get(project)!.kids = kids.length
+  const byTree = (a: DmChat, b: DmChat) => {
+    const oa = order.get(a.peer) ?? Infinity, ob = order.get(b.peer) ?? Infinity
+    return oa !== ob ? oa - ob : a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0
+  }
+  /** when a chat was last active: its newest message, or for a project the
+   *  newest of its own and of the chats listed under it */
+  const active = (c: DmChat): string => [c.last?.at ?? '', ...(kidsOf.get(c.peer) ?? []).map(k => k.last?.at ?? '')]
+    .reduce((newest, at) => at > newest ? at : newest, '')
   // a request is new and waits on the user: first, the newest request on top
   const rank = (c: DmChat) => c.request ? -1
-    : !c.live && c.kind !== 'system' && c.kind !== 'other' ? 2 : c.last ? 0 : 1
-  return [...chats.values()].sort((a, b) => {
+    : !c.live && c.kind !== 'system' && c.kind !== 'other' ? 2 : active(c) ? 0 : 1
+  const top = [...chats.values()].filter(c => !c.parent).sort((a, b) => {
     const ra = rank(a), rb = rank(b)
     if (ra !== rb) return ra - rb
     if (ra === -1 && a.request!.at !== b.request!.at) return a.request!.at < b.request!.at ? 1 : -1
-    if (ra === 0 && a.last!.at !== b.last!.at) return a.last!.at < b.last!.at ? 1 : -1
-    const oa = order.get(a.peer) ?? Infinity, ob = order.get(b.peer) ?? Infinity
-    return oa !== ob ? oa - ob : a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0
+    if (ra === 0 && active(a) !== active(b)) return active(a) < active(b) ? 1 : -1
+    return byTree(a, b)
   })
+  // within a project, the most recently active first; those nobody has written in follow in tree order
+  const within = (a: DmChat, b: DmChat) => {
+    const la = a.last?.at ?? '', lb = b.last?.at ?? ''
+    return la !== lb ? (la < lb ? 1 : -1) : byTree(a, b)
+  }
+  return top.flatMap(c => [c, ...(kidsOf.get(c.peer) ?? []).slice().sort(within)])
 }
 
 /** A chat's timeline, oldest first. */
