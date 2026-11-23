@@ -38,35 +38,45 @@ export default async function (rig) {
   await rig.api('PUT', '/api/app-settings/runtime', { credit_bubble_hire_enabled: false })
 
   const file = path.join(p.dir, 'alice-team.orgtree.zip')
+  const plainFile = path.join(p.dir, 'carol.orgtree.zip')
   const result = await runDesktop(rig, fileURLToPath(new URL('../desktop/agent-export.cjs', import.meta.url)),
-    { preset: 'wide', out: path.join(p.dir, 'desktop'), timeout: 420000, args: { node: 'alice', under: 'dana', copy: 'carol', file } })
+    { preset: 'wide', out: path.join(p.dir, 'desktop'), timeout: 420000, args: { node: 'alice', plain: 'carol', under: 'dana', copy: 'carol', file, plainFile } })
   p.file('desktop.json', result)
   const { steps = {}, said = {} } = result.value ?? {}
   p.check('the window script ran to its end', result.ok, result.error ?? result.electronOutput)
   p.check('the window was in Session 0, muted, with the clipboard stubbed', result.session?.electron === 0 && result.guards?.muted === true
     && result.guards?.clipboardStub === true, { session: result.session, guards: result.guards })
-  for (const name of ['menu', 'export', 'import', 'duplicate', 'settings']) {
+  for (const name of ['menu', 'export', 'exportPlain', 'import', 'duplicate', 'duplicateTeam', 'settings']) {
     p.check(`step ${name}`, steps[name] !== undefined && !String(steps[name]).startsWith('FAILED'), steps[name])
   }
+  const isZip = f => fs.existsSync(f) && fs.readFileSync(f).subarray(0, 2).toString('latin1') === 'PK'
   p.check("a node's menu offers the three entries", JSON.stringify(steps.menu) === JSON.stringify(['Export…', 'Import here…', 'Duplicate…']), steps.menu)
   p.check('the export says how much it holds before anything is written', /2 agents/.test(said.estimate ?? ''), said.estimate)
-  p.check('with secrets found and none taken out, it stops and names them', /password or key/.test(said.found ?? '') && /credential file/.test(said.found ?? '')
-    && /scratch folder of alice/.test(said.found ?? ''), said.found)
-  p.check('the file the window offers is the export', fs.existsSync(file) && fs.readFileSync(file).subarray(0, 2).toString('latin1') === 'PK', steps.export)
-  p.check('the plan shows the numbered names and the clamped grant with the strategy that made it', /alice → alice-2/.test(said.plan ?? '')
-    && /bob → bob-2/.test(said.plan ?? '') && /\(was 6\)/.test(said.plan ?? '') && /Take spare credits away/.test(said.plan ?? ''), said.plan)
-  p.check('it says where the file came from', /Rig Org/.test(said.facts ?? ''), said.facts)
+  p.check('with secrets found and none taken out, it stops and names them', /^This export holds secrets\./.test(said.found ?? '') && /password or key/.test(said.found ?? '')
+    && /credential file/.test(said.found ?? '') && /scratch folder of alice/.test(said.found ?? ''), said.found)
+  // USER 2026-11-23 m84e35b23ed2e: no dialog between the export and its saving
+  p.check('once answered, the file is saved by a download the window started itself, and no dialog is left', isZip(file)
+    && steps.export?.download?.state === 'completed' && /\/exports\/[^/]+\/file$/.test(steps.export?.download?.url ?? '') && /^Saving alice/.test(said.exported ?? ''),
+  { step: steps.export, said: said.exported })
+  p.check('an export with nothing secret asks nothing: the download starts and the canvas is back', isZip(plainFile) && steps.exportPlain?.download?.state === 'completed'
+    && said.foundPlain === false && /^Saving carol/.test(said.exportedPlain ?? ''), { step: steps.exportPlain, said: said.exportedPlain, found: said.foundPlain })
+  p.check('the plan is one sentence with the spare credits lost in all', /^Creates alice-2 and 1 more under dana\. Costs 5 credits\. 3 spare credits are taken away\.$/.test(said.plan ?? ''), said.plan)
+  p.check('the import dialog has nothing to choose a strategy with, no grant told one by one, and no word of where the file was exported',
+    said.importSelects === 0 && !/was 6|grant shrunk|Take spare credits|exported|unpacked/.test(said.importDialog ?? ''), said.importDialog)
   const alice2 = row('alice-2')
-  p.check('the import created what the plan showed, under the node it was chosen on', alice2?.state === 'live' && alice2?.parent === 'dana' && alice2?.grant < 6
-    && alice2?.ported?.was === 'alice' && row('bob-2')?.parent === 'alice-2' && /Imported: alice-2/.test(said.imported ?? ''), { alice2, said: said.imported })
+  p.check('the import created what the plan said, under the node it was chosen on, and went straight back to the canvas', alice2?.state === 'live' && alice2?.parent === 'dana'
+    && alice2?.grant === 3 && alice2?.ported?.was === 'alice' && row('bob-2')?.parent === 'alice-2' && /Imported: alice-2 and 1 node under it\./.test(said.imported ?? ''), { alice2, said: said.imported })
   const carol2 = row('carol-2')
-  p.check('the duplicate stands beside the original', carol2?.state === 'live' && carol2?.parent === 'boss' && carol2?.ported?.duplicate === true
-    && /Copied: carol-2/.test(said.copied ?? ''), { carol2, said: said.copied })
+  p.check('a duplicate with nothing to choose is made with no dialog, beside the original', carol2?.state === 'live' && carol2?.parent === 'boss' && carol2?.ported?.duplicate === true
+    && said.copyDialogSeen === false && /Copied: carol-2\./.test(said.copied ?? ''), { carol2, said: said.copied, dialog: said.copyDialogSeen })
+  p.check('a duplicate of a team asks how much of it, in a sentence', /Only alice/.test(said.copyDialog ?? '') && /Creates alice-\d+/.test(said.copyDialog ?? '')
+    && !/docket items|not interrupted/.test(said.copyDialog ?? ''), said.copyDialog)
   const history = rig.sql(`SELECT kind, label FROM ot.undo_entries WHERE org_id=${orgId} AND kind='import' ORDER BY id`)
   p.check('both are entries of the undo history', history.length === 2 && /^Import alice-2/.test(history[0].label) && /^Duplicate carol-2/.test(history[1].label), history)
   const shots = (result.shots ?? []).map(s => s.name)
-  p.check('a capture of every step', ['01-node-menu', '02-export-choose', '03-export-secrets-found', '04-export-ready', '06-import-plan-clamped', '08-import-done',
-    '09-canvas-after-import', '10-duplicate-plan', '11-duplicate-done', '13-settings-export-and-import'].every(name => shots.includes(name)), shots)
+  p.check('a capture of every step', ['01-node-menu', '02-export-choose', '03-export-secrets-found', '04-export-saving-toast', '05-export-nothing-secret-choose',
+    '06-export-nothing-secret-saving-toast', '07-import-choose', '08-import-plan', '09-canvas-after-import', '10-canvas-after-duplicate', '11-duplicate-team-plan',
+    '12-settings-export-and-import'].every(name => shots.includes(name)), shots)
   // Electron prints its own content-security warning in an unpackaged run: not the app's
   const errors = (result.consoleErrors ?? []).filter(e => !/Electron Security Warning/.test(e))
   p.check('the window logged no error', errors.length === 0, errors)
