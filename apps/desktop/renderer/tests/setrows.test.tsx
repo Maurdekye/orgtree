@@ -170,8 +170,11 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     // account-selection switch, PLAN I5b, and the Luna reserve preference,
     // B5 / decision 31.)
     // The Orgtree feedback switch and both app-wide Credit cost bubbling
-    // switches (user 2026-10-22 14:30Z) are also part of Runtime.
-    assert.equal(rows.length, 11)
+    // switches (user 2026-10-22 14:30Z) are also part of Runtime, and so is
+    // "Strip secrets from exports" (user 2026-11-23 m3c072bcdc19a, off by default).
+    assert.equal(rows.length, 12)
+    const strip = panel.querySelector<HTMLInputElement>('input[aria-label="Strip secrets from exports"]')!
+    assert.equal(strip.checked, false, 'nothing is stripped unless it is ticked')
     assert.ok(rows.some(row => row.querySelector('input[aria-label="Suggest agents to give feedback to Orgtree"]')))
     assert.ok(rows.some(row => row.querySelector('input[aria-label="Your hires bubble their cost up the chain"]')))
     assert.ok(rows.some(row => row.querySelector('input[aria-label="Your allocations & model upgrades bubble their cost up the chain"]')))

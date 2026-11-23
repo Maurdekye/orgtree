@@ -53,7 +53,9 @@ const news = (contents) => contents.sent.map(([channel, event]) => {
 })
 
 test('only the Files route of this app\'s own engine is a Files download', () => {
-  for (const url of [FILE, `${ORIGIN}/api/orgs/a-b/nodes/_shared/scratch-files/file?scope=shared`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/file?path=big.bin`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files/file`]) {
+  for (const url of [FILE, `${ORIGIN}/api/orgs/a-b/nodes/_shared/scratch-files/file?scope=shared`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/file?path=big.bin`, `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files/file`,
+    // a finished export of a node (4.7.0, docs/rust-engine/agent-export.md): up to 256 GiB, saved the same way
+    `${ORIGIN}/api/orgs/galaxy/exports/x0123456789ab/file`]) {
     assert.equal(isFilesDownload(url, ORIGIN), true, url)
   }
   for (const url of [
@@ -61,6 +63,10 @@ test('only the Files route of this app\'s own engine is a Files download', () =>
     `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files`,
     `${ORIGIN}/api/orgs/galaxy/nodes/lead/scratch-files/file/more`,
     `${ORIGIN}/api/orgs/galaxy/nodes/a/b/scratch-files/file`,
+    `${ORIGIN}/api/orgs/galaxy/exports/x0123456789ab`,
+    `${ORIGIN}/api/orgs/galaxy/exports/x0123456789ab/file/more`,
+    `${ORIGIN}/api/orgs/galaxy/exports/a/b/file`,
+    `${ORIGIN}/api/orgs/galaxy/imports/x0123456789ab/file`,
     'http://127.0.0.1:9999/api/orgs/galaxy/nodes/lead/scratch-files/file',
     'https://example.com/api/orgs/galaxy/nodes/lead/scratch-files/file',
     'not a url', '',
