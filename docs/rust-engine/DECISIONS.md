@@ -2748,3 +2748,22 @@ still to come. See the current
     `unstick`, the `policy.unstuck` event and the renderer's `unstickNode`.
     Every seat's tool list changes, so each starts a new prompt-cache prefix at
     its first start after the upgrade.
+
+107. **The user's mailbox panel is their chats; a message typed there says so to the agent** (USER 2026-11-22
+    m200806e4af28, m1454e651500e, m321dab754e52; 2026-11-23 m79c022311f95, me0241bccf7b4, m265fe1ac5d5d,
+    m034b5c83b8f2; 4.7.0). The user's Inbox is drawn as Hubchat-style chats: one per live top-level agent and
+    per holder of a user audience, newest first with an unread count. Closing a chat calls the existing
+    audience revoke with no confirmation. A top-level agent's chat cannot be closed; a grant it also holds is
+    revoked and the chat stays, and the tooltip says so. New chat is the agents list and grants an audience.
+    Requests keep their one card and one submit, drawn as one bubble per tab. The classic mailbox is one
+    checkbox away (the panel's title bar and App settings > Display > Mailbox), saved per computer for all
+    orgs, and restores the previous panel and the mail icon. The panel keeps the name Inbox in both views.
+    The change is frontend only with ONE accepted exception: the user send route takes an optional
+    `"surface":"dm"`, stored as `extra.surface` on the mail row, and the agent's mail wrapper then adds the
+    line "↳ Sent from the user's DM panel, which shows only mail. Always answer with at least one
+    orgtree_message to user; a reply only in your turn's text does not appear there." Only a NEW message
+    typed in the panel is marked: never a reply, a notice, or a reply made on a presentation or a ticket. No
+    migration; routing, delivery and audiences are unchanged; an older engine ignores the field and an older
+    window sends none. A second setting, on by default, opens the recipient's chat after a reply on a
+    presentation or a ticket. Choices made where the rulings were silent are listed in the
+    [desktop notes](../agents/desktop-and-renderer.md#the-users-inbox-as-chats-2026-11-23-470).

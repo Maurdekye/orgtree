@@ -20,6 +20,14 @@ Use the surface that lets the recipient act on the result. A local path alone is
 
 The tool pages own parameters, limits, permission checks and response meanings. In particular, presenting a document outside a project you belong to requires effective user access; an explicit audience or one inherited from a live direct-parent project counts. Presenting within your own project, including through nested membership, has its separate member permission. The send_file implementation has different checks. Honor the session's communication scope; that implementation difference does not authorize bypassing the superior route.
 
+## When the user writes from their chats
+
+The user's Inbox draws their mail as chats (`orgtree-inbox-screens`, orgtree-app › desk). It shows only mail: what you write in your turn appears on your desk, not there. So a new message the user typed in that panel arrives with this line under its header:
+
+`↳ Sent from the user's DM panel, which shows only mail. Always answer with at least one orgtree_message to user; a reply only in your turn's text does not appear there.`
+
+When you see it, send your answer with at least one [orgtree_message](../../mail/tool-message/SKILL.md) to `user`. More than one is fine, and a long report can still be a presented document with a short mail that points to it. The line is only on new messages typed there: the user's replies to your mail, their notices and their replies on a presentation or a ticket do not carry it, and are answered as usual. It changes no route and grants nothing; the ordinary mail rules still decide whether your message is delivered.
+
 ## Keep requests current
 
 After asking, do independent work if possible and end the turn when waiting for an answer. Do not simulate a synchronous dialog with polling. Revisit an open request when new information arrives: if the need was resolved elsewhere or its premise died, use [orgtree_withdraw_ask](../tool-withdraw-ask/SKILL.md). Read that tool before withdrawing a mixed request, because the withdrawal affects its combined parts.

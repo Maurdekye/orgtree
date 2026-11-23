@@ -1,5 +1,17 @@
 # Mail and hub
 
+## A message typed in the user's chats tells the agent to answer by mail (2026-11-23, 4.7.0)
+
+`POST /api/orgs/{org}/nodes/{nid}/message` takes an optional `surface`. `"dm"` on a NEW message (no reply
+target, not a notice: `http/nodes.rs` `dm_panel_mark`) sets `Outgoing.dm_panel`, stored as
+`extra.surface = "dm"` (`domain/mail.rs` `delivery_extra`). `runtime/actor.rs` `mail_of` reads it back into
+`Mail.dm_panel`, and `runtime/envelope.rs` `mail_block` adds one `↳` line under the header, for the user's own
+mail that is not a notice. Any other value, and an older window that sends none, is ordinary mail. No
+migration and no routing change. The line's wording is in
+[decision 107](../rust-engine/DECISIONS.md); the panel is in the
+[desktop notes](desktop-and-renderer.md#the-users-inbox-as-chats-2026-11-23-470).
+[decided: USER m79c022311f95, m034b5c83b8f2; verified: `cargo test dm_panel` (4 tests)]
+
 ## Phone settings compatibility (2026-10-23)
 
 Phone settings parsing discards obsolete preference keys before exposing or

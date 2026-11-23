@@ -241,6 +241,21 @@ This applies to the top-bar buttons, agent/project Open submenus including team 
 
 An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** is your own received mail, questions and sent/record views. The **organization inbox** is outside correspondence. Reading one is not the same as becoming its owner or gaining a composer for all of its contacts.
 
+### Your Inbox as chats
+
+Since 4.7.0 your Inbox opens as chats, the way Hubchat shows conversations: a list of chats on the left and one conversation on the right. Nothing about your mail changed; this is another way to look at it. The Inbox button now wears a chat bubble.
+
+- **Who has a chat.** Every top-level agent, and every agent or project you gave an audience. Orgtree's own notices share one chat called **Orgtree**. Anyone else shows up only while something of theirs is unread or waits on your answer. The newest conversation is at the top, each with its unread count; **?** marks a request waiting for you.
+- **Closing a chat** takes back that agent's audience with you, at once and without asking. Its mail is kept. A top-level agent always has a direct line to you, so its chat can't be closed; if it also holds an audience grant, closing takes the grant back and the chat stays. The close button's tooltip tells you which of these applies.
+- **New chat** opens the agents list. Pick an agent to open its chat; an agent that could not write to you gets an audience first.
+- **Messages and requests.** Your own messages are on the right. Notices have a dashed border, requests a small label, and files are chips. Questions and permission requests appear in the asking agent's chat with one bubble per question and one submit; answer them as anywhere else. Hover a message to reply to it or copy it.
+- **Reading.** Mail in the chat you are looking at is marked read while its window is in front.
+- **What you type** in a chat is ordinary mail to that agent. A new message (not a reply) also tells the agent to answer you by mail, because the chats show mail and not what the agent writes on its own desk.
+
+Prefer the mailbox as it was? Tick **classic** in the Inbox's title bar, or turn on **App settings > Display > Mailbox > Classic mailbox**. That brings back the folders, the mail list with its reading pane, the record view, the tag filter and the mail icon, on this computer for every organization. The rest of this section describes that classic mailbox.
+
+### The classic mailbox
+
 Select a mail to see its full body, sender, time, attachments and reply references. A link can locate a message outside the currently loaded page; in the organization inbox it opens Received or Sent, whichever holds the message. Contextual user replies target the original sender or eligible recipients and retain the source reference. Composed, queued, delivered and consumed describe different stages.
 
 A message that cannot be displayed shows **This message could not be shown** in its place, in the list or the reading pane. The rest of the mailbox keeps working, and a crash report is saved.

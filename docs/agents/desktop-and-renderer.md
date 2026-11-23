@@ -1,5 +1,54 @@
 # Desktop and renderer
 
+## The user's Inbox as chats (2026-11-23, 4.7.0)
+
+@item:orgtree/user-mailbox-panel-hubchat-style-dm-revamp-front. The rulings and the one engine exception are
+[decision 107](../rust-engine/DECISIONS.md). The classic mailbox (`InboxPanel`, App.tsx) is untouched; the chats
+are a second view over the same reads and calls.
+
+- WHERE: `App.tsx` `UserMailbox` picks `InboxPanel` (classic) or `dm/DmPanel.tsx`. `dm/model.ts` holds the pure
+  rules (`dmChats`, `dmClose`, `dmTimeline`, `dmWaiting`). `mailboxpref.ts` holds the two per-computer switches
+  (`orgtree-classic-mailbox`, `orgtree-chat-on-object-reply`) and the chat-request bus. `dm/mailboxicon.tsx` is
+  the one place the mailbox icon is chosen (header button, eye card, panel title).
+- SAME UNDER THE HOOD: the panel reads `useRecordInbox`, `useMailboxHistory` (inbox and sent) and
+  `getAudiences`, and writes only through `audienceAction`, `markRead`/`markReadNow`, `sendLinkedReply`,
+  `resolveBatch`, `deleteUserMail`, `clearInbox` and the job acknowledgement, as the classic panel does. A reply
+  marks its original read, as there. Do not add an engine route for the chats.
+- REUSED, NOT COPIED: `CollapsibleMailer` (its `rowSelector` names what closes the narrow overlay; the default
+  is `.mailrow`), `MailMessageBody` and `MailAttachments` (extracted from `MailReadPane`, same DOM),
+  `MailReplyBox`, `InboxAskCard` with `layout="messages"` (`BatchAsk` draws one `.ask-message` per tab and ONE
+  submit; the card layout is unchanged), `AgentTray`/`trayRows`/`ActiveAgentsFilter` for New chat, and
+  `scopeItemLabel`.
+- LIST RULE (`dmChats`): every live top-level agent (no AGENT ancestor; projects are transparent); every
+  explicit holder of a user audience, agent or project (retired ones last, dropped under Hide retired agents);
+  an agent with a project-inherited audience once it has entries; `@system` as one chat named Orgtree; any other
+  sender only while something of theirs is unread or open, or while it is the selected chat. Grants come from
+  the audiences read; the tree's `audiences_*` fields are the fallback until it arrives.
+- CLOSE RULE (`dmClose`): a grant holder that is not top-level: revoke, and the chat leaves. Top-level with a
+  grant: revoke, and the chat stays. Top-level without one, an inherited audience, the system chat and other
+  senders: disabled, each with its own tooltip. No confirmation anywhere on this path.
+- READ ON VIEW only while `document.visibilityState` is visible and `document.hasFocus()` (`useWindowActive`).
+- THE SEND MARK: `sendPanelMessage` (events/reply.ts) adds `surface: 'dm'` to a send with no reply target, no
+  object target, no selections and no notice. Every other send from the panel is `sendLinkedReply`, unmarked.
+- REPLY OPENS CHAT: `replySentOnObject(org, recipient)` is called by the presentation reader (gallery.tsx) and
+  the ticket reply box (docket.tsx) after a delivered reply that is not a megaphone broadcast. The shell
+  (`onChatRequest` in App.tsx) opens that organization's inbox on that chat, and first closes a CENTRED docket
+  or presentations window (`closeIfCentred`): they are drawn over the inbox and would cover the chat. It does
+  nothing in the classic mailbox or with the setting off.
+- CHOICES WHERE THE RULINGS WERE SILENT (reported at hand-in): the panel keeps the name "Your inbox"; the header
+  count keeps `attentionPip`; `@system` mail is one chat that cannot be closed; an inherited audience gives a
+  chat only once the agent has written, and closes at the project; a sender without an audience is listed only
+  while something waits; retired holders are dimmed and last; a notice's dashed border is its own text colour;
+  the classic checkbox also shows, ticked, in the classic panel; record and tags stay classic-only.
+- CAPTURE: `tests/dm-panel-visual.mjs <build> <evidence> <node_modules> --expect` (probe page
+  `tests/dm-panel-probe.tsx`, page script `tests/dm-panel-visual.cjs`) walks every ruling in the rig's guarded
+  offscreen window against a fake engine the driver serves. Measured there: the offscreen window starts with
+  `document.hasFocus()` false, and ANY CDP input focuses it, so the "not read while inactive" proof runs before
+  the first input; a production bundle carries no MUI `data-testid`, so an icon is told by the path it draws.
+
+[verified: `tests/dmmodel.test.tsx`, `tests/dmpanel.test.tsx`, `appsettings` §3c, `scopedmodals`, `gallery` §11,
+`docket` §13 and §13d; engine `cargo test dm_panel`; the capture receipt named in the hand-in]
+
 ## Retired counts are non-interactive (2026-11-19, 4.6.4)
 
 Retired count badges are plain labels. Right-click the agent/project/org >

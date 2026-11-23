@@ -12,17 +12,21 @@ These Display controls describe how the user interacts with the app. Agents expl
 | Control | Storage | Default | Choices and effect |
 | --- | --- | --- | --- |
 | Quick chat position | `ls:orgtree-quickchat-position` | top | Top centers it in the header; Bottom in the footer strip; None hides it everywhere, leaving Attention without its new-chat box. |
+| Classic mailbox | `ls:orgtree-classic-mailbox` | Off | Off draws the user's Inbox as chats, one per agent that can write to the user, under a chat-bubble icon. On restores the classic mailbox (folders, a mail list and a reading pane) and the mail icon. The **classic** checkbox in the Inbox's title bar is the same setting. |
+| Open the chat when replying to a presentation or ticket | `ls:orgtree-chat-on-object-reply` | On | After the user replies in the presentation reader or in a ticket's reply box, the Inbox opens on the chat of the agent that received the reply, with the reply as its latest message. A centred presentation or ticket window closes so the chat is not behind it; a pinned or popped-out one stays. A megaphone reply to a whole project and a reply that waits for a rehire open nothing. It does nothing while Classic mailbox is on. |
 | Enter key | `rt:enter_key_behavior`, app runtime settings | send | Send message uses Enter or Ctrl/Command+Enter to send, Shift+Enter for a newline. Insert new line uses Enter for a newline and Ctrl/Command+Enter to send. |
 | On startup | `np:startupMode`, native preferences | restore | Restore previous windows in saved positions, or open a fresh homepage. This control is absent when the shell cannot provide multi-window startup. |
 | Open an org at | `ls:orgtree-start-view` | org | The full org fitted to the window, the switchboard, or where I left off. |
 | Play the starting zoom | `ls:orgtree-start-zoom` | On | Animates the initial view; disabled for where I left off because a restored camera does not glide. A brand-new org with no saved camera plays the starting zoom once. |
 | Open changelog after updates | `ls:orgtree-changelog-after-update` | On | The first start after an update that brings a newer published release opens the Changelog on that release in the first window; a fresh install never does, nor does an update that lists no newer release. Off keeps it shut; the app menu still opens it. The Changelog's header checkbox **Show this every time** is the same setting. |
 
+The two **Mailbox** rows are saved on this computer for every organization and window, and take effect at once in every open window. Neither changes mail, audiences or what agents receive; see [the Inbox as chats](../../desk/inbox-screens/SKILL.md#your-inbox-as-chats).
+
 Quick chat placement and canvas-view choices are browser-local preferences. Native startupMode governs desktop windows; it is different from Run on boot, which controls whether Orgtree starts automatically at all. A canvas destination is not an engine start mode. See [desktop startup](../app-runtime-desktop/SKILL.md).
 
 The Enter setting is app-wide and is reflected in the read-only shortcut reference. The special quick-chat hire composer retains its own Enter-to-hire/Shift+Enter behavior; use its screen leaf for that workflow. A message-history arrow shortcut also depends on the caret position, not just the Enter preference.
 
-Suggest None only when the user wants to remove quick chat and understands the Attention consequence. Suggest Insert new line for multi-line composition without accidental sends, or restore/homepage according to the desired launch arrangement. A saved startup choice does not immediately close, move or recreate existing windows.
+Suggest Classic mailbox to a user who wants folders, the record view or the tag filter back. Suggest None only when the user wants to remove quick chat and understands the Attention consequence. Suggest Insert new line for multi-line composition without accidental sends, or restore/homepage according to the desired launch arrangement. A saved startup choice does not immediately close, move or recreate existing windows.
 
 ## See also
 
@@ -30,3 +34,4 @@ Suggest None only when the user wants to remove quick chat and understands the A
 - [orgtree-app-runtime-desktop](../app-runtime-desktop/SKILL.md).
 - [orgtree-app-keyboard-shortcuts](../app-keyboard-shortcuts/SKILL.md).
 - [orgtree-changelog](../../app-shell/changelog/SKILL.md).
+- [orgtree-inbox-screens](../../desk/inbox-screens/SKILL.md).

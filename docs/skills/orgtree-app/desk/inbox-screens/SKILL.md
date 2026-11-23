@@ -6,6 +6,30 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
+## Your inbox as chats
+
+Since 4.7.0 the user's Inbox opens as chats, like Hubchat: a list of chats on the left, one conversation on the right and one message box under it. It is a second view of the same mail, requests and audiences the classic mailbox shows; sending, delivery, read state and audiences work exactly as before. Its icon is a chat bubble in the header, on the eye card and in the panel title. The panel is still called Inbox, and each organization has its own, listing only that organization's agents.
+
+**Which chats are listed.** One chat for every live top-level agent (an agent with no agent above it; projects in between do not count), and one for every agent or project that holds an audience with the user. An agent whose audience comes through a project gets a chat once it has written. Orgtree's own notices and decisions (sender `@system`) share one chat named **Orgtree**. Any other sender is listed only while something of theirs is unread or one of their requests is open, so unread mail is never hidden. Retired audience holders come last and dimmed, and are left out while **Hide retired agents** is on. Chats with messages are ordered newest first; chats without any follow in the tree's order. A row shows the last message (**You:** before the user's own), its age, the unread count, and **?** while a request from that agent waits on an answer. The search box filters by name, **Mark all read** shows while anything is unread, and pending audience requests sit above the chats with **grant** and **deny**.
+
+**Closing a chat.** The close control is in the chat's header and on its row (on hover). For an audience holder it revokes exactly that audience grant, at once and without a confirmation. The mail is kept; the chat comes back when the audience is granted again or that agent has unread mail. A top-level agent's chat cannot be closed: the control is disabled and its tooltip says the agent always has a direct line. For a top-level agent that also holds a grant, close revokes the grant and the chat stays; the tooltip says so before the click. The Orgtree chat cannot be closed, and a chat that exists through a project's audience closes only by revoking the project's audience.
+
+**New chat** (beside the search box) opens the agents list with everything it has elsewhere: the filter box, the archived fold, the active-only checkbox and each agent's menu. Picking an agent opens its chat; one that cannot write to the user yet is given an audience first.
+
+**Messages.** Mail runs oldest to newest with the user's own on the right, day separators, and an **N new messages** line where the unread mail began when the chat was opened. A notice has a dashed border in its text colour and the label **Notice**; request, question and decision mail carry a small label; files are the usual chips and image previews. Hover a message for **Reply** and **Copy**; its context menu adds Mark as read, Delete and Copy reference. Reply stages that message above the box (several can be staged; Escape clears them), and a sent reply's quote leads back to its original. A project job keeps its acknowledge pane.
+
+**Requests** (questions, credit requests and scope requests) appear in the asking agent's chat and work as on its desk: the same choices, one submit, the same recorded answers. In a chat each tab of a request is its own bubble, all of them on screen, with the submit under the last. A question with options offers **Other** for a typed answer; one without options is a free answer. Resolved requests stay in the chat as their answered cards.
+
+**Reading.** A chat's unread mail is marked read while that chat is on screen in the window the user is using; in a window that is not in front it stays unread until they return. A chat opens at its first unread message, else at its first open request, else at its newest message. The header count keeps its rule: open requests and urgent mail come before the plain unread count.
+
+**Writing.** The message box is the shared reply composer: attachments, the notice toggle, mentions and the app's Enter key setting. A new message typed here (not a reply, not a notice) tells the agent that it came from the user's chats and must be answered by mail to the user, because the chats show only mail; see `orgtree-reaching-the-user` (orgtree-working › user). Retired agents and the Orgtree chat cannot be written to.
+
+**Narrow windows.** At 896 CSS pixels or less of reading width the chat list becomes the menu-controlled overlay the other mail lists use; picking a chat or New chat closes it.
+
+**Classic mailbox.** The **classic** checkbox in the panel's title bar, and **App settings > Display > Mailbox > Classic mailbox**, bring back the mailbox the rest of this page describes, with the mail icon. The choice is saved on this computer for every organization and window. The record folder and the tag filter exist only in the classic mailbox. While the chats are on, replying to a presentation or a ticket opens the chat of the agent that received the reply; see [input and startup display](../../app-settings/app-display-input-and-startup/SKILL.md).
+
+Agents reach the same actions through their tools: an audience is granted or revoked with `orgtree-tool-audience` (orgtree-working › mail), and mail to the user is `orgtree-tool-message` (orgtree-working › mail). The view, its icon and the two settings are the user's display choices; no tool changes them.
+
 ## Reply to selected mail text
 
 In a live mail reply context, highlight a passage and right-click **Reply to
@@ -62,7 +86,7 @@ Single-message reader requests under the mail-by-id route omit their HTTP bodies
 
 User Inbox reads, including historical pages, omit HTTP bodies from wire diagnostics with verbose logging off or on. Private mail projections are also excluded from function-return logging; paths/status and normal client content remain available.
 
-These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views; the org mailbox is the organization's outside correspondence.
+These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views (drawn as [chats](#your-inbox-as-chats) unless the classic mailbox is chosen); the org mailbox is the organization's outside correspondence.
 
 ## Lists, read panes and replies
 

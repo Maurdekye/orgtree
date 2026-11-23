@@ -1625,18 +1625,22 @@
     "question vs attention flag vs mail",
     "presenting documents vs sending files",
     "what non-top-level agents get instead (superior)",
-    "notifications the user receives"
+    "notifications the user receives",
+    "the line a message typed in the user's chats carries, and answering it by mail"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/runtime/identity.rs QUESTIONS_AND_FILES",
     "engine/rs/orgtree-engine/src/domain/asks.rs",
-    "engine/rs/orgtree-engine/src/domain/docs.rs"
+    "engine/rs/orgtree-engine/src/domain/docs.rs",
+    "engine/rs/orgtree-engine/src/runtime/envelope.rs mail_block",
+    "engine/rs/orgtree-engine/src/http/nodes.rs dm_panel_mark"
    ],
    "see_also": [
     "tool-ask",
     "tool-present",
     "tool-send-file",
-    "docket-review-and-attention"
+    "docket-review-and-attention",
+    "inbox-screens"
    ],
    "writer": "comms-sol",
    "status": "fixed"
@@ -3905,7 +3909,7 @@
     "screen:desk-inbox-tab",
     "screen:transfers-panel"
    ],
-   "purpose": "The user inbox, an agent's inbox (modal and desk tab), the org mailbox, and the transfers panel.",
+   "purpose": "The user inbox (as chats, or the classic mailbox), an agent's inbox (modal and desk tab), the org mailbox, and the transfers panel.",
    "must_cover": [
     "list, read pane, reply box",
     "responsive list width and popout resizing",
@@ -3916,7 +3920,8 @@
     "hue",
     "bounded",
     "Retry",
-    "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read"
+    "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read",
+    "the chats view: which chats are listed, the close rules and their tooltips, New chat, requests as one bubble per tab, the classic switch"
    ],
    "sources": [
     "apps/desktop/renderer/src/App.tsx:2631",
@@ -3931,11 +3936,16 @@
     "apps/desktop/renderer/src/mailattention.ts",
     "apps/desktop/renderer/src/canvas/replyselection.tsx",
     "apps/desktop/renderer/src/canvas/selectionmap.ts",
-    "apps/desktop/renderer/src/canvas/selectionpreview.tsx"
+    "apps/desktop/renderer/src/canvas/selectionpreview.tsx",
+    "apps/desktop/renderer/src/dm/DmPanel.tsx",
+    "apps/desktop/renderer/src/dm/model.ts",
+    "apps/desktop/renderer/src/mailboxpref.ts"
    ],
    "see_also": [
     "mail-basics",
-    "ask-cards"
+    "ask-cards",
+    "app-display-input-and-startup",
+    "reaching-the-user"
    ],
    "writer": "providers-sol",
    "status": "fixed",
@@ -3946,7 +3956,8 @@
     "apps/desktop/renderer/src/canvas/mail.tsx#NodeInboxModal",
     "apps/desktop/renderer/src/canvas/mail.tsx#OrgInboxModal",
     "apps/desktop/renderer/src/canvas/mailtagpicker.tsx#MailTagPicker",
-    "apps/desktop/renderer/src/canvas/transfers.tsx#TransferPanel"
+    "apps/desktop/renderer/src/canvas/transfers.tsx#TransferPanel",
+    "apps/desktop/renderer/src/dm/DmPanel.tsx#DmPanel"
    ]
   },
   {
@@ -5097,9 +5108,11 @@
     "np:startupMode",
     "ls:orgtree-start-view",
     "ls:orgtree-start-zoom",
-    "ls:orgtree-changelog-after-update"
+    "ls:orgtree-changelog-after-update",
+    "ls:orgtree-classic-mailbox",
+    "ls:orgtree-chat-on-object-reply"
    ],
-   "purpose": "Display > quick chat position, Enter key, and Startup behavior.",
+   "purpose": "Display > quick chat position, the Mailbox group (classic mailbox, opening the chat on a reply), Enter key, and Startup behavior.",
    "must_cover": [
     "each choice and default"
    ],
@@ -5107,11 +5120,13 @@
     "apps/desktop/renderer/src/canvas/accounts.tsx:430-458",
     "apps/desktop/renderer/src/canvas/accounts.tsx:903",
     "apps/desktop/renderer/src/shell/general.tsx:107",
-    "apps/desktop/renderer/src/changelog.tsx"
+    "apps/desktop/renderer/src/changelog.tsx",
+    "apps/desktop/renderer/src/mailboxpref.ts"
    ],
    "see_also": [
     "quick-chat",
-    "changelog"
+    "changelog",
+    "inbox-screens"
    ],
    "writer": "skills-docs-sol",
    "status": "fixed",
@@ -5183,6 +5198,32 @@
      "needles": [
       "orgtree-changelog-after-update"
      ]
+    },
+    {
+     "key": "ls:orgtree-classic-mailbox",
+     "file": "apps/desktop/renderer/src/mailboxpref.ts",
+     "needles": [
+      "orgtree-classic-mailbox"
+     ]
+    },
+    {
+     "key": "ls:orgtree-chat-on-object-reply",
+     "file": "apps/desktop/renderer/src/mailboxpref.ts",
+     "needles": [
+      "orgtree-chat-on-object-reply"
+     ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "component": "ClassicMailboxSetting",
+     "label": "CLASSIC_MAILBOX_LABEL"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "component": "OpenChatOnReplySetting",
+     "label": "OPEN_CHAT_ON_REPLY_LABEL"
     }
    ]
   },

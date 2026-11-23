@@ -61,6 +61,11 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
 
 **Display > Typing/startup** chooses Enter-to-send or Enter-to-newline, Quick chat at the top/bottom or hidden, restored windows versus a fresh homepage, the initial organization view, and whether the Changelog opens after an update that brings a newer published release (**Open changelog after updates**, on by default; the Changelog's own **Show this every time** checkbox is the same setting). Quick chat has its own Enter-to-hire behavior. Window restoration is different from starting the background engine at boot.
 
+**Display > Mailbox** has two switches, saved on this computer for every organization:
+
+- **Classic mailbox:** Off by default. Off shows your Inbox as chats, one per agent that can write to you. On brings back the classic mailbox and its mail icon. The **classic** checkbox in the Inbox's title bar is the same switch. See [your Inbox as chats](messages-and-work.md#your-inbox-as-chats).
+- **Open the chat when replying to a presentation or ticket:** On by default. After you reply to a presentation or a ticket, your chat with the agent that received the reply opens, with your reply as its latest message. A presentation or ticket window in the middle of the screen closes to show the chat; one you pinned stays where it is. It does nothing while the classic mailbox is on.
+
 These presentation preferences do not change agent prompts. Some are stored per desktop/browser profile, so a second machine need not share them.
 
 ## Choose notifications
