@@ -207,6 +207,18 @@
   color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent);
 }
 .dm-kind.dm-kind-audience { gap: 4px; color: var(--accent); background: var(--accent-soft); }
+.dm-kind.dm-kind-megaphone { gap: 4px; color: inherit; background: color-mix(in srgb, currentColor 12%, transparent); }
+/* a project's thread: the agent a bubble is from or to, and where the user's message stands in the queue */
+.dm-via { display: flex; align-items: center; gap: 5px; margin: 0 0 3px; font-size: 12.5px; }
+.dm-panel .dm-via button.cc-name { padding: 0; border: 0; background: none; font: inherit; }
+.dm-job { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: color-mix(in srgb, currentColor 75%, transparent); }
+.dm-job.dm-job-waiting::before, .dm-job.dm-job-held::before, .dm-job.dm-job-done::before, .dm-job.dm-job-dead::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim);
+}
+.dm-job.dm-job-held::before { background: var(--accent); }
+.dm-job.dm-job-done::before { background: var(--ok); }
+.dm-job.dm-job-dead::before { background: var(--bad); }
+.dm-panel .dm-job button.cc-name { padding: 0; border: 0; background: none; font: inherit; }
 /* an audience request in its chat: the bubble that asks, with its two answers */
 .dm-bubble.dm-request { min-width: 280px; border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .dm-request-why { margin: 4px 0 0; padding-left: 9px; border-left: 2px solid var(--line); color: var(--ink); }

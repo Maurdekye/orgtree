@@ -36,6 +36,12 @@
 // chat of its own, first in the list and marked, approved or denied in the
 // chat, and approved by writing to it; the message box has the agent's fast
 // mode and effort; the chat's header has the agent's link and its settings.
+//
+// A project's chat is one thread (USER 2026-11-23 mb52269db6058; dm/model.ts
+// folds it): the user's message says who holds it, a member's answer is
+// there under the agent's name, Reply on a member's bubble writes to that
+// member, Reply on the user's own message is a follow-up to its holder, and
+// a megaphone send is recorded once.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
@@ -85,7 +91,7 @@ import { sendLinkedReply, sendPanelMessage } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
-  ChatBubbleIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, SettingsIcon,
+  CampaignIcon, ChatBubbleIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, SettingsIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
@@ -630,6 +636,19 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
     const mailTarget = (m: MailRow) => ({ kind: 'mail' as const, org: slug, box: 'user' as const, id: m.id })
+    // WHO A REPLY IN A PROJECT'S CHAT GOES TO: the member whose bubble it
+    // answers, directly; or the project, when it follows up on the user's own
+    // message there (the engine then hands it to that job's holder).
+    let recipient = peer
+    if (chat.kind === 'project' && targets.length) {
+      const members = [...new Set(targets.filter(t => t.from !== USER).map(t => t.from))]
+      if (members.length > 1 || (members.length === 1 && targets.some(t => t.from === USER))) {
+        const mixed = new Error('In a project chat, reply to one agent at a time, or follow up on your own message.')
+        setReplyError(mixed.message)
+        return Promise.reject(mixed)
+      }
+      if (members.length === 1) recipient = members[0]!
+    }
     const sent = (receipt: { id?: string; warnings?: string[] }) => {
       if (receipt.warnings?.length) toast(receipt.warnings)
       pinned.current = true
@@ -652,13 +671,14 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const target = selections?.length
       ? [...(objectTarget ? [objectTarget] : []), ...targets.map(mailTarget), ...selections]
       : objectTarget ?? (targets.length > 1 ? targets.map(mailTarget) : mailTarget(targets[0]!))
-    return approved.then(() => sendLinkedReply(slug, peer, text, target, attachments, notice))
+    return approved.then(() => sendLinkedReply(slug, recipient, text, target, attachments, notice))
       .then(async (receipt) => {
         setReplyIds([])
         sent(receipt)
         // commands have no mail receipt; read the originals only after a durable reply
-        if (!receipt.id || !targets.length) return
-        try { await readNow(targets as MailEntry[]) }
+        const answered = targets.filter(t => t.from !== USER)
+        if (!receipt.id || !answered.length) return
+        try { await readNow(answered as MailEntry[]) }
         catch { toast(['Reply sent, but could not mark the original mail read.']) }
       })
       .catch(failed)
@@ -695,7 +715,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase}
-        onReply={!e.out && m.id && chat.live ? () => addReply(m) : undefined}
+        onReply={m.id && chat.live && (!e.out || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
         onDelete={!e.out && m.id ? () => onDelete(m as MailEntry) : undefined}
         onAckJob={!e.out ? (reply, opts) => acknowledgeJob({
@@ -773,7 +793,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         {replyError && <div role="alert" className="mail-reply-state failed">{replyError}</div>}
         {canWrite
           ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions
-              placeholder={replies.length ? `reply to ${peer}…` : `message ${peer}…`}
+              placeholder={!replies.length ? `message ${peer}…`
+                : chat.kind !== 'project' ? `reply to ${peer}…`
+                : replies[0]!.from === USER ? `follow up on your message to ${peer}…` : `reply to ${replies[0]!.from}…`}
               sendLabel={replies.length ? 'reply' : 'send'} onSend={send}
               /* the agent's own fast mode and effort, the desk message box's
                  controls and saves (USER 2026-11-23 mae2b1aa37a9b) */
@@ -810,7 +832,17 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender,
   const ordinary = !view || ['ordinary.message', 'ordinary.notice', 'reply.mail'].includes(view.event.variant)
   const notice = isMailNotice(m)
   const label = KIND_LABEL[m.kind] ?? null
-  const job = !entry.out ? m.queue?.job : undefined
+  const mega = entry.megaphone
+  const megaLabel = !mega ? null
+    : mega.record ? `Megaphone · ${mega.to} agent${mega.to === 1 ? '' : 's'}` : `Megaphone · ${mega.project}`
+  const megaTitle = !mega ? undefined
+    : mega.record ? `Sent by megaphone to the agents under ${mega.project}: ${mega.names.join(', ')}. Each has its copy in its own chat.`
+      : `One copy of a megaphone send to the ${mega.to} agent${mega.to === 1 ? '' : 's'} under project ${mega.project}`
+  // where the user's message to a project stands in its queue
+  const job = entry.job
+  const holder = job?.holders[job.holders.length - 1]
+  const jobTitle = job && job.holders.length > 1 ? `handed to ${job.holders.join(', then ')}` : undefined
+  const queued = !entry.out ? m.queue?.job : undefined
   const reference = !entry.out && m.id ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null
   const copy = () => {
     const text = mailRowCopyText(m as CopyableMailRow, PROFILE)
@@ -827,29 +859,38 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender,
     copyReference: () => { if (reference) void copyToClipboard(ref.current, reference).then(ok => toast([ok ? `copied the reference ${reference}` : 'could not copy the reference — clipboard unavailable'])) },
   })
   return (
-    <div ref={ref} data-dm-entry={entry.key}
+    <div ref={ref} data-dm-entry={entry.key} data-dm-via={entry.via}
       className={'dm-msg ' + (entry.out ? 'out' : 'in') + (first ? ' first' : '') + (entry.unread ? ' unread' : '')
         + (flash != null ? ' flash' : '') + (replying ? ' replying' : '')}>
       <div className="dm-msg-row">
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')}
           onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => menu.open(e, entries)}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
+          {/* in a project's chat: which agent wrote this, or which one it was written to */}
+          {entry.via && <div className="dm-via">{entry.out && <span className="dim">to</span>}{sender(entry.via, m)}</div>}
           {/* a notice wears no label: its border says it (USER 2026-11-23
               mae2b1aa37a9b: "dont display the 'NOTICE' badge") */}
-          {(label || m.urgent || job) && <div className="dm-labels">
+          {(label || m.urgent || queued || megaLabel) && <div className="dm-labels">
+            {megaLabel && <span className="dm-kind dm-kind-megaphone" title={megaTitle}><CampaignIcon fontSize="inherit" /> {megaLabel}</span>}
             {label && <span className={'dm-kind dm-kind-' + m.kind}>{label}</span>}
             {m.urgent && <span className="urgentkind" title={m.urgent_reason ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
-            {job && <span className="queuekind job-kind"
-              title={`a job project ${job.name}'s mail queue handed to this mailbox`}>project job · {job.name}</span>}
+            {queued && <span className="queuekind job-kind"
+              title={`a job project ${queued.name}'s mail queue handed to this mailbox`}>project job · {queued.name}</span>}
           </div>}
           {m.urgent && m.urgent_reason && <div className="urgent-why">{m.urgent_reason}</div>}
           <MailMessageBody m={m} standalone={!ordinary} org={slug} refs={refs} mdBase={mdBase} sender={sender} />
           <MailAttachments m={m} fileHref={fileHref} />
-          {onAckJob && needsAck(job) && <JobAckPane job={job} onAck={onAckJob} target={m.from} slug={slug} toast={toast} />}
+          {onAckJob && needsAck(queued) && <JobAckPane job={queued} onAck={onAckJob} target={m.from} slug={slug} toast={toast} />}
+          {job && <div className={'dm-job dm-job-' + job.state} title={jobTitle}>
+            {job.state === 'waiting' ? 'waiting in the queue'
+              : job.state === 'dead' ? 'not delivered: nobody took it from the queue'
+              : <>{job.state === 'done' ? 'acknowledged by' : 'held by'} {holder ? sender(holder, m) : 'a listener'}</>}
+          </div>}
           <div className="dm-meta"><time dateTime={m.at} title={fmtFull(m.at)} aria-label={fmtFull(m.at)}>{fmtHm(m.at)}</time></div>
         </div>
         <div className="dm-actions">
-          {onReply && <button type="button" className="iconbtn" title="Reply" aria-label="Reply" onClick={onReply}><ReplyIcon fontSize="inherit" /></button>}
+          {onReply && <button type="button" className="iconbtn" title={entry.out ? 'Follow up on this message' : 'Reply'}
+            aria-label={entry.out ? 'Follow up on this message' : 'Reply'} onClick={onReply}><ReplyIcon fontSize="inherit" /></button>}
           <button type="button" className="iconbtn" title="Copy message text" aria-label="Copy message text" onClick={copy}><CopyIcon fontSize="inherit" /></button>
         </div>
       </div>
