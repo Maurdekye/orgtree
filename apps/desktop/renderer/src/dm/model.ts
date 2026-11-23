@@ -128,6 +128,25 @@ export function dmNodes(tree: Pick<TreePayload, 'roots'> | null | undefined): Ma
 
 const isProject = (n: { kind?: string } | null | undefined) => n?.kind === 'project'
 
+/** Who holds their own grant of the user's audience: the audiences read, or
+ *  each node's own record while that read is still on its way. */
+function grantedBy(nodes: ReadonlyMap<string, DmNode>, grants: readonly AudienceGrant[] | null): Set<string> {
+  const granted = new Set<string>()
+  if (grants) { for (const g of grants) if (g.grantor === USER) granted.add(g.grantee) }
+  else for (const n of nodes.values()) {
+    if ((n.audiences_explicit ?? n.audiences_held ?? []).includes(USER)) granted.add(n.id)
+  }
+  return granted
+}
+
+/** The projects a node inherits the user's audience through. One whose grant
+ *  the audiences read no longer lists (just revoked here) is left out at
+ *  once, before the next tree says so. */
+function viaOf(node: DmNode | null | undefined, grants: readonly AudienceGrant[] | null, granted: ReadonlySet<string>): string[] {
+  const names = (node?.audiences_inherited ?? []).filter(a => a.grantor === USER && a.project).map(a => a.project)
+  return [...new Set(names)].filter(p => !grants || granted.has(p))
+}
+
 /** No agent is above it. A project is not a superior, so an agent under a
  *  top-level project still answers to the user directly. */
 function topLevelAgent(nodes: ReadonlyMap<string, DmNode>, n: DmNode): boolean {
@@ -293,11 +312,7 @@ export function dmChats(input: DmInput): DmChat[] {
   for (const a of input.openAsks) add(a.node, { key: 'ask:' + a.id, at: a.at ?? '', out: false, unread: true, ask: a })
   for (const a of input.doneAsks) add(a.node, { key: 'ask:' + a.id, at: a.at ?? '', out: false, unread: false, ask: a })
 
-  const granted = new Set<string>()
-  if (grants) { for (const g of grants) if (g.grantor === USER) granted.add(g.grantee) }
-  else for (const n of nodes.values()) {
-    if ((n.audiences_explicit ?? n.audiences_held ?? []).includes(USER)) granted.add(n.id)
-  }
+  const granted = grantedBy(nodes, grants)
 
   const asking = new Map<string, DmRequest>()
   for (const r of input.requests ?? []) {
@@ -314,15 +329,15 @@ export function dmChats(input: DmInput): DmChat[] {
     if (existing) return existing
     const node = nodes.get(peer) ?? null
     const list = (entries.get(peer) ?? []).slice().sort(byTime)
-    const inherited = node?.audiences_inherited?.find(a => a.grantor === USER)?.project ?? null
+    const via = viaOf(node, grants, granted)
     const chat: DmChat = {
       peer, node,
       kind: peer === SYSTEM ? 'system' : !node ? 'other' : isProject(node) ? 'project' : 'agent',
       live: node?.state === 'live',
       topLevel: !!node && node.state === 'live' && topLevelAgent(nodes, node),
       grant: granted.has(peer),
-      inherited: granted.has(peer) ? null : inherited,
-      via: [],
+      inherited: granted.has(peer) ? null : via[0] ?? null,
+      via,
       unread: list.filter(e => e.unread && e.mail).length,
       asks: list.filter(e => e.unread && e.ask).length,
       entries: list,
@@ -349,7 +364,7 @@ export function dmChats(input: DmInput): DmChat[] {
     if (chats.has(peer)) continue
     const node = nodes.get(peer)
     const waiting = list.some(e => e.unread)
-    const viaProject = node?.state === 'live' && node.audiences_inherited?.some(a => a.grantor === USER)
+    const viaProject = node?.state === 'live' && viaOf(node, grants, granted).length > 0
     if (waiting || peer === SYSTEM || viaProject) open(peer)
   }
   if (selected) open(selected)
@@ -375,7 +390,13 @@ export const dmTimeline = (chat: DmChat): DmEntry[] => chat.entries
  *  USER 2026-11-22 m1454e651500e: a top-level chat cannot be closed; only an
  *  audience grant can. A top-level agent that also holds a grant loses the
  *  grant and keeps its chat, and the control's tooltip says so. No
- *  confirmation: closing revokes at once. */
+ *  confirmation: closing revokes at once.
+ *
+ *  USER 2026-11-23 m0ca89ba635fd: an agent whose only audience comes through
+ *  a project closes THAT PROJECT's audience; one that holds both loses its own
+ *  grant first and the project's on the next close. Closing a project's
+ *  audience is the one close that may ask first (the panel does, when other
+ *  agents would lose theirs: `dmAudienceLoss`). */
 export interface DmClose {
   /** there is a grant to revoke */
   can: boolean
@@ -396,13 +417,30 @@ export function dmClose(chat: DmChat): DmClose {
   if (chat.kind === 'system') {
     return { can: false, stays: true, title: "Orgtree's own notices. This chat can't be closed." }
   }
+  const through = chat.via.length ? `project ${chat.via[0]}` : ''
   if (chat.grant) {
+    if (chat.kind === 'project') {
+      return { can: true, stays: false, project: true,
+        title: `Close this chat: revoke project ${chat.peer}'s audience with you. `
+          + `The agents that reach you only through it lose their audience too. Its history is kept.` }
+    }
+    // its own grant goes first; what it has through a project is the next close
+    const next = through ? ` It still reaches you through ${through}: closing again revokes that project's audience.` : ''
     if (chat.topLevel) {
       return { can: true, stays: true,
-        title: `Revoke ${chat.peer}'s audience grant. The chat stays: a top-level agent always has a direct line to you.` }
+        title: `Revoke ${chat.peer}'s audience grant. The chat stays: a top-level agent always has a direct line to you.` + next }
+    }
+    if (through) {
+      return { can: true, stays: true, title: `Revoke ${chat.peer}'s own audience with you.` + next }
     }
     return { can: true, stays: false,
       title: `Close this chat: revoke ${chat.peer}'s audience with you. Its history is kept.` }
+  }
+  if (through) {
+    // it reaches the user only through the project: its close is the project's
+    return { can: true, stays: chat.topLevel, revokes: chat.via[0], project: true,
+      title: `${chat.peer} reaches you only through ${through}: closing revokes that project's audience with you.`
+        + (chat.topLevel ? ' The chat stays: a top-level agent always has a direct line to you.' : '') }
   }
   if (chat.topLevel) {
     return { can: false, stays: true,
@@ -412,19 +450,24 @@ export function dmClose(chat: DmChat): DmClose {
     return { can: true, stays: false, deny: true,
       title: `Deny ${chat.peer}'s audience request and close this chat.` }
   }
-  if (chat.inherited) {
-    return { can: false, stays: true,
-      title: `${chat.peer}'s audience with you comes through project ${chat.inherited}. `
-        + `Revoke the project's audience to close this chat.` }
-  }
   return { can: false, stays: false,
     title: `${chat.peer} holds no audience with you. This chat leaves the list once nothing of its waits on you.` }
 }
 
-/** The agents that lose their audience with the user when `project`'s grant is revoked. */
-export function dmAudienceLoss(_nodes: ReadonlyMap<string, DmNode>, _grants: readonly AudienceGrant[] | null,
-  _project: string): string[] {
-  return []
+/** The agents that lose their audience with the user when `project`'s grant
+ *  is revoked: its agents that reach the user only through it. One that holds
+ *  its own grant keeps it, and a top-level agent keeps its direct line, so
+ *  neither is counted (the control highlights these, and asks first when
+ *  there are any; USER 2026-11-23 m0ca89ba635fd). */
+export function dmAudienceLoss(nodes: ReadonlyMap<string, DmNode>, grants: readonly AudienceGrant[] | null,
+  project: string): string[] {
+  const granted = grantedBy(nodes, grants)
+  const lost: string[] = []
+  for (const n of nodes.values()) {
+    if (n.state !== 'live' || isProject(n) || granted.has(n.id) || topLevelAgent(nodes, n)) continue
+    if (viaOf(n, grants, granted).includes(project)) lost.push(n.id)
+  }
+  return lost
 }
 
 /** How many things wait on the user across the listed chats. */
