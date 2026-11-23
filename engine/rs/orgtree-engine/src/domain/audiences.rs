@@ -476,9 +476,13 @@ fn grant_notice_body(grantor: &str, grantee: &str, project: bool) -> String {
         EXTERN => "You now hold the org mailbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
         g => format!("{g} granted you an audience: you may now write to {g} directly."),
     };
-    if project {
-        format!("Project {grantee}: {body} Its direct members inherit this audience; nested projects do not relay it.")
-    } else { body }
+    // the org mailbox is not inherited (migration 0032 leaves @extern out of the members' view): outside mail is
+    // a job in the project's queue, and the member that takes it answers that job's sender
+    match (project, grantor) {
+        (false, _) => body,
+        (true, EXTERN) => format!("Project {grantee}: {body} Its members do not inherit the org mailbox: each outside mail is one job in its mail queue, and the member that takes a job may answer that job's sender."),
+        (true, _) => format!("Project {grantee}: {body} Its direct members inherit this audience; nested projects do not relay it."),
+    }
 }
 
 /// Decline a pending request (the agent or user it waits on).
