@@ -79,11 +79,15 @@ export interface CollapsibleMailerProps {
   /** the call site's own ref on the `.mailer` root, kept working */
   rootRef?: RefObject<HTMLDivElement | null>
   threshold?: number
+  /** what counts as picking from the open overlay, which closes it: a click
+   *  inside an element matching this selector. Mail and presentations list
+   *  `.mailrow`s; the chats list names its own rows. */
+  rowSelector?: string
 }
 
 export function CollapsibleMailer({
   collapsible = false, listLabel, list, children, className = '', tabIndex,
-  onKeyDown, onContextMenu, rootRef, threshold = NARROW_MAILER_WIDTH,
+  onKeyDown, onContextMenu, rootRef, threshold = NARROW_MAILER_WIDTH, rowSelector = '.mailrow',
 }: CollapsibleMailerProps) {
   const { setEl, narrow } = useNarrow(threshold, collapsible)
   const [open, setOpen] = useState(false)
@@ -155,7 +159,7 @@ export function CollapsibleMailer({
           and the paging controls are things you use with the list still up. */}
       <div ref={wrapRef} id={panelId} className="mailer-listwrap"
         onClick={narrow && open
-          ? (e) => { if ((e.target as Element).closest?.('.mailrow')) setOpen(false) }
+          ? (e) => { if ((e.target as Element).closest?.(rowSelector)) setOpen(false) }
           : undefined}
         role={narrow ? 'dialog' : undefined}
         aria-label={narrow ? listLabel : undefined}

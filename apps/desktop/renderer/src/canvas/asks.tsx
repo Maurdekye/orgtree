@@ -244,11 +244,27 @@ export const stepUpWhy = (g: number, maxTop?: number): string | undefined =>
     ? `the offer stops at this org's top-level grant cap of ${maxTop}`
     : undefined)
 
+/** How a request is laid out. `card` is the one card with a tab strip, as on
+ *  a desk and in the classic mailbox. `messages` is the chat's form (4.7.0,
+ *  USER 2026-11-22 m1454e651500e, ruling 4: requests "should function like
+ *  normal questions, be styled like hubchat questions (one 'message' per
+ *  tab, each request may have a free response section, etc.)"): every tab is
+ *  its own bubble, all of them on screen, under ONE submit. The drafts, the
+ *  decided rule, the keys and the submit are the same code either way. */
+export type AskLayout = 'card' | 'messages'
+
+/** A request that has no tabs of its own (an older single form, a permission
+ *  prompt, a resolved card) in the chat's form: the card inside one bubble. */
+const asMessage = (layout: AskLayout, card: ReactNode): ReactNode =>
+  layout === 'messages' ? <div className="ask-messages"><div className="ask-message whole">{card}</div></div> : card
+
 export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
-  segments = [], pxc, refs }: {
+  segments = [], pxc, refs, layout = 'card' }: {
   ask: AskInfo
   slug: string
   toast: ToastFn
+  /** the chat draws each tab as its own bubble (see `AskLayout`) */
+  layout?: AskLayout
   /** the showing surface's reference routes (desk, inbox, Attention view,
    *  docket): mention chips in question text and option descriptions */
   refs?: AskRefs
@@ -270,20 +286,20 @@ export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
     || (ask.kind !== 'batch' && ask.old != null)
   // point 31: a submitted card is gone on the click, in every view
   if (live && askHidden(slug, ask.id)) return null
-  if (!live) return <NulledAsk ask={ask} credit={credit} slug={slug} refs={refs} />
-  if (ask.kind === 'elicitation' && ask.elicitation) return <ElicitationAsk key={ask.id} ask={ask} slug={slug} toast={toast} refs={refs} />
+  if (!live) return asMessage(layout, <NulledAsk ask={ask} credit={credit} slug={slug} refs={refs} />)
+  if (ask.kind === 'elicitation' && ask.elicitation) return asMessage(layout, <ElicitationAsk key={ask.id} ask={ask} slug={slug} toast={toast} refs={refs} />)
   // FR-14: the composed batch — mixed tabs, one submit. Legacy open cards
   // (a rolling deploy's pre-batch payload) fall through to the old forms.
   if (ask.kind === 'batch' && ask.tabs?.length) {
     return <BatchAsk ask={ask} slug={slug} toast={toast}
         seat={seat} committed={committed} maxTop={maxTop}
-        segments={segments} pxc={pxc} refs={refs} />
+        segments={segments} pxc={pxc} refs={refs} layout={layout} />
   }
-  return credit
+  return asMessage(layout, credit
     ? <CreditAsk ask={ask} slug={slug} toast={toast}
         seat={seat} committed={committed} maxTop={maxTop}
         segments={segments} pxc={pxc} refs={refs} />
-    : <QuestionAsk ask={ask} slug={slug} toast={toast} refs={refs} />
+    : <QuestionAsk ask={ask} slug={slug} toast={toast} refs={refs} />)
 }
 
 /** Question text is the ledger's per-request identity; the full editable
@@ -337,12 +353,13 @@ interface BatchDraft {
 }
 
 function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
-  pxc: orgScale, refs }: {
+  pxc: orgScale, refs, layout = 'card' }: {
   ask: AskInfo; slug: string; toast: ToastFn
   seat: number; committed: number; maxTop?: number
   segments: { seat: number; grant: number }[]
   pxc?: number
   refs?: AskRefs
+  layout?: AskLayout
 }) {
   const visibilityRef = useQuestionVisibility(slug, ask.id)
   const enterKey = useComposerEnter()
@@ -371,20 +388,23 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       ? dd.q.skip || tabAnswered(x as AskQuestion, dd.q)
       : x.kind === 'credits' ? dd.credits.mode !== null
       : dd.scope !== null
-  const patch = (p: Partial<BatchDraft>, advance = false) => setDrafts((ds) => {
-    const next = ds.map((x, i) => (i === cur ? { ...x, ...p } : x))
+  // ⚠ EVERY EDIT NAMES ITS TAB. The card edits the tab on show; the chat's
+  // form has every tab on show at once, so an edit says which one it is.
+  const patchAt = (at: number, p: Partial<BatchDraft>, advance = false) => setDrafts((ds) => {
+    const next = ds.map((x, i) => (i === at ? { ...x, ...p } : x))
     // auto-advance (user addition 2026-08-12, mirroring Claude Code's batch
     // form): a click that DECIDES the current tab moves focus to the next
     // undecided one. Never on multi-option picks or Other typing — those
     // are mid-thought, not decisions.
-    if (advance && decided(tabs[cur]!, next[cur] ?? fallback)) {
+    if (advance && decided(tabs[at]!, next[at] ?? fallback)) {
       for (let s = 1; s <= tabs.length; s++) {
-        const j = (cur + s) % tabs.length
+        const j = (at + s) % tabs.length
         if (!decided(tabs[j]!, next[j] ?? fallback)) { setTab(j); break }
       }
     }
     return next
   })
+  const patch = (p: Partial<BatchDraft>, advance = false) => patchAt(cur, p, advance)
   const doneCount = tabs.filter((x, i) =>
     decided(x, drafts[i] ?? fallback)).length
   const ready = doneCount === tabs.length
@@ -421,14 +441,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       // else settled the request first: then it shows how it was settled
       .catch((e: Error) => { const settled = settledOf(e); toast([settled ? settledSentence(settled) : `error: ${e.message}`]); setBusy(false) })
   }
-  const opts = (t.options ?? []) as { label: string; description?: string }[]
-  const otherOn = d.q.sel.includes(OTHER)
-  const toggle = (o: string) => patch({ q: { ...d.q, skip: false,
-    sel: d.q.sel.includes(o) ? d.q.sel.filter((x) => x !== o)
-      : t.multi ? [...d.q.sel, o] : [o] } }, !t.multi)
   const pxcV = orgScale ?? 4
-  const oldG = t.kind === 'credits' ? (t.old ?? 0) : 0
-  const boxH = Math.max(60, (seat + Math.max(d.credits.g, oldG)) * pxcV + 8)
   const onKey = (e: KeyboardEvent) => {
     // folded, the card's answer controls are out of reach, its keys included
     if (fold.folded) return
@@ -452,37 +465,36 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       patch({ credits: { mode: 'grant', g } })
     }
   }
-  return (
-    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}
-      data-panel-draft={busy || drafts.some(d => d.q.sel.length > 0 || d.q.text.length > 0
-        || d.q.skip || d.credits.mode !== null || d.scope !== null) || undefined}>
-      <AskHead
-        label={`${tabs.length} request${tabs.length === 1 ? '' : 's'}`}
-        node={ask.node} busy={busy}
-        closeTitle="close, skipping every tab (the agent is told; it may re-ask)"
-        onClose={() => submit(tabs.map(() => ({
-          q: { sel: [], text: '', skip: true },
-          credits: { mode: 'skip', g: 0 },
-          scope: 'skip' })))}
-        fold={fold} line={<FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />} />
-      <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
-        {failure && <SubmitFailed error={failure.error} />}
-        {tabs.length > 1 && (
-          <div className="ask-tabstrip">
-            {tabs.map((x, i) => (
-              <button key={i} type="button" disabled={busy}
-                className={'ask-tabbtn' + (i === cur ? ' on' : '')
-                  + (decided(x, drafts[i] ?? fallback) ? ' done' : '')}
-                onClick={() => setTab(i)}>
-                {tabName(x, i)}
-              </button>
-            ))}
-          </div>
-        )}
-        <QuestionTicket
-          header={only && t.kind === 'question' ? t.header : undefined}
-          workItem={tabWorkItem(ask, t, cur, tabs.length)}
-          slug={slug} refs={refs} />
+  const dirty = busy || drafts.some(d => d.q.sel.length > 0 || d.q.text.length > 0
+    || d.q.skip || d.credits.mode !== null || d.scope !== null) || undefined
+  const skipAll = () => submit(tabs.map(() => ({
+    q: { sel: [], text: '', skip: true },
+    credits: { mode: 'skip', g: 0 },
+    scope: 'skip' })))
+  const submitButton = (
+    <button className="ask-submit" disabled={busy || !ready}
+      title={t.kind === 'question' ? enterKey.hint : 'ctrl+enter'} onClick={() => submit(null)}>
+      {busy ? 'sending…'
+        : ready ? (tabs.length === 1 ? 'submit the decision'
+          : `submit all ${tabs.length}`)
+        : `${doneCount}/${tabs.length} decided`}
+    </button>
+  )
+  /** ONE TAB'S ANSWER CONTROLS: its question with option rows, Other or a free
+   *  response and Skip; a credit request's bar and outcome; a scope request's
+   *  outcome. Both layouts draw every tab through this. */
+  const tabBody = (at: number) => {
+    const t = tabs[at]!
+    const d = drafts[at] ?? fallback
+    const patch = (p: Partial<BatchDraft>, advance = false) => patchAt(at, p, advance)
+    const opts = (t.options ?? []) as { label: string; description?: string }[]
+    const otherOn = d.q.sel.includes(OTHER)
+    const toggle = (o: string) => patch({ q: { ...d.q, skip: false,
+      sel: d.q.sel.includes(o) ? d.q.sel.filter((x) => x !== o)
+        : t.multi ? [...d.q.sel, o] : [o] } }, !t.multi)
+    const oldG = t.kind === 'credits' ? (t.old ?? 0) : 0
+    const boxH = Math.max(60, (seat + Math.max(d.credits.g, oldG)) * pxcV + 8)
+    return (<>
         {t.kind === 'question' && (<>
           <QuestionBody text={t.question ?? ''} base={fileBase(slug, ask.node)} refs={refs} />
           <div className="ask-rows">
@@ -510,10 +522,11 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
                   }} />
               )}
             </> : <div className="ask-free-response">
-              <label htmlFor={freeResponseId(cur)}>Your answer</label>
-              <textarea rows={2} id={freeResponseId(cur)} value={d.q.text} disabled={busy} title={enterKey.hint}
+              <label htmlFor={freeResponseId(at)}>Your answer</label>
+              <textarea rows={2} id={freeResponseId(at)} value={d.q.text} disabled={busy} title={enterKey.hint}
                 className="ask-free-response-input" placeholder="Type your answer…"
-                autoFocus={!d.q.skip}
+                /* the chat shows every tab at once: none takes the caret from the message box */
+                autoFocus={layout === 'card' && !d.q.skip}
                 onChange={(e) => patch({ q: { ...d.q, skip: false,
                   text: e.target.value } })}
                 onKeyDown={(e) => {
@@ -595,13 +608,68 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
             ))}
           </div>
         </>)}
-        <button className="ask-submit" disabled={busy || !ready}
-          title={t.kind === 'question' ? enterKey.hint : 'ctrl+enter'} onClick={() => submit(null)}>
-          {busy ? 'sending…'
-            : ready ? (tabs.length === 1 ? 'submit the decision'
-              : `submit all ${tabs.length}`)
-            : `${doneCount}/${tabs.length} decided`}
-        </button>
+    </>)
+  }
+  if (layout === 'messages') {
+    // THE CHAT'S FORM: one bubble per tab, every tab on screen, one submit
+    // under the last. A bubble that takes the focus is the current tab, so
+    // the card's keys (alt+↑/↓ on a credit request) act on the one in hand.
+    const kindLabel = (x: AskTab) => x.kind === 'question' ? 'Question'
+      : x.kind === 'credits' ? 'Credit request' : 'Scope request'
+    return (
+      <div ref={visibilityRef} className="askcard ask-messages" tabIndex={-1} onKeyDown={onKey}
+        data-panel-draft={dirty}>
+        {failure && <SubmitFailed error={failure.error} />}
+        {tabs.map((x, i) => (
+          <div key={i} data-ask-tab={i}
+            className={'ask-message' + (decided(x, drafts[i] ?? fallback) ? ' done' : '')}
+            onFocusCapture={() => { if (i !== cur) setTab(i) }}>
+            <div className="ask-message-head">
+              <span className={'ask-message-kind kind-' + x.kind}>{kindLabel(x)}</span>
+              {x.kind === 'question' && x.header && <span className="answered-chip">{x.header}</span>}
+              {decided(x, drafts[i] ?? fallback) && <span className="ask-message-state">decided</span>}
+            </div>
+            <QuestionTicket workItem={tabWorkItem(ask, x, i, tabs.length)} slug={slug} refs={refs} />
+            {tabBody(i)}
+          </div>
+        ))}
+        <div className="ask-message-foot">
+          {submitButton}
+          <button type="button" className="ask-skip-all" disabled={busy}
+            title="skip every request here (the agent is told; it may re-ask)" onClick={skipAll}>skip all</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}
+      data-panel-draft={dirty}>
+      <AskHead
+        label={`${tabs.length} request${tabs.length === 1 ? '' : 's'}`}
+        node={ask.node} busy={busy}
+        closeTitle="close, skipping every tab (the agent is told; it may re-ask)"
+        onClose={skipAll}
+        fold={fold} line={<FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />} />
+      <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
+        {failure && <SubmitFailed error={failure.error} />}
+        {tabs.length > 1 && (
+          <div className="ask-tabstrip">
+            {tabs.map((x, i) => (
+              <button key={i} type="button" disabled={busy}
+                className={'ask-tabbtn' + (i === cur ? ' on' : '')
+                  + (decided(x, drafts[i] ?? fallback) ? ' done' : '')}
+                onClick={() => setTab(i)}>
+                {tabName(x, i)}
+              </button>
+            ))}
+          </div>
+        )}
+        <QuestionTicket
+          header={only && t.kind === 'question' ? t.header : undefined}
+          workItem={tabWorkItem(ask, t, cur, tabs.length)}
+          slug={slug} refs={refs} />
+        {tabBody(cur)}
+        {submitButton}
       </div>
     </div>
   )
@@ -1018,6 +1086,14 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   )
 }
 
+/** What one item of a scope request asks for, in words: the resolved card's
+ *  fold line, and the chat list's preview of such a request (dm/DmPanel.tsx). */
+export const scopeItemLabel = (it: NonNullable<AskInfo['items']>[number]): string =>
+  it.kind === 'dir' ? `folder ${it.path} (${it.mode})`
+    : it.kind === 'tool' ? `tool: ${it.tool}`
+    : it.kind === 'mcp' ? `MCP server: ${it.server}`
+    : `permission mode → ${it.mode}`
+
 /** the nulled card: it KEEPS rendering, wearing why it nulled — grey for
  *  answered/denied/dismissed/withdrawn/superseded, orange for interrupted
  *  (historical: the retired wake-void; old entries may still carry it).
@@ -1038,10 +1114,7 @@ function NulledAsk({ ask, credit, slug, refs }: {
     : ask.status === 'superseded' ? 'superseded'
     : ask.status === 'moot' ? 'moot — the agent left'
     : scope ? 'decided' : 'answered'
-  const scopeLabel = (it: NonNullable<AskInfo['items']>[number]) => it.kind === 'dir' ? `folder ${it.path} (${it.mode})`
-    : it.kind === 'tool' ? `tool: ${it.tool}`
-    : it.kind === 'mcp' ? `MCP server: ${it.server}`
-    : `permission mode → ${it.mode}`
+  const scopeLabel = scopeItemLabel
   // the header already says what a credit request asked
   const foldText: FoldText | null = credit ? null
     : scope ? { text: (ask.items ?? []).map(scopeLabel).join(' · ') }
@@ -1097,7 +1170,7 @@ function NulledAsk({ ask, credit, slug, refs }: {
  *  and the Attention view both show an open request with this, so the two
  *  cannot differ. `node` is absent for an agent the tree does not hold; the
  *  card then draws an empty bar rather than a guessed one. */
-export function InboxAskCard({ ask, slug, tree, node, toast, refs }: {
+export function InboxAskCard({ ask, slug, tree, node, toast, refs, layout }: {
   ask: AskInfo
   slug: string
   tree: TreePayload
@@ -1105,9 +1178,11 @@ export function InboxAskCard({ ask, slug, tree, node, toast, refs }: {
   toast: ToastFn
   /** the panel's reference routes, as its mail bodies use them */
   refs?: AskRefs
+  /** the user's chats draw each tab as its own bubble (`AskLayout`) */
+  layout?: AskLayout
 }) {
   return (
-    <AskCard ask={ask} slug={slug} toast={toast} refs={refs}
+    <AskCard ask={ask} slug={slug} toast={toast} refs={refs} layout={layout}
       seat={node?.seat ?? 0}
       committed={(node?.grant ?? 0) - (node?.free ?? 0)}
       segments={creditSegments(node?.children ?? [], c => c.state === 'live')}

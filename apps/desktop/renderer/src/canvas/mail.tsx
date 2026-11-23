@@ -1073,20 +1073,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     return result.kind === 'known' ? projectEvent(result.event, m.from) : null
   }
   const S = sender
-  const messageContent = (m: MailRow, standalone = false) => {
-    const decoded = decodeEventRow(m, profile)
-    return <>
-      <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} />
-      <ReplySelectionSurface source={{org:org ?? refs?.world.org ?? '',target:{kind:'mail',org:org ?? refs?.world.org ?? '',id:m.id ?? ''},part:{part:'mail.body'},text:m.body}}>
-      {decoded.kind === 'legacy'
-      ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
-          world={refs?.world} onOpen={refs?.onOpen} />
-      : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
-          org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
-          world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, m)} /></div>}
-      </ReplySelectionSurface>
-    </>
-  }
+  const messageContent = (m: MailRow, standalone = false) =>
+    <MailMessageBody m={m} standalone={standalone} org={org} refs={refs} mdBase={mdBase} sender={S} />
   const run = members && members.length > 1 ? members : null
   const metadata = <>
     <span className="dim">{run ? `${run.length} notices` : typed(cur) ? null : cur.kind}</span>
@@ -1144,29 +1132,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
               ))}
             </div>
           : messageContent(cur)}
-      {(cur.attachments ?? []).length > 0 && (
-        <div className="attach-row">
-          {/* extern-shaped attachments may lack `path` — a download
-              link would point at "undefined"; show a plain chip.
-              Images render viewable in place (user spec 2026-08-25). */}
-          {cur.attachments!.map((a) => {
-            const href = (a.path && fileHref?.(a.path, cur)) || ''
-            const name = a.name ?? a.path ?? 'file'
-            return href && mediaFormat(name)
-              ? <MediaCard key={a.path} href={href} name={name} bytes={a.bytes} />
-              : href && isImg(name)
-              ? <AttachThumb key={a.path} href={href} name={name}
-                  meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
-              : href
-                ? <a key={a.path} className="attach-chip" title="download"
-                    href={href} download={a.name}>
-                    <DownloadIcon fontSize="inherit" /> {a.name}
-                    <span className="dim"> {a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : ''}</span></a>
-                : <span key={a.path ?? a.name} className="attach-chip">
-                    <FileIcon fontSize="inherit" /> {a.name}</span>
-          })}
-        </div>
-      )}
+      <MailAttachments m={cur} fileHref={fileHref} />
       {/* a job the project's queue handed the user (ACK mode): acknowledged here, in place of the
           reply box until it is; once acknowledged it says so and the reply box returns */}
       {onAckJob && needsAck(cur.queue?.job) && <JobAckPane job={cur.queue!.job!} onAck={onAckJob}
@@ -1185,6 +1151,69 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
           onSend={(text, attachments, notice, _broadcast, objectTarget, selections) => onReply(text, attachments, notice, objectTarget, selections)} />
       )}
     </>
+  )
+}
+
+/** ONE MAIL'S BODY: what it answers, then its text or its typed card. The
+ *  reading pane draws every message through this, and so does a chat bubble of
+ *  the user's mailbox (dm/DmPanel.tsx), so a mail reads the same in both.
+ *  `standalone` draws a typed mail as its whole card, header included, and
+ *  gives a plain notice its passive edge; without it only the body is drawn,
+ *  for a host that shows the header itself. */
+export function MailMessageBody({ m, standalone = false, org, refs, mdBase, sender }: {
+  m: MailRow
+  standalone?: boolean
+  org?: string
+  refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
+  mdBase?: (m: MailRow) => string
+  sender: (id: string, m: MailRow) => ReactNode
+}) {
+  const profile = 'operator'
+  const decoded = decodeEventRow(m, profile)
+  return <>
+    <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} />
+    <ReplySelectionSurface source={{org:org ?? refs?.world.org ?? '',target:{kind:'mail',org:org ?? refs?.world.org ?? '',id:m.id ?? ''},part:{part:'mail.body'},text:m.body}}>
+    {decoded.kind === 'legacy'
+    ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
+        world={refs?.world} onOpen={refs?.onOpen} />
+    : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
+        org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
+        world={refs?.world} onOpen={refs?.onOpen} actor={id => sender(id, m)} /></div>}
+    </ReplySelectionSurface>
+  </>
+}
+
+/** ONE MAIL'S FILES, as the reading pane has always shown them: a video or
+ *  audio file as its player, an image viewable in place, any other file as a
+ *  download chip, and one whose path cannot be reached as a plain chip. Shared
+ *  with the chat bubbles of the user's mailbox. Nothing without files. */
+export function MailAttachments({ m, fileHref }: {
+  m: MailRow
+  fileHref?: (path: string, m: MailRow) => string
+}) {
+  if (!(m.attachments ?? []).length) return null
+  return (
+    <div className="attach-row">
+      {/* extern-shaped attachments may lack `path` — a download
+          link would point at "undefined"; show a plain chip.
+          Images render viewable in place (user spec 2026-08-25). */}
+      {m.attachments!.map((a) => {
+        const href = (a.path && fileHref?.(a.path, m)) || ''
+        const name = a.name ?? a.path ?? 'file'
+        return href && mediaFormat(name)
+          ? <MediaCard key={a.path} href={href} name={name} bytes={a.bytes} />
+          : href && isImg(name)
+          ? <AttachThumb key={a.path} href={href} name={name}
+              meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
+          : href
+            ? <a key={a.path} className="attach-chip" title="download"
+                href={href} download={a.name}>
+                <DownloadIcon fontSize="inherit" /> {a.name}
+                <span className="dim"> {a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : ''}</span></a>
+            : <span key={a.path ?? a.name} className="attach-chip">
+                <FileIcon fontSize="inherit" /> {a.name}</span>
+      })}
+    </div>
   )
 }
 
