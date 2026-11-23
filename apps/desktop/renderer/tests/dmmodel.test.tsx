@@ -457,3 +457,45 @@ test('a message keeps the ids of the copies folded into it, so a reference to a 
   ] })
   assert.deepEqual(chat(list, 'crew').entries.map(e => e.copies ?? null), [['c1', 'c2'], null])
 })
+
+// ---- the grouped list (USER 2026-11-23 ma97ab61a248c) ----
+
+/** office holds the audience: aide and page reach the user only through it, envoy also holds its own grant */
+const OFFICE = dmNodes({ slug: 'mine', roots: [
+  node('lead', [project('office', [node('aide', [], via('office')), node('page', [], via('office')), node('envoy', [], via('office'))])]),
+  node('solo'),
+] } as unknown as TreePayload)
+const officeChats = (b: Partial<InboxPayload>) => dmChats({
+  nodes: OFFICE, grants: [grant('office'), grant('envoy')], box: box(b), openAsks: [], doneAsks: [] })
+
+test('an agent that reaches the user only through a project is listed under it; one with its own grant is not', () => {
+  const list = officeChats({ delivered: [
+    mail('a1', 'aide', '2026-11-20T10:00:00Z'), mail('p1', 'page', '2026-11-20T11:00:00Z'), mail('e1', 'envoy', '2026-11-20T09:00:00Z'),
+  ] })
+  assert.deepEqual(list.map(c => [c.peer, c.parent]), [
+    ['office', null], ['page', 'office'], ['aide', 'office'], ['envoy', null], ['lead', null], ['solo', null],
+  ], 'the project, its two agents by their newest message, then the rest')
+  assert.equal(chat(list, 'office').kids, 2)
+  assert.equal(chat(list, 'envoy').kids, 0)
+})
+
+test('a project is placed by the newest activity of itself or of the chats under it', () => {
+  const quiet = officeChats({
+    delivered: [mail('a1', 'aide', '2026-11-20T08:00:00Z'), mail('s1', 'solo', '2026-11-20T09:00:00Z')],
+    sent: [sent('o1', 'office', '2026-11-20T07:00:00Z')],
+  })
+  assert.deepEqual(names(quiet), ['solo', 'office', 'aide', 'lead', 'envoy'], 'solo wrote last')
+  const busy = officeChats({
+    delivered: [mail('a1', 'aide', '2026-11-20T10:00:00Z'), mail('s1', 'solo', '2026-11-20T09:00:00Z')],
+    sent: [sent('o1', 'office', '2026-11-20T07:00:00Z')],
+  })
+  assert.deepEqual(names(busy), ['office', 'aide', 'solo', 'lead', 'envoy'], 'aide wrote last: its project moves up with it')
+})
+
+test('a top-level agent under a project, and an agent whose project has no chat, are listed on their own', () => {
+  const crewList = dmChats({ nodes: DESK, grants: [grant('crew')], box: box(), openAsks: [], doneAsks: [] })
+  assert.equal(chat(crewList, 'member').parent, null, 'it has its own direct line')
+  // the project's grant is hidden (retired holders hidden, or revoked a moment ago): nothing to sit under
+  const alone = dmChats({ nodes: OFFICE, grants: [grant('envoy')], box: box({ pending: [mail('a1', 'aide', '2026-11-20T10:00:00Z')] }), openAsks: [], doneAsks: [] })
+  assert.equal(chat(alone, 'aide').parent, null)
+})

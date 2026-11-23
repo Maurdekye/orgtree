@@ -849,3 +849,54 @@ test('the system\'s chat wears an S in the chip a model letter is drawn in', asy
   await s.openChat('@system')
   assert.equal(document.querySelector('.dm-head .dm-av .tier.letter-chip')?.textContent, 'S', 'in its header too')
 })
+
+// ---- the grouped list (USER 2026-11-23 ma97ab61a248c) ----
+
+/** office holds the audience; aide and page reach the user only through it; envoy also holds its own grant */
+const officeTree = () => tree({ roots: [
+  node('lead', [projectNode('office', [node('aide', [], inheritsFrom('office')), node('page', [], inheritsFrom('office')), node('envoy', [], inheritsFrom('office'))])]),
+  node('solo'),
+] })
+const officeWorld = (): World => ({
+  audiences: [grant('office'), grant('envoy')],
+  delivered: [mail('a1', 'aide', '2026-11-20T10:00:00Z'), mail('e1', 'envoy', '2026-11-20T09:00:00Z')],
+  pending: [mail('p1', 'page', '2026-11-20T11:00:00Z'), mail('p2', 'page', '2026-11-20T11:05:00Z')],
+})
+const order = (s: Awaited<ReturnType<typeof setup>>) => s.rows().map(r => [r.dataset.dmChat, r.classList.contains('dm-child')])
+
+test('agents that reach the user only through a project are indented under it, newest first; one with its own grant is not', async (t) => {
+  const s = await setup(t, officeWorld(), { tree: officeTree(), active: false, openChat: { peer: 'lead', seq: 1 } })
+  assert.deepEqual(order(s), [['office', false], ['page', true], ['aide', true], ['envoy', false], ['lead', false], ['solo', false]])
+  assert.equal(s.row('page')!.dataset.dmParent, 'office')
+  assert.equal(s.row('office')!.querySelector('.dm-badge') === null, true, 'unfolded, the project counts only its own mail')
+  assert.equal(s.row('page')!.querySelector('.dm-badge:not(.dm-badge-asks)')?.textContent, '2')
+  assert.equal(s.row('envoy')!.querySelector('.dm-fold') === null, true, 'only a project with chats under it folds')
+})
+
+test('a project\'s group folds with the docket\'s arrow; folded, its row counts what it hides', async (t) => {
+  const s = await setup(t, officeWorld(), { tree: officeTree(), active: false, openChat: { peer: 'lead', seq: 1 } })
+  const fold = () => s.row('office')!.querySelector<HTMLButtonElement>('.dm-fold')
+  assert.equal(fold()?.getAttribute('aria-expanded'), 'true', 'open by default')
+  await s.click(fold(), 'the fold arrow')
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'envoy', 'lead', 'solo'], 'its agents are folded away')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'lead', 'the arrow folds; it does not open the chat')
+  const badge = s.row('office')!.querySelector('.dm-badge:not(.dm-badge-asks)')
+  assert.equal(badge?.textContent, '2', 'the unread mail it hides')
+  assert.match(badge?.getAttribute('title') ?? '', /2 unread in office and its 2 agents/)
+  await s.click(fold(), 'the fold arrow again')
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'page', 'aide', 'envoy', 'lead', 'solo'])
+  assert.equal(s.row('office')!.querySelector('.dm-badge') === null, true)
+})
+
+test('a fold never hides the chat on screen, and a search shows through it', async (t) => {
+  const s = await setup(t, officeWorld(), { tree: officeTree(), active: false, openChat: { peer: 'aide', seq: 1 } })
+  await s.click(s.row('office')!.querySelector('.dm-fold'), 'the fold arrow')
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'aide', 'envoy', 'lead', 'solo'], 'the open chat stays listed')
+  const search = document.querySelector('.dm-search') as HTMLInputElement
+  await inAct(async () => {
+    Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value')?.set?.call(search, 'pag')
+    search.dispatchEvent(new W.Event('input', { bubbles: true }))
+    await flush(4)
+  })
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['page'], 'a match inside a folded group is found')
+})
