@@ -226,6 +226,7 @@ impl Outgoing {
         let mut extra = json!({});
         if self.one_time { extra["one_time"] = json!(true); }
         if let Some(j) = &self.job_reply { extra["job_reply"] = j.clone(); }
+        if self.dm_panel { extra["surface"] = json!("dm"); }
         extra
     }
 }

@@ -204,8 +204,8 @@ pub struct MessageBody {
 /// Only a NEW message is: a reply already says what it answers, and a notice
 /// expects no reply (USER 2026-11-23 m034b5c83b8f2, "all accepted").
 #[nolog]
-fn dm_panel_mark(_surface: Option<&str>, _notice: bool, _reply: bool) -> bool {
-    false
+fn dm_panel_mark(surface: Option<&str>, notice: bool, reply: bool) -> bool {
+    surface == Some("dm") && !notice && !reply
 }
 
 #[logged]
@@ -257,6 +257,7 @@ pub async fn message(
         }
         if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
     }
+    out.dm_panel = dm_panel_mark(b.surface.as_deref(), b.notice, out.reply_to.is_some() || !out.replies.is_empty());
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
     // the user writing to a project grants it an audience to the user, after

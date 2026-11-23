@@ -10137,7 +10137,7 @@ pub(crate) fn mail_of(m: &Value) -> Mail {
         via_project_ack: m["extra"]["via_project"]["ack"].as_bool() == Some(true),
         via_project_outside: m["extra"]["via_project"]["outside"].as_bool() == Some(true),
         uncertain_mid_turn: m["extra"]["opencode_ambiguous"].as_bool() == Some(true),
-        dm_panel: false,
+        dm_panel: m["extra"]["surface"].as_str() == Some("dm"),
         private_app: crate::trace::private_app_content(m),
     }
 }
