@@ -186,6 +186,10 @@ pub struct Outgoing {
     /// A new message the user typed in their chats (the DM panel): stored as
     /// `extra.surface = "dm"`, read back for the agent's wrapper line.
     pub dm_panel: bool,
+    /// One copy of the user's megaphone send to a project (`http/nodes.rs`
+    /// `megaphone_mark`): stored as `extra.megaphone`, so the user's chats can
+    /// show the send once in the project's chat (USER 2026-11-23 mb52269db6058).
+    pub megaphone: Option<Value>,
 }
 
 #[logged]
@@ -212,6 +216,7 @@ impl Outgoing {
             wake: true,
             job_reply: None,
             dm_panel: false,
+            megaphone: None,
         }
     }
 
@@ -966,5 +971,13 @@ mod dm_panel_extra_tests {
         assert_eq!(out.delivery_extra(), json!({}), "ordinary mail keeps an empty extra");
         out.dm_panel = true;
         assert_eq!(out.delivery_extra(), json!({ "surface": "dm" }));
+    }
+
+    #[test]
+    fn a_megaphone_copy_stores_its_project_mark() {
+        let mut out = Outgoing::new(From::User, "member", "hello all");
+        let mark = json!({ "id": 7, "name": "crew", "send": "g1", "to": 3 });
+        out.megaphone = Some(mark.clone());
+        assert_eq!(out.delivery_extra(), json!({ "megaphone": mark }));
     }
 }

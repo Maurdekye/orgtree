@@ -990,3 +990,70 @@ async fn without_a_holder_the_waiting_mail_keeps_waiting() {
     let delivered: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in'", &[&w.org]).await.unwrap().get(0);
     assert_eq!(delivered, json!([]));
 }
+
+/// The user's job in project P, as the queue leaves it: `state` pending, or handed to worker W (`claimed`).
+#[nolog]
+async fn user_job(w: &mut World, ack: bool, handed: bool) -> (i64, String) {
+    w.e.orgs.insert(crate::orgs::provisional(w.org, "queue-fixture".into(), "queue-fixture".into(), "fixture".into()));
+    let proj = w.project("P", ack).await;
+    let worker = w.agent("W", Some(proj)).await;
+    let job = uid("m");
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@user','agent',$3,'P','from the user','pending','{}')",
+        &[&job, &w.org, &proj]).await.unwrap();
+    if handed {
+        let copy = uid("m");
+        w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@user','agent',$3,'W','from the user','pending',$4)",
+            &[&copy, &w.org, &worker, &json!({ "via_project": { "id": proj, "name": "P", "mail": job, "ack": ack } })]).await.unwrap();
+        w.c.execute("UPDATE ot.mail SET state='read', extra = extra || $2 WHERE uid=$1", &[&job, &json!({ "claimed": { "by_id": worker, "ack": ack, "copy": copy } })]).await.unwrap();
+    }
+    (worker, job)
+}
+
+#[nolog]
+fn from_user(to: &str, body: &str, job: &str) -> Outgoing {
+    let mut o = Outgoing::new(From::User, to, body);
+    o.reply_to = Some(json!({ "id": job, "from": "user" }));
+    o.wake = false;
+    o
+}
+
+// USER 2026-11-23 mb52269db6058: the user's follow-up in a project thread follows the rules an outside
+// sender's follow-up follows (D14, G3): to the holder while the job is held and un-ACKed, bundled while
+// it waits, a new job otherwise.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn u3_the_users_follow_up_goes_to_the_holder_of_their_job_not_a_new_job() {
+    let mut w = world(true).await;
+    let (worker, job) = user_job(&mut w, true, true).await;
+    let sent = crate::domain::mail::send(&w.e, w.org, from_user("P", "one more thing", &job)).await.unwrap();
+    let pending: i64 = w.c.query_one("SELECT count(*) FROM ot.mail m JOIN ot.agents p ON p.id=m.recipient_agent_id AND p.name='P' WHERE m.org_id=$1 AND m.state='pending'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(pending, 0, "no new job in P");
+    let row = w.c.query_one("SELECT sender, sender_agent_id, state, extra FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND body='one more thing'", &[&w.org, &worker]).await.unwrap();
+    assert_eq!(row.get::<_, String>(0), "@user", "it is still the user's mail");
+    assert_eq!(row.get::<_, Option<i64>>(1), None);
+    assert_eq!(row.get::<_, String>(2), "pending", "waiting for the holder");
+    let via = &row.get::<_, Value>(3)["via_project"];
+    assert_eq!((via["name"].as_str(), via["job"].as_str(), via["followup"].as_bool()), (Some("P"), Some(job.as_str()), Some(true)));
+    assert!(sent.delivery.contains("Delivered to W"), "{}", sent.delivery);
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn u4_the_users_follow_up_is_bundled_while_the_job_waits_and_a_new_job_after_the_ack() {
+    let mut w = world(true).await;
+    let (_worker, job) = user_job(&mut w, true, false).await;
+    crate::domain::mail::send(&w.e, w.org, from_user("P", "and this", &job)).await.unwrap();
+    let bundled: (String, Option<String>) = { let r = w.c.query_one("SELECT state, extra->>'bundled_with' FROM ot.mail WHERE org_id=$1 AND body='and this'", &[&w.org]).await.unwrap(); (r.get(0), r.get(1)) };
+    assert_eq!(bundled, ("read".to_string(), Some(job.clone())), "bundled with the waiting job, not a job of its own");
+    // once the job is acknowledged, a follow-up is a new job (the holder's custody has ended)
+    let mut w2 = world(true).await;
+    let (worker2, job2) = user_job(&mut w2, true, true).await;
+    w2.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job2]).await.unwrap();
+    crate::domain::mail::send(&w2.e, w2.org, from_user("P", "later", &job2)).await.unwrap();
+    let new_job: i64 = w2.c.query_one("SELECT count(*) FROM ot.mail m JOIN ot.agents p ON p.id=m.recipient_agent_id AND p.name='P' WHERE m.org_id=$1 AND m.body='later' AND NOT (m.extra ? 'bundled_with')", &[&w2.org]).await.unwrap().get(0);
+    assert_eq!(new_job, 1, "a new job in P");
+    let direct: i64 = w2.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND body='later' AND extra->'via_project'->>'followup'='true'", &[&w2.org, &worker2]).await.unwrap().get(0);
+    assert_eq!(direct, 0, "not sent to the former holder as a follow-up");
+}

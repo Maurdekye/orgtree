@@ -462,17 +462,23 @@ pub(super) async fn grant_notice_tx(
         _ => "audience_with",
     };
     let ev = crate::events::audience_changed(org_slug, &grantee, generation, outcome, &by, &grantor, None);
+    let body = grant_notice_body(grantor, grantee, project_manager(client, org_id, grantee).await?.is_some());
+    let _ = gid;
+    decision_notice_tx(client, org_id, grantee, &body, true, ev).await?;
+    Ok(())
+}
+
+/// What a new holder is told. `project`: the holder is a project, so the words go to its manager.
+#[nolog]
+fn grant_notice_body(grantor: &str, grantee: &str, project: bool) -> String {
     let body = match grantor {
         USER => "You now hold an audience with the user: you may write to the user (to=user), ask the user, and present documents.".to_string(),
         EXTERN => "You now hold the org mailbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
         g => format!("{g} granted you an audience: you may now write to {g} directly."),
     };
-    let body = if project_manager(client, org_id, grantee).await?.is_some() {
+    if project {
         format!("Project {grantee}: {body} Its direct members inherit this audience; nested projects do not relay it.")
-    } else { body };
-    let _ = gid;
-    decision_notice_tx(client, org_id, grantee, &body, true, ev).await?;
-    Ok(())
+    } else { body }
 }
 
 /// Decline a pending request (the agent or user it waits on).
@@ -706,6 +712,24 @@ mod project_audiences_tests {
         assert_eq!(o["audiences_held"], json!([USER]));
         assert_eq!(o["audiences_explicit"], json!([USER]));
         assert_eq!(o["audiences_inherited"].as_array().unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod grant_notice_tests {
+    use super::*;
+
+    #[test]
+    fn a_project_is_told_its_members_inherit_only_what_they_do_inherit() {
+        let user = grant_notice_body(USER, "crew", true);
+        assert!(user.starts_with("Project crew: You now hold an audience with the user"), "{user}");
+        assert!(user.contains("Its direct members inherit this audience; nested projects do not relay it."), "{user}");
+        // the org mailbox is NOT inherited (migration 0032 leaves @extern out of the members' view)
+        let outside = grant_notice_body(EXTERN, "crew", true);
+        assert!(outside.starts_with("Project crew: You now hold the org mailbox"), "{outside}");
+        assert!(!outside.contains("inherit this audience"), "{outside}");
+        assert!(outside.contains("Its members do not inherit the org mailbox"), "{outside}");
+        assert!(!grant_notice_body(EXTERN, "lead", false).contains("members"), "an agent holder is told nothing about members");
     }
 }
 

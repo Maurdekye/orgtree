@@ -555,6 +555,30 @@ mod via_tests {
 }
 
 #[cfg(test)]
+mod project_thread_tests {
+    use super::*;
+
+    // USER 2026-11-23 mb52269db6058: the user's chats fold a project thread, which needs these two marks
+    #[test]
+    fn a_megaphone_copy_says_which_project_and_which_send() {
+        let copy = mail_entry(&json!({"uid":"c1","sender":"@user","body":"hello all","recipient_kind":"agent",
+            "extra":{"megaphone":{"id":7,"name":"crew","send":"g1","to":3}}}));
+        assert_eq!(copy["megaphone"], json!({"name":"crew","send":"g1","to":3}));
+        let plain = mail_entry(&json!({"uid":"c2","sender":"@user","body":"hi","recipient_kind":"agent","extra":{}}));
+        assert!(plain.get("megaphone").is_none(), "ordinary mail has no mark");
+    }
+
+    #[test]
+    fn a_relayed_job_names_the_job_it_was_relayed_from() {
+        let child = mail_entry(&json!({"uid":"j2","sender":"@user","body":"do this","recipient_kind":"agent",
+            "extra":{"relayed_from":{"project":5,"name":"front","job":"j1","dog":"d1","chain":[5]}}}));
+        assert_eq!(child["queue"]["relayed_from"], json!({"name":"front","job":"j1"}));
+        let plain = mail_entry(&json!({"uid":"j1","sender":"@user","body":"do this","recipient_kind":"agent","extra":{}}));
+        assert!(plain.get("queue").is_none(), "a job nobody relayed says nothing");
+    }
+}
+
+#[cfg(test)]
 mod follow_up_tests {
     use super::*;
     #[test]

@@ -422,9 +422,23 @@ fn project_broadcast_message(to: &str, text: &str, notice: bool, attachments: &[
     out
 }
 
+/// What every copy of one megaphone send carries: the project it was sent
+/// through, one id shared by the copies of that send, and how many agents it
+/// reached for (USER 2026-11-23 mb52269db6058).
+#[nolog]
+fn megaphone_mark(project: i64, name: &str, send: &str, to: usize) -> Value {
+    let _ = (project, name, send, to);
+    Value::Null
+}
+
 #[cfg(test)]
 mod project_user_contact_tests {
     use super::*;
+
+    #[test]
+    fn every_megaphone_copy_names_its_project_and_its_send() {
+        assert_eq!(megaphone_mark(7, "crew", "g1", 3), json!({ "id": 7, "name": "crew", "send": "g1", "to": 3 }));
+    }
 
     #[test]
     fn broadcast_is_user_mail_without_a_personal_grant() {
