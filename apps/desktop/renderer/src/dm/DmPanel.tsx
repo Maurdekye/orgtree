@@ -420,7 +420,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   const q = query.trim().toLowerCase()
   // A PROJECT'S GROUP FOLDS like a ticket's sub-items in the docket: open by
   // default, and a fold is this panel's reading posture, not saved. A search
-  // shows through every fold, and the chat on screen is never folded away.
+  // shows through every fold. A fold hides only what is read and not open
+  // (USER 2026-11-23 m7de1b3240eb0): an agent with something unread, or with a
+  // request waiting, and the chat on screen stay listed under their project.
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set<string>())
   const toggleFold = (project: string) => setFolded(old => {
     const next = new Set(old)
@@ -429,11 +431,11 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   })
   const matches = (c: DmChat) => dmName(c).toLowerCase().includes(q) || c.peer.toLowerCase().includes(q)
   const shown = q ? chats.filter(matches)
-    : chats.filter(c => !c.parent || !folded.has(c.parent) || c.peer === sel)
+    : chats.filter(c => !c.parent || !folded.has(c.parent) || c.peer === sel || c.unread > 0 || c.asks > 0)
   const listed = new Set(shown.map(c => c.peer))
-  /** what a folded project's row adds to its own counts: the chats it hides */
+  /** how many of a folded project's chats its row hides */
   const hidden = (c: DmChat) => !q && c.kids > 0 && folded.has(c.peer)
-    ? chats.filter(k => k.parent === c.peer && !listed.has(k.peer)) : []
+    ? chats.filter(k => k.parent === c.peer && !listed.has(k.peer)).length : 0
   const waiting = dmWaiting(chats)
   const focusAgent = onFocusAgent ? (id: string) => { close(); onFocusAgent(id) } : undefined
 
@@ -532,17 +534,15 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
   onCloseHover: (hover: boolean) => void
   /** listed under its project's row */
   child: boolean
-  /** a folded project: the chats its row stands for */
-  hidden: readonly DmChat[]
+  /** a folded project: how many chats its fold hides (all of them read) */
+  hidden: number
   /** a project with chats under it: its fold */
   fold?: { folded: boolean; locked: boolean; toggle: () => void }
 }) {
   const rule = dmClose(chat)
   const name = dmName(chat)
-  // a folded group never hides that something waits: its row counts what it hides
-  const unread = chat.unread + hidden.reduce((n, k) => n + k.unread, 0)
-  const asks = chat.asks + hidden.reduce((n, k) => n + k.asks, 0)
-  const inGroup = hidden.length ? ` in ${name} and its ${hidden.length} agent${hidden.length === 1 ? '' : 's'}` : ''
+  // a fold never hides anything that waits, so a project's row counts only its own
+  const unread = chat.unread, asks = chat.asks
   // THE ROW'S OWN MENU (USER 2026-11-23 mf47548121ae5): what the row does, then
   // "Agent…" or "Project…", the whole menu that node has on the canvas, as a
   // submenu (`nodeMenuAction`, the one every other "Owner…" / "Project…" entry
@@ -560,8 +560,8 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
     ]
   }
   const last = chat.last
-  const asksLabel = `${asks} request${asks === 1 ? '' : 's'} waiting on your answer${inGroup}`
-  const unreadLabel = `${unread} unread${inGroup}`
+  const asksLabel = `${asks} request${asks === 1 ? '' : 's'} waiting on your answer`
+  const unreadLabel = `${unread} unread`
   const requestLabel = `${name} asks for an audience with you`
   let preview: ReactNode = <span className="dm-row-text">No messages yet</span>
   // a resolved request says so in the resolved card's own words (canvas/asks.tsx, NulledAsk)
@@ -584,7 +584,8 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
       {fold && <button type="button" className={'dm-fold' + (fold.folded && !fold.locked ? ' folded' : '')} disabled={fold.locked}
         aria-expanded={!fold.folded || fold.locked}
         title={fold.locked ? `showing every match while you search`
-          : `${fold.folded ? 'show' : 'hide'} the ${chat.kids} agent${chat.kids === 1 ? '' : 's'} that reach${chat.kids === 1 ? 'es' : ''} you through ${name}`}
+          : fold.folded ? `show the ${hidden} agent${hidden === 1 ? '' : 's'} hidden under ${name}`
+            : `hide the agents under ${name} that have nothing unread`}
         onClick={(e) => { e.stopPropagation(); fold.toggle() }}>▾</button>}
       <DmAvatar chat={chat} />
       <div className="dm-row-main">

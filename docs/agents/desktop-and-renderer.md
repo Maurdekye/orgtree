@@ -74,7 +74,8 @@ are a second view over the same reads and calls.
   CHOICES: an agent with its own grant and a top-level agent are not counted as losing the audience and are
   not listed under the project; a top-level agent that inherits only keeps its chat after the project's
   close; a silent inherited-only agent still has no chat, so a project with silent agents is a plain row; a
-  folded row counts what it hides and an open one does not; the system's chat keeps the name Orgtree.
+  fold hides only a child with nothing unread, no open request and not on screen (USER m7de1b3240eb0), so a
+  project's row never needs to count for what it hides; the system's chat keeps the name Orgtree.
 
 [verified: `tests/dmmodel.test.tsx`, `tests/dmpanel.test.tsx`, `appsettings` §3c, `scopedmodals`, `gallery` §11,
 `docket` §13 and §13d; engine `cargo test dm_panel`; the capture receipt named in the hand-in]
