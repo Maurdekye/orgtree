@@ -295,6 +295,10 @@ pub fn mail_entry(m: &Value) -> Value {
     // handed it and whether it is acked, released back to the queue, or an
     // ack record closing another mail
     let x = &m["extra"];
+    // one copy of the user's megaphone send to a project: the project, the send its copies share, how many agents
+    if let Some(g) = x.get("megaphone").filter(|v| v.is_object()) {
+        o.insert("megaphone".into(), json!({ "name": g["name"], "send": g["send"], "to": g["to"] }));
+    }
     let mut q = serde_json::Map::new();
     if let Some(c) = x.get("claimed").filter(|v| v.is_object()) {
         q.insert("held_by".into(), c["by"].clone());

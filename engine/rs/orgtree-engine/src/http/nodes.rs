@@ -391,8 +391,11 @@ pub async fn broadcast(
     let mut refused = Vec::new();
     let mut notices = crate::domain::runtime_notices::ForwardedUserNotices::default();
     crate::domain::dnd::validate_urgent(b.urgent,b.urgent_reason.as_deref(),true,false)?;
+    // one id for this send: its copies are one megaphone send in the user's chats
+    let mark = megaphone_mark(a.id, &a.name, &crate::util::uid("g"), members.len());
     for to in &members {
         let mut out = project_broadcast_message(to, &text, b.notice, &attachments);
+        out.megaphone = Some(mark.clone());
         out.replies = replies_by_recipient.remove(to).unwrap_or_default();
         if b.urgent {
             let c=e.db.get().await?;
@@ -427,8 +430,7 @@ fn project_broadcast_message(to: &str, text: &str, notice: bool, attachments: &[
 /// reached for (USER 2026-11-23 mb52269db6058).
 #[nolog]
 fn megaphone_mark(project: i64, name: &str, send: &str, to: usize) -> Value {
-    let _ = (project, name, send, to);
-    Value::Null
+    json!({ "id": project, "name": name, "send": send, "to": to })
 }
 
 #[cfg(test)]
