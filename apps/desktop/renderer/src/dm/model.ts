@@ -11,6 +11,9 @@
 //   • an agent whose audience comes through its project has one once it has
 //     written, and it cannot be closed here: the grant is the project's;
 //   • Orgtree's own mail (`@system`) is one chat, once it has written;
+//   • an agent or project that ASKS for an audience has one, first in the
+//     list, until the user approves or denies it (USER 2026-11-23
+//     mae2b1aa37a9b: "audience requests appear as new dms");
 //   • any other sender shows only while something of its is unread or
 //     unanswered, or while it is the chat on screen: unread mail is never
 //     hidden, and a closed chat does not come back by having history.
@@ -146,6 +149,13 @@ export function dmChats(input: DmInput): DmChat[] {
     if ((n.audiences_explicit ?? n.audiences_held ?? []).includes(USER)) granted.add(n.id)
   }
 
+  const asking = new Map<string, DmRequest>()
+  for (const r of input.requests ?? []) {
+    if (typeof r.from === 'string' && r.from && !granted.has(r.from)) {
+      asking.set(r.from, { reason: r.reason ?? '', at: r.at ?? '' })
+    }
+  }
+
   const order = new Map<string, number>()
   for (const id of nodes.keys()) order.set(id, order.size)
   const chats = new Map<string, DmChat>()
@@ -166,7 +176,7 @@ export function dmChats(input: DmInput): DmChat[] {
       asks: list.filter(e => e.unread && e.ask).length,
       entries: list,
       last: list[list.length - 1] ?? null,
-      request: null,
+      request: asking.get(peer) ?? null,
     }
     chats.set(peer, chat)
     return chat
@@ -181,6 +191,8 @@ export function dmChats(input: DmInput): DmChat[] {
     if (node && node.state !== 'live' && hideRetired) continue
     open(peer)
   }
+  // whoever asks for an audience: the request is its chat
+  for (const peer of asking.keys()) open(peer)
   // …and whoever else has written
   for (const [peer, list] of entries) {
     if (chats.has(peer)) continue
@@ -191,10 +203,13 @@ export function dmChats(input: DmInput): DmChat[] {
   }
   if (selected) open(selected)
 
-  const rank = (c: DmChat) => !c.live && c.kind !== 'system' && c.kind !== 'other' ? 2 : c.last ? 0 : 1
+  // a request is new and waits on the user: first, the newest request on top
+  const rank = (c: DmChat) => c.request ? -1
+    : !c.live && c.kind !== 'system' && c.kind !== 'other' ? 2 : c.last ? 0 : 1
   return [...chats.values()].sort((a, b) => {
     const ra = rank(a), rb = rank(b)
     if (ra !== rb) return ra - rb
+    if (ra === -1 && a.request!.at !== b.request!.at) return a.request!.at < b.request!.at ? 1 : -1
     if (ra === 0 && a.last!.at !== b.last!.at) return a.last!.at < b.last!.at ? 1 : -1
     const oa = order.get(a.peer) ?? Infinity, ob = order.get(b.peer) ?? Infinity
     return oa !== ob ? oa - ob : a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0
@@ -236,6 +251,10 @@ export function dmClose(chat: DmChat): DmClose {
     return { can: false, stays: true,
       title: `${chat.peer} is a top-level agent: it always has a direct line to you, so this chat can't be closed.` }
   }
+  if (chat.request && !chat.inherited) {
+    return { can: true, stays: false, deny: true,
+      title: `Deny ${chat.peer}'s audience request and close this chat.` }
+  }
   if (chat.inherited) {
     return { can: false, stays: true,
       title: `${chat.peer}'s audience with you comes through project ${chat.inherited}. `
@@ -246,5 +265,6 @@ export function dmClose(chat: DmChat): DmClose {
 }
 
 /** How many things wait on the user across the listed chats. */
-export const dmWaiting = (chats: readonly DmChat[]): { unread: number; asks: number } =>
-  chats.reduce((sum, c) => ({ unread: sum.unread + c.unread, asks: sum.asks + c.asks }), { unread: 0, asks: 0 })
+export const dmWaiting = (chats: readonly DmChat[]): { unread: number; asks: number; requests: number } =>
+  chats.reduce((sum, c) => ({ unread: sum.unread + c.unread, asks: sum.asks + c.asks,
+    requests: sum.requests + (c.request ? 1 : 0) }), { unread: 0, asks: 0, requests: 0 })
