@@ -873,16 +873,19 @@ test('agents that reach the user only through a project are indented under it, n
   assert.equal(s.row('envoy')!.querySelector('.dm-fold') === null, true, 'only a project with chats under it folds')
 })
 
-test('a project\'s group folds with the docket\'s arrow; folded, its row counts what it hides', async (t) => {
+test('a project\'s group folds with the docket\'s arrow; folded, it still shows every agent with something unread', async (t) => {
   const s = await setup(t, officeWorld(), { tree: officeTree(), active: false, openChat: { peer: 'lead', seq: 1 } })
   const fold = () => s.row('office')!.querySelector<HTMLButtonElement>('.dm-fold')
   assert.equal(fold()?.getAttribute('aria-expanded'), 'true', 'open by default')
   await s.click(fold(), 'the fold arrow')
-  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'envoy', 'lead', 'solo'], 'its agents are folded away')
+  // USER 2026-11-23 m7de1b3240eb0: "agents with unread messages always are shown, regardless of the
+  // collapse. the currently open agent dm is also always shown."
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'page', 'envoy', 'lead', 'solo'],
+    'aide, read and not open, is folded away; page has unread mail and stays')
+  assert.equal(s.row('page')!.classList.contains('dm-child'), true, 'still under its project')
   assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'lead', 'the arrow folds; it does not open the chat')
-  const badge = s.row('office')!.querySelector('.dm-badge:not(.dm-badge-asks)')
-  assert.equal(badge?.textContent, '2', 'the unread mail it hides')
-  assert.match(badge?.getAttribute('title') ?? '', /2 unread in office and its 2 agents/)
+  assert.equal(s.row('office')!.querySelector('.dm-badge') === null, true, 'the project\'s row counts only its own mail: nothing that waits is hidden')
+  assert.match(fold()?.getAttribute('title') ?? '', /^show the 1 agent hidden under office$/)
   await s.click(fold(), 'the fold arrow again')
   assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'page', 'aide', 'envoy', 'lead', 'solo'])
   assert.equal(s.row('office')!.querySelector('.dm-badge') === null, true)
@@ -891,7 +894,7 @@ test('a project\'s group folds with the docket\'s arrow; folded, its row counts 
 test('a fold never hides the chat on screen, and a search shows through it', async (t) => {
   const s = await setup(t, officeWorld(), { tree: officeTree(), active: false, openChat: { peer: 'aide', seq: 1 } })
   await s.click(s.row('office')!.querySelector('.dm-fold'), 'the fold arrow')
-  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'aide', 'envoy', 'lead', 'solo'], 'the open chat stays listed')
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['office', 'page', 'aide', 'envoy', 'lead', 'solo'], 'the open chat stays listed, and so does page with its unread mail')
   const search = document.querySelector('.dm-search') as HTMLInputElement
   await inAct(async () => {
     Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value')?.set?.call(search, 'pag')
