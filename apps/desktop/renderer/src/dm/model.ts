@@ -58,7 +58,12 @@ export interface DmChat {
   /** oldest first */
   entries: DmEntry[]
   last: DmEntry | null
+  /** it asks for an audience with the user, and the user has not answered */
+  request: DmRequest | null
 }
+
+/** A pending audience request addressed to the user. */
+export interface DmRequest { reason: string; at: string }
 
 /** A tree node with its parent's id (null for a root). */
 export type DmNode = TreeNode & { parent: string | null }
@@ -103,6 +108,9 @@ export interface DmInput {
   hideRetired?: boolean
   /** the chat on screen: listed whatever its state */
   selected?: string | null
+  /** audience requests waiting on the user (the audiences read's `requests`
+   *  that name the user and have reached the user) */
+  requests?: readonly { from: string; reason?: string; at?: string }[]
 }
 
 const byTime = (a: DmEntry, b: DmEntry) =>
@@ -158,6 +166,7 @@ export function dmChats(input: DmInput): DmChat[] {
       asks: list.filter(e => e.unread && e.ask).length,
       entries: list,
       last: list[list.length - 1] ?? null,
+      request: null,
     }
     chats.set(peer, chat)
     return chat
@@ -206,6 +215,8 @@ export interface DmClose {
   can: boolean
   /** the chat stays in the list after the grant is revoked */
   stays: boolean
+  /** closing answers a pending audience request with no, instead of revoking */
+  deny?: boolean
   title: string
 }
 

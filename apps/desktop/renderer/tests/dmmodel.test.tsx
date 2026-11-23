@@ -211,3 +211,31 @@ test('before the audiences are read, a node\'s own record of its grant counts', 
   const list = dmChats({ nodes, grants: null, box: box(), openAsks: [], doneAsks: [] })
   assert.equal(chat(list, 'worker').grant, true)
 })
+
+// ---- prototype feedback (USER 2026-11-23 mae2b1aa37a9b): an audience request is a chat
+
+test('an audience request is a chat of its own, first in the list, the newest request on top', () => {
+  const list = chats({
+    box: box({ delivered: [mail('m1', 'lead', '2026-11-20T10:00:00Z')] }),
+    requests: [
+      { from: 'worker', reason: 'to report to you', at: '2026-11-19T08:00:00Z' },
+      { from: 'helper', reason: '', at: '2026-11-19T09:00:00Z' },
+    ],
+  })
+  assert.deepEqual(names(list), ['helper', 'worker', 'lead', 'solo', 'member'],
+    'the two requests first (newest first), though lead has newer mail')
+  assert.deepEqual(chat(list, 'worker').request, { reason: 'to report to you', at: '2026-11-19T08:00:00Z' })
+  assert.equal(chat(list, 'lead').request, null, 'a chat nobody asked for carries no request')
+  assert.equal(chat(list, 'worker').grant, false, 'asking is not holding')
+})
+
+test('closing a chat that is only a request denies it; a holder of the audience has no request', () => {
+  const asking = chat(chats({ requests: [{ from: 'worker', reason: 'r', at: '2026-11-19T08:00:00Z' }] }), 'worker')
+  const rule = dmClose(asking)
+  assert.equal(rule.can, true); assert.equal(rule.deny, true); assert.equal(rule.stays, false)
+  assert.match(rule.title, /Deny worker's audience request and close this chat\./)
+  // a request the grant has already answered (the audiences read is one poll behind) is not shown
+  const held = chat(chats({ grants: [grant('worker')], requests: [{ from: 'worker', reason: 'r', at: '' }] }), 'worker')
+  assert.equal(held.request, null)
+  assert.equal(dmClose(held).deny, undefined, 'closing a held audience revokes, as before')
+})

@@ -18,6 +18,8 @@ import {
   setOpenChatOnReply,
 } from '../src/mailboxpref'
 import { resetLocalReads } from '../src/mailread'
+import { syncFastModes } from '../src/canvas/fastmode'
+import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import type { TreePayload } from '../src/types'
 
@@ -69,6 +71,7 @@ function engine(world: World) {
         const b = body as { action: string; node: string }
         if (b.action === 'revoke') world.audiences = (world.audiences ?? []).filter(g => (g as { grantee: string }).grantee !== b.node)
         if (b.action === 'grant') world.audiences = [...(world.audiences ?? []), grant(b.node)]
+        if (b.action === 'grant' || b.action === 'deny') world.requests = (world.requests ?? []).filter(r => (r as { from: string }).from !== b.node)
         return json({ ok: true })
       }
       return json({ audiences: world.audiences ?? [], requests: world.requests ?? [] })
@@ -87,6 +90,7 @@ function engine(world: World) {
     }
     if (/\/nodes\/[^/]+\/message$/.test(path)) return json({ accepted: true, id: 'm-new', ref: '@mail:m-new' })
     if (/\/nodes\/[^/]+\/batch$/.test(path)) return json({ resolved: 'ok' })
+    if (/\/nodes\/[^/]+\/scope$/.test(path)) return json({ ok: true })
     if (/\/inbox(\?|$)/.test(path)) {
       return json({ pending: world.pending ?? [], delivered: world.delivered ?? [], sent: world.sent ?? [], next_cursor: null })
     }
@@ -273,7 +277,7 @@ test('New chat on an agent that can already write to the user opens its chat and
   assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker')
 })
 
-test('a notice has a dashed border in its own text colour, a request its label, and files are chips', async (t) => {
+test('a notice keeps its fill and has a thick, widely dashed border in the chat background\'s colour, and no label; a request has its label, and files are chips', async (t) => {
   const s = await setup(t, {
     audiences: [grant('worker')],
     delivered: [
@@ -286,6 +290,9 @@ test('a notice has a dashed border in its own text colour, a request its label, 
   await s.openChat('worker')
   const bubble = (id: string) => s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)!.querySelector<HTMLElement>('.dm-bubble')!
   assert.equal(bubble('n1').classList.contains('notice'), true)
+  // USER 2026-11-23 mae2b1aa37a9b: "dont display the 'NOTICE' badge"
+  assert.equal(bubble('n1').querySelector('.dm-kind') === null, true, 'a notice wears no label')
+  assert.match(bubble('n1').querySelector('.dm-sr')?.textContent ?? '', /notice/, 'a screen reader is still told it is one')
   assert.equal(bubble('p1').classList.contains('notice'), false, 'an ordinary message is not dashed')
   assert.equal(bubble('r1').querySelector('.dm-kind')?.textContent, 'Request')
   assert.equal(bubble('p1').querySelector('.dm-kind') === null, true, 'an ordinary message wears no label')
@@ -293,11 +300,146 @@ test('a notice has a dashed border in its own text colour, a request its label, 
   assert.match(chip?.textContent ?? '', /report\.pdf/)
   assert.match(chip?.getAttribute('href') ?? '', /\/api\/orgs\/mine\/nodes\/worker\/file\?path=outbox%2Freport\.pdf$/,
     'the file is the sender\'s, read through the route the classic mailbox uses')
-  // the rule that draws it: dashed, in the bubble's own colour
+  // the rule that draws it (USER 2026-11-23 mae2b1aa37a9b, m7012356beca4): the
+  // fill is the bubble's own; the border is a layer in the chat background's
+  // colour, cut to a dashed outline 4px wide on the edge (2px inside) with
+  // 7px dashes and 7px gaps
   const { readFileSync } = await import('node:fs')
   const { default: path } = await import('node:path')
   const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
-  assert.match(css, /\.dm-bubble\.notice \{ border: 1px var\(--notice-edge-style\) currentColor; \}/)
+  const rule = /\.dm-bubble\.notice::before \{([^}]*)\}/.exec(css)?.[1] ?? ''
+  assert.match(rule, /background: var\(--bg\);/, 'the border is the chat background\'s colour')
+  assert.match(rule, /mask: url\("data:image\/svg\+xml,[^"]*stroke-width='4' stroke-dasharray='7 7'/, 'thick, with wide gaps')
+  assert.equal(/\.dm-bubble\.notice \{[^}]*(background|border:)/.test(css), false, 'the notice sets no fill and no border of its own')
+  assert.equal(/currentColor/.test(rule), false, 'not in the text colour any more')
+})
+
+// ---- prototype feedback (USER 2026-11-23 mae2b1aa37a9b) ----
+
+const request = (from: string, at = '2026-11-20T09:00:00Z', reason = 'to report the nightly check to you directly') =>
+  ({ from, target: USER, currently_at: USER, reason, at })
+
+test('an audience request is a new chat, marked and first in the list, and there is no request strip', async (t) => {
+  const s = await setup(t, {
+    requests: [request('helper')],
+    delivered: [mail('m1', 'lead', '2026-11-20T10:00:00Z')],
+  }, { active: false })
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat), ['helper', 'lead', 'solo'], 'the request is the first chat')
+  assert.equal(s.row('helper')!.classList.contains('request'), true, 'and it is marked')
+  assert.match(s.row('helper')!.querySelector('.dm-row-prev')?.textContent ?? '', /^Audience request ·\s+to report the nightly check/)
+  assert.equal(s.row('helper')!.querySelector('.dm-badge-request') !== null, true)
+  assert.equal(s.row('lead')!.classList.contains('request'), false)
+  assert.equal(document.querySelector('.dm-requests') === null, true, 'the strip above the chats is gone')
+  await s.openChat('helper')
+  const card = document.querySelector<HTMLElement>('.dm-audreq')
+  assert.equal(card?.dataset.dmRequest, 'helper', 'the chat shows the request')
+  assert.match(card?.textContent ?? '', /helper asks for an audience with you:.*to report the nightly check to you directly/)
+  assert.deepEqual([...card!.querySelectorAll('button')].map(b => b.textContent), ['Approve', 'Deny'])
+  assert.equal(s.server.calls.length, 0, 'looking at a request answers nothing')
+})
+
+test('Approve in the chat grants the audience with the existing action, and the chat stays as an audience chat', async (t) => {
+  const s = await setup(t, { requests: [request('helper')] }, { active: false })
+  await s.openChat('helper')
+  await s.click([...document.querySelectorAll('.dm-audreq button')].find(b => b.textContent === 'Approve'), 'Approve')
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'grant', node: 'helper' }])
+  assert.equal(document.querySelector('.dm-audreq') === null, true, 'the request is answered')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'helper', 'its chat stays open')
+  assert.equal(s.row('helper')!.classList.contains('request'), false)
+  assert.match(document.querySelector('.dm-head .dm-who-l1')?.textContent ?? '', /audience/, 'now holding the audience')
+})
+
+test('writing to a chat that is a request approves it: the grant, then the message', async (t) => {
+  const s = await setup(t, { requests: [request('helper')] }, { active: false })
+  await s.openChat('helper')
+  await s.type('Go ahead, report here.')
+  await s.send()
+  const changed = s.server.calls.filter(c => c.method === 'POST' && /\/(audiences|nodes\/helper\/message)$/.test(c.path))
+  assert.deepEqual(changed.map(c => c.path.replace(/^.*\/orgs\/mine/, '')), ['/audiences', '/nodes/helper/message'], 'the grant first, then the message')
+  assert.deepEqual(changed[0]!.body, { action: 'grant', node: 'helper' })
+  assert.equal(changed[1]!.body!.text, 'Go ahead, report here.')
+  assert.equal(changed[1]!.body!.surface, 'dm', 'it is still a new message typed in the chats')
+  assert.equal(document.querySelector('.dm-audreq') === null, true)
+})
+
+test('Deny in the chat, or closing the request\'s chat, denies the request with the existing action and asks nothing', async (t) => {
+  const s = await setup(t, { requests: [request('helper'), request('worker', '2026-11-20T08:00:00Z')] }, { active: false })
+  await s.openChat('helper')
+  await s.click([...document.querySelectorAll('.dm-audreq button')].find(b => b.textContent === 'Deny'), 'Deny')
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'deny', node: 'helper', target: USER }])
+  assert.equal(s.row('helper') === undefined, true, 'the chat leaves the list')
+  const close = s.row('worker')!.querySelector<HTMLButtonElement>('.dm-row-close')
+  assert.match(close?.getAttribute('title') ?? '', /Deny worker's audience request and close this chat\./)
+  await s.click(close, 'the close control of the other request')
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body)[1], { action: 'deny', node: 'worker', target: USER })
+  assert.equal(s.row('worker') === undefined, true)
+  assert.equal(s.confirms.length, 0, 'no confirmation')
+})
+
+test('the top-level chip has the audience badge\'s box, in its own colour', async (t) => {
+  const s = await setup(t, { audiences: [grant('solo')] }, { active: false })
+  await s.openChat('solo')
+  const chips = [...document.querySelectorAll<HTMLElement>('.dm-head .dm-who-l1 .badge')]
+  const top = chips.find(c => c.textContent === 'top-level'), aud = chips.find(c => /audience/.test(c.textContent ?? ''))
+  assert.equal(top !== undefined && aud !== undefined, true, 'both chips are in the header')
+  assert.equal(top!.classList.contains('aud-badge'), true, 'the same box class as the audience badge')
+  assert.equal(aud!.classList.contains('aud-badge'), true, 'POSITIVE CONTROL: the audience badge has it')
+  assert.equal(top!.classList.contains('aud-user'), false, 'but not the audience colour')
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  assert.match(css, /\.badge\.dm-standing \{ border-color: /, 'and a visible border, as the audience badge has')
+})
+
+test('the message box has the agent\'s fast mode and effort, saved through the desk\'s own route', async (t) => {
+  syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
+  t.after(() => syncFastModes([]))
+  const s = await setup(t, { audiences: [grant('worker')] }, { active: false })
+  await s.openChat('worker')
+  const controls = document.querySelector('.dm-compose .mail-reply .mail-reply-controls')
+  assert.equal(controls !== null, true, 'the controls sit in the message box')
+  const fast = controls!.querySelector<HTMLButtonElement>('button.cc-fast')
+  assert.equal(fast?.getAttribute('aria-label'), 'Fast mode')
+  await s.click(fast, 'the fast mode button')
+  assert.deepEqual(posts(s.server.calls, /\/nodes\/worker\/scope$/).map(c => c.body), [{ fast_mode: true }])
+  const effort = controls!.querySelector<HTMLButtonElement>('button.cc-eff')
+  assert.match(effort?.getAttribute('title') ?? '', /^Thinking effort: /)
+  await s.click(effort, 'the effort button')
+  const track = controls!.querySelector<HTMLElement>('.eff-pop [role="slider"]')
+  assert.equal(track !== null, true, 'it opens the effort track')
+  await inAct(async () => {
+    track!.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await flush(8)
+  })
+  const saved = posts(s.server.calls, /\/nodes\/worker\/scope$/).map(c => c.body)
+  assert.equal(saved.length, 2, 'the level is saved')
+  assert.equal(typeof saved[1]!.effort, 'string')
+  assert.equal(posts(s.server.calls, /\/message$/).length, 0, 'and nothing is sent')
+})
+
+test('Orgtree\'s own chat and a project\'s chat have no agent controls in the message box', async (t) => {
+  const s = await setup(t, { delivered: [mail('sys1', '@system', '2026-11-20T10:00:00Z')] }, { active: false })
+  await s.openChat('@system')
+  assert.equal(document.querySelector('.dm-compose .mail-reply-controls') === null, true)
+  assert.equal(document.querySelector('.dm-head .dm-gear') === null, true, 'and no gear: it is no agent')
+})
+
+test('the chat header: the name is the agent link, and the gear asks for that agent\'s settings', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')] }, { active: false })
+  await s.openChat('worker')
+  const link = document.querySelector<HTMLElement>('.dm-head .dm-who-name .ref-chip.ref-agent')
+  assert.equal(link?.tagName, 'BUTTON', 'the link every reference to an agent is')
+  assert.equal(link?.getAttribute('data-copy-agent-name'), 'worker')
+  await s.click(link, 'the agent link')
+  assert.deepEqual(s.state.focused, ['worker'], 'it goes to the agent')
+  const asks: unknown[] = []
+  const hear = (e: Event) => { asks.push((e as CustomEvent).detail) }
+  window.addEventListener(OPEN_SETTINGS_AT_EVENT, hear)
+  t.after(() => window.removeEventListener(OPEN_SETTINGS_AT_EVENT, hear))
+  const gear = document.querySelector<HTMLButtonElement>('.dm-head .dm-gear')
+  assert.equal(gear?.getAttribute('aria-label'), "Open worker's settings")
+  await s.click(gear, 'the gear')
+  assert.deepEqual(asks, [{ scope: 'agent', org: 'mine', agentId: 'worker' }], 'the existing settings request, for this agent')
 })
 
 test('a message typed in the panel says it came from there; a reply does not, and names what it answers', async (t) => {
