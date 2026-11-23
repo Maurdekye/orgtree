@@ -148,6 +148,8 @@ const server = createServer(async (req, res) => {
   if (/^\/nodes\/[^/]+\/batch$/.test(p)) return send({ resolved: 'ok' })
   if (/^\/nodes\/[^/]+\/file$/.test(p)) return /\.png$/.test(url.searchParams.get('path') ?? '') ? send(PNG, 'image/png') : send('synthetic file', 'application/octet-stream')
   if (/\/transfers$/.test(p)) return send({ transfers: [], next_cursor: null })
+  // one mail by its id, as the engine answers a reference to a mail outside the loaded window
+  if (p.startsWith('/mail/user/')) { const found = everyMail().find(m => m.id === decodeURIComponent(p.slice('/mail/user/'.length))) ?? null; return send({ found: !!found, mail: found }) }
   if (p === '/inbox') return send({ pending: world.pending, delivered: world.delivered, sent: world.sent, next_cursor: null })
   return send({})
 })
@@ -321,7 +323,9 @@ if (flag === '--expect') {
   for (const [theme, list] of [['charcoal', thread], ['light', v.project.light]]) {
     const fill = list.find(b => b.id === 'megaphone:g1').background, plain = list.find(b => b.id === 'cj1').background
     assert.notEqual(fill, plain, `${theme}: a megaphone message is not the fill of the user's other messages`)
-    const [r, g, b] = fill.match(/[\d.]+/g).map(Number)
+    // a mixed colour is reported as color(srgb r g b) in 0..1; a plain one as rgb(r, g, b) in 0..255
+    const parts = fill.replace(/^color\(srgb/, '').match(/[\d.]+/g).map(Number)
+    const [r, g, b] = fill.startsWith('color(') ? parts.map(n => n * 255) : parts
     assert.ok(g > r + 25 && b > r + 20, `${theme}: a teal fill, ${fill}`)
     if (theme === 'light') assert.ok(g > 200, `${theme}: a bright one, ${fill}`)
   }

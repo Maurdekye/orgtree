@@ -321,8 +321,11 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     jumped.current = request
     if (jumpTo === '@user') return
     const show = (peer: string) => { select(peer); setFlash({ key: jumpTo, seq: Date.now() }) }
-    const hit = chats.find(c => c.entries.some(e => e.key === jumpTo))
-    if (hit) { show(hit.peer); return }
+    // a copy the queue made of a message is that message (dm/model.ts folds it)
+    for (const c of chats) {
+      const e = c.entries.find(x => x.key === jumpTo || x.copies?.includes(jumpTo))
+      if (e) { select(c.peer); setFlash({ key: e.key, seq: Date.now() }); return }
+    }
     if (jumpTo.startsWith('ask:')) return
     let live = true
     getMailById(slug, 'user', jumpTo).then((r) => {

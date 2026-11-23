@@ -195,6 +195,7 @@ export function dmChats(input: DmInput): DmChat[] {
   /** which project's thread a mail is in, by its id: what a reply to it joins */
   const thread = new Map<string, string>()
   const holders = new Map<string, string[]>()
+  const folded = new Map<string, string[]>()
   const megaphones = new Map<string, { first: MailRow; project: string; to: number; names: string[] }>()
   type Out = { m: MailRow; peer: string; via?: string }
   const outgoing: Out[] = []
@@ -208,13 +209,14 @@ export function dmChats(input: DmInput): DmChat[] {
       if (root) {
         // R1, R4: a copy is not a message; it says who was handed the job
         if (root.id && typeof root.to === 'string') thread.set(m.id, root.to)
+        if (root.id) folded.set(root.id, [...(folded.get(root.id) ?? []), m.id])
         if (root.id && !projectNode(to)) holders.set(root.id, [...(holders.get(root.id) ?? []).filter(h => h !== to), to])
         continue
       }
       // its message is older than the loaded mail: the first copy stands for it, in the project's chat
       const project = q?.job?.name ?? q?.relayed_from?.name ?? to
       const shown = orphans.get(up)
-      if (shown) { thread.set(m.id, project); continue }
+      if (shown) { thread.set(m.id, project); folded.set(shown, [...(folded.get(shown) ?? []), m.id]); continue }
       orphans.set(up, m.id)
       thread.set(m.id, project)
       outgoing.push({ m, peer: project, via: projectNode(to) ? undefined : to })
@@ -266,6 +268,7 @@ export function dmChats(input: DmInput): DmChat[] {
       if (joined && joined !== peer) { via = peer; peer = joined; thread.set(m.id, joined) }
       const mega = megaphones.get((m as MailRow & { megaphone?: { send?: string } }).megaphone?.send ?? '')
       add(peer, { key: m.id, at: m.at ?? '', out: true, unread: false, mail: m, via, job: via ? undefined : jobOf(m),
+        copies: folded.get(m.id),
         megaphone: mega ? { project: mega.project, record: false, to: mega.to, names: mega.names } : undefined })
       continue
     }

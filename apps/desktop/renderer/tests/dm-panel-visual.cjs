@@ -439,7 +439,8 @@ module.exports = async (page) => {
   await page.eval(() => window.__dm.theme('charcoal'))
 
   const end = await snap()
-  v.end = { confirms: end.confirms, toasts: end.toasts, rows: end.rows.map(r => r.peer), hasFocus: end.hasFocus }
+  v.end = { confirms: end.confirms, toasts: end.toasts, rows: end.rows.map(r => r.peer), hasFocus: end.hasFocus,
+    opened: await page.eval(() => window.__dm.opened.slice()) }
   v.calls = (await calls()).map(c => ({ method: c.method, path: c.path, body: c.body }))
   return v
 }
