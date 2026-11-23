@@ -187,12 +187,12 @@ if (flag === '--expect') {
   for (const [theme, s] of Object.entries(v.themes)) {
     assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'crew', 'member', 'mate', 'desk', 'clerk', 'solo', 'runner'], `${theme}: the two audience requests, then newest activity first (desk by clerk's message, clerk under it), then the chats nobody has written in`)
     assert.equal(of0(s, 'clerk').parent, 'desk', `${theme}: clerk is listed under its project`); assert.equal(of0(s, 'runner').parent, null)
-    assert.equal(of0(s, '@system').chip, 'S', `${theme}: the system's chat wears an S`)
+    assert.equal(of0(s, '@system').chip, null, `${theme}: the system's picture is an icon, not a letter`)
     assert.deepEqual(s.rows.filter(r => r.request).map(r => r.peer), ['scout', 'drafter'], `${theme}: the requests are marked`)
     assert.equal(s.strip, 0, `${theme}: no request strip above the chats`)
     const of = peer => s.rows.find(r => r.peer === peer)
     assert.equal(of('worker').unread, '2'); assert.equal(of('@system').unread, '1'); assert.equal(of('lead').asks, '?')
-    assert.equal(of('@system').name, 'Orgtree')
+    assert.equal(of('@system').name, 'System')
     for (const r of s.rows) onScreen(r.box, `${theme} row ${r.peer}`)
     assert.equal(s.head.peer, 'worker', 'it opens on the chat with the oldest unread mail')
     assert.deepEqual(s.bubbles.map(b => b.id), ['w1', 's1', 'w2', 'w3', 'w4', 'w5'], 'oldest first')
@@ -376,7 +376,8 @@ if (flag === '--expect') {
   const has = (list, label) => list.some(x => x.startsWith(label))
   assert.equal(v.menu.agent[0], 'Open chat'); assert.ok(has(v.menu.agent, 'Agent…') && !has(v.menu.agent, 'Project…'))
   assert.ok(has(v.menu.project, 'Project…') && !has(v.menu.project, 'Agent…'))
-  assert.deepEqual(v.menu.system, ['Open chat']); assert.equal(v.menu.systemChip, 'S')
+  assert.deepEqual(v.menu.system, ['Open chat'])
+  assert.equal(v.system.head.name, 'System'); assert.deepEqual(v.system.tags, ['S System', 'S System'], 'each of its messages is tagged S')
   checked.push('row menu')
 
   // ---- narrow: the list becomes the overlay the other two-pane panels use

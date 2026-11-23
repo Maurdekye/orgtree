@@ -298,7 +298,8 @@ module.exports = async (page) => {
   const system = await snap()
   v.read.system.badgeAfter = row(system, '@system')?.unread ?? null
   v.read.reads = (await posted('/inbox/read$')).map(c => c.body.ids)
-  v.system = { head: system.head, nowrite: system.nowrite, rowClosable: row(system, '@system')?.closable, ids: system.bubbles.map(b => b.id), bell: system.bell }
+  v.system = { tags: await page.eval(() => [...document.querySelectorAll('.dm-via-system')].map(e => (e.textContent || '').replace(/\s+/g, ' ').replace(/^S(?=System)/, 'S ').trim())),
+    head: system.head, nowrite: system.nowrite, rowClosable: row(system, '@system')?.closable, ids: system.bubbles.map(b => b.id), bell: system.bell }
   await shot('20-orgtree-chat-system-mail')
 
   // -------------------------- 10. a top-level agent under a project, and search

@@ -137,7 +137,13 @@
   display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
 }
 .dm-av .project-mark { display: inline-flex; font-size: 22px; }
-.dm-av .tier.letter-chip.t-system { color: var(--dim); background: var(--panel-2); border: 1px solid var(--line); }
+/* the system's picture is an icon, never a letter: it is no agent */
+.dm-av.dm-av-system { color: var(--dim); font-size: 22px; border: 1px dashed var(--line); background: transparent; }
+/* …and each of its messages is tagged S, in the chip a model letter is drawn in */
+.dm-via .tier.letter-chip.t-system {
+  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+  border-radius: 3px; font-size: 9.5px; color: var(--dim); background: var(--bg); border: 1px solid var(--line);
+}
 .dm-av.dm-av-other { color: var(--dim); }
 
 /* ---------------------------------------------------------- the conversation */

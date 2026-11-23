@@ -93,7 +93,7 @@ import { sendLinkedReply, sendPanelMessage } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
-  CampaignIcon, ChatBubbleIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, SettingsIcon,
+  CampaignIcon, ChatBubbleIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, SettingsIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
@@ -132,7 +132,7 @@ export interface DmPanelProps {
 
 /** The name a chat is listed and headed under. */
 export const dmName = (chat: Pick<DmChat, 'kind' | 'peer'>): string =>
-  chat.kind === 'system' ? 'Orgtree' : chat.peer
+  chat.kind === 'system' ? 'System' : chat.peer
 
 /** A list row reads as plain words: the commonest markdown marks are dropped
  *  (bold, code, a link's address, a leading heading, quote or list mark). */
@@ -523,8 +523,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
 /** A chat's picture: the agent's model chip or the project's mark, as the
  *  agents list draws them, at the size of a chat row. */
 function DmAvatar({ chat }: { chat: DmChat }) {
-  // the system writes these: an S in the chip every sender's model letter is drawn in (USER 2026-11-23 mf47548121ae5)
-  if (chat.kind === 'system') return <span className="dm-av dm-av-system" aria-hidden="true"><span className="tier letter-chip t-system">S</span></span>
+  // the system is no agent: its own icon, never a letter picture (USER 2026-11-23 m619caab7c62b). The S
+  // chip is on its messages (`DmBubble`).
+  if (chat.kind === 'system') return <span className="dm-av dm-av-system" aria-hidden="true"><ChipIcon fontSize="inherit" /></span>
   if (chat.node) return <span className="dm-av"><TierChip tier={nodeTierOf(chat.node as CanvasNode)} agentName={chat.peer} /></span>
   return <span className="dm-av dm-av-other" aria-hidden="true">{chat.peer.replace(/^@/, '').slice(0, 1).toUpperCase() || '?'}</span>
 }
@@ -629,7 +630,8 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
   const inheritedTitle = chat.via.length ? `Inherited from project ${chat.via.join(', ')}\n${audienceGrantTooltip(USER)}` : undefined
   // every chip here has the audience badge's box (`.aud-badge`: its spacing,
   // padding and shape), USER 2026-11-23 mae2b1aa37a9b
-  if (chat.kind === 'system') return <span className="badge dim aud-badge dm-standing" title="Orgtree's own notices and decisions">system</span>
+  // the chat is named System: a chip saying so again would be noise
+  if (chat.kind === 'system') return null
   return <>
     {chat.topLevel && <span className="badge dim aud-badge dm-standing dm-top" title="A top-level agent: it always has a direct line to you">top-level</span>}
     {/* the desk header's own user-audience badge and words (HeldAudienceChips, canvas/desk.tsx) */}
@@ -824,7 +826,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       const m = e.mail
       rows.push(<DmBubble key={e.key} entry={e} m={m} first={first} slug={slug} refs={refs} toast={toast}
         flash={flash?.key === e.key ? flash.seq : null}
-        replying={replyIds.includes(e.key)}
+        replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase}
         onReply={m.id && chat.live && (!e.out || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
@@ -922,9 +924,11 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   )
 }
 
-function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender, fileHref, mdBase,
+function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
   onReply, onRead, onDelete, onAckJob }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
+  /** a message the system sent: tagged S (USER 2026-11-23 mf47548121ae5) */
+  system?: boolean
   flash: number | null
   replying: boolean
   sender: (id: string, m: MailRow) => ReactNode
@@ -981,6 +985,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender,
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
           {/* in a project's chat: which agent wrote this, or which one it was written to */}
           {entry.via && <div className="dm-via">{entry.out && <span className="dim">to</span>}{sender(entry.via, m)}</div>}
+          {system && !entry.out && <div className="dm-via dm-via-system"><span className="tier letter-chip t-system">S</span><b>System</b></div>}
           {/* a notice wears no label: its border says it (USER 2026-11-23
               mae2b1aa37a9b: "dont display the 'NOTICE' badge") */}
           {(label || m.urgent || queued || megaLabel) && <div className="dm-labels">

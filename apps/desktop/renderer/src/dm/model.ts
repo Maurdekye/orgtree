@@ -8,8 +8,8 @@
 //   • every top-level agent has one: it has a direct line to the user;
 //   • every holder of an audience with the user has one (an agent or a
 //     project), and closing it revokes that grant;
-//   • an agent whose audience comes through its project has one once it has
-//     written, and it cannot be closed here: the grant is the project's;
+//   • an agent whose audience comes through its project has one, listed
+//     under the project's; closing it closes the project's audience;
 //   • Orgtree's own mail (`@system`) is one chat, once it has written;
 //   • an agent or project that ASKS for an audience has one, first in the
 //     list, until the user approves or denies it (USER 2026-11-23
@@ -364,6 +364,13 @@ export function dmChats(input: DmInput): DmChat[] {
     const node = nodes.get(peer)
     if (node && node.state !== 'live' && hideRetired) continue
     open(peer)
+  }
+  // every agent that reaches the user only through a project that holds the
+  // audience, also one that has never written: it is listed under the project,
+  // which folds (USER 2026-11-23 mb673f241b650)
+  for (const n of nodes.values()) {
+    if (n.state !== 'live' || isProject(n) || granted.has(n.id) || topLevelAgent(nodes, n)) continue
+    if (viaOf(n, grants, granted).some(p => chats.has(p))) open(n.id)
   }
   // whoever asks for an audience: the request is its chat
   for (const peer of asking.keys()) open(peer)

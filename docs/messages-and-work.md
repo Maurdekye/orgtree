@@ -245,7 +245,7 @@ An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** i
 
 Since 4.7.0 your Inbox opens as chats, the way Hubchat shows conversations: a list of chats on the left and one conversation on the right. Nothing about your mail changed; this is another way to look at it. The Inbox button now wears a chat bubble.
 
-- **Who has a chat.** Every top-level agent, and every agent or project you gave an audience. Orgtree's own notices share one chat called **Orgtree**. Anyone else shows up only while something of theirs is unread or waits on your answer. The newest conversation is at the top, each with its unread count; **?** marks a request waiting for you.
+- **Who has a chat.** Every top-level agent, and every agent or project you gave an audience. Orgtree's own notices share one chat called **System**. Anyone else shows up only while something of theirs is unread or waits on your answer. The newest conversation is at the top, each with its unread count; **?** marks a request waiting for you.
 - **Closing a chat** takes back that agent's audience with you, at once and without asking. Its mail is kept. A top-level agent always has a direct line to you, so its chat can't be closed; if it also holds an audience grant, closing takes the grant back and the chat stays. The close button's tooltip tells you which of these applies.
 - **New chat** opens the agents list. Pick an agent to open its chat; an agent that could not write to you gets an audience first.
 - **Audience requests** are new chats at the top of the list, marked with the request. Open one to see who asks and why, then **Approve** or **Deny**. Writing to that chat approves it too, and closing it denies it.
