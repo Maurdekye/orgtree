@@ -27,8 +27,15 @@
 //   3. New chat opens a copy of the agents list with all its features;
 //   4. requests work as they do everywhere, one bubble per tab;
 //   5. a notice has a dashed border, a request a small label, files are chips;
+//      the border is the chat background's colour, thick and widely spaced,
+//      and a notice wears no label (USER 2026-11-23 mae2b1aa37a9b, m7012356beca4);
 //   6. newest chat first, an unread count on each;
 //   8. one panel per org, with that org's agents only.
+//
+// Prototype feedback (USER 2026-11-23 mae2b1aa37a9b): an audience request is a
+// chat of its own, first in the list and marked, approved or denied in the
+// chat, and approved by writing to it; the message box has the agent's fast
+// mode and effort; the chat's header has the agent's link and its settings.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
@@ -49,10 +56,12 @@ import { CollapsibleMailer } from '../canvas/narrowlist'
 import {
   DELETE_USER_MAIL_CONFIRM, MailAttachments, MailMessageBody, MailReplyBox,
 } from '../canvas/mail'
-import { AgentName, TierChip, nodeTierOf } from '../canvas/identity'
+import { NodeLink, TierChip, nodeTierOf } from '../canvas/identity'
 import { agentNavProps, useAgentNavRegistry } from '../canvas/agentnav'
 import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
-import { TrayStatus } from '../canvas/desk'
+import { AgentEffortButton, TrayStatus } from '../canvas/desk'
+import { FastModeButton } from '../canvas/fastmodebutton'
+import { openSettingsAt } from '../canvas/settingskit'
 import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
 import { HubContactChip, isHubAddress } from '../canvas/agentmentions'
@@ -76,7 +85,7 @@ import { sendLinkedReply, sendPanelMessage } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
-  ChatBubbleIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon,
+  ChatBubbleIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, SettingsIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
@@ -104,6 +113,9 @@ export interface DmPanelProps {
   /** open the chat with this agent; a new `seq` is a new request */
   openChat?: { peer: string; seq: number } | null
   onFocusAgent?: (agentId: string) => void
+  /** the chat header's gear; without it the panel asks for the settings
+   *  window itself (`openSettingsAt`, which the canvas answers) */
+  onAgentSettings?: (agentId: string) => void
   /** the panel's reference routes, exactly as the classic mailbox's bodies use them */
   refs: RefRoutes
   /** the title bar's actions: the switch back to the classic mailbox */
@@ -178,7 +190,7 @@ const remembered = (slug: string): string | null => {
 }
 
 export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, openChat,
-  onFocusAgent, refs, headerActions }: DmPanelProps) {
+  onFocusAgent, onAgentSettings, refs, headerActions }: DmPanelProps) {
   const nodes = useMemo(() => dmNodes(tree), [tree])
   // ⚠ THE SAME READS THE CLASSIC MAILBOX MAKES, nothing more: the pushed inbox
   // record, the two history folders it pages, and the audiences. `readBump`
@@ -232,6 +244,23 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     if (closing.some(id => !held.has(id))) setClosing(c => c.filter(id => held.has(id)))
   }, [aud, closing])
 
+  // AUDIENCE REQUESTS that wait on the user, each a chat of its own. One the
+  // user has just denied is hidden on the click, until the audiences read
+  // agrees or the engine refuses.
+  const [denying, setDenying] = useState<readonly string[]>([])
+  const requests = useMemo(() => ((aud?.requests ?? []) as Record<string, unknown>[])
+    .filter(r => r.target === USER && r.currently_at === USER && typeof r.from === 'string' && !denying.includes(r.from))
+    .map(r => ({
+      from: r.from as string,
+      reason: typeof r.reason === 'string' ? r.reason : '',
+      at: typeof r.at === 'string' ? r.at : '',
+    })), [aud, denying])
+  useEffect(() => {
+    if (!aud?.requests || !denying.length) return
+    const asking = new Set((aud.requests as Record<string, unknown>[]).map(r => r.from))
+    if (denying.some(id => !asking.has(id))) setDenying(d => d.filter(id => asking.has(id)))
+  }, [aud, denying])
+
   const [chosen, setChosen] = useState<{ slug: string; peer: string | null }>({ slug, peer: null })
   const sel = chosen.slug === slug ? chosen.peer : null
   const select = useCallback((peer: string | null) => {
@@ -244,9 +273,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
 
   const chats = useMemo(() => dmChats({
     nodes, grants, box, openAsks: open, doneAsks: [...done, ...answered],
-    isRead: id => readLocally(slug, id), hideRetired, selected: sel,
+    isRead: id => readLocally(slug, id), hideRetired, selected: sel, requests,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [nodes, grants, box, askSig, reads, hideRetired, sel, slug])
+  }), [nodes, grants, box, askSig, reads, hideRetired, sel, slug, requests])
   const current = sel ? chats.find(c => c.peer === sel) ?? null : null
 
   // WHICH CHAT IT OPENS ON, once per org: the one holding the oldest thing
@@ -315,6 +344,19 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   const closeChat = useCallback((chat: DmChat) => {
     const rule = dmClose(chat)
     if (!rule.can) return
+    if (rule.deny) {
+      // closing a chat that is only a request answers it with no: the
+      // existing deny, as the classic mailbox's request row calls it
+      setDenying(d => d.includes(chat.peer) ? d : [...d, chat.peer])
+      if (sel === chat.peer) select(null)
+      audienceAction(slug, 'deny', chat.peer, USER)
+        .then(() => { setAudBump(n => n + 1); refresh?.() })
+        .catch((e: Error) => {
+          setDenying(d => d.filter(id => id !== chat.peer))
+          toast([`error: ${e.message}`])
+        })
+      return
+    }
     // USER m1454e651500e, ruling 2: no confirmation. The existing revoke.
     setClosing(c => c.includes(chat.peer) ? c : [...c, chat.peer])
     if (!rule.stays && sel === chat.peer) select(null)
@@ -338,12 +380,11 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       .catch((e: Error) => toast([`could not open a chat with ${id}: ${e.message}`]))
   }, [nodes, chats, slug, select, refresh, toast])
 
-  const act = (action: string, node: string, target?: string | null) =>
-    audienceAction(slug, action, node, target)
-      .then(() => { setAudBump(n => n + 1); refresh?.() })
-      .catch((e: Error) => toast([`error: ${e.message}`]))
-  const requests = (aud?.requests?.filter(r => r.target === USER && r.currently_at === USER) ?? []) as
-    { from: string; reason?: string }[]
+  // approving a request is the existing grant; it rejects when the engine refuses
+  const approve = useCallback((peer: string) =>
+    audienceAction(slug, 'grant', peer).then(() => { setAudBump(n => n + 1); refresh?.() }),
+  [slug, refresh])
+  const agentSettings = onAgentSettings ?? ((id: string) => openSettingsAt({ scope: 'agent', org: slug, agentId: id }))
 
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
@@ -359,17 +400,6 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
         <button type="button" className="iconbtn dm-new" title="New chat" aria-label="New chat"
           onClick={() => setPicking(true)}><NewChatIcon fontSize="inherit" /></button>
       </div>
-      {requests.length > 0 && <div className="dm-requests">
-        <div className="field-label">audience requests</div>
-        {requests.map(r => (
-          <div className="hist-row" key={r.from}>
-            <SenderChip id={r.from} nodes={nodes} />
-            <span className="dim">{r.reason}</span>
-            <button className="primary" onClick={() => void act('grant', r.from)}>grant</button>
-            <button onClick={() => void act('deny', r.from, USER)}>deny</button>
-          </div>
-        ))}
-      </div>}
       {box == null ? <div className="dim pad">loading…</div>
         : !shown.length ? <div className="dim pad dm-empty-list">{q ? 'no chat matches' : 'no chats yet'}</div>
         : shown.map(c => <DmRow key={c.peer} chat={c} selected={c.peer === sel}
@@ -401,6 +431,8 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                   historyError={inbox.error ?? outbox.error}
                   onRetryHistory={() => { if (inbox.error) inbox.retry(); if (outbox.error) outbox.retry() }}
                   onClose={() => closeChat(current)}
+                  onApprove={() => approve(current.peer)}
+                  onAgentSettings={agentSettings}
                   readNow={readNow}
                   onDelete={(m) => {
                     if (!m.id || !window.confirm(DELETE_USER_MAIL_CONFIRM)) return
@@ -443,14 +475,18 @@ function DmRow({ chat, selected, onOpen, onClose }: {
   const last = chat.last
   const asksLabel = `${chat.asks} request${chat.asks === 1 ? '' : 's'} waiting on your answer`
   const unreadLabel = `${chat.unread} unread`
+  const requestLabel = `${name} asks for an audience with you`
   let preview: ReactNode = <span className="dm-row-text">No messages yet</span>
   // a resolved request says so in the resolved card's own words (canvas/asks.tsx, NulledAsk)
   if (last?.ask) preview = <><span className="dm-row-q">{askIsOpen(last.ask) ? 'Request ·'
     : last.ask.kind === 'scope' ? 'Decided ·' : 'Answered ·'}</span> <span className="dm-row-text">{askBrief(last.ask)}</span></>
   else if (last?.mail) preview = <>{last.out && <span className="dm-row-you">You:</span>} <span className="dm-row-text">{mailBrief(last.mail)}</span></>
+  // the request is what this chat is about until it is answered
+  if (chat.request) preview = <><span className="dm-row-q">Audience request{chat.request.reason ? ' ·' : ''}</span> <span className="dm-row-text">{brief(chat.request.reason)}</span></>
   return (
     <div role="listitem"
       className={'dm-row' + (selected ? ' sel' : '') + (chat.unread ? ' unread' : '') + (chat.asks ? ' asks' : '')
+        + (chat.request ? ' request' : '')
         + (chat.live || chat.kind === 'system' || chat.kind === 'other' ? '' : ' off')}
       data-dm-chat={chat.peer}
       {...(chat.node ? agentNavProps(chat.peer) : {})}
@@ -460,10 +496,11 @@ function DmRow({ chat, selected, onOpen, onClose }: {
         <div className="dm-row-l1">
           <button type="button" className="dm-row-name" aria-current={selected || undefined}
             title={`Open the chat with ${name}`}>{name}</button>
-          {last && <ListAge at={last.at} />}
+          {(chat.request?.at || last) && <ListAge at={chat.request?.at || last!.at} />}
         </div>
         <div className="dm-row-l2">
           <span className="dm-row-prev">{preview}</span>
+          {chat.request && <span className="dm-badge dm-badge-request" role="img" title={requestLabel} aria-label={requestLabel}><HearingIcon fontSize="inherit" /></span>}
           {chat.asks > 0 && <span className="dm-badge dm-badge-asks" role="img" title={asksLabel} aria-label={asksLabel}>?</span>}
           {chat.unread > 0 && <span className="dm-badge" role="img" title={unreadLabel} aria-label={unreadLabel}>{chat.unread}</span>}
         </div>
@@ -477,9 +514,11 @@ function DmRow({ chat, selected, onOpen, onClose }: {
 
 /** Why this chat exists, as the chip beside its name. */
 function DmStanding({ chat }: { chat: DmChat }) {
-  if (chat.kind === 'system') return <span className="badge dim" title="Orgtree's own notices and decisions">system</span>
+  // every chip here has the audience badge's box (`.aud-badge`: its spacing,
+  // padding and shape), USER 2026-11-23 mae2b1aa37a9b
+  if (chat.kind === 'system') return <span className="badge dim aud-badge dm-standing" title="Orgtree's own notices and decisions">system</span>
   return <>
-    {chat.topLevel && <span className="badge dim" title="A top-level agent: it always has a direct line to you">top-level</span>}
+    {chat.topLevel && <span className="badge dim aud-badge dm-standing dm-top" title="A top-level agent: it always has a direct line to you">top-level</span>}
     {/* the desk header's own user-audience badge and words (HeldAudienceChips, canvas/desk.tsx) */}
     {chat.grant && <span className="badge free aud-user aud-badge" title={audienceGrantTooltip(USER)}>
       <HearingIcon fontSize="inherit" /> audience</span>}
@@ -488,14 +527,14 @@ function DmStanding({ chat }: { chat: DmChat }) {
 ${audienceGrantTooltip(USER)}`}
       aria-label={`Inherited from project ${chat.inherited}`}>
       <HearingIcon fontSize="inherit" /> via {chat.inherited}</span>}
-    {chat.node && !chat.live && <span className="badge dim" title="This agent is retired: it cannot be written to">retired</span>}
-    {!chat.node && !isHubAddress(chat.peer) && <span className="badge dim"
+    {chat.node && !chat.live && <span className="badge dim aud-badge dm-standing" title="This agent is retired: it cannot be written to">retired</span>}
+    {!chat.node && !isHubAddress(chat.peer) && <span className="badge dim aud-badge dm-standing"
       title="This sender is not an agent of this organization's tree now">no audience</span>}
   </>
 }
 
 function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, hasMore, loadingMore,
-  onLoadMore, historyError, onRetryHistory, onClose, readNow, onDelete, onChanged }: {
+  onLoadMore, historyError, onRetryHistory, onClose, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
   onFocusAgent?: (id: string) => void
@@ -503,6 +542,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   hasMore: boolean; loadingMore: boolean; onLoadMore: () => void
   historyError: string | null; onRetryHistory: () => void
   onClose: () => void
+  /** grant this chat's pending audience request */
+  onApprove: () => Promise<unknown>
+  onAgentSettings: (id: string) => void
   readNow: (mails: MailEntry[]) => Promise<unknown>
   onDelete: (m: MailEntry) => void
   onChanged: () => void
@@ -594,17 +636,23 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       onChanged()
     }
     const failed = (e: Error) => { toast([`error: ${e.message}`]); throw e }
+    // WRITING TO A CHAT THAT IS A REQUEST APPROVES IT (USER 2026-11-23
+    // mae2b1aa37a9b: "or just replied inline to auto-approve"): the existing
+    // grant first, so the request is answered as a request. A grant the
+    // engine refuses does not hold the message back: the message is still
+    // the user's to send, and the request stays in the chat to answer.
+    const approved = chat.request ? onApprove().catch(() => undefined) : Promise.resolve()
     if (!targets.length && !objectTarget && !selections?.length) {
       // A NEW MESSAGE TYPED IN THIS PANEL, not a reply: it says so to the agent
       // (USER 2026-11-23 m79c022311f95, m034b5c83b8f2), which then answers by
       // mail to the user, the only thing this panel shows.
-      return sendPanelMessage(slug, peer, text, attachments, notice).then(sent).catch(failed)
+      return approved.then(() => sendPanelMessage(slug, peer, text, attachments, notice)).then(sent).catch(failed)
     }
     // a reply: the classic mailbox's own call and target shapes
     const target = selections?.length
       ? [...(objectTarget ? [objectTarget] : []), ...targets.map(mailTarget), ...selections]
       : objectTarget ?? (targets.length > 1 ? targets.map(mailTarget) : mailTarget(targets[0]!))
-    return sendLinkedReply(slug, peer, text, target, attachments, notice)
+    return approved.then(() => sendLinkedReply(slug, peer, text, target, attachments, notice))
       .then(async (receipt) => {
         setReplyIds([])
         sent(receipt)
@@ -660,16 +708,26 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     }
     prev = e
   }
+  // the request itself, last: it is what waits on the user in this chat
+  if (chat.request) {
+    rows.push(<DmAudienceRequest key="audience-request" peer={peer} name={name} request={chat.request}
+      canWrite={chat.live} onApprove={() => { onApprove().catch((e: Error) => toast([`error: ${e.message}`])) }}
+      onDeny={onClose} />)
+  }
 
   const canWrite = chat.live && (chat.kind === 'agent' || chat.kind === 'project')
+  const agent = chat.kind === 'agent' && chat.live ? chat.node as CanvasNode | null : null
   return (
     <>
       <div className="dm-head" data-dm-peer={peer}>
         <DmAvatar chat={chat} />
         <div className="dm-who">
           <div className="dm-who-l1">
+            {/* the agent link every reference to an agent is (`NodeLink`: its
+                chip, tooltip, menu and click), USER 2026-11-23 mae2b1aa37a9b */}
             {chat.node
-              ? <span className="dm-who-name"><AgentName id={peer} tier={null} onFocus={onFocusAgent ? (id) => onFocusAgent(id) : undefined} /></span>
+              ? <span className="dm-who-name"><NodeLink id={peer} tier={nodeTierOf(chat.node as CanvasNode)}
+                  onFocus={onFocusAgent ? (id) => onFocusAgent(id) : undefined} /></span>
               : isHubAddress(peer) ? <HubContactChip address={peer} /> : <span className="dm-who-name"><span className="cc-name">{name}</span></span>}
             <DmStanding chat={chat} />
           </div>
@@ -679,6 +737,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
               : <span className="dim">{chat.kind === 'project' ? 'project' : chat.kind === 'system' ? 'notices and decisions' : 'not in this organization now'}</span>}
           </div>
         </div>
+        {chat.node && <button type="button" className="iconbtn dm-gear"
+          title={`${name}'s settings`} aria-label={`Open ${name}'s settings`}
+          onClick={() => onAgentSettings(peer)}><SettingsIcon fontSize="inherit" /></button>}
         <button type="button" className="iconbtn dm-close" disabled={!rule.can} aria-disabled={!rule.can}
           title={rule.title} aria-label={rule.can ? `Close the chat with ${name}` : `The chat with ${name} cannot be closed`}
           onClick={onClose}><CloseIcon fontSize="inherit" /></button>
@@ -713,7 +774,13 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         {canWrite
           ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions
               placeholder={replies.length ? `reply to ${peer}…` : `message ${peer}…`}
-              sendLabel={replies.length ? 'reply' : 'send'} onSend={send} />
+              sendLabel={replies.length ? 'reply' : 'send'} onSend={send}
+              /* the agent's own fast mode and effort, the desk message box's
+                 controls and saves (USER 2026-11-23 mae2b1aa37a9b) */
+              controls={agent ? <>
+                <FastModeButton node={agent} slug={slug} toast={toast} />
+                <AgentEffortButton node={agent} slug={slug} toast={toast} />
+              </> : undefined} />
           : <div className="dm-nowrite dim">{chat.kind === 'system' ? 'Orgtree’s own mail cannot be answered.'
               : chat.node ? `${peer} is retired and cannot be written to.` : `${name} cannot be written to from here.`}</div>}
       </div>
@@ -767,9 +834,10 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender,
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')}
           onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => menu.open(e, entries)}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
-          {(label || m.urgent || notice || job) && <div className="dm-labels">
+          {/* a notice wears no label: its border says it (USER 2026-11-23
+              mae2b1aa37a9b: "dont display the 'NOTICE' badge") */}
+          {(label || m.urgent || job) && <div className="dm-labels">
             {label && <span className={'dm-kind dm-kind-' + m.kind}>{label}</span>}
-            {notice && <span className="dm-kind dm-kind-notice" title="A passive notice: it wakes nobody and expects no reply">Notice</span>}
             {m.urgent && <span className="urgentkind" title={m.urgent_reason ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
             {job && <span className="queuekind job-kind"
               title={`a job project ${job.name}'s mail queue handed to this mailbox`}>project job · {job.name}</span>}
@@ -786,6 +854,30 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender,
         </div>
       </div>
       {menu.node}
+    </div>
+  )
+}
+
+/** AN AUDIENCE REQUEST IN ITS CHAT (USER 2026-11-23 mae2b1aa37a9b): who asks
+ *  and why, with the two answers the classic mailbox's request row has.
+ *  Writing in the message box below approves it too. */
+function DmAudienceRequest({ peer, name, request, canWrite, onApprove, onDeny }: {
+  peer: string; name: string; request: { reason: string; at: string }; canWrite: boolean
+  onApprove: () => void; onDeny: () => void
+}) {
+  return (
+    <div className="dm-msg in first dm-audreq" data-dm-request={peer}>
+      <div className="dm-bubble dm-request" role="group" aria-label={`Audience request from ${name}`}>
+        <div className="dm-labels"><span className="dm-kind dm-kind-audience"><HearingIcon fontSize="inherit" /> Audience request</span></div>
+        <div className="dm-request-what"><b>{name}</b> asks for an audience with you{request.reason ? ':' : '.'}</div>
+        {request.reason && <div className="dm-request-why">{request.reason}</div>}
+        <div className="dm-request-acts">
+          <button type="button" className="primary" onClick={onApprove}>Approve</button>
+          <button type="button" onClick={onDeny}>Deny</button>
+        </div>
+        {canWrite && <div className="dm-request-hint dim">Writing to {name} below approves it too.</div>}
+        {request.at && <div className="dm-meta"><time dateTime={request.at} title={fmtFull(request.at)} aria-label={fmtFull(request.at)}>{fmtHm(request.at)}</time></div>}
+      </div>
     </div>
   )
 }

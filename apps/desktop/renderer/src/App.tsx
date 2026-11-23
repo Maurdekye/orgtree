@@ -186,6 +186,7 @@ import type { TypedRef } from './canvas/workrefs'
 import {
   OPEN_APP_SETTINGS_EVENT, SetBlock, SetGroup, SetRow, SettingsTabPanel,
   SettingsTabs, SetToggle, useSettingsAsk, useSettingsTarget, useVisitedTabs,
+  openSettingsAt,
 } from './canvas/settingskit'
 import type { SettingsTab, SettingsTarget } from './canvas/settingskit'
 import { SettingsSearch, settingsSearchEscape } from './canvas/settingssearch'
@@ -508,7 +509,8 @@ export default function App() {
   // out) and hands it the tab and the row; `seq` makes each ask a new one
   const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(null)
   useSettingsAsk('org', slug, (ask) => {
-    setSettingsTarget((t) => ({ tab: ask.target.tab, field: ask.target.field, seq: (t?.seq ?? 0) + 1 }))
+    const target = ask.target
+    if (target) setSettingsTarget((t) => ({ tab: target.tab, field: target.field, seq: (t?.seq ?? 0) + 1 }))
     toggleSurface('org-settings', showSettings, setShowSettings, true)
   })
   // the recovery browser: 'largest' = forced triage mode (the alert's path);
@@ -2289,6 +2291,16 @@ export default function App() {
                 <UserMailbox slug={slug} tree={tree} toast={toast} openChat={chatAsk?.org === slug ? chatAsk : null}
                   refresh={() => refreshTree(slug)}
                   jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq}
+                  onAgentSettings={(id) => {
+                    // the agent's settings window is the canvas's own (its
+                    // card's gear); a centred inbox gives way to it, as it
+                    // does on its way to the agent's desk below
+                    closeIfCentred('inbox', () => {
+                      setShowInbox(false)
+                      setInboxJump(null)
+                    }, slug)
+                    openSettingsAt({ scope: 'agent', org: slug, agentId: id })
+                  }}
                   onFocusAgent={(id) => {
                     closeIfCentred('inbox', () => {
                       setShowInbox(false)
@@ -3120,10 +3132,12 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
  *  presentation or a ticket); the classic mailbox has no such place. */
 export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
   openChat?: { peer: string; seq: number } | null
+  /** the chat header's gear: open this agent's settings */
+  onAgentSettings?: (agentId: string) => void
 }) {
   const classic = useClassicMailbox()
   const toggle = <ClassicMailboxToggle />
-  const { openChat, ...mail } = props
+  const { openChat, onAgentSettings, ...mail } = props
   return classic
     ? <InboxPanel {...mail} headerActions={toggle} />
     : <UserChats {...props} headerActions={toggle} />
