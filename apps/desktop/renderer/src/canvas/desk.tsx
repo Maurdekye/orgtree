@@ -4817,19 +4817,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} />
           <FastModeButton node={node} slug={slug} toast={toast} /></div>
         <div className="cc-primary-row">
-        <EffortButton value={node.scope?.effort ?? ''}
-          effective={node.effort_effective ?? ''}
-          currentEffort={node.effort_current}
-          pendingEffort={node.pending_effort}
-          // a Muse seat's levels are its model's row on the login it runs on
-          // (an account change queued behind a turn: the next turn's), its pin's
-          levels={MUSE_TIERS.includes(node.tier ?? '')
-            ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.pending_account?.account ?? node.account ?? null)
-            : tierEffortLevels(slug, node.tier)}
-          onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
-            // Quick chat's effort follows the last level selected by hand
-            .then((r) => { rememberEffort(slug, lvl); toast([effortChangeToast(node.id, lvl, r)]) })
-            .catch((e: Error) => toast([`error: ${e.message}`]))} />
+        <AgentEffortButton node={node} slug={slug} toast={toast} />
         {/* №3: STOP renders only when an interrupt can actually land —
             pressing the one red control must never error. Gate on the CHAT
             payload's responding (refreshed every pulse + 5 s poll): the tree
@@ -5693,6 +5681,27 @@ function SysLine({ m, refs, imgBase }: { m: ChatMessage; refs?: RefRoutes; imgBa
 // rows. The OrgDefaultEffort provider resolves those settings with the same
 // fallback rules as the engine, so an inherited agent still has a level to
 // show even when its row has no effective-effort field.
+/** One agent's effort control with its levels and its save: the desk's
+ *  message box, and the user's chats (dm/DmPanel.tsx), which show the same
+ *  control for the same agent. */
+export function AgentEffortButton({ node, slug, toast }: { node: CanvasNode; slug: string; toast: ToastFn }) {
+  return (
+    <EffortButton value={node.scope?.effort ?? ''}
+      effective={node.effort_effective ?? ''}
+      currentEffort={node.effort_current}
+      pendingEffort={node.pending_effort}
+      // a Muse seat's levels are its model's row on the login it runs on
+      // (an account change queued behind a turn: the next turn's), its pin's
+      levels={MUSE_TIERS.includes(node.tier ?? '')
+        ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.pending_account?.account ?? node.account ?? null)
+        : tierEffortLevels(slug, node.tier)}
+      onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
+        // Quick chat's effort follows the last level selected by hand
+        .then((r) => { rememberEffort(slug, lvl); toast([effortChangeToast(node.id, lvl, r)]) })
+        .catch((e: Error) => toast([`error: ${e.message}`]))} />
+  )
+}
+
 export function EffortButton({ value, effective, currentEffort, pendingEffort, levels, onSet }:
 { value: string; effective?: string; currentEffort?: string | null; pendingEffort?: string | null; levels?: string[]
   onSet: (lvl: string) => Promise<unknown> | void }) {

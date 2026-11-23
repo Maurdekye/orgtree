@@ -1237,7 +1237,7 @@ type FailedSelectionReply = {
 }
 
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
-  toast, broadcast, sendLabel = 'reply', sendTitle, below }: {
+  toast, broadcast, sendLabel = 'reply', sendTitle, below, controls }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1261,6 +1261,9 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   sendTitle?: string
   /** a row under the box, right-aligned (the ack job's "Acknowledge without reply") */
   below?: ReactNode
+  /** the recipient's own controls, beside the send button (the chats: the
+   *  agent's fast mode and effort, as its desk's message box has them) */
+  controls?: ReactNode
 }) {
   const [draft, setDraft] = useState('')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1513,6 +1516,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             it that way; the new attach button ahead of it made that
             positional match silently pick the wrong element instead of
             failing loudly, which is worse */}
+        {controls && <div className="mail-reply-controls" onClick={(e) => e.stopPropagation()}>{controls}</div>}
         <button className="mail-reply-send"
           title={sendTitle ? `${sendTitle} (${enterKey.hint})` : enterKey.hint}
           disabled={(!draft.trim() && !attached.length) || sendDisabled || staging.rows.length>0} onClick={send}>

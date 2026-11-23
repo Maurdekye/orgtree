@@ -239,7 +239,9 @@ export interface SettingsAsk {
   org: string
   /** the agent whose gear, when `scope` is 'agent' */
   agentId?: string
-  target: { tab: string; field: string }
+  /** the control to land on; without one the panel just opens (the chats'
+   *  gear, dm/DmPanel.tsx) */
+  target?: { tab: string; field: string }
 }
 export function openSettingsAt(ask: SettingsAsk): void {
   window.dispatchEvent(new window.CustomEvent(OPEN_SETTINGS_AT_EVENT, { detail: ask }))

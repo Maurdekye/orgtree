@@ -1029,7 +1029,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }, [openConfig])
   useSettingsAsk('agent', slug, (ask) => {
     if (!ask.agentId) return
-    setConfigTarget((t) => ({ id: ask.agentId!, tab: ask.target.tab, field: ask.target.field, seq: (t?.seq ?? 0) + 1 }))
+    const target = ask.target
+    if (target) setConfigTarget((t) => ({ id: ask.agentId!, tab: target.tab, field: target.field, seq: (t?.seq ?? 0) + 1 }))
     toggleConfig(ask.agentId, true)
   })
   const openSlots = slotsPanels.open, openListeners = listenersPanels.open
