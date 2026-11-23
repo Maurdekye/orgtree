@@ -65,6 +65,7 @@ import {
 import { NodeLink, TierChip, nodeTierOf } from '../canvas/identity'
 import { agentTooltipProps, useAgentNavRegistry } from '../canvas/agentnav'
 import { nodeMenuAction } from '../canvas/objectactions'
+import { ConfirmModal } from '../canvas/modals'
 import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
 import { AgentEffortButton, TrayStatus } from '../canvas/desk'
 import { FastModeButton } from '../canvas/fastmodebutton'
@@ -351,6 +352,20 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     })
   }, [slug, inbox, refresh])
 
+  // USER m1454e651500e, ruling 2: no confirmation. The existing revoke.
+  const revoke = useCallback((peer: string, stays: boolean, target: string) => {
+    setLosing(null)
+    setClosing(c => c.includes(target) ? c : [...c, target])
+    if (!stays && sel === peer) select(null)
+    audienceAction(slug, 'revoke', target)
+      .then(() => { setAudBump(n => n + 1); refresh?.() })
+      .catch((e: Error) => {
+        setClosing(c => c.filter(id => id !== target))
+        toast([`error: ${e.message}`])
+      })
+  }, [slug, sel, select, refresh, toast])
+  const [asking, setAsking] = useState<{ peer: string; stays: boolean; target: string; lose: string[] } | null>(null)
+
   const closeChat = useCallback((chat: DmChat) => {
     const rule = dmClose(chat)
     if (!rule.can) return
@@ -371,22 +386,15 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     const target = rule.revokes ?? chat.peer
     // ⚠ THE ONE CLOSE THAT ASKS (USER 2026-11-23 m0ca89ba635fd): revoking a
     // PROJECT's audience takes it from every agent that reaches the user only
-    // through that project. With nobody else affected it does not ask.
+    // through that project. With nobody else affected it does not ask. The
+    // question is the app's own dialog (ConfirmModal, as retire and dissolve
+    // ask), never the system's.
     if (rule.project) {
       const lose = dmAudienceLoss(nodes, grants, target)
-      if (lose.length && !window.confirm(projectCloseConfirm(target, lose))) return
+      if (lose.length) { setLosing(null); setAsking({ peer: chat.peer, stays: rule.stays, target, lose }); return }
     }
-    setLosing(null)
-    // USER m1454e651500e, ruling 2: no confirmation. The existing revoke.
-    setClosing(c => c.includes(target) ? c : [...c, target])
-    if (!rule.stays && sel === chat.peer) select(null)
-    audienceAction(slug, 'revoke', target)
-      .then(() => { setAudBump(n => n + 1); refresh?.() })
-      .catch((e: Error) => {
-        setClosing(c => c.filter(id => id !== target))
-        toast([`error: ${e.message}`])
-      })
-  }, [slug, sel, select, refresh, toast, nodes, grants])
+    revoke(chat.peer, rule.stays, target)
+  }, [slug, sel, select, refresh, toast, nodes, grants, revoke])
 
   // HOVERING A CLOSE THAT REVOKES A PROJECT'S AUDIENCE shows who loses it: the
   // project and the agents that reach the user only through it
@@ -503,6 +511,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
           </div>
         </CollapsibleMailer>
       </div>
+      {asking && <ConfirmModal title={`Revoke project ${asking.target}'s audience with you?`}
+        body={projectCloseBody(asking.lose)} confirmLabel="Revoke"
+        onConfirm={() => revoke(asking.peer, asking.stays, asking.target)} close={() => setAsking(null)} />}
       {picking && <DmNewChat tree={tree} nodes={nodes} refs={refs} open={chats}
         close={() => setPicking(false)} onPick={startChat} />}
     </PinFrame>
@@ -518,10 +529,9 @@ function DmAvatar({ chat }: { chat: DmChat }) {
   return <span className="dm-av dm-av-other" aria-hidden="true">{chat.peer.replace(/^@/, '').slice(0, 1).toUpperCase() || '?'}</span>
 }
 
-/** What the one confirmation says: whose audience goes, and who else loses theirs. */
-export const projectCloseConfirm = (project: string, lose: readonly string[]): string =>
-  `Revoke project ${project}'s audience with you?\n\n`
-  + `${lose.length} agent${lose.length === 1 ? ' reaches' : 's reach'} you only through it and `
+/** What the one confirmation says under its title: who else loses the audience. */
+export const projectCloseBody = (lose: readonly string[]): string =>
+  `${lose.length} agent${lose.length === 1 ? ' reaches' : 's reach'} you only through it and `
   + `${lose.length === 1 ? 'loses its' : 'lose their'} audience too: ${lose.join(', ')}.`
 
 /** the close control's hover and focus, which show who a project's close affects */

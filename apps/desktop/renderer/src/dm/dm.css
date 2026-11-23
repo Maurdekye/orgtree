@@ -120,6 +120,9 @@
   display: none; border-radius: 50%; background: var(--panel);
 }
 .dm-row:hover button.dm-row-close, .dm-row:focus-within button.dm-row-close { display: inline-flex; }
+/* the close control takes the time's corner: the time steps aside while it shows, as a Hubchat row's does */
+.dm-row:hover:has(.dm-row-close) .dm-row-l1 .mtime,
+.dm-row:focus-within:has(.dm-row-close) .dm-row-l1 .mtime { visibility: hidden; }
 
 /* a chat's picture: the model chip or the project's mark, at a chat row's size */
 .dm-av {

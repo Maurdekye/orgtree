@@ -238,6 +238,9 @@ module.exports = async (page) => {
   await page.hover('.dm-row[data-dm-chat="worker"]')
   const hovered = await snap()
   v.workerClose = { title: row(hovered, 'worker')?.closeTitle, closable: row(hovered, 'worker')?.closable,
+    // the time steps aside while the close control shows in its corner
+    time: await page.eval(() => { const r = document.querySelector('.dm-row[data-dm-chat="worker"]'); const t = r.querySelector('.dm-row-l1 .mtime'), x = r.querySelector('.dm-row-close')
+      return { time: t ? getComputedStyle(t).visibility : null, close: x ? getComputedStyle(x).display : null } }),
     others: hovered.rows.filter(r => r.closable).map(r => r.peer) }
   await shot('13-audience-chat-close-control-on-its-row')
   await page.click('.dm-row[data-dm-chat="worker"] .dm-row-close')
@@ -431,6 +434,12 @@ module.exports = async (page) => {
   v.via.secondHover = await marked()
   await shot('21o-closing-a-projects-audience-marks-who-loses-it')
   await page.click('.dm-head .dm-close')
+  await page.waitFor('.confirm-box[role="dialog"]')
+  v.via.dialog = await page.eval(() => { const d = document.querySelector('.confirm-box[role="dialog"]'); const t = e => (e ? e.textContent || '' : '').replace(/\s+/g, ' ').trim()
+    return { title: t(d.querySelector('h3')), body: t(d.querySelector('.confirm-body')), buttons: [...d.querySelectorAll('button')].map(t) } })
+  v.via.revokedBeforeAnswer = (await posted('/audiences$')).length
+  await shot('21o2-the-apps-own-confirmation')
+  await page.click('.confirm-box[role="dialog"] button.danger')
   await until('the project\'s grant to be revoked', async () => (await posted('/audiences$')).length === 7)
   await until('the chats that came through it to leave', async () => !row(await snap(), 'desk') && !row(await snap(), 'runner'))
   const gone = await snap()

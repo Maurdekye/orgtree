@@ -67,8 +67,8 @@ are a second view over the same reads and calls.
 - AUDIENCES THROUGH A PROJECT (USER m0ca89ba635fd, ma97ab61a248c, mf47548121ae5): `DmChat.via` lists the
   projects a node inherits through, minus any the audiences read no longer grants (so a revoke shows at
   once); `parent` and `kids` group an inherited-only agent under its project, and `dmChats` returns the list
-  already in drawing order. `dmClose` returns `revokes` and `project`; the panel asks `window.confirm` only
-  when `dmAudienceLoss` is not empty (`projectCloseConfirm`). The hover mark is the `losing` class on rows.
+  already in drawing order. `dmClose` returns `revokes` and `project`; the panel asks with `ConfirmModal`
+  (canvas/modals.tsx, never the system's dialog) only when `dmAudienceLoss` is not empty (`projectCloseBody`). The hover mark is the `losing` class on rows.
   The fold is panel state, as the docket's. A row's menu is its own (`nodeMenuAction` for Agent… / Project…);
   the row carries `agentTooltipProps`, no longer `agentNavProps`, so the flat agent menu is not added to it.
   CHOICES: an agent with its own grant and a top-level agent are not counted as losing the audience and are

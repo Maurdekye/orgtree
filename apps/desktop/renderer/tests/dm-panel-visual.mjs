@@ -253,7 +253,8 @@ if (flag === '--expect') {
     { action: 'deny', node: 'drafter', target: USER }, { action: 'grant', node: 'scout' },
     { action: 'revoke', node: 'runner' }, { action: 'revoke', node: 'desk' }])
   // ---- 2: no confirmation
-  assert.equal(v.end.confirms, 1, 'only the close of a project\'s audience that others lose asked'); assert.deepEqual(v.end.toasts, [])
+  assert.equal(v.end.confirms, 0, 'the system\'s dialog was never used'); assert.deepEqual(v.end.toasts, [])
+  assert.equal(v.workerClose.time.time, 'hidden', 'on hover the time gives way to the close control'); assert.notEqual(v.workerClose.time.close, 'none', 'which is showing')
   checked.push('close rules')
 
   // ---- 3: New chat is the agents list, and picking grants an audience
@@ -355,8 +356,10 @@ if (flag === '--expect') {
   assert.deepEqual(v.via.firstHover, [], 'the first close affects nobody else')
   assert.equal(v.via.afterFirst.confirms, 0, 'and asks nothing'); assert.equal(v.via.afterFirst.head.peer, 'runner')
   assert.deepEqual(v.via.secondHover.slice().sort(), ['clerk', 'desk', 'runner'], 'the project and the two agents that reach the user only through it')
-  assert.equal(v.via.afterSecond.confirms, 1)
-  assert.match(v.via.afterSecond.asked[0], /Revoke project desk's audience with you\?[\s\S]*2 agents reach you only through it and lose their audience too: clerk, runner\./)
+  assert.equal(v.via.afterSecond.confirms, 0, 'the app\'s own dialog asked, not the system\'s')
+  assert.equal(v.via.dialog.title, "Revoke project desk's audience with you?")
+  assert.equal(v.via.dialog.body, '2 agents reach you only through it and lose their audience too: clerk, runner.')
+  assert.deepEqual(v.via.dialog.buttons, ['Revoke', 'cancel']); assert.equal(v.via.revokedBeforeAnswer, 6, 'nothing is revoked before the answer')
   for (const gone of ['desk', 'runner']) assert.equal(v.via.afterSecond.rows.includes(gone), false)
   // a project's own icon and colour: desk is a rose rocket; crew has none set and keeps the default folder
   const rose = 'rgb(225, 29, 72)'
