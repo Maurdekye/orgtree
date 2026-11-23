@@ -157,7 +157,7 @@ test('closing: only an audience grant can be closed, and no top-level chat leave
   assert.match(solo.title, /revoke/i)
   assert.match(solo.title, /stays/i)
 
-  const pooled = dmChats({ nodes: inherited, grants: [], box: box({ delivered: [mail('p1', 'pooled', '2026-11-20T10:00:00Z')] }),
+  const pooled = dmChats({ nodes: inherited, grants: [grant('pool')], box: box({ delivered: [mail('p1', 'pooled', '2026-11-20T10:00:00Z')] }),
     openAsks: [], doneAsks: [] }).find(c => c.peer === 'pooled')
   assert.ok(pooled, 'an agent whose audience comes through its project has a chat once it has written')
   assert.equal(pooled!.inherited, 'pool')
