@@ -1,3 +1,4 @@
+import { STRATEGIES as PORTABLE_STRATEGIES } from '../portable'
 import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './accountsregistry'
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
@@ -32,7 +33,7 @@ import {
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
-  setSuggestAgentFeedback, setProjectListenerWake, setCreditBubbleHire, setCreditBubbleAlloc, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setSuggestAgentFeedback, setProjectListenerWake, setCreditBubbleHire, setCreditBubbleAlloc, setExportStripSecrets, setImportShrinkStrategy, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
@@ -1119,6 +1120,27 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           hint={'Applies to allocations and model upgrades you make, in every organization. On: ancestor grants are raised '
             + 'when one needs more credits. Off: limited to the superior’s own free credits. '
             + 'Agents always bubble their cost, up to their own allocation.'} />
+      </SetGroup>
+      <SetGroup title="Export and import">
+        <SetToggle label="Strip secrets from exports" checked={runtime?.export_strip_secrets === true}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setExportStripSecrets, v)}
+          hint={'Applies to every export, yours and your agents’. On: detected passwords, tokens, key files and watchdog '
+            + 'credentials are taken out of the file. Off: nothing is taken out, and your own export asks you first '
+            + 'when it finds any.'} />
+        <SetRow label="Shrink grants that do not fit"
+          hint={'When you import or duplicate a team whose saved grants cost more credits than can be drawn there, spare '
+            + 'credits are taken away this way. The import dialog shows the result and lets you choose another. '
+            + 'Agents name a strategy themselves.'}>
+          <select aria-label="Shrink grants that do not fit" value={runtime?.import_shrink_strategy ?? 'bottom-up'} disabled={!runtime || busy}
+            onChange={(event) => {
+              setBusy(true)
+              setImportShrinkStrategy(event.target.value as 'bottom-up' | 'top-down' | 'even').then(r => { setRuntime(r); setError('') })
+                .catch((e: Error) => { setError(e.message); toast([e.message]) })
+                .finally(() => setBusy(false))
+            }}>
+            {PORTABLE_STRATEGIES.map((s) => <option key={s.value} value={s.value} title={s.hint}>{s.label}</option>)}
+          </select>
+        </SetRow>
       </SetGroup>
       <ShowLegacyModelsToggle />
       {/* app-wide prompt text sits with the other app-wide prompt setting,

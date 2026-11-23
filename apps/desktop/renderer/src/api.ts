@@ -1417,6 +1417,18 @@ export const setCreditBubbleAlloc = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ credit_bubble_alloc_enabled: enabled }),
   })
+export const setExportStripSecrets = (enabled: boolean): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ export_strip_secrets: enabled }),
+  })
+export const setImportShrinkStrategy = (strategy: 'bottom-up' | 'top-down' | 'even'): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ import_shrink_strategy: strategy }),
+  })
 export const setVerboseLogging = (
   enabled: boolean,
 ): Promise<RuntimeSettingsPayload> =>

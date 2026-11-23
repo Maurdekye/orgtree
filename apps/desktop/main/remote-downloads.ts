@@ -9,10 +9,11 @@
 // Nothing else is touched: a download from any other address is left exactly as it was.
 import path from 'node:path'
 
-/** The engine routes a native download comes from: the Files panel (`http::scratch_files::download`)
- *  and a delivered file's card or image viewer (`http::nodes::file`, up to the engine's 32 GiB send
- *  limit). Both are saved by Electron straight to disk, never read whole into the page. */
-const FILES_ROUTE = /^\/api\/orgs\/[^/]+\/nodes\/[^/]+\/(?:scratch-files\/)?file$/
+/** The engine routes a native download comes from: the Files panel (`http::scratch_files::download`),
+ *  a delivered file's card or image viewer (`http::nodes::file`, up to the engine's 32 GiB send
+ *  limit) and a finished export (`http::portable::export_file`, up to 256 GiB). All are saved by
+ *  Electron straight to disk, never read whole into the page. */
+const FILES_ROUTE = /^\/api\/orgs\/[^/]+\/(?:nodes\/[^/]+\/(?:scratch-files\/)?file|exports\/[^/]+\/file)$/
 
 /** What the window is told (`remote-file-download`; the renderer's remotefiles.ts reads it). */
 export interface DownloadNews {

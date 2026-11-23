@@ -139,6 +139,7 @@ import { WatchdogCanvasCards, WatchdogGroup, WATCHDOG_CARD_LIMIT, WATCHDOG_GROUP
 import { useWatchdogDetail } from './watchdogdetail'
 import { WatchdogLink } from './watchdoglink'
 import type { RetireKind } from './agentmenu'
+import { openPortable } from '../portable'
 import { useSurfaceDocument } from '../popout'
 import { InboxReplaceConfirm } from './inboxreplace'
 import { setAttentionLayout } from '../attention/mode'
@@ -3759,6 +3760,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       { label: can ? `Focus last desk (${lastDesk})` : 'Focus last desk',
         title: orgNavigationTooltip('Focus last desk', 'lastDesk'),
         onSelect: () => { if (can) centerOn(lastDesk!) }, disabled: !can },
+      // an import with no node above it (canvas/portable.tsx); under a node it is that node's own entry
+      'sep',
+      { label: 'Import…', title: 'Create the agents of an export file at the top level of this organization',
+        onSelect: () => openPortable({ kind: 'import', org: slug, node: null }) },
     ]
   }
   useLayoutEffect(() => {
@@ -3997,6 +4002,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onHire: (tier) => spawn(n.id, tier),
       // the card's "New project…" too: the row and the card are one menu
       onNewProject: () => spawnProject(n.id),
+      onPortable: (kind, hasTeam) => openPortable({ kind, org: slug, node: n.id, project: n.kind === 'project', hasTeam }),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,

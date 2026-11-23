@@ -123,6 +123,10 @@ export interface AgentMenuHandlers {
   onContinueOn?: (account: string) => void
   /** create a project node under this node (docs/rust-engine/PROJECT-NODES.md) */
   onNewProject?: () => void
+  /** Export this node, import a file under it, or copy it (USER 2026-11-23 mb05f4fda0d92:
+   *  "a context menu option on agents / projects for import / export"; canvas/portable.tsx).
+   *  `hasTeam`: live nodes stand under it, so the dialog offers "and everything under it". */
+  onPortable?: (kind: 'export' | 'import' | 'duplicate', hasTeam: boolean) => void
   /** a PROJECT's coworker and parent hires (offered only on the card's hire
    *  tokens, not in the context menu: user 2026-10-18 07:17Z) */
   onHireBeside?: (tier: string) => void
@@ -365,8 +369,32 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       title: `a project node under ${node.id}: its agents work on it and ${node.id} pays for them`,
       onSelect: h.onNewProject })
   }
+  entries.push(...portableEntries(node, h, live && !node.isBearerOf && !node.bearer_state, descendants.length > 0 || (node.children ?? []).some((c) => c.state === 'live')))
   if (lifecycle.length) entries.push('sep', ...lifecycle)
   return entries
+}
+
+/** Export, Import here and Duplicate, as one group of an agent's or a project's menu. A
+ *  retired node can still be exported; only a live one takes an import or is copied. */
+function portableEntries(node: CanvasNode, h: AgentMenuHandlers, live: boolean, hasTeam: boolean): MenuEntry[] {
+  const portable = h.onPortable
+  if (!portable || node.isBearerOf || node.bearer_state) return []
+  const what = node.kind === 'project' ? 'project' : 'agent'
+  const group: MenuEntry[] = [{
+    label: 'Export…',
+    title: `Save ${node.id}${hasTeam ? ', alone or with everything under it,' : ''} as one file that this or another organization can import`,
+    onSelect: () => portable('export', hasTeam),
+  }]
+  if (live) group.push({
+    label: 'Import here…',
+    title: `Create the agents of an export file under ${node.id}`,
+    onSelect: () => portable('import', hasTeam),
+  }, {
+    label: 'Duplicate…',
+    title: `A second ${what} beside ${node.id}, with the same settings, folders and history`,
+    onSelect: () => portable('duplicate', hasTeam),
+  })
+  return ['sep', ...group]
 }
 
 /**
@@ -496,7 +524,10 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       title: team ? `retire ${node.id} with the agents and projects under it` : `retire ${node.id}`,
       onSelect: () => ask(team ? 'dissolve' : 'retire'),
     })
+    entries.push(...portableEntries(node, h, live, (node.children ?? []).some((c) => c.state === 'live')))
     entries.push('sep', ...lifecycle)
+  } else {
+    entries.push(...portableEntries(node, h, live, (node.children ?? []).some((c) => c.state === 'live')))
   }
   return entries
 }

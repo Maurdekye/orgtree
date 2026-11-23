@@ -2226,6 +2226,12 @@ export interface RuntimeSettingsPayload {
   credit_bubble_hire_enabled?: boolean
   /** The same for your allocations and model upgrades. */
   credit_bubble_alloc_enabled?: boolean
+  /** Default off: take detected secrets out of every export (USER 2026-11-23). Absent from an
+   *  older engine, which cannot export. */
+  export_strip_secrets?: boolean
+  /** How your own import or duplicate takes spare credits away when the saved grants do not
+   *  fit. Default bottom-up. */
+  import_shrink_strategy?: 'bottom-up' | 'top-down' | 'even'
   /** Default on: suggest redacted, user-approved GitHub feedback. */
   suggest_agent_feedback_enabled?: boolean
   /** Default off: nudge an idle agent about the unfinished items it owns. */

@@ -60,6 +60,7 @@ import { hireTierChoices, museEffortLevels } from './shared'
 import { scratchFolderAction } from '../scratch-folder'
 import { PickerPopover } from './pickerpopover'
 import type { RetireKind } from './agentmenu'
+import { openPortable } from '../portable'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { cardIsDeskLayout, useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
@@ -1695,6 +1696,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     const desk = deskNow(node)
     return agentMenuEntries(node, {
       onRetiredList: onRetired, retiredCount,
+      onPortable: (kind, hasTeam) => openPortable({ kind, org: slug, node: node.id, project: node.kind === 'project', hasTeam }),
       onOpenDesk: onRecenter,
       onInbox: () => onInbox(true),
       onTeam: onTeam ? () => onTeam(true) : undefined,
