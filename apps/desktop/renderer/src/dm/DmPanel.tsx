@@ -863,7 +863,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, sender,
       className={'dm-msg ' + (entry.out ? 'out' : 'in') + (first ? ' first' : '') + (entry.unread ? ' unread' : '')
         + (flash != null ? ' flash' : '') + (replying ? ' replying' : '')}>
       <div className="dm-msg-row">
-        <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')}
+        <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')
+          + (mega ? ' megaphone' : '')}
           onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => menu.open(e, entries)}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
           {/* in a project's chat: which agent wrote this, or which one it was written to */}

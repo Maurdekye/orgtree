@@ -317,6 +317,14 @@ if (flag === '--expect') {
   assert.deepEqual(thread.map(b => b.id), ['megaphone:g1', 'cj1', 'ca1', 'cj2'], 'no bubble for the queue\'s copy; the megaphone send once')
   for (const b of thread) onScreen(b.box, `the project chat bubble ${b.id}`)
   assert.equal(thread[0].megaphone, 'Megaphone · 2 agents'); assert.equal(thread[0].job, null)
+  // a megaphone message has its own fill, a teal: green and blue well above red, in the dark theme and the light one
+  for (const [theme, list] of [['charcoal', thread], ['light', v.project.light]]) {
+    const fill = list.find(b => b.id === 'megaphone:g1').background, plain = list.find(b => b.id === 'cj1').background
+    assert.notEqual(fill, plain, `${theme}: a megaphone message is not the fill of the user's other messages`)
+    const [r, g, b] = fill.match(/[\d.]+/g).map(Number)
+    assert.ok(g > r + 25 && b > r + 20, `${theme}: a teal fill, ${fill}`)
+    if (theme === 'light') assert.ok(g > 200, `${theme}: a bright one, ${fill}`)
+  }
   assert.match(thread[1].job, /^held by .*member$/, 'R1: the message says who holds it'); assert.equal(thread[3].job, 'waiting in the queue')
   assert.equal(thread[2].via, 'member', 'R2: the member\'s answer is in the project\'s chat'); assert.match(thread[2].viaText, /member$/)
   assert.equal(v.project.replyPlaceholder, 'reply to member…'); assert.equal(v.project.followPlaceholder, 'follow up on your message to crew…')

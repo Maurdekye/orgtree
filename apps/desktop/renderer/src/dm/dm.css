@@ -19,6 +19,9 @@
   --dm-in-ink: var(--ink-strong);
   --dm-out: color-mix(in srgb, var(--accent) 34%, var(--bg));
   --dm-out-ink: var(--ink-strong);
+  /* a megaphone message: a bright teal-eggshell in a light theme, and the same teal sunk into
+     the page in a dark one (USER 2026-11-23 m212aefce0372) */
+  --dm-mega: color-mix(in srgb, #3fd0b6 36%, var(--bg));
   --dm-radius: 12px;
 }
 /* the conversation fills the panel: a chat has no reading-pane height of its own */
@@ -166,6 +169,7 @@
   border: 1px solid transparent; font-size: 14px; line-height: 1.45;
 }
 .dm-msg.out .dm-bubble { background: var(--dm-out); color: var(--dm-out-ink); }
+.dm-msg .dm-bubble.megaphone { background: var(--dm-mega); color: var(--ink-strong); }
 .dm-msg.in.first .dm-bubble { border-top-left-radius: 4px; }
 .dm-msg.out.first .dm-bubble { border-top-right-radius: 4px; }
 /* A NOTICE KEEPS ITS FILL AND HAS A DASHED BORDER IN THE COLOUR OF THE CHAT'S

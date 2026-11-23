@@ -351,10 +351,11 @@ module.exports = async (page) => {
   // ---- 10d. A PROJECT'S CHAT IS ONE THREAD (USER 2026-11-23 mb52269db6058)
   await openChat('crew')
   const crew = await snap()
-  v.project = { head: crew.head, bubbles: crew.bubbles.map(b => ({ id: b.id, out: b.out, via: b.via, viaText: b.viaText, job: b.job, megaphone: b.megaphone, box: b.box })) }
+  v.project = { head: crew.head, bubbles: crew.bubbles.map(b => ({ id: b.id, out: b.out, via: b.via, viaText: b.viaText, job: b.job, megaphone: b.megaphone, background: b.background, box: b.box })) }
   await shot('21h-project-chat-is-one-thread')
   await page.eval(() => window.__dm.theme('light'))
   await page.sleep(300)
+  v.project.light = (await snap()).bubbles.map(b => ({ id: b.id, background: b.background }))
   await shot('21i-light-project-chat')
   await page.eval(() => window.__dm.theme('charcoal'))
   await page.sleep(300)
