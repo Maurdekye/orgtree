@@ -21,7 +21,7 @@ Up: [orgtree-app-settings](../SKILL.md)
 - **From the top down**: the topmost agent gives first, then the ones below.
 - **Evenly**: one credit from each agent in turn.
 
-Whole credits are taken, and seats are never touched: when the seats alone do not fit, nothing is imported. The dialog shows the result and lets you choose another strategy for that import ([orgtree-export-import-duplicate](../../canvas/export-import-duplicate/SKILL.md)). Agents are not governed by this setting: they name a strategy in the tool call or are refused. Whether your own imports may raise the grants above them is the Credit cost bubbling switch for hires ([orgtree-app-credit-bubbling](../app-credit-bubbling/SKILL.md)).
+Whole credits are taken, and seats are never touched: when the seats alone do not fit, nothing is imported. The dialog says how many credits are lost in all; the strategy is chosen here only ([orgtree-export-import-duplicate](../../canvas/export-import-duplicate/SKILL.md)). Agents are not governed by this setting: they name a strategy in the tool call or are refused. Whether your own imports may raise the grants above them is the Credit cost bubbling switch for hires ([orgtree-app-credit-bubbling](../app-credit-bubbling/SKILL.md)).
 
 ## See also
 

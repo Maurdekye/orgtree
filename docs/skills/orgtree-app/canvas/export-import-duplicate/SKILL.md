@@ -10,9 +10,9 @@ Three entries of every agent's and project's context menu, in a group of their o
 
 | Entry | Opens | Result |
 | --- | --- | --- |
-| **Export…** | The Export dialog on that node | One `.orgtree.zip` file, saved where the user chooses |
+| **Export…** | The Export dialog on that node | One `.orgtree.zip` file; the Save dialog opens by itself when it is finished |
 | **Import here…** | The Import dialog; what the file holds goes directly under that node | New agents and projects with their history and files |
-| **Duplicate…** | The Duplicate dialog | A copy beside the original |
+| **Duplicate…** | The Duplicate dialog, or nothing when there is nothing to choose | A copy beside the original |
 
 Agents do the same inside their own team with `orgtree_export`, `orgtree_import` and `orgtree_duplicate` (orgtree-working › inspection and team). An agent can also mail an export to another organization and the agent that receives it imports it.
 
@@ -24,28 +24,28 @@ The dialog offers **Only X** or **X and everything under it** when live nodes st
 
 Nobody is interrupted. An agent that is mid-turn is exported as far as it had got.
 
-**Secrets.** "Take detected secrets out" starts as App settings > Runtime > Export and import says ([orgtree-app-export-and-import](../../app-settings/app-export-and-import/SKILL.md)), off unless the user ticked it. With it off, an export that found any stops and shows what it found: the kinds with their counts, where, and whether watchdog credentials are in the file. The user then chooses **Keep them in the file** or **Export again without them**; the file is not offered before. Provider keys and sign-ins are never in an export.
+**Secrets.** "Take detected secrets out" starts as App settings > Runtime > Export and import says ([orgtree-app-export-and-import](../../app-settings/app-export-and-import/SKILL.md)), off unless the user ticked it. With it off, an export that found any stops and shows what it found: the kinds with their counts (watchdog credentials among them) and where. The user then chooses **Keep them** or **Export without them**; the file is not saved before. Provider keys and sign-ins are never in an export.
 
-When it is ready the dialog shows the size, what could not be taken (links, files that could not be read), and **Save the file…**. Closing the dialog drops the engine's copy.
+When it is finished the dialog closes and the Save dialog opens by itself, in Downloads, with the file's name. With no secrets found there is nothing in between. A toast says the size and how many things could not be taken (links, files that could not be read). The engine drops its copy when the file is saved, or after a day. If the file cannot be fetched, the dialog stays and says why, with **Save the file…** to try again.
 
 ## Import
 
-Choose a file made by Export. It is sent to the engine and checked, and the dialog shows the plan before anything is created:
+Choose a file made by Export. It is sent to the engine and checked, and the dialog says the plan before anything is created, in one sentence: "Creates lead-2 and 3 more under boss. Costs 14 credits." A taken name is numbered (`lead`, `lead-2`). It adds:
 
-- where the file came from, and a warning when it was made on another computer or changed since;
-- every node with its final name (a taken name is numbered: `lead`, `lead-2`), its model and grant, and each change made on the way in: tools, folders, visibility or permission mode clamped to what the node above holds;
-- nodes that arrive **retired**: retired when exported, or on a model this computer cannot staff, with everything under them. Rehire them on another model afterwards;
-- what it costs, and what can be drawn there.
+- a warning when the file is from another computer or was changed;
+- "N spare credits are taken away" when the saved grants cost more than can be drawn. Only the total is said. Which agents give them is the strategy of App settings > Runtime > Shrink grants that do not fit; the dialog does not ask;
+- "N arrive retired": nodes retired when exported, or on a model this computer cannot staff, with everything under them. Rehire them on another model afterwards;
+- **notes**, folded: each other change on the way in (tools, folders, visibility or permission mode clamped to what the node above holds), and why a node arrives retired.
 
-When the saved grants cost more than can be drawn, spare credits are taken away by the strategy shown in "Take spare credits away", which starts at the app's setting and can be changed; the list updates. When not even the seats fit, the plan says so and **Import** stays off: free credits first. The organization's top-level cap also applies at the top level.
+When not even the seats fit, the plan says so and **Import** stays off: free credits first. The organization's top-level cap also applies at the top level.
 
-**Import** creates exactly what was shown; if something changed meanwhile it says so and shows the new plan. The agents arrive idle and are told what happened at their next turn. Their watchdogs arrive paused unless "Arm the watchdogs that can run anywhere" is ticked. Their earlier mail with anyone who was not imported, and their questions, are files in each agent's `imported-history` folder and never appear in the inbox.
+**Import** creates exactly what was planned; if something changed meanwhile it says so and shows the new plan. When it is done the dialog closes: the new nodes are on the canvas and a toast says what was imported, with **Undo**. The agents arrive idle and are told what happened at their next turn. Their watchdogs arrive paused unless "Arm its watchdogs" is ticked (shown when the file holds any). Their earlier mail with anyone who was not imported, and their questions, are files in each agent's `imported-history` folder and never appear in the inbox.
 
-If a part could not be brought in, the result lists it. Agents whose transcript is missing stay halted and are named.
+If a part could not be brought in, the toast lists it. Agents whose transcript is missing stay halted and are named there. An import that fails keeps its dialog and says why.
 
 ## Duplicate
 
-A second agent or project beside the original, alone or with everything under it, with the same settings, credits, folders, transcript and documents. Docket items, cost history and mail are not copied. The dialog shows the same plan as an import and the same strategy choice. The copy gets a numbered name and its watchdogs are paused, so the original's work is not done twice.
+A second agent or project beside the original, alone or with everything under it, with the same settings, credits, folders, transcript and documents. Docket items, cost history and mail are not copied. A node with nobody under it, whose plan fits as it is, is copied at once with no dialog. Otherwise the dialog asks how much to copy and says the plan in a sentence, as an import does. Then the canvas is back, with a toast and **Undo**. The copy gets a numbered name and its watchdogs are paused, so the original's work is not done twice.
 
 ## Undo
 

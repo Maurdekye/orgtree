@@ -140,8 +140,9 @@ previewed carries the plan's digest (`expect`) and is refused when the plan has 
   `bottom-up` from the lowest nodes first, `top-down` from the topmost agent first, `even`
   one credit from each agent in turn. Whole credits are taken. An agent that names no
   strategy is refused (20:44Z, S3). The user's own import uses the app setting
-  `import_shrink_strategy` (Runtime, bottom-up by default: 20:30Z and 20:44Z, S1) unless the
-  dialog names another. When not even the seats fit, it is refused whatever the strategy.
+  `import_shrink_strategy` (Runtime, bottom-up by default: 20:30Z and 20:44Z, S1). The dialogs
+  never ask for one (USER 23:51Z m84e35b23ed2e, which replaced S2), though the routes still
+  take a `strategy`. When not even the seats fit, it is refused whatever the strategy.
 - **The top-level cap.** With no agent at or above the destination, every top agent of the
   import is a top-level agent: its grant is brought down to the organization's cap out of its
   own team's spare credits (question 10).

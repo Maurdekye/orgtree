@@ -1129,7 +1129,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             + 'when it finds any.'} />
         <SetRow label="Shrink grants that do not fit"
           hint={'When you import or duplicate a team whose saved grants cost more credits than can be drawn there, spare '
-            + 'credits are taken away this way. The import dialog shows the result and lets you choose another. '
+            + 'credits are taken away this way. The dialog says how many are lost. '
             + 'Agents name a strategy themselves.'}>
           <select aria-label="Shrink grants that do not fit" value={runtime?.import_shrink_strategy ?? 'bottom-up'} disabled={!runtime || busy}
             onChange={(event) => {

@@ -2809,7 +2809,11 @@ still to come. See the current
     it found; sealed watchdog credentials travel only in that confirmed
     export, never in an agent's; names clash by numbering; grants are the
     saved ones, clamped by a shrink strategy (the app's default for the
-    user, named or refused for an agent); a model this computer cannot staff
+    user, named or refused for an agent; the dialogs never ask for one and
+    say only the credits lost in all, USER 23:51Z m84e35b23ed2e, which
+    replaced the dialog's menu accepted at 20:44Z); the dialogs say only
+    what there is to decide, and none is left after an export, an import
+    or a duplicate (same message and mf35a72f9c0f1); a model this computer cannot staff
     arrives retired; an agent goes on with its own CLI session where its
     harness keeps one as files; one export holds at most 256 GiB, and mail to
     `@org:` carries files up to that; the user's own import or duplicate is
