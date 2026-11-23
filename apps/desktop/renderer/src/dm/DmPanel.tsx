@@ -418,7 +418,22 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
 
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
-  const shown = q ? chats.filter(c => dmName(c).toLowerCase().includes(q) || c.peer.toLowerCase().includes(q)) : chats
+  // A PROJECT'S GROUP FOLDS like a ticket's sub-items in the docket: open by
+  // default, and a fold is this panel's reading posture, not saved. A search
+  // shows through every fold, and the chat on screen is never folded away.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const toggleFold = (project: string) => setFolded(old => {
+    const next = new Set(old)
+    if (!next.delete(project)) next.add(project)
+    return next
+  })
+  const matches = (c: DmChat) => dmName(c).toLowerCase().includes(q) || c.peer.toLowerCase().includes(q)
+  const shown = q ? chats.filter(matches)
+    : chats.filter(c => !c.parent || !folded.has(c.parent) || c.peer === sel)
+  const listed = new Set(shown.map(c => c.peer))
+  /** what a folded project's row adds to its own counts: the chats it hides */
+  const hidden = (c: DmChat) => !q && c.kids > 0 && folded.has(c.peer)
+    ? chats.filter(k => k.parent === c.peer && !listed.has(k.peer)) : []
   const waiting = dmWaiting(chats)
   const focusAgent = onFocusAgent ? (id: string) => { close(); onFocusAgent(id) } : undefined
 
@@ -433,6 +448,8 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       {box == null ? <div className="dim pad">loading…</div>
         : !shown.length ? <div className="dim pad dm-empty-list">{q ? 'no chat matches' : 'no chats yet'}</div>
         : shown.map(c => <DmRow key={c.peer} chat={c} selected={c.peer === sel} losing={!!losing?.includes(c.peer)} toast={toast}
+            child={!!c.parent && listed.has(c.parent)} hidden={hidden(c)}
+            fold={c.kids > 0 ? { folded: folded.has(c.peer), locked: !!q, toggle: () => toggleFold(c.peer) } : undefined}
             onOpen={() => select(c.peer)} onClose={() => closeChat(c)} onCloseHover={on => closeHover(on ? c : null)} />)}
       {waiting.unread > 0 && <div className="dm-list-foot">
         <button onClick={() => clearInbox(slug)
@@ -510,12 +527,22 @@ const closeHoverProps = (on: (hover: boolean) => void) => ({
   onMouseEnter: () => on(true), onMouseLeave: () => on(false), onFocus: () => on(true), onBlur: () => on(false),
 })
 
-function DmRow({ chat, selected, losing, toast, onOpen, onClose, onCloseHover }: {
+function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onClose, onCloseHover }: {
   chat: DmChat; selected: boolean; losing: boolean; toast: ToastFn; onOpen: () => void; onClose: () => void
   onCloseHover: (hover: boolean) => void
+  /** listed under its project's row */
+  child: boolean
+  /** a folded project: the chats its row stands for */
+  hidden: readonly DmChat[]
+  /** a project with chats under it: its fold */
+  fold?: { folded: boolean; locked: boolean; toggle: () => void }
 }) {
   const rule = dmClose(chat)
   const name = dmName(chat)
+  // a folded group never hides that something waits: its row counts what it hides
+  const unread = chat.unread + hidden.reduce((n, k) => n + k.unread, 0)
+  const asks = chat.asks + hidden.reduce((n, k) => n + k.asks, 0)
+  const inGroup = hidden.length ? ` in ${name} and its ${hidden.length} agent${hidden.length === 1 ? '' : 's'}` : ''
   // THE ROW'S OWN MENU (USER 2026-11-23 mf47548121ae5): what the row does, then
   // "Agent…" or "Project…", the whole menu that node has on the canvas, as a
   // submenu (`nodeMenuAction`, the one every other "Owner…" / "Project…" entry
@@ -533,8 +560,8 @@ function DmRow({ chat, selected, losing, toast, onOpen, onClose, onCloseHover }:
     ]
   }
   const last = chat.last
-  const asksLabel = `${chat.asks} request${chat.asks === 1 ? '' : 's'} waiting on your answer`
-  const unreadLabel = `${chat.unread} unread`
+  const asksLabel = `${asks} request${asks === 1 ? '' : 's'} waiting on your answer${inGroup}`
+  const unreadLabel = `${unread} unread${inGroup}`
   const requestLabel = `${name} asks for an audience with you`
   let preview: ReactNode = <span className="dm-row-text">No messages yet</span>
   // a resolved request says so in the resolved card's own words (canvas/asks.tsx, NulledAsk)
@@ -545,13 +572,20 @@ function DmRow({ chat, selected, losing, toast, onOpen, onClose, onCloseHover }:
   if (chat.request) preview = <><span className="dm-row-q">Audience request{chat.request.reason ? ' ·' : ''}</span> <span className="dm-row-text">{brief(chat.request.reason)}</span></>
   return (
     <div role="listitem"
-      className={'dm-row' + (selected ? ' sel' : '') + (chat.unread ? ' unread' : '') + (chat.asks ? ' asks' : '')
+      className={'dm-row' + (selected ? ' sel' : '') + (unread ? ' unread' : '') + (asks ? ' asks' : '')
+        + (child ? ' dm-child' : '') + (fold ? ' dm-parent' : '')
         + (chat.request ? ' request' : '') + (losing ? ' losing' : '')
         + (chat.live || chat.kind === 'system' || chat.kind === 'other' ? '' : ' off')}
-      data-dm-chat={chat.peer}
+      data-dm-chat={chat.peer} data-dm-parent={child ? chat.parent ?? undefined : undefined}
       {...(chat.node ? agentTooltipProps(chat.peer) : {})}
       onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => { const anchor = e.currentTarget; menu.open(e, () => rowMenu(anchor)) }}
       onClick={onOpen}>
+      {/* the docket's fold arrow: its own target, so the row still opens the chat */}
+      {fold && <button type="button" className={'dm-fold' + (fold.folded && !fold.locked ? ' folded' : '')} disabled={fold.locked}
+        aria-expanded={!fold.folded || fold.locked}
+        title={fold.locked ? `showing every match while you search`
+          : `${fold.folded ? 'show' : 'hide'} the ${chat.kids} agent${chat.kids === 1 ? '' : 's'} that reach${chat.kids === 1 ? 'es' : ''} you through ${name}`}
+        onClick={(e) => { e.stopPropagation(); fold.toggle() }}>▾</button>}
       <DmAvatar chat={chat} />
       <div className="dm-row-main">
         <div className="dm-row-l1">
@@ -562,8 +596,8 @@ function DmRow({ chat, selected, losing, toast, onOpen, onClose, onCloseHover }:
         <div className="dm-row-l2">
           <span className="dm-row-prev">{preview}</span>
           {chat.request && <span className="dm-badge dm-badge-request" role="img" title={requestLabel} aria-label={requestLabel}><HearingIcon fontSize="inherit" /></span>}
-          {chat.asks > 0 && <span className="dm-badge dm-badge-asks" role="img" title={asksLabel} aria-label={asksLabel}>?</span>}
-          {chat.unread > 0 && <span className="dm-badge" role="img" title={unreadLabel} aria-label={unreadLabel}>{chat.unread}</span>}
+          {asks > 0 && <span className="dm-badge dm-badge-asks" role="img" title={asksLabel} aria-label={asksLabel}>?</span>}
+          {unread > 0 && <span className="dm-badge" role="img" title={unreadLabel} aria-label={unreadLabel}>{unread}</span>}
         </div>
       </div>
       {rule.can && <button type="button" className="chip-x dm-row-close" title={rule.title}

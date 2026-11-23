@@ -32,6 +32,7 @@ module.exports = async (page) => {
     const rows = [...document.querySelectorAll('.dm-row')].map(r => ({
       peer: r.dataset.dmChat, name: text(r.querySelector('.dm-row-name')), unread: badge(r),
       asks: r.querySelector('.dm-badge-asks') ? text(r.querySelector('.dm-badge-asks')) : null,
+      parent: r.dataset.dmParent ?? null, fold: r.querySelector('.dm-fold')?.getAttribute('aria-expanded') ?? null,
       losing: r.classList.contains('losing'), chip: text(r.querySelector('.dm-av .letter-chip')) || null,
       // a project's own mark: its colour, and the icon it draws
       mark: (() => { const m = r.querySelector('.dm-av .project-mark'); return m ? { color: getComputedStyle(m).color, d: m.querySelector('svg path')?.getAttribute('d') ?? null } : null })(),
@@ -399,6 +400,16 @@ module.exports = async (page) => {
 
   // ---- 10e. AUDIENCES THROUGH A PROJECT (USER 2026-11-23 m0ca89ba635fd)
   const marked = async () => (await snap()).rows.filter(r => r.losing).map(r => r.peer)
+  // the group: clerk sits under desk; the docket's arrow folds it, and a folded row counts what it hides
+  const grouped = await snap()
+  v.group = { desk: row(grouped, 'desk'), clerk: row(grouped, 'clerk') }
+  await shot('21m0-agents-under-their-project')
+  await page.click('.dm-row[data-dm-chat="desk"] .dm-fold')
+  await until('the group to fold', async () => !row(await snap(), 'clerk'))
+  v.group.folded = { rows: (await snap()).rows.map(r => r.peer), fold: row(await snap(), 'desk')?.fold }
+  await shot('21m1-the-group-folded')
+  await page.click('.dm-row[data-dm-chat="desk"] .dm-fold')
+  await until('the group to unfold', async () => !!row(await snap(), 'clerk'))
   await openChat('clerk')
   const clerk = await snap()
   v.via = { clerk: clerk.head, desk: row(clerk, 'desk'), crew: row(clerk, 'crew') }

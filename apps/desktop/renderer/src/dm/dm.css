@@ -57,6 +57,27 @@
   border-radius: 0 3px 3px 0; background: var(--accent);
 }
 .dm-row.off { opacity: .6; }
+/* AN AGENT THAT REACHES THE USER ONLY THROUGH A PROJECT sits under that
+   project's row, as a sub-item sits under its ticket in the docket: the same
+   indent, trunk and elbow (styles.css `.docket-row.docket-child`), and the
+   same fold arrow on the parent. */
+.dm-row.dm-child { margin-left: 30px; }
+.dm-row.dm-child::after {
+  content: ""; position: absolute; top: -1px; bottom: -1px; left: -13px; width: 1px; background: var(--line);
+}
+.dm-row.dm-child > .dm-av::before {
+  content: ""; position: absolute; top: 50%; left: -13px; width: 10px; height: 1px; background: var(--line);
+}
+.dm-row.dm-child .dm-av { width: 34px; height: 34px; }
+.dm-panel .dm-row button.dm-fold {
+  position: absolute; left: -2px; top: 50%; margin-top: -8px; width: 14px; height: 16px; padding: 0; border: 0; background: none;
+  color: var(--dim); cursor: pointer; font-size: 10px; line-height: 1; text-align: center; transition: transform .12s ease;
+}
+.dm-panel .dm-row button.dm-fold:hover { color: var(--ink-strong); }
+.dm-panel .dm-row button.dm-fold.folded { transform: rotate(-90deg); }
+.dm-panel .dm-row button.dm-fold:disabled { opacity: .4; cursor: default; }
+.dm-row.dm-parent { padding-left: 14px; }
+@media (prefers-reduced-motion: reduce) { .dm-panel .dm-row button.dm-fold { transition: none; } }
 /* the close under the pointer would take the audience from these too */
 .dm-row.losing, .dm-row.losing:hover, .dm-row.losing.sel {
   background: color-mix(in srgb, var(--bad) 16%, transparent); box-shadow: inset 0 0 0 1.5px var(--bad);

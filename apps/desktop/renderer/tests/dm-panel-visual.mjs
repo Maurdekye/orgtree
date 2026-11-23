@@ -185,7 +185,8 @@ if (flag === '--expect') {
   // ---- 6: newest first, each with its unread count; a chat is bubbles, the user's on the right
   const of0 = (s, peer) => s.rows.find(r => r.peer === peer)
   for (const [theme, s] of Object.entries(v.themes)) {
-    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'crew', 'member', 'mate', 'clerk', 'solo', 'desk', 'runner'], `${theme}: the two audience requests, then newest message first, then the chats nobody has written in`)
+    assert.deepEqual(s.rows.map(r => r.peer), ['scout', 'drafter', '@system', 'lead', 'worker', 'crew', 'member', 'mate', 'desk', 'clerk', 'solo', 'runner'], `${theme}: the two audience requests, then newest activity first (desk by clerk's message, clerk under it), then the chats nobody has written in`)
+    assert.equal(of0(s, 'clerk').parent, 'desk', `${theme}: clerk is listed under its project`); assert.equal(of0(s, 'runner').parent, null)
     assert.equal(of0(s, '@system').chip, 'S', `${theme}: the system's chat wears an S`)
     assert.deepEqual(s.rows.filter(r => r.request).map(r => r.peer), ['scout', 'drafter'], `${theme}: the requests are marked`)
     assert.equal(s.strip, 0, `${theme}: no request strip above the chats`)
@@ -363,6 +364,9 @@ if (flag === '--expect') {
   assert.equal(v.via.clerk.viaLink.color, rose, 'and so is the "via" link\'s mark')
   assert.notEqual(v.via.crew.mark.color, rose); assert.notEqual(v.via.desk.mark.d, v.via.crew.mark.d, 'its own icon, not the folder')
   assert.equal(v.project.mateMark, true, 'the megaphone label carries the project\'s mark')
+  // the grouped list: clerk indented under desk, to the right of it; the fold hides it and comes back
+  assert.equal(v.group.clerk.parent, 'desk'); assert.ok(v.group.clerk.box.x > v.group.desk.box.x + 12, 'indented under its project')
+  assert.equal(v.group.desk.fold, 'true'); assert.equal(v.group.folded.fold, 'false'); assert.equal(v.group.folded.rows.includes('clerk'), false)
   checked.push('audience via a project')
 
   // ---- a row's menu: Agent… or Project…, and neither for the system's chat
