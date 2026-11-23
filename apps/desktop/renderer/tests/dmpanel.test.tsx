@@ -661,10 +661,20 @@ test('a project\'s chat is one thread: the message says who holds it, the member
   assert.equal(entry('megaphone:g1')!.querySelector('.dm-kind-megaphone')?.textContent?.trim(), 'Megaphone · 2 agents')
   assert.match(entry('megaphone:g1')!.querySelector('.dm-kind-megaphone')?.getAttribute('title') ?? '', /member, mate/)
   assert.equal(entry('megaphone:g1')!.querySelector('.dm-job') === null, true)
+  // USER 2026-11-23 m212aefce0372: "megaphone messages have a different colored background, a brighter
+  // teal-eggshell color": their own fill, mixed from one teal into each theme's page colour
+  assert.equal(entry('megaphone:g1')!.querySelector('.dm-bubble')?.classList.contains('megaphone'), true)
+  assert.equal(entry('j1')!.querySelector('.dm-bubble')?.classList.contains('megaphone'), false, 'an ordinary message keeps its fill')
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  assert.match(css, /--dm-mega: color-mix\(in srgb, #3fd0b6 \d+%, var\(--bg\)\);/)
+  assert.match(css, /\.dm-msg \.dm-bubble\.megaphone \{ background: var\(--dm-mega\);/)
   // each member's chat has its own copy of the megaphone send, and not the queue's copy of j1
   await s.openChat('member')
   assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['g1a'])
   assert.equal(entry('g1a')!.querySelector('.dm-kind-megaphone')?.textContent?.trim(), 'Megaphone · crew')
+  assert.equal(entry('g1a')!.querySelector('.dm-bubble')?.classList.contains('megaphone'), true, 'the copy in a member chat has the same fill')
 })
 
 test('in a project\'s chat, Reply on a member\'s bubble writes to that member', async (t) => {
