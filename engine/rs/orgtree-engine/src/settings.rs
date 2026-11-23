@@ -182,6 +182,21 @@ impl AppSettings {
     pub fn credit_bubble_alloc(&self) -> bool {
         self.runtime().get("credit_bubble_alloc_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    /// Take detected secrets out of every export (App settings > Runtime; default off). USER 2026-11-23 10:43Z
+    /// m3c072bcdc19a: "strip nothing unless an app setting is ticked ... unticked by default".
+    #[nolog]
+    pub fn export_strip_secrets(&self) -> bool {
+        self.runtime().get("export_strip_secrets").and_then(Value::as_bool).unwrap_or(false)
+    }
+    /// How the user's own import or duplicate takes spare credits away when the saved grants do not fit: `bottom-up`,
+    /// `top-down` or `even` (App settings > Runtime). USER 2026-11-23 20:30Z m2106530cca00: "limits clamped by default
+    /// strategy when manually imported / duplicating (default strategy chosen in runtime app settings)"; 20:44Z, S1:
+    /// bottom-up unless chosen.
+    #[nolog]
+    pub fn import_shrink_strategy(&self) -> crate::portable::credits::Shrink {
+        self.runtime().get("import_shrink_strategy").and_then(Value::as_str).and_then(crate::portable::credits::Shrink::parse)
+            .unwrap_or(crate::portable::credits::Shrink::BottomUp)
+    }
     /// Suggest public feedback only through the redacted, user-approved issue procedure.
     #[nolog]
     pub fn suggest_agent_feedback(&self) -> bool {

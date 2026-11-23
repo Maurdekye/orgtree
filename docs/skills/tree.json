@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 190,
-  "tools": 49,
+  "leaves": 195,
+  "tools": 52,
   "concepts": 58,
-  "total": 212
+  "total": 217
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -32,7 +32,7 @@
   "desk-parity-opus": 1,
   "canvas-sol": 2,
   "presets-docs-sonnet": 2,
-  "remote-org-fable": 1
+  "remote-org-fable": 6
  },
  "nodes": [
   {
@@ -117,7 +117,9 @@
     "projects",
     "tool-org-logo",
     "peer-mail",
-    "tool-apps"
+    "tool-apps",
+    "tool-import",
+    "tool-duplicate"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -2256,7 +2258,8 @@
     "tool-read-scratch",
     "visibility",
     "reading-reports",
-    "tool-files"
+    "tool-files",
+    "tool-export"
    ],
    "writer": "runtime-sol",
    "status": "fixed"
@@ -2488,6 +2491,38 @@
    ],
    "writer": "runtime-sol",
    "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/inspection/tool-export",
+   "name": "orgtree-tool-export",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_export"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Export yourself or a node below you, alone or with its subtree, as one zip file.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/portable.rs export()",
+    "engine/rs/orgtree-engine/src/portable/export.rs",
+    "engine/rs/orgtree-engine/src/portable/secrets.rs",
+    "docs/rust-engine/agent-export.md"
+   ],
+   "writer": "remote-org-fable",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "tool-read-scratch",
+    "tool-read-transcript",
+    "visibility"
+   ]
   },
   {
    "path": "orgtree-working/accounts",
@@ -3488,7 +3523,8 @@
     "piles",
     "agents-list",
     "context-menus",
-    "pinned-windows"
+    "pinned-windows",
+    "export-import-duplicate"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -3747,6 +3783,39 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/tempdesk.tsx#TempDeskModal"
+   ]
+  },
+  {
+   "path": "orgtree-app/canvas/export-import-duplicate",
+   "name": "orgtree-export-import-duplicate",
+   "level": 3,
+   "kind": "screen",
+   "registered": false,
+   "covers": [
+    "screen:export-import-duplicate"
+   ],
+   "purpose": "Export, Import here and Duplicate from a node's menu: the three dialogs, the plan, secrets and undo.",
+   "must_cover": [
+    "where each entry is and what it opens",
+    "the export's parts, size and the secrets confirmation",
+    "the import plan: names, retired nodes, clamps, credits and the shrink strategy",
+    "what a duplicate copies and what it leaves",
+    "undo"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/portable.tsx",
+    "apps/desktop/renderer/src/portable.ts",
+    "apps/desktop/renderer/src/canvas/agentmenu.tsx",
+    "docs/rust-engine/agent-export.md"
+   ],
+   "see_also": [
+    "context-menus",
+    "app-export-and-import"
+   ],
+   "writer": "remote-org-fable",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/portable.tsx#PortablePanel"
    ]
   },
   {
@@ -4107,7 +4176,8 @@
     "app-remote-access",
     "app-developer",
     "app-keyboard-shortcuts",
-    "app-about"
+    "app-about",
+    "app-export-and-import"
    ],
    "writer": "skills-docs-sol",
    "status": "fixed"
@@ -5571,6 +5641,59 @@
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
      "label": "Source"
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/app-settings/app-export-and-import",
+   "name": "orgtree-app-export-and-import",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "rt:export_strip_secrets",
+    "rt:import_shrink_strategy"
+   ],
+   "purpose": "Runtime > Export and import: strip secrets from exports, and how grants that do not fit are shrunk.",
+   "must_cover": [
+    "each control, its default and whose actions it governs"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/accounts.tsx",
+    "engine/rs/orgtree-engine/src/settings.rs",
+    "engine/rs/orgtree-engine/src/portable/secrets.rs",
+    "engine/rs/orgtree-engine/src/portable/credits.rs"
+   ],
+   "see_also": [
+    "app-credit-bubbling",
+    "export-import-duplicate"
+   ],
+   "writer": "remote-org-fable",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Strip secrets from exports"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Shrink grants that do not fit"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:export_strip_secrets",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "export_strip_secrets"
+     ]
+    },
+    {
+     "key": "rt:import_shrink_strategy",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "import_shrink_strategy"
+     ]
     }
    ]
   },
@@ -8354,6 +8477,72 @@
     "scope-and-permissions",
     "tool-org-logo",
     "tool-retool"
+   ]
+  },
+  {
+   "path": "orgtree-working/team/tool-import",
+   "name": "orgtree-tool-import",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_import"
+   ],
+   "tool_group": "team",
+   "purpose": "Import an export file under yourself or a node below you.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/portable.rs import()",
+    "engine/rs/orgtree-engine/src/portable/plan.rs",
+    "engine/rs/orgtree-engine/src/domain/ops/import.rs",
+    "engine/rs/orgtree-engine/src/portable/import.rs",
+    "docs/rust-engine/agent-export.md"
+   ],
+   "writer": "remote-org-fable",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "hiring",
+    "credits",
+    "scope-and-permissions",
+    "tool-duplicate"
+   ]
+  },
+  {
+   "path": "orgtree-working/team/tool-duplicate",
+   "name": "orgtree-tool-duplicate",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_duplicate"
+   ],
+   "tool_group": "team",
+   "purpose": "Copy a node below you, alone or with its subtree, inside this organization.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/portable.rs duplicate()",
+    "engine/rs/orgtree-engine/src/portable/service.rs start_duplicate()",
+    "engine/rs/orgtree-engine/src/domain/ops/import.rs",
+    "docs/rust-engine/agent-export.md"
+   ],
+   "writer": "remote-org-fable",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "tool-import",
+    "hiring",
+    "credits"
    ]
   },
   {

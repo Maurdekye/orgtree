@@ -54,6 +54,41 @@ pub fn check(settings: &Value) -> Result<()> {
     Ok(())
 }
 
+/// The most a file sent to another organization on this computer holds: what an export holds
+/// (USER 2026-11-23 20:30Z, question 13).
+pub const ORG_ATTACHMENT_MAX: u64 = crate::portable::SIZE_MAX;
+
+/// Before a file is copied for mail to `@org:` on this computer: the refusals of the send that
+/// cost nothing to know (both mailboxes open, the other organization there, the sender allowed
+/// to write outside), and the folder of that organization's mailbox the copies go to. Nothing is
+/// granted or changed here; the send itself decides again.
+#[logged]
+pub(crate) async fn attachment_room(engine: &Engine, org_id: i64, sender: (i64, &str), to: &str) -> Result<std::path::PathBuf> {
+    require_enabled(engine, org_id).await?;
+    let slug = to.trim().trim_start_matches('@').strip_prefix("org:").unwrap_or("").trim();
+    let Some(dst) = engine.orgs.get(slug) else {
+        crate::refuse!(NotFound, "no organization @org:{slug} on this machine (orgtree_list_orgs lists them)");
+    };
+    if dst.id == org_id {
+        crate::refuse!(BadRequest, "@org:{slug} is this organization; write to the agent directly");
+    }
+    require_enabled(engine, dst.id).await?;
+    let client = engine.db.get().await?;
+    let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+    let multi = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults())["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+    if !holder_agents(&**client, org_id, multi).await?.iter().any(|holder| holder == sender.1) {
+        let top = client
+            .query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.outside_top_level(id)", &[&sender.0, &org_id])
+            .await?
+            .is_some();
+        if !top {
+            crate::refuse!(Forbidden, "outside mail needs the org-mailbox audience; ask your superior");
+        }
+    }
+    // where what arrives over the mail hub is kept too (`net::incoming`)
+    Ok(engine.cfg.path("uploads").join(&dst.slug).join("@org-inbox").join(uid("orgmail")))
+}
+
 /// Recheck persisted policy at every entry boundary (including human callers).
 #[logged]
 pub async fn require_enabled(engine: &Engine, org_id: i64) -> Result<()> {

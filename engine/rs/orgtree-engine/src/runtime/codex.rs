@@ -722,7 +722,7 @@ pub fn default_home() -> std::path::PathBuf {
 
 /// A thread's rollout file under `home/sessions` (its path below `sessions`).
 #[logged]
-fn find_rollout(home: &std::path::Path, thread: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+pub(crate) fn find_rollout(home: &std::path::Path, thread: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let root = home.join("sessions");
     let suffix = format!("{thread}.jsonl");
     let mut stack = vec![(root.clone(), 0usize)];

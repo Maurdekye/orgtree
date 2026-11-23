@@ -831,6 +831,8 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "project_listener_wake_enabled": engine.settings.project_listener_wake(),
         "credit_bubble_hire_enabled": engine.settings.credit_bubble_hire(),
         "credit_bubble_alloc_enabled": engine.settings.credit_bubble_alloc(),
+        "export_strip_secrets": engine.settings.export_strip_secrets(),
+        "import_shrink_strategy": engine.settings.import_shrink_strategy().as_str(),
         "suggest_agent_feedback_enabled": engine.settings.suggest_agent_feedback(),
         "idle_docket_reminders_enabled": sw.idle,
         "blocked_docket_reminders_enabled": sw.blocked,
@@ -889,6 +891,15 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
             "live_feed_enabled" => {
                 let on = v.as_bool().ok_or_else(|| ApiError::bad_request("live_feed_enabled is true or false"))?;
                 rt.insert(k.clone(), json!(on));
+            }
+            "export_strip_secrets" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request("export_strip_secrets is true or false"))?;
+                rt.insert(k.clone(), json!(on));
+            }
+            "import_shrink_strategy" => {
+                let strategy = v.as_str().and_then(crate::portable::credits::Shrink::parse)
+                    .ok_or_else(|| ApiError::bad_request(format!("import_shrink_strategy is {}", crate::portable::credits::SHRINKS)))?;
+                rt.insert(k.clone(), json!(strategy.as_str()));
             }
             "live_feed_port" => {
                 let n = v.as_u64().filter(|n| (1024..=65535).contains(n)).ok_or_else(|| ApiError::bad_request("live_feed_port is a number from 1024 to 65535"))?;

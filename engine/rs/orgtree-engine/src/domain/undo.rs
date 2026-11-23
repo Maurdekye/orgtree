@@ -452,6 +452,25 @@ async fn worked<C: GenericClient + Sync>(client: &C, org: i64, data: &Value) -> 
     Ok(first.map(|(name, turns)| (name, total.max(turns), ids.join("."))))
 }
 
+/// Whether undoing this import entry must ask first, and what it would say: (agent name, turns,
+/// binding) of the first imported agent that has taken a turn since. The turns its history
+/// brought along are older than the entry and do not count.
+#[nolog]
+async fn worked_since<C: GenericClient + Sync>(client: &C, org: i64, data: &Value, since: chrono::DateTime<chrono::Utc>) -> Result<Option<(String, i64, String)>> {
+    let mut ids: Vec<i64> = Vec::new();
+    for r in data["retires"].as_array().into_iter().flatten() {
+        ids.extend(opt_id(&r["root"]));
+        ids.extend(r["members"].as_array().into_iter().flatten().filter_map(|m| opt_id(&m["agent"])));
+    }
+    let rows = client.query(
+        "SELECT a.id, a.name, count(*) FROM ot.agents a JOIN ot.turns t ON t.agent_id = a.id AND t.started_at > $3
+          WHERE a.id = ANY($1) AND a.org_id = $2 GROUP BY a.id, a.name ORDER BY a.id",
+        &[&ids, &org, &since]).await?;
+    let total: i64 = rows.iter().map(|r| r.get::<_, i64>(2)).sum();
+    let binding = rows.iter().map(|r| format!("{}x{}", r.get::<_, i64>(0), r.get::<_, i64>(2))).collect::<Vec<_>>().join(".");
+    Ok(rows.first().map(|r| (r.get::<_, String>(1), total, binding)))
+}
+
 #[nolog]
 async fn target<C: GenericClient + Sync>(client: &C, org: i64, dir: Dir) -> Result<Option<Value>> {
     let sql = match dir {
@@ -462,7 +481,11 @@ async fn target<C: GenericClient + Sync>(client: &C, org: i64, dir: Dir) -> Resu
     let kind: String = r.get(1);
     let mut out = json!({ "id": r.get::<_, i64>(0), "kind": kind, "label": r.get::<_, String>(2), "at": at(&r, 3) });
     if dir == Dir::Undo {
-        let confirm = kind == "hire" && worked(client, org, &r.get::<_, Value>(4)).await?.is_some();
+        let confirm = match kind.as_str() {
+            "hire" => worked(client, org, &r.get::<_, Value>(4)).await?.is_some(),
+            "import" => worked_since(client, org, &r.get::<_, Value>(4), r.get(3)).await?.is_some(),
+            _ => false,
+        };
         out["confirm_required"] = json!(confirm);
     }
     Ok(Some(out))
@@ -1045,10 +1068,18 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
             _ => coded(409, code, "the history changed; this is no longer the entry to step", json!({})),
         });
     }
-    let r = tx.query_one("SELECT kind, label, data FROM ot.undo_entries WHERE id = $1", &[&id]).await?;
+    let r = tx.query_one("SELECT kind, label, data, created_at FROM ot.undo_entries WHERE id = $1", &[&id]).await?;
     let kind: String = r.get(0);
     let label: String = r.get(1);
     let data: Value = r.get(2);
+    if dir == Dir::Undo && kind == "import" {
+        if let Some((agent, turns, binding)) = worked_since(&*tx, org.id, &data, r.get(3)).await? {
+            let token = format!("i{id}.{binding}");
+            if confirm != Some(token.as_str()) {
+                return Ok((json!({ "status": "confirm", "id": id, "label": label, "agent": agent, "turns": turns, "confirm": token }), None));
+            }
+        }
+    }
     if dir == Dir::Undo && kind == "hire" {
         if let Some((agent, turns, binding)) = worked(&*tx, org.id, &data).await? {
             let token = format!("h{id}.{binding}");
@@ -1059,10 +1090,11 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
     }
     tx.batch_execute("SAVEPOINT undo_apply").await?;
     let mut pending = Pending::default();
-    let inherited_before = if matches!(kind.as_str(),"move"|"hire"|"retire") {
+    let inherited_before = if matches!(kind.as_str(),"move"|"hire"|"retire"|"import") {
         Some(super::audience_notices::snapshot(&*tx,org.id).await?)
     } else { None };
     let applied = match kind.as_str() {
+        "import" => apply_import(engine, org, &tx, dir, &data, &mut pending).await,
         "move" => apply_move(engine, org, &tx, dir, &data, &mut pending).await,
         "hire" => apply_hire(engine, org, &tx, dir, &data, &mut pending).await,
         "retire" => apply_retire(engine, org, &tx, dir, &data, &mut pending).await,
@@ -1347,6 +1379,64 @@ async fn apply_retire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         }
     }
     Ok(next)
+}
+
+// ------------------------------------------------------------ imports
+
+/// An import's own transaction takes the history's head first, then the organization, as
+/// every gesture does (`lock_head`), before it reads or locks a node.
+#[logged]
+pub(crate) async fn import_begin(tx: &Transaction<'_>, org: i64) -> Result<()> {
+    lock_head(tx, org).await
+}
+
+/// Record the user's own import or duplicate as one entry, inside the transaction that
+/// created its nodes (USER 2026-11-23 20:44Z m36ba89488717, U1 and U2: one entry for the whole
+/// team; an agent's tool never records one). `ids` are the created nodes, the root first. The
+/// entry holds what a retire of the root would hold: the root's place and its live team.
+/// Nothing is recorded, and null comes back, when the root itself came in retired.
+#[logged]
+pub(crate) async fn import_record(tx: &Transaction<'_>, org: i64, duplicate: bool, root_name: &str, ids: &[i64]) -> Result<Value> {
+    let Some(root) = ids.first().copied() else { return Ok(Value::Null) };
+    let Some(at) = place(tx, org, root).await?.filter(|p| p.state == "live") else { return Ok(Value::Null) };
+    let team = live_team(tx, root).await?;
+    let verb = if duplicate { "Duplicate" } else { "Import" };
+    let label: String = (if team.is_empty() { format!("{verb} {root_name}") } else { format!("{verb} {root_name} and its team") }).chars().take(LABEL_MAX).collect();
+    let data = if team.len() > MAX_MEMBERS {
+        // recorded, so Ctrl+Z never silently skips it, but refused when reached, as a retire of that size is
+        json!({ "retires": [{ "root": root, "before": place_json(&at), "members": [] }], "team": true, "duplicate": duplicate,
+                "not_undoable": format!("this is too large to undo ({} nodes; at most {MAX_MEMBERS} per team)", team.len() + 1) })
+    } else {
+        let members: Vec<Value> = team.iter().map(|(id, parent, order)| json!({ "agent": id, "parent": parent, "order": order })).collect();
+        json!({ "retires": [{ "root": root, "before": place_json(&at), "members": members }], "duplicate": duplicate })
+    };
+    // a new action clears redo, and the oldest beyond the bound go
+    tx.execute("DELETE FROM ot.undo_entries WHERE org_id = $1 AND state = 'undone'", &[&org]).await?;
+    let id: i64 = tx.query_one(
+        "INSERT INTO ot.undo_entries (org_id, kind, label, data, via) VALUES ($1, 'import', $2, $3, $4) RETURNING id",
+        &[&org, &label, &data, &crate::caller::via()]).await?.get(0);
+    tx.execute(
+        "DELETE FROM ot.undo_entries WHERE org_id = $1 AND id NOT IN
+           (SELECT id FROM ot.undo_entries WHERE org_id = $1 ORDER BY id DESC LIMIT $2)",
+        &[&org, &BOUND]).await?;
+    bump(tx, org).await?;
+    Ok(json!({ "id": id, "kind": "import", "label": label }))
+}
+
+/// After an import that recorded an entry has committed: every window's history moved.
+#[nolog]
+pub(crate) fn import_published(engine: &Engine, org: &OrgHandle) {
+    changed(engine, org);
+}
+
+/// An import entry is a retire entry read the other way: undoing the import retires its root
+/// with the team it brought, under a retire's own guards (somebody hired under it since, or
+/// it was moved: refused), and redoing it brings back exactly the recorded nodes, each under
+/// its recorded parent. Grants an ancestor was raised by stay raised, as after any retire.
+#[nolog]
+async fn apply_import(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, dir: Dir, data: &Value, pending: &mut Pending) -> Result<Value> {
+    let other = if dir == Dir::Undo { Dir::Redo } else { Dir::Undo };
+    apply_retire(engine, org, tx, other, data, pending).await
 }
 
 /// The request that sets one side of a retool entry's fields.

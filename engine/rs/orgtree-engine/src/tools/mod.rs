@@ -19,6 +19,7 @@ pub(crate) mod usage;
 mod apps;
 mod logo;
 mod next_turn;
+mod portable;
 pub(crate) mod result_timing;
 #[cfg(test)] mod apps_privacy_control {
     use super::*;
@@ -313,6 +314,9 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_fast_defaults" => boxed(|| treetools::run(engine, caller, args, "fast_defaults")).await,
         "orgtree_swap" => boxed(|| treetools::run(engine, caller, args, "swap")).await,
         "orgtree_self_subjugate" => boxed(|| treetools::run(engine, caller, args, "self_subjugate")).await,
+        "orgtree_export" => boxed(|| portable::export(engine, caller, args)).await,
+        "orgtree_import" => boxed(|| portable::import(engine, caller, args)).await,
+        "orgtree_duplicate" => boxed(|| portable::duplicate(engine, caller, args)).await,
         other if other.starts_with("orgtree_") => {
             crate::refuse!(Unprocessable, "{other} is not available in this engine build yet")
         }

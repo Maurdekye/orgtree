@@ -46,7 +46,7 @@ const FIELDS: &[&str] = &["name", "kind", "target", "pattern", "shell", "interva
 pub fn machine(kind: &str) -> bool { matches!(kind, "file" | "command" | "process" | "stream" | "mqtt" | "websocket") }
 
 #[nolog]
-fn node_target(kind: &str) -> bool { matches!(kind, "activity" | "fair_queue" | "slot" | "project_listener" | "listener_watch") }
+pub(crate) fn node_target(kind: &str) -> bool { matches!(kind, "activity" | "fair_queue" | "slot" | "project_listener" | "listener_watch") }
 
 /// Conservative guard for credential-bearing JSON, including nested fire actions.
 /// Keys are checked before filtering so a credentials-file reference is never copied.

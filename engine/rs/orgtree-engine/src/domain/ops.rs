@@ -22,6 +22,7 @@ use crate::util::boxed;
 
 mod ordering;
 mod fast_defaults;
+pub(crate) mod import;
 mod user_regs;
 
 /// Who asks.

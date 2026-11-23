@@ -24,7 +24,8 @@
 //! Who may call: the owner and a member (`remote_access::member::ORG`). A
 //! viewer reaches none of the three (`http::viewer::DENIED_FOR_VIEWER`).
 
-use std::io::{Read, Write};
+#[cfg(test)]
+use std::io::Read;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
@@ -41,6 +42,9 @@ use tokio::io::AsyncWriteExt;
 use crate::engine::Engine;
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::nodes::ScratchFolderScope;
+#[cfg(test)]
+use crate::zipfile::dos_time;
+use crate::zipfile::{name_fits as zip_name_fits, ZipOut};
 
 /// The most one uploaded file may hold (user ruling 2026-11-14: 2 GiB a file).
 pub const UPLOAD_MAX: u64 = 2 * 1024 * 1024 * 1024;
@@ -98,7 +102,7 @@ pub struct FilesQuery {
 
 /// A plain name: one part of a path, which names nothing but an entry of its folder.
 #[nolog]
-fn plain(name: &str) -> bool {
+pub(crate) fn plain(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && name.len() <= 255
         && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
 }
@@ -106,7 +110,7 @@ fn plain(name: &str) -> bool {
 /// A name a file may be uploaded under: plain, with nothing Windows would change or reserve,
 /// and not the name of an upload in progress.
 #[nolog]
-fn upload_name(name: &str) -> bool {
+pub(crate) fn upload_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
     let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit());
@@ -116,7 +120,7 @@ fn upload_name(name: &str) -> bool {
 /// A symbolic link, a junction, or any other reparse point: something that is not what is
 /// stored in its folder. `metadata` must be the entry's own (`symlink_metadata`).
 #[nolog]
-fn is_link(metadata: &std::fs::Metadata) -> bool {
+pub(crate) fn is_link(metadata: &std::fs::Metadata) -> bool {
     if metadata.file_type().is_symlink() {
         return true;
     }
@@ -168,7 +172,7 @@ fn confine_folder(root: &FsPath, path: &str) -> Refused<PathBuf> {
 /// agent; resolving it alone would have followed a junction standing in its place. The team's
 /// and the shared folder had this walk from `shared_notes::ensure` already.)
 #[nolog]
-fn unlinked_root(data_root: &FsPath, within: &FsPath, folder: &FsPath) -> Refused<PathBuf> {
+pub(crate) fn unlinked_root(data_root: &FsPath, within: &FsPath, folder: &FsPath) -> Refused<PathBuf> {
     use std::path::Component;
     let (data, within, folder) = (crate::config::strip_verbatim(data_root), crate::config::strip_verbatim(within), crate::config::strip_verbatim(folder));
     let inside = |child: &FsPath, parent: &FsPath| crate::domain::scope::path_within(&child.to_string_lossy(), &parent.to_string_lossy());
@@ -224,13 +228,6 @@ pub fn sweep_stale_parts(scratch: &FsPath, older_than: std::time::Duration, now:
 
 /// How old a part must be to be swept at the engine's start.
 pub const STALE_PART: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
-
-/// Whether a zip can name an entry `name`: its header counts the name's bytes in 16 bits, and
-/// a folder is named with a slash after it (review F-4, 2026-11-14).
-#[nolog]
-fn zip_name_fits(name: &str, folder: bool) -> bool {
-    name.len() + usize::from(folder) <= u16::MAX as usize
-}
 
 const OUTSIDE: &str = "That folder is not among this organization's scratch folders.";
 const UNREADABLE: &str = "That folder could not be read just now.";
@@ -297,176 +294,13 @@ pub async fn list(State(engine): State<Arc<Engine>>, Path((slug, nid)): Path<(St
 
 // ------------------------------------------------------------------ a folder as a zip
 
-/// One entry of the zip, as its central directory names it.
-struct Zipped {
-    name: String,
-    folder: bool,
-    crc: u32,
-    packed: u64,
-    size: u64,
-    offset: u64,
-    time: u16,
-    date: u16,
-}
-
-/// MS-DOS time and date of a moment (UTC), as a zip keeps them. Before 1980: 1980-01-01.
-#[nolog]
-fn dos_time(modified: Option<std::time::SystemTime>) -> (u16, u16) {
-    use chrono::{Datelike, Timelike};
-    let Some(at) = modified.map(chrono::DateTime::<chrono::Utc>::from).filter(|at| (1980..=2107).contains(&at.year())) else {
-        return (0, 0x21);
-    };
-    let time = (at.hour() << 11) | (at.minute() << 5) | (at.second() / 2);
-    let date = ((at.year() as u32 - 1980) << 9) | (at.month() << 5) | at.day();
-    (time as u16, date as u16)
-}
-
-/// A zip written as it is made: nothing of it is held but the names and numbers of its
-/// entries. Every file is deflated and followed by its sizes (a data descriptor), and every
-/// size and offset is kept in ZIP64 form, so neither a file nor the whole has a limit.
-/// `sink` takes the next bytes and answers false when nobody is reading any more.
-struct ZipOut<'a> {
-    sink: &'a mut dyn FnMut(Vec<u8>) -> bool,
-    at: u64,
-    entries: Vec<Zipped>,
-}
-
-#[nolog]
-impl ZipOut<'_> {
-    /// False when the reader is gone: the caller stops.
-    fn send(&mut self, bytes: Vec<u8>) -> bool {
-        self.at += bytes.len() as u64;
-        (self.sink)(bytes)
-    }
-
-    fn folder(&mut self, name: &str, modified: Option<std::time::SystemTime>) -> bool {
-        let (time, date) = dos_time(modified);
-        let name = format!("{name}/");
-        let mut head = Vec::with_capacity(30 + name.len());
-        head.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
-        for n in [20u16, 0x0800, 0, time, date] {
-            head.extend_from_slice(&n.to_le_bytes());
-        }
-        head.extend_from_slice(&[0u8; 12]);
-        head.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        head.extend_from_slice(&0u16.to_le_bytes());
-        head.extend_from_slice(name.as_bytes());
-        let offset = self.at;
-        self.entries.push(Zipped { name, folder: true, crc: 0, packed: 0, size: 0, offset, time, date });
-        self.send(head)
-    }
-
-    /// One file from `data`. `Ok(false)`: the reader is gone. An error is `data`'s: what was
-    /// sent of this entry cannot be taken back, so the zip ends there, unfinished.
-    fn file(&mut self, name: &str, modified: Option<std::time::SystemTime>, data: &mut dyn Read) -> std::io::Result<bool> {
-        let (time, date) = dos_time(modified);
-        let offset = self.at;
-        let mut head = Vec::with_capacity(50 + name.len());
-        head.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
-        // needs 4.5 (ZIP64); sizes follow the data (bit 3), the name is UTF-8 (bit 11); deflated
-        for n in [45u16, 0x0808, 8, time, date] {
-            head.extend_from_slice(&n.to_le_bytes());
-        }
-        head.extend_from_slice(&0u32.to_le_bytes());
-        head.extend_from_slice(&u32::MAX.to_le_bytes());
-        head.extend_from_slice(&u32::MAX.to_le_bytes());
-        head.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        head.extend_from_slice(&20u16.to_le_bytes());
-        head.extend_from_slice(name.as_bytes());
-        // the ZIP64 field: it says the sizes that follow the data are 8 bytes each
-        head.extend_from_slice(&1u16.to_le_bytes());
-        head.extend_from_slice(&16u16.to_le_bytes());
-        head.extend_from_slice(&[0u8; 16]);
-        if !self.send(head) {
-            return Ok(false);
-        }
-        let mut crc = flate2::Crc::new();
-        let mut deflate = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
-        let (mut size, mut packed) = (0u64, 0u64);
-        let mut chunk = vec![0u8; CHUNK];
-        loop {
-            let read = data.read(&mut chunk)?;
-            if read == 0 {
-                break;
-            }
-            crc.update(&chunk[..read]);
-            size += read as u64;
-            deflate.write_all(&chunk[..read])?;
-            let out = std::mem::take(deflate.get_mut());
-            if !out.is_empty() {
-                packed += out.len() as u64;
-                if !self.send(out) {
-                    return Ok(false);
-                }
-            }
-        }
-        let rest = deflate.finish()?;
-        packed += rest.len() as u64;
-        let mut tail = rest;
-        tail.extend_from_slice(&0x0807_4b50u32.to_le_bytes());
-        tail.extend_from_slice(&crc.sum().to_le_bytes());
-        tail.extend_from_slice(&packed.to_le_bytes());
-        tail.extend_from_slice(&size.to_le_bytes());
-        self.entries.push(Zipped { name: name.to_string(), folder: false, crc: crc.sum(), packed, size, offset, time, date });
-        Ok(self.send(tail))
-    }
-
-    /// The central directory and the end records.
-    fn finish(mut self) -> bool {
-        let start = self.at;
-        let mut out = Vec::new();
-        for entry in &self.entries {
-            out.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
-            let (flags, method) = if entry.folder { (0x0800u16, 0u16) } else { (0x0808, 8) };
-            for n in [45u16, 45, flags, method, entry.time, entry.date] {
-                out.extend_from_slice(&n.to_le_bytes());
-            }
-            out.extend_from_slice(&entry.crc.to_le_bytes());
-            out.extend_from_slice(&u32::MAX.to_le_bytes());
-            out.extend_from_slice(&u32::MAX.to_le_bytes());
-            out.extend_from_slice(&(entry.name.len() as u16).to_le_bytes());
-            out.extend_from_slice(&28u16.to_le_bytes());
-            // no comment, disk 0, no internal attributes
-            out.extend_from_slice(&[0u8; 6]);
-            out.extend_from_slice(&(if entry.folder { 0x10u32 } else { 0 }).to_le_bytes());
-            out.extend_from_slice(&u32::MAX.to_le_bytes());
-            out.extend_from_slice(entry.name.as_bytes());
-            out.extend_from_slice(&1u16.to_le_bytes());
-            out.extend_from_slice(&24u16.to_le_bytes());
-            for n in [entry.size, entry.packed, entry.offset] {
-                out.extend_from_slice(&n.to_le_bytes());
-            }
-        }
-        let (count, length) = (self.entries.len() as u64, out.len() as u64);
-        // the ZIP64 end record, where it is, and the old end record that points at them
-        out.extend_from_slice(&0x0606_4b50u32.to_le_bytes());
-        out.extend_from_slice(&44u64.to_le_bytes());
-        for n in [45u16, 45] {
-            out.extend_from_slice(&n.to_le_bytes());
-        }
-        out.extend_from_slice(&[0u8; 8]);
-        for n in [count, count, length, start] {
-            out.extend_from_slice(&n.to_le_bytes());
-        }
-        out.extend_from_slice(&0x0706_4b50u32.to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes());
-        out.extend_from_slice(&(start + length).to_le_bytes());
-        out.extend_from_slice(&1u32.to_le_bytes());
-        out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
-        out.extend_from_slice(&[0u8; 4]);
-        out.extend_from_slice(&[0xff; 12]);
-        out.extend_from_slice(&0u16.to_le_bytes());
-        self.send(out)
-    }
-}
-
 /// `folder` and everything stored in it as a zip, written to `sink` as it is made. Entries
 /// are named from `prefix` (the folder's own name; empty for none), by name, a folder before
 /// what is in it. A link is left out and so is an upload in progress. A file that cannot be
 /// opened is left out and named in `_not-included.txt` at the end of the zip.
 #[nolog]
 fn zip_tree(folder: &FsPath, prefix: &str, sink: &mut dyn FnMut(Vec<u8>) -> bool) -> std::io::Result<()> {
-    let mut zip = ZipOut { sink, at: 0, entries: Vec::new() };
+    let mut zip = ZipOut::new(sink);
     let mut left_out: Vec<String> = Vec::new();
     let mut todo: Vec<(PathBuf, String)> = vec![(folder.to_path_buf(), prefix.to_string())];
     if !prefix.is_empty() && !zip.folder(prefix, std::fs::metadata(folder).ok().and_then(|m| m.modified().ok())) {
@@ -526,7 +360,7 @@ fn zip_tree(folder: &FsPath, prefix: &str, sink: &mut dyn FnMut(Vec<u8>) -> bool
 
 /// `Content-Disposition` for a download named `name`: a plain-ASCII form and the real one.
 #[nolog]
-fn disposition(name: &str) -> String {
+pub(crate) fn disposition(name: &str) -> String {
     let ascii: String = name.chars().map(|c| if c.is_ascii() && !c.is_ascii_control() && c != '"' && c != '\\' { c } else { '_' }).collect();
     let exact = percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC);
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{exact}")
@@ -760,7 +594,7 @@ pub async fn upload(
 }
 
 #[nolog]
-fn write_failed(error: std::io::Error) -> ApiError {
+pub(crate) fn write_failed(error: std::io::Error) -> ApiError {
     // 112: ERROR_DISK_FULL; 28: ENOSPC
     if matches!(error.raw_os_error(), Some(112) | Some(28)) {
         ApiError::new(StatusCode::INSUFFICIENT_STORAGE, "The disk of that computer is full.")

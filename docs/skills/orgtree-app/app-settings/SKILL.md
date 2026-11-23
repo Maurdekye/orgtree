@@ -43,5 +43,6 @@ app-wide user preference for ordinary new agents and projects.
 - [orgtree-app-developer](app-developer/SKILL.md): Developer: the engine debug view and verbose engine logging, and the logs folder.
 - [orgtree-app-keyboard-shortcuts](app-keyboard-shortcuts/SKILL.md): Controls (formerly Keyboard shortcuts): the read-only list of canvas mouse gestures and key bindings.
 - [orgtree-app-about](app-about/SKILL.md): About: version, engine commit, update check.
+- [orgtree-app-export-and-import](app-export-and-import/SKILL.md): Runtime > Export and import: strip secrets from exports, and how grants that do not fit are shrunk.
 
 Provider, harness, account and hub controls have their own sections: [providers](../providers/SKILL.md) and [mail hub](../mailhub/SKILL.md). Existing organization values are under [org settings](../org-settings/SKILL.md); one agent’s configuration is under [agent settings](../agent-settings/SKILL.md).

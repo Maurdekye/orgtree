@@ -65,6 +65,7 @@ mod org_accounts;
 mod orgs;
 mod pg;
 mod phone;
+mod portable;
 mod profile_pictures;
 mod providers;
 mod remote;
@@ -82,6 +83,7 @@ mod usage_history;
 mod util;
 mod winproc;
 mod ws;
+mod zipfile;
 
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;

@@ -129,6 +129,16 @@ pub const ORG: &[&str] = &[
     "/api/orgs/{slug}/nodes/{nid}/scratch-files",
     "/api/orgs/{slug}/nodes/{nid}/scratch-files/file",
     "/api/orgs/{slug}/nodes/{nid}/scratch-files/upload",
+    "/api/orgs/{slug}/nodes/{nid}/export-estimate",
+    "/api/orgs/{slug}/nodes/{nid}/export",
+    "/api/orgs/{slug}/nodes/{nid}/duplicate",
+    "/api/orgs/{slug}/exports/{id}",
+    "/api/orgs/{slug}/exports/{id}/confirm",
+    "/api/orgs/{slug}/exports/{id}/file",
+    "/api/orgs/{slug}/imports/upload",
+    "/api/orgs/{slug}/imports/{id}",
+    "/api/orgs/{slug}/imports/{id}/plan",
+    "/api/orgs/{slug}/imports/{id}/apply",
 ];
 
 /// Read only: `GET` (and `HEAD`), no other method. The organization itself is

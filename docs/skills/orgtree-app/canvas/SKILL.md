@@ -21,5 +21,6 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-agents-list](agents-list/SKILL.md): The agents list tray: every agent by hierarchy, search, archived toggle.
 - [orgtree-context-menus](context-menus/SKILL.md): Context menus, above all the agent menu and every item in it.
 - [orgtree-pinned-windows](pinned-windows/SKILL.md): Pinning desks and modals as canvas windows, popping them out, and the temporary desk.
+- [orgtree-export-import-duplicate](export-import-duplicate/SKILL.md): Export, Import here and Duplicate from a node's menu: the three dialogs, the plan, secrets and undo.
 
 Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.

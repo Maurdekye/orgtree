@@ -24,6 +24,7 @@ pub mod markdown_image;
 pub mod media_file;
 pub mod nodes;
 pub mod reply_sources;
+pub mod portable;
 pub mod scratch_files;
 pub mod reader_availability;
 pub mod orgops;
@@ -305,6 +306,16 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/scratch-files", get(scratch_files::list))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch-files/file", get(scratch_files::download))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch-files/upload", axum::routing::put(scratch_files::upload))
+        .route("/api/orgs/{slug}/nodes/{nid}/export-estimate", get(portable::estimate))
+        .route("/api/orgs/{slug}/nodes/{nid}/export", post(portable::export))
+        .route("/api/orgs/{slug}/nodes/{nid}/duplicate", post(portable::duplicate))
+        .route("/api/orgs/{slug}/exports/{id}", get(portable::export_status).delete(portable::forget))
+        .route("/api/orgs/{slug}/exports/{id}/confirm", post(portable::export_confirm))
+        .route("/api/orgs/{slug}/exports/{id}/file", get(portable::export_file))
+        .route("/api/orgs/{slug}/imports/upload", axum::routing::put(portable::upload))
+        .route("/api/orgs/{slug}/imports/{id}", get(portable::import_status).delete(portable::forget))
+        .route("/api/orgs/{slug}/imports/{id}/plan", post(portable::import_plan))
+        .route("/api/orgs/{slug}/imports/{id}/apply", post(portable::import_apply))
         .fallback(api_not_found);
     // test-only: debug builds in rig mode (tools/rig), never a release build
     #[cfg(debug_assertions)]

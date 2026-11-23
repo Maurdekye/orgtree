@@ -42,6 +42,8 @@ Start with [relationship terms](team-shape/SKILL.md#relationship-terms) to disti
 - [orgtree-tool-self-subjugate](tool-self-subjugate/SKILL.md): Step down so a descendant takes your seat.
 - [orgtree-tool-list-tiers](tool-list-tiers/SKILL.md): Model tiers you can hire on and their seat prices.
 - [orgtree-tool-project](tool-project/SKILL.md): Create a project node under you, a descendant, or a project you are inside.
+- [orgtree-tool-import](tool-import/SKILL.md): Import an export file under yourself or a node below you.
+- [orgtree-tool-duplicate](tool-duplicate/SKILL.md): Copy a node below you, alone or with its subtree, inside this organization.
 
 Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
 

@@ -145,6 +145,9 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_retool",
         "orgtree_swap",
         "orgtree_self_subjugate",
+        "orgtree_export",
+        "orgtree_import",
+        "orgtree_duplicate",
     ]
 }
 
@@ -211,7 +214,8 @@ fn deferred(name: &str) -> bool {
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
         "orgtree_move" | "orgtree_rename" | "orgtree_reorder" | "orgtree_reallocate" |
         "orgtree_cheap_compact" | "orgtree_compact" | "orgtree_request_credits" | "orgtree_request_scope" |
-        "orgtree_swap" | "orgtree_self_subjugate")
+        "orgtree_swap" | "orgtree_self_subjugate" |
+        "orgtree_export" | "orgtree_import" | "orgtree_duplicate")
 }
 
 #[logged]
@@ -253,7 +257,7 @@ const KINDS: &[&str] = &["message", "question"];
 /// and still the flat shape (`tools::mailtools::flat_args`).
 const META_FIRST: &str = "Write this FIRST, before body: who the message is for and how it is sent";
 const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
-const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-mailbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation.";
+const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-mailbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user, @net and @org receive copies. Reply references are filtered per conversation.";
 const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
      body last.";
 const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies.";
@@ -387,7 +391,7 @@ fn message_meta() -> Value {
         "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
         "one_time": one_time_schema(),
         "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
-                         "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
+                         "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user`, `@net:` and `@org:` receive copies" },
         "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
         "urgent_reason": { "type": "string", "description": "one line explaining why this must interrupt now" },
         "reply_to": null,
@@ -604,6 +608,9 @@ fn all() -> Vec<Value> {
         build_tool_staff(),
         build_tool_swap(),
         build_tool_self_subjugate(),
+        build_tool_export(),
+        build_tool_import(),
+        build_tool_duplicate(),
     ]
 }
 
@@ -1354,6 +1361,66 @@ fn build_tool_self_subjugate() -> Value {
     )
 }
 
+/// The three tools of docs/rust-engine/agent-export.md (USER 2026-11-23 10:32Z mb05f4fda0d92).
+#[inline(never)]
+#[nolog]
+fn build_tool_export() -> Value {
+    tool(
+        "orgtree_export",
+        "Export yourself or a node below you as one zip: settings, charters, credits, scratch folder, transcript, CLI session, watchdog definitions, docket items and documents; subtree=true takes everything under it. Written to path, in a folder you hold (default .orgtree-exports/ in your working folder). Secrets follow the app's export setting; the result lists what was detected. Sealed watchdog credentials never leave. A long export answers with job: call again with job to read it. Send the file with orgtree_message attachments.",
+        json!({
+            "node": { "type": "string", "description": "yourself (default) or a node below you" },
+            "subtree": { "type": "boolean", "description": "also everything under it (default false)" },
+            "include": { "type": "object", "additionalProperties": false, "description": "parts to take; all but retired default true",
+                "properties": { "scratch": { "type": "boolean" }, "team": { "type": "boolean" }, "transcript": { "type": "boolean" },
+                                "native_sessions": { "type": "boolean" }, "retired": { "type": "boolean" } } },
+            "path": { "type": "string", "description": "the .zip to write, relative to your working folder or absolute, in a folder you hold" },
+            "job": { "type": "string", "description": "read a running or ended export of yours instead of starting one" },
+        }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_import() -> Value {
+    tool(
+        "orgtree_import",
+        "Import an export file under yourself or a node below you (dest). preview=true returns the plan (names, tiers, clamps, credits) and its digest; apply with expect=digest. Paid from your own free credits: when saved grants do not fit, name strategy (bottom-up, top-down or even) to take spare credits away, else it is refused. Agents on a model this computer cannot staff arrive retired. Imported agents arrive idle and their watchdogs paused (resume_watchdogs=true arms those that can run anywhere). A long import answers with job: call again with job.",
+        json!({
+            "file": { "type": "string", "description": "the export, relative to your working folder or absolute: in a folder you hold, or the path of a file mailed to you" },
+            "dest": { "type": "string", "description": "the node it goes under: yourself (default) or a node below you" },
+            "index": { "type": "integer", "minimum": 0, "description": "zero-based position among dest's live children (default: the end)" },
+            "strategy": { "type": "string", "enum": ["bottom-up", "top-down", "even"] },
+            "preview": { "type": "boolean", "description": "only return the plan" },
+            "expect": { "type": "string", "description": "the digest of the plan you previewed: refused when it changed" },
+            "resume_watchdogs": { "type": "boolean" },
+            "job": { "type": "string", "description": "read a running or ended import of yours instead of starting one" },
+        }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_duplicate() -> Value {
+    tool(
+        "orgtree_duplicate",
+        "Copy a node below you, alone or with everything under it (subtree=true), inside this organization: settings, charters, credits, folders, transcript, paused watchdogs and documents; no docket items, no cost history. dest says where the copy goes (default: beside the original). Credits, preview/expect and strategy work as for orgtree_import. A long copy answers with job: call again with job.",
+        json!({
+            "node": { "type": "string", "description": "a node below you" },
+            "subtree": { "type": "boolean", "description": "also everything under it (default false)" },
+            "dest": { "type": "string", "description": "the node the copy goes under (default: where the original is)" },
+            "index": { "type": "integer", "minimum": 0 },
+            "strategy": { "type": "string", "enum": ["bottom-up", "top-down", "even"] },
+            "preview": { "type": "boolean", "description": "only return the plan" },
+            "expect": { "type": "string" },
+            "job": { "type": "string", "description": "read a running or ended copy of yours instead of starting one" },
+        }),
+        &[],
+    )
+}
+
 #[cfg(test)]
 mod project_settings_contract_tests {
     use super::*;
@@ -1604,7 +1671,9 @@ mod startup_card_tests {
             }
             // cap 12000 -> 12300 for the effort-only clause on three cards (coordinator 2026-11-08, docket agent-instructions-say-that-effort-changes-on-cl)
             // cap 12300 -> 12500 (coordinator 2026-11-09, hire/rehire/staff schema rules moved from schema to text, docket hire-rehire-and-staff-tools-vanish-on-newer-clau)
-            assert!(total <= 12500,"description total {total}");
+            // cap 12500 -> 14056 (coordinator 2026-11-23 m4d2654168ca8, docket agent-team-project-export-import-and-duplication): +1556, exactly the
+            // bytes of the three new cards (export 555, import 578, duplicate 423); no other card was trimmed or grew for it
+            assert!(total <= 14056,"description total {total}");
         }
     }
 
@@ -1705,7 +1774,7 @@ mod mail_shape_tests {
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
                 "one_time": {"type":"boolean","description":"One-time; no reply audience. Guide."},
                 "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
-                                 "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
+                                 "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user`, `@net:` and `@org:` receive copies" },
                 "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
                 "urgent_reason": { "type": "string", "description": "one line explaining why this must interrupt now" },
                 "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it. With several recipients, each gets the quote only if it belongs to that conversation." },
@@ -2085,6 +2154,16 @@ mod builder_stack_tests {
         }
         message["inputSchema"]["properties"]["metadata"]["properties"]=serde_json::Value::Object(ordered);
         message["inputSchema"]["required"]=got["inputSchema"]["required"].clone();
+        // USER 2026-11-23 20:30Z (question 13; docket agent-team-project-export-import-and-duplication):
+        // mail to `@org:` carries files. Another organization here gets copies, as the user and `@net:` do.
+        let message=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
+        let old="user/@net receive uploaded copies; @org attachments unsupported.";
+        assert!(message["description"].as_str().unwrap().contains(old));
+        message["description"]=serde_json::json!(message["description"].as_str().unwrap().replace(old,"user, @net and @org receive copies."));
+        let files=&mut message["inputSchema"]["properties"]["metadata"]["properties"]["attachments"]["description"];
+        let old="`user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported";
+        assert!(files.as_str().unwrap().contains(old));
+        *files=serde_json::json!(files.as_str().unwrap().replace(old,"`user`, `@net:` and `@org:` receive copies"));
         // Approved description-only trim; compare schemas and order unchanged.
         for (name, description) in [
             ("orgtree_work", "Docket by slug; read Guide first. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review=agents; ask(work_item)=user questions. Delete permanent/restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
@@ -2340,6 +2419,12 @@ mod builder_stack_tests {
         probe["description"] = switch["description"].clone();
         assert_eq!(*switch, probe, "orgtree_switch_model: only model_version and the description changed");
         *switch = got.clone();
+        // USER 2026-11-23 10:32Z mb05f4fda0d92 (docket agent-team-project-export-import-and-duplication): three new tools,
+        // export, import and duplicate, each after every card the capture holds. No earlier card changed for them.
+        let added: Vec<Value> = actual.iter().filter(|c| matches!(c["name"].as_str(), Some("orgtree_export" | "orgtree_import" | "orgtree_duplicate"))).cloned().collect();
+        assert_eq!(added.iter().map(|c| c["name"].as_str().unwrap()).collect::<Vec<_>>(), ["orgtree_export", "orgtree_import", "orgtree_duplicate"]);
+        assert_eq!(actual.len(), expected.as_array().unwrap().len() + 3, "only the three cards were added");
+        expected.as_array_mut().unwrap().extend(added);
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }

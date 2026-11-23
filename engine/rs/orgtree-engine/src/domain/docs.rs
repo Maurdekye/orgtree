@@ -114,7 +114,7 @@ pub(crate) struct CopyEnv {
 const REAL_ENV: CopyEnv = CopyEnv { free_space: free_bytes, copy: |from, to| std::fs::copy(from, to) };
 
 #[cfg(unix)]
-fn free_bytes(path: &Path) -> Option<u64> {
+pub(crate) fn free_bytes(path: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -122,7 +122,7 @@ fn free_bytes(path: &Path) -> Option<u64> {
     Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
 }
 #[cfg(windows)]
-fn free_bytes(path: &Path) -> Option<u64> {
+pub(crate) fn free_bytes(path: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     let mut avail = 0u64;
@@ -130,7 +130,7 @@ fn free_bytes(path: &Path) -> Option<u64> {
     (ok != 0).then_some(avail)
 }
 #[cfg(not(any(unix, windows)))]
-fn free_bytes(_path: &Path) -> Option<u64> { None }
+pub(crate) fn free_bytes(_path: &Path) -> Option<u64> { None }
 
 fn gb(bytes: u64) -> String { format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0)) }
 
@@ -180,6 +180,39 @@ pub(crate) fn snapshot_with(p: &Presenter, raw: &str, network: Option<&crate::ne
     if result.is_err() {
         let _ = std::fs::remove_file(&dest);
         let _ = std::fs::remove_dir(&folder);
+    }
+    result
+}
+
+/// Copy a checked file into `folder`, which is not the sender's: the mailbox folder of another
+/// organization on this computer, for mail to `@org:` (USER 2026-11-23 20:30Z, question 13: such
+/// mail carries attachments). The receiver's copy does not depend on the sender's folder.
+/// BLOCKING, as `snapshot` is.
+#[logged]
+pub(crate) fn snapshot_into(p: &Presenter, raw: &str, folder: &Path, most: u64) -> Result<Value> {
+    let src = readable(p, raw)?;
+    if !src.is_file() { refuse!(BadRequest, "attachment is not a file"); }
+    let size = std::fs::metadata(&src)?.len();
+    let name = src.file_name().ok_or_else(|| anyhow::anyhow!("file has no name"))?.to_string_lossy().to_string();
+    if size > most {
+        refuse!(BadRequest, "{name} is {}; a file sent to another organization holds at most {}", gb(size), gb(most));
+    }
+    std::fs::create_dir_all(folder)?;
+    // refuse before writing any of it
+    if let Some(available) = (REAL_ENV.free_space)(folder) {
+        if available < size.saturating_add(FREE_MARGIN) {
+            let _ = std::fs::remove_dir(folder);
+            refuse!(BadRequest, "{name} needs {} free on the drive that organization's mail is kept on; {} available", gb(size), gb(available));
+        }
+    }
+    let dest = folder.join(&name);
+    let result = (|| -> Result<Value> {
+        (REAL_ENV.copy)(&src, &dest)?;
+        Ok(json!({ "name": name, "path": dest.to_string_lossy(), "bytes": std::fs::metadata(&dest)?.len() }))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&dest);
+        let _ = std::fs::remove_dir(folder);
     }
     result
 }

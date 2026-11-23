@@ -479,6 +479,8 @@ pub(super) async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, si
             out.urgent_reason = Some(reason.clone());
         }
     }
+    // the folder of copies made for mail to another organization here, until the mail is sent
+    let mut org_copies: Option<std::path::PathBuf> = None;
     if !letter.attachments.is_empty() {
         out.to = mail::attachment_recipient(engine, me.org_id, to).await?;
         let network = out.to.trim().trim_start_matches('@').starts_with("net:");
@@ -493,10 +495,25 @@ pub(super) async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, si
                 let path = path.to_owned();
                 out.attachments.push(tokio::task::spawn_blocking(move || crate::domain::docs::snapshot(&owner, &path, limit.as_ref())).await??);
             }
-        } else {
-            if out.to.starts_with("@org:") || out.to.starts_with("org:") {
-                crate::refuse!(BadRequest, "attachments to another org mailbox are not supported; path references are for local agents");
+        } else if out.to.starts_with("@org:") || out.to.starts_with("org:") {
+            // another organization on this computer reads none of this one's folders: it gets copies, in
+            // its own mailbox folder (USER 2026-11-23 20:30Z, question 13). What can be refused is refused
+            // before a byte is copied.
+            let room = crate::domain::orginbox::attachment_room(engine, me.org_id, (me.id, me.name.as_str()), &out.to).await?;
+            for (index, a) in letter.attachments.iter().enumerate() {
+                let Some(path) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
+                let (owner, path, folder) = (presenter.clone(), path.to_owned(), room.join(index.to_string()));
+                let copied = tokio::task::spawn_blocking(move || crate::domain::docs::snapshot_into(&owner, &path, &folder, crate::domain::orginbox::ORG_ATTACHMENT_MAX)).await?;
+                match copied {
+                    Ok(file) => out.attachments.push(file),
+                    Err(error) => {
+                        let _ = std::fs::remove_dir_all(&room);
+                        return Err(error);
+                    }
+                }
             }
+            org_copies = Some(room);
+        } else {
             let mut refs = Vec::new();
             for a in &letter.attachments {
                 let Some(raw) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
@@ -515,7 +532,16 @@ pub(super) async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, si
     if !out.replies.is_empty() { out.reply_to = out.replies.first().cloned(); }
     // a reply over the hub links to what it answers only when that came over a hub
     let local_reply = out.reply_to.as_ref().is_some_and(|q| q.get("net_id").is_none());
-    let sent = mail::send(engine, me.org_id, out).await?;
+    let sent = match mail::send(engine, me.org_id, out).await {
+        Ok(sent) => sent,
+        Err(error) => {
+            // mail that was not sent leaves no copies in the other organization's folder
+            if let Some(room) = &org_copies {
+                let _ = std::fs::remove_dir_all(room);
+            }
+            return Err(error);
+        }
+    };
     let box_name = if to_user { "user_inbox".to_string() } else { sent.to.clone() };
     let delivery = sent.delivery.clone();
     let verb = if sent.to.starts_with("@net:") { "Queued" } else { "Sent" };

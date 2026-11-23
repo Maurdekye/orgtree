@@ -2730,6 +2730,21 @@ struct ProjectCreate {
     name: String,
 }
 
+/// A dog's inline credentials, opened, for an export that carries them
+/// (docs/rust-engine/agent-export.md, "Secrets": the user's own export that
+/// strips nothing, and a duplicate inside this engine). The value is what
+/// the sealed row holds. None when the dog has none, or they do not open
+/// with this data folder's key. Never logged.
+#[nolog]
+pub(crate) async fn export_credentials(engine: &Arc<Engine>, row: i64) -> Result<Option<Value>> {
+    let client = engine.db.get().await?;
+    let sealed: Option<Vec<u8>> = client.query_opt("SELECT sealed FROM ot.watchdog_secrets WHERE watchdog_id = $1", &[&row]).await?.map(|r| r.get(0));
+    drop(client);
+    let Some(sealed) = sealed else { return Ok(None) };
+    let plain = engine.dogs.mqtt.key(&mqtt::secrets_dir(engine)).and_then(|key| crate::mqtt::seal::unseal(&key, row, &sealed));
+    Ok(plain.ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()))
+}
+
 /// Internal restore mode only: validate through the normal creation path, but
 /// stage paused without smoke, immediate resolutions, subscriptions or runners.
 #[nolog]
