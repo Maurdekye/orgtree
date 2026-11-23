@@ -9,11 +9,13 @@ import type { ChangeEvent, ReactNode } from 'react'
 import type { ToastFn } from '../types'
 import { ProviderDialog } from './providerdialog'
 import {
-  INCLUDE_ALL, STRATEGIES, applyImport, closePortable, confirmExport, creditText, estimateText, exportEstimate, exportFileUrl, exportStatus,
-  forgetExport, forgetImport, importStatus, nodesText, overLimit, planDuplicate, planImport, planRow, resultText, secretLines, secretPlaces,
-  portableNeedsUpdate, portableUpdateText, sendImportFile, sizeText, startDuplicate, startExport, usePortableAsk,
+  INCLUDE_ALL, applyImport, closePortable, confirmExport, estimateText, exportEstimate, exportFileUrl, exportLines, exportStatus,
+  forgetExport, forgetExportWhenSaved, forgetImport, importStatus, nodesText, overLimit, planDuplicate, planImport, planNotes, planText, resultLines,
+  secretLines, secretPlaces, portableNeedsUpdate, portableUpdateText, sendImportFile, sizeText, startDuplicate, startExport, usePortableAsk,
 } from '../portable'
-import type { Estimate, ExportResult, ImportResult, Include, Job, Plan, PortableAsk, Strategy } from '../portable'
+import type { Estimate, ExportResult, ImportResult, Include, Job, Plan, PortableAsk } from '../portable'
+import { desktop } from '../desktop'
+import { downloadFile } from './filedownload'
 import { historyUndo } from '../historyregistry'
 import { olderEngine } from '../remotefiles'
 import { remoteHere } from '../remotehere'
@@ -111,6 +113,26 @@ function ExportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
   }
   const tick = (key: keyof Include) => (on: boolean) => setInclude((before) => ({ ...before, [key]: on }))
   const result = job?.result
+  // USER 2026-11-23 m84e35b23ed2e: "with no secrets, theres no intermediate modal, an operating system file
+  // selector opens automatically when finishing the export (pointed at your downlaods folder with a default
+  // name)". The same once the secrets were answered. The link below is only what is left when that fails.
+  const [unsaved, setUnsaved] = useState(false)
+  const finished = job?.state === 'done' && result ? job : null
+  useEffect(() => {
+    if (!finished?.result) return
+    let over = false
+    const { id, name: fileName, result: made } = finished
+    downloadFile(document, exportFileUrl(ask.org, id), fileName).then(() => {
+      if (over) return
+      toast(exportLines(fileName, made))
+      // the engine's copy goes when the file is saved, not when this closes
+      forgetExportWhenSaved(ask.org, id, fileName, desktop())
+      closePortable()
+    }).catch((cause: unknown) => { if (!over) { setUnsaved(true); setError(message(cause)) } })
+    return () => { over = true }
+    // once per finished job
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished?.id])
   const running = job?.state === 'running'
   const choosing = !job || job.state === 'failed'
 
@@ -118,8 +140,6 @@ function ExportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
     <ProviderDialog title={`Export ${name}`} busy={busy} close={close}>
       <div className="ls-add portable" role="group" aria-label={`Export ${name}`}>
         {choosing && <>
-          <p className="dim portable-lead">One zip file with everything of {ask.project ? 'this project' : 'this agent'}: settings, credits, folders, transcript and history.
-            It can be imported into this or another organization. Nobody is interrupted.</p>
           {(ask.hasTeam || ask.project) && <Scope name={name} subtree={subtree} set={setSubtree} disabled={busy} />}
           <div className="portable-parts" role="group" aria-label="What to take">
             <Tick label="Scratch folders" checked={include.scratch} disabled={busy} onChange={tick('scratch')} />
@@ -137,16 +157,16 @@ function ExportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
         </>}
         {running && job && <Progress job={job} />}
         {job?.state === 'confirm' && result && <div className="portable-found ask-warn" role="alertdialog" aria-label="Secrets were found">
-          <p><b>This export holds secrets, and nothing was taken out.</b> Whoever has the file can read them.</p>
+          <p><b>This export holds secrets.</b> Whoever has the file can read them.</p>
           <ul>{secretLines(result.secrets).map((line) => <li key={line}>{line}</li>)}</ul>
           <p className="dim">Found in: {secretPlaces(result.secrets).join('; ')}.</p>
-          {result.secrets.watchdog_credentials > 0 && <p>The credentials of {result.secrets.watchdog_credentials} watchdog{result.secrets.watchdog_credentials === 1 ? '' : 's'} are in the file, so the watchdogs work again after an import.</p>}
           <div className="ls-actions">
-            <button type="button" className="acct-secondary-btn" disabled={busy} onClick={() => start(true)}>Export again without them</button>
-            <button type="button" disabled={busy} onClick={keep}>Keep them in the file</button>
+            <button type="button" className="acct-secondary-btn" disabled={busy} onClick={() => start(true)}>Export without them</button>
+            <button type="button" disabled={busy} onClick={keep}>Keep them</button>
           </div>
         </div>}
-        {job?.state === 'done' && result && <div className="portable-done" role="status">
+        {job?.state === 'done' && result && !unsaved && <p className="portable-progress" role="status">Opening the Save dialog…</p>}
+        {job?.state === 'done' && result && unsaved && <div className="portable-done" role="status">
           <p><b>Ready:</b> {nodesText(result.counts)}, {sizeText(result.file_bytes)}.
             {result.secrets.stripped && result.secrets.detected > 0 ? ` ${result.secrets.detected} detected secrets were taken out.` : ''}</p>
           {result.not_included.length > 0 && <details className="portable-notes">
@@ -168,40 +188,11 @@ function ExportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
 
 // ---------------------------------------------------------------- the plan, shared by import and duplicate
 
-function PlanView({ plan, dest, strategy, setStrategy, busy }: {
-  plan: Plan; dest: string | null; strategy: Strategy; setStrategy: (strategy: Strategy) => void; busy: boolean
-}) {
-  const shrinkable = !!plan.shrunk_by || (!!plan.refusal && /strategy/.test(plan.refusal))
+function PlanView({ plan, dest }: { plan: Plan; dest: string | null }) {
+  const notes = planNotes(plan)
   return <div className="portable-plan">
-    <p role="status">{nodesText(plan)} will be created. {creditText(plan, dest)}</p>
-    {(shrinkable || plan.shrunk_by) && <label className="portable-strategy">Take spare credits away{' '}
-      <select value={strategy} disabled={busy} onChange={(event) => setStrategy(event.target.value as Strategy)}
-        title={STRATEGIES.find((s) => s.value === strategy)?.hint}>
-        {STRATEGIES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-      </select>
-    </label>}
+    <p role="status">{planText(plan, dest)}</p>
     {plan.refusal && <p className="ask-warn" role="alert">{plan.refusal}</p>}
-    <ul className="portable-nodes" aria-label="What will be created">
-      {plan.nodes.map((node) => <li key={node.name} className={node.retired ? 'retired' : undefined}>
-        <span>{planRow(node)}</span>
-        {node.retired_why && <span className="dim"> {node.retired_why}</span>}
-        {node.warnings.length > 0 && <ul className="portable-warnings">{node.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
-      </li>)}
-    </ul>
-  </div>
-}
-
-function ResultView({ result, copy }: { result: ImportResult; copy: boolean }) {
-  const notes = [...result.notes, ...result.watchdogs.notes]
-  return <div className="portable-done" role="status">
-    <p><b>{resultText(result, copy)}</b> The agents are idle; they run when someone writes to them.
-      {result.history_entry ? ' Undo takes it back.' : ''}</p>
-    {result.watchdogs.created > 0 && <p className="dim">{result.watchdogs.created} watchdog{result.watchdogs.created === 1 ? '' : 's'} came along, {result.watchdogs.paused} paused.</p>}
-    {result.leftovers.length > 0 && <div className="ask-warn" role="alert">
-      <p>Some parts could not be brought in:</p>
-      <ul>{result.leftovers.map((line) => <li key={line}>{line}</li>)}</ul>
-      {result.held.length > 0 && <p>Still held, because their transcript is missing: {result.held.join(', ')}. Unhalt them to let them run without it.</p>}
-    </div>}
     {notes.length > 0 && <details className="portable-notes"><summary>{notes.length} note{notes.length === 1 ? '' : 's'}</summary>
       <ul>{notes.map((line) => <li key={line}>{line}</li>)}</ul></details>}
   </div>
@@ -215,7 +206,6 @@ function ImportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
   const [sent, setSent] = useState(0)
   const [upload, setUpload] = useState<string | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
-  const [strategy, setStrategy] = useState<Strategy | null>(null)
   const [resume, setResume] = useState(false)
   const [job, setJob] = useState<Job<ImportResult> | null>(null)
   const [error, setError] = useState('')
@@ -233,10 +223,11 @@ function ImportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
     closePortable()
   }, [ask.org])
 
-  const ask_plan = useCallback((id: string, with_strategy: Strategy | null) => {
+  // the strategy for grants that do not fit is the app setting's, never asked here (USER m84e35b23ed2e)
+  const ask_plan = useCallback((id: string) => {
     setBusy(true); setError('')
-    planImport(ask.org, id, { dest, ...(with_strategy ? { strategy: with_strategy } : {}) })
-      .then((next) => { setPlan(next); setStrategy(next.strategy ?? next.default_strategy) })
+    planImport(ask.org, id, { dest })
+      .then(setPlan)
       .catch((cause: unknown) => setError(message(cause)))
       .finally(() => setBusy(false))
   }, [ask.org, dest])
@@ -249,51 +240,47 @@ function ImportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
     const sending = sendImportFile(ask.org, chosen, setSent)
     stop.current = sending.stop
     sending.done
-      .then((id) => { stop.current = null; setUpload(id); ask_plan(id, null) })
+      .then((id) => { stop.current = null; setUpload(id); ask_plan(id) })
       .catch((cause: unknown) => { stop.current = null; setBusy(false); setFile(null); setError(message(cause)) })
   }
-  const change = (next: Strategy) => { setStrategy(next); if (upload) ask_plan(upload, next) }
   const apply = () => {
-    if (!upload || !plan || !strategy) return
+    if (!upload || !plan) return
     setBusy(true); setError('')
-    applyImport(ask.org, upload, { dest, strategy, expect: plan.digest, resume_watchdogs: resume })
+    applyImport(ask.org, upload, { dest, strategy: plan.strategy ?? plan.default_strategy, expect: plan.digest, resume_watchdogs: resume })
       .then((next) => { setJob(next); setUpload(null) })
-      .catch((cause: unknown) => { setError(message(cause)); ask_plan(upload, strategy) })
+      .catch((cause: unknown) => { setError(message(cause)); ask_plan(upload) })
       .finally(() => setBusy(false))
   }
   useEffect(() => {
-    // the toast of an action in the undo history offers Undo, as a hire's does
-    if (job?.state === 'done' && job.result) toast([resultText(job.result, false)], historyUndo(ask.org, job.result))
+    // done: straight back to the canvas. The toast says it, with Undo as a hire's has.
+    if (job?.state !== 'done' || !job.result) return
+    toast(resultLines(job.result, false), historyUndo(ask.org, job.result))
+    closePortable()
   }, [job?.state, job?.result, toast, ask.org])
 
-  const where = dest ? `under ${dest}` : 'at the top level'
   const facts = plan?.file
   const title = dest ? `Import under ${dest}` : 'Import'
   return (
     <ProviderDialog title={title} busy={busy && !!job} close={close}>
       <div className="ls-add portable" role="group" aria-label={title}>
         {!job && <>
-          <p className="dim portable-lead">Choose a file made by Export. What it holds is created {where}, with its history and files.</p>
           <label className="portable-file">
             <input type="file" accept=".zip,application/zip" disabled={busy} onChange={pick} aria-label="The export file" />
           </label>
           {/* the field is emptied so the same file can be chosen again: the name is said here */}
           {file && plan && <p className="portable-chosen"><b>{file.name}</b> · {sizeText(file.size)}</p>}
           {file && !plan && !error && <p role="status">{upload ? 'Reading the file…' : `Sending ${file.name}: ${sizeText(sent)} of ${sizeText(file.size)}`}</p>}
-          {facts && <p className="portable-facts">From <b>{facts.from.organization || 'an organization'}</b>, exported {new Date(facts.exported_at).toLocaleString()} by {facts.from.by || 'someone'} with Orgtree {facts.orgtree_version}: {sizeText(facts.unpacked_bytes)} unpacked.</p>}
-          {facts?.foreign && <p className="ask-warn" role="alert">This file was made on another computer, or was changed since it was made. Import it only if you trust where it came from: the agents in it bring their own instructions and files.</p>}
-          {facts && facts.secrets.detected > 0 && !facts.secrets.stripped && <p className="dim">{facts.secrets.detected} secrets were detected when it was exported and left in the file.</p>}
-          {plan && strategy && <PlanView plan={plan} dest={dest} strategy={strategy} setStrategy={change} busy={busy} />}
-          {plan && facts && facts.watchdogs > 0 && <Tick label={`Arm the watchdogs that can run anywhere (${facts.watchdogs} in the file)`} checked={resume} disabled={busy} onChange={setResume}
+          {facts?.foreign && <p className="ask-warn" role="alert">This file is from another computer, or was changed. Import it only if you trust it.</p>}
+          {plan && <PlanView plan={plan} dest={dest} />}
+          {plan && facts && facts.watchdogs > 0 && <Tick label={`Arm its ${facts.watchdogs === 1 ? 'watchdog' : `${facts.watchdogs} watchdogs`}`} checked={resume} disabled={busy} onChange={setResume}
             hint="Left off, every watchdog arrives paused. Ones that watch this computer's files or need credentials stay paused either way." />}
         </>}
         {job?.state === 'running' && <Progress job={job} />}
         {job?.state === 'failed' && <p className="ask-warn" role="alert">{job.error}</p>}
-        {job?.state === 'done' && job.result && <ResultView result={job.result} copy={false} />}
         {error && <p className="ask-warn" role="alert">{error}</p>}
         <div className="ls-actions">
-          <button type="button" className="acct-secondary-btn" disabled={job?.state === 'running'} onClick={close}>{job && job.state !== 'running' ? 'Done' : 'Cancel'}</button>
-          {!job && <button type="button" disabled={busy || !plan || !plan.ok || !strategy} onClick={apply}>Import</button>}
+          <button type="button" className="acct-secondary-btn" disabled={job?.state === 'running'} onClick={close}>{job?.state === 'failed' ? 'Close' : 'Cancel'}</button>
+          {!job && <button type="button" disabled={busy || !plan || !plan.ok} onClick={apply}>Import</button>}
         </div>
       </div>
     </ProviderDialog>
@@ -306,53 +293,65 @@ function DuplicateDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
   const name = ask.node!
   const [subtree, setSubtree] = useState(!!ask.hasTeam)
   const [plan, setPlan] = useState<Plan | null>(null)
-  const [strategy, setStrategy] = useState<Strategy | null>(null)
   const [job, setJob] = useState<Job<ImportResult> | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useJobWatch(job, (id) => importStatus(ask.org, id), setJob, setError)
 
-  const ask_plan = useCallback((whole: boolean, with_strategy: Strategy | null) => {
+  const ask_plan = useCallback((whole: boolean) => {
     setBusy(true); setError('')
-    planDuplicate(ask.org, name, { subtree: whole, ...(with_strategy ? { strategy: with_strategy } : {}) })
-      .then((next) => { setPlan(next); setStrategy(next.strategy ?? next.default_strategy) })
+    planDuplicate(ask.org, name, { subtree: whole })
+      .then(setPlan)
       .catch((cause: unknown) => { setPlan(null); setError(message(cause)) })
       .finally(() => setBusy(false))
   }, [ask.org, name])
-  useEffect(() => { ask_plan(subtree, null) }, [ask_plan, subtree])
+  useEffect(() => { ask_plan(subtree) }, [ask_plan, subtree])
 
-  const change = (next: Strategy) => { setStrategy(next); ask_plan(subtree, next) }
   const apply = () => {
-    if (!plan || !strategy) return
+    if (!plan) return
     setBusy(true); setError('')
-    startDuplicate(ask.org, name, { subtree, strategy, expect: plan.digest })
+    startDuplicate(ask.org, name, { subtree, strategy: plan.strategy ?? plan.default_strategy, expect: plan.digest })
       .then(setJob)
-      .catch((cause: unknown) => { setError(message(cause)); ask_plan(subtree, strategy) })
+      .catch((cause: unknown) => { setError(message(cause)); ask_plan(subtree) })
       .finally(() => setBusy(false))
   }
   useEffect(() => {
-    if (job?.state === 'done' && job.result) toast([resultText(job.result, true)], historyUndo(ask.org, job.result))
+    // done: straight back to the canvas, as an import is
+    if (job?.state !== 'done' || !job.result) return
+    toast(resultLines(job.result, true), historyUndo(ask.org, job.result))
+    closePortable()
   }, [job?.state, job?.result, toast, ask.org])
 
+  // USER 2026-11-23 mf35a72f9c0f1: "remove unnecessary modals". With nobody under it there is nothing to choose,
+  // and a plan that fits as it is has nothing to tell: the copy is made at once, and its toast has Undo.
+  // Anything else (a refusal, grants trimmed, a note, a failure) is shown and asked.
+  const choice = !!(ask.hasTeam || ask.project)
+  const plain = !choice && !!plan && plan.ok && !plan.shrunk_by && planNotes(plan).length === 0
+  const started = useRef(false)
+  useEffect(() => {
+    if (!plain || started.current) return
+    started.current = true
+    apply()
+    // once, when the first plan is there
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plain])
   const beside = plan?.nodes[0]?.parent ?? null
+  if (!choice && !error && job?.state !== 'failed' && (!plan || plain)) return null
   return (
     <ProviderDialog title={`Duplicate ${name}`} busy={busy && !!job} close={closePortable}>
       <div className="ls-add portable" role="group" aria-label={`Duplicate ${name}`}>
         {!job && <>
-          <p className="dim portable-lead">A second {ask.project ? 'project' : 'agent'} beside this one, with the same settings, credits, folders, transcript and documents.
-            Its docket items, its cost history and its mail are not copied. {name} is not interrupted.</p>
           {(ask.hasTeam || ask.project) && <Scope name={name} subtree={subtree} set={setSubtree} disabled={busy} />}
           {!plan && !error && <p role="status">Working out what it takes…</p>}
-          {plan && strategy && <PlanView plan={plan} dest={beside} strategy={strategy} setStrategy={change} busy={busy} />}
+          {plan && <PlanView plan={plan} dest={beside} />}
         </>}
         {job?.state === 'running' && <Progress job={job} />}
         {job?.state === 'failed' && <p className="ask-warn" role="alert">{job.error}</p>}
-        {job?.state === 'done' && job.result && <ResultView result={job.result} copy />}
         {error && <p className="ask-warn" role="alert">{error}</p>}
         <div className="ls-actions">
-          <button type="button" className="acct-secondary-btn" disabled={job?.state === 'running'} onClick={closePortable}>{job && job.state !== 'running' ? 'Done' : 'Cancel'}</button>
-          {!job && <button type="button" disabled={busy || !plan || !plan.ok || !strategy} onClick={apply}>Duplicate</button>}
+          <button type="button" className="acct-secondary-btn" disabled={job?.state === 'running'} onClick={closePortable}>{job?.state === 'failed' ? 'Close' : 'Cancel'}</button>
+          {!job && <button type="button" disabled={busy || !plan || !plan.ok} onClick={apply}>Duplicate</button>}
         </div>
       </div>
     </ProviderDialog>

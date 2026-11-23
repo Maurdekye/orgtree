@@ -194,22 +194,30 @@ export function secretPlaces(report: SecretsReport, most = 6): string[] {
   return places.length > most ? [...places.slice(0, most), `and ${places.length - most} more places`] : places
 }
 
-/** The credits of a plan, in words. */
-export function creditText(plan: Plan, dest: string | null): string {
+/** A plan in as few words as it takes (USER 2026-11-23 m84e35b23ed2e: "the import window has too much text in
+ *  general, simplify it"; "if spare credits are taken, just explain how many are lost total, not in depth"):
+ *  what is created and where, what it costs, and how many spare credits are lost in all. */
+export function planText(plan: Plan, dest: string | null): string {
   const where = dest ? `under ${dest}` : 'at the top level'
-  if (plan.cost === 0) return `It costs no credits ${where}: everything in it arrives retired.`
-  const base = `It costs ${credits(plan.cost)} ${plan.cost === 1 ? 'credit' : 'credits'} ${where}`
-  const room = plan.available === null ? '' : `, of ${credits(plan.available)} that can be drawn there`
-  if (!plan.shrunk_by) return `${base}${room}.`
-  return `${base}${room}. With the saved grants it would cost ${credits(plan.full_cost)}, so spare credits were taken away.`
+  const first = plan.nodes[0]?.name ?? 'nothing'
+  const more = plan.nodes.length - 1
+  const lines = [`Creates ${first}${more > 0 ? ` and ${more} more` : ''} ${where}.`]
+  lines.push(plan.cost === 0 ? 'Costs no credits: everything arrives retired.' : `Costs ${credits(plan.cost)} ${plan.cost === 1 ? 'credit' : 'credits'}.`)
+  const lost = plan.full_cost - plan.cost
+  if (plan.shrunk_by && lost > 0) lines.push(`${credits(lost)} spare ${lost === 1 ? 'credit is' : 'credits are'} taken away.`)
+  if (plan.retired > 0 && plan.cost > 0) lines.push(`${plan.retired} ${plan.retired === 1 ? 'arrives' : 'arrive'} retired.`)
+  return lines.join(' ')
 }
 
-/** One node of a plan, as the list shows it: "lead → lead-2 · opus · grant 12 (was 20)". */
-export function planRow(node: PlanNode): string {
-  const name = node.was === node.name ? node.name : `${node.was} → ${node.name}`
-  if (node.kind === 'project') return `${name} · project${node.retired ? ' · retired' : ''}`
-  const grant = node.retired ? 'retired' : node.grant === node.saved_grant ? `grant ${credits(node.grant)}` : `grant ${credits(node.grant)} (was ${credits(node.saved_grant)})`
-  return `${name} · ${node.tier} · ${grant}`
+/** What changes on the way in, one line each, for the folded notes of a plan. The trimmed grants are not
+ *  among them: the plan says their total. */
+export function planNotes(plan: Plan): string[] {
+  const notes: string[] = []
+  for (const node of plan.nodes) {
+    if (node.retired_why) notes.push(`${node.name}: ${node.retired_why}`)
+    for (const warning of node.warnings) if (!/^grant shrunk /.test(warning)) notes.push(`${node.name}: ${warning}`)
+  }
+  return notes
 }
 
 /** What a finished import or copy says first. */
@@ -217,6 +225,40 @@ export function resultText(result: ImportResult, copy: boolean): string {
   const others = result.nodes.length - 1
   const what = others > 0 ? `${result.root} and ${count(others, 'node')} under it` : result.root
   return `${copy ? 'Copied' : 'Imported'}: ${what}.`
+}
+
+/** What the toast of a finished import or copy says: the result, then anything that did not come in. The
+ *  dialog is gone by then (USER m84e35b23ed2e: "remove the post import modal, just go straight back to the
+ *  canvas"). */
+export function resultLines(result: ImportResult, copy: boolean): string[] {
+  const lines = [resultText(result, copy)]
+  if (result.leftovers.length > 0) lines.push(`Some parts could not be brought in: ${result.leftovers.join('; ')}`)
+  if (result.held.length > 0) lines.push(`Still held, because their transcript is missing: ${result.held.join(', ')}. Unhalt them to let them run without it.`)
+  return lines
+}
+
+/** What the toast of a finished export says while its Save dialog opens. */
+export function exportLines(name: string, result: ExportResult): string[] {
+  const lines = [`Saving ${name}: ${nodesText(result.counts)}, ${sizeText(result.file_bytes)}.`]
+  if (result.secrets.stripped && result.secrets.detected > 0) lines.push(`${count(result.secrets.detected, 'detected secret')} ${result.secrets.detected === 1 ? 'was' : 'were'} taken out.`)
+  if (result.not_included.length > 0) lines.push(`${count(result.not_included.length, 'thing')} ${result.not_included.length === 1 ? 'is' : 'are'} not in it.`)
+  return lines
+}
+
+/** The part of the desktop's bridge that tells of this window's downloads. */
+export interface DownloadBridge { onEvent?: (listener: (event: { type: string; data?: unknown }) => void) => () => void }
+
+/** Let the engine's copy of a finished export go once the file has been saved, or its saving ended some other
+ *  way. A Save dialog closed with Cancel says nothing; the engine drops such a file itself after a day. */
+export function forgetExportWhenSaved(slug: string, id: string, name: string, bridge: DownloadBridge | null | undefined): void {
+  if (!bridge?.onEvent) return
+  const off = bridge.onEvent((event) => {
+    if ((event.type as string) !== 'remote-file-download') return
+    const news = event.data as { name?: string; state?: string } | undefined
+    if (!news || news.name !== name || news.state === 'progressing') return
+    off()
+    void forgetExport(slug, id).catch(() => {})
+  })
 }
 
 /** The first Orgtree whose engine can export, import and duplicate. */
