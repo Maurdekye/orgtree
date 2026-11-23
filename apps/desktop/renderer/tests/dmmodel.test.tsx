@@ -8,7 +8,7 @@
 import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dmChats, dmClose, dmNodes, dmTimeline } from '../src/dm/model'
+import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmTimeline } from '../src/dm/model'
 import type { DmChat } from '../src/dm/model'
 import type { AskInfo, AudienceGrant, InboxPayload, MailEntry, TreeNode, TreePayload } from '../src/types'
 
@@ -161,9 +161,69 @@ test('closing: only an audience grant can be closed, and no top-level chat leave
     openAsks: [], doneAsks: [] }).find(c => c.peer === 'pooled')
   assert.ok(pooled, 'an agent whose audience comes through its project has a chat once it has written')
   assert.equal(pooled!.inherited, 'pool')
-  const viaProject = dmClose(pooled!)
-  assert.equal(viaProject.can, false, 'it holds no grant of its own')
-  assert.match(viaProject.title, /pool/)
+  // (what its close does is the next section: USER 2026-11-23 m0ca89ba635fd)
+})
+
+// ---- audiences that come through a project (USER 2026-11-23 m0ca89ba635fd) ----
+
+const via = (...projects: string[]) => ({ audiences_inherited: projects.map(p => ({ grantor: USER, project: p })) })
+/** desk is a project under lead holding the user's audience: clerk reaches the
+ *  user only through it, runner also holds its own grant; crew is a top-level
+ *  project, so its member is top-level */
+const DESK = dmNodes({ slug: 'mine', roots: [
+  node('lead', [project('desk', [node('clerk', [], via('desk')), node('runner', [], via('desk'))])]),
+  project('crew', [node('member', [], via('crew'))]),
+] } as unknown as TreePayload)
+const deskChats = (grants: AudienceGrant[], selected?: string) => dmChats({
+  nodes: DESK, grants, box: box({ delivered: [mail('k1', 'clerk', '2026-11-20T10:00:00Z')] }), openAsks: [], doneAsks: [], selected })
+
+test('a chat knows every project its audience comes through, with or without a grant of its own', () => {
+  const list = deskChats([grant('desk'), grant('runner'), grant('crew')])
+  assert.deepEqual(chat(list, 'clerk').via, ['desk']); assert.equal(chat(list, 'clerk').grant, false)
+  assert.deepEqual(chat(list, 'runner').via, ['desk']); assert.equal(chat(list, 'runner').grant, true)
+  assert.deepEqual(chat(list, 'lead').via, [], 'an agent under no such project has none')
+  // a project whose grant is gone (revoked a moment ago) is no route, whatever the last tree says
+  assert.deepEqual(chat(deskChats([grant('runner'), grant('crew')]), 'runner').via, [])
+})
+
+test('closing an agent that reaches the user only through a project closes that project\u2019s audience', () => {
+  const clerk = dmClose(chat(deskChats([grant('desk')]), 'clerk'))
+  assert.equal(clerk.can, true); assert.equal(clerk.revokes, 'desk'); assert.equal(clerk.project, true); assert.equal(clerk.stays, false)
+  assert.match(clerk.title, /clerk reaches you only through project desk: closing revokes that project's audience with you\./)
+  // a top-level agent that inherits only: the same close, and its chat stays
+  const member = dmClose(chat(deskChats([grant('crew')]), 'member'))
+  assert.equal(member.revokes, 'crew'); assert.equal(member.project, true); assert.equal(member.stays, true)
+  assert.match(member.title, /The chat stays/)
+})
+
+test('with both a grant and a project\u2019s audience, the first close revokes its own grant and the second the project\u2019s', () => {
+  const first = dmClose(chat(deskChats([grant('desk'), grant('runner')]), 'runner'))
+  assert.equal(first.can, true); assert.equal(first.revokes, undefined, 'its own grant'); assert.equal(first.project, undefined)
+  assert.equal(first.stays, true, 'it still reaches the user through the project')
+  assert.match(first.title, /Revoke runner's own audience with you\. It still reaches you through project desk: closing again revokes that project's audience\./)
+  const second = dmClose(chat(deskChats([grant('desk')], 'runner'), 'runner'))
+  assert.equal(second.revokes, 'desk'); assert.equal(second.project, true)
+})
+
+test('closing a project\u2019s chat revokes the project\u2019s grant, and says who else loses the audience', () => {
+  const desk = dmClose(chat(deskChats([grant('desk'), grant('runner')]), 'desk'))
+  assert.equal(desk.can, true); assert.equal(desk.project, true); assert.equal(desk.revokes, undefined)
+  assert.deepEqual(dmAudienceLoss(DESK, [grant('desk'), grant('runner')], 'desk'), ['clerk'],
+    'clerk reaches the user only through it; runner keeps its own grant')
+  assert.deepEqual(dmAudienceLoss(DESK, [grant('desk')], 'desk'), ['clerk', 'runner'])
+  assert.deepEqual(dmAudienceLoss(DESK, [grant('crew')], 'crew'), [], 'a top-level agent keeps its direct line: nobody else loses anything')
+})
+
+test('several projects: all are listed, and each close revokes the next one', () => {
+  // not reachable today (a member inherits from its direct project only); the rule holds if that changes
+  const nodes = dmNodes({ slug: 'mine', roots: [
+    node('lead', [project('a', [project('b', [node('deep', [], via('a', 'b'))])])]),
+  ] } as unknown as TreePayload)
+  const of = (grants: AudienceGrant[]) => dmChats({ nodes, grants, box: box(), openAsks: [], doneAsks: [], selected: 'deep' }).find(c => c.peer === 'deep')!
+  assert.deepEqual(of([grant('a'), grant('b')]).via, ['a', 'b'])
+  assert.equal(dmClose(of([grant('a'), grant('b')])).revokes, 'a', 'the first listed goes first')
+  assert.equal(dmClose(of([grant('b')])).revokes, 'b', 'then the next')
+  assert.equal(dmClose(of([])).can, false, 'and then there is nothing left to revoke')
 })
 
 test('a sender without an audience shows only while something of its waits, or while it is the open chat', () => {

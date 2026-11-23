@@ -725,3 +725,127 @@ test('a reference to the queue\u2019s copy of a message opens the project\u2019s
   assert.equal(entry('j1')?.classList.contains('flash'), true, 'the message the copy was made from is shown')
   assert.deepEqual(s.state.toasts, [], 'and nothing says the mail is gone')
 })
+
+// ---- audiences that come through a project (USER 2026-11-23 m0ca89ba635fd) ----
+
+const inheritsFrom = (p: string) => ({ audiences_inherited: [{ grantor: USER, project: p }] })
+/** desk is a project under lead with the user's audience; clerk reaches the user only through it, runner also holds its own grant */
+const deskTree = () => tree({ roots: [
+  node('lead', [projectNode('desk', [node('clerk', [], inheritsFrom('desk')), node('runner', [], inheritsFrom('desk'))])]),
+] })
+const deskWorld = (): World => ({
+  audiences: [grant('desk'), grant('runner')],
+  delivered: [mail('k1', 'clerk', '2026-11-20T10:00:00Z')],
+})
+const hover = async (el: Element | null | undefined, on: boolean) => {
+  assert.ok(el, 'the control is on screen')
+  await inAct(async () => { el!.dispatchEvent(new W.MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true })); await flush(2) })
+}
+const losing = () => [...document.querySelectorAll<HTMLElement>('.dm-row.losing')].map(r => r.dataset.dmChat)
+
+test('an audience through a project reads "via" the project link; with its own grant too, "(and via …)"', async (t) => {
+  const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
+  await s.openChat('clerk')
+  const l1 = () => document.querySelector<HTMLElement>('.dm-head .dm-who-l1')!
+  assert.match(l1().querySelector('.badge.aud-user')?.textContent ?? '', /audience/, 'the audience badge')
+  assert.match(l1().querySelector('.dm-via-projects')?.textContent ?? '', /^via\s*desk$/)
+  const link = l1().querySelector<HTMLElement>('.dm-via-projects .ref-chip')
+  assert.equal(link?.getAttribute('data-copy-agent-name'), 'desk', 'the project is the project link')
+  assert.equal(link?.querySelector('.project-mark') !== null, true, 'with the project\'s own mark')
+  await s.click(link, 'the project link')
+  assert.deepEqual(s.state.focused, ['desk'])
+  await s.openChat('runner')
+  assert.match(l1().querySelector('.dm-via-projects')?.textContent ?? '', /^\(and via\s*desk\)$/, 'its own grant comes first')
+})
+
+test('hovering a project\'s close marks every agent that would lose the audience; closing asks first, once', async (t) => {
+  const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
+  const close = s.row('desk')!.querySelector<HTMLButtonElement>('.dm-row-close')
+  await hover(close, true)
+  assert.deepEqual(losing().sort(), ['clerk', 'desk'], 'the project and clerk; runner keeps its own grant')
+  await hover(close, false)
+  assert.deepEqual(losing(), [], 'the mark goes with the pointer')
+  await s.click(close, 'the project\'s close')
+  assert.equal(s.confirms.length, 1, 'the one close that asks')
+  assert.match(s.confirms[0]!, /Revoke project desk's audience with you\?[\s\S]*1 agent reaches you only through it and loses its audience too: clerk\./)
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'desk' }])
+})
+
+test('declining the confirmation revokes nothing', async (t) => {
+  const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
+  window.confirm = (text?: string) => { s.confirms.push(String(text)); return false }
+  await s.click(s.row('desk')!.querySelector('.dm-row-close'), 'the project\'s close')
+  assert.equal(s.confirms.length, 1)
+  assert.equal(posts(s.server.calls, /\/audiences$/).length, 0)
+  assert.equal(s.row('desk') !== undefined, true, 'the chat is still there')
+})
+
+test('a project whose close takes the audience from nobody else asks nothing', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.click(s.row('crew')!.querySelector('.dm-row-close'), 'the close of crew')
+  assert.equal(s.confirms.length, 0, 'its members are top-level and keep their direct line')
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'crew' }])
+})
+
+test('the close of an agent that reaches the user only through a project is that project\'s close', async (t) => {
+  const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
+  await s.openChat('clerk')
+  const close = document.querySelector<HTMLButtonElement>('.dm-head .dm-close')
+  assert.equal(close?.disabled, false)
+  assert.match(close?.getAttribute('title') ?? '', /clerk reaches you only through project desk/)
+  await hover(close, true)
+  assert.deepEqual(losing().sort(), ['clerk', 'desk'], 'the same mark as on the project\'s own close')
+  await s.click(close, 'the close in clerk\'s chat')
+  assert.equal(s.confirms.length, 1, 'and the same question')
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'desk' }], 'the PROJECT\'s grant, not clerk\'s')
+})
+
+test('with a grant of its own and a project\'s audience: the first close revokes its own grant without asking, the second the project\'s', async (t) => {
+  const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
+  await s.openChat('runner')
+  const close = () => document.querySelector<HTMLButtonElement>('.dm-head .dm-close')
+  await hover(close(), true)
+  assert.deepEqual(losing(), [], 'the first close affects nobody else')
+  await s.click(close(), 'the first close')
+  assert.equal(s.confirms.length, 0)
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'runner' }])
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'runner', 'its chat stays: it still reaches the user through the project')
+  assert.match(document.querySelector('.dm-head .dm-via-projects')?.textContent ?? '', /^via\s*desk$/, 'now through the project only')
+  await s.click(close(), 'the second close')
+  assert.equal(s.confirms.length, 1, 'the project\'s close asks: clerk and runner lose the audience')
+  assert.match(s.confirms[0]!, /2 agents reach you only through it and lose their audience too: clerk, runner\./)
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body)[1], { action: 'revoke', node: 'desk' })
+})
+
+// ---- the row's own menu, and the system's chip (USER 2026-11-23 mf47548121ae5) ----
+
+const rowMenu = async (row: HTMLElement | undefined) => {
+  assert.ok(row, 'the row is on screen')
+  await inAct(async () => { row!.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); await flush(6) })
+  // the newest top-level menu: each row owns its menu
+  const menu = [...document.querySelectorAll('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu')).pop()
+  return menu ? [...menu.children].flatMap(c => c.matches('[role="separator"]') ? [] : [(c.querySelector('[role="menuitem"]') ?? c).textContent?.trim() ?? '']) : null
+}
+
+test('a chat row\'s menu has "Agent…" for an agent and "Project…" for a project, and neither for the system\'s chat', async (t) => {
+  const s = await setup(t, { ...crewWorld(), delivered: [mail('sys1', '@system', '2026-11-20T09:00:00Z')] }, { tree: crewTree(), active: false })
+  const agent = await rowMenu(s.row('member'))
+  const has = (list: string[] | null, label: string) => !!list?.some(x => x.startsWith(label))
+  assert.equal(agent?.[0], 'Open chat'); assert.equal(has(agent, 'Agent…'), true); assert.equal(has(agent, 'Project…'), false)
+  await inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(4) })
+  const proj = await rowMenu(s.row('crew'))
+  assert.equal(has(proj, 'Project…'), true); assert.equal(has(proj, 'Agent…'), false)
+  assert.equal(proj?.includes('Revoke the project’s audience'), true, 'what its close does, by name')
+  await inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(4) })
+  const system = await rowMenu(s.row('@system'))
+  assert.deepEqual(system, ['Open chat'], 'the system is no agent: no such entry')
+})
+
+test('the system\'s chat wears an S in the chip a model letter is drawn in', async (t) => {
+  const s = await setup(t, { delivered: [mail('sys1', '@system', '2026-11-20T09:00:00Z')] }, { active: false })
+  const chip = s.row('@system')!.querySelector('.dm-av .tier.letter-chip')
+  assert.equal(chip?.textContent, 'S')
+  assert.equal(s.row('lead')!.querySelector('.dm-av .tier.letter-chip') !== null, true, 'POSITIVE CONTROL: an agent\'s letter is that chip')
+  await s.openChat('@system')
+  assert.equal(document.querySelector('.dm-head .dm-av .tier.letter-chip')?.textContent, 'S', 'in its header too')
+})

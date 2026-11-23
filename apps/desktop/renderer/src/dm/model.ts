@@ -92,6 +92,11 @@ export interface DmChat {
   grant: boolean
   /** the project its audience with the user comes through, when it has one */
   inherited: string | null
+  /** every project it inherits the user's audience through, whether or not it
+   *  also holds its own grant (USER 2026-11-23 m0ca89ba635fd). The engine
+   *  gives a member its direct project's audience only, so this is one name
+   *  today; the list is what the label and the close rule read. */
+  via: string[]
   /** unread mail from it */
   unread: number
   /** its open requests */
@@ -317,6 +322,7 @@ export function dmChats(input: DmInput): DmChat[] {
       topLevel: !!node && node.state === 'live' && topLevelAgent(nodes, node),
       grant: granted.has(peer),
       inherited: granted.has(peer) ? null : inherited,
+      via: [],
       unread: list.filter(e => e.unread && e.mail).length,
       asks: list.filter(e => e.unread && e.ask).length,
       entries: list,
@@ -377,6 +383,12 @@ export interface DmClose {
   stays: boolean
   /** closing answers a pending audience request with no, instead of revoking */
   deny?: boolean
+  /** whose grant the close revokes, when not the chat's own counterparty: the
+   *  project an agent's only audience comes through */
+  revokes?: string
+  /** the grant revoked is a PROJECT's: its agents lose the audience they have
+   *  through it, so the control highlights them and may ask first */
+  project?: boolean
   title: string
 }
 
@@ -407,6 +419,12 @@ export function dmClose(chat: DmChat): DmClose {
   }
   return { can: false, stays: false,
     title: `${chat.peer} holds no audience with you. This chat leaves the list once nothing of its waits on you.` }
+}
+
+/** The agents that lose their audience with the user when `project`'s grant is revoked. */
+export function dmAudienceLoss(_nodes: ReadonlyMap<string, DmNode>, _grants: readonly AudienceGrant[] | null,
+  _project: string): string[] {
+  return []
 }
 
 /** How many things wait on the user across the listed chats. */
