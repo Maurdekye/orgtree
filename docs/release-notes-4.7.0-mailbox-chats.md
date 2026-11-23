@@ -7,6 +7,8 @@
 - **An audience request is a new chat**, at the top of the list. Approve or deny it in the chat, or just write back, which approves it.
 - **A project's chat is one thread.** Your message to a project shows whether it waits in the queue or which agent holds it, and that agent's answer appears in the same chat under its name. Reply on an agent's bubble to write to that agent, or follow up on your own message to reach the agent holding it. A megaphone send shows in each member's chat and once in the project's chat, in teal.
 - **Your follow-up to a project now reaches the agent already working on it.** Before, a second message to a project was always a new job for any listener.
+- **Agents that reach you through a project sit under it** in the list, indented, and say **via** the project. Closing a project's audience shows who would lose theirs and asks first when anyone would; every other close still acts at once.
+- **Right-click a chat** for the agent's or project's full menu.
 - **Each chat has the agent's controls**: its name is a link to the agent, a gear opens its settings, and its fast mode and effort are in the message box.
 - **Agents answer you by mail.** A new message you type in a chat tells the agent to reply by mail, so its answer shows up in the chat.
 - **Replying to a presentation or a ticket opens that agent's chat**, with your reply as the latest message. You can turn this off in App settings > Display > Mailbox.

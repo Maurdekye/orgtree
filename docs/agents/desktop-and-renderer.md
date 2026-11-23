@@ -64,6 +64,18 @@ are a second view over the same reads and calls.
   project's chat only while the copy it answers is inside the loaded sent mail (older ones fall back to the
   agent's chat); megaphone teal is `color-mix(in srgb, #3fd0b6 36%, var(--bg))`, in the chats only.
 
+- AUDIENCES THROUGH A PROJECT (USER m0ca89ba635fd, ma97ab61a248c, mf47548121ae5): `DmChat.via` lists the
+  projects a node inherits through, minus any the audiences read no longer grants (so a revoke shows at
+  once); `parent` and `kids` group an inherited-only agent under its project, and `dmChats` returns the list
+  already in drawing order. `dmClose` returns `revokes` and `project`; the panel asks `window.confirm` only
+  when `dmAudienceLoss` is not empty (`projectCloseConfirm`). The hover mark is the `losing` class on rows.
+  The fold is panel state, as the docket's. A row's menu is its own (`nodeMenuAction` for Agent… / Project…);
+  the row carries `agentTooltipProps`, no longer `agentNavProps`, so the flat agent menu is not added to it.
+  CHOICES: an agent with its own grant and a top-level agent are not counted as losing the audience and are
+  not listed under the project; a top-level agent that inherits only keeps its chat after the project's
+  close; a silent inherited-only agent still has no chat, so a project with silent agents is a plain row; a
+  folded row counts what it hides and an open one does not; the system's chat keeps the name Orgtree.
+
 [verified: `tests/dmmodel.test.tsx`, `tests/dmpanel.test.tsx`, `appsettings` §3c, `scopedmodals`, `gallery` §11,
 `docket` §13 and §13d; engine `cargo test dm_panel`; the capture receipt named in the hand-in]
 

@@ -2784,4 +2784,10 @@ still to come. See the current
     (c) a relayed job's mail row shows `queue.relayed_from {name, job}`, read-only. NOT carried over from
     the org mailbox: an answer goes out under the agent's own name, and a project's direct members do
     inherit the user's audience, so a member may also write to the user unprompted (that mail stays in its
-    own chat).
+    own chat). AUDIENCES THROUGH A PROJECT (USER m0ca89ba635fd, ma97ab61a248c, mf47548121ae5): an agent that
+    reaches the user only through a project is listed under that project's chat, reads "via" the project,
+    and its close is the project's close; with its own grant too it reads "(and via …)" and loses its own
+    grant first. Revoking a PROJECT's audience marks on hover who loses theirs and asks first when anyone
+    does: the ONE exception to "no confirmation". A member inherits from its direct project only
+    (migration 0032), so "several projects" cannot occur today; the label and the close rule take a list.
+    A chat row's menu has "Agent…" or "Project…", the node's canvas menu. Frontend only.
