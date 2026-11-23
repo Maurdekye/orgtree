@@ -31,6 +31,7 @@ import { ReplySelectionSurface } from './replyselection'
 import type { SelectionTarget } from '../replySelection'
 type PresentationReplyTarget = ReplyTarget | SelectionTarget | (ReplyTarget | SelectionTarget)[]
 import { sendLinkedReply } from '../events/reply'
+import { replySentOnObject } from '../mailboxpref'
 import type { ReplyTarget } from '../generated/events'
 import type { ToastFn, TreeNode } from '../types'
 import { CloseIcon, DocIcon } from '../icons'
@@ -694,9 +695,12 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
                 onSend={(text, attachments, notice, broadcast, objectTarget, selections) => {
                   const target: PresentationReplyTarget = selections?.length ? [...(objectTarget?[objectTarget]:[]),...selections] : objectTarget ?? { kind: 'document', org: slug, id: row.id }
                   if (broadcast && onBroadcast) return onBroadcast(row.node, text, target, attachments, notice)
-                  if (onReply) return onReply(row.node, text, target, attachments, notice)
+                  // a reply to this presentation went to its agent: its chat opens on it
+                  // (mailboxpref.ts; the megaphone above goes to no one agent)
+                  if (onReply) return Promise.resolve(onReply(row.node, text, target, attachments, notice))
+                    .then((r) => { replySentOnObject(slug, row.node); return r })
                   return sendLinkedReply(slug, row.node, text, target, attachments, notice)
-                    .then((r) => { if (r.warnings?.length) toast(r.warnings) })
+                    .then((r) => { if (r.warnings?.length) toast(r.warnings); replySentOnObject(slug, row.node) })
                     .catch((e: Error) => {
                       toast([`error: ${e.message}`])
                       throw e

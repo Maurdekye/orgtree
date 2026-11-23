@@ -56,6 +56,7 @@ import { AgentName, nodeTierOf } from './identity'
 import { DocketSelection, DocketSelectionContext } from './docketselection'
 import { MailReplyBox } from './mail'
 import { sendLinkedReply } from '../events/reply'
+import { replySentOnObject } from '../mailboxpref'
 import { inlineMd, jumpKey, md, useEsc } from './shared'
 import { RefMdBody } from './refmd'
 import type { MentionWorld } from './refmd'
@@ -3133,6 +3134,9 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
                     // did (r.notice), never what the toggle asked for.
                     : r.notice ? `sent to ${sentTo} as a notice`
                       : `sent to ${sentTo}`, ...(r.warnings ?? [])])
+                  // a reply to this ticket went to that agent: its chat opens on it
+                  // (mailboxpref.ts); one that waits for a rehire reached nobody yet
+                  if (!r.deferred && sentTo) replySentOnObject(slug, sentTo)
                   setReplyTo(currentOwner.current)
                 })
                 .catch((e: Error) => {
