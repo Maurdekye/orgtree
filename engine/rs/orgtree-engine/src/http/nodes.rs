@@ -193,6 +193,19 @@ pub struct MessageBody {
     urgent: bool,
     #[serde(default)]
     urgent_reason: Option<String>,
+    /// Where the user typed it, when the agent is told: `dm` is a new message
+    /// typed in the user's chats (USER 2026-11-23 m79c022311f95). Any other
+    /// value, and an older window that sends none, is ordinary mail.
+    #[serde(default)]
+    surface: Option<String>,
+}
+
+/// Whether a user's message is marked as typed in their chats (the DM panel).
+/// Only a NEW message is: a reply already says what it answers, and a notice
+/// expects no reply (USER 2026-11-23 m034b5c83b8f2, "all accepted").
+#[nolog]
+fn dm_panel_mark(_surface: Option<&str>, _notice: bool, _reply: bool) -> bool {
+    false
 }
 
 #[logged]
@@ -1866,5 +1879,20 @@ mod stream_download_tests {
         assert!(r.is_err());
         let d = std::env::temp_dir();
         assert!(stream_download(&d).await.is_err(), "a folder is not a download");
+    }
+}
+
+#[cfg(test)]
+mod dm_panel_mark_tests {
+    use super::dm_panel_mark;
+
+    #[test]
+    fn only_a_new_message_typed_in_the_chats_is_marked() {
+        assert!(dm_panel_mark(Some("dm"), false, false), "a new message from the DM panel");
+        assert!(!dm_panel_mark(Some("dm"), true, false), "a notice expects no reply");
+        assert!(!dm_panel_mark(Some("dm"), false, true), "a reply is not marked");
+        assert!(!dm_panel_mark(None, false, false), "an older window, or any other composer");
+        assert!(!dm_panel_mark(Some("desk"), false, false), "an unknown surface is ordinary mail");
+        assert!(!dm_panel_mark(Some("DM"), false, false), "the value is exact");
     }
 }

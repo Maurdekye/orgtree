@@ -183,6 +183,9 @@ pub struct Outgoing {
     pub wake: bool,
     /// G1: stamped on a job-scoped reply (`{job, project}`) so its recipient may answer back (G2).
     pub job_reply: Option<Value>,
+    /// A new message the user typed in their chats (the DM panel): stored as
+    /// `extra.surface = "dm"`, read back for the agent's wrapper line.
+    pub dm_panel: bool,
 }
 
 #[logged]
@@ -208,6 +211,7 @@ impl Outgoing {
             one_time: false,
             wake: true,
             job_reply: None,
+            dm_panel: false,
         }
     }
 
@@ -947,5 +951,19 @@ mod direct_contact_tests {
     fn user_typed_lifecycle_is_not_direct_contact() {
         assert!(!direct_user_contact(&From::User, Some(&json!({"variant":"lifecycle.hired"}))));
         assert!(!direct_user_contact(&From::User, None));
+    }
+}
+
+#[cfg(test)]
+mod dm_panel_extra_tests {
+    use super::{From, Outgoing};
+    use serde_json::json;
+
+    #[test]
+    fn a_dm_panel_message_stores_its_surface_and_ordinary_mail_stores_none() {
+        let mut out = Outgoing::new(From::User, "worker", "hello");
+        assert_eq!(out.delivery_extra(), json!({}), "ordinary mail keeps an empty extra");
+        out.dm_panel = true;
+        assert_eq!(out.delivery_extra(), json!({ "surface": "dm" }));
     }
 }

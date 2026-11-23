@@ -882,3 +882,49 @@ mod outside_language_tests {
         assert_eq!(crate::net::language_in([bad.as_slice(), good.as_slice()], "dana.he.77aa01").as_deref(), Some("he"));
     }
 }
+
+#[cfg(test)]
+mod dm_panel_tests {
+    use super::*;
+    use serde_json::json;
+
+    const LINE: &str = "↳ Sent from the user's DM panel, which shows only mail. Always answer with at least one \
+orgtree_message to user; a reply only in your turn's text does not appear there.";
+
+    fn row(extra: Value, notice: bool, sender: &str) -> Value {
+        json!({ "uid": "m1", "sender": sender, "kind": "message", "body": "hello", "notice": notice,
+                "created_at": "2026-11-23T20:00:00Z", "attachments": [], "extra": extra })
+    }
+
+    fn block(m: &Mail) -> String {
+        mail_block(&[m], &HashMap::new(), true)
+    }
+
+    /// USER 2026-11-23 m79c022311f95, wording accepted m034b5c83b8f2: a new
+    /// message from the DM panel tells the agent to answer by mail to the user.
+    #[test]
+    fn a_message_typed_in_the_users_chats_says_to_answer_by_mail() {
+        let m = crate::runtime::actor::mail_of(&row(json!({ "surface": "dm" }), false, "@user"));
+        assert!(m.dm_panel, "the stored surface is read back");
+        let text = block(&m);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[1].starts_with("FROM user ("), "{text}");
+        assert_eq!(lines[2], LINE, "one line, right under the header");
+        assert_eq!(lines[3], "hello");
+        assert_eq!(text.matches("DM panel").count(), 1);
+    }
+
+    #[test]
+    fn ordinary_mail_a_notice_and_another_senders_mail_say_nothing_of_the_panel() {
+        let plain = crate::runtime::actor::mail_of(&row(json!({}), false, "@user"));
+        assert!(!plain.dm_panel);
+        assert!(!block(&plain).contains("DM panel"));
+        // defence in depth: the send path never marks these, and the wrapper does not trust a stray mark either
+        let notice = crate::runtime::actor::mail_of(&row(json!({ "surface": "dm" }), true, "@user"));
+        assert!(!block(&notice).contains("DM panel"), "a notice expects no reply");
+        let agent = crate::runtime::actor::mail_of(&row(json!({ "surface": "dm" }), false, "lead"));
+        assert!(!block(&agent).contains("DM panel"), "only the user's own mail");
+        let other = crate::runtime::actor::mail_of(&row(json!({ "surface": "desk" }), false, "@user"));
+        assert!(!other.dm_panel && !block(&other).contains("DM panel"));
+    }
+}
