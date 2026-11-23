@@ -150,6 +150,10 @@ import {
   FolderIcon, LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
   StopIcon, StorageIcon, WarnIcon,
 } from './icons'
+import { MailboxIcon } from './dm/mailboxicon'
+import { ClassicMailboxToggle } from './dm/classictoggle'
+import { DmPanel } from './dm/DmPanel'
+import { onChatRequest, useClassicMailbox } from './mailboxpref'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
 import { activeDocCount, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
@@ -388,7 +392,9 @@ export function AskBell({ tree, onOpen, label }: {
       title={(pip?.title ?? 'your inbox')
         + (waiting ? ` — ${rows.length} request(s) still waiting on you` : '')}
       onClick={onOpen}>
-      <MailIcon fontSize="inherit" />
+      {/* the panel's own icon: a chat bubble, or the mail icon while the
+          classic mailbox is chosen (USER 2026-11-22 m200806e4af28) */}
+      <MailboxIcon />
       {waiting && <i className="attn-dot" aria-hidden="true" />}
       {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
         {pip.count}</b>}
@@ -511,6 +517,9 @@ export default function App() {
   // the mail a chat link or a reference targets — a REQUEST, so a second
   // click on the same message is a second request (`jumpTo` in shared.ts)
   const [inboxJump, setInboxJump] = useState<JumpReq | null>(null)
+  // "open this agent's chat": a reply sent on a presentation or a ticket asks
+  // for it (mailboxpref.ts `replySentOnObject`, USER 2026-11-23 me0241bccf7b4)
+  const [chatAsk, setChatAsk] = useState<{ org: string; peer: string; seq: number } | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [doomedOrg, setDoomedOrg] = useState<OrgListEntry | null>(null)   // org row pending deletion
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
@@ -631,6 +640,20 @@ export default function App() {
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
   usePersistedModalOpen('inbox', slug, showInbox)
+  useEffect(() => onChatRequest((org, peer) => {
+    if (!slug || org !== slug) return
+    // ⚠ THE CHAT WOULD OPEN BEHIND THE READER THE REPLY WAS TYPED IN. The
+    // docket and the presentations are the same `.overlay` layer and are drawn
+    // after the inbox, so a centred one gives way, as it does on its way to a
+    // mail (the docket's `onOpenMail` below). A PINNED reader covers nothing
+    // and stays beside the chat.
+    closeIfCentred('gallery', () => setShowGallery(false), slug)
+    closeIfCentred('docket', () => { setShowDocket(false); setDocketJump(null) }, slug)
+    setChatAsk({ org, peer, seq: Date.now() })
+    setInboxJump(null)
+    setShowInbox(true)
+    raisePinnedModal('inbox', slug)
+  }), [slug])
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
   // every org-docket open and close is logged, from any path (attract/docketlog.ts)
@@ -2263,7 +2286,7 @@ export default function App() {
                   target={settingsTarget} close={closeOrgSettings} />
               )}
               {showInbox && (
-                <InboxPanel slug={slug} tree={tree} toast={toast}
+                <UserMailbox slug={slug} tree={tree} toast={toast} openChat={chatAsk?.org === slug ? chatAsk : null}
                   refresh={() => refreshTree(slug)}
                   jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq}
                   onFocusAgent={(id) => {
@@ -3086,21 +3109,42 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
   return useRefRoutes(slug, nodes, { ...routes, tierOf, view: tree?.foreground })
 }
 
-/** THE USER'S MAILBOX PANEL. RED-COMMIT SEAM: today's mailbox, under the name
- *  the 4.7.0 chats will be mounted by. `openChat` is accepted and ignored. */
+/** THE USER'S MAILBOX PANEL. Since 4.7.0 it is the user's chats (dm/DmPanel.tsx:
+ *  one chat per agent that can write to the user, like Hubchat); the classic
+ *  mailbox below is one checkbox away, in this panel's title bar and in App
+ *  settings > Display (USER 2026-11-22 m200806e4af28, m1454e651500e). Both read
+ *  and write the same mail: the choice is a view, saved on this computer for
+ *  every org (mailboxpref.ts).
+ *
+ *  `openChat` asks the chats for one agent's chat (a reply sent on a
+ *  presentation or a ticket); the classic mailbox has no such place. */
 export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
   openChat?: { peer: string; seq: number } | null
 }) {
-  return <InboxPanel {...props} />
+  const classic = useClassicMailbox()
+  const toggle = <ClassicMailboxToggle />
+  const { openChat, ...mail } = props
+  return classic
+    ? <InboxPanel {...mail} headerActions={toggle} />
+    : <UserChats {...props} headerActions={toggle} />
+}
+
+function UserChats({ slug, tree, onFocusAgent, onOpenItem, onOpenDoc, onOpenMail, ...rest }:
+  Parameters<typeof UserMailbox>[0]) {
+  // the same reference world the classic mailbox's bodies are read against
+  const refs = useShellRefs(slug, tree, { onOpenItem, onFocusAgent, onOpenDoc, onOpenMail })
+  return <DmPanel slug={slug} tree={tree} refs={refs} onFocusAgent={onFocusAgent} {...rest} />
 }
 
 export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
-  onFocusAgent, onOpenItem, onOpenDoc, onOpenMail }: {
+  onFocusAgent, onOpenItem, onOpenDoc, onOpenMail, headerActions }: {
   slug: string
   tree: TreePayload
   toast: ToastFn
   refresh?: () => void
   close: () => void
+  /** the title bar's actions: the switch between this mailbox and the chats */
+  headerActions?: ReactNode
   jumpTo: string | null
   /** the request's own identity, so a repeat click is a new request */
   jumpSeq?: number | null
@@ -3329,7 +3373,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   }
   return (
     <PinFrame kind="inbox" title="Your inbox" panel="settings wide"
-      close={close}>
+      close={close} headerActions={headerActions}>
         <h3><MailIcon fontSize="inherit" /> Your inbox</h3>
         {userReqs.length > 0 && (
           <>

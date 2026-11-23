@@ -71,6 +71,10 @@ import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } fr
 import { EngineDebugToggle } from './enginedebug'
 import { EpicModeSwitch } from '../epic/EpicSwitch'
 import { fablePipPercent, fablePipTitle, fableUnreachableFrom, fableUnreachableTitle, isFableWeekly } from './fablepip'
+import {
+  CLASSIC_MAILBOX_HINT, CLASSIC_MAILBOX_LABEL, OPEN_CHAT_ON_REPLY_HINT, OPEN_CHAT_ON_REPLY_LABEL,
+  setClassicMailbox, setOpenChatOnReply, useClassicMailbox, useOpenChatOnReply,
+} from '../mailboxpref'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -551,6 +555,21 @@ function HideRetiredToggle() {
         + 'through the "N retired" token on their old team, or the '
         + 'switchboard’s archived rows'} />
   )
+}
+
+/* THE USER'S MAILBOX PANEL (4.7.0): its chats, or the classic mailbox (USER
+   2026-11-22 m1454e651500e: "have the check aslo in app display settings");
+   and whether a reply made on a presentation or a ticket opens that agent's
+   chat (USER 2026-11-23 me0241bccf7b4, on by default). Both are this
+   computer's, for every org, and live in every window: the panel's own title
+   bar holds the first one too (dm/classictoggle.tsx). */
+function ClassicMailboxSetting() {
+  const on = useClassicMailbox()
+  return <SetToggle label={CLASSIC_MAILBOX_LABEL} checked={on} onChange={setClassicMailbox} hint={CLASSIC_MAILBOX_HINT} />
+}
+function OpenChatOnReplySetting() {
+  const on = useOpenChatOnReply()
+  return <SetToggle label={OPEN_CHAT_ON_REPLY_LABEL} checked={on} onChange={setOpenChatOnReply} hint={OPEN_CHAT_ON_REPLY_HINT} />
 }
 
 /* D-228: where an org opens, and whether the camera glides there. Two rows
@@ -1134,6 +1153,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <ThisComputer on={!!remote}>
       <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><EventHeadlineSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
+      <SetGroup title="Mailbox"><ClassicMailboxSetting /><OpenChatOnReplySetting /></SetGroup>
       </ThisComputer>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>

@@ -73,6 +73,7 @@ import { EFFORT_LEVELS } from './effortlevels'
 import { normalizeUserEnteredName } from './nameinput'
 import type { SlotLease } from './slots'
 import { AgentSlotChips } from './slotchips'
+import { MailboxIcon } from '../dm/mailboxicon'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -316,7 +317,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         title={pip?.title ?? 'your inbox'} aria-label="your inbox"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onInbox() }}>
-        <MailIcon fontSize="inherit" />
+        {/* the user mailbox panel's own icon (dm/mailboxicon.tsx) */}
+        <MailboxIcon />
         {pip && <span className={'count' + (pip.urgent ? ' asks' : '')}>
           {pip.count}</span>}
       </button>}

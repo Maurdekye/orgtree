@@ -1,0 +1,278 @@
+/* dm/dm.css — the user's mailbox as chats (4.7.0, dm/DmPanel.tsx).
+ *
+ * Hubchat's look (its chat rows, bubbles, day lines, question options and
+ * message box) drawn with THIS app's theme variables, so every theme and
+ * contrast mode carries over. Hubchat's own tokens were taken from these
+ * variables in the first place (its styles/tokens.css says so); the three it
+ * added are derived here rather than copied as colours:
+ *   incoming bubble  = the hover surface (--panel-2)
+ *   outgoing bubble  = the accent mixed into the page (Hubchat's deep terracotta)
+ *   faint text       = --dim
+ * ⚠ Only variables styles.css defines: an undefined var() drops its whole
+ * declaration without a word.
+ *
+ * The frame is the shared two-pane `.mailer` (canvas/narrowlist.tsx): these
+ * rules only say what a chat list and a conversation look like inside it. */
+
+.dm-panel {
+  --dm-in: var(--panel-2);
+  --dm-in-ink: var(--ink-strong);
+  --dm-out: color-mix(in srgb, var(--accent) 34%, var(--bg));
+  --dm-out-ink: var(--ink-strong);
+  --dm-radius: 12px;
+}
+/* the conversation fills the panel: a chat has no reading-pane height of its own */
+.settings.dm-panel > .mailpane { flex: 1 1 0; height: auto; min-height: 0; }
+
+/* ------------------------------------------------------------ the chat list */
+.mailer-list.dm-list {
+  width: 320px; max-width: 340px; display: flex; flex-direction: column;
+  background: var(--side); overflow-y: auto; padding-bottom: 6px;
+}
+.dm-list-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 6px; flex: none; }
+.dm-panel .dm-list-head .dm-search {
+  flex: 1 1 auto; width: auto; margin: 0; height: 30px; padding: 0 12px;
+  border-radius: 15px; border-color: var(--line-soft); background: var(--panel);
+}
+.dm-panel .dm-list-head .dm-new {
+  flex: none; width: 30px; height: 30px; padding: 0; border-radius: 15px; font-size: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dm-requests { padding: 0 10px 6px; flex: none; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; }
+/* the classic mailbox's own request rows, in a column this narrow: who and
+   why on the first line, the two answers small on the second */
+.dm-panel .dm-requests .hist-row { flex-wrap: wrap; gap: 4px 6px; padding: 5px 2px; border-bottom: 0; }
+.dm-panel .dm-requests .hist-row > .dim { flex: 1 1 100%; }
+.dm-panel .dm-requests .hist-row button { font-size: 12px; padding: 3px 12px; }
+.dm-empty-list { text-align: center; }
+.dm-list-foot { margin-top: auto; padding: 8px 10px 2px; flex: none; }
+.dm-panel .dm-list-foot button { font-size: 12px; padding: 3px 10px; }
+
+.dm-row {
+  display: flex; gap: 10px; align-items: center; flex: none;
+  padding: 8px 10px; margin: 1px 6px; border-radius: 10px;
+  cursor: pointer; position: relative;
+}
+.dm-row:hover { background: var(--panel); }
+.dm-row.sel { background: var(--panel-2); }
+.dm-row.sel::before {
+  content: ""; position: absolute; left: -6px; top: 12px; bottom: 12px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.dm-row.off { opacity: .6; }
+.dm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-row-l1, .dm-row-l2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dm-panel .dm-row button.dm-row-name {
+  flex: 0 1 auto; min-width: 0; padding: 0; border: 0; border-radius: 0; background: none;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--ink-strong); text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.dm-panel .dm-row button.dm-row-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.dm-row.asks .dm-row-name { font-weight: 700; }
+.dm-row-l1 .mtime { margin-left: auto; flex: none; font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.dm-row.unread .dm-row-l1 .mtime { color: var(--accent); font-weight: 600; }
+.dm-row-prev {
+  flex: 1; min-width: 0; font-size: 13px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-row.unread .dm-row-prev { color: var(--ink); }
+.dm-row-q { color: var(--warn); font-weight: 600; }
+.dm-row-you { color: var(--dim); }
+.dm-badge {
+  flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* a request waits for an answer: an outlined ? beside the unread count */
+.dm-badge.dm-badge-asks { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.dm-panel .dm-row button.dm-row-close {
+  position: absolute; right: 6px; top: 4px; padding: 2px; font-size: 13px; line-height: 1;
+  display: none; border-radius: 50%; background: var(--panel);
+}
+.dm-row:hover button.dm-row-close, .dm-row:focus-within button.dm-row-close { display: inline-flex; }
+
+/* a chat's picture: the model chip or the project's mark, at a chat row's size */
+.dm-av {
+  flex: none; width: 40px; height: 40px; border-radius: 28%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel-2); color: var(--ink-strong); font-weight: 600; font-size: 16px;
+  user-select: none;
+}
+.dm-row.sel .dm-av, .dm-row:hover .dm-av { background: var(--bg); }
+.dm-av .tier.letter-chip {
+  width: 100%; height: 100%; border-radius: inherit; font-size: 17px;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+}
+.dm-av .project-mark { display: inline-flex; font-size: 22px; }
+.dm-av.dm-av-system { color: var(--dim); border: 1px dashed var(--line); background: transparent; }
+.dm-av.dm-av-other { color: var(--dim); }
+
+/* ---------------------------------------------------------- the conversation */
+.mailer.dm > .mailer-read.dm-conv { display: flex; flex-direction: column; padding: 0; overflow: hidden; background: var(--bg); }
+.dm-head {
+  flex: none; min-height: 58px; display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line-soft);
+}
+.dm-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-who-l1 { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.dm-who-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.dm-who-name .cc-name,
+.dm-panel .dm-who-name button.cc-name {
+  font-family: inherit; font-size: 15.5px; font-weight: 600; color: var(--ink-strong);
+  padding: 0; border: 0; border-radius: 0; background: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-panel .dm-who-name button.cc-name-jump:hover { color: var(--accent); text-decoration: underline; }
+.dm-who-l2 { font-size: 12.5px; color: var(--dim); display: flex; align-items: center; gap: 8px; min-height: 18px; white-space: nowrap; overflow: hidden; }
+.dm-panel .dm-head button.dm-close {
+  flex: none; width: 32px; height: 32px; padding: 0; border-radius: 6px; font-size: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dm-panel .dm-head button.dm-close:disabled { opacity: .4; cursor: not-allowed; }
+.dm-panel .dm-head button.dm-close:not(:disabled):hover { color: var(--bad); border-color: var(--bad); }
+
+.dm-timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 22px 16px; }
+.dm-timeline-inner { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; }
+.dm-panel .dm-older { align-self: center; margin: 8px 0; font-size: 12px; padding: 3px 12px; border-radius: 12px; color: var(--dim); }
+.dm-history-error { align-self: center; font-size: 12.5px; color: var(--bad); margin: 6px 0; }
+.dm-day { display: flex; justify-content: center; margin: 14px 0 8px; pointer-events: none; }
+.dm-day span {
+  background: var(--panel); color: var(--dim); font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 10px; border: 1px solid var(--line-soft);
+}
+.dm-newmark { display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 12px; font-weight: 600; margin: 10px 0 6px; }
+.dm-newmark::before, .dm-newmark::after { content: ""; height: 1px; background: var(--accent-soft); flex: 1; }
+.dm-start { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 30px 20px 10px; font-size: 13px; }
+.dm-start b { color: var(--ink-strong); font-size: 15px; }
+.dm-start .dm-av { width: 64px; height: 64px; font-size: 26px; }
+.dm-start .dm-av .tier.letter-chip { font-size: 26px; }
+
+.dm-msg { display: flex; flex-direction: column; align-items: flex-start; margin-top: 2px; position: relative; }
+.dm-msg.first { margin-top: 10px; }
+.dm-msg.out { align-items: flex-end; }
+.dm-msg-row { display: flex; align-items: flex-end; gap: 6px; max-width: 100%; width: 100%; }
+.dm-msg.out .dm-msg-row { flex-direction: row-reverse; }
+.dm-bubble {
+  position: relative; max-width: min(640px, 82%); min-width: 72px;
+  padding: 7px 11px 6px; border-radius: var(--dm-radius);
+  background: var(--dm-in); color: var(--dm-in-ink); overflow-wrap: anywhere;
+  border: 1px solid transparent; font-size: 14px; line-height: 1.45;
+}
+.dm-msg.out .dm-bubble { background: var(--dm-out); color: var(--dm-out-ink); }
+.dm-msg.in.first .dm-bubble { border-top-left-radius: 4px; }
+.dm-msg.out.first .dm-bubble { border-top-right-radius: 4px; }
+/* A NOTICE HAS A DASHED BORDER IN THE COLOUR OF ITS BODY (USER 2026-11-22
+   m1454e651500e, ruling 5: "notices have a dashed border same color as
+   body"): the bubble's own text colour, in the app's one notice edge style. */
+.dm-bubble.notice { border: 1px var(--notice-edge-style) currentColor; }
+.dm-bubble.urgent { box-shadow: inset 3px 0 0 #ff4500; }
+.dm-msg.replying .dm-bubble { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dm-msg.flash .dm-bubble, .dm-msg.flash .ask-message { animation: dm-flash 1.4s ease; }
+@keyframes dm-flash { 0%, 40% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .dm-msg.flash .dm-bubble, .dm-msg.flash .ask-message { animation: none; outline: 2px solid var(--accent); } }
+
+/* the mail's own body and files, as the reading pane draws them, inside a bubble */
+.dm-bubble .mailer-body { font-size: inherit; line-height: inherit; }
+.dm-bubble .mailer-body > :first-child { margin-top: 0; }
+.dm-bubble .mailer-body > :last-child { margin-bottom: 0; }
+.dm-bubble .mailer-body p { margin: 0 0 6px; }
+.dm-bubble .mailer-body p:last-child { margin-bottom: 0; }
+/* a file chip beside a picture keeps its own height */
+.dm-bubble .attach-row { margin: 6px 0 2px; align-items: flex-start; }
+.dm-bubble.typed { min-width: 260px; }
+.dm-bubble .urgent-why { margin: 0 0 4px; }
+
+/* the small label a request, a question or a decision wears (ruling 5) */
+.dm-labels { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 1px 0 5px; }
+.dm-kind {
+  display: inline-flex; align-items: center; font-size: 11px; font-weight: 700;
+  letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.dm-kind.dm-kind-notice { color: inherit; background: transparent; box-shadow: inset 0 0 0 1px currentColor; opacity: .8; }
+.dm-kind.dm-kind-decision { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+
+.dm-meta { display: flex; justify-content: flex-end; margin-top: 3px; font-size: 11px; line-height: 1; color: var(--dim); user-select: none; }
+.dm-msg.out .dm-meta { color: color-mix(in srgb, var(--dm-out-ink) 70%, transparent); }
+.dm-ask > .dm-meta { align-self: flex-start; margin: 3px 0 0 4px; }
+/* read by screen readers only: who wrote the bubble */
+.dm-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+
+/* beside the bubble, in the empty space, never over its text */
+.dm-actions { display: none; gap: 2px; align-self: center; flex: none; }
+.dm-msg:hover .dm-actions, .dm-msg:focus-within .dm-actions { display: inline-flex; }
+.dm-panel .dm-actions button.iconbtn {
+  width: 28px; height: 26px; padding: 0; font-size: 15px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* ------------------------------------- requests: one bubble per tab (ruling 4) */
+.dm-ask { width: 100%; }
+.dm-ask .ask-messages {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  width: 100%; border: 0; background: none; padding: 0; margin: 0; box-shadow: none; outline: none;
+}
+.dm-ask .ask-message {
+  max-width: min(640px, 82%); min-width: 260px; box-sizing: border-box;
+  padding: 8px 12px 9px; border-radius: var(--dm-radius);
+  background: var(--dm-in); color: var(--dm-in-ink); border: 1px solid transparent;
+  font-size: 14px; line-height: 1.45; overflow-wrap: anywhere;
+}
+.dm-ask .ask-message:first-of-type { border-top-left-radius: 4px; }
+.dm-ask .ask-message.done { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.dm-ask .ask-message.whole { padding: 6px; }
+.dm-ask .ask-message.whole > .askcard { margin: 0; }
+.ask-message-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 5px; }
+.ask-message-kind {
+  display: inline-flex; align-items: center; font-size: 11px; font-weight: 700;
+  letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.ask-message-state { font-size: 12px; color: var(--ok); }
+/* an option is a bordered row with its mark, as a Hubchat question's */
+.dm-ask .ask-message .ask-rows { display: flex; flex-direction: column; gap: 5px; margin: 7px 0 3px; }
+.dm-panel .dm-ask .ask-message .ask-row,
+.dm-panel .dm-ask .ask-message button.ask-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; box-sizing: border-box;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: inherit; font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.dm-panel .dm-ask .ask-message .ask-row:hover { border-color: var(--accent); }
+.dm-panel .dm-ask .ask-message .ask-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.dm-panel .dm-ask .ask-message .ask-row[aria-disabled="true"],
+.dm-panel .dm-ask .ask-message button.ask-row:disabled { cursor: default; opacity: .6; }
+.dm-ask .ask-message textarea { width: 100%; max-width: 100%; box-sizing: border-box; border-radius: 8px; }
+.ask-message-foot { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.dm-panel .ask-message-foot .ask-skip-all {
+  border: 0; background: none; padding: 0; font-size: 12.5px; color: var(--dim); text-decoration: underline; cursor: pointer;
+}
+.dm-panel .ask-message-foot .ask-skip-all:hover { color: var(--ink-strong); }
+
+/* ------------------------------------------------------------ the message box */
+.dm-compose { flex: none; padding: 8px 18px 12px; border-top: 1px solid var(--line-soft); background: var(--bg); }
+.dm-compose > * { max-width: 880px; margin-left: auto; margin-right: auto; }
+.dm-compose .mail-reply { border-radius: var(--dm-radius); }
+.dm-replybar {
+  display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px;
+  padding: 6px 6px 6px 12px; border-radius: 10px; background: var(--panel);
+  border-left: 3px solid var(--accent); font-size: 12.5px; color: var(--accent);
+}
+.dm-replybar-list { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-replybar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dm-replybar-text { flex: 1; min-width: 0; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-panel .dm-replybar-clear { flex: none; font-size: 12px; padding: 2px 8px; }
+.dm-nowrite { font-size: 12.5px; padding: 6px 2px; }
+
+/* nothing open */
+.dm-none {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center; padding: 40px; color: var(--dim); font-size: 13px;
+}
+.dm-none > svg { font-size: 40px; color: var(--dim); }
+.dm-none b { color: var(--ink-strong); font-size: 16px; }
+.dm-none span { max-width: 420px; }
+.dm-panel .dm-none button { display: inline-flex; align-items: center; gap: 6px; }
+
+/* the New chat picker: the agents list, in a dialog */
+.dm-newchat-hint { font-size: 12.5px; padding: 0 4px 6px; }

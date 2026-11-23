@@ -1737,12 +1737,18 @@ export const sendMessage = (
   replies?: MailReplyWire[],
   targets?: ReplyTarget[],
   urgency?: { urgent: true; urgent_reason?: string },
+  /** where the user typed it, when the agent is told: `dm` is a new message
+   *  typed in the user's chats (dm/DmPanel.tsx), never a reply or a notice.
+   *  The engine then tells the agent to answer by mail to the user (USER
+   *  2026-11-23 m79c022311f95). An older engine ignores the field. */
+  surface?: 'dm',
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text,
       ...(urgency ?? {}),
+      ...(surface ? { surface } : {}),
       ...(attachments?.length ? { attachments } : {}),
       // FR-05: an inline mailbox reply carries a snapshot of what it answers
       ...(replyTo ? { reply_to: replyTo } : {}),
