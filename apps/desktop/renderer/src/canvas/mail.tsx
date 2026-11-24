@@ -2552,14 +2552,20 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
   const [asking, setAsking] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const hubsKey = JSON.stringify((net?.hubs ?? []).map((h) => [h.blocks, h.blocked_by]))
+  // an engine before blocking (or any odd answer) has no lists: read as none
+  const lists = (b: unknown): NetBlocks => {
+    const o = (b ?? {}) as Partial<NetBlocks>
+    return { blocked: Array.isArray(o.blocked) ? o.blocked.filter((x) => typeof x?.address === 'string') : [],
+      blocked_by: Array.isArray(o.blocked_by) ? o.blocked_by.filter((x) => typeof x === 'string') : [] }
+  }
   useEffect(() => {
     let live = true
-    getNetBlocks(slug).then((b) => { if (live) setBlocks(b) }).catch(() => {})
+    getNetBlocks(slug).then((b) => { if (live) setBlocks(lists(b)) }).catch(() => {})
     return () => { live = false }
   }, [slug, hubsKey])
   const change = (address: string, on: boolean) => {
     setAsking(null)
-    setNetBlock(slug, address, on).then((b) => { setBlocks(b); setErr(null) })
+    setNetBlock(slug, address, on).then((b) => { setBlocks(lists(b)); setErr(null) })
       .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
   }
   const mine = new Set((blocks?.blocked ?? []).map((b) => b.address))
