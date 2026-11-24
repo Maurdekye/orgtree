@@ -60,6 +60,8 @@ interface World {
   byId?: Record<string, unknown>
   /** the engine refuses every message */
   refuse?: boolean
+  /** an engine from before the chat folder: `folder=chat` is refused, as it refuses any unknown folder */
+  noChatFolder?: boolean
   /** older history, a page per entry: the first read says there is more, and
    *  `before=<n>` returns page n (1-based) */
   older?: { delivered?: unknown[]; sent?: unknown[] }[]
@@ -117,6 +119,22 @@ function engine(world: World) {
         return json({ pending: [], delivered: all.filter(m => want.includes(m.id)), sent: mine.filter(m => want.includes(m.id)), refreshed_ids: want })
       }
       const before = q.get('before')
+      if (q.get('folder') === 'chat') {
+        // ONE CHAT'S OWN PAGES, as the engine cuts them: both directions of `peer`, newest first, 50 a
+        // page; the cursor here is how many rows came before
+        if (world.noChatFolder || !q.get('peer')) return json({ detail: 'mail folder must be inbox or sent' }, 400)
+        const peer = q.get('peer')!
+        const received = [...(world.pending ?? []), ...(world.delivered ?? []), ...older.flatMap(p => p.delivered ?? [])] as { id: string; from: string; at: string }[]
+        const written = [...(world.sent ?? []), ...older.flatMap(p => p.sent ?? [])] as { id: string; to: string; at: string }[]
+        const unread = new Set((world.pending ?? []).map(m => (m as { id: string }).id))
+        const rows = [...received.filter(m => m.from === peer).map(m => ({ m, sent: false })), ...written.filter(m => m.to === peer).map(m => ({ m, sent: true }))]
+          .sort((a, b) => (a.m.at < b.m.at ? 1 : a.m.at > b.m.at ? -1 : 0))
+        const from = before ? Number(before) : 0
+        if (before) pages.push(`chat:${before}`)
+        const page = rows.slice(from, from + 50)
+        return json({ pending: page.filter(r => !r.sent && unread.has(r.m.id)).map(r => r.m), delivered: page.filter(r => !r.sent && !unread.has(r.m.id)).map(r => r.m),
+          sent: page.filter(r => r.sent).map(r => r.m), next_cursor: from + 50 < rows.length ? String(from + 50) : null })
+      }
       if (before) {
         pages.push(`${q.get('folder')}:${before}`)
         const page = older[Number(before) - 1] ?? {}
@@ -1123,10 +1141,10 @@ test('alpha.1 point 6: the user replies to an agent\'s mail in that agent\'s cha
 test('alpha.1 points 6 and 9: a quote of an older message loads history until it is in, then shows it', async (t) => {
   const s = await setup(t, {
     audiences: [grant('worker')],
-    delivered: [mail('m9', 'worker', '2026-11-20T10:00:00Z', { reply_to: quote('s-old', USER, '2026-10-01T10:00:00Z', { kind: 'mail', org: 'mine', box: 'node', node: 'worker' }) })],
-    // three pages hold nothing of this chat, so the chat does not read on by itself; the fourth holds the original
-    older: [{ delivered: [mail('x1', 'lead', '2026-10-20T10:00:00Z')] }, { delivered: [mail('x2', 'lead', '2026-10-15T10:00:00Z')] },
-      { delivered: [mail('x3', 'lead', '2026-10-10T10:00:00Z')] }, { sent: [sent('s-old', 'worker', '2026-10-01T10:00:00Z')] }],
+    // sixty newer messages of this chat stand between the answer and what it answers: the original is on the chat's second page
+    delivered: [mail('m9', 'worker', '2026-11-20T10:00:00Z', { reply_to: quote('s-old', USER, '2026-09-01T10:00:00Z', { kind: 'mail', org: 'mine', box: 'node', node: 'worker' }) }),
+      ...many(60)],
+    older: [{ sent: [sent('s-old', 'worker', '2026-09-01T10:00:00Z')] }],
   }, { active: false })
   // a full view: the chat stops asking after pages that hold nothing of it
   const tall = { scrollHeight: Object.getOwnPropertyDescriptor(W.Element.prototype, 'scrollHeight'), clientHeight: Object.getOwnPropertyDescriptor(W.Element.prototype, 'clientHeight') }
@@ -1140,7 +1158,7 @@ test('alpha.1 points 6 and 9: a quote of an older message loads history until it
   assert.doesNotMatch(card?.textContent ?? '', /unavailable/i, 'an older message of this chat is not "unavailable"')
   await s.click(card, 'the quote')
   await inAct(async () => { await flush(60) })
-  assert.equal(s.server.pages.includes('sent:4'), true, 'the history was read on to the page that holds it')
+  assert.deepEqual(s.server.pages, ['chat:50'], 'the chat\'s own next page was read, and it holds the original')
   assert.deepEqual(s.all<HTMLElement>('.dm-msg.flash').map(m => m.dataset.dmEntry), ['s-old'], 'and the original is shown')
 })
 
@@ -1192,35 +1210,32 @@ const many = (n: number, from = 0) => Array.from({ length: n }, (_, i) =>
 
 test('alpha.1 point 9: there is no "Load older" button; older mail comes when the top is near, a page at a time, and the message in view does not move', async (t) => {
   layOut(t)
-  const s = await setup(t, {
-    audiences: [grant('worker')], delivered: many(6, 100),
-    older: [{ delivered: many(5, 50) }, { delivered: many(5, 0) }],
-  }, { active: false })
+  // 66 messages of this chat: the six newest in the mailbox's first window, sixty older ones beyond it
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(6, 100), older: [{ delivered: many(60, 0) }] }, { active: false })
   await s.openChat('worker')
   await scrollTo(4400)
   assert.equal(document.querySelector('button.dm-older') === null, true, 'no button to press')
   assert.doesNotMatch(document.querySelector('.dm-timeline')?.textContent ?? '', /Load older/)
+  assert.equal(s.all('.dm-msg').length, 50, 'the chat opened on its own newest page: fifty messages')
   assert.deepEqual(s.server.pages, [], 'at the newest message nothing older is asked for')
   // the reader scrolls up: the second row is cut by the top edge
   await scrollTo(150)
-  assert.deepEqual([...new Set(s.server.pages.map(p => p.split(':')[1]))], ['1'], 'the next page, and only that one')
-  assert.equal(s.all('.dm-msg').length, 11, 'its five messages are in')
-  assert.equal(topOf('h0101'), -50, 'the message that was in view is exactly where it was: 0 px')
-  assert.equal((document.querySelector('.dm-timeline') as HTMLElement).scrollTop, 650, 'POSITIVE CONTROL: the view was moved by the five new rows')
+  assert.deepEqual(s.server.pages, ['chat:50'], 'the chat\'s next page, and only that one')
+  assert.equal(s.all('.dm-msg').length, 66, 'its sixteen messages are in')
+  assert.equal(topOf('h0017'), -50, 'the message that was in view is exactly where it was: 0 px')
+  assert.equal((document.querySelector('.dm-timeline') as HTMLElement).scrollTop, 1750, 'POSITIVE CONTROL: the view was moved by the sixteen new rows')
   await inAct(async () => { await flush(30) })
-  assert.deepEqual([...new Set(s.server.pages.map(p => p.split(':')[1]))], ['1'], 'away from the top it does not read on')
+  assert.deepEqual(s.server.pages, ['chat:50'], 'away from the top it does not read on')
 })
 
 test('alpha.1 point 9: a chat that does not fill its view when it opens loads older mail until it does, or the history ends', async (t) => {
   const height = layOut(t, { scroll: 300, client: 600 })
-  const s = await setup(t, {
-    audiences: [grant('worker')], delivered: many(3, 100),
-    older: [{ delivered: many(2, 50) }, { delivered: many(2, 40) }, { delivered: many(2, 30) }, { delivered: many(2, 20) }],
-  }, { active: false })
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(3, 200), older: [{ delivered: many(117, 0) }] }, { active: false })
   await s.openChat('worker')
-  await inAct(async () => { await flush(60) })
+  await inAct(async () => { await flush(80) })
   assert.equal(document.querySelector('button.dm-older') === null, true)
-  assert.equal(s.all('.dm-msg').length, 11, 'every page was read: the view never filled')
+  assert.equal(s.all('.dm-msg').length, 120, 'every page of the chat was read and drawn: the view never filled')
+  assert.deepEqual(s.server.pages, ['chat:50', 'chat:100'], 'a page at a time, to the end of the chat')
   assert.equal(height.scroll < height.client, true, 'POSITIVE CONTROL: this view does not overflow')
 })
 
@@ -1407,7 +1422,20 @@ test('alpha.1 point 1: a retired agent that held an audience is not listed; its 
   assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'and nothing was revoked')
 })
 
-test('alpha.1 point 9: a short chat whose older mail lies beyond pages of other chats\' mail still gets it by itself: no button, nothing to scroll', async (t) => {
+test('alpha.1 point 14: a chat reads its own pages, so its older mail is one page away however much other mail there is', async (t) => {
+  // five pages of lead's mail lie between worker's newest message and its older one in the MAILBOX; in the chat they are neighbours
+  const others = Array.from({ length: 5 }, (_, i) => ({ delivered: [mail(`x${i}`, 'lead', `2026-10-${String(20 - i).padStart(2, '0')}T10:00:00Z`)] }))
+  const s = await setup(t, {
+    audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')],
+    older: [...others, { delivered: [mail('m0', 'worker', '2026-10-01T10:00:00Z')], sent: [sent('s0', 'worker', '2026-10-02T10:00:00Z')] }],
+  }, { active: false })
+  await s.openChat('worker')
+  await inAct(async () => { await flush(20) })
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['m0', 's0', 'm1'], 'both directions of the chat, from its own first page')
+  assert.deepEqual(s.server.pages, [], 'and no page of the mailbox was read for it')
+})
+
+test('alpha.1 point 9: with an engine that has no chat folder, a short chat whose older mail lies beyond pages of other chats\' mail still gets it by itself', async (t) => {
   const { dmTiming } = await import('../src/dm/DmPanel')
   const was = dmTiming.slowPageMs
   dmTiming.slowPageMs = 5
@@ -1415,7 +1443,7 @@ test('alpha.1 point 9: a short chat whose older mail lies beyond pages of other 
   // five pages of lead's mail, then the page that holds worker's older message
   const others = Array.from({ length: 5 }, (_, i) => ({ delivered: [mail(`x${i}`, 'lead', `2026-10-${String(20 - i).padStart(2, '0')}T10:00:00Z`)] }))
   const s = await setup(t, {
-    audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')],
+    audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')], noChatFolder: true,
     older: [...others, { delivered: [mail('m0', 'worker', '2026-10-01T10:00:00Z')] }],
   }, { active: false })
   await s.openChat('worker')
