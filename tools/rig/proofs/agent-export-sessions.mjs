@@ -136,7 +136,7 @@ export default async function (rig) {
     const seen = await rig.waitFor(() => { const r = row(aId, after.name); const d = done(id); return (r.last_error || (d.done > before && d.open === 0)) ? { r, d } : null },
       { what: 'the start to fail or the turn to end', timeout: 90000 })
     p.check('2. a session that was its own and went missing is not replaced silently', row(aId, after.name).session_id === fresh
-      && (/missing session/.test(seen.r.last_error ?? '') || /missing session/.test(lastTurn(id)?.error ?? '')), { last_error: seen.r.last_error, turn: lastTurn(id), session: row(aId, after.name).session_id })
+      && /session\/load failed/.test(`${seen.r.last_error ?? ''} ${lastTurn(id)?.error ?? ''}`), { last_error: seen.r.last_error, turn: lastTurn(id), session: row(aId, after.name).session_id })
   })
 
   // ---- 3. an export and an import into another organization
