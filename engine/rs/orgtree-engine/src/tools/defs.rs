@@ -1690,7 +1690,9 @@ mod startup_card_tests {
             // cap 12300 -> 12500 (coordinator 2026-11-09, hire/rehire/staff schema rules moved from schema to text, docket hire-rehire-and-staff-tools-vanish-on-newer-clau)
             // cap 12500 -> 14056 (coordinator 2026-11-23 m4d2654168ca8, docket agent-team-project-export-import-and-duplication): +1556, exactly the
             // bytes of the three new cards (export 555, import 578, duplicate 423); no other card was trimmed or grew for it
-            assert!(total <= 14056,"description total {total}");
+            // cap 14056 -> 14456 (USER 2026-11-24 18:56Z m020bbd1926c3, docket blocking-contacts-on-the-hub-hubchat-1-4-0-orgtr): +400,
+            // exactly the bytes of the new orgtree_block card; no other card was trimmed or grew for it
+            assert!(total <= 14456,"description total {total}");
         }
     }
 
