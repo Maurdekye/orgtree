@@ -842,6 +842,20 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   chips, mention menus and hovers show them offline. The hub's tests: `tests/busy.rs`
   `an_invisible_person_shows_offline_to_everyone_else` and the leak test `nobody_can_tell_invisible_from_offline`
   (a person and an org read the same bytes about an Invisible person as about one really offline).
+- Last active (Mail hub 2.6.0, 2026-11-24; docket hubchat-last-seen-time-for-orgs-people-and-indep, user 11:44Z
+  me20294def375, 11:56Z med2518611a95 "the org sending a "last seen" event every time an agent with an org inbox
+  audience's turn ends"): the same `POST /api/presence` carries `active` (an agent in charge of the org mailbox is
+  mid-turn, read from its live runtime `busy`) and `active_at` (the newest end of those agents' last finished turns,
+  `ot.turns.ended_at`). In charge = `orginbox::in_charge_turn_ends`: live agent holders, plus for a project holder the
+  live agents whose armed fair_queue listener targets it; halted or frozen ones still count for the time. The org
+  stays active while any of them runs (`net/presence.rs` `last_active`). Event-driven: an in-charge agent's runtime
+  publish that flips `busy` kicks the network pass (`turn_edge`), so each turn start and end is said; ends between two
+  passes are said once with the newest end, and `due` says any change at once. Posts are serialized (one pass at a
+  time), a failed post is followed by the current state, the 5-minute refresh repeats the whole body, and the body
+  carries the engine's `now` so the hub corrects clock skew. An older hub ignores the three fields;
+  Hubchat shows "active now" / "last seen ...". Orgtree's own UI shows nothing new. Tests: `net/presence_tests.rs`
+  (two holders' overlapping turns), the ignored fixture test
+  `domain::orginbox::busy_tests::the_agents_in_charge_and_their_last_turn_ends`, the hub's `tests/last_active.rs`.
 - Translation between people (Mail hub 2.4.0, 2026-11-01; docket mail-hub-hubchat-automatic-translation-between-u,
   user 12:15Z answers and 12:16Z "Build it"): a person reads in a language (Hubchat), and the hub translates mail to
   them from another language after delivering it, for them only (hub schema 13). Orgtree owns the bundled hub's
