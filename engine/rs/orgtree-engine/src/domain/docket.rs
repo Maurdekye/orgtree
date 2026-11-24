@@ -646,7 +646,8 @@ pub async fn user_list(engine: &Engine, org: &OrgHandle, with_archived: bool, wi
 /// A slug as a caller wrote it: bare, or as the ticket's reference with or without its org.
 #[nolog]
 pub(crate) fn written_slug(slug: &str) -> &str {
-    let slug = slug.trim().trim_start_matches("@item:");
+    let slug = slug.trim();
+    let slug = slug.strip_prefix("@ticket:").or_else(|| slug.strip_prefix("@item:")).unwrap_or(slug);
     slug.rsplit('/').next().unwrap_or(slug)
 }
 
@@ -671,7 +672,7 @@ mod written_slug_tests {
 /// The reference an item's reads carry, for an agent to write.
 #[nolog]
 pub(crate) fn item_ref(org: &str, slug: &str) -> String {
-    format!("@item:{org}/{slug}")
+    format!("@ticket:{org}/{slug}")
 }
 
 #[logged]

@@ -34,7 +34,8 @@ const NODES_MAX: i64 = 200;
 const OUTSIDE_MAX: i64 = 500;
 
 /// What one mail body mentions in its own org, as (kind, key): typed tokens of
-/// that org (`@item:`, `@doc:`, `@app:`, `@panel:`, `@agent:`, `@project:`) and
+/// that org (`@ticket:` and its older form `@item:`, both the kind `item`; `@doc:`, `@app:`, `@panel:`, `@agent:`,
+/// `@project:`) and
 /// bare `@names` (nodes). A token starts at the start or after anything but a
 /// letter, a digit or `_ . % + - @`, as the renderer's do; another org's
 /// tokens are its own. `@user` is not a node.
@@ -67,7 +68,7 @@ pub fn scan(body: &str, org: &str) -> Vec<(&'static str, String)> {
         }
         if j < b.len() && b[j] == b':' {
             let kind = match head.to_ascii_lowercase().as_str() {
-                "item" => "item", "doc" => "doc", "app" => "app", "panel" => "panel", "agent" | "project" => "node",
+                "item" | "ticket" => "item", "doc" => "doc", "app" => "app", "panel" => "panel", "agent" | "project" => "node",
                 _ => { i = j; continue; }
             };
             // <org>/<id>, a node's id may carry its @<generation>
