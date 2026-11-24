@@ -202,7 +202,8 @@ pub struct Nodes {
     pub nodes: Vec<Node>,
 }
 
-/// One end of an audience: an exported node, the user, or outside mail.
+/// One end of an audience: an exported node, the user, or outside mail. No export writes
+/// `Extern` since 4.7.0-alpha.2 and no import grants it; it is still read from an older file.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum End {

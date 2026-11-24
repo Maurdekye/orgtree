@@ -912,7 +912,27 @@ impl Drop for Sweep {
     }
 }
 
-/// The watchdogs of the imported agents: each created paused under its new owner, its node
+/// One carried watchdog, created paused under its new owner. A project's own goes through the
+/// project's creation path, with the importing agent's hands and reach checked as when it puts
+/// one there itself; an agent's own never carries a delivery form.
+#[nolog]
+async fn stage(engine: &Arc<Engine>, req: &Request, created: &Created, at: usize, args: &Value, needs: bool) -> Result<Value> {
+    let owner = &created.plan.nodes[at];
+    if owner.project {
+        let caller = match &req.actor {
+            Actor::User => None,
+            Actor::Agent { id, .. } => Some(*id),
+        };
+        return crate::runtime::watchdogs::create_on_project_from_template(engine, req.org.id, created.ids[at], &owner.name, caller, args, needs).await;
+    }
+    let mut own = args.clone();
+    if let Some(fields) = own.as_object_mut() {
+        fields.remove("project_delivery");
+    }
+    crate::runtime::watchdogs::create_from_template(engine, req.org.id, created.ids[at], &own, needs).await
+}
+
+/// The watchdogs of the imported agents and projects: each created paused under its new owner, its node
 /// target following the node's new name. One whose target did not come along is dropped. They
 /// are armed afterwards only when the importer asked, and only those that can run anywhere.
 #[nolog]
@@ -925,7 +945,7 @@ async fn watchdogs(engine: &Arc<Engine>, req: &Request, content: &Content, creat
     for dog in &content.export.links.watchdogs {
         let owner = &created.plan.nodes[dog.owner];
         let label = dog.args["name"].as_str().unwrap_or("a watchdog").to_string();
-        if owner.retired || owner.project {
+        if owner.retired {
             notes.push(format!("{label} of {} was not restored: its owner came in retired", owner.name));
             continue;
         }
@@ -962,7 +982,7 @@ async fn watchdogs(engine: &Arc<Engine>, req: &Request, content: &Content, creat
         if let Some(credentials) = &dog.credentials {
             let mut with = args.clone();
             with["credentials"] = credentials.clone();
-            match crate::runtime::watchdogs::create_from_template(engine, org, created.ids[dog.owner], &with, false).await {
+            match stage(engine, req, created, dog.owner, &with, false).await {
                 Ok(value) => result = Some(value),
                 Err(error) => {
                     needs = true;
@@ -971,7 +991,7 @@ async fn watchdogs(engine: &Arc<Engine>, req: &Request, content: &Content, creat
             }
         }
         if result.is_none() {
-            match crate::runtime::watchdogs::create_from_template(engine, org, created.ids[dog.owner], &args, needs).await {
+            match stage(engine, req, created, dog.owner, &args, needs).await {
                 Ok(value) => result = Some(value),
                 Err(error) => {
                     notes.push(format!("{label} of {} could not be restored: {error}", owner.name));

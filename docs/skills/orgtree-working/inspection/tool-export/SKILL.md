@@ -6,7 +6,7 @@ Up: [orgtree-inspection](../SKILL.md)
 
 # orgtree_export
 
-Requires `inspection`. Writes one zip that holds a node whole: its settings and charters, its credits (seat and grant), its scratch folder, its transcript with every earlier row, its CLI session files, the definitions of its watchdogs, the docket items it owns and the documents it presented. With `subtree: true` the file holds the node and every live node under it, through projects, and the team folder of each. Nothing in the organization changes and nobody is interrupted: an agent that is mid-turn is exported as far as it had got.
+Requires `inspection`. Writes one zip that holds a node whole: its settings and charters, its credits (seat and grant), its scratch folder, its transcript with every earlier row, its CLI session files, the definitions of its watchdogs (a project's own too), the docket items it owns and the documents it presented. With `subtree: true` the file holds the node and every live node under it, through projects, and the team folder of each. Nothing in the organization changes and nobody is interrupted: an agent that is mid-turn is exported as far as it had got.
 
 Use it to hand a finished agent or a whole team to another organization (attach the file to mail with [orgtree_message](../../mail/tool-message/SKILL.md)), or to keep a copy before a risky change. To copy a node inside this organization use [orgtree_duplicate](../../team/tool-duplicate/SKILL.md): it needs no file. To read one file or a few rows, use [read_scratch](../tool-read-scratch/SKILL.md) or [read_transcript](../tool-read-transcript/SKILL.md).
 
@@ -20,7 +20,7 @@ Use it to hand a finished agent or a whole team to another organization (attach 
 
 **Secrets.** Whether detected secrets are taken out follows the app's setting "Strip secrets from exports" (off by default); you cannot change it per call. Either way the result's `secrets` says what was detected (kinds, places, files) and what was taken out. The sealed credentials of MQTT and WebSocket watchdogs never leave in an agent's export: such a watchdog arrives marked as needing its credentials again. Provider keys, sign-ins and the engine's own launch files in a scratch folder are never exported.
 
-**What stays behind.** Files in folders you were granted outside your scratch and team folders; links (they are named in `not_included`, never followed); mail and questions stay in the file as history only; watchdogs owned by a project.
+**What stays behind.** Files in folders you were granted outside your scratch and team folders; links (they are named in `not_included`, never followed); mail and questions stay in the file as history only; who holds the org mailbox (an import never gives or moves it: ask for that audience again where the node arrives).
 
 **Size.** At most 256 GiB unpacked. A file larger than the mail hub's limit can still go to another organization of this computer.
 

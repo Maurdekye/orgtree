@@ -473,6 +473,10 @@ async fn create_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, 
         if !matches!(audience.grantee, End::Node(_)) {
             continue;
         }
+        if outside_mail(audience) {
+            notes.push(format!("the org mailbox audience of {grantee} was ignored: an import never gives or moves the org mailbox"));
+            continue;
+        }
         if !grantee_live || !grantor_live {
             notes.push(format!("the audience of {grantee} with {grantor} was not restored: one of them came in retired"));
             continue;
@@ -526,9 +530,26 @@ pub(crate) async fn release(engine: &Arc<Engine>, org: &Arc<OrgHandle>, ids: &[i
     Ok(freed)
 }
 
+/// An audience with the org mailbox. No import or duplicate grants one, whatever file it reads
+/// (USER 2026-11-24 m63824e37d3d6: "the org inbox audience should never move / be saved with an
+/// import"): granting it would take the org mailbox from whoever holds it here. Exports written
+/// since do not hold one; a file from 4.7.0-alpha.1 may.
+#[nolog]
+fn outside_mail(audience: &format::Audience) -> bool {
+    matches!(audience.grantor, End::Extern) || matches!(audience.grantee, End::Extern)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_audience_with_the_org_mailbox_in_a_file_is_never_one_to_grant() {
+        let from_an_older_file: Vec<format::Audience> = serde_json::from_value(json!([
+            { "grantee": { "node": 0 }, "grantor": "extern" }, { "grantee": { "node": 1 }, "grantor": "user" }, { "grantee": { "node": 1 }, "grantor": { "node": 0 } },
+        ])).unwrap();
+        assert_eq!(from_an_older_file.iter().map(outside_mail).collect::<Vec<_>>(), [true, false, false]);
+    }
 
     #[test]
     fn a_projects_settings_are_read_back_from_its_stored_scope_and_only_valid_ones() {

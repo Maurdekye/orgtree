@@ -2752,6 +2752,15 @@ pub(crate) async fn create_from_template(engine: &Arc<Engine>, org_id: i64, owne
     crate::util::boxed(|| create_mode(engine, org_id, owner, args, Some(needs_credentials), None, None)).await
 }
 
+/// The same restore mode for a watchdog a PROJECT owns (an import or a duplicate of the project):
+/// staged paused through the project's normal creation path, so every rule of a project
+/// watchdog holds. `caller` is the importing agent, whose hands and reach are checked as when it
+/// creates one itself; `None` is the user.
+#[nolog]
+pub(crate) async fn create_on_project_from_template(engine: &Arc<Engine>, org_id: i64, project: i64, name: &str, caller: Option<i64>, args: &Value, needs_credentials: bool) -> Result<Value> {
+    crate::util::boxed(|| create_mode(engine, org_id, project, args, Some(needs_credentials), Some(ProjectCreate { caller, name: name.to_string() }), None)).await
+}
+
 #[nolog]
 async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, template: Option<bool>, on_project: Option<ProjectCreate>, delegate: Option<Delegate>) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();

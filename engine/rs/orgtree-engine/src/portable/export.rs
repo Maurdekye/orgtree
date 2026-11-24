@@ -567,7 +567,7 @@ fn listed(handle: &Handle, engine: &Arc<Engine>, org: &Arc<OrgHandle>, client: &
     Ok(nodes)
 }
 
-/// The audiences that hold between the exported nodes, and with the user and outside mail, and
+/// The audiences that hold between the exported nodes and with the user (never the org mailbox), and
 /// the ones left behind because their other end is not exported.
 #[nolog]
 fn audiences_of(handle: &Handle, client: &tokio_postgres::Client, org: i64, rows: &[Row]) -> Result<(Vec<Audience>, Vec<String>)> {
@@ -575,14 +575,16 @@ fn audiences_of(handle: &Handle, client: &tokio_postgres::Client, org: i64, rows
     let end = |name: &str| -> Option<End> {
         match name.trim_start_matches('@') {
             "user" => Some(End::User),
-            "extern" => Some(End::Extern),
             other => names.get(other).map(|at| End::Node(*at)),
         }
     };
+    // USER 2026-11-24 m63824e37d3d6: "the org inbox audience should never move / be saved with an import".
+    // Who holds the org mailbox is not part of an export, and is not told as left behind either.
+    let outside = |name: &str| name == crate::domain::audiences::EXTERN;
     let (mut found, mut left) = (Vec::new(), Vec::new());
     pages(handle, client, "SELECT id, jsonb_build_object('grantee', grantee, 'grantor', grantor) FROM ot.audiences WHERE org_id = $1 AND id > $2 AND revoked_at IS NULL AND NOT paused ORDER BY id LIMIT 500", &org, |grant| {
         let (grantee, grantor) = (grant["grantee"].as_str().unwrap_or_default(), grant["grantor"].as_str().unwrap_or_default());
-        if !names.contains_key(grantee) && !names.contains_key(grantor) {
+        if (!names.contains_key(grantee) && !names.contains_key(grantor)) || outside(grantee) || outside(grantor) {
             return Ok(());
         }
         match (end(grantee), end(grantor)) {
@@ -938,14 +940,28 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
     let dog_names: HashMap<String, bool> = rows.iter().map(|row| (row.name.clone(), row.kind == "project")).collect();
     let dog_include = crate::domain::templates::Include { machine_watchdogs: true, ..Default::default() };
     let mut dog_warnings = Vec::new();
-    for row in rows.iter().filter(|row| row.kind == "agent") {
+    // a project's own watchdogs travel like an agent's (USER 2026-11-24 m516cde3ebdef: "the two sub-projects are
+    // missing watchdogs from the top inbox project"): the owner is the project's place, and the delivery form is kept
+    for row in rows.iter().filter(|row| row.kind == "agent" || row.kind == "project") {
+        let of_project = row.kind == "project";
         let owned = query(handle, client,
             "SELECT w.id, to_jsonb(w) || jsonb_build_object('owner', $2::text), EXISTS (SELECT 1 FROM ot.watchdog_secrets s WHERE s.watchdog_id = w.id)
-               FROM ot.watchdogs w WHERE w.owner_agent_id = $1 AND w.owner_kind = 'agent' AND w.state IN ('armed', 'paused') ORDER BY w.id", &[&row.id, &row.name])?;
+               FROM ot.watchdogs w WHERE w.owner_agent_id = $1 AND w.owner_kind = $3 AND w.state IN ('armed', 'paused') ORDER BY w.id", &[&row.id, &row.name, &row.kind])?;
+        // the definition reader takes an owner that is an agent of the layout: a project owner is one for it
+        let as_owner: HashMap<String, bool>;
+        let names = if of_project {
+            as_owner = dog_names.iter().map(|(name, project)| (name.clone(), *project && *name != row.name)).collect();
+            &as_owner
+        } else {
+            &dog_names
+        };
         for dog in &owned {
             let raw: Value = dog.get(1);
             let sealed: bool = dog.get(2);
-            let Some(saved) = crate::domain::template_links::saved_dog(&raw, &dog_names, &dog_include, &mut dog_warnings) else { continue };
+            let Some(mut saved) = crate::domain::template_links::saved_dog(&raw, names, &dog_include, &mut dog_warnings) else { continue };
+            if of_project {
+                saved.args["project_delivery"] = json!(crate::domain::watchdogs::project_delivery(&raw["memo"]));
+            }
             let mut carried = None;
             if sealed && pack.detector.is_some() {
                 pack.note(&format!("watchdogs of {}", row.name), Hits::from([(secrets::WATCHDOG, 1)]));
@@ -959,10 +975,6 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
         }
     }
     links.left_out.extend(dog_warnings);
-    let project_dogs: i64 = query(handle, client, "SELECT count(*) FROM ot.watchdogs WHERE owner_agent_id = ANY($1) AND owner_kind = 'project' AND state IN ('armed', 'paused')", &[&ids])?[0].get(0);
-    if project_dogs > 0 {
-        links.left_out.push(format!("{project_dogs} watchdog(s) owned by a project: project watchdogs do not travel yet."));
-    }
     for row in rows {
         let taking_part = query(handle, client,
             "SELECT slug, title, reviewer_agent_id = $1 FROM ot.work_items

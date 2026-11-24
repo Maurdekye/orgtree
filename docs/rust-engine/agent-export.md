@@ -49,7 +49,7 @@ A zip (stored or deflated, ZIP64 when needed), written once from front to back. 
 | `manifest.json` | Kind `orgtree-export`, format 1, the Orgtree version, when and where it was made, the root, the counts, what was included, the secrets note, the digest of the index, the seal |
 | `index.jsonl` | One line per part: name, size, SHA-256, and the record count of a part written line by line |
 | `nodes.json` | The nodes in tree order: each after the one above it. Name, kind, charters, tier, account, seat, grant, scope, session, costs, what was going on when it was read |
-| `links.json` | Audiences among the nodes and with the user and outside mail; watchdog definitions; docket items a node only takes part in; what was left out |
+| `links.json` | Audiences among the nodes and with the user (never the org mailbox); watchdog definitions of the agents and the projects; docket items a node only takes part in; what was left out |
 | `nodes/NNNN-name/…` | Per node: `convo.jsonl`, `tool-images.jsonl`, `turns.jsonl`, `sessions.jsonl`, `asks.jsonl`, `documents.jsonl`, `deliveries.jsonl`, `uploads.jsonl`, `docket.jsonl`, `icon.json`, and the folders `scratch/`, `team/`, `uploads/`, `docket/`, `native/<harness>/` |
 | `mail.jsonl` | Each mail row once: with its sender when a node sent it, else with its recipient |
 | `events.jsonl` | The event log rows about the nodes. An archive: no import reads it |
@@ -90,8 +90,19 @@ own files in a scratch folder (`export::engine_owned`: `.orgtree-*`, including
 folders granted outside the scratch and team folders (USER 20:30Z, question 9), slot leases,
 listener registrations, queued switches, halt, freeze, do-not-disturb.
 
-Known gaps, both said in the export's report: watchdogs owned by a project do not travel yet,
-and a watchdog's fire actions that hold credentials are dropped, as templates drop them.
+A project's own watchdogs travel like an agent's (USER 2026-11-24 m516cde3ebdef): the owner is
+the project's place in `nodes.json`, and the definition also keeps its delivery form
+(`project_delivery`). A relay from a project that is in the export follows that project's new
+name; one whose source project stayed behind is dropped and named.
+
+The org mailbox never travels (USER 2026-11-24 m63824e37d3d6: "the org inbox audience should
+never move / be saved with an import"). An export holds no audience with it and does not name it
+as left behind. An import or a duplicate grants none, from any file: one found in a file written
+by 4.7.0-alpha.1 is ignored and named in the result's notes. The canonical grant of the org
+mailbox takes it from its other holders, which is why no import may make it.
+
+Known gap, said in the export's report: a watchdog's fire actions that hold credentials are
+dropped, as templates drop them.
 
 ### Secrets
 
@@ -152,7 +163,7 @@ previewed carries the plan's digest (`expect`) and is refused when the plan has 
 One serializable transaction, retried on conflict. Every live node is created by the
 canonical `hire` or `create_project`, as the importer, in tree order. Retired nodes are stored
 as a retire leaves them. Each new agent is held with the halt record (`by: "import"`), so no
-turn can start. Audiences among the nodes, and with the user and outside mail, are granted
+turn can start. Audiences among the nodes and with the user are granted
 through the canonical grant as the importer; one that the importer may not grant is left off
 and named. One `import` (or `duplicate`) event is written beside the ordinary hire events.
 A hire leaves a notice for the superior and the peers of the newcomer (`lifecycle::record`);

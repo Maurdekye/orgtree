@@ -39,7 +39,7 @@ Choose a file made by Export. It is sent to the engine and checked, and the dial
 
 When not even the seats fit, the plan says so and **Import** stays off: free credits first. The organization's top-level cap also applies at the top level.
 
-**Import** creates exactly what was planned; if something changed meanwhile it says so and shows the new plan. When it is done the dialog closes: the new nodes are on the canvas and a toast says what was imported, with **Undo**. The agents arrive idle and are told what happened at their next turn. Their watchdogs arrive paused unless "Arm its watchdogs" is ticked (shown when the file holds any). Their earlier mail with anyone who was not imported, and their questions, are files in each agent's `imported-history` folder and never appear in the inbox.
+**Import** creates exactly what was planned; if something changed meanwhile it says so and shows the new plan. When it is done the dialog closes: the new nodes are on the canvas and a toast says what was imported, with **Undo**. The agents arrive idle and are told what happened at their next turn. Their watchdogs, and those a project owns, arrive paused unless "Arm its watchdogs" is ticked (shown when the file holds any). The org mailbox never comes with an import or a copy: whoever holds it here keeps it, and a node that held it where it was exported has to be given it again. Their earlier mail with anyone who was not imported, and their questions, are files in each agent's `imported-history` folder and never appear in the inbox.
 
 If a part could not be brought in, the toast lists it. Agents whose transcript is missing stay halted and are named there. An import that fails keeps its dialog and says why.
 

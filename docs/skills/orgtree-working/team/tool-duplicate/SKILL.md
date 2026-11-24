@@ -6,7 +6,7 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_duplicate
 
-Requires `team`. Makes a second copy of a node below you in this organization, without a file. The copy gets the original's settings, charters, credits, scratch folder, team folder, transcript, documents and watchdog definitions (paused). It does not get the original's docket items or its cost history, and no mail is copied. With `subtree: true` everything under the node is copied with it. The original is untouched and is not interrupted.
+Requires `team`. Makes a second copy of a node below you in this organization, without a file. The copy gets the original's settings, charters, credits, scratch folder, team folder, transcript, documents and watchdog definitions (paused). It does not get the original's docket items or its cost history, no mail is copied, and the org mailbox stays with the original. With `subtree: true` everything under the node is copied with it. The original is untouched and is not interrupted.
 
 Use it to fork an agent whose context is worth keeping: try a second approach, split a workload, or keep one copy idle as a checkpoint. To start an agent without that history, [hire](../tool-hire/SKILL.md) instead. To bring a node in from a file, use [orgtree_import](../tool-import/SKILL.md), whose rules this tool shares.
 
