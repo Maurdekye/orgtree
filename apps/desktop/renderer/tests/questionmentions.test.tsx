@@ -231,7 +231,9 @@ const rule = (selector: string): Map<string, string> => {
 }
 
 test('§10 an option row repeats the contextual button rules the single button had, and its pick button resets them', () => {
-  for (const [button, row] of [['.settings button', '.settings div.ask-row'], ['html.mobile button', 'html.mobile div.ask-row']]) {
+  // (the settings rule leaves the desk's message box and the agents list alone since 4.7.0; it is still
+  // the rule every other button in a settings panel gets, the option row's former self among them)
+  for (const [button, row] of [['.settings button:where(:not(.cc-composer *, .dm-newchat *))', '.settings div.ask-row'], ['html.mobile button', 'html.mobile div.ask-row']]) {
     assert.deepEqual([...rule(row!)].sort(), [...rule(button!)].sort(), `${row} repeats ${button}`)
   }
   const pick = rule('.ask-row .ask-row-pick')
