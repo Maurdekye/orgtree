@@ -1820,3 +1820,28 @@ test('alpha.1 point 23: the walk steps onto older messages as they come in: firs
   const order = s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry)
   assert.equal(order.indexOf(hlOf()[0]!), order.indexOf(was) - 1, 'the highlight is on the message just before the one it stood on')
 })
+
+test('alpha.1 point 24: in the chats a quote of the user\u2019s own message has no "Sender…" entry; a quote of an agent\u2019s message keeps it', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')],
+    delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z'),
+      // the agent answers the user's message: its quote is of the user's own mail
+      mail('in2', 'worker', '2026-11-20T12:00:00Z', { reply_to: { id: 'mine1', kind: 'mail', from: USER, at: '2026-11-20T11:00:00Z', gist: 'body of mine1' } })],
+    sent: [sent('mine1', 'worker', '2026-11-20T11:00:00Z'),
+      // the user answers the agent's message: its quote is of the agent's mail
+      sent('mine2', 'worker', '2026-11-20T13:00:00Z', { reply_to: { id: 'in1', kind: 'mail', from: 'worker', at: '2026-11-20T10:00:00Z', gist: 'body of in1' } })] }, { active: false })
+  await s.openChat('worker')
+  const quoteMenu = async (id: string) => {
+    const quote = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.reply-preview')
+    assert.ok(quote, `the quote card of ${id}`)
+    await inAct(async () => { quote.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(6) })
+    const menus = [...document.querySelectorAll<HTMLElement>('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu'))
+    const labels = [...menus[menus.length - 1]!.children].flatMap(c => c.matches('[role="separator"]') ? [] : [(c.querySelector('[role="menuitem"]') ?? c).textContent?.trim() ?? ''])
+    await inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(3) })
+    return labels
+  }
+  const own = await quoteMenu('in2')
+  assert.equal(own.includes('Copy contents'), true, `POSITIVE CONTROL: this is the quote card\u2019s menu (${own.join(' | ')})`)
+  assert.equal(own.some(l => l.startsWith('Sender')), false, 'a quote of my own message: no Sender entry')
+  const theirs = await quoteMenu('mine2')
+  assert.equal(theirs.some(l => l.startsWith('Sender')), true, `a quote of the agent\u2019s message keeps it (${theirs.join(' | ')})`)
+})
