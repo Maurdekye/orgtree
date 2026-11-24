@@ -241,6 +241,10 @@ pub async fn page(client: &Client, org: i64, ask: &Ask) -> Result<Value> {
 }
 
 #[cfg(test)]
+#[path = "mention_candidates_status_tests.rs"]
+mod status_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
