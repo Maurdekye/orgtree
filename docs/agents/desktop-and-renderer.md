@@ -13,7 +13,8 @@ are a second view over the same reads and calls.
 - SAME UNDER THE HOOD: the panel reads `useRecordInbox`, `useMailboxHistory` (inbox and sent) and
   `getAudiences`, and writes only through `audienceAction`, `markRead`/`markReadNow`, `sendLinkedReply`,
   `resolveBatch`, `deleteUserMail`, `clearInbox` and the job acknowledgement, as the classic panel does. A reply
-  marks its original read, as there. Do not add an engine route for the chats.
+  marks its original read, as there. Do not add an engine route for the chats: the one engine change they got
+  is a `peer` on the existing inbox route (below).
 - REUSED, NOT COPIED: `CollapsibleMailer` (its `rowSelector` names what closes the narrow overlay; the default
   is `.mailrow`), `MailMessageBody` and `MailAttachments` (extracted from `MailReadPane`, same DOM),
   `MailReplyBox`, `InboxAskCard` with `layout="messages"` (`BatchAsk` draws one `.ask-message` per tab and ONE
@@ -26,7 +27,12 @@ are a second view over the same reads and calls.
   (`DM_PAGE` 50, trimmed 300 to 100 at the newest message); older rows come by `older()` with Hubchat's
   first-row-in-view anchor, the mailbox's next page only after the loaded mail is drawn, and at most three pages
   in a row that held nothing of the chat at full speed (then a full view waits for a scroll, and a view that
-  does not scroll reads on one page a second: `dmTiming.slowPageMs`). `MailReplyPreview locateMail` lets a surface that shows the quoted mail
+  does not scroll reads on one page a second: `dmTiming.slowPageMs`). That three-page rule is for the
+  mailbox's pages only (a project's chat, or an older engine): an agent's chat and the System chat read THEIR OWN
+  pages, `useMailboxHistory(…, 'chat', …, peer)` = `GET /inbox?folder=chat&peer=<name>`, 50 rows of that chat a
+  page, merged into the mailbox's two windows by id (`ownPages`; an engine that refuses the folder is not asked
+  again and the chat falls back). Measure a change to the chats with tests/dm-bench.mjs (5,000 messages, 250
+  agents: open, a keystroke, a tree change, scrolling back). `MailReplyPreview locateMail` lets a surface that shows the quoted mail
   find it by id (a quote's stored box is the sender's copy). New chat is a sweep inside `.dm-list`, never a
   PinFrame. The gear asks `openSettingsAt({ over: true })`; OrgCanvas draws that window in `ModalOverPins`.
   Captures: tests/dm-panel-visual.mjs and tests/dm-alpha1-visual.mjs.

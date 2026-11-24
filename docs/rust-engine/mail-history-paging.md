@@ -35,6 +35,38 @@ the React state updater runs, retaining the current rows and cursor for Retry.
 The projectdesk fixture explicitly serves mailbox responses; its generic
 FakeServer fallback `{ok:true}` is not a mailbox contract.
 
+## One chat's own pages (4.7.0)
+
+The user's chats (`apps/desktop/renderer/src/dm/DmPanel.tsx`) page one
+conversation, not the whole mailbox. On the user's inbox route only, a history
+request may name a `peer`:
+
+- `folder=inbox&peer=<name>`: mail that sender wrote to the user.
+- `folder=sent&peer=<name>`: the user's mail to that recipient.
+- `folder=chat&peer=<name>`: both directions in one page under one cursor. Two
+  folders paged side by side leave holes (fifty received rows may span two
+  days while fifty sent ones span ten), so the chats use this one.
+
+A peer page holds 50 rows (`mail_history::PEER_PAGE`) with the same `before`
+cursor, the same row projection and the same visibility gates. The peer is
+compared with the row's stored `sender` or `recipient_name`. A send to several
+recipients (the megaphone) is one row for each recipient, so it is in each of
+their pages; a reply that answers several mails is one row, in its one
+recipient's pages, with every target. `folder=chat` without a peer, and a peer
+longer than 200 characters, are refused. Requests without a peer are unchanged.
+
+No index was added: the query walks `mail_pkey` backwards and filters. On a
+synthetic mailbox of 200,124 rows (throwaway PostgreSQL, `EXPLAIN ANALYZE`) a
+busy peer's page took 5.8 ms, the first page of a peer with one row 46 ms and
+an unknown peer 36 ms. Test: `domain/mail_history_peer_tests.rs` (needs the
+`orginbox_queue_fixture` database, like the org-mailbox queue tests); rig
+proof `tools/rig/proofs/mailhistory-peer.mjs`.
+
+A project's chat is a thread of several senders and recipients (queue copies,
+members' answers, megaphone sends); it has no peer page and stays on the
+mailbox's pages. `useMailboxHistory` re-reads retained chat rows by id through
+both folders, since a chat page holds rows of both.
+
 ## Focused evidence and limits
 
 `apps/desktop/renderer/tests/inboxhistory.test.tsx` mounts the actual user panel
