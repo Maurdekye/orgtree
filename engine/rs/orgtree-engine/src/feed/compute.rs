@@ -291,9 +291,11 @@ pub fn mail_entry(m: &Value) -> Value {
     if state == "delivering" {
         o.insert("delivering".into(), json!(true));
     }
-    // the agent's CLI has taken it (the one check mark of the user's chats)
-    if m["recipient_kind"] == "agent" && matches!(state, "delivered" | "read") {
-        o.insert("delivered".into(), json!(true));
+    // whether the agent's CLI has taken it (the one check mark of the user's chats). Said both ways,
+    // so a reader can tell "not yet" from an older engine's silence and never shows a clock that
+    // could not turn. A retracted mail says nothing.
+    if m["recipient_kind"] == "agent" && state != "retracted" {
+        o.insert("delivered".into(), json!(matches!(state, "delivered" | "read")));
     }
     // a project mail's place in its queue (user 2026-10-18 08:01Z): who was
     // handed it and whether it is acked, released back to the queue, or an
@@ -535,9 +537,10 @@ mod delivered_tests {
         for state in ["delivered", "read"] {
             assert_eq!(mail_entry(&row(state))["delivered"], true, "{state}");
         }
-        for state in ["pending", "delivering", "retracted"] {
-            assert!(mail_entry(&row(state)).get("delivered").is_none(), "{state}: not taken yet (or taken back)");
+        for state in ["pending", "delivering"] {
+            assert_eq!(mail_entry(&row(state))["delivered"], false, "{state}: said, as not yet");
         }
+        assert!(mail_entry(&row("retracted")).get("delivered").is_none(), "taken back: nothing to say");
         assert_eq!(mail_entry(&row("delivering"))["delivering"], true, "the claim keeps its own mark");
         // the user's own inbox rows are a different thing: "read" there is the user's reading
         let mine = json!({"uid":"m2","sender":"boss","recipient_kind":"user","recipient_name":"user","body":"hi","state":"read"});

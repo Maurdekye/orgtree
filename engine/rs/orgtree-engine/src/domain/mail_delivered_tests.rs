@@ -41,7 +41,7 @@ async fn an_acknowledgement_settles_claimed_mail_and_knows_the_users_own() {
     let raw: Value = c.query_one("SELECT to_jsonb(m) FROM ot.mail m WHERE uid='m-d-1'", &[]).await.unwrap().get(0);
     assert_eq!(crate::feed::compute::mail_entry(&raw)["delivered"], true);
     let raw: Value = c.query_one("SELECT to_jsonb(m) FROM ot.mail m WHERE uid='m-d-4'", &[]).await.unwrap().get(0);
-    assert!(crate::feed::compute::mail_entry(&raw).get("delivered").is_none());
+    assert_eq!(crate::feed::compute::mail_entry(&raw)["delivered"], false);
     // the sixth column the acknowledgements return: whether the user wrote the row
     let rows = c.query("UPDATE ot.mail SET state='delivered' WHERE turn_id=9 RETURNING uid,kind,org_id,net_id,net_hub,sender='@user'", &[]).await.unwrap();
     assert!(rows[0].try_get::<_, bool>(5).unwrap());
