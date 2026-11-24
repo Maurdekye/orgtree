@@ -223,7 +223,7 @@ async fn the_agents_in_charge_and_their_last_turn_ends() {
     run(&c, "UPDATE ot.agents SET halt = '{\"by\":\"fixture\"}'::jsonb WHERE id = $1", bob).await;
     assert_eq!(in_charge(&c, org, true).await.unwrap(), vec![ann, bob], "a halted holder still counts");
     assert_eq!(in_charge(&c, org, false).await.unwrap(), vec![bob], "single-holder mode: the newest grant only");
-    run(&c, "UPDATE ot.agents SET state = 'retired' WHERE id = $1", bob).await;
+    run(&c, "UPDATE ot.agents SET state = 'archived' WHERE id = $1", bob).await;
     assert_eq!(in_charge(&c, org, true).await.unwrap(), vec![ann], "a retired holder is not in charge");
     done(c, conn).await;
 }
@@ -253,7 +253,7 @@ async fn the_last_active_time_never_goes_back() {
     grant(&c, org, "bob").await;
     assert_eq!(pass(&c, org).await, at("2026-11-24T10:40:00Z"), "a holder swap to an older-run agent keeps the time");
     // bob retired, the mailbox given to a hire that never ran
-    run(&c, "UPDATE ot.agents SET state = 'retired' WHERE id = $1", bob).await;
+    run(&c, "UPDATE ot.agents SET state = 'archived' WHERE id = $1", bob).await;
     agent(&c, org, "newbie").await;
     grant(&c, org, "newbie").await;
     assert_eq!(pass(&c, org).await, at("2026-11-24T10:40:00Z"), "a never-run hire keeps the time");
