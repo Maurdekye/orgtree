@@ -5,7 +5,11 @@ import path from 'node:path'
 import { Proof } from '../proof.mjs'
 import { setup as keysSetup } from './openrouter-keys.mjs'
 
-export async function setup() { return { ...(await keysSetup()), name: 'opencode-startup', recover: true } }
+// Not about placement: an engine in Session 0 with the user signed in has no sign-in helper
+// here, and every turn start in the minute after each engine start waits for one (test-rig.md
+// Traps). The recovering turn then cannot be admitted inside this proof's 10 s window, which
+// must stay shorter than the 12 s discovery delay. So the seats run as outside Session 0.
+export async function setup() { return { ...(await keysSetup()), name: 'opencode-startup', recover: true, session0: '0' } }
 
 export default async function (rig) {
   const p = new Proof('opencode-startup')
