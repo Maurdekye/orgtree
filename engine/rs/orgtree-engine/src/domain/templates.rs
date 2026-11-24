@@ -48,6 +48,8 @@ const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
         "eb187d8b7ac11afd74513fb009e55bdd3019666f43b876adbdba6420f434d1f5",
         "8fdb201732948ff05ca612162246be45c03015cf46fb17b30c6e52e1d98c2b5a",
         "2003ff151fef08e03b36a47f6a6418472915637887b6bbafbbd4b357fbba533f",
+        // until 4.7.0: its shared notes taught @item:<org>/<slug> (now @ticket:, USER 2026-11-24 mc6e8d9a7dab7)
+        "2a3bedc25438a21c5a3d3ea2c9dd40aa5d001e07e4665c6823dda5b9cc7ca99e",
     ]),
 ];
 
@@ -1635,7 +1637,7 @@ mod tests {
             ("devteam-codex.json", "ce1ef5b21152cd6f582ec4051d1749ce0e930b102899efc6a39de2efa3ee4908"),
             ("devteam-muse.json", "993cec32790eee02e632500e89c9c3c701a80013d666570eb0a925315f99fba9"),
             ("devteam-antigravity.json", "562e7c0e19bbfd9c43ebeee998edc1a4e17a7437f34f4546cfa4b995cf01cf83"),
-            ("heavy-dev-shop.json", "2a3bedc25438a21c5a3d3ea2c9dd40aa5d001e07e4665c6823dda5b9cc7ca99e"),
+            ("heavy-dev-shop.json", "c8fd978462e623e0f6950d3cb731fcf5694ecaa2e791c49a90e19eb90f31253e"),
         ];
         assert_eq!(CURRENT.len(), BUNDLED.len());
         for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {
