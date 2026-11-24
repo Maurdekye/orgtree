@@ -71,7 +71,7 @@ import { DefaultsForm } from '../shell/defaults'
 import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } from '../quickchat'
 import { EngineDebugToggle } from './enginedebug'
 import { EpicModeSwitch } from '../epic/EpicSwitch'
-import { fablePipPercent, fablePipTitle, fableUnreachableFrom, fableUnreachableTitle, isFableWeekly } from './fablepip'
+import { fablePipPercent, fablePipTitle, fableShareTitles, fableSharePercent, fableUnreachableFrom, fableUnreachableTitle, isFableWeekly } from './fablepip'
 import {
   CLASSIC_MAILBOX_HINT, CLASSIC_MAILBOX_LABEL, OPEN_CHAT_ON_REPLY_HINT, OPEN_CHAT_ON_REPLY_LABEL,
   setClassicMailbox, setOpenChatOnReply, useClassicMailbox, useOpenChatOnReply,
@@ -265,6 +265,9 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   // past the pip, the Fable bar's unreachable end is red (same file)
   const fableRed = fableUnreachableFrom(lims, knownOf)
   const fableRedText = fableUnreachableTitle(fableRed)
+  // the weekly bar's estimated Fable share, in a lighter shade (same file)
+  const fableShare = fableSharePercent(lims, knownOf)
+  const fableShareText = fableShare && fableShareTitles(fableShare)
   return (
     <>
       {/* A failed or rate-limited provider read retains last-good bars (whether
@@ -302,7 +305,11 @@ export function UsageBars({ u }: { u: AccountUsage }) {
             </div>
             {known && <div className="usage-track">
               <div className={'usage-fill' + (sev ? ' ' + sev : '')}
-                style={{ width: pct + '%' }} />
+                style={{ width: pct + '%' }}
+                title={l.kind === 'weekly_all' && fableShareText ? fableShareText.other : undefined} />
+              {l.kind === 'weekly_all' && fableShare && fableShareText
+                && <span className="usage-fable-share" style={{ width: fableShare.share + '%' }}
+                  title={fableShareText.fable} aria-label={fableShareText.fable} role="img" />}
               {l.kind === 'weekly_all' && fablePip != null
                 && <span className="usage-pip" style={{ left: fablePip + '%' }}
                   title={fablePipText} aria-label={fablePipText} role="img" />}

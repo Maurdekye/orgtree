@@ -67,6 +67,35 @@ export const fableUnreachableTitle = (from: number | null): string =>
     ? "Fable can't reach the rest of this bar this week: the weekly limit comes first"
     : `Fable can reach at most ${Math.round(from)}% this week: the weekly limit comes first`
 
+/** THE ESTIMATED FABLE SHARE (USER 2026-11-24 12:47:01Z m7639af3420f8 "highlight
+ *  the part of the bar used by fable (estimated) a different shade than the
+ *  part used by other models", as the Claude console does). With the pip's
+ *  fixed r = 1/2 (one full Fable allowance is half the weekly limit), Fable
+ *  has used about f x 1/2 of the weekly (all models) bar; clamped to that
+ *  bar's own used amount. Returns {share, weekly} as percentages of the
+ *  weekly bar, or null (single colour) unless both readings are known by the
+ *  bars' own rule. Unlike the pip, Fable at 100% still has a share (50%). */
+export const fableSharePercent = (limits: readonly UsageLimit[],
+  known: (l: UsageLimit) => boolean): { share: number, weekly: number } | null => {
+  const weekly = limits.find(l => l.kind === 'weekly_all')
+  if (!weekly || !known(weekly) || weekly.percent == null || !Number.isFinite(weekly.percent)) return null
+  const fable = limits.find(l => isFableWeekly(l) && known(l))
+  if (!fable || fable.percent == null || !Number.isFinite(fable.percent)) return null
+  const w = Math.max(0, Math.min(100, weekly.percent))
+  const f = Math.max(0, Math.min(100, fable.percent))
+  return { share: Math.min(w, f / 2), weekly: w }
+}
+
+/** Hover text for the two parts, in whole percents; "other models" is the
+ *  rounded weekly minus the rounded Fable share, so the two add up. */
+export const fableShareTitles = (s: { share: number, weekly: number }): { fable: string, other: string } => {
+  const fable = Math.round(s.share)
+  return {
+    fable: `Fable (estimated): about ${fable}% of the weekly limit`,
+    other: `Other models: about ${Math.max(0, Math.round(s.weekly) - fable)}%`,
+  }
+}
+
 export const isFableWeekly = (l: UsageLimit): boolean =>
   l.kind === 'weekly_scoped' && /\bfable\b/i.test(l.model ?? '')
 

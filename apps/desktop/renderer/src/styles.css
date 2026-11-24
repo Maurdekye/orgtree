@@ -5867,6 +5867,14 @@ span.ref-chip.ref-chip {
   content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px;
   background: var(--ink-strong); opacity: .7;
 }
+/* THE ESTIMATED FABLE SHARE (USER 2026-11-24 m7639af3420f8; canvas/fablepip.ts):
+   the left part of the Claude weekly bar's fill, f x 1/2, in a lighter tint of
+   the fill's own colour (a light wash over it, whatever its severity colour),
+   never a warning colour. The pip and the red end are drawn above it. */
+.usage-fable-share {
+  position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px 0 0 4px;
+  background: rgb(255 255 255 / .38); cursor: help;
+}
 /* THE UNREACHABLE END (USER 2026-11-11 m49c4c03b6da4; canvas/fablepip.ts):
    once weekly is past the pip, the end of the Fable bar that the weekly limit
    cuts off, in the meters' own limit colour over the empty track. */
