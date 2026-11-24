@@ -21,7 +21,7 @@ fn example(coordinator: bool) -> String {
         charter:Some(if coordinator {"[Placeholder coordinator charter.]"} else {"[Placeholder charter.]"}),
         team_charter:None, cascade:&[], superior:None, org_md:Some(""), app_md:None, lane:Lane::Codex,
         scope:&scope, codex_sandbox:Some("workspace-write"), mcp_servers:&[],
-        extern_holder:coordinator, folder_notes:&[], own_notes:&[],
+        extern_holder:coordinator, extern_weak:false, folder_notes:&[], own_notes:&[],
         skills_dir:"D:/synthetic/home/.claude/skills", builtin_skills:true, suggest_agent_feedback:true,
     })
 }
@@ -54,7 +54,7 @@ fn profiles() -> BTreeMap<String, String> {
                         cascade:&[("project".into(),"Synthetic ancestor charter.".into())],
                         superior:if top {None} else {Some("boss")}, org_md:Some("Synthetic org notes."), app_md:None,
                         lane:*lane, scope:&scope, codex_sandbox:Some(if readonly {"read-only"} else {"workspace-write"}),
-                        mcp_servers:&["synthetic".into()], extern_holder:!readonly,
+                        mcp_servers:&["synthetic".into()], extern_holder:!readonly, extern_weak:false,
                         folder_notes:&notes, own_notes:&notes, skills_dir:"D:/synthetic/skills",
                         builtin_skills:trimmed, suggest_agent_feedback:!readonly,
                     });

@@ -1158,6 +1158,7 @@ pub async fn queue(
     reply_to: Option<&Value>,
     replies: &[Value],
     job: Option<&crate::domain::orginbox::JobReply<'_>>,
+    via_weak: bool,
 ) -> Result<(String, String, Vec<String>)> {
     crate::domain::orginbox::require_enabled(engine, org_id).await?;
     if offline() {
@@ -1198,7 +1199,7 @@ pub async fn queue(
         for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
         limit.check_message(wire_body.len() as u64, attachments.iter().map(|a| a["bytes"].as_u64().unwrap_or(0)).sum())?;
     }
-    queue_row(engine, org_id, peer, body, by, sender, kind, attachments, reply_to, replies, job).await
+    queue_row(engine, org_id, peer, body, by, sender, kind, attachments, reply_to, replies, job, via_weak).await
 }
 
 /// Persist only; callers perform the transport/audience checks first.
@@ -1216,6 +1217,7 @@ async fn queue_row(
     reply_to: Option<&Value>,
     replies: &[Value],
     job: Option<&crate::domain::orginbox::JobReply<'_>>,
+    via_weak: bool,
 ) -> Result<(String, String, Vec<String>)> {
     let uid = crate::util::uid("x");
     let net_id = uuid::Uuid::new_v4().simple().to_string();
@@ -1232,9 +1234,9 @@ async fn queue_row(
     let via_job: Option<&str> = job.map(|j| j.job);
     let row = tx
         .query_one(
-            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to, sender_agent_id, sender_generation, replies, via_job)
-             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id",
-            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply, &sender_id, &sender_generation, &json!(replies), &via_job],
+            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to, sender_agent_id, sender_generation, replies, via_job, via_weak)
+             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id",
+            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply, &sender_id, &sender_generation, &json!(replies), &via_job, &via_weak],
         )
         .await?;
     let ids = transfers::plan(&tx, org_id, row.get(0), "", "", attachments).await?;
@@ -1251,7 +1253,7 @@ async fn queue_row(
 pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str, body: &str, replies:Option<&Value>) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
     let quotes=replies.and_then(Value::as_array).cloned().unwrap_or_default();
-    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], quotes.first(), &quotes, None).await?;
+    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], quotes.first(), &quotes, None, false).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
         "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to,replies FROM ot.org_inbox WHERE uid=$1", &[&uid],

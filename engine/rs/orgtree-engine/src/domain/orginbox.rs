@@ -264,6 +264,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     };
     let by = match &out.from { From::User => "user".to_string(), f => f.name() };
     let mut via_job: Option<String> = None;
+    let mut via_weak = false;
     if let From::Agent { id, name, .. } = &out.from {
         match jobs::reply_right(engine, org_id, *id, out).await? {
             jobs::Reply::Allowed(job) => via_job = Some(job),
@@ -275,13 +276,18 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
                 }
             }
         }
+        // a send over a weak link (not a job's reply): its replies come back only while the link stands
+        if via_job.is_none() {
+            let c = engine.db.get().await?;
+            via_weak = mailbox_link(&**c, org_id, name).await? == Some("weak");
+        }
     }
     if let Some(peer) = to.strip_prefix("net:") {
         let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
         // D10: the reply remembers its job (written in the queueing transaction itself, after the right is re-checked
         // there), so the peer's answer can route back into the worker's thread (D13)
         let job_reply = match (&via_job, &out.from) { (Some(job), From::Agent { id, .. }) => Some(JobReply { agent: *id, job: job.as_str(), out }), _ => None };
-        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies, job_reply.as_ref()).await?;
+        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies, job_reply.as_ref(), via_weak).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent { dnd_held: false,
             transfer_ids,
@@ -342,11 +348,11 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     // Preserve the canonical kind for a later pull or Normal-mode release.
     tx
         .execute(
-            "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to, replies, net_id, sender_agent_id, sender_generation, via_job)
-                        VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10, $12, $14, $15, $16, $17))
+            "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to, replies, net_id, sender_agent_id, sender_generation, via_job, via_weak)
+                        VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10, $12, $14, $15, $16, $17, $18))
              INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, reply_to, replies, net_id) VALUES ($7, $8, 'in', $9, $4, $6, $11, $13, $14)",
             &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there, &json!(replies_here), &json!(replies_there),
-              &msg_id, &sender_agent, &sender_gen, &via_job],
+              &msg_id, &sender_agent, &sender_gen, &via_job, &via_weak],
         )
         .await?;
     tx.execute("UPDATE ot.org_inbox SET kind=$2 WHERE uid=$1", &[&in_uid,&out.kind]).await?;
@@ -396,6 +402,33 @@ pub async fn holder_rows<C: tokio_postgres::GenericClient + Sync>(client: &C, or
          WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND NOT au.paused AND a.state = 'live'
          GROUP BY au.grantee, a.kind ORDER BY max(au.id) DESC LIMIT $2", &[&org_id, &(if multi { 10000i64 } else { 1i64 })]).await?;
     Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
+/// The live agents holding a weak link to the org mailbox (`@extern-weak`), newest first: they may send as the org;
+/// nothing routes inbound mail to them except replies to their own (`jobs::threaded`, D13).
+#[logged]
+pub async fn weak_agents<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64) -> Result<Vec<String>> {
+    let rows = client.query(
+        "SELECT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+         WHERE au.org_id = $1 AND au.grantor = '@extern-weak' AND au.revoked_at IS NULL AND NOT au.paused AND a.state = 'live' AND a.kind = 'agent'
+         GROUP BY au.grantee ORDER BY max(au.id) DESC", &[&org_id]).await?;
+    Ok(rows.iter().map(|r| r.get(0)).collect())
+}
+
+/// Which link to the org mailbox this live node holds: `primary` (`@extern`), `weak` (`@extern-weak`) or none.
+/// The one check for "may act as a mailbox holder" (blocking: USER 2026-11-24 m61f5367a61e7). A primary in
+/// single-holder mode is any live grant: the grant itself revokes the others.
+#[logged]
+pub async fn mailbox_link<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, name: &str) -> Result<Option<&'static str>> {
+    let row = client.query_opt(
+        "SELECT bool_or(au.grantor = '@extern') FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+         WHERE au.org_id = $1 AND au.grantee = $2 AND au.grantor IN ('@extern', '@extern-weak') AND au.revoked_at IS NULL AND NOT au.paused
+           AND a.state = 'live'", &[&org_id, &name]).await?;
+    Ok(match row.and_then(|r| r.get::<_, Option<bool>>(0)) {
+        Some(true) => Some("primary"),
+        Some(false) => Some("weak"),
+        None => None,
+    })
 }
 
 /// Every live holder's name, agents and projects, newest first. For the holders list and
@@ -567,6 +600,9 @@ pub(crate) async fn may_send_extern(engine: &Arc<Engine>, org_id: i64, agent_id:
     if holder_agents(client, org_id, multi).await?.iter().any(|h| h == name) {
         return Ok(true);
     }
+    if weak_agents(client, org_id).await?.iter().any(|h| h == name) {
+        return Ok(true);
+    }
     Ok(client
         .query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.outside_top_level(id)", &[&agent_id, &org_id])
         .await?
@@ -594,11 +630,16 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
     let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
     let mut holders = holder_agents(&*tx, org_id, multi).await?;
     let projects = holder_projects(&*tx, org_id, multi).await?;
+    let mut weak = false;
     let target = if let Some((id, name)) = sender {
-        if holders.iter().any(|h| h == name) { None } else {
+        if holders.iter().any(|h| h == name) || weak_agents(&*tx, org_id).await?.iter().any(|h| h == name) { None } else {
             let top = tx.query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND kind = 'agent' AND ot.outside_top_level(id)", &[&id, &org_id]).await?.is_some();
-            if !top { crate::refuse!(Forbidden, "outside mail needs the org-mailbox audience; ask your superior"); }
-            Some((id, name.to_string(), "auto-granted: top-level agent messaged an outside party"))
+            if !top { crate::refuse!(Forbidden, "outside mail needs the org-mailbox audience (or a weak link to it); ask your superior"); }
+            // Q1 (USER 2026-11-24 19:06:02Z m61f5367a61e7): while the mailbox has a holder, the sender takes a weak
+            // link, never the primary; with none it becomes the holder, as before
+            weak = !holder_rows(&*tx, org_id, multi).await?.is_empty();
+            Some((id, name.to_string(), if weak { "auto-granted: top-level agent messaged an outside party while the org mailbox has a holder" }
+                else { "auto-granted: top-level agent messaged an outside party" }))
         }
     } else if holders.is_empty() && projects.is_empty() {
         // the first top-level agent who can run; when none can, the first live one
@@ -608,14 +649,18 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
     } else { None };
     let mut changed = false;
     if let Some((id, name, reason)) = target {
-        if !multi {
+        let grantor = if weak { super::audiences::EXTERN_WEAK } else { super::audiences::EXTERN };
+        if !multi && !weak {
             tx.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantor = '@extern' AND revoked_at IS NULL", &[&org_id]).await?;
             holders.clear();
         }
-        tx.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, '@extern', $3)", &[&org_id, &name, &reason]).await?;
+        if !weak {
+            tx.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantee = $2 AND grantor = '@extern-weak' AND revoked_at IS NULL", &[&org_id, &name]).await?;
+        }
+        tx.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, $3, $4)", &[&org_id, &name, &grantor, &reason]).await?;
         tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', '@system', $2, $3)",
-            &[&org_id, &id, &json!({"grantee": name, "grantor": "@extern", "reason": reason})]).await?;
-        holders.push(name);
+            &[&org_id, &id, &json!({"grantee": name, "grantor": grantor, "reason": reason})]).await?;
+        if !weak { holders.push(name); }
         changed = true;
     }
     let mut route = Route { to: holders.clone(), waiting: false, projects };

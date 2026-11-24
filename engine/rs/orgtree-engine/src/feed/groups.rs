@@ -271,7 +271,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
         "org_inbox" => {
             if !crate::domain::orginbox::enabled(&org["settings"]) {
                 return Ok(json!({"org_inbox": {"enabled": false, "mode":"closed", "visible": false,
-                    "entries": [], "total": 0, "unread": 0, "holders": [],
+                    "entries": [], "total": 0, "unread": 0, "holders": [], "weak": [],
                     "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)}}));
             }
             let preview = client
@@ -289,6 +289,9 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             let holder_rows = crate::domain::orginbox::holder_rows(client, org_id,
                 settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
             let holders: Vec<String> = holder_rows.iter().map(|r| r.0.clone()).collect();
+            // weak links (USER 2026-11-24 m020bbd1926c3): drawn dotted; an array here tells the desktop this engine
+            // knows them (an older engine sends none, and the desktop offers no weak links)
+            let weak = crate::domain::orginbox::weak_agents(client, org_id).await?;
             // which holders are projects (each gets one queued job per message; spec D4)
             let holder_projects: Vec<String> = holder_rows.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
             let mut entries: Vec<Value> = preview.iter().map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))).collect();
@@ -301,8 +304,9 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "unread": counts.get::<_, i64>(1),
                 "holders": holders,
                 "holder_projects": holder_projects,
+                "weak": weak,
                 "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false),
-                "enabled": settings["org_inbox_enabled"].as_bool().unwrap_or(true), "visible": settings["org_inbox_enabled"].as_bool().unwrap_or(true) && (total > 0 || !holders.is_empty()),
+                "enabled": settings["org_inbox_enabled"].as_bool().unwrap_or(true), "visible": settings["org_inbox_enabled"].as_bool().unwrap_or(true) && (total > 0 || !holders.is_empty() || !weak.is_empty()),
             }})
         }
         "net" => {

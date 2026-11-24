@@ -13,7 +13,7 @@ fn prompt(lane: Lane, org: &str, org_md: Option<&str>, app_md: Option<&str>) -> 
     identity(&Identity {
         name: "worker", title: "", org_name: org, org_slug: org, scratch: "D:/fixture/worker",
         charter: Some("Fixture charter."), team_charter: None, cascade: &[], superior: Some("lead"),
-        org_md, app_md, lane, scope: &json!({}), codex_sandbox: None, mcp_servers: &[], extern_holder: false,
+        org_md, app_md, lane, scope: &json!({}), codex_sandbox: None, mcp_servers: &[], extern_holder: false, extern_weak: false,
         folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills", builtin_skills: builtin_skills_lane(lane),
         suggest_agent_feedback: false,
     })

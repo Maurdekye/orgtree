@@ -19,6 +19,10 @@ use crate::util::iso_opt;
 
 pub const USER: &str = "@user";
 pub const EXTERN: &str = "@extern";
+/// A weak link to the org mailbox (USER 2026-11-24 18:56:37Z m020bbd1926c3): its agent may send as the org; new
+/// outside mail still goes to the `@extern` holders, and a reply to its own mail comes back to it. Every check that
+/// reads `@extern` keeps meaning the primary link, so a weak link never receives, pulls or counts as in charge.
+pub const EXTERN_WEAK: &str = "@extern-weak";
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct EffectiveGrant {
@@ -51,6 +55,7 @@ pub fn party(raw: Option<&str>) -> String {
     match raw.map(str::trim).unwrap_or("") {
         "" | "user" | "@user" => USER.into(),
         "extern" | "@extern" | "org-inbox" | "org_inbox" | "org-mailbox" | "org_mailbox" => EXTERN.into(),
+        "extern-weak" | "@extern-weak" | "weak-extern" | "extern_weak" | "org-mailbox-weak" | "org_mailbox_weak" => EXTERN_WEAK.into(),
         other => other.trim_start_matches('@').to_string(),
     }
 }
@@ -59,6 +64,7 @@ fn spoken(p: &str) -> String {
     match p {
         USER => "the user".into(),
         EXTERN => "the org mailbox".into(),
+        EXTERN_WEAK => "a weak link to the org mailbox".into(),
         other => other.to_string(),
     }
 }
@@ -182,7 +188,7 @@ async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, wake: b
 pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str), requester: Option<&str>, target: &str, reason: &str) -> Result<Value> {
     let (actor_id, actor_name) = me;
     let target = party(Some(target));
-    if target == EXTERN { super::orginbox::require_enabled(engine, org.id).await?; }
+    if target == EXTERN || target == EXTERN_WEAK { super::orginbox::require_enabled(engine, org.id).await?; }
     let client = engine.db.get().await?;
     let requester = requester.map(|s| s.trim().trim_start_matches('@')).filter(|s| !s.is_empty()).unwrap_or(actor_name);
     if requester != actor_name && project_manager(&**client, org.id, requester).await?.as_deref() != Some(actor_name) {
@@ -207,6 +213,15 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
         EXTERN => {
             if my_parent.is_none() {
                 refuse!(Conflict, "you are a top-level agent: grant the org mailbox to yourself (orgtree_audience grant target=extern)");
+            }
+            top_of(&**client, my_id).await?
+        }
+        EXTERN_WEAK => {
+            if my_parent.is_none() {
+                refuse!(Conflict, "you are a top-level agent: you may already write outside (your first outside mail takes a weak link while the org mailbox has a holder)");
+            }
+            if holds(&**client, org.id, my_name, EXTERN).await? {
+                refuse!(Conflict, "you hold the org mailbox: you already write outside");
             }
             top_of(&**client, my_id).await?
         }
@@ -242,7 +257,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     if holder == USER {
         ch.push(Change::UserMail);
     } else {
-        let what = if target == EXTERN { "the org mailbox (outside mail)".to_string() } else { "you".to_string() };
+        let what = if target == EXTERN { "the org mailbox (outside mail)".to_string() } else if target == EXTERN_WEAK { "a weak link to the org mailbox (sending outside mail as the org)".to_string() } else { "you".to_string() };
         let why = if reason.is_empty() { String::new() } else { format!(": {reason}") };
         tell(
             engine,
@@ -250,7 +265,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
             &holder,
             format!(
                 "{my_name} asks for an audience with {what}{why}\nAnswer with orgtree_audience: action=grant from={my_name}{} — or action=deny from={my_name}.",
-                if target == EXTERN { " target=extern".to_string() } else if target != holder { format!(" target={target}") } else { String::new() }
+                if target == EXTERN { " target=extern".to_string() } else if target == EXTERN_WEAK { " target=extern-weak".to_string() } else if target != holder { format!(" target={target}") } else { String::new() }
             ),
             true,
             Some(crate::events::audience_requested(&org.slug, my_name, &target, reason)),
@@ -349,6 +364,16 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                         refuse!(Forbidden, "{grantee} is not in your subtree");
                     }
                 }
+                EXTERN_WEAK => {
+                    // a top-level agent in its subtree; a holder, primary or weak, for its own reports (USER m61f5367a61e7)
+                    let passes = holds(client, org.id, name, EXTERN).await? || holds(client, org.id, name, EXTERN_WEAK).await?;
+                    if my_parent.is_some() && !(passes && below) {
+                        refuse!(Forbidden, "a weak link to the org mailbox is granted by a top-level agent, or passed down by a holder to its reports");
+                    }
+                    if gid != *id && !below && !asked_me {
+                        refuse!(Forbidden, "{grantee} is not in your subtree");
+                    }
+                }
                 other => {
                     if let Some(manager) = project_manager(client, org.id, other).await? {
                         if manager != *name || !(below || asked_me) {
@@ -386,15 +411,25 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     if grantor == grantee {
         refuse!(BadRequest, "an agent needs no audience with itself");
     }
-    if grantor != USER && grantor != EXTERN {
+    if grantor != USER && grantor != EXTERN && grantor != EXTERN_WEAK {
         live(client, org.id, &grantor).await?;
+    }
+    if grantor == EXTERN_WEAK {
+        // agents only (a project node cannot send; its workers answer their jobs); never beside the primary
+        let kind: String = client.query_one("SELECT kind FROM ot.agents WHERE id = $1", &[&gid]).await?.get(0);
+        if kind != "agent" {
+            refuse!(BadRequest, "a weak link to the org mailbox is for agents; {grantee} is a project");
+        }
+        if holds(client, org.id, &grantee, EXTERN).await? {
+            refuse!(Conflict, "{grantee} holds the org mailbox: it already writes outside");
+        }
     }
     let by = match actor {
         Actor::User => USER.to_string(),
         Actor::Agent { name, .. } => name.clone(),
     };
     let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&org.id]).await?.get(0);
-    if grantor == EXTERN { super::orginbox::check(&raw)?; }
+    if grantor == EXTERN || grantor == EXTERN_WEAK { super::orginbox::check(&raw)?; }
     let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
     let fresh = client.query_opt("SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused LIMIT 1",
         &[&org.id, &grantee, &grantor]).await?.is_none();
@@ -408,6 +443,11 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                 &[&org.id, &grantee, &grantor, &reason.trim()],
             )
             .await?;
+    }
+    if grantor == EXTERN {
+        // the primary link already sends: a weak link beside it would be a second, weaker copy
+        client.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantee = $2 AND grantor = '@extern-weak' AND revoked_at IS NULL",
+            &[&org.id, &grantee]).await?;
     }
     let answered = client
         .execute(
@@ -459,6 +499,7 @@ pub(super) async fn grant_notice_tx(
     let outcome = match grantor {
         USER => "user_audience",
         EXTERN => "org_inbox",
+        EXTERN_WEAK => "org_inbox_weak",
         _ => "audience_with",
     };
     let ev = crate::events::audience_changed(org_slug, &grantee, generation, outcome, &by, &grantor, None);
@@ -474,6 +515,7 @@ fn grant_notice_body(grantor: &str, grantee: &str, project: bool) -> String {
     let body = match grantor {
         USER => "You now hold an audience with the user: you may write to the user (to=user), ask the user, and present documents.".to_string(),
         EXTERN => "You now hold the org mailbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
+        EXTERN_WEAK => "You now hold a weak link to the org mailbox: you may write outside (@org:/@net:) as the org. New outside mail still goes to the org mailbox's holder; a reply to mail you send comes back to you.".to_string(),
         g => format!("{g} granted you an audience: you may now write to {g} directly."),
     };
     // the org mailbox is not inherited (migration 0032 leaves @extern out of the members' view): outside mail is
@@ -581,8 +623,17 @@ async fn revoke_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, 
         }
         let allowed = if grantor == *name {
             true
-        } else if grantor == EXTERN && grantee == *name {
+        } else if (grantor == EXTERN || grantor == EXTERN_WEAK) && grantee == *name {
             true
+        } else if grantor == EXTERN_WEAK {
+            // a top-level agent in its subtree; a holder, primary or weak, for its own reports (USER m61f5367a61e7)
+            let (_, my_parent) = live(client, org.id, name).await?;
+            let gid: Option<i64> = client
+                .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2", &[&org.id, &grantee])
+                .await?
+                .map(|r| r.get(0));
+            let below = match gid { Some(g) => descends(client, *id, g).await?, None => false };
+            below && (my_parent.is_none() || holds(client, org.id, name, EXTERN).await? || holds(client, org.id, name, EXTERN_WEAK).await?)
         } else if grantor == EXTERN || grantor == USER {
             let (_, my_parent) = live(client, org.id, name).await?;
             let gid: Option<i64> = client

@@ -132,6 +132,8 @@ struct Ctx {
     superior: Option<String>,
     /// holds the org-mailbox audience
     extern_holder: bool,
+    /// holds a weak link to the org mailbox
+    extern_weak: bool,
     org_md: Option<String>,
     /// the instructions for all orgs, as published now (nonblank only)
     app_md: Option<String>,
@@ -3044,7 +3046,9 @@ impl Actor {
                         EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
                                    AND au.grantor = '@extern' AND au.revoked_at IS NULL),
                         a.occupancy, a.context_window, a.occupancy_est, a.compacted_unrun, a.limit_locked,
-                        coalesce((a.extra->>'harness_pin')::boolean, false), a.extra->>'harness_pin_to'
+                        coalesce((a.extra->>'harness_pin')::boolean, false), a.extra->>'harness_pin_to',
+                        EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
+                                   AND au.grantor = '@extern-weak' AND au.revoked_at IS NULL)
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    -- the superior is the nearest AGENT above: a project is
                    -- transparent for reporting (docs/rust-engine/PROJECT-NODES.md)
@@ -3209,6 +3213,7 @@ impl Actor {
             own_team_charter: r.get(22),
             superior: r.get(23),
             extern_holder: r.get(24),
+            extern_weak: r.get(32),
             cascade,
         })
     }
@@ -3300,6 +3305,7 @@ impl Actor {
             codex_sandbox: if lane == prompt::Lane::Codex { Some(sandbox) } else { None },
             mcp_servers: external,
             extern_holder: ctx.extern_holder,
+            extern_weak: ctx.extern_weak,
             folder_notes,
             own_notes,
             skills_dir: &skills,

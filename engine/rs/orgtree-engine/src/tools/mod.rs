@@ -718,7 +718,7 @@ async fn audience_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
             let target = s("target");
             let grantee = match s("from").or(s("grantee")) {
                 Some(g) => g,
-                None if target.map(|t| audiences::party(Some(t)) == audiences::EXTERN).unwrap_or(false) => caller.name.as_str(),
+                None if target.map(|t| matches!(audiences::party(Some(t)).as_str(), audiences::EXTERN | audiences::EXTERN_WEAK)).unwrap_or(false) => caller.name.as_str(),
                 None => crate::refuse!(BadRequest, "grant needs from: the agent that receives the audience"),
             };
             audiences::grant(engine, &org, &me, grantee, target, reason).await?

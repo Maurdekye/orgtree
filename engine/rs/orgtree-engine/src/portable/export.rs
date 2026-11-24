@@ -580,7 +580,8 @@ fn audiences_of(handle: &Handle, client: &tokio_postgres::Client, org: i64, rows
     };
     // USER 2026-11-24 m63824e37d3d6: "the org inbox audience should never move / be saved with an import".
     // Who holds the org mailbox is not part of an export, and is not told as left behind either.
-    let outside = |name: &str| name == crate::domain::audiences::EXTERN;
+    // a weak link (`@extern-weak`) is not carried either (docket weak-org-mailbox-links-several-agents-may-send-a)
+    let outside = |name: &str| name == crate::domain::audiences::EXTERN || name == crate::domain::audiences::EXTERN_WEAK;
     let (mut found, mut left) = (Vec::new(), Vec::new());
     pages(handle, client, "SELECT id, jsonb_build_object('grantee', grantee, 'grantor', grantor) FROM ot.audiences WHERE org_id = $1 AND id > $2 AND revoked_at IS NULL AND NOT paused ORDER BY id LIMIT 500", &org, |grant| {
         let (grantee, grantor) = (grant["grantee"].as_str().unwrap_or_default(), grant["grantor"].as_str().unwrap_or_default());

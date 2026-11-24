@@ -1553,7 +1553,7 @@ pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &st
         },
         Outcome::Expired => setup_code_expired_reply(cfg!(windows), &code),
     };
-    if let Err(e) = crate::net::queue(engine, org_id, from, &reply, "orgtree", None, "message", &[], None, &[], None).await {
+    if let Err(e) = crate::net::queue(engine, org_id, from, &reply, "orgtree", None, "message", &[], None, &[], None, false).await {
         tracing::warn!(error = %format!("{e:#}"), %from, "the setup code answer could not be queued");
     }
 }

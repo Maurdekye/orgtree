@@ -496,7 +496,7 @@ mod phone_authority_tests {
             name: "worker", title: "", org_name: org, org_slug: org, scratch: "D:/fixture",
             charter: None, team_charter: None, cascade: &[], superior: Some("lead"),
             org_md: notes, app_md: None, lane, scope: &json!({"tools":{"orgtree":{"messaging":messaging}}}),
-            codex_sandbox: None, mcp_servers: &[], extern_holder: messaging,
+            codex_sandbox: None, mcp_servers: &[], extern_holder: messaging, extern_weak: false,
             folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills", builtin_skills: false, suggest_agent_feedback: true,
         })
     }
@@ -544,7 +544,7 @@ mod phone_authority_tests {
             name: "worker", title: "", org_name: org, org_slug: org, scratch: "D:/fixture",
             charter: None, team_charter: None, cascade: &[], superior: Some("lead"),
             org_md: notes, app_md: Some(app), lane, scope: &json!({"tools":{"orgtree":{"messaging":true}}}),
-            codex_sandbox: None, mcp_servers: &[], extern_holder: true,
+            codex_sandbox: None, mcp_servers: &[], extern_holder: true, extern_weak: false,
             folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills", builtin_skills: false, suggest_agent_feedback: true,
         })
     }

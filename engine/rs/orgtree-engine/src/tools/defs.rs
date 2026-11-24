@@ -1188,7 +1188,7 @@ fn build_tool_audience() -> Value {
         "orgtree_audience",
         "Manage directional audiences; requests grant nothing. Project grants reach direct live members only; reverse needs its own grant. User contact adds no personal access while inherited; Acquire can. Project decisions: nearest superior (user if none). Org-mailbox holder: agent/project. An agent above both may grant, deny or revoke between two agents in its subtree.",
         json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
-                "target": { "type": "string", "description": "request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you" },
+                "target": { "type": "string", "description": "request: agent/project/user/extern(-weak) sought; grant/revoke: agent/project grantor when not you" },
                 "from": { "type": "string", "description": "grant: agent/project receiving it; request: project you manage; deny: the requester" },
                 "grantee": { "type": "string", "description": "revoke: agent/project holding it" },
                 "reason": { "type": "string" } }),
@@ -2082,7 +2082,7 @@ mod builder_stack_tests {
         card["inputSchema"]["properties"]["activity_limit"] = serde_json::json!({ "type": "integer", "minimum": 1, "maximum": 100, "description": "spans per page, default 20" });
         card["inputSchema"]["properties"]["activity_cursor"] = serde_json::json!({ "type": "string", "description": "activity.next_cursor from the previous page" });
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
-        card["inputSchema"]["properties"]["target"]["description"] = serde_json::json!("request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you");
+        card["inputSchema"]["properties"]["target"]["description"] = serde_json::json!("request: agent/project/user/extern(-weak) sought; grant/revoke: agent/project grantor when not you");
         card["inputSchema"]["properties"]["from"]["description"] = serde_json::json!("grant: agent/project receiving it; request: project you manage; deny: the requester");
         card["inputSchema"]["properties"]["grantee"]["description"] = serde_json::json!("revoke: agent/project holding it");
         // Approved DND contract changes: the status control and manual-read

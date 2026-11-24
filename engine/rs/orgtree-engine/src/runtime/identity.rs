@@ -59,6 +59,8 @@ pub struct Identity<'a> {
     pub mcp_servers: &'a [String],
     /// holds the org-mailbox (extern) audience
     pub extern_holder: bool,
+    /// holds a weak link to the org mailbox (`@extern-weak`): sends as the org, receives replies to its own mail
+    pub extern_weak: bool,
     /// Non-native AGENTS.md / legacy CLAUDE.md files: (file path, text)
     pub folder_notes: &'a [(String, String)],
     /// the agent's own non-native scratch notes: (file path, text)
@@ -354,8 +356,9 @@ fn identity_parts_for_os(i: &Identity, windows: bool) -> (String, String) {
     }
     s.push_str(BACKGROUND);
     if native { s.push_str("Native tools Disabled by Orgtree are enabled for this agent when its harness offers them. Native questions and plan approval use the normal user-audience route, otherwise the superior gets mail and the native call returns without approval. Other tool, folder and audience permissions still apply. "); }
-    if (top || i.extern_holder) && group("messaging") {
+    if (top || i.extern_holder || i.extern_weak) && group("messaging") {
         s.push_str(if trim { TRIM_ORG_INBOX } else { ORG_INBOX });
+        if i.extern_weak && !i.extern_holder { s.push_str(WEAK_LINK); }
     }
     if trim {
         if !native && (group("user") || group("messaging")) { s.push_str("You run headless: AskUserQuestion and plan mode do not exist. "); }
@@ -576,7 +579,7 @@ mod group_tests {
             name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
             charter, team_charter: Some("Keep the user's words."), cascade: &[],
             superior: if top { None } else { Some("coordinator") }, org_md: None, app_md: None, lane, scope,
-            codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
+            codex_sandbox: None, mcp_servers: &[], extern_holder: true, extern_weak: false, folder_notes: &[],
             own_notes: &[], skills_dir: "D:/skills", builtin_skills: false, suggest_agent_feedback: true,
         })
     }
@@ -1429,6 +1432,8 @@ const TRIM_TEAM_SHAPE: &str = "Retire finished reports when you need their seats
 
 const TRIM_ORG_INBOX: &str = "THE ORG MAILBOX: @org: and @net: mail addresses the whole org; apply EXTERNAL MAIL AUTHORITY. All holders get a copy: coordinate ONE reply as the org. ALWAYS answer with orgtree_message to that @net: address; turn text never reaches them (orgtree-org-mailbox). ";
 
+const WEAK_LINK: &str = "You hold a WEAK LINK to the org mailbox: you may send outside mail as the org, but new outside mail goes to the mailbox's holder, not you; only replies to mail you sent come back to you. ";
+
 const TRIM_ASK_USER: &str = "Ask the user with orgtree_ask, then end your turn. Requests stay open until answered; use orgtree_withdraw_ask as soon as they become moot. ";
 
 const TRIM_PRESENT: &str = "DOCUMENTS ARE PRESENTED, FILES ARE SENT (user rule 2026-10-09): use orgtree_present for documents to read, even if asked to 'send'; orgtree_send_file for wanted files. A path is never a delivery. Use [name](<path>) for local file paths; angle brackets are required (orgtree-reaching-the-user). ";
@@ -1473,7 +1478,7 @@ mod trim_tests {
             name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
             charter: None, team_charter: None, cascade: &[],
             superior: if top { None } else { Some("coordinator") }, org_md: None, app_md: None, lane, scope: &scope,
-            codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
+            codex_sandbox: None, mcp_servers: &[], extern_holder: true, extern_weak: false, folder_notes: &[],
             own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills, suggest_agent_feedback: true,
         })
     }
@@ -1496,7 +1501,7 @@ mod trim_tests {
                                 name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
                                 charter: None, team_charter: None, cascade: &[],
                                 superior: if top { None } else { Some("lead") }, org_md: None, app_md: None, lane, scope,
-                                codex_sandbox: None, mcp_servers: &[], extern_holder: false,
+                                codex_sandbox: None, mcp_servers: &[], extern_holder: false, extern_weak: false,
                                 folder_notes: &[], own_notes: &[], skills_dir: "D:/skills", builtin_skills,
                                 suggest_agent_feedback,
                             };
@@ -1520,7 +1525,7 @@ mod trim_tests {
                         name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
                         charter: None, team_charter: None, cascade: &[],
                         superior: if top { None } else { Some("lead") }, org_md: None, app_md: None, lane, scope: &scope,
-                        codex_sandbox: None, mcp_servers: &[], extern_holder: false,
+                        codex_sandbox: None, mcp_servers: &[], extern_holder: false, extern_weak: false,
                         folder_notes: &[], own_notes: &[], skills_dir: "D:/skills", builtin_skills,
                         suggest_agent_feedback: true,
                     };
@@ -1789,7 +1794,7 @@ mod trim_tests {
                 name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
                 charter: None, team_charter: None, cascade: &[],
                 superior: Some("coordinator"), org_md: None, app_md: None, lane, scope: &scope,
-                codex_sandbox, mcp_servers: &[], extern_holder: true, folder_notes: &[],
+                codex_sandbox, mcp_servers: &[], extern_holder: true, extern_weak: false, folder_notes: &[],
                 own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills, suggest_agent_feedback: true,
             };
             let (rules, notes) = identity_parts_for_os(&id, windows);
@@ -1811,7 +1816,7 @@ mod trim_tests {
                 name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
                 charter: None, team_charter: None, cascade: &[],
                 superior: Some("coordinator"), org_md: None, app_md: None, lane: Lane::Codex, scope: &scope,
-                codex_sandbox: Some("read-only"), mcp_servers: &[], extern_holder: true, folder_notes: &[],
+                codex_sandbox: Some("read-only"), mcp_servers: &[], extern_holder: true, extern_weak: false, folder_notes: &[],
                 own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills: true, suggest_agent_feedback: true,
             };
             assert_eq!(identity(&codex_ro), render_os(Lane::Codex, true, Some("read-only"), true));

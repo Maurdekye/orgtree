@@ -152,15 +152,19 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<
     for id in &refs {
         let Some(sent) = tx
             .query_opt(
-                "SELECT sender_agent_id, via_job FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='out' AND peer=$3 AND sender_agent_id IS NOT NULL",
+                "SELECT sender_agent_id, via_job, via_weak FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='out' AND peer=$3 AND sender_agent_id IS NOT NULL",
                 &[&org, id, &peer],
             )
             .await?
         else {
             continue;
         };
-        let (sender, via): (i64, Option<String>) = (sent.get(0), sent.get(1));
+        let (sender, via, weak): (i64, Option<String>, bool) = (sent.get(0), sent.get(1), sent.get(2));
         let Some((name, _)) = live_node(tx, org, sender).await? else { continue };
+        // sent over a weak link: back to its sender only while it still holds a link (revoked: the holders get it)
+        if weak && super::mailbox_link(tx, org, &name).await?.is_none() {
+            continue;
+        }
         let copies = publish_row(tx, org, std::slice::from_ref(&name), row).await?;
         if let Some(job) = &via {
             stamp_outside_job(tx, &copies, job).await?;
