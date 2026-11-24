@@ -111,7 +111,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, rateRetryText, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, EXTERN_WEAK, fmtCredits, freezeKind, FREEZE_LABEL, rateRetryText, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -1971,7 +1971,7 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
   toast: ToastFn
 }) {
   const held = node.audiences_held ?? []
-  const heldRet = held.filter((g) => g !== USER && g !== EXTERN
+  const heldRet = held.filter((g) => g !== USER && g !== EXTERN && g !== EXTERN_WEAK
     && map.get(g)?.state !== 'live')
   const heldChip = (g: string, dim = false) => {
     const inherited = node.audiences_inherited?.filter((a) => a.grantor === g) ?? []
@@ -1979,14 +1979,14 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
     const title = [...inherited.map((a) => `Inherited from project ${a.project}`),
       audienceGrantTooltip(g, g === EXTERN ? map.get(node.id)?.kind : map.get(g)?.kind),
       ...(inherited.length && explicit ? ['Also held explicitly'] : [])].join('\n')
-    return <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
+    return <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : g === EXTERN_WEAK ? 'weak-link' : dim ? 'dim' : '')}
       title={title}
       // Native hover text has no keyboard popup; expose the same first-line
       // inheritance description on focus (ServingAccountBadge's pattern).
       tabIndex={inherited.length ? 0 : undefined}
       aria-label={inherited.length ? title : undefined}>
       <HearingIcon fontSize="inherit" />
-      {g === USER ? 'user' : g === EXTERN ? 'org mailbox' : g}
+      {g === USER ? 'user' : g === EXTERN ? 'org mailbox' : g === EXTERN_WEAK ? 'org mailbox (weak)' : g}
       {explicit && <button className="chip-x" title="Revoke"
         onClick={() => audienceAction(slug, 'revoke', node.id, g)
           .then(() => toast([`audience ${node.id}→${g} rescinded`]))

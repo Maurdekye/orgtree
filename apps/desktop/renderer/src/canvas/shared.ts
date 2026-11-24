@@ -1671,11 +1671,32 @@ export const queuedAccountTitle = (n: {
   return `account rebind QUEUED by ${who}: ${n.account ?? 'primary'} → ${p.account} applies when the current turn ends`
 }
 export const EXTERN = '@extern'      // the org-mailbox audience grantor sentinel
+export const EXTERN_WEAK = '@extern-weak'  // a weak link to the org mailbox: sends as the org, gets replies to its own mail
+
+/** The org mailbox's lines on the canvas, `[node, class]`: a holder's solid, a weak link's dotted
+ *  (`aud-line weak`, USER 2026-11-24 m020bbd1926c3), on the same path. */
+export function orgInboxLines(inbox?: { holders?: string[]; weak?: string[] } | null): [string, string][] {
+  return [...(inbox?.holders ?? []).map((h): [string, string] => [h, 'edge aud-line']),
+    ...(inbox?.weak ?? []).map((h): [string, string] => [h, 'edge aud-line weak'])]
+}
+
+/** Dropping node `id` (of `kind`) on the org mailbox: `null` grants the primary link at once (no holder yet, it already
+ *  holds it, or several holders are allowed on an engine without weak links); otherwise ask, offering a weak link
+ *  (`weakOk`) when the engine lists them (`weak` is an array), the node is an agent and holds none yet. */
+export function inboxDropChoice(inbox: { holders?: string[]; weak?: string[]; multi_holder_enabled?: boolean } | null | undefined,
+  id: string, kind?: string): { current: string; multi: boolean; weakOk: boolean } | null {
+  const holders = inbox?.holders ?? []
+  const multi = inbox?.multi_holder_enabled === true
+  const weakOk = Array.isArray(inbox?.weak) && kind !== 'project' && !inbox!.weak!.includes(id)
+  if (!holders.length || holders.includes(id) || (multi && !weakOk)) return null
+  return { current: holders.join(', '), multi, weakOk }
+}
 /** Plain-language explanation shown when hovering an audience grant chip. */
 export function audienceGrantTooltip(target: string, kind?: string): string {
   if (target === USER) return 'Can message you directly: send you mail and ask you questions'
   if (target === EXTERN && kind === 'project') return 'Receives outside mail sent to the org mailbox in its queue'
   if (target === EXTERN) return 'Can read and answer outside mail sent to the org mailbox'
+  if (target === EXTERN_WEAK) return 'Weak link: can send mail as the org; new outside mail goes to the org mailbox\'s holder, and replies to its own mail come back to it'
   const recipient = kind === 'project' ? 'project' : kind === 'agent' ? 'agent' : 'agent or project'
   return `Can message ${recipient} ${target} directly, even though it is outside your normal chain`
 }

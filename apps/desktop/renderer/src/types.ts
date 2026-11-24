@@ -1092,6 +1092,9 @@ export interface TreePayload {
     holders: string[]          // ledger.py extern_holders() -> list[str]
     /** which of `holders` are projects (each queues one job per outside message) */
     holder_projects?: string[]
+    /** agents holding a WEAK link (`@extern-weak`, USER 2026-11-24 m020bbd1926c3): they send as the org; new
+     *  outside mail still goes to `holders`. Missing on older engines: no weak-link UI at all. */
+    weak?: string[]
     enabled?: boolean          // missing on older engines: enabled
     mode?: 'normal' | 'dnd' | 'closed'
     multi_holder_enabled: boolean

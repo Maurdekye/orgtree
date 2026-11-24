@@ -41,7 +41,7 @@ import {
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
-  audienceGrantTooltip, EXTERN, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
+  audienceGrantTooltip, EXTERN, EXTERN_WEAK, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
   useEsc, useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
@@ -2249,6 +2249,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     jumpTo && (inbox?.entries ?? []).some((e) => e.id === jumpTo
       && e.dir === 'out') ? 'sent' : 'inbox')
   const holders = inbox?.holders ?? []
+  const weakLinks = inbox?.weak ?? []
   // a jump to an agent closes this window first when it is the one in the way (outbox sender, delivered-to chips)
   const focusAgent = onFocusAgent
     ? (id: string) => { closeIfCentred('org-inbox', close, slug); onFocusAgent(id) }
@@ -2427,6 +2428,11 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
               foldLabel="org mailbox audience holders" alert audienceTarget={EXTERN}
               onRemove={(h) => audienceAction(slug, 'revoke', h, EXTERN)
                 .then(() => toast([`org-mailbox audience for ${h} rescinded`]))
+                .catch((e: Error) => toast([`error: ${e.message}`]))} />
+            <AudienceHolderRows ids={weakLinks} nodes={map} label="weak links"
+              foldLabel="weak links to the org mailbox" audienceTarget={EXTERN_WEAK}
+              onRemove={(h) => audienceAction(slug, 'revoke', h, EXTERN_WEAK)
+                .then(() => toast([`weak link for ${h} rescinded`]))
                 .catch((e: Error) => toast([`error: ${e.message}`]))} />
             <span className="dim" style={{ fontSize: 11.5 }}>
               {holders.length === 0

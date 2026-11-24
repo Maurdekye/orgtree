@@ -66,7 +66,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setOfferedClaudeTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, providersWithAccounts, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
+  ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setOfferedClaudeTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, EXTERN_WEAK, familyOffer, inboxDropChoice, orgInboxLines, providersWithAccounts, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   canvasOwner, fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
@@ -1447,7 +1447,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const edgesSvgRef = useRef<SVGSVGElement | null>(null)
   const glStylesRef = useRef<{ sig: string; styles: WireStyles } | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
-  const [replaceHolder, setReplaceHolder] = useState<{ id: string; current: string } | null>(null)
+  const [replaceHolder, setReplaceHolder] = useState<{ id: string; current: string; multi: boolean; weakOk: boolean } | null>(null)
   const surfaceBody = useSurfaceDocument().body
   useEffect(() => {
     if (tree.org_inbox?.enabled === false || !tree.org_inbox?.visible) {
@@ -3323,6 +3323,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
 
   /** The mailbox drop: grant the org-mailbox audience to an agent, or to a project (it queues the mail). */
+  /** The mailbox drop's other choice: a weak link (sends as the org; the holder keeps the arriving mail). */
+  const grantWeak = (id: string) => audienceAction(slug, 'grant', id, 'extern-weak')
+    .then(() => toast([`${id} may now send mail as the org (weak link); new outside mail still goes to the mailbox's holder`],
+      () => audienceAction(slug, 'revoke', id, EXTERN_WEAK).catch(() => {})))
+    .catch((err: Error) => toast([`error: ${err.message}`]))
+
   const grantInbox = (id: string) => audienceAction(slug, 'grant', id, 'extern')
     .then(() => toast([mapRef.current.get(id)?.kind === 'project'
         ? `${id} now receives the org mailbox's outside mail in its queue`
@@ -3535,9 +3541,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (!targetRef.current.has(INBOX)) { finish(); return }
       // dropping on the mailbox grants the org-mailbox audience, never reparents. With one holder
       // allowed, a different node would replace the current one: ask first (spec rev 2 §4.2).
-      const holders = tree.org_inbox?.holders ?? []
-      if (tree.org_inbox?.multi_holder_enabled !== true && holders.length > 0 && !holders.includes(id)) {
-        setReplaceHolder({ id, current: holders.join(', ') })
+      const ask = inboxDropChoice(tree.org_inbox, id, mapRef.current.get(id)?.kind)
+      if (ask) {
+        setReplaceHolder({ id, ...ask })
         finish()
         return
       }
@@ -4640,7 +4646,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // audience lines to its holders. Those connect FACING sides: an agent
     // left of the box joins from its RIGHT side (user spec), an agent right
     // of it from its left.
-    for (const h of tree.org_inbox.holders ?? []) {
+    // a holder's line solid; a weak link's DOTTED (USER 2026-11-24 m020bbd1926c3), on the same path
+    for (const [h, cls] of orgInboxLines(tree.org_inbox)) {
       if (!map.has(h) || !posOf(h)) continue
       const a = posOf(INBOX)!, b = posOf(h)!
       const ga = sizeOf(INBOX), gb = sizeOf(h)
@@ -4649,7 +4656,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       const x2 = left ? b.x + gb.w : b.x
       const y1 = a.y + ga.h / 2, y2 = b.y + gb.h / 2
       const bulge = 64 + Math.abs(y2 - y1) * 0.12
-      wires.push({ key: 'oi' + h, cls: 'edge aud-line', seg: { kind: 'c', pts: [
+      wires.push({ key: (cls.endsWith('weak') ? 'ow' : 'oi') + h, cls, seg: { kind: 'c', pts: [
         { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
         { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }] } })
     }
@@ -4696,7 +4703,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <ForegroundViewContext.Provider value={tree.foreground}>
     {replaceHolder && createPortal(<InboxReplaceConfirm id={replaceHolder.id} current={replaceHolder.current}
+      multi={replaceHolder.multi}
       onConfirm={() => { const id = replaceHolder.id; setReplaceHolder(null); void grantInbox(id) }}
+      onWeak={replaceHolder.weakOk ? () => { const id = replaceHolder.id; setReplaceHolder(null); void grantWeak(id) } : undefined}
       close={() => setReplaceHolder(null)} />, surfaceBody)}
     {/* THE ORG'S ORDINARY THINKING EFFORT, for the non-default effort card on
         the canvas cards and the desk headers. Provided once, here, because
