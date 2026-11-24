@@ -1065,7 +1065,7 @@ export default async function (rig) {
     kind: 'code',
     objective: 'Verify concurrent update and evidence mutations serialize cleanly without deadlock.',
   })
-  const slug = /@item:[^/\s]+\/([a-z0-9-]+)/i.exec(created?.text ?? '')?.[1] ?? rig.one(`SELECT slug FROM ot.work_items ORDER BY id DESC LIMIT 1`)?.slug
+  const slug = /@(?:ticket|item):[^/\s]+\/([a-z0-9-]+)/i.exec(created?.text ?? '')?.[1] ?? rig.one(`SELECT slug FROM ot.work_items ORDER BY id DESC LIMIT 1`)?.slug
   let parOk = !!slug
   const parErrors = []
   if (slug) {

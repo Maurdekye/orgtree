@@ -459,6 +459,25 @@ module.exports = async (page) => {
   await page.sleep(300)
   v.privacy.after = await places()
 
+  // ---------------- the ticket form in a chat's message box
+  await openChat('sparse')
+  const offered = () => page.eval(() => [...document.querySelectorAll('.agent-mentions .agent-mention-item')].reverse().map(r => r.querySelector('.agent-mention-name')?.textContent ?? ''))
+  await page.click('.dm-compose textarea')
+  await page.type(' see @item:')
+  await until('the tickets under @item:', async () => (await offered()).length >= 2)
+  v.ticket = { item: await offered() }
+  for (let i = 0; i < 5; i++) await page.press('Backspace')
+  await page.type('ticket:')
+  await until('the tickets under @ticket:', async () => (await offered()).length >= 2)
+  await page.sleep(250)
+  v.ticket.ticket = await offered()
+  await shot('18a-ticket-prefix-lists-every-ticket')
+  await page.press('Tab')
+  await page.sleep(300)
+  v.ticket.picked = await page.eval(() => document.querySelector('.dm-compose textarea').value.replace(/^With two files /, ''))
+  v.ticket.kinds = (await asked()).mentionAsks
+  await shot('18b-picking-a-ticket-writes-the-ticket-form')
+
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
   return v

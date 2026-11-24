@@ -109,7 +109,7 @@ const world = {
 const older = olderPages.map((page, i) => ({
   delivered: [...page.filter(m => m.from !== USER), ...(SPARSE_OLD[i] ?? [])], sent: page.filter(m => m.from === USER) }))
 const everyMail = () => [...world.delivered, ...world.pending, ...world.sent, ...older.flatMap(p => [...p.delivered, ...p.sent])]
-const calls = [], pages = []
+const calls = [], pages = [], mentionAsks = []
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGNkYGD4z8DAwMAEYoAAAA0DAQGd2HvOAAAAAElFTkSuQmCC', 'base64')
 const html = `<!doctype html><meta charset="utf-8"><title>dm alpha.1 probe</title><link rel="stylesheet" href="/probe.css">`
   + `<div id="root"></div><script src="/probe.js"></script>`
@@ -120,7 +120,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/') return send(html, 'text/html')
   if (url.pathname === '/probe.js') return send(readFileSync(path.join(output, 'probe.js')), 'text/javascript')
   if (url.pathname === '/probe.css') return send(css, 'text/css')
-  if (url.pathname === '/__calls') return send({ calls, pages })
+  if (url.pathname === '/__calls') return send({ calls, pages, mentionAsks })
   // STREAM PRIVACY (job E): an outside sender writes, and an agent quotes it. Added only when the walk asks,
   // at its end, so every count before it is what it was.
   if (url.pathname === '/__privacy') {
@@ -156,6 +156,14 @@ const server = createServer(async (req, res) => {
     world.sent.push({ id, from: USER, to: decodeURIComponent(message[1]), at: new Date().toISOString(), kind: 'message', body: body.text,
       ...(original ? { reply_to: { id: original.id, kind: 'mail', from: original.from, at: original.at, gist: original.body, org: 'mine', box: 'user' } } : {}) })
     return send({ accepted: true, id, ref: `@mail:${id}` })
+  }
+  // the @ menu's read of live things: two tickets, in the engine's order (their latest status change)
+  if (p === '/mention-candidates') {
+    const kinds = (url.searchParams.get('kinds') ?? '').split(','), q = (url.searchParams.get('q') ?? '').toLowerCase()
+    const rows = [{ kind: 'item', id: 'spring-figures', label: 'Check the spring figures', at: ago(2 * H), status: 'in_progress' },
+      { kind: 'item', id: 'march-returns', label: 'Explain the March returns', at: ago(3 * D), status: 'open' }]
+    mentionAsks.push(url.searchParams.get('kinds'))
+    return send({ items: rows.filter(r => kinds.includes(r.kind) && (!q || q.split(/\s+/).every(w => (r.label + ' ' + r.id).toLowerCase().includes(w)))), next_cursor: null, nodes: [], outside: [] })
   }
   // a desk's own read of its chat: an empty transcript (only its message box is shown)
   if (/^\/nodes\/[^/]+\/chat$/.test(p)) return send({ messages: [], live: [], pending_mail: [], busy: false, responding: false, windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
@@ -384,6 +392,13 @@ if (flag === '--expect') {
   assert.equal(pv.quote.typing.rows.join(), 'quoter')
   assert.equal(pv.after.class, false, 'and off again'); assert.ok(pv.after.leaks.length >= 3, 'everything is readable again')
   checked.push('privacy row', 'privacy header', 'privacy quote card', 'privacy typing')
+
+  // ---- the ticket form: @ticket: lists the tickets as @item: does, and picking one writes @ticket:
+  assert.deepEqual(v.ticket.item, ['Check the spring figures', 'Explain the March returns'], 'POSITIVE CONTROL: @item: lists the tickets')
+  assert.deepEqual(v.ticket.ticket, v.ticket.item, '@ticket: lists the same tickets in the same order')
+  assert.equal(v.ticket.kinds.every(k => !String(k).includes('ticket')), true, 'the engine is asked for its own kind')
+  assert.equal(v.ticket.picked, 'see @ticket:mine/spring-figures ', 'picking writes the ticket form')
+  checked.push('ticket prefix')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 0, 'the inbox was never closed')
 }
 console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, consoleErrors: errors.length, session: result.session, guards: result.guards }))

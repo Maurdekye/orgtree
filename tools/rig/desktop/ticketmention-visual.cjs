@@ -88,7 +88,7 @@ app.whenReady().then(async () => {
     }
     const passed = checks.every(({ menu, inserted, focused, list }) =>
       menu[0] === 'Mention' && menu[1] === 'Reply' && menu[2] === 'Open details'
-      && inserted === '@item:org/build-the-docs ' && focused
+      && inserted === '@ticket:org/build-the-docs ' && focused
       // the transcript's ticket sits nearest the box, highlighted; the agents and the other tickets above it
       && list.at(-1)?.name === 'build-the-docs' && list.at(-1)?.active
       && ['@boss', '@bram'].every(name => list.some(row => row.name === name && !row.ticket))
