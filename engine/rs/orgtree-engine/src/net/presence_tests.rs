@@ -141,6 +141,20 @@ fn an_older_hub_gets_busy_and_dnd_alone() {
 
 #[test]
 #[nolog]
+fn a_hubs_features_are_read_again_at_each_refresh_and_a_failed_read_keeps_the_answer() {
+    let t = Instant::now();
+    assert!(features_due(None, t), "never read on this connection");
+    assert!(!features_due(Some((false, t)), t + REFRESH - Duration::from_secs(1)), "read lately: cached");
+    assert!(features_due(Some((false, t)), t + REFRESH), "a refresh later: read again (a hub upgraded in place)");
+    let later = t + REFRESH;
+    assert_eq!(after_read(Some((false, t)), Some(true), later), (true, Some((true, later))), "upgraded: it has it now");
+    assert_eq!(after_read(Some((true, t)), None, later), (true, Some((true, later))), "unreadable: the cached answer, until the next refresh");
+    assert_eq!(after_read(None, None, later), (false, None), "never read and unreadable: without it, read again next pass");
+    assert!(FEATURES_TIMEOUT <= Duration::from_secs(2), "an unreadable /healthz holds a pass 2 s at most");
+}
+
+#[test]
+#[nolog]
 fn the_agents_in_charge_follow_each_pass() {
     let state = State::default();
     state.set_in_charge(1, &[10, 11]);

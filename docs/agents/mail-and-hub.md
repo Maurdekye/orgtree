@@ -844,7 +844,7 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   (a person and an org read the same bytes about an Invisible person as about one really offline).
 - Last active (Mail hub 2.6.0, 2026-11-24; docket hubchat-last-seen-time-for-orgs-people-and-indep, user 11:44Z
   me20294def375, 11:56Z med2518611a95 "the org sending a "last seen" event every time an agent with an org inbox
-  audience's turn ends"): to a hub that lists the feature `last_active` (read from `/healthz` once per connection),
+  audience's turn ends"): to a hub that lists the feature `last_active` (read from `/healthz` once per connection and again at each 5-minute refresh, waiting 2 s at most; an unreadable one keeps the cached answer),
   `POST /api/presence` also carries `active` (an agent in charge of the org mailbox is mid-turn, from its live runtime
   `busy`), `active_at` and `now` (the engine's clock, for the hub's skew correction). Older hubs get today's body and
   traffic. In charge = `orginbox::in_charge`: live agent holders, plus for a project holder the live agents whose

@@ -34,7 +34,7 @@
 //! audience leaves it, and an engine restart keeps it. Turns the engine's
 //! start-up recovery closed are no turn ends (`orginbox::last_turn_ends`).
 //! Only hubs that list the feature `last_active` (read from `/healthz` once
-//! per connection) get the three fields, and turn edges kick the pass only
+//! per connection and again at each refresh) get the three fields, and turn edges kick the pass only
 //! for orgs with such a hub: older hubs keep exactly today's traffic.
 
 use std::time::{Duration, Instant};
@@ -78,7 +78,7 @@ pub(crate) struct Said {
 #[derive(Default)]
 pub(crate) struct State {
     said: papaya::HashMap<(i64, String), Said>,
-    last_active: papaya::HashMap<(i64, String), bool>,
+    last_active: papaya::HashMap<(i64, String), (bool, Instant)>,
     in_charge: papaya::HashMap<i64, i64>,
 }
 
@@ -214,18 +214,50 @@ pub(crate) fn body(net_slug: &str, says: Says, last_active: bool, now: chrono::D
     json!({ "slug": net_slug, "busy": says.busy, "dnd": says.dnd, "active": says.active, "active_at": at, "now": crate::util::iso(now) })
 }
 
+/// How long a pass waits on a hub's `/healthz` for its features: short, so a
+/// hub that can't be read never holds the serialized pass for long
+/// (@coordinator-opus 2026-11-24 13:47Z, R5).
+pub(crate) const FEATURES_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Whether the cached answer on a hub's features is to be read again: never
+/// read on this connection, or read `REFRESH` ago (a hub upgraded in place
+/// while the connection stayed up; R2).
+#[nolog]
+pub(crate) fn features_due(cached: Option<(bool, Instant)>, now: Instant) -> bool {
+    cached.is_none_or(|(_, at)| now.saturating_duration_since(at) >= REFRESH)
+}
+
+/// What a read of the features leaves (`read`: None when `/healthz` could
+/// not be read): the answer, and what to cache. A failed read keeps the
+/// cached answer until the next refresh; with none cached the hub counts as
+/// without the feature, and the next pass reads again.
+#[nolog]
+pub(crate) fn after_read(cached: Option<(bool, Instant)>, read: Option<bool>, now: Instant) -> (bool, Option<(bool, Instant)>) {
+    match (read, cached) {
+        (Some(yes), _) => (yes, Some((yes, now))),
+        (None, Some((yes, _))) => (yes, Some((yes, now))),
+        (None, None) => (false, None),
+    }
+}
+
 /// Whether the hub lists `last_active` (Mail hub 2.6.0): read from its
-/// `/healthz` once per connection (`State::forget` clears it); a hub that
-/// could not be read counts as without it until the next pass.
+/// `/healthz` once per connection (`State::forget` clears it) and again at
+/// each `REFRESH`, waiting `FEATURES_TIMEOUT` at most (`after_read`).
 #[logged]
 pub(crate) async fn hub_last_active(engine: &Engine, org_id: i64, hub_id: &str, addr: &str) -> bool {
     let key = (org_id, hub_id.to_string());
-    if let Some(known) = engine.net.presence.last_active.pin().get(&key).copied() {
-        return known;
+    let cached = engine.net.presence.last_active.pin().get(&key).copied();
+    let now = Instant::now();
+    if !features_due(cached, now) {
+        return cached.is_some_and(|c| c.0);
     }
-    let Some(health) = super::transport::healthz(addr, Duration::from_secs(10)).await else { return false };
-    let yes = health["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "last_active"));
-    engine.net.presence.last_active.pin().insert(key, yes);
+    let read = super::transport::healthz(addr, FEATURES_TIMEOUT)
+        .await
+        .map(|health| health["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "last_active")));
+    let (yes, keep) = after_read(cached, read, now);
+    if let Some(keep) = keep {
+        engine.net.presence.last_active.pin().insert(key, keep);
+    }
     yes
 }
 
