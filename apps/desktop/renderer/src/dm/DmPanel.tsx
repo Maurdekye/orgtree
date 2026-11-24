@@ -309,12 +309,17 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   // under one cursor. A project's chat is a thread of several senders and
   // recipients and stays on the mailbox's pages. An engine that does not know
   // the chat folder refuses it, and the chat falls back to the mailbox's pages.
+  // ⚠ ONLY THE ENGINE'S OWN REFUSAL COUNTS (coordinator 2026-11-24
+  // m5eba9c2e1bf1): a 4xx answer to the first read. A network fault or a 5xx
+  // is not "this engine cannot": the chat keeps its own pages, shows the
+  // failed read with Retry, and the next read asks again.
   // (refused once, this organization's engine is not asked again while the panel is open: a remote
   // organization may run an older engine than this desktop)
   const [refused, setRefused] = useState<string | null>(null)
   const pagedPeer = sel && refused !== slug && nodes.get(sel)?.kind !== 'project' ? sel : null
   const chatPages = useMailboxHistory(slug, rawBox, 'chat', !!pagedPeer, readBump, undefined, pagedPeer ?? undefined)
-  const chatRefused = !!pagedPeer && !!chatPages.error && !chatPages.ready
+  const chatRefused = !!pagedPeer && !chatPages.ready && chatPages.errorStatus != null
+    && chatPages.errorStatus >= 400 && chatPages.errorStatus < 500
   useEffect(() => { if (chatRefused) setRefused(slug) }, [chatRefused, slug])
   const ownPages = !!pagedPeer && !chatRefused
   const box = useMemo(() => {
