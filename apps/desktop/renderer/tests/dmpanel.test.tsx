@@ -62,6 +62,8 @@ interface World {
   refuse?: boolean
   /** an engine from before the chat folder: `folder=chat` is refused, as it refuses any unknown folder */
   noChatFolder?: boolean
+  /** the next this-many reads of the chat folder fail with a 503 (the engine is there, the read is not) */
+  chatFails?: number
   /** older history, a page per entry: the first read says there is more, and
    *  `before=<n>` returns page n (1-based) */
   older?: { delivered?: unknown[]; sent?: unknown[] }[]
@@ -123,6 +125,7 @@ function engine(world: World) {
         // ONE CHAT'S OWN PAGES, as the engine cuts them: both directions of `peer`, newest first, 50 a
         // page; the cursor here is how many rows came before
         if (world.noChatFolder || !q.get('peer')) return json({ detail: 'mail folder must be inbox or sent' }, 400)
+        if (world.chatFails) { world.chatFails--; return json({ detail: 'the database is busy' }, 503) }
         const peer = q.get('peer')!
         const received = [...(world.pending ?? []), ...(world.delivered ?? []), ...older.flatMap(p => p.delivered ?? [])] as { id: string; from: string; at: string }[]
         const written = [...(world.sent ?? []), ...older.flatMap(p => p.sent ?? [])] as { id: string; to: string; at: string }[]
@@ -1433,6 +1436,22 @@ test('alpha.1 point 14: a chat reads its own pages, so its older mail is one pag
   await inAct(async () => { await flush(20) })
   assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['m0', 's0', 'm1'], 'both directions of the chat, from its own first page')
   assert.deepEqual(s.server.pages, [], 'and no page of the mailbox was read for it')
+})
+
+test('alpha.1 point 14: a failed read of the chat\'s own pages is not "this engine cannot": the chat keeps its own pages, and Retry reads them', async (t) => {
+  // coordinator 2026-11-24 m5eba9c2e1bf1: only a 4xx answer marks the engine as not knowing the chat
+  // folder; a network fault or a 5xx retries and never downgrades the panel to the mailbox's pages
+  layOut(t, { scroll: 300, client: 600 })
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(3, 200), older: [{ delivered: many(117, 0) }], chatFails: 1 }, { active: false })
+  await s.openChat('worker')
+  await inAct(async () => { await flush(40) })
+  assert.deepEqual(s.server.pages, [], 'the failed read did not send the chat to the pages of the whole mailbox')
+  const retry = [...document.querySelectorAll<HTMLButtonElement>('.dm-history-error button')].find(b => b.textContent === 'Retry')
+  assert.ok(retry, 'the failed read is said, with Retry')
+  await s.click(retry, 'Retry')
+  await inAct(async () => { await flush(80) })
+  assert.equal(s.all('.dm-msg').length, 120, 'the whole chat came in')
+  assert.deepEqual(s.server.pages, ['chat:50', 'chat:100'], 'by its own pages, never the mailbox\'s')
 })
 
 test('alpha.1 point 9: with an engine that has no chat folder, a short chat whose older mail lies beyond pages of other chats\' mail still gets it by itself', async (t) => {
