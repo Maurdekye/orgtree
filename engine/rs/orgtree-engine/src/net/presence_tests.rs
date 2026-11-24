@@ -234,15 +234,43 @@ async fn a_turn_edge_of_an_agent_in_charge_kicks_the_pass_and_the_post_says_it()
     turn_edge(&engine, ann, &json!({ "busy": true }), &json!({ "busy": true }));
     assert!(!kicked(&engine).await, "no flip (another runtime change): no kick");
 
-    // the pass: mid-turn from the live view, and the post to each hub
+    // the pass: mid-turn from the live view
     assert!(running(&engine, ann) && !running(&engine, boss));
     let (active, at) = last_active(&[(running(&engine, ann), Some(1_764_000_000_123)), (running(&engine, boss), None)]);
-    let says = Says { busy: false, dnd: false, active, active_at: at };
+    assert_eq!((active, at), (true, Some(1_764_000_000_123)), "ann mid-turn: active, with the newest finished turn's end");
+    drop(rx_keep);
+}
+
+/// The post of the pass to each hub. `tell` goes out through the org mailbox's admission gate (`isolation::run` ->
+/// `orginbox::require_enabled`, which reads `ot.orgs`), so this half runs against the same isolated
+/// `orginbox_queue_fixture` database as `domain::orginbox::queue_tests`:
+/// `cargo test -p orgtree-engine -- --ignored --test-threads=1 net::presence::tests::the_pass_tells`.
+#[tokio::test]
+#[ignore = "needs the orginbox_queue_fixture PostgreSQL database (ORGTREE_ORGINBOX_TEST_URL, ORGTREE_ORGINBOX_TEST_ROOT)"]
+#[nolog]
+async fn the_pass_tells_a_hub_with_last_active_the_turn_and_an_older_hub_only_a_change() {
+    use std::sync::Arc;
+    use tokio_postgres::NoTls;
+    let url = std::env::var("ORGTREE_ORGINBOX_TEST_URL").expect("explicit synthetic fixture URL");
+    let cfg: tokio_postgres::Config = url.parse().unwrap();
+    assert_eq!(cfg.get_dbname(), Some("orginbox_queue_fixture"));
+    assert_eq!(cfg.get_user(), Some("orginbox_queue_fixture"));
+    let (mut c, connection) = cfg.connect(NoTls).await.unwrap();
+    tokio::spawn(async move { let _ = connection.await; });
+    c.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; DROP TABLE IF EXISTS public.ot_migrations").await.unwrap();
+    crate::migrate::run(&mut c, &|_| {}).await.unwrap();
+    let org: i64 = c.query_one("INSERT INTO ot.orgs(uuid,slug,name,settings) VALUES(gen_random_uuid(),'acme','Acme','{}') RETURNING id", &[]).await.unwrap().get(0);
+    let mut engine = crate::engine::Engine::for_tests(std::path::PathBuf::from(std::env::var("ORGTREE_ORGINBOX_TEST_ROOT").expect("owned engine root")));
+    let mgr = deadpool_postgres::Manager::from_config(cfg, NoTls, deadpool_postgres::ManagerConfig { recycling_method: deadpool_postgres::RecyclingMethod::Fast });
+    Arc::get_mut(&mut engine).unwrap().db = deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+    engine.orgs.insert(crate::orgs::provisional(org, "acme".into(), "acme".into(), "Acme".into()));
+
+    let says = Says { busy: false, dnd: false, active: true, active_at: Some(1_764_000_000_123) };
     let (new_hub, mut new_rx) = fake_hub(&["busy", "dnd", "last_active"]).await;
     let (old_hub, mut old_rx) = fake_hub(&["busy", "dnd"]).await;
-    assert!(hub_last_active(&engine, 7, "new", &new_hub).await, "a hub that lists last_active");
-    assert!(!hub_last_active(&engine, 7, "old", &old_hub).await, "a hub that doesn't");
-    let p = super::Part { org_id: 7, slug: "acme".into(), name: "Acme".into(), net_slug: "acme.user.abc123".into(), secret: "s3cret".into(),
+    assert!(hub_last_active(&engine, org, "new", &new_hub).await, "a hub that lists last_active");
+    assert!(!hub_last_active(&engine, org, "old", &old_hub).await, "a hub that doesn't");
+    let p = super::Part { org_id: org, slug: "acme".into(), name: "Acme".into(), net_slug: "acme.user.abc123".into(), secret: "s3cret".into(),
         hubs: vec![("new".into(), new_hub.clone()), ("old".into(), old_hub.clone())],
         registered: ["new".to_string(), "old".to_string()].into_iter().collect() };
     tell(&engine, &p, &[("new", new_hub.as_str(), true), ("old", old_hub.as_str(), false)], says).await;
@@ -256,5 +284,4 @@ async fn a_turn_edge_of_an_agent_in_charge_kicks_the_pass_and_the_post_says_it()
     tell(&engine, &p, &[("new", new_hub.as_str(), true), ("old", old_hub.as_str(), false)], says).await;
     assert_eq!(new_rx.try_recv().expect("the turn end is said")["active_at"], json!("2025-11-24T16:01:40.000Z"));
     assert!(old_rx.try_recv().is_err(), "an older hub's traffic stays as it was: a turn is no news to it");
-    drop(rx_keep);
 }
