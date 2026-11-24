@@ -98,11 +98,12 @@ import { sendLinkedReply, sendPanelMessage } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
-  CampaignIcon, ChatBubbleIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, SettingsIcon,
+  CampaignIcon, ChatBubbleIcon, CheckIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, ScheduleIcon,
+  SettingsIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
-import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmWaiting } from './model'
+import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmReceipt, dmWaiting, dmWriting } from './model'
 import type { DmChat, DmEntry, DmNode } from './model'
 import './dm.css'
 
@@ -336,6 +337,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     return { pending: [...pending.values()], delivered: [...delivered.values()], sent: [...sent.values()] }
   }, [inbox.box, outbox.box, chatPages.box, ownPages, looked, slug])
 
+  const writing = useWriting(nodes)
   const chats = useMemo(() => dmChats({
     nodes, grants, box, openAsks: open, doneAsks: [...done, ...answered],
     isRead: id => readLocally(slug, id), selected: sel, requests,
@@ -536,6 +538,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       {box == null ? <div className="dim pad">loading…</div>
         : !shown.length ? <div className="dim pad dm-empty-list">{q ? 'no chat matches' : 'no chats yet'}</div>
         : shown.map(c => <DmRow key={c.peer} chat={c} selected={c.peer === sel} losing={!!losing?.includes(c.peer)} toast={toast}
+            writing={writing.has(c.peer)}
             child={!!c.parent && listed.has(c.parent)} hidden={hidden(c)}
             onAcquire={c.parent ? () => { approve(c.peer).catch((e: Error) => toast([`error: ${e.message}`])) } : undefined}
             fold={c.kids > 0 ? { folded: folded.has(c.peer), locked: !!q, toggle: () => toggleFold(c.peer) } : undefined}
@@ -565,6 +568,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
           <div className="mailer-read dm-conv">
             {current
               ? <DmConversation key={current.peer} slug={slug} tree={tree} chat={current} nodes={nodes}
+                  writing={writing.has(current.peer)}
                   toast={toast} refs={refs} onFocusAgent={focusAgent} flash={flash}
                   onFlash={key => setFlash({ key, seq: Date.now() })}
                   {...(ownPages ? {
@@ -627,8 +631,29 @@ const closeHoverProps = (on: (hover: boolean) => void) => ({
   onMouseEnter: () => on(true), onMouseLeave: () => on(false), onFocus: () => on(true), onBlur: () => on(false),
 })
 
-function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onClose, onCloseHover, onAcquire }: {
+/** The agents writing to the user now (`dmWriting`), redrawn when one runs into the cap. */
+function useWriting(nodes: ReadonlyMap<string, DmNode>): ReadonlySet<string> {
+  const since = useRef<Map<string, number>>(new Map())
+  const [, redraw] = useState(0)
+  const state = dmWriting(nodes, since.current, Date.now())
+  since.current = state.since
+  useEffect(() => {
+    if (state.next == null) return
+    const timer = window.setTimeout(() => redraw(n => n + 1), Math.max(0, state.next - Date.now()) + 50)
+    return () => window.clearTimeout(timer)
+  }, [state.next])
+  return state.peers
+}
+
+/** Three dots: the agent is writing a message to the user (Hubchat's own indicator). */
+function DmTypingDots() {
+  return <span className="dm-typing-dots" aria-hidden="true"><i /><i /><i /></span>
+}
+
+function DmRow({ chat, selected, losing, toast, child, hidden, fold, writing, onOpen, onClose, onCloseHover, onAcquire }: {
   chat: DmChat; selected: boolean; losing: boolean; toast: ToastFn; onOpen: () => void; onClose: () => void
+  /** the agent is writing to the user now */
+  writing: boolean
   onCloseHover: (hover: boolean) => void
   /** listed under its project's row */
   child: boolean
@@ -677,6 +702,8 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
   if (last?.ask) preview = <><span className="dm-row-q">{askIsOpen(last.ask) ? 'Request ·'
     : last.ask.kind === 'scope' ? 'Decided ·' : 'Answered ·'}</span> <span className="dm-row-text">{askBrief(last.ask)}</span></>
   else if (last?.mail) preview = <>{last.out && <span className="dm-row-you">You:</span>} <span className="dm-row-text">{mailBrief(last.mail)}</span></>
+  // it is writing to the user now: Hubchat's "typing…" in the preview's place
+  if (writing) preview = <span className="dm-row-typing" role="status"><DmTypingDots /> typing…</span>
   // the request is what this chat is about until it is answered
   if (chat.request) preview = <><span className="dm-row-q">Audience request{chat.request.reason ? ' ·' : ''}</span> <span className="dm-row-text">{brief(chat.request.reason)}</span></>
   return (
@@ -750,7 +777,7 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
   </>
 }
 
-function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, ownPages, hasMore, loadingMore, historyMark,
+function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, writing, ownPages, hasMore, loadingMore, historyMark,
   onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
@@ -760,6 +787,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   historyMark: string
   /** every page is this chat's own mail (paged at the engine); false: the mailbox's pages, every chat mixed */
   ownPages: boolean
+  /** the agent is writing a message to the user now: three dots under the last message */
+  writing: boolean
   /** show this entry of the chat: scroll it into view and mark it */
   onFlash: (key: string) => void
   hasMore: boolean; loadingMore: boolean; onLoadMore: () => void
@@ -846,7 +875,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       }
     }
     if (pinned.current) el.scrollTop = el.scrollHeight
-  }, [count, peer, newFrom, replies.length])
+  }, [count, peer, newFrom, replies.length, writing])
   // OLDER MESSAGES COME BY THEMSELVES AS THE TOP COMES NEAR, a page at a time,
   // and what is on screen stays where it is (USER 2026-11-24 m5004af1477b1:
   // "clicking load older messages at the top makes it immediately jump ...
@@ -1157,6 +1186,10 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
               : 'No messages here.'}</span>
           </div>}
           {rows}
+          {/* Hubchat's typing row: its name and three dots, announced politely */}
+          {writing && <div className="dm-typing-row" role="status" aria-live="polite" data-dm-typing={peer}>
+            <DmTypingDots /><span>{name} is typing…</span>
+          </div>}
         </div>
       </div>
       <div className="dm-compose" ref={boxRef}>
@@ -1238,6 +1271,9 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   const holder = job?.holders[job.holders.length - 1]
   const jobTitle = job && job.holders.length > 1 ? `handed to ${job.holders.join(', then ')}` : undefined
   const queued = !entry.out ? m.queue?.job : undefined
+  // the user's own mail to an agent: has its CLI taken it? (a project's job says its own state below,
+  // and a megaphone's record is not one mail)
+  const receipt = entry.out && !job && !mega?.record ? dmReceipt(m as MailEntry, entry.via ?? (m as { to?: string }).to ?? 'the agent') : null
   const reference = !entry.out && m.id ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null
   const copy = () => {
     const text = mailRowCopyText(m as CopyableMailRow, PROFILE)
@@ -1288,7 +1324,12 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
               : job.state === 'dead' ? 'not delivered: nobody took it from the queue'
               : <>{job.state === 'done' ? 'acknowledged by' : 'held by'} {holder ? sender(holder, m) : 'a listener'}</>}
           </div>}
-          <div className="dm-meta"><time dateTime={m.at} title={fmtFull(m.at)} aria-label={fmtFull(m.at)}>{fmtHm(m.at)}</time></div>
+          <div className="dm-meta"><time dateTime={m.at} title={fmtFull(m.at)} aria-label={fmtFull(m.at)}>{fmtHm(m.at)}</time>
+            {/* Hubchat's tick, after the time: waiting, then one check */}
+            {receipt && <span className={'dm-tick ' + (receipt.delivered ? 't-delivered' : 't-queued')} role="img"
+              title={receipt.label} aria-label={receipt.label}>
+              {receipt.delivered ? <CheckIcon fontSize="inherit" /> : <ScheduleIcon fontSize="inherit" />}</span>}
+          </div>
         </div>
         <div className="dm-actions">
           {onReply && <button type="button" className="iconbtn" title={entry.out ? 'Follow up on this message' : 'Reply'}

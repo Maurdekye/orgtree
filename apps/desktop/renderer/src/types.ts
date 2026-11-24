@@ -190,6 +190,10 @@ export interface MailEntry {
   /** Same mailbox attention as urgent; does not change the urgent marking. */
   mailbox_attention?: boolean
   dnd_held?: boolean
+  /** Mail to an agent: its CLI has taken it (true) or not yet (false). Absent
+   *  on mail to the user, on retracted mail and from an older engine: then
+   *  nothing is known, and the chats show no mark. */
+  delivered?: boolean
   dnd_read?: boolean
   tags?: string[]
   reply_to?: MailReplyWire
@@ -670,6 +674,10 @@ export interface TreeNode {
   bg_tasks?: number
   /** Observed native helper identities, excluding background shell jobs. */
   helper_count?: number
+  /** The agent is writing a message call to the user right now (engine
+   *  `net::typing::ToUser`; Claude Code only, other harnesses never set it).
+   *  Transient: the user's chats show three dots for it (dm/DmPanel.tsx). */
+  writing_to_user?: boolean
   elicitations?: AskInfo[]
   /** Backend-resolved current native harness, including custom-provider routes. */
   native_tool_harness?: string | null

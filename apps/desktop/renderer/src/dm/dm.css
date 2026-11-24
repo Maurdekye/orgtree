@@ -284,7 +284,20 @@
 .dm-request-hint { font-size: 12px; }
 .dm-kind.dm-kind-decision { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
 
-.dm-meta { display: flex; justify-content: flex-end; margin-top: 3px; font-size: 11px; line-height: 1; color: var(--dim); user-select: none; }
+.dm-meta { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin-top: 3px; font-size: 11px; line-height: 1; color: var(--dim); user-select: none; }
+/* Hubchat's tick after the time (base.css .tick): a 16px check, a 14px clock while it waits */
+.dm-tick { display: inline-flex; font-size: 16px; line-height: 1; }
+.dm-tick.t-queued { font-size: 14px; }
+/* typing (Hubchat base.css .typing-prev, .typing-row, .typing-dots): the list's preview, and a row under
+   the last message of the open chat */
+.dm-row-typing { color: var(--accent); font-style: italic; display: inline-flex; align-items: center; gap: 5px; }
+.dm-typing-row { display: flex; align-items: center; gap: 8px; padding: 6px 14px 10px; font-size: 13px; color: var(--dim); font-style: italic; }
+.dm-typing-dots { display: inline-flex; gap: 3px; }
+.dm-typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .35; animation: dm-typing-dot 1.2s infinite ease-in-out; }
+.dm-typing-dots i:nth-child(2) { animation-delay: .2s; }
+.dm-typing-dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes dm-typing-dot { 0%, 80%, 100% { opacity: .35; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .dm-typing-dots i { animation: none; opacity: .7; } }
 .dm-msg.out .dm-meta { color: color-mix(in srgb, var(--dm-out-ink) 70%, transparent); }
 .dm-ask > .dm-meta { align-self: flex-start; margin: 3px 0 0 4px; }
 /* read by screen readers only: who wrote the bubble */

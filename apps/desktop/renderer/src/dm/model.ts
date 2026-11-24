@@ -514,3 +514,43 @@ export function dmAudienceLoss(nodes: ReadonlyMap<string, DmNode>, grants: reado
 export const dmWaiting = (chats: readonly DmChat[]): { unread: number; asks: number; requests: number } =>
   chats.reduce((sum, c) => ({ unread: sum.unread + c.unread, asks: sum.asks + c.asks,
     requests: sum.requests + (c.request ? 1 : 0) }), { unread: 0, asks: 0, requests: 0 })
+
+/** The dots never outlive this without news from the engine (its own cap for one call). */
+export const DM_WRITING_CAP_MS = 120_000
+
+/** Which agents are writing to the user now (USER 2026-11-24 mbbb6c8289d47:
+ *  "add typing indicators for harnesses that support it"). The engine sets
+ *  `writing_to_user` on an agent's node while its message call to the user
+ *  is being written and clears it when the call ends; only harnesses that
+ *  stream their tool calls ever set it, and nothing is guessed for the rest.
+ *  `since` is when this panel first saw each flag: one that stays set longer
+ *  than the cap (a tree that stopped arriving) stops showing by itself.
+ *  `next`: when the earliest of them runs out. */
+export function dmWriting(nodes: ReadonlyMap<string, DmNode>, since: ReadonlyMap<string, number>, now: number):
+  { since: Map<string, number>; peers: Set<string>; next: number | null } {
+  const seen = new Map<string, number>()
+  const peers = new Set<string>()
+  let next: number | null = null
+  for (const [id, node] of nodes) {
+    if (node.writing_to_user !== true) continue
+    const at = since.get(id) ?? now
+    seen.set(id, at)
+    if (now - at >= DM_WRITING_CAP_MS) continue
+    peers.add(id)
+    next = next == null ? at + DM_WRITING_CAP_MS : Math.min(next, at + DM_WRITING_CAP_MS)
+  }
+  return { since: seen, peers, next }
+}
+
+/** The mark beside the time of the user's own message (USER 2026-11-24
+ *  m0a5d2a5b266e: "simple 1-checkmark read receipts to show when they're
+ *  queued vs accepted by the chat"): waiting until the agent's CLI has taken
+ *  the mail, then one check. null: no mark (not the user's own mail to an
+ *  agent, a retracted mail, or an engine that does not say). */
+export function dmReceipt(mail: { delivered?: unknown; delivering?: unknown; dnd_held?: unknown; retracted?: unknown }, to: string):
+  { delivered: boolean; label: string } | null {
+  if (typeof mail.delivered !== 'boolean' || mail.retracted === true) return null
+  if (mail.delivered) return { delivered: true, label: `Delivered: ${to} has it` }
+  return { delivered: false, label: mail.dnd_held === true ? `Waiting: ${to} is on Do Not Disturb`
+    : mail.delivering === true ? `Waiting: handed to ${to}\u2019s running turn, not taken yet` : `Waiting: ${to} has not taken it yet` }
+}
