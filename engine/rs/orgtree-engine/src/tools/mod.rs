@@ -18,6 +18,7 @@ pub(crate) mod treetools;
 pub(crate) mod usage;
 mod apps;
 mod logo;
+mod block;
 mod next_turn;
 mod portable;
 pub(crate) mod result_timing;
@@ -260,6 +261,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
     match name {
         "orgtree_apps" => boxed(|| apps::run(engine, caller, args)).await,
         "orgtree_org_logo" => boxed(|| logo::run(engine, caller, args)).await,
+        "orgtree_block" => boxed(|| block::run(engine, caller, args)).await,
         "orgtree_message" => boxed(|| mailtools::message(engine, caller, args, false)).await,
         "orgtree_send_notice" => boxed(|| mailtools::message(engine, caller, args, true)).await,
         "orgtree_status" => boxed(|| mailtools::status(engine, caller, args)).await,

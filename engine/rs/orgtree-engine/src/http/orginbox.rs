@@ -75,6 +75,28 @@ pub async fn net_recent(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
     Ok(Json(crate::net::recent::org_recent(&e, o.id).await?))
 }
 
+/// `GET /api/orgs/{slug}/net/blocks`: the org's blocks (who set each, why)
+/// and the contacts that block it (Mail hub 2.6.0).
+#[logged]
+pub async fn blocks_get(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::net::blocks::list(&e, o.id).await?))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BlockBody {
+    address: String,
+    blocked: bool,
+}
+
+/// `POST /api/orgs/{slug}/net/blocks {address, blocked}`: the user blocks or
+/// unblocks a contact for the org (the mailservers tab).
+#[logged]
+pub async fn blocks_post(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<BlockBody>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::net::blocks::set(&e, o.id, &b.address, b.blocked, crate::net::blocks::BY_USER, None).await?))
+}
+
 #[derive(Deserialize,Debug)]
 pub struct TransferQuery { agent: Option<String>, cursor: Option<String> }
 

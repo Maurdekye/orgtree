@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 195,
-  "tools": 52,
+  "leaves": 196,
+  "tools": 53,
   "concepts": 58,
-  "total": 217
+  "total": 218
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -32,7 +32,8 @@
   "desk-parity-opus": 1,
   "canvas-sol": 2,
   "presets-docs-sonnet": 2,
-  "remote-org-fable": 6
+  "remote-org-fable": 6,
+  "mailhub-opus": 1
  },
  "nodes": [
   {
@@ -1087,6 +1088,7 @@
     "tool-inbox",
     "tool-audience",
     "tool-transfers",
+    "tool-block",
     "tool-list-orgs",
     "mail-basics",
     "chain-and-audiences",
@@ -1273,6 +1275,37 @@
     "chain-and-audiences",
     "external-mail",
     "org-mailbox"
+   ]
+  },
+  {
+   "path": "orgtree-working/mail/tool-block",
+   "name": "orgtree-tool-block",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_block"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Block or unblock an outside contact for the whole org on its mail hubs.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/block.rs",
+    "engine/rs/orgtree-engine/src/net/blocks.rs",
+    "engine/rs/orgtree-engine/src/tools/defs.rs build_tool_block()"
+   ],
+   "writer": "mailhub-opus",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "external-mail",
+    "org-mailbox",
+    "tool-message"
    ]
   },
   {

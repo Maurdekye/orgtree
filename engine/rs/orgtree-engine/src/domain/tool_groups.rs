@@ -64,7 +64,7 @@ pub fn required(name: &str) -> Option<&'static [&'static str]> {
         "staff" => &["docket", "team"],
         "hire" | "project" | "rehire" | "retire" | "dissolve" | "move" | "reorder" | "rename" | "reallocate"
         | "switch_model" | "cheap_compact" | "compact" | "retool" | "swap" | "self_subjugate" | "fast_defaults" | "import" | "duplicate" => &["team"],
-        "message" | "send_notice" | "inbox" | "audience" | "transfers" => &["messaging"],
+        "message" | "send_notice" | "inbox" | "audience" | "transfers" | "block" => &["messaging"],
         "chart" | "state_inspect" | "usage" | "list_tiers" | "list_orgs" | "read_transcript" | "read_reply_source" | "read_scratch" | "files" | "export" => &["inspection"],
         "watchdog" => &["watchdogs"],
         "halt" | "unhalt" | "thaw" | "unstick" | "continue_on" | "account_mark" => &["runtime"],

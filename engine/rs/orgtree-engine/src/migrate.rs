@@ -99,6 +99,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     ("0089_latest_model_version", include_str!("../migrations/0089_latest_model_version.sql")),
     ("0090_import_undo", include_str!("../migrations/0090_import_undo.sql")),
     ("0091_org_inbox_via_weak", include_str!("../migrations/0091_org_inbox_via_weak.sql")),
+    ("0091_net_blocks", include_str!("../migrations/0091_net_blocks.sql")),
 ];
 
 #[cfg(test)]

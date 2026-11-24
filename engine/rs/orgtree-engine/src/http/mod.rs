@@ -132,6 +132,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/transfers/{id}", post(orginbox::transfer_change))
         .route("/api/orgs/{slug}/net", get(orginbox::net))
         .route("/api/orgs/{slug}/net/recent", get(orginbox::net_recent))
+        .route("/api/orgs/{slug}/net/blocks", get(orginbox::blocks_get).post(orginbox::blocks_post))
         .route("/api/orgs/{slug}/org_inbox/read", post(orginbox::read))
         .route("/api/orgs/{slug}/audiences", get(dogs::audiences_get).post(dogs::audiences_post))
         .route("/api/orgs/{slug}/reply-source", post(reply_sources::read))

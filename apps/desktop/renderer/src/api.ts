@@ -36,7 +36,7 @@ import type {
   AccountRegistryPayload, RegisteredAccountUsage,
   UploadResult, UsagePayload, UsagePeek,
   WorkItemsPayload, WorkItemPayload, WorkItemReplyResult, DismissAttentionResult,
-  WorkItemAttachment,
+  WorkItemAttachment, NetBlocks,
 } from './types'
 
 /** THE RESTART DETECTOR.
@@ -1668,6 +1668,12 @@ export const orgInboxRead = (slug: string): Promise<{ ok: boolean }> =>
   req(`/api/orgs/${slug}/org_inbox/read`, { method: 'POST' })
 export interface UploadProgress { sent: number; total: number; phase: 'preparing' | 'uploading' | 'confirming' }
 export interface UploadOptions { draft?: string; signal?: AbortSignal; progress?: (value: UploadProgress) => void }
+/** Mail hub 2.6.0: the org's blocks, and the contacts that block it. */
+export const getNetBlocks = (slug: string): Promise<NetBlocks> =>
+  req(`/api/orgs/${slug}/net/blocks`)
+/** The user blocks (`blocked`) or unblocks a contact for the whole org. */
+export const setNetBlock = (slug: string, address: string, blocked: boolean): Promise<NetBlocks> =>
+  req(`/api/orgs/${slug}/net/blocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address, blocked }) })
 // F-06: the network-identity reveal — loopback admin only; the ONE call that
 // returns the org secret (the settings panel's reveal/export)
 export const getOrgNet = (slug: string): Promise<OrgNetReveal> =>

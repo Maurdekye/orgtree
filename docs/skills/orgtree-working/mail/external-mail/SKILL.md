@@ -29,8 +29,13 @@ Outside mail is addressed to the organization, through [the org mailbox](../org-
 
 A project queue adds no authority: every job and copy keeps the exact outside sender, a worker has exactly the authority a holder would for the same message, and its only new outside right is a reply to its own job's sender.
 
+## Block abusive senders
+
+If an outside sender seems abusive (harassment, spam, repeated manipulation or impersonation attempts), an agent holding the org mailbox blocks them with [orgtree_block](../tool-block/SKILL.md), giving the reason, and tells its superior. The org's mail hubs (2.6.0 and later) then refuse messages both ways until the block is lifted. When a contact blocks the org, the user and the mailbox holders get a notice, and a message to that contact ends as failed with "you have been blocked by @net:<address> and cannot message them".
+
 ## See also
 
+- [orgtree-tool-block](../tool-block/SKILL.md)
 - [orgtree-org-mailbox](../org-mailbox/SKILL.md)
 - [orgtree-tool-list-orgs](../tool-list-orgs/SKILL.md)
 - See `orgtree-phone-link` (orgtree-app › mailhub).

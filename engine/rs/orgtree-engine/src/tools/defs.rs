@@ -148,6 +148,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_export",
         "orgtree_import",
         "orgtree_duplicate",
+        "orgtree_block",
     ]
 }
 
@@ -215,7 +216,7 @@ fn deferred(name: &str) -> bool {
         "orgtree_move" | "orgtree_rename" | "orgtree_reorder" | "orgtree_reallocate" |
         "orgtree_cheap_compact" | "orgtree_compact" | "orgtree_request_credits" | "orgtree_request_scope" |
         "orgtree_swap" | "orgtree_self_subjugate" |
-        "orgtree_export" | "orgtree_import" | "orgtree_duplicate")
+        "orgtree_export" | "orgtree_import" | "orgtree_duplicate" | "orgtree_block")
 }
 
 #[logged]
@@ -611,6 +612,7 @@ fn all() -> Vec<Value> {
         build_tool_export(),
         build_tool_import(),
         build_tool_duplicate(),
+        build_tool_block(),
     ]
 }
 
@@ -1398,6 +1400,21 @@ fn build_tool_import() -> Value {
             "job": { "type": "string", "description": "read a running or ended import of yours instead of starting one" },
         }),
         &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_block() -> Value {
+    tool(
+        "orgtree_block",
+        "Block or unblock an outside contact (@net:<address>) for your whole org on its mail hubs (2.6.0+): both ways, no messages either way until unblocked. Only agents holding the org mailbox (primary or weak link). Block if you suspect abuse, with a reason (kept in Orgtree), and tell your superior. You can't lift a block the user set. list: the org's blocks and who blocks it.",
+        json!({
+            "action": { "type": "string", "enum": ["block", "unblock", "list"] },
+            "address": { "type": "string", "description": "block/unblock: the contact, @net:<address>" },
+            "reason": { "type": "string", "description": "block: why, at most 500 characters" },
+        }),
+        &["action"],
     )
 }
 
@@ -2421,9 +2438,11 @@ mod builder_stack_tests {
         *switch = got.clone();
         // USER 2026-11-23 10:32Z mb05f4fda0d92 (docket agent-team-project-export-import-and-duplication): three new tools,
         // export, import and duplicate, each after every card the capture holds. No earlier card changed for them.
-        let added: Vec<Value> = actual.iter().filter(|c| matches!(c["name"].as_str(), Some("orgtree_export" | "orgtree_import" | "orgtree_duplicate"))).cloned().collect();
-        assert_eq!(added.iter().map(|c| c["name"].as_str().unwrap()).collect::<Vec<_>>(), ["orgtree_export", "orgtree_import", "orgtree_duplicate"]);
-        assert_eq!(actual.len(), expected.as_array().unwrap().len() + 3, "only the three cards were added");
+        // USER 2026-11-24 18:56Z m020bbd1926c3 (docket blocking-contacts-on-the-hub-hubchat-1-4-0-orgtr): orgtree_block,
+        // after them. No earlier card changed for it.
+        let added: Vec<Value> = actual.iter().filter(|c| matches!(c["name"].as_str(), Some("orgtree_export" | "orgtree_import" | "orgtree_duplicate" | "orgtree_block"))).cloned().collect();
+        assert_eq!(added.iter().map(|c| c["name"].as_str().unwrap()).collect::<Vec<_>>(), ["orgtree_export", "orgtree_import", "orgtree_duplicate", "orgtree_block"]);
+        assert_eq!(actual.len(), expected.as_array().unwrap().len() + 4, "only the four cards were added");
         expected.as_array_mut().unwrap().extend(added);
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");

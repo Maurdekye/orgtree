@@ -32,6 +32,7 @@ use crate::changes::{self, Change};
 use crate::engine::Engine;
 
 mod transfers;
+pub mod blocks;
 mod stream;
 mod incoming;
 pub mod control;
@@ -212,6 +213,12 @@ pub struct Net {
     pub(crate) presence: presence::State,
     /// What each org last sent each hub as its display name (`profile`).
     pub(crate) profile: profile::State,
+    /// Blocking (Mail hub 2.6.0): (hub address, org's hub slug) → the hub's
+    /// last word (whom the org blocks there, who blocks the org there).
+    pub(crate) blocks: papaya::HashMap<(String, String), (Vec<String>, Vec<String>)>,
+    /// Block changes a hub refused (hub, slug, address, on): not asked again
+    /// this run.
+    pub(crate) block_refused: papaya::HashSet<(String, String, String, bool)>,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
@@ -608,6 +615,7 @@ async fn pass(engine: &Arc<Engine>) -> Result<()> {
     presence::declare(engine, &parts).await;
     drain(engine, &parts).await?;
     flush_receipts(engine, &parts).await;
+    blocks::reconcile(engine, &parts).await;
     pictures::dispatch(engine, &parts);
     Ok(())
 }
@@ -766,6 +774,8 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
         wait = POLL_WAIT_S;
         let Some(data) = data else { continue };
         set_roster(&engine, &addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
+        // whom each member blocks and who blocks it (Mail hub 2.6.0)
+        blocks::heard(&engine, &addr, &members, &data).await;
         // a member the hub no longer lists was forgotten (an operator's
         // remove-address, a rebuilt hub): it registers again, as a 401 makes
         // a poll of its own do (a poll shared by several members answers 401
@@ -1006,6 +1016,15 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             Ok(resp) if resp.status().as_u16() == 401 => {
                 set_registered(engine, org_id, &hid, None).await?;
                 stamp(engine, org_id, row_id, last_err.as_deref(), "the hub did not recognize this organization — registering again, will retry", true).await?;
+            }
+            Ok(resp) if resp.status().as_u16() == 403 => {
+                // a block (Mail hub 2.6.0) ends the message; any other 403 is retried as before
+                let answer = resp.json::<Value>().await.unwrap_or(Value::Null);
+                if answer["blocked_by"].is_string() || answer["blocking"].is_string() {
+                    blocks::refused(engine, org_id, row_id, &peer, &answer).await?;
+                } else {
+                    stamp(engine, org_id, row_id, last_err.as_deref(), "HTTP 403", true).await?;
+                }
             }
             Ok(resp) if resp.status().as_u16() == 422 => {
                 let detail = resp.json::<Value>().await.ok().and_then(|v| v["detail"].as_str().map(str::to_string)).unwrap_or_else(|| "unknown recipient".into());
@@ -1495,6 +1514,11 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
                 "queued": if mine { queued } else { 0 },
                 "roster": roster,
             });
+            // whom the org blocks there and who blocks it there (Mail hub 2.6.0)
+            if let Some((b, by)) = engine.net.blocks.pin().get(&(addr.clone(), own.clone())) {
+                v["blocks"] = json!(b);
+                v["blocked_by"] = json!(by);
+            }
             if mine && stuck > 0 {
                 v["stuck"] = json!(stuck);
                 v["stuck_err"] = json!(stuck_err);

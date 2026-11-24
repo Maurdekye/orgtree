@@ -328,6 +328,16 @@ export interface NetHub {
   stuck?: number
   stuck_err?: string
   roster: NetPeer[]
+  /** Mail hub 2.6.0: whom the org blocks on this hub, and who blocks the
+   *  org there (the hub's last word; absent before the hub has answered) */
+  blocks?: string[]
+  blocked_by?: string[]
+}
+/** GET /api/orgs/{slug}/net/blocks (Mail hub 2.6.0): the org's blocks, who set
+ *  each (`@user` or an agent's name) and why; the contacts that block the org. */
+export interface NetBlocks {
+  blocked: { address: string; set_by: string; reason: string | null; at: string }[]
+  blocked_by: string[]
 }
 export interface NetBlock {
   slug: string | null          // this org's network address

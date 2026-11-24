@@ -29,15 +29,15 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
-import type { InboxPayload, MailQueueState, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
+import type { InboxPayload, MailQueueState, NetBlocks, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
-  audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
-  uploadFile,
+  audienceAction, fileBase, fileUrl, getMailById, getNetBlocks, getOrgInbox, orgInboxRead,
+  setNetBlock, uploadFile,
 } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { TransferPanel } from './transfers'
 import {
-  ArrowUpIcon, AttachIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
+  ArrowUpIcon, AttachIcon, BlockIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
@@ -2392,6 +2392,12 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     if (!m._state) return null
     // §10: a queued row whose wire tries keep failing says so — the ⚠ and
     // its reason were previously trapped in net_spool where nothing reads
+    // Mail hub 2.6.0: refused because of a block, both ways; never retried
+    if (m._state === 'failed') {
+      const why = `not delivered — ${m._err ?? 'refused by the hub'}`
+      return <span className="net-state stuck" role="img" aria-label={why}
+        title={why}> <BlockIcon fontSize="inherit" /></span>
+    }
     if (m._state === 'queued' && m._err) {
       const failing = `delivery failing (${m._tries ?? '?'} tries) — ${m._err}. `
         + 'Retries continue; a stale address fails forever — check the '
@@ -2529,7 +2535,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
             </div>
           </div>
         </>) : (
-          <NetSection net={net} />
+          <NetSection net={net} slug={slug} />
         )}
     </PinFrame>
   )
@@ -2539,7 +2545,31 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 // A client's presence wears the Connections lists' dot (USER 2026-10-29
 // m4c84e393768e "thought the gray dot meant offline"): a green dot online, a
 // hollow grey ring offline (m019c9500d23a), never a filled grey bullet.
-function NetSection({ net }: { net?: TreePayload['net'] }) {
+function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
+  // Mail hub 2.6.0: blocking, for the whole org (user 2026-11-24). Block asks
+  // once more on the same button; Unblock acts at once.
+  const [blocks, setBlocks] = useState<NetBlocks | null>(null)
+  const [asking, setAsking] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const hubsKey = JSON.stringify((net?.hubs ?? []).map((h) => [h.blocks, h.blocked_by]))
+  useEffect(() => {
+    let live = true
+    getNetBlocks(slug).then((b) => { if (live) setBlocks(b) }).catch(() => {})
+    return () => { live = false }
+  }, [slug, hubsKey])
+  const change = (address: string, on: boolean) => {
+    setAsking(null)
+    setNetBlock(slug, address, on).then((b) => { setBlocks(b); setErr(null) })
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
+  }
+  const mine = new Set((blocks?.blocked ?? []).map((b) => b.address))
+  const by = new Set(blocks?.blocked_by ?? [])
+  const blockButton = (address: string) => mine.has(address)
+    ? <button className="link" onClick={() => change(address, false)}>unblock</button>
+    : asking === address
+      ? <button className="link bad" onClick={() => change(address, true)}
+          title="They can't message the org, and the org can't message them, until you unblock them">block — sure?</button>
+      : <button className="link" onClick={() => setAsking(address)}>block</button>
   return (
     <div className="oi-net">
       {net?.slug && <div className="dim" style={{ paddingBottom: 4 }}>
@@ -2582,9 +2612,14 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
                         ? ` · last seen ${fmtShort(r.last_seen)}` : '')
                         + ' · reachable via: '
                         + (r.transports ?? ['net']).join(', ')}>
-                      <PresenceDot state={rowPresence(r)} />
+                      {mine.has(r.slug) || by.has(r.slug)
+                        ? <BlockIcon className="oi-blocked" fontSize="inherit" role="img"
+                            aria-label={mine.has(r.slug) ? 'blocked' : 'has blocked this org'}
+                            titleAccess={mine.has(r.slug) ? 'Blocked: no messages either way' : 'Has blocked this org: no messages either way'} />
+                        : <PresenceDot state={rowPresence(r)} />}
                       <HubContactChip address={'@net:' + r.slug} />
                       <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
+                      {h.blocks !== undefined && blockButton(r.slug)}
                     </span>
                   ))}
                 </div>
@@ -2593,8 +2628,29 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
           })()}
           {h.connected && !h.roster.length &&
             <div className="dim pad-s">no other orgs on this hub yet</div>}
+          {h.connected && h.blocks === undefined && h.version &&
+            <div className="dim pad-s">this mail hub needs an update before it can block contacts</div>}
         </div>
       ))}
+      {((blocks?.blocked.length ?? 0) > 0 || (blocks?.blocked_by.length ?? 0) > 0) && (
+        <div className="oi-hub">
+          <div className="oi-hub-head"><BlockIcon fontSize="inherit" /> <b>blocked contacts</b></div>
+          {blocks!.blocked.map((b) => (
+            <div key={b.address} className="oi-peer">
+              <HubContactChip address={'@net:' + b.address} />
+              <span className="dim"> blocked by {b.set_by === '@user' ? 'you' : '@' + b.set_by}{b.reason ? ' — ' + b.reason : ''}</span>
+              {blockButton(b.address)}
+            </div>
+          ))}
+          {blocks!.blocked_by.map((a) => (
+            <div key={'by:' + a} className="oi-peer">
+              <HubContactChip address={'@net:' + a} />
+              <span className="dim"> has blocked this org: no messages either way</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {err && <div className="oi-stuck">{err}</div>}
     </div>
   )
 }
