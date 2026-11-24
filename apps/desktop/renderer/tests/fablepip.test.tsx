@@ -14,6 +14,8 @@
 //       max(f, f + 2(1 - w)) to 100% (USER 2026-11-11 11:04:55Z m49c4c03b6da4)
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs fablepip
+//   §8  the weekly bar's fill shades the estimated Fable share (f x 1/2,
+//       clamped to the fill) lighter (USER 2026-11-24 12:47:01Z m7639af3420f8)
 
 import { inAct, mountView } from './harness'
 import test from 'node:test'
@@ -196,4 +198,59 @@ test('§7 past the pip, the Fable bar’s unreachable end is red with its toolti
   const titleOf = (fablepip as unknown as { fableUnreachableTitle?: (from: number | null) => string }).fableUnreachableTitle
   assert.equal(typeof titleOf, 'function', 'fableUnreachableTitle is exported')
   assert.equal(titleOf!(null), "Fable can't reach the rest of this bar this week: the weekly limit comes first")
+})
+
+test('§8 the weekly bar shades the estimated Fable share lighter, the rest in the normal shade', async (t) => {
+  // USER 2026-11-24 12:47:01Z m7639af3420f8: "highlight the part of the bar
+  // used by fable (estimated) a different shade than the part used by other
+  // models"; share = f x 1/2 of the weekly bar (the pip's r = 1/2), clamped
+  const shares = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>('.usage-fable-share')]
+  const weeklyOf = (el: HTMLElement) => rowOf(el, /^weekly \(7 day\)$/)
+  for (const [w, f, share, fableTip, otherTip] of [
+    [35, 63, 31.5, 'Fable (estimated): about 32% of the weekly limit', 'Other models: about 3%'],
+    [20, 63, 20, 'Fable (estimated): about 20% of the weekly limit', 'Other models: about 0%'],
+    [95, 83, 41.5, 'Fable (estimated): about 42% of the weekly limit', 'Other models: about 53%'],
+    [50, 100, 50, 'Fable (estimated): about 50% of the weekly limit', 'Other models: about 0%'],
+  ] as const) {
+    const view = await bars(t, fableAt(f, w))
+    const all = shares(view.el)
+    assert.equal(all.length, 1, `w=${w}% f=${f}%: one Fable segment (got ${all.length})`)
+    const weekly = weeklyOf(view.el)
+    assert.ok(weekly?.querySelector('.usage-track')?.contains(all[0]!), 'on the weekly (all models) bar')
+    assert.equal(parseFloat(all[0]!.style.width), share, `Fable share ${share}%`)
+    assert.ok(!all[0]!.style.left || parseFloat(all[0]!.style.left) === 0, 'it starts at the left end')
+    const fill = weekly!.querySelector<HTMLElement>('.usage-fill')
+    assert.equal(fill?.style.width, `${w}%`, 'the fill keeps the whole used amount')
+    assert.equal(all[0]!.getAttribute('title'), fableTip, 'Fable segment tooltip')
+    assert.equal(fill?.getAttribute('title'), otherTip, 'the rest of the fill: other models')
+    // the pip and the red end stay drawn above the segments
+    const track = weekly!.querySelector('.usage-track')!
+    const kids = [...track.children]
+    const pip = track.querySelector('.usage-pip')
+    if (pip) assert.ok(kids.indexOf(pip) > kids.indexOf(all[0]!), 'the pip is drawn after (above) the Fable segment')
+    await view.unmount()
+  }
+  const PAST = new Date(Date.now() - 60000).toISOString()
+  const none: [string, AccountUsage][] = [
+    ['Fable unknown', fableAt(null, 35)],
+    ['weekly unknown', claude([lim('weekly_all', null, null, SOON), lim('weekly_scoped', 63, 'Fable 5.2', SOON)])],
+    ['stale: failed read whose Fable window already reset', claude([lim('weekly_all', 35, null, SOON),
+      lim('weekly_scoped', 63, 'Fable 5.2', PAST)], { available: false, error: 'HTTP 429' })],
+    ['no Fable scope', claude([lim('weekly_all', 35, null, SOON)])],
+    ['a Claude scope that is not Fable', claude([lim('weekly_all', 35), lim('weekly_scoped', 63, 'Opus')])],
+    ['Gemini', { ...claude([lim('weekly_all', 35), lim('weekly_scoped', 63, 'Gemini 4 Argon')]), provider: 'Google' }],
+  ]
+  for (const [name, u] of none) {
+    const view = await bars(t, u)
+    assert.equal(shares(view.el).length, 0, `${name}: single colour, no Fable segment`)
+    for (const fill of view.el.querySelectorAll('.usage-fill'))
+      assert.equal(fill.getAttribute('title'), null, `${name}: no split tooltip on any fill`)
+    await view.unmount()
+  }
+  // a lighter tint of the fill's own colour, never a warning colour
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const rule = /\.usage-fable-share\s*\{([^}]*)\}/.exec(css)
+  assert.ok(rule, 'a .usage-fable-share rule exists')
+  assert.doesNotMatch(rule![1]!, /--bad|--tier-fable|--warn/, 'never a warning or limit colour')
+  assert.match(rule![1]!, /background:/, 'it paints a tint')
 })
