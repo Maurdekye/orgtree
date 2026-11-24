@@ -31,6 +31,7 @@ the kind:
 | Link | Token it names | Opens |
 | --- | --- | --- |
 | `orgtree://item/<org>/<slug>` | `@item:<org>/<slug>` | the docket item |
+| `orgtree://ticket/<org>/<slug>` | `@ticket:<org>/<slug>` | the same docket item, in the ticket form (4.7.0) |
 | `orgtree://doc/<org>/<id>` | `@doc:<org>/<id>` | the presented document |
 | `orgtree://app/<org>/<id>` | `@app:<org>/<id>` | the app |
 | `orgtree://panel/<org>/<id>` | `@panel:<org>/<id>` | the panel |

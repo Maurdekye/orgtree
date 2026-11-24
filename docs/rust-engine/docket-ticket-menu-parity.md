@@ -18,7 +18,7 @@ reduced link menu. It uses `ticketReferenceActions` and `ticketOwnerAction` for:
 3. Separator.
 4. Copy ticket title (full title).
 5. Copy slug.
-6. Copy reference (@item:org/slug).
+6. Copy reference (@ticket:org/slug; @item:org/slug before 4.7.0).
 
 Both add Staff when the ticket is unarchived, backlogged and scoped to a real
 org, using the same `ticketStaffEntry` and existing `quickStaffEntry`. Rows alone
@@ -37,7 +37,7 @@ idempotent submission and commit-time revalidation remain in `quickstaff.ts` and
 the engine's quick-staff endpoint.
 
 Left clicks still toggle docket selection, and double-click copies the item's
-mention `@item:<org>/<slug>` (USER 2026-10-27; the bare slug before) with its
+mention `@ticket:<org>/<slug>` (USER 2026-10-27; the bare slug before) with its
 existing success bubble and selection cleanup, now shared with the Presented rows
 in `canvas/rowcopy.tsx`; the unscoped standalone row, with no org to write, still
 copies the slug. The context-menu

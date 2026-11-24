@@ -1225,7 +1225,7 @@ the pip every frame on each leg of a real drag (needs the engine and a UI bundle
 Three user requests, one rule: a mention is one gesture away.
 
 - **Docket rows** (`DocketRow`: org Docket view, desk Docket tabs, attention
-  list): double-click copies `@item:<org>/<slug>`. It copied the bare slug from
+  list): double-click copies `@ticket:<org>/<slug>`. It copied the bare slug from
   2026-09-07; the menu's Copy slug keeps the slug. With no `org` prop the row
   still copies the slug (no token with a guessed org).
 - **Presented rows** (`GalleryEntry`: the org-wide list and the desk tab):
@@ -1470,7 +1470,7 @@ State badges are display-only and let card pointer gestures reach the normal foc
 
 The shared ticket menu (`ticketReferenceActions`, so docket rows and every
 `ObjectNavHost` ticket link) puts **Mention** first inside a desk composer
-scope, inserting `@item:<org>/<slug> ` exactly as agent links insert `@<name> `.
+scope, inserting `@ticket:<org>/<slug> ` exactly as agent links insert `@<name> `.
 Capture it when the menu opens (`captureTicketMention`): the object host reads
 the item afterwards. `captureMention` no longer consumes the right-click caret
 snapshot, since a ticket and its Owner submenu each capture one; its one-second
@@ -2994,7 +2994,7 @@ verified: `canvas/{connectionlist,connections,hosthub,netmentions,mail}.tsx`,
 
 The composer's @ list offers agents, projects, tickets, presentations, apps and
 panels, newest first by the latest of mentioned, operated on and presented, and
-a kind prefix (`@agent:` `@project:` `@item:` `@doc:` `@app:` `@panel:` `@net:` `@org:`) lists
+a kind prefix (`@agent:` `@project:` `@ticket:` (and its older form `@item:`) `@doc:` `@app:` `@panel:` `@net:` `@org:`) lists
 all of one kind. `@net:` and `@org:` entries are not engine rows: the window builds
 them from the hub rosters (`netRosterEntries`, netmentions.tsx) and the known local
 orgs (`setKnownOrgs`). Their recency (USER 2026-11-01 m6a66447606a0) is the latest
@@ -3037,6 +3037,19 @@ name.
 - `@project:<org>/<name>` (USER md30a04a62550) parses as a node reference with
   `as: 'project'`; `projectFormPlain` leaves it plain text unless it names a
   live project here (another org's keeps its chip); `refToken` keeps the form.
+- THE TICKET FORM (4.7.0, USER 2026-11-24 mb9bc017ee96e, mc6e8d9a7dab7): a ticket is written
+  `@ticket:<org>/<slug>`; `@item:<org>/<slug>` is the older form and is read for ever. ONE parser decides
+  (`packages/contracts/reference-tokens.ts`): both forms are the kind `item`, so links, chips, flares and
+  mention recency cannot treat them as two things. `refToken` writes `@ticket:` (the menu, Mention, Copy
+  reference). Text is never rewritten: a scan hit keeps its token as written, and the two scanners carry it
+  onto the chip (`splitTypedRefs`, refmd `linkifyRefs`: `{ ...resolveRef(hit.ref, world), token: hit.token }`),
+  so a chip that cannot open shows what the writer wrote. A new scanner does the same. `MENTION_PREFIXES`
+  lists tickets under both prefixes with the engine kind `item`; `extractMentionRecency` keys both forms
+  `item:<org>/<slug>`. The engine reads both in `mention_candidates::scan` and `docket::written_slug`, and
+  writes `@ticket:` in an item's `ref`. The desktop accepts `orgtree://ticket/…` beside `orgtree://item/…`
+  (main/orgtree-link.ts). Hubchat's own copy of the parser is a separate release: until it knows `ticket`, a
+  `@ticket:` mention in hub mail is plain text there. Proofs: `tests/ticketform.test.tsx`,
+  `tests/mentionmenu.test.tsx` §7, `tests/ref-tokens.json`, `tests/orgtree-links.test.mjs`.
 - Agent parity: composer completion inserts text agents already write; no tool.
 - Proofs: `tests/mentionmenu.test.tsx`, `tests/projectform.test.tsx`, native
   `migrate/mention_recency_tests.rs` (rig `proofs/mention-recency.mjs`), and

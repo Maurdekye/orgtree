@@ -8,6 +8,7 @@
 - **A reply's quote shows the original in the chat.** Right-click a message for **View in @agent's inbox** or **View in transcript**.
 - **Your messages show when the agent has them**: a clock while a message waits, one check once the agent has taken it.
 - **Typing dots** while a Claude Code agent is writing to you.
+- **`@ticket:` is how a ticket is mentioned.** Type `@ticket:` to list every ticket; picking one writes `@ticket:<org>/<slug>`, and so do Mention and Copy reference. `@item:` still lists tickets, and every older `@item:` mention keeps working and is shown as it was written. Agents are taught the new form, which changes each agent's instructions once, at its next start.
 - **The @ menu knows the chat.** In a chat's message box, what that chat mentions is listed first. Everywhere, tickets are ordered by their latest status change.
 - **Streamer mode covers the chats**: addresses and outside names are hidden in chat rows, headers, messages and quote cards.
 - **Clicking an agent's name opens your chat with it** when it has an audience with you, anywhere in the app. Its desk is one right-click away (Focus).

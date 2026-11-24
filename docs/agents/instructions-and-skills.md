@@ -125,7 +125,8 @@ engine/rs/orgtree-engine/src/http/settings.rs BUNDLED, tests/charter-presets.tes
 
 ## Plain mention guidance (2026-10-20)
 
-All standing-instruction variants show @name and @item:<org>/<slug> as plain
+All standing-instruction variants show @name and @ticket:<org>/<slug> (since 4.7.0, USER 2026-11-24
+mc6e8d9a7dab7; @item:<org>/<slug> before, which they say still works) as plain
 text and explicitly forbid backticks/code spans. The user-mention passage
 explains that @user in replies, mail, presented documents or docket updates
 notifies the user; requests needing an answer still use mail or a question.
