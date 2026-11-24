@@ -210,6 +210,9 @@ export interface NodeLinkProps {
   atDestination?: boolean
   className?: string
   nativeTitle?: boolean
+  /** false: the name alone. For a surface that draws the agent's chip itself right beside the link
+   *  (a chat's header, next to the agent's picture): the model icon is shown once. */
+  chip?: boolean
 }
 
 /** Shared inline agent/project link base (`button.ref-chip.ref-agent.ref-ready`
@@ -217,7 +220,7 @@ export interface NodeLinkProps {
  *  agent/project references all share the same badge, rich tooltip, context
  *  menu, click behavior, and style. */
 export function NodeLink({
-  id, tier, label, why, onFocus, atDestination, className, nativeTitle = true,
+  id, tier, label, why, onFocus, atDestination, className, nativeTitle = true, chip = true,
 }: NodeLinkProps) {
   const text = label ?? id
   const nameFirst = !text.includes(id)
@@ -234,7 +237,7 @@ export function NodeLink({
         className={cls} title={title}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); if (!chat(id)) onFocus(id, e) }}>
-        <TierChip tier={tier} agentName={id} />
+        {chip && <TierChip tier={tier} agentName={id} />}
         {text}
       </button>
     )
@@ -243,7 +246,7 @@ export function NodeLink({
     <span data-copy-agent-name={id} {...agentTooltipProps(id, nameFirst)}
       className={cls} title={title}
       onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
-      <TierChip tier={tier} agentName={id} />
+      {chip && <TierChip tier={tier} agentName={id} />}
       {text}
     </span>
   )

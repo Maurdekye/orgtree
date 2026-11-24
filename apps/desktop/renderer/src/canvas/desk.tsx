@@ -785,7 +785,7 @@ export function TrayStatus({ node, turn, live = true }: {
   if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} variant="tray" />
   if (state === 'working') {
     return (
-      <span className="tray-status">
+      <span className={'tray-status prov-' + providerOf(node.tier ?? '')}>
         <DestinationBusy tier={node.tier} />
         <span className="tray-status-label working active"
           title={node.inflight_at ? `active for ${fmtAge(node.inflight_at)}` : 'active'}>

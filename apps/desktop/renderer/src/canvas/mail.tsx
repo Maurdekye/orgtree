@@ -1247,7 +1247,7 @@ type FailedSelectionReply = {
 }
 
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
-  toast, broadcast, sendLabel = 'reply', sendTitle, below, desk, draftKey, quietSent = false, history }: {
+  toast, broadcast, sendLabel = 'reply', sendTitle, below, desk, draftKey, quietSent = false, history, escapeRemovesFile = false }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1296,6 +1296,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
    *  that appears down under the messagebox"). The host says a refused send
    *  its own way (the chats: the app's toast); the text is back in the box. */
   quietSent?: boolean
+  /** Escape takes the file added last out of the box, one a press, before it means anything else to
+   *  the surface around the box (the user's chats: USER 2026-11-24 m63824e37d3d6 "esc while an
+   *  attachment is in the messagebox should remove it rather than close the chat window") */
+  escapeRemovesFile?: boolean
 }) {
   const [draft, setDraft] = useState(() => (draftKey ? readComposerDraft(draftKey)?.text : '') ?? '')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1349,6 +1353,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // On top of the Escape stack, this entry takes the key instead.
   const restoreDraft = hist.restore
   useEsc(useCallback(() => { restoreDraft() }, [restoreDraft]), !!history && hist.at !== null)
+  // on top of the Escape stack while a file is in the box, for the same reason as the walk above
+  useEsc(useCallback(() => { setAttached(files => files.slice(0, -1)) }, []), escapeRemovesFile && attached.length > 0)
   // the desk's box follows its text's height (composerautosize.ts), also when
   // a draft is restored or a send empties it
   const deskLayout = !!desk

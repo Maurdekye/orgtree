@@ -1137,7 +1137,10 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
         inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)}
-        onReply={m.id && chat.live && (!e.out || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
+        /* the user's own message can be answered too (USER 2026-11-24 mf2cbc358ad35 "need to be able to
+           reply to myself"): in an agent's chat the reply goes to that agent with the user's earlier mail
+           as its target; in a project's chat it follows up on that job */
+        onReply={m.id && chat.live && (!e.out || chat.kind === 'agent' || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
         onDelete={!e.out && m.id ? () => onDelete(m as MailEntry) : undefined}
         onAckJob={!e.out ? (reply, opts) => acknowledgeJob({
@@ -1169,6 +1172,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
                 chip, tooltip, menu and click), USER 2026-11-23 mae2b1aa37a9b */}
             {chat.node
               ? <span className="dm-who-name"><NodeLink id={peer} tier={nodeTierOf(chat.node as CanvasNode)}
+                  /* the picture beside it is the model's chip already: shown once (USER 2026-11-24 m20d439cd7dce) */
+                  chip={false}
                   onFocus={onFocusAgent ? (id) => onFocusAgent(id) : undefined} /></span>
               : isHubAddress(peer) ? <HubContactChip address={peer} /> : <span className="dm-who-name"><span className="cc-name">{name}</span></span>}
             <DmStanding chat={chat} onFocusAgent={onFocusAgent} />
@@ -1222,7 +1227,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         {replyError && <div role="alert" className="mail-reply-state failed">{replyError}</div>}
         {canWrite
           ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions
-              draftKey={draftKey} quietSent
+              draftKey={draftKey} quietSent escapeRemovesFile
               /* Up and Down walk what was sent to this agent: its desk's own history */
               history={chat.kind === 'agent' ? { slug, id: peer } : undefined}
               placeholder={!replies.length ? `message ${peer}…`
@@ -1297,17 +1302,26 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
     if (!text.trim()) { toast(['could not copy — message is empty']); return }
     void copyToClipboard(ref.current, text).then(ok => toast([ok ? 'copied the message text' : 'could not copy the message text — clipboard unavailable']))
   }
-  const entries = (): MenuEntry[] => mailMenuEntries({
+  // "Sender…": the full menu of the agent that wrote this bubble, the one its links and its card
+  // raise, from the shared builder (USER 2026-11-24 mf4eca11dd115, m9316847d3a8a; coordinator
+  // m4fff6a32161d). Read when the menu opens; none on the user's own bubble or the system's.
+  const registry = useAgentNavRegistry()
+  const entries = (anchor: Element): MenuEntry[] => {
+    const author = entry.out || system ? '' : entry.via ?? m.from
+    const nav = author && !author.startsWith('@') ? registry?.current?.(author, anchor) ?? [] : []
+    const senderEntry = nav.length ? nodeMenuAction('Sender…', anchor, author, nav, toast) : undefined
+    return mailMenuEntries({
     leading: [
       ...(onReply ? [{ label: 'Reply', onSelect: onReply }] : []),
       ...(onRead ? [{ label: 'Mark as read', onSelect: onRead }] : []),
       ...(onDelete ? [{ label: 'Delete', onSelect: onDelete }] : []),
       ...(inbox ? [{ label: `View in @${inbox.agent}\u2019s inbox`, onSelect: inbox.open }] : []),
       ...(onTranscript ? [{ label: 'View in transcript', onSelect: onTranscript }] : []),
+      ...(senderEntry ? [senderEntry] : []),
     ],
     copy, canCopy: mailRowCopyText(m as CopyableMailRow, PROFILE).trim() !== '', reference,
     copyReference: () => { if (reference) void copyToClipboard(ref.current, reference).then(ok => toast([ok ? `copied the reference ${reference}` : 'could not copy the reference — clipboard unavailable'])) },
-  })
+  }) }
   return (
     <div ref={ref} data-dm-entry={entry.key} data-dm-via={entry.via}
       className={'dm-msg ' + (entry.out ? 'out' : 'in') + (first ? ' first' : '') + (entry.unread ? ' unread' : '')
@@ -1315,7 +1329,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       <div className="dm-msg-row">
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')
           + (mega ? ' megaphone' : '')}
-          onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => menu.open(e, entries)}>
+          onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => { const anchor = e.currentTarget; menu.open(e, () => entries(anchor)) }}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
           {/* in a project's chat: which agent wrote this, or which one it was written to */}
           {entry.via && <div className="dm-via">{entry.out && <span className="dim">to</span>}{sender(entry.via, m)}</div>}
@@ -1350,8 +1364,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
           </div>
         </div>
         <div className="dm-actions">
-          {onReply && <button type="button" className="iconbtn" title={entry.out ? 'Follow up on this message' : 'Reply'}
-            aria-label={entry.out ? 'Follow up on this message' : 'Reply'} onClick={onReply}><ReplyIcon fontSize="inherit" /></button>}
+          {onReply && <button type="button" className="iconbtn" title={entry.out && job ? 'Follow up on this message' : 'Reply'}
+            aria-label={entry.out && job ? 'Follow up on this message' : 'Reply'} onClick={onReply}><ReplyIcon fontSize="inherit" /></button>}
           <button type="button" className="iconbtn" title="Copy message text" aria-label="Copy message text" onClick={copy}><CopyIcon fontSize="inherit" /></button>
         </div>
       </div>

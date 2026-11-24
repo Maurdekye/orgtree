@@ -64,6 +64,8 @@ export function recordedMailReply(row: ReplyRow, org: string) {
   }
 }
 
+const isUserSender = (from: string | undefined): boolean => from === 'user' || from === '@user'
+
 function buildMailReplyMenu(
   anchor: HTMLElement,
   org: string,
@@ -73,6 +75,7 @@ function buildMailReplyMenu(
   nodeNav: ReturnType<typeof useAgentNavRegistry>,
   toast: ReturnType<typeof useCopyFeedback>,
   openUserInbox?: () => void,
+  plainUser = false,
 ): MenuEntry[] {
   const fallbackText = reply.body || reply.gist || ''
   const isDoc = target?.ref.kind === 'doc' || reply.ref?.kind === 'doc' || reply.kind === 'document'
@@ -117,7 +120,9 @@ function buildMailReplyMenu(
   const agentId = from.replace(/^@/, '')
   const navEntries = from && !from.startsWith('@') && from !== 'user' && agentId
     ? (nodeNav?.current?.(agentId, anchor) ?? []) : []
-  const senderEntry = senderMenuAction(anchor, from || undefined, navEntries, toast, openUserInbox)
+  // on a surface that shows the quoted mail itself (the user's chats) a quote of the user's own message
+  // has no Sender entry: the user is no agent, and "Open inbox" there is the panel the reader is in
+  const senderEntry = plainUser && isUserSender(from) ? undefined : senderMenuAction(anchor, from || undefined, navEntries, toast, openUserInbox)
   const openLabel = isDoc ? 'Open presentation' : isItem ? 'Open details' : 'Open mail'
   return [
     { label: 'Copy contents', disabled: !canCopy, onSelect: copyContents },
@@ -193,14 +198,14 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
         const agentId = m.from.replace(/^@/, '')
         const navEntries = !m.from.startsWith('@') && m.from !== 'user' && agentId
           ? (nodeNav?.current?.(agentId, anchor) ?? []) : []
-        const entry = senderMenuAction(anchor, m.from, navEntries, toast, objectNav?.openUserInbox)
+        const entry = locateMail && isUserSender(m.from) ? undefined : senderMenuAction(anchor, m.from, navEntries, toast, objectNav?.openUserInbox)
         if (entry) menu.append(entry, opening)
       }).catch(() => {})
     }
   }
   return <ReplyPreviewFrame label="Reply context" unavailable={unavailable} onActivate={activate}
     actionTitle={here ? 'Show the message this answers' : activate?target!.why:unavailable}
-    menuEntries={anchor => buildMailReplyMenu(anchor, org, reply, target, activate, nodeNav, toast, objectNav?.openUserInbox)}
+    menuEntries={anchor => buildMailReplyMenu(anchor, org, reply, target, activate, nodeNav, toast, objectNav?.openUserInbox, !!locateMail)}
     onOpenMenu={onOpenMenu}
     action={<>
     <ReplyIcon fontSize="inherit" aria-hidden="true" />

@@ -255,7 +255,7 @@
    roots and destination chips. Provider settings and tier/status identity
    keep their own colors. Removing this class restores the original rules. */
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
-  .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
+  .tray-row, .tray-status, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
   .tab-count, .badge, .mailbtn .count):is(.prov-claude, .prov-openai, .prov-google, .prov-openrouter) {
   --prov-claude: var(--org-accent);
   --prov-openai: var(--org-accent);
@@ -6631,6 +6631,15 @@ svg.MuiSvgIcon-root {
 .tray-row.prov-openai { --accent: var(--prov-openai); }
 .tray-row.prov-google { --accent: var(--prov-google); }
 .tray-row.prov-openrouter { --accent: var(--prov-openrouter); }
+/* THE STATE BADGE'S "Active" TAKES ITS SPINNER'S COLOUR WHEREVER THE BADGE IS DRAWN (USER 2026-11-24
+   m56bec14424fc: "the active arrows are a different color than the active text"). The label reads
+   --accent and the spinner the provider's colour; an agents-list row scopes --accent to the provider
+   (above), and a surface without that scope, the user's chats' header, drew the label in the app's
+   accent beside a provider-coloured spinner. The badge now carries the scope itself. */
+.tray-status.prov-claude { --accent: var(--prov-claude); }
+.tray-status.prov-openai { --accent: var(--prov-openai); }
+.tray-status.prov-google { --accent: var(--prov-google); }
+.tray-status.prov-openrouter { --accent: var(--prov-openrouter); }
 /* FR-16: a filtered-out ancestor kept visible so a matching descendant's
    indent still has a parent above it — dimmer than .off, and italic so it
    reads as context rather than a result */
@@ -9932,7 +9941,7 @@ main:has(> .orgbar.native-header) > .error {
 :root { --prov-langserver: var(--langserver-gold); --tier-langserver: var(--langserver-gold); --prov-langserver-ink: #17191d; }
 :root:is(.contrast-light, .contrast-solarized-light) { --prov-langserver: #4d3a02; --prov-langserver-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
-  .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
+  .tray-row, .tray-status, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
   .tab-count, .badge, .mailbtn .count).prov-langserver {
   --prov-langserver: var(--org-accent);
   --provider-accent: var(--org-accent) !important;
@@ -9980,6 +9989,7 @@ main:has(> .orgbar.native-header) > .error {
   --accent-soft: color-mix(in srgb, var(--prov-langserver) 16%, transparent);
 }
 .tray-row.prov-langserver { --accent: var(--prov-langserver); }
+.tray-status.prov-langserver { --accent: var(--prov-langserver); }
 .acct-provider-head.prov-langserver { border-bottom-color: color-mix(in srgb, var(--prov-langserver) 45%, var(--line)); }
 /* MUSE CODE's provider and tier colours (user 2026-10-12 20:09Z: the exact
    baby-blue cyan of Muse's official marketing, on every provider-colour
@@ -10009,7 +10019,7 @@ main:has(> .orgbar.native-header) > .error {
 :root { --prov-muse: #afe5ff; --prov-muse-ink: #17191d; }
 :root:is(.contrast-light, .contrast-solarized-light) { --prov-muse: #005680; --prov-muse-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
-  .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
+  .tray-row, .tray-status, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
   .tab-count, .badge, .mailbtn .count).prov-muse {
   --prov-muse: var(--org-accent);
   --provider-accent: var(--org-accent) !important;
@@ -10061,6 +10071,7 @@ main:has(> .orgbar.native-header) > .error {
   --accent-soft: color-mix(in srgb, var(--prov-muse) 16%, transparent);
 }
 .tray-row.prov-muse { --accent: var(--prov-muse); }
+.tray-status.prov-muse { --accent: var(--prov-muse); }
 .pinwin.prov-muse, .pin-snap-preview.prov-muse { --accent: var(--prov-muse); --accent-soft: color-mix(in srgb, var(--prov-muse) 16%, transparent); }
 .acct-provider-head.prov-muse { border-bottom-color: color-mix(in srgb, var(--prov-muse) 45%, var(--line)); }
 .acct-provider-head.prov-muse .acct-preview-tag { color: var(--agent-accent-text, var(--prov-muse));
