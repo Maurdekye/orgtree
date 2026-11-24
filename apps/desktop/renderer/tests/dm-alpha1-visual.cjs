@@ -320,6 +320,145 @@ module.exports = async (page) => {
   await page.click('.dm-newchat .dm-newchat-close')
   await gone()
 
+  // back to the modal's own frame for what follows
+  await page.eval(() => {
+    document.querySelector('.popout-mount')?.classList.remove('popout-mount'); document.querySelector('.overlay-detached')?.classList.remove('overlay-detached')
+    document.querySelector('.modalpin-detached')?.classList.remove('modalpin-detached'); document.querySelector('.modalpin-bar.detached')?.classList.remove('detached')
+  })
+  await page.sleep(300)
+  const menuOn = async (id) => {
+    // a menu closes when its surface scrolls: bring the bubble into view first, then ask for the menu
+    await page.eval((entry) => { document.querySelector(`[data-dm-entry="${entry}"] .dm-bubble`).scrollIntoView({ block: 'center' }) }, id)
+    await page.sleep(300)
+    await page.eval((entry) => { const b = document.querySelector(`[data-dm-entry="${entry}"] .dm-bubble`); const r = b.getBoundingClientRect()
+      b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10, button: 2 })) }, id)
+    await page.sleep(300)
+    return page.eval(() => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(i => (i.textContent || '').trim()))
+  }
+  const pick = (label) => page.eval((l) => { [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find(i => (i.textContent || '').trim() === l)?.click() }, label)
+  // the outside sender's mail and the agent's quote of it are in the engine from here on (the next read brings them)
+  await page.api('GET', '/__privacy')
+
+  // ---------------- 20. a reply to my own message (the one sent above, in worker's chat)
+  await openChat('worker')
+  v.own = { menuHasReply: (await menuOn('sent-1')).includes('Reply') }
+  await pick('Reply')
+  await page.waitFor('.dm-replybar-text')
+  v.own.bar = await page.eval(() => document.querySelector('.dm-replybar-text').textContent)
+  await page.click('.dm-compose textarea')
+  await page.type('One more thing: keep the March sheet.')
+  await shot('14a-replying-to-my-own-message')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the reply to show', async () => page.eval(() => !!document.querySelector('[data-dm-entry="sent-2"] .reply-preview')))
+  await page.sleep(400)
+  const replyCall = (await asked()).calls.filter(k => /\/nodes\/[^/]+\/message$/.test(k.path)).pop()
+  Object.assign(v.own, { target: replyCall.body.target, to: replyCall.path.split('/').slice(-2)[0],
+    ...(await page.eval(() => { const e = document.querySelector('[data-dm-entry="sent-2"]')
+      return { quote: (e.querySelector('.reply-preview').textContent || '').replace(/\s+/g, ' ').trim(), out: e.classList.contains('out') } })) })
+  await shot('14b-my-reply-quotes-my-own-message')
+
+  // ---------------- 24. Sender… on an agent's bubble: the agent's own menu, where a canvas publishes one
+  const theirs = await page.eval(() => { const rows = [...document.querySelectorAll('.dm-msg.in[data-dm-entry]')]; return rows[rows.length - 1].dataset.dmEntry })
+  const beforeItems = await menuOn(theirs)
+  v.sender = { beforeMenu: beforeItems.length, before: beforeItems.some(i => /^Sender…/.test(i)), closedAt: [] }
+  await page.press('Escape')
+  await page.sleep(200)
+  v.sender.closedAt.push((await page.eval(() => window.__dm.closed)))
+  await page.eval(() => window.__dm.nav(true))
+  await page.sleep(250)
+  v.sender.entry = (await menuOn(theirs)).some(i => /^Sender…/.test(i))
+  await page.hover({ selector: 'button.ctxmenu-item', text: '^Sender…', regex: true })
+  await until('the Sender submenu', async () => page.eval(() => !!document.querySelector('.ctxmenu-submenu [role="menuitem"]')))
+  await page.sleep(250)
+  v.sender.items = await page.eval(() => [...document.querySelectorAll('.ctxmenu-submenu [role="menuitem"]')].map(i => (i.textContent || '').trim()))
+  await shot('15-sender-submenu-on-an-agents-message')
+  await page.press('Escape')
+  await page.sleep(200)
+  if (await page.eval(() => !!document.querySelector('.ctxmenu'))) { await page.press('Escape'); await page.sleep(200) }
+  await page.eval(() => window.__dm.nav(false))
+  v.sender.closedAt.push((await page.eval(() => window.__dm.closed)))
+
+  // ---------------- 27. Escape with files attached
+  await page.eval(() => window.__dm.draft('sparse', 'With two files', [{ name: 'notes.txt', path: 'outbox/notes.txt', bytes: 2048 }, { name: 'totals.csv', path: 'outbox/totals.csv', bytes: 48211 }]))
+  await openChat('sparse')
+  const files = () => page.eval(() => [...document.querySelectorAll('.dm-compose .attach-row .attach-chip')].map(c => (c.textContent || '').trim().split(/\s+/)[0]))
+  await page.click('.dm-compose textarea')
+  v.escape = { files: [await files()], closedAt: [(await page.eval(() => window.__dm.closed))] }
+  await shot('16a-two-files-attached')
+  await page.press('Escape'); await page.sleep(250)
+  v.escape.files.push(await files()); v.escape.closedAt.push((await page.eval(() => window.__dm.closed)))
+  await shot('16b-escape-removed-the-file-added-last')
+  await page.press('Escape'); await page.sleep(250)
+  v.escape.files.push(await files()); v.escape.closedAt.push((await page.eval(() => window.__dm.closed)))
+  Object.assign(v.escape, await page.eval(() => ({ text: document.querySelector('.dm-compose textarea').value, closed: window.__dm.closed })), { peer: await headPeer() })
+
+  // ---------------- stream privacy ON: a chat row, the chat header, a quote card, typing
+  const OUTSIDE = '@net:casey.4f2a9c'
+  // every place the page shows the outside name or one of the two addresses: readable, or hidden by the
+  // privacy scan (a highlight range over exactly that text, or a field blurred whole)
+  const places = () => page.eval(() => {
+    const needles = ['casey', '10.20.30.40'], ranges = [...(CSS.highlights.get('streamer-sensitive') ?? [])]
+    const leaks = []; let hidden = 0
+    const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'
+    const walker = document.createTreeWalker(document.querySelector('.settings.dm-panel'), NodeFilter.SHOW_TEXT)
+    for (let n; (n = walker.nextNode());) {
+      const el = n.parentElement
+      if (!el || !shown(el)) continue
+      for (const needle of needles) for (let i = n.data.indexOf(needle); i >= 0; i = n.data.indexOf(needle, i + 1)) {
+        const covered = !!el.closest('[data-streamer-blur]') || ranges.some(r => r.comparePoint(n, i) === 0 && r.comparePoint(n, i + needle.length) === 0)
+        if (covered) hidden++; else leaks.push(`${el.className || el.tagName}: ${n.data.slice(Math.max(0, i - 12), i + needle.length + 12)}`)
+      }
+    }
+    // a chip draws its name from an attribute, in CSS: hidden only when the chip is blurred whole
+    for (const el of document.querySelectorAll('.settings.dm-panel [data-net-name]')) {
+      if (!shown(el) || !needles.some(x => (el.getAttribute('data-net-name') ?? '').includes(x))) continue
+      if (el.closest('[data-streamer-blur]')) hidden++; else leaks.push(`chip ${el.className}`)
+    }
+    return { leaks, hidden, class: document.documentElement.classList.contains('streamer-on') }
+  })
+  const hiddenIn = (selector, needle) => page.eval(([s, x]) => {
+    const ranges = [...(CSS.highlights.get('streamer-sensitive') ?? [])]
+    let count = 0
+    for (const root of document.querySelectorAll(s)) {
+      if (root.closest('[data-streamer-blur]') || root.querySelector('[data-streamer-blur]')) { count++; continue }
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      for (let n; (n = walker.nextNode());) for (let i = n.data.indexOf(x); i >= 0; i = n.data.indexOf(x, i + 1))
+        if (ranges.some(r => r.comparePoint(n, i) === 0 && r.comparePoint(n, i + x.length) === 0)) count++
+    }
+    return count
+  }, [selector, needle])
+  await until('the outside sender\'s row', async () => page.eval((o) => !!document.querySelector(`.dm-row[data-dm-chat="${o}"]`), OUTSIDE))
+  await openChat(OUTSIDE)
+  v.privacy = { off: await places() }
+  await shot('17a-privacy-off-the-outside-senders-chat')
+  await page.eval(() => window.__dm.streamer(true))
+  await until('the privacy scan to settle', async () => { const s = await places(); return s.class && s.leaks.length === 0 }, 8000).catch(() => undefined)
+  await page.sleep(400)
+  const row = `.dm-row[data-dm-chat="${OUTSIDE}"]`
+  v.privacy.on = await places()
+  v.privacy.outside = { ...(await places()),
+    row: { name: (await hiddenIn(`${row} .dm-row-name`, 'casey')) > 0, picture: (await hiddenIn(`${row} .dm-av`, 'N')) > 0, preview: (await hiddenIn(`${row} .dm-row-text`, 'casey@example.org')) > 0 },
+    header: { chip: (await hiddenIn('.dm-head [data-hub-address]', 'casey')) > 0, picture: (await hiddenIn('.dm-head .dm-av', 'N')) > 0 },
+    bubble: (await hiddenIn('[data-dm-entry="n1"] .dm-bubble', 'casey@example.org')) + (await hiddenIn('[data-dm-entry="n1"] .dm-bubble', '10.20.30.40')) }
+  await shot('17b-privacy-on-chat-row-and-chat-header-of-an-outside-sender')
+  await openChat('quoter')
+  await page.eval(() => { document.querySelector('[data-dm-entry="qp"]')?.scrollIntoView({ block: 'center' }) })
+  await page.eval(() => window.__dm.typing('quoter'))
+  await page.waitFor('.dm-typing-row')
+  await page.eval(() => { const t = document.querySelector('.dm-timeline'); t.scrollTop = t.scrollHeight })
+  await until('the privacy scan to settle', async () => (await places()).leaks.length === 0, 8000).catch(() => undefined)
+  await page.sleep(400)
+  v.privacy.quote = { ...(await places()),
+    card: { sender: (await hiddenIn('[data-dm-entry="qp"] .reply-preview', '@net:casey.4f2a9c')) > 0,
+      words: (await hiddenIn('[data-dm-entry="qp"] .reply-preview', 'casey@example.org')) + (await hiddenIn('[data-dm-entry="qp"] .reply-preview', '10.20.30.40')) },
+    typing: await page.eval(() => ({ text: document.querySelector('.dm-typing-row')?.textContent ?? null,
+      rows: [...document.querySelectorAll('.dm-row')].filter(x => x.querySelector('.dm-row-typing')).map(x => x.dataset.dmChat) })) }
+  await shot('17c-privacy-on-a-quote-card-and-typing')
+  await page.eval(() => { window.__dm.typing(null); window.__dm.streamer(false) })
+  await until('privacy off', async () => !(await places()).class, 8000).catch(() => undefined)
+  await page.sleep(300)
+  v.privacy.after = await places()
+
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
   return v

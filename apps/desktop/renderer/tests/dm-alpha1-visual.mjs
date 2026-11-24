@@ -49,6 +49,8 @@ assert.match(css, /\.dm-list > \.tray-panel\.dm-newchat/, 'the chat sheet is in 
 const now = Date.now(), M = 60e3, H = 60 * M, D = 24 * H
 const ago = ms => new Date(now - ms).toISOString()
 const USER = '@user'
+/** a synthetic outside sender (stream privacy hides outside names) */
+const OUTSIDE = '@net:casey.4f2a9c'
 const grant = (grantee, extra = {}) => ({ grantee, grantor: USER, granted_at: ago(9 * D), reason: '', ...extra })
 const mail = (id, from, when, body, extra = {}) => ({ id, from, at: ago(when), kind: 'message', body, ...extra })
 const sent = (id, to, when, body, extra = {}) => ({ id, from: USER, to, at: ago(when), kind: 'message', body, ...extra })
@@ -119,6 +121,14 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/probe.js') return send(readFileSync(path.join(output, 'probe.js')), 'text/javascript')
   if (url.pathname === '/probe.css') return send(css, 'text/css')
   if (url.pathname === '/__calls') return send({ calls, pages })
+  // STREAM PRIVACY (job E): an outside sender writes, and an agent quotes it. Added only when the walk asks,
+  // at its end, so every count before it is what it was.
+  if (url.pathname === '/__privacy') {
+    world.pending.push(mail('n1', OUTSIDE, 3 * M, 'You can reach me at casey@example.org, or on the box at 10.20.30.40.'))
+    world.delivered.push(mail('qp', 'quoter', 2 * M, 'Passing this on: the address is in the message I quote.', {
+      reply_to: { id: 'n1', kind: 'mail', from: OUTSIDE, at: ago(3 * M), gist: 'You can reach me at casey@example.org, or on the box at 10.20.30.40.', org: 'mine', box: 'user' } }))
+    return send({ ok: true })
+  }
   if (!url.pathname.startsWith('/api/orgs/mine')) return url.pathname.startsWith('/api/') ? send({}) : send('not found', 'text/plain', 404)
   let body = null
   if (req.method !== 'GET') {
@@ -141,7 +151,10 @@ const server = createServer(async (req, res) => {
   const message = p.match(/^\/nodes\/([^/]+)\/message$/)
   if (message && req.method === 'POST') {
     const id = `sent-${++seq}`
-    world.sent.push({ id, from: USER, to: decodeURIComponent(message[1]), at: new Date().toISOString(), kind: 'message', body: body.text })
+    // a reply names what it answers; the engine hands the quote back with the mail
+    const original = body.target?.kind === 'mail' ? everyMail().find(x => x.id === body.target.id) : null
+    world.sent.push({ id, from: USER, to: decodeURIComponent(message[1]), at: new Date().toISOString(), kind: 'message', body: body.text,
+      ...(original ? { reply_to: { id: original.id, kind: 'mail', from: original.from, at: original.at, gist: original.body, org: 'mine', box: 'user' } } : {}) })
     return send({ accepted: true, id, ref: `@mail:${id}` })
   }
   // a desk's own read of its chat: an empty transcript (only its message box is shown)
@@ -335,6 +348,42 @@ if (flag === '--expect') {
   for (const k of ['x', 'y', 'w', 'h']) near(v.popout.sweep.box[k], v.popout.sweep.column[k], `popped out, the sweep covers the list's column: ${k}`)
   assert.equal(v.popout.sweep.overlays, 1, 'popped out, New chat is no second panel'); assert.equal(v.popout.sweep.closed, 0)
   checked.push('10 popped-out layout', '12 sweep popped out')
+
+  // ---- 20: a reply to my own message
+  assert.equal(v.own.menuHasReply, true, 'my own bubble\'s menu has Reply'); assert.equal(v.own.bar, 'Thanks, that is all for today.', 'the reply bar shows my message')
+  assert.deepEqual(v.own.target, { kind: 'mail', org: 'mine', box: 'user', id: 'sent-1' }, 'the reply names my own message'); assert.equal(v.own.to, 'worker', 'and goes to the chat\'s agent')
+  assert.match(v.own.quote, /Thanks, that is all for today\./, 'the new bubble quotes it'); assert.equal(v.own.out, true)
+  checked.push('20 reply to my own')
+
+  // ---- 24: the Sender submenu is the agent's own menu
+  assert.ok(v.sender.beforeMenu >= 3, 'POSITIVE CONTROL: the menu of the bubble is open'); assert.equal(v.sender.before, false, 'and without a canvas it has no Sender entry')
+  assert.equal(v.sender.entry, true, 'an agent\'s bubble has Sender…'); assert.ok(v.sender.items.length >= 4, `the submenu is open: ${v.sender.items.join(' | ')}`)
+  for (const entry of ['Copy mention', 'Focus', 'Settings']) assert.ok(v.sender.items.includes(entry), `the agent's own menu: ${entry}`)
+  assert.ok(v.sender.items.some(i => /^Open/.test(i)), 'with Open'); assert.deepEqual(v.sender.closedAt, [0, 0], 'closing a menu closed nothing else')
+  checked.push('24 sender submenu')
+
+  // ---- 27: Escape removes the file added last, one a press, and nothing else
+  assert.deepEqual(v.escape.files, [['notes.txt', 'totals.csv'], ['notes.txt'], []], 'two files, one, none')
+  assert.equal(v.escape.text, 'With two files', 'the text stays'); assert.deepEqual(v.escape.closedAt, [0, 0, 0], 'the inbox stays open at each press'); assert.equal(v.escape.peer, 'sparse', 'and so does the chat')
+  checked.push('27 escape removes a file')
+
+  // ---- stream privacy ON: a chat row, the chat header, a quote card, typing
+  const pv = v.privacy
+  assert.ok(pv.off.leaks.length >= 3, `POSITIVE CONTROL: with privacy off the outside name and the two addresses are readable (${pv.off.leaks.length} places)`)
+  assert.equal(pv.on.class, true, 'privacy is on')
+  for (const [where, s] of Object.entries({ 'the outside sender\'s chat': pv.outside, 'the quoting agent\'s chat': pv.quote })) {
+    assert.deepEqual(s.leaks, [], `${where}: no place shows the outside name or an address`)
+    assert.ok(s.hidden >= 2, `${where}: POSITIVE CONTROL: they are on the page, hidden (${s.hidden} places)`)
+  }
+  assert.equal(pv.outside.row.name, true, 'the chat row: the outside sender\'s name'); assert.equal(pv.outside.row.picture, true, 'its letter picture')
+  assert.equal(pv.outside.row.preview, true, 'and the address in its preview')
+  assert.equal(pv.outside.header.chip, true, 'the chat header: its name'); assert.equal(pv.outside.header.picture, true, 'and its picture')
+  assert.equal(pv.outside.bubble, 2, 'the message itself: the mail address and the IP address')
+  assert.equal(pv.quote.card.sender, true, 'the quote card: who is quoted'); assert.equal(pv.quote.card.words, 2, 'and both addresses in the quoted words')
+  assert.equal(pv.quote.typing.text, 'quoter is typing…', 'typing: an agent of this organization, whose name stream privacy never hides')
+  assert.equal(pv.quote.typing.rows.join(), 'quoter')
+  assert.equal(pv.after.class, false, 'and off again'); assert.ok(pv.after.leaks.length >= 3, 'everything is readable again')
+  checked.push('privacy row', 'privacy header', 'privacy quote card', 'privacy typing')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 0, 'the inbox was never closed')
 }
 console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, consoleErrors: errors.length, session: result.session, guards: result.guards }))

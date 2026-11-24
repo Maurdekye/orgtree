@@ -13,6 +13,11 @@ import { syncFastModes } from '../src/canvas/fastmode'
 import { DeskChat } from '../src/canvas/desk'
 import { AgentTray, trayRows } from '../src/canvas/agenttray'
 import { dmNodes } from '../src/dm/model'
+import { dmDraftKey } from '../src/dm/DmPanel'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { agentMenuEntries } from '../src/canvas/agentmenu'
+import { writeComposerDraft } from '../src/composerdrafts'
+import { setStreamerMode, startStreamerMode } from '../src/streamer'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreeNode, TreePayload } from '../src/types'
 
@@ -59,16 +64,29 @@ declare global {
       /** the engine says this agent is writing a message to the user (null: nobody is) */
       typing(id: string | null): void
       theme(id: string): void
+      /** a canvas is there: agents have their full menu (the Sender submenu reads it) */
+      nav(on: boolean): void
+      /** a draft with files, as the box keeps one, before its chat is opened */
+      draft(peer: string, text: string, files: { name: string; path: string; bytes: number }[]): void
+      /** stream privacy, as its switch in the app sets it */
+      streamer(on: boolean): void
     }
   }
 }
 
+/** What a canvas publishes: every agent's own menu (`agentMenuEntries`), with handlers that do nothing here. */
+function Nav({ on, map }: { on: boolean; map: Map<string, CanvasNode> }) {
+  useProvideAgentNav(on ? (id) => { const n = map.get(id); return n ? agentMenuEntries(n, { onOpenDesk() {}, onInbox() {} } as never) : [] } : null)
+  return null
+}
+
 function Probe() {
+  const [nav, setNav] = useState(false)
   const [desk, setDesk] = useState(false)
   const [list, setList] = useState(false)
   const [t, setTree] = useState(tree)
   useEffect(() => {
-    window.__dm.deskBox = setDesk; window.__dm.canvasList = setList
+    window.__dm.deskBox = setDesk; window.__dm.canvasList = setList; window.__dm.nav = setNav
     // a new tree, as the engine publishes one when an agent's runtime view changes
     window.__dm.typing = (id) => {
       const mark = (n: TreeNode): TreeNode => ({ ...n, writing_to_user: n.id === id, children: (n.children ?? []).map(mark) }) as TreeNode
@@ -78,7 +96,8 @@ function Probe() {
   const map = dmNodes(t) as unknown as Map<string, CanvasNode>
   const quoter = map.get('quoter')!
   return (
-    <CurrentOrg.Provider value="mine">
+    <CurrentOrg.Provider value="mine"><AgentNavProvider>
+      <Nav on={nav} map={map} />
       <UserMailbox slug="mine" tree={t} toast={lines => { window.__dm.toasts.push(...lines) }}
         close={() => { window.__dm.closed++ }} jumpTo={null} jumpSeq={null} openChat={null}
         onFocusAgent={id => { window.__dm.focused.push(id) }}
@@ -97,11 +116,16 @@ function Probe() {
         <div className="tray-panel"><AgentTray map={map} rows={trayRows(map, {})} query="" onQuery={() => {}}
           archived={false} onArchived={() => {}} onPick={() => {}} compactAt={t.compact_at} showQueuedModelBadge={false} /></div>
       </div>}
-    </CurrentOrg.Provider>
+    </AgentNavProvider></CurrentOrg.Provider>
   )
 }
 
-window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id) }
+window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
+  nav() {}, draft: (peer, text, attached) => writeComposerDraft(dmDraftKey('mine', peer), { text, attached }),
+  streamer: on => { void setStreamerMode(on) } }
+// stream privacy as the app starts it: off until the capture switches it on
+try { localStorage.removeItem('orgtree-streamer-mode') } catch { /* no storage */ }
+startStreamerMode()
 syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }, { tier: 'sonnet', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
 window.confirm = () => { window.__dm.confirms++; return true }
 createRoot(document.getElementById('root')!).render(<Probe />)
