@@ -124,8 +124,13 @@ export const DM_TRIM_KEEP = 100
 const NEAR_TOP = 400
 /** The mailbox's history is one list for every chat, so a page may hold
  *  nothing of this one. Without the reader's hand on it, a chat asks for at
- *  most this many such pages in a row. */
+ *  most this many such pages in a row at full speed. */
 const IDLE_PAGES = 3
+/** ...and after them, a view that does not scroll (so cannot be scrolled to
+ *  ask) reads on by itself, one page per this many ms, until it fills or the
+ *  history ends. A full view waits for the reader. (`dmTiming` so a test need
+ *  not wait a second per page.) */
+export const dmTiming = { slowPageMs: 1000 }
 /** the most pages a jump to a quoted message reads before it gives up */
 const SEEK_PAGES = 40
 /** the key a chat's unsent text, files and reply targets are kept under */
@@ -533,6 +538,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                   toast={toast} refs={refs} onFocusAgent={focusAgent} flash={flash}
                   onFlash={key => setFlash({ key, seq: Date.now() })}
                   hasMore={inbox.hasMore || outbox.hasMore} loadingMore={inbox.loading || outbox.loading}
+                  historyMark={`${inbox.cursor ?? ''}|${outbox.cursor ?? ''}`}
                   onLoadMore={() => { inbox.loadMore(); outbox.loadMore() }}
                   historyError={inbox.error ?? outbox.error}
                   onRetryHistory={() => { if (inbox.error) inbox.retry(); if (outbox.error) outbox.retry() }}
@@ -710,12 +716,14 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
   </>
 }
 
-function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, hasMore, loadingMore,
+function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, hasMore, loadingMore, historyMark,
   onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
   onFocusAgent?: (id: string) => void
   flash: { key: string; seq: number } | null
+  /** where the mailbox's history stands (its next-page cursors): it changes when a page has arrived */
+  historyMark: string
   /** show this entry of the chat: scroll it into view and mark it */
   onFlash: (key: string) => void
   hasMore: boolean; loadingMore: boolean; onLoadMore: () => void
@@ -811,12 +819,19 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   // anchor is the first message in view and how far below the top it sits; it
   // is put back there when the older rows are in, however the rest changed.
   // First the loaded mail not drawn yet, then the mailbox's next page.
-  const anchor = useRef<{ key: string; off: number; page: boolean; seen: boolean; at: number } | null>(null)
+  const anchor = useRef<{ key: string; off: number; page: boolean; mark: string; at: number } | null>(null)
   const idle = useRef(0)
   const before = useRef(0)
-  const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length })
-  state.current = { start, hasMore, loadingMore, historyError, count: all.length }
-  const older = useCallback((byHand: boolean) => {
+  /** the history's mark when a page was asked for; null while none is on its way.
+   *  ⚠ A page "has arrived" when the mark has moved, never when `loadingMore` was
+   *  seen to go true and false: React may draw a request and its answer in one
+   *  render, and a chain that waited to see `true` stopped there (measured). */
+  const asked = useRef<string | null>(null)
+  const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark })
+  state.current = { start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark }
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+  const older = useCallback((byHand: boolean, slow = false) => {
     const el = scroller.current, now = state.current
     if (!el) return
     if (byHand) idle.current = 0
@@ -825,18 +840,20 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     // A VIEW THE CHAT DOES NOT FILL YET keeps asking until it overflows or the
     // history ends (USER 2026-11-24 m97cb021011a2): `nearTop` holds for it
     // too. ⚠ The mailbox's history is every chat's, so a chat with little
-    // mail of its own would otherwise read the whole mailbox just by being
-    // opened: after IDLE_PAGES pages in a row that held nothing of this chat
-    // it stops, until the reader scrolls (or wheels up at the top).
-    if (page && (!now.hasMore || now.loadingMore || now.historyError || idle.current >= IDLE_PAGES)) return
+    // mail of its own would otherwise read the whole mailbox at once just by
+    // being opened: after IDLE_PAGES pages in a row that held nothing of this
+    // chat a full view waits for the reader, and one that does not scroll
+    // goes on a page at a time (`slow`, the effect below), never stuck.
+    if (page && (!now.hasMore || now.loadingMore || now.historyError || (!slow && idle.current >= IDLE_PAGES))) return
     const top = el.getBoundingClientRect().top
     // at the newest message the view stays there (the bottom pin below); anywhere else the row in view holds
     const row = pinned.current ? undefined
       : [...el.querySelectorAll<HTMLElement>('[data-dm-entry]')].find(r => r.getBoundingClientRect().bottom > top)
-    anchor.current = row ? { key: row.dataset.dmEntry!, off: row.getBoundingClientRect().top - top, page, seen: false, at: Date.now() } : null
+    anchor.current = row ? { key: row.dataset.dmEntry!, off: row.getBoundingClientRect().top - top, page, mark: now.mark, at: Date.now() } : null
     if (!page) { setShown(n => n + DM_PAGE); return }
     before.current = now.count
-    onLoadMore()
+    asked.current = now.mark
+    onLoadMoreRef.current()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useLayoutEffect(() => {
@@ -848,8 +865,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       if (drift) el.scrollTop += drift
     }
     // held until the older rows are in: the window widened in this commit, or the page has arrived
-    if (!a.page || (a.seen && !loadingMore)) anchor.current = null
-    else if (loadingMore) a.seen = true
+    if (!a.page || (a.mark !== historyMark && !loadingMore)) anchor.current = null
   })
   const nearTop = useCallback((byHand: boolean) => {
     const el = scroller.current
@@ -865,14 +881,25 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     watch.observe(el)
     return () => watch.disconnect()
   }, [nearTop])
-  const wasLoading = useRef(false)
+  // a page has arrived (or its read failed): count it, and go on while the top is near
   useEffect(() => {
-    if (loadingMore) { wasLoading.current = true; return }
-    if (!wasLoading.current) return
-    wasLoading.current = false
+    if (asked.current === null || loadingMore) return
+    if (historyError) { asked.current = null; return }
+    if (asked.current === historyMark) return
+    asked.current = null
     idle.current = state.current.count > before.current ? 0 : idle.current + 1
     nearTop(false)
-  }, [loadingMore, nearTop])
+  }, [loadingMore, historyMark, historyError, nearTop])
+  // ⚠ NEVER A CHAT THAT SILENTLY CANNOT REACH ITS HISTORY (coordinator
+  // 2026-11-24 m7939b5e5f292): a view that does not scroll gives the reader
+  // nothing to scroll, so after the pages above it reads on by itself, slowly.
+  useEffect(() => {
+    if (loadingMore || !hasMore || historyError || start > 0) return
+    const el = scroller.current
+    if (!el || el.scrollHeight > el.clientHeight + 1 || idle.current < IDLE_PAGES) return
+    const timer = window.setTimeout(() => older(false, true), dmTiming.slowPageMs)
+    return () => window.clearTimeout(timer)
+  }, [loadingMore, hasMore, historyError, start, all.length, historyMark, older])
   const onScroll = () => {
     const el = scroller.current
     if (!el) return

@@ -103,5 +103,7 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
   const retry = () => { if (visible) read(retryCursor.current, generation.current) }
   const remove = (id: string) => setState(old => old.identity === identity ? { ...old, deleted: [...old.deleted, id] } : old)
   const acknowledge = (id: string) => setState(old => old.identity === identity ? { ...old, read: [...old.read, id] } : old)
-  return { box, hasMore: !!current.cursor, loading: current.loading, error: current.error, loadMore, retry, remove, acknowledge }
+  // `cursor` names the next page: it changes when a page has arrived, also when React drew the request and
+  // its answer in one render (so `loading` was never seen true)
+  return { box, hasMore: !!current.cursor, cursor: current.cursor, loading: current.loading, error: current.error, loadMore, retry, remove, acknowledge }
 }

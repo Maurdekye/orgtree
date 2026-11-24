@@ -25,7 +25,8 @@ are a second view over the same reads and calls.
   session), `history` (composerhistorynav.ts, the desk's own store) and `quietSent`. A chat draws a window
   (`DM_PAGE` 50, trimmed 300 to 100 at the newest message); older rows come by `older()` with Hubchat's
   first-row-in-view anchor, the mailbox's next page only after the loaded mail is drawn, and at most three pages
-  in a row that held nothing of the chat. `MailReplyPreview locateMail` lets a surface that shows the quoted mail
+  in a row that held nothing of the chat at full speed (then a full view waits for a scroll, and a view that
+  does not scroll reads on one page a second: `dmTiming.slowPageMs`). `MailReplyPreview locateMail` lets a surface that shows the quoted mail
   find it by id (a quote's stored box is the sender's copy). New chat is a sweep inside `.dm-list`, never a
   PinFrame. The gear asks `openSettingsAt({ over: true })`; OrgCanvas draws that window in `ModalOverPins`.
   Captures: tests/dm-panel-visual.mjs and tests/dm-alpha1-visual.mjs.
