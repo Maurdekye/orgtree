@@ -1219,10 +1219,14 @@ async fn a_member_is_sent_its_organizations_and_no_others_and_no_address_of_the_
     assert_eq!((keys_of(&theirs["summaries"]), keys_of(&theirs["notices"]), keys_of(&theirs["runtime"]["orgs"])), (vec!["7".to_string()], vec!["7".to_string()], vec!["7".to_string()]), "{theirs}");
     assert_eq!(keys_of(&theirs["runtime"]["values"]), vec!["accounts", "providers"], "{theirs}");
     let text = theirs.to_string();
-    for absent in ["@example.com", "The hidden organization", "The other organization", "uuid-of-hidden", other.as_str(), "An engine somewhere else", "\"origin_org\"", "\"bound\"", "\"remote_access\"", "\"remotes\""] {
+    for absent in ["@example.com", "The hidden organization", "The other organization", "uuid-of-hidden", other.as_str(), "An engine somewhere else", "\"origin_org\"", "\"remote_access\"", "\"remotes\""] {
         assert!(!text.contains(absent), "a member's snapshot holds {absent}: {text}");
     }
     let accounts = &theirs["runtime"]["values"]["accounts"]["value"]["accounts"];
+    // where else an account is used is not shown, and the row says so: an older app reads an empty list
+    // where it expects one (4.6.x read `bound.length` of every row), a newer one reads "not shown"
+    assert_eq!((&accounts[0]["bound"], &accounts[0]["bound_hidden"]), (&json!([]), &json!(true)), "{accounts}");
+    assert!(accounts[1].get("bound").is_none() && accounts[1].get("bound_hidden").is_none(), "a row that named no use gains none: {accounts}");
     assert_eq!(accounts[0]["identity"]["email"], Value::Null, "{accounts}");
     assert!(accounts[0]["label"].is_string() && accounts[1]["label"].is_string(), "a label stays a text: {accounts}");
 
@@ -1244,14 +1248,16 @@ async fn a_member_is_sent_its_organizations_and_no_others_and_no_address_of_the_
     app.test_org(7, json!({ "uuid": galaxy }), summary("The galaxy organization, renamed"), json!([]));
     let frames = frames_until(&mut socket, |frame| frame["type"] == "org_summary" && frame["body"]["name"] == "The galaxy organization, renamed").await;
     assert_eq!(frames.last().unwrap()["org_id"], 7);
-    assert!(frames.iter().all(|frame| frame["org_id"] != 9 && !frame.to_string().contains("hidden") && frame["orgs"]["9"].is_null()), "{frames:?}");
+    assert!(frames.iter().all(|frame| frame["org_id"] != 9 && !frame.to_string().contains("hidden organization") && !frame.to_string().contains("uuid-of-hidden") && frame["orgs"]["9"].is_null()), "{frames:?}");
 
     // a value that is nobody else's is not pushed to it; one it gets comes without the address
     app.set_value("remotes", json!([{ "id": "r1", "name": "An engine somewhere else, renamed" }]));
     app.set_value("accounts", json!({ "accounts": [{ "id": "claude-1", "label": "sam@example.com", "bound": [{ "org": "The hidden organization" }] }] }));
     let frames = frames_until(&mut socket, |frame| frame["type"] == "app_runtime" && frame["values"]["accounts"].is_object()).await;
     let text = frames.iter().map(Value::to_string).collect::<String>();
-    assert!(!text.contains("@example.com") && !text.contains("somewhere else") && !text.contains("hidden") && !text.contains("\"remotes\""), "{text}");
+    assert!(!text.contains("@example.com") && !text.contains("somewhere else") && !text.contains("hidden organization") && !text.contains("\"remotes\""), "{text}");
+    let pushed = frames.iter().rev().find_map(|frame| frame["values"]["accounts"]["value"]["accounts"].as_array()).expect("the pushed account list");
+    assert_eq!((&pushed[0]["bound"], &pushed[0]["bound_hidden"]), (&json!([]), &json!(true)), "a pushed row says its uses are not shown: {pushed:?}");
 
     // its organization is switched off: the connection ends (a member that comes back sees what is open then)
     host.engine.access.set_open(&galaxy, false).unwrap();

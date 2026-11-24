@@ -240,14 +240,25 @@ mod tests {
         });
         hide(&mut list, &owner(), true);
         let text = list.to_string();
-        assert!(!text.contains('@') && !text.contains("secret-org") && !text.contains("bound"), "{text}");
+        assert!(!text.contains('@') && !text.contains("secret-org") && !text.contains("lead"), "{text}");
         // an address this engine does not know is still not shown by an app-wide answer; a mention is no address
         let mut more = json!({ "rows": [{ "id": "claude-1", "label": "new.sign-in@example.net" }, { "label": "someone@example.net" }, { "label": "@lead" },
                                { "label": "@net:hub.example" }, { "label": "two words@example.net" }, { "label": "a@b" }], "names": ["x@y.zz"] });
         hide(&mut more, &owner(), true);
         assert_eq!(more, json!({ "rows": [{ "id": "claude-1", "label": "claude-1" }, { "label": "account" }, { "label": "@lead" },
                                { "label": "@net:hub.example" }, { "label": "two words@example.net" }, { "label": "a@b" }], "names": ["account"] }));
-        assert_eq!(list["accounts"][0], json!({ "id": "claude-1", "identity": { "email": null }, "label": "claude-1" }));
+        // the list of where an account is used stays a list, empty, and the row says it is not shown:
+        // an app that expects the member (4.6.x reads `bound.length` of every row) is not broken by its absence
+        assert_eq!(list["accounts"][0], json!({ "id": "claude-1", "identity": { "email": null }, "label": "claude-1", "bound": [], "bound_hidden": true }));
+        assert!(list.get("host_identity").is_none());
+        // a row that named no use gains no such member, and one that is no list is not kept as it was
+        let mut rows = json!({ "accounts": [{ "id": "claude-1" }, { "id": "claude-2", "bound": "secret-org" }] });
+        hide(&mut rows, &owner(), true);
+        assert_eq!(rows, json!({ "accounts": [{ "id": "claude-1" }, { "id": "claude-2", "bound": [], "bound_hidden": true }] }));
+        // an organization's own answer is not an app-wide one: its members stay
+        let mut own = json!({ "bound": [{ "org": "galaxy" }] });
+        hide(&mut own, &owner(), false);
+        assert_eq!(own, json!({ "bound": [{ "org": "galaxy" }] }));
         assert_eq!(list["providers"]["claude"], json!({ "email": null, "connected": true }));
     }
 
