@@ -8,7 +8,7 @@
 import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmTimeline } from '../src/dm/model'
+import { DM_WRITING_CAP_MS, dmAudienceLoss, dmChats, dmClose, dmNodes, dmReceipt, dmTimeline, dmWriting } from '../src/dm/model'
 import type { DmChat } from '../src/dm/model'
 import type { AskInfo, AudienceGrant, InboxPayload, MailEntry, TreeNode, TreePayload } from '../src/types'
 
@@ -526,4 +526,42 @@ test('every agent that reaches the user only through a project is listed under i
   // not while the project holds no audience, and never a retired agent or a top-level one
   assert.equal(dmChats({ nodes: OFFICE, grants: [grant('envoy')], box: box(), openAsks: [], doneAsks: [] }).some(c => c.peer === 'page'), false)
   assert.equal(chat(dmChats({ nodes: DESK, grants: [grant('crew')], box: box(), openAsks: [], doneAsks: [] }), 'member').parent, null)
+})
+
+test('alpha.1 point 5: an agent is "typing" while the engine says it writes to the user, and never longer than the cap', () => {
+  const tree = (writing: Record<string, unknown>) => dmNodes({ slug: 'mine', roots: [
+    { id: 'lead', children: [{ id: 'worker', children: [], ...(writing.worker !== undefined ? { writing_to_user: writing.worker } : {}) }],
+      ...(writing.lead !== undefined ? { writing_to_user: writing.lead } : {}) },
+  ] } as unknown as TreePayload)
+  // nothing set (another harness, an older engine): nobody is typing, and nothing is guessed
+  let state = dmWriting(tree({}), new Map(), 1000)
+  assert.deepEqual([[...state.peers], state.next, state.since.size], [[], null, 0])
+  assert.deepEqual([...dmWriting(tree({ lead: false, worker: 'yes' }), new Map(), 1000).peers], [], 'only a true flag counts')
+  // the flag comes: typing, from when this panel first saw it
+  state = dmWriting(tree({ worker: true }), state.since, 5000)
+  assert.deepEqual([[...state.peers], state.since.get('worker'), state.next], [['worker'], 5000, 5000 + DM_WRITING_CAP_MS])
+  // it stays: the same start, so the cap counts from the first sight
+  state = dmWriting(tree({ worker: true, lead: true }), state.since, 9000)
+  assert.deepEqual([[...state.peers].sort(), state.since.get('worker'), state.since.get('lead'), state.next],
+    [['lead', 'worker'], 5000, 9000, 5000 + DM_WRITING_CAP_MS])
+  // a flag that never clears (the tree stopped arriving) stops showing by itself
+  state = dmWriting(tree({ worker: true, lead: true }), state.since, 5000 + DM_WRITING_CAP_MS)
+  assert.deepEqual([[...state.peers], state.next], [['lead'], 9000 + DM_WRITING_CAP_MS])
+  // the flag goes: gone at once, and a later call starts a new count
+  state = dmWriting(tree({ worker: false }), state.since, 5000 + DM_WRITING_CAP_MS + 1)
+  assert.deepEqual([[...state.peers], state.since.size], [[], 0])
+  assert.equal(dmWriting(tree({ worker: true }), state.since, 900000).since.get('worker'), 900000)
+  assert.equal(DM_WRITING_CAP_MS, 120000, 'the engine\u2019s own cap for one call')
+})
+
+test('alpha.1 point 17: the mark of the user\u2019s own message is a clock until the agent has taken it, then one check; no mark when the engine does not say', () => {
+  assert.deepEqual(dmReceipt({ delivered: true }, 'worker'), { delivered: true, label: 'Delivered: worker has it' })
+  assert.deepEqual(dmReceipt({ delivered: false }, 'worker'), { delivered: false, label: 'Waiting: worker has not taken it yet' })
+  assert.deepEqual(dmReceipt({ delivered: false, dnd_held: true }, 'worker'), { delivered: false, label: 'Waiting: worker is on Do Not Disturb' })
+  assert.equal(dmReceipt({ delivered: false, delivering: true }, 'worker')?.label, 'Waiting: handed to worker\u2019s running turn, not taken yet')
+  // an older engine's row, mail to the user, a retracted mail: nothing is known or there is nothing to say
+  assert.equal(dmReceipt({}, 'worker'), null)
+  assert.equal(dmReceipt({ delivering: true }, 'worker'), null, 'an older engine: never a clock that could not turn')
+  assert.equal(dmReceipt({ delivered: true, retracted: true }, 'worker'), null)
+  assert.equal(dmReceipt({ delivered: 'yes' }, 'worker'), null)
 })

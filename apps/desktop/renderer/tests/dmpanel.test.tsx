@@ -1473,3 +1473,72 @@ test('alpha.1 point 9: with an engine that has no chat folder, a short chat whos
   assert.equal(document.querySelector('button.dm-older') === null, true, 'with no button')
   assert.equal(s.server.pages.includes('inbox:6'), true, 'the history was read to its end')
 })
+
+test('alpha.1 point 5: while an agent writes to the user its row says "typing…" and its open chat shows three dots; nothing for the others, nothing in the classic mailbox', async (t) => {
+  const writes = (who: 'worker' | 'nobody') => ({
+    ...tree(), roots: [node('lead', [node('worker', [], who === 'worker' ? { writing_to_user: true } : { writing_to_user: false }), node('helper')]), node('solo')],
+  }) as unknown as TreePayload
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z'), mail('m2', 'lead', '2026-11-20T09:00:00Z')] },
+    { active: false, tree: writes('nobody') })
+  await s.openChat('worker')
+  assert.equal(document.querySelector('.dm-typing-row, .dm-row-typing'), null, 'POSITIVE CONTROL: nobody writes, nothing shows')
+  // the tree says worker is writing a message to the user
+  await inAct(async () => { s.rerender({ tree: writes('worker') }); await flush(6) })
+  const typing = s.all<HTMLElement>('.dm-row-typing')
+  assert.deepEqual(typing.map(el => el.closest<HTMLElement>('.dm-row')?.dataset.dmChat), ['worker'], 'only that agent\u2019s row')
+  assert.match(typing[0]!.textContent ?? '', /typing…/)
+  assert.equal(s.row('worker')!.querySelector('.dm-row-text'), null, 'in the preview\u2019s place')
+  const dots = document.querySelector<HTMLElement>('.dm-timeline .dm-typing-row')
+  assert.ok(dots, 'and its open chat shows the row')
+  assert.equal(dots.querySelectorAll('.dm-typing-dots i').length, 3, 'three dots')
+  assert.equal(dots.textContent, 'worker is typing…')
+  assert.equal(dots.getAttribute('role'), 'status')
+  assert.equal(dots.previousElementSibling?.matches('.dm-msg'), true, 'under the last message')
+  // another agent's open chat shows none
+  await s.openChat('lead')
+  assert.equal(document.querySelector('.dm-timeline .dm-typing-row'), null, 'not in another agent\u2019s chat')
+  assert.equal(s.all('.dm-row-typing').length, 1, 'the row still says it')
+  // the call ended
+  await inAct(async () => { s.rerender({ tree: writes('nobody') }); await flush(6) })
+  assert.equal(document.querySelector('.dm-typing-row, .dm-row-typing'), null, 'gone when the flag goes')
+  assert.match(s.row('worker')!.querySelector('.dm-row-text')?.textContent ?? '', /body of m1/, 'and the preview is back')
+  // the classic mailbox never shows it
+  window.localStorage.setItem(CLASSIC_MAILBOX_KEY, '1')
+  await s.remount()
+  await inAct(async () => { s.rerender({ tree: writes('worker') }); await flush(6) })
+  assert.equal(document.querySelector('.dm-panel'), null, 'POSITIVE CONTROL: this is the classic mailbox')
+  assert.equal(document.querySelector('.dm-typing-row, .dm-row-typing, .dm-typing-dots'), null)
+})
+
+test('alpha.1 point 17: the user\u2019s own message shows a clock while it waits and one check once the agent has taken it, live; an agent\u2019s message and an older engine\u2019s row show no mark', async (t) => {
+  const world: World = {
+    audiences: [grant('worker')],
+    delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')],
+    sent: [
+      sent('old', 'worker', '2026-11-20T09:00:00Z'),                                   // an older engine: nothing said
+      sent('done', 'worker', '2026-11-20T11:00:00Z', { delivered: true }),
+      sent('held', 'worker', '2026-11-20T12:00:00Z', { delivered: false, dnd_held: true }),
+      sent('wait', 'worker', '2026-11-20T13:00:00Z', { delivered: false }),
+    ],
+  }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  const tick = (id: string) => s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.dm-meta .dm-tick') ?? null
+  const state = (id: string) => { const el = tick(id); return el ? [el.className, el.getAttribute('aria-label'), el.getAttribute('role')] : null }
+  assert.deepEqual(state('wait'), ['dm-tick t-queued', 'Waiting: worker has not taken it yet', 'img'], 'a clock while it waits')
+  assert.deepEqual(state('held'), ['dm-tick t-queued', 'Waiting: worker is on Do Not Disturb', 'img'])
+  assert.deepEqual(state('done'), ['dm-tick t-delivered', 'Delivered: worker has it', 'img'], 'ONE check once the agent has it')
+  assert.equal(tick('done')!.querySelectorAll('svg').length, 1, 'one mark, never two')
+  assert.equal(tick('done')!.previousElementSibling?.tagName, 'TIME', 'after the time, as in Hubchat')
+  assert.equal(state('old'), null, 'an older engine\u2019s row: no mark, never a clock that cannot turn')
+  assert.equal(state('in1'), null, 'the agent\u2019s own message has none')
+  assert.equal(s.all('.dm-msg.in .dm-tick').length, 0)
+  // the agent takes the waiting mail: the engine publishes the user's mail again, and the mark turns
+  // without the chat being opened again
+  ;(world.sent as Record<string, unknown>[]).find(m => m.id === 'wait')!.delivered = true
+  for (let i = 0; i < 80 && state('wait')?.[0] !== 'dm-tick t-delivered'; i++) {
+    await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 100)); await flush(4) })
+  }
+  assert.deepEqual(state('wait'), ['dm-tick t-delivered', 'Delivered: worker has it', 'img'], 'the clock turned into the check, live')
+  assert.deepEqual(state('held')?.[0], 'dm-tick t-queued', 'and only that one')
+})
