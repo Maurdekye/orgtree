@@ -1,7 +1,7 @@
 //! Blocking (Mail hub 2.6.0; user 2026-11-24 18:56Z/19:06Z): which hubs keep
 //! blocks, the addresses a block may name, who may lift a block, and the
 //! tool's group. The hub enforces the blocks; its own tests cover that.
-use super::blocks::{bare_address, keeps_blocks, may_lift, BY_USER};
+use super::blocks::{bare_address, keeps_blocks, lists_blocking, may_lift, BY_USER};
 
 #[test]
 fn only_a_2_6_hub_keeps_blocks() {
@@ -37,4 +37,13 @@ fn orgtree_block_is_a_messaging_tool() {
     assert_eq!(crate::domain::tool_groups::required("orgtree_block"), Some(&["messaging"][..]));
     let cards = crate::tools::defs::implemented();
     assert!(cards.contains(&"orgtree_block"));
+}
+
+#[test]
+fn a_hub_that_lists_blocking_keeps_blocks_whatever_its_version() {
+    // the integrated 2.6.0 line named itself "2.5.1" and listed `blocking` (net-blocks rig proof, 2026-11-25)
+    assert!(lists_blocking(&serde_json::json!({"version": "2.5.1", "features": ["sync", "blocking"]})));
+    assert!(!lists_blocking(&serde_json::json!({"version": "2.5.1", "features": ["sync", "typing"]})));
+    assert!(!lists_blocking(&serde_json::json!({"version": "2.5.1"})));
+    assert!(!lists_blocking(&serde_json::json!({"features": "blocking"})));
 }

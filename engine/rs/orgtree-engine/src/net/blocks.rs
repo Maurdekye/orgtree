@@ -30,10 +30,38 @@ use crate::engine::Engine;
 /// The org's word for a contact: blocked by the user, or by this agent.
 pub const BY_USER: &str = "@user";
 
-/// Does the hub at `addr` keep blocks? (Mail hub 2.6.0 and later; its poll
-/// answers name its version.)
-fn supports(engine: &Engine, addr: &str) -> bool {
-    engine.net.versions.pin().get(addr).is_some_and(|v| keeps_blocks(v))
+/// How long a hub's `/healthz` word on `blocking` is kept before it is read again.
+pub(super) const FEATURE_TTL: Duration = Duration::from_secs(600);
+
+/// Does the hub at `addr` keep blocks? A hub that lists the `blocking`
+/// feature does, whatever its version says: a hub built before its release
+/// still names the old version (the integrated 2.6.0 line said "2.5.1",
+/// measured by the net-blocks rig proof 2026-11-25). A 2.6.0-or-later
+/// version is taken at once; otherwise its `/healthz` is read (cached
+/// `FEATURE_TTL`; an unreachable hub keeps the last word, else no).
+async fn supports(engine: &Engine, addr: &str) -> bool {
+    if engine.net.versions.pin().get(addr).is_some_and(|v| keeps_blocks(v)) {
+        return true;
+    }
+    let cached = engine.net.blocking_feature.pin().get(addr).copied();
+    if let Some((yes, at)) = cached {
+        if at.elapsed() < FEATURE_TTL {
+            return yes;
+        }
+    }
+    match super::transport::healthz(addr, Duration::from_secs(5)).await {
+        Some(health) => {
+            let yes = lists_blocking(&health);
+            engine.net.blocking_feature.pin().insert(addr.to_string(), (yes, std::time::Instant::now()));
+            yes
+        }
+        None => cached.is_some_and(|c| c.0),
+    }
+}
+
+/// A hub's `/healthz` answer lists the `blocking` feature.
+pub(super) fn lists_blocking(health: &Value) -> bool {
+    health["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "blocking"))
 }
 
 /// A hub version that keeps blocks: 2.6.0 and later (pre-releases of 2.6 too).
@@ -66,7 +94,7 @@ fn strings(v: &Value) -> Vec<String> {
 /// One poll answer's word on each member (`blocking`; none = empty).
 #[logged]
 pub(super) async fn heard(engine: &Arc<Engine>, addr: &str, members: &[(Part, String)], data: &Value) {
-    if !supports(engine, addr) {
+    if !supports(engine, addr).await {
         return;
     }
     for (p, _) in members {
@@ -190,7 +218,7 @@ pub(super) async fn reconcile(engine: &Arc<Engine>, parts: &[Part]) {
             Err(_) => return,
         };
         for (hid, addr) in &p.hubs {
-            if !p.registered.contains(hid) || !supports(engine, addr) {
+            if !p.registered.contains(hid) || !supports(engine, addr).await {
                 continue;
             }
             let key = (addr.clone(), p.net_slug.clone());

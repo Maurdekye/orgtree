@@ -219,6 +219,9 @@ pub struct Net {
     /// Block changes a hub refused (hub, slug, address, on): not asked again
     /// this run.
     pub(crate) block_refused: papaya::HashSet<(String, String, String, bool)>,
+    /// hub address → (lists the `blocking` feature, when read): its
+    /// `/healthz`, read again after `blocks::FEATURE_TTL`
+    pub(crate) blocking_feature: papaya::HashMap<String, (bool, Instant)>,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
