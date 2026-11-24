@@ -234,6 +234,10 @@
 }
 .dm-bubble.urgent { box-shadow: inset 3px 0 0 #ff4500; }
 .dm-msg.replying .dm-bubble { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the keyboard walk's highlight: Hubchat's (desktop.css `.msg.hl`) */
+.dm-msg.hl { background: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-soft); border-radius: 8px; }
+.dm-msg.hl .dm-bubble { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dm-timeline:focus { outline: none; }
 .dm-msg.flash .dm-bubble, .dm-msg.flash .ask-message { animation: dm-flash 1.4s ease; }
 @keyframes dm-flash { 0%, 40% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: reduce) { .dm-msg.flash .dm-bubble, .dm-msg.flash .ask-message { animation: none; outline: 2px solid var(--accent); } }

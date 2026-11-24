@@ -44,7 +44,7 @@
 // a megaphone send is recorded once.
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { AskInfo, InboxPayload, MailEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
@@ -1030,6 +1030,85 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     el.scrollIntoView?.({ block: 'center' })
   }, [flash, count])
 
+  // ⌨ SHIFT+TAB WALKS THE BUBBLES, as in Hubchat (USER 2026-11-24 m3018ae8d050f; ported from Hubchat's
+  // src/components/Conversation.tsx: `show`, `leaveHl`, `backToBox`, `menuOnHl`, `keys` and the
+  // `growFrom` effect). From the message box the first Shift+Tab highlights the newest message and the
+  // focus moves to the timeline, so R and the other keys never type into the box; Shift+Tab goes
+  // older, Tab newer, Tab past the newest and Escape go back to the box, R replies. Only bubbles
+  // count: no day lines, "new messages" line, request cards or typing row.
+  const [hl, setHl] = useState<string | null>(null)
+  const hlRef = useRef(hl)
+  hlRef.current = hl
+  const walk = useMemo(() => entries.filter(e => e.mail), [entries])
+  /** the oldest drawn message the walk stood on when it asked for older ones */
+  const growFrom = useRef<string | null>(null)
+  const showHl = useCallback((key: string) => {
+    setHl(key)
+    const row = [...(scroller.current?.querySelectorAll<HTMLElement>('[data-dm-entry]') ?? [])].find(r => r.dataset.dmEntry === key)
+    row?.scrollIntoView({ block: 'nearest' })
+  }, [])
+  const leaveHl = useCallback(() => { growFrom.current = null; setHl(null) }, [])
+  const backToBox = useCallback(() => {
+    leaveHl()
+    boxRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
+  }, [leaveHl])
+  // Escape takes only the highlight (the panel's own Escape is under it on the stack)
+  useEsc(backToBox, hl !== null)
+  // the right-click menu of the highlighted message, from the keyboard (Menu key, Shift+F10)
+  const menuOnHl = () => {
+    const view = scroller.current?.getBoundingClientRect()
+    const bubble = [...(scroller.current?.querySelectorAll<HTMLElement>('[data-dm-entry]') ?? [])]
+      .find(r => r.dataset.dmEntry === hlRef.current)?.querySelector<HTMLElement>('.dm-bubble')
+    if (!bubble || !view) return
+    const r = bubble.getBoundingClientRect()
+    bubble.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+      clientX: Math.round(r.left + 24), clientY: Math.round(Math.min(Math.max(r.top, view.top) + 24, view.bottom - 8)) }))
+  }
+  const chord = (e: ReactKeyboardEvent) => e.nativeEvent.isComposing || e.ctrlKey || e.altKey || e.metaKey
+  /** in the message box: the first Shift+Tab (a key the mentions menu took is not ours) */
+  const boxKeys = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (chord(e) || e.defaultPrevented || hlRef.current) return
+    if (e.key !== 'Tab' || !e.shiftKey || !(e.target as HTMLElement).matches('textarea')) return
+    const last = walk[walk.length - 1]
+    if (!last) return
+    e.preventDefault()
+    showHl(last.key)
+    scroller.current?.focus({ preventScroll: true })
+  }
+  /** on the timeline, while a message is highlighted */
+  const walkKeys = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const cur = hlRef.current
+    if (chord(e) || !cur) return
+    const i = walk.findIndex(x => x.key === cur)
+    if (i < 0) { leaveHl(); return }
+    if (e.key === 'Tab') {
+      e.preventDefault(); growFrom.current = null
+      if (e.shiftKey) {
+        if (i > 0) showHl(walk[i - 1]!.key)
+        // at the oldest drawn one: ask for the older ones now (scrolling to it may not move anything, so
+        // the scroll handler would not), and step onto the one before once it is in
+        else if (start > 0 || hasMore) { growFrom.current = walk[0]!.key; older(true) }
+      } else if (i < walk.length - 1) showHl(walk[i + 1]!.key)
+      else backToBox()
+    } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault(); menuOnHl()
+    } else if (e.key.length === 1 && e.key.toLowerCase() === 'r') {
+      e.preventDefault()
+      const target = walk[i]!
+      if (canReplyTo(target, target.mail!)) addReply(target.mail!)
+      backToBox()
+    }
+  }
+  useEffect(() => {
+    const from = growFrom.current
+    if (!from || !hlRef.current || walk[0]?.key === from) return
+    growFrom.current = null
+    const j = walk.findIndex(x => x.key === from)
+    if (j > 0) showHl(walk[j - 1]!.key)
+  }, [walk, showHl])
+  const walked = hl ? walk.find(x => x.key === hl) : undefined
+  const walkSaid = walked?.mail ? `${walked.out ? 'You' : walked.via ?? name}: ${mailBrief(walked.mail).slice(0, 200)}` : ''
+
   const send = (text: string, attachments?: string[], notice?: boolean, _broadcast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
@@ -1104,6 +1183,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const target = resolveRef({ kind: 'mail', org: slug, box: 'node', node: agent, id: m.id }, refs.world)
     return target.outcome === 'ready' ? { agent, open: () => refs.onOpen(target) } : undefined
   }
+  const canReplyTo = (e: DmEntry, m: MailRow): boolean =>
+    !!m.id && chat.live && (!e.out || chat.kind === 'agent' || (chat.kind === 'project' && !!e.job))
   /** "View in transcript" (USER 2026-11-24 m3c9cf622c450, m3a9dde56818f "but only if they've been
    *  delivered and unqueued"): the agent's desk, at this mail's row. The agent's own mail always has
    *  one; the user's mail has one once the agent's CLI has taken it (the check mark's state), and
@@ -1140,7 +1221,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         /* the user's own message can be answered too (USER 2026-11-24 mf2cbc358ad35 "need to be able to
            reply to myself"): in an agent's chat the reply goes to that agent with the user's earlier mail
            as its target; in a project's chat it follows up on that job */
-        onReply={m.id && chat.live && (!e.out || chat.kind === 'agent' || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
+        onReply={canReplyTo(e, m) ? () => addReply(m) : undefined} highlighted={hl === e.key}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
         onDelete={!e.out && m.id ? () => onDelete(m as MailEntry) : undefined}
         onAckJob={!e.out ? (reply, opts) => acknowledgeJob({
@@ -1194,6 +1275,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       </div>
       <div className="dm-timeline" ref={scroller} onScroll={onScroll} role="log" aria-label={`Messages with ${name}`}
         data-dm-drawn={entries.length} data-dm-loaded={all.length}
+        /* the keyboard walk (above): focusable for it, never a Tab stop of its own */
+        tabIndex={-1} onKeyDown={walkKeys} onMouseDown={() => { if (hlRef.current) leaveHl() }}
+        onBlur={(e) => { if (hlRef.current && e.currentTarget.ownerDocument.hasFocus() && !e.currentTarget.contains(e.relatedTarget as Node | null)) leaveHl() }}
         onWheel={(e) => { if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
         <div className="dm-timeline-inner">
           {/* no button: older messages load as the top comes near (`older`) */}
@@ -1212,7 +1296,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           </div>}
         </div>
       </div>
-      <div className="dm-compose" ref={boxRef}>
+      <span className="dm-sr dm-walk-said" role="status" aria-live="polite">{walkSaid}</span>
+      <div className="dm-compose" ref={boxRef} onKeyDown={boxKeys}>
         {replies.length > 0 && <div className="dm-replybar" role="group" aria-label="Replying to">
           <ReplyIcon fontSize="inherit" />
           <div className="dm-replybar-list">
@@ -1254,13 +1339,15 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob }: {
+  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob, highlighted }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
   locateMail: LocateMail
   /** the agent whose mailbox holds this message too, and the way to it there */
   inbox?: { agent: string; open: () => void }
   /** this message's row in the agent's transcript; absent while it has none (the user's mail not yet delivered) */
   onTranscript?: () => void
+  /** the keyboard walk stands on this message */
+  highlighted?: boolean
   /** a message the system sent: tagged S (USER 2026-11-23 mf47548121ae5) */
   system?: boolean
   flash: number | null
@@ -1325,7 +1412,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   return (
     <div ref={ref} data-dm-entry={entry.key} data-dm-via={entry.via}
       className={'dm-msg ' + (entry.out ? 'out' : 'in') + (first ? ' first' : '') + (entry.unread ? ' unread' : '')
-        + (flash != null ? ' flash' : '') + (replying ? ' replying' : '')}>
+        + (flash != null ? ' flash' : '') + (replying ? ' replying' : '') + (highlighted ? ' hl' : '')}>
       <div className="dm-msg-row">
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')
           + (mega ? ' megaphone' : '')}
