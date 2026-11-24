@@ -233,13 +233,13 @@ a finished node: the import ends with the leftovers named.
   gets the handoff note; the mark goes at the first start either way. A session of the agent's
   own that later cannot be loaded is still an explicit failure, as before
   (`runtime/opencode.rs`).
-- **Antigravity's conversation.** One database per conversation in the login's home
-  (`.gemini/antigravity-cli/conversations/<id>.db`). Carrying a copy under a new id is written
-  and off (`sessions::agy_carry`, `ORGTREE_AGY_SESSION_CARRY=1`): the CLI's own format is not
-  visible here, so it is switched on only when a check with the real CLI has shown that a
-  renamed copy resumes. In any case, a conversation the CLI does not resume (it answers
-  `--conversation <id>` with another id) now leaves the handoff note due, as on the other
-  harnesses.
+- **Antigravity's conversation** is not carried. One database per conversation lies in the
+  login's home (`.gemini/antigravity-cli/conversations/<id>.db`), shared by that login's
+  agents. Measured 2026-11-24 with agy 1.5.14: a copy of the database under a new id is
+  refused (`trajectory not found: <new id>`, exit 1), because the id is also inside the
+  database. Its agents start with the handoff note. A conversation the CLI does not find (it
+  warns and answers `--conversation <id>` with another id) now leaves the handoff note due,
+  as on the other harnesses.
 - **Muse** keeps sessions inside the login's own store, shared by its agents: not carried. Its
   agents start with the handoff note.
 - **Watchdogs** arrive paused under their new owners; a node target follows the node's new

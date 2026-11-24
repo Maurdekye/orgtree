@@ -17,10 +17,12 @@
 //!   and `state` parts. Both are carried whole into the new agent's own
 //!   store.
 //! - Antigravity: one database per conversation in the login's home,
-//!   `.gemini/antigravity-cli/conversations/<id>.db`. Carrying it is written
-//!   and OFF (`agy_carry`): whether the CLI resumes a copy under another id
-//!   is not known from this source, and is switched on only when a check with
-//!   the real CLI has shown it.
+//!   `.gemini/antigravity-cli/conversations/<id>.db`. NOT carried. Measured
+//!   2026-11-24 with agy 1.5.14: a copy of the database under a new id is
+//!   refused ("trajectory not found: <new id>", exit 1), because the id is
+//!   also inside the database; and the store is shared by the login's agents
+//!   and keeps a limited number of conversations. Its agents start with the
+//!   handoff note, like Muse's.
 //!
 //! Muse keeps sessions inside the login's own store, shared by its agents.
 //! Its agents start on a fresh session with the standing handoff note and
@@ -157,25 +159,6 @@ pub fn opencode_profile(engine: &Engine, org: i64, agent: i64, generation: i32) 
 /// The two parts of an OpenCode store that are carried.
 const OPENCODE_PARTS: [&str; 2] = ["data", "state"];
 
-/// Whether an Antigravity conversation is carried. Off: see the module's note.
-#[nolog]
-pub fn agy_carry() -> bool {
-    std::env::var("ORGTREE_AGY_SESSION_CARRY").is_ok_and(|value| value == "1")
-}
-
-/// Where the Antigravity CLI of a login keeps its conversations.
-#[nolog]
-fn agy_conversations(engine: &Engine, account: Option<&str>) -> Option<PathBuf> {
-    let home = match crate::providers::agy_auth::login_of(&engine.accounts.view(), account) {
-        crate::providers::agy_auth::Login::Primary => crate::rig::home_dir()?,
-        crate::providers::agy_auth::Login::Profile { home, .. } => home,
-    };
-    Some(home.join(".gemini").join("antigravity-cli").join("conversations"))
-}
-
-/// What lies beside a conversation's database while it is open, by what follows its name.
-const AGY_FILES: [&str; 3] = [".db", ".db-wal", ".db-shm"];
-
 /// Which agent it is, for a store that is kept under the engine's own numbers.
 #[derive(Clone, Copy)]
 pub struct Seat {
@@ -198,12 +181,6 @@ pub fn find(engine: &Engine, seat: Seat, tier: &str, account: Option<&str>, sess
             }
             // a session is in `data`: a store with only state holds none
             files.iter().any(|(inner, _)| inner.starts_with("data/")).then_some(Found { harness: OPENCODE, files })
-        }
-        AGY if agy_carry() => {
-            let folder = agy_conversations(engine, account)?;
-            let files: Vec<(String, PathBuf)> = AGY_FILES.iter().map(|end| format!("{session}{end}")).map(|name| (name.clone(), folder.join(name)))
-                .filter(|(_, path)| path.is_file()).collect();
-            files.iter().any(|(name, _)| name.ends_with(".db")).then_some(Found { harness: AGY, files })
         }
         CLAUDE => {
             let file = format!("{session}.jsonl");
@@ -241,8 +218,8 @@ pub fn find(engine: &Engine, seat: Seat, tier: &str, account: Option<&str>, sess
 }
 
 /// The folder the CLI of an agent on `account` keeps its sessions under: a Claude config
-/// folder, a Codex home, the agent's own OpenCode store, the conversations of an Antigravity
-/// login. `None` for a harness whose sessions cannot be carried.
+/// folder, a Codex home, the agent's own OpenCode store. `None` for a harness whose sessions
+/// cannot be carried.
 #[nolog]
 pub fn home(engine: &Engine, harness: &str, account: Option<&str>, seat: Seat) -> Option<PathBuf> {
     let own = account.and_then(|id| engine.accounts.view().get(id).and_then(|a| a.config_dir.clone())).map(PathBuf::from);
@@ -250,7 +227,6 @@ pub fn home(engine: &Engine, harness: &str, account: Option<&str>, seat: Seat) -
         CLAUDE => Some(own.unwrap_or_else(crate::runtime::claude::default_config_dir)),
         CODEX => Some(own.unwrap_or_else(crate::runtime::codex::default_home)),
         OPENCODE => Some(opencode_profile(engine, seat.org, seat.agent, seat.generation)),
-        AGY if agy_carry() => agy_conversations(engine, account),
         _ => None,
     }
 }
@@ -358,24 +334,6 @@ pub fn place(harness: &str, home: &Path, scratch: &Path, old: &str, new: &str, f
                 sessions += usize::from(*part == "data");
             }
             Ok(sessions > 0)
-        }
-        AGY if agy_carry() => {
-            // the CLI's own ids are canonical UUIDs, and so is the one an import makes
-            if old == new || uuid::Uuid::parse_str(new).is_err() {
-                return Ok(false);
-            }
-            let Some((_, database)) = files.iter().find(|(inner, _)| *inner == format!("{old}.db")) else { return Ok(false) };
-            if home.join(format!("{new}.db")).exists() {
-                return Ok(false);
-            }
-            std::fs::create_dir_all(home)?;
-            std::fs::copy(database, home.join(format!("{new}.db")))?;
-            for end in &AGY_FILES[1..] {
-                if let Some((_, beside)) = files.iter().find(|(inner, _)| *inner == format!("{old}{end}")) {
-                    std::fs::copy(beside, home.join(format!("{new}{end}")))?;
-                }
-            }
-            Ok(true)
         }
         _ => Ok(false),
     }
