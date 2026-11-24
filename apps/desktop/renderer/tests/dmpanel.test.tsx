@@ -24,6 +24,7 @@ import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { syncFastModes } from '../src/canvas/fastmode'
 import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
+import { STREAMER_ZONES } from '../src/streamer-boundary'
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import type { TreePayload } from '../src/types'
 
@@ -1887,4 +1888,35 @@ test('the @ menu of a chat\u2019s message box lists what that chat mentions firs
   assert.deepEqual(ranked.slice(0, 3), ['@worker', 'Beta ticket', 'Alpha ticket'], 'what the chat mentions, newest mention first: the agent, then the two tickets')
   assert.equal(at('Gamma ticket') < at('Delta ticket'), true, 'the tickets it does not mention keep the engine\u2019s order')
   assert.equal(at('Alpha ticket') < at('Gamma ticket'), true, 'under the ones it mentions')
+})
+
+// STREAM PRIVACY IN THE CHATS (coordinator m66afe2293a15, found while preparing its capture): what the
+// classic mailbox hides the chats hide too. An outside sender's name is an always-hidden field wherever
+// the panel writes it, and the two places that show a message's words outside a bubble are free-form
+// zones, so an address or a key in them is matched.
+test('stream privacy: an outside sender\u2019s name is a hidden field in the chats, and the row\u2019s preview and the reply bar are matched for private text', async (t) => {
+  const OUT = '@net:casey.4f2a9c'
+  const s = await setup(t, {
+    // an outside sender is listed while something of theirs waits
+    pending: [mail('n1', OUT, '2026-11-20T10:00:00Z', { body: 'write to casey@example.org please' })],
+    delivered: [mail('m1', 'worker', '2026-11-20T09:00:00Z')],
+    audiences: [grant('worker')],
+  }, { active: false })
+  const field = (el: Element | null | undefined) => el?.getAttribute('data-streamer-field') ?? null
+  const row = document.querySelector(`[data-dm-chat="${OUT}"]`)!
+  assert.ok(row, 'POSITIVE CONTROL: the outside sender has a chat row')
+  assert.equal(field(row.querySelector('.dm-row-name')), 'external', 'its name in the list')
+  assert.equal(field(row.querySelector('.dm-av')), 'external', 'and the letter picture made from it')
+  assert.equal(row.querySelector('.dm-row-text')?.matches(STREAMER_ZONES.freeform), true, 'the preview of its last message is matched')
+  // an agent of this organization is never hidden: names are the app's own
+  const mine = document.querySelector('[data-dm-chat="worker"]')!
+  assert.equal(field(mine.querySelector('.dm-row-name')), null, 'an agent\u2019s name stays')
+  assert.equal(field(mine.querySelector('.dm-av')), null)
+  await s.openChat(OUT)
+  const head = document.querySelector('.dm-head')!
+  assert.equal(head.getAttribute('data-dm-peer'), OUT)
+  assert.equal(field(head.querySelector('[data-hub-address]')), 'external', 'POSITIVE CONTROL: the header\u2019s chip was a hidden field already')
+  assert.equal(field(head.querySelector('.dm-av')), 'external', 'the header\u2019s picture')
+  const bar = document.createElement('span'); bar.className = 'dm-replybar-text'
+  assert.equal(bar.matches(STREAMER_ZONES.freeform), true, 'the staged reply\u2019s excerpt is matched')
 })
