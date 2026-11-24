@@ -644,7 +644,8 @@ export default function App() {
   usePersistedModalOpen('org-settings', slug, showSettings)
   usePersistedModalOpen('inbox', slug, showInbox)
   useEffect(() => onChatRequest((org, peer) => {
-    if (!slug || org !== slug) return
+    // an empty org is "this window's organization" (the agent menu's Chat entry)
+    if (!slug || (org && org !== slug)) return
     // ⚠ THE CHAT WOULD OPEN BEHIND THE READER THE REPLY WAS TYPED IN. The
     // docket and the presentations are the same `.overlay` layer and are drawn
     // after the inbox, so a centred one gives way, as it does on its way to a
@@ -652,7 +653,7 @@ export default function App() {
     // and stays beside the chat.
     closeIfCentred('gallery', () => setShowGallery(false), slug)
     closeIfCentred('docket', () => { setShowDocket(false); setDocketJump(null) }, slug)
-    setChatAsk({ org, peer, seq: Date.now() })
+    setChatAsk({ org: slug, peer, seq: Date.now() })
     setInboxJump(null)
     setShowInbox(true)
     raisePinnedModal('inbox', slug)

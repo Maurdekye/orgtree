@@ -103,6 +103,7 @@ import {
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
+import { setShownChat } from '../mailboxpref'
 import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmReceipt, dmWaiting, dmWriting } from './model'
 import type { DmChat, DmEntry, DmNode } from './model'
 import './dm.css'
@@ -344,6 +345,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [nodes, grants, box, askSig, reads, sel, slug, requests])
   const current = sel ? chats.find(c => c.peer === sel) ?? null : null
+  // a link to the agent whose chat is on screen goes to its desk, not to this chat again (mailboxpref.ts)
+  const shownPeer = current?.peer ?? null
+  useEffect(() => { setShownChat(slug, shownPeer); return () => setShownChat(slug, null) }, [slug, shownPeer])
 
   // WHICH CHAT IT OPENS ON, once per org: the one holding the oldest thing
   // that waits on the user (the classic mailbox opens on its oldest unread

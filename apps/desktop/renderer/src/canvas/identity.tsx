@@ -20,6 +20,7 @@ import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { projectIconImage, projectIconSvg, projectThemeOf } from '../projecttheme'
 import { ProjectIconGlyph, useProjectTheme } from './projecttheme'
+import { useAgentLinkChat } from './agentnav'
 import { AGENT_NAV_ATTR, AGENT_TOOLTIP_ATTR, AGENT_TOOLTIP_NAME_FIRST_ATTR,
   agentNavProps, agentTooltipProps } from './agentnav'
 import { nodeMenuAction, nodeMenuEntry, ticketOwnerAction } from './objectactions'
@@ -167,6 +168,8 @@ export function AgentName({
 }: AgentNameProps): ReactNode {
   const label = (prefix ?? '') + id
   const extra = nameClass ? ' ' + nameClass : ''
+  // the user's chat with this agent takes the click when it has an audience (agentnav.tsx)
+  const chat = useAgentLinkChat()
   if (!onFocus || atDestination) {
     return (
       <>
@@ -191,7 +194,7 @@ export function AgentName({
         className={'cc-name cc-name-jump' + extra}
         title={nativeTitle ? why ?? `Focus ${id}'s desk` : undefined}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
-        onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
+        onClick={(e) => { e.stopPropagation(); if (!chat(id)) onFocus(id, e) }}>
         {label}
       </button>
     </>
@@ -223,12 +226,14 @@ export function NodeLink({
     ? `${id} — this is its own desk`
     : `open the ${tier === 'project' ? 'project' : 'agent'} ${id}`
   const title = nativeTitle ? (why ?? defaultTitle) : undefined
+  // the user's chat with this agent takes the click when it has an audience (agentnav.tsx)
+  const chat = useAgentLinkChat()
   if (onFocus && !atDestination) {
     return (
       <button type="button" data-copy-agent-name={id} {...agentNavProps(id, nameFirst)}
         className={cls} title={title}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
-        onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
+        onClick={(e) => { e.stopPropagation(); if (!chat(id)) onFocus(id, e) }}>
         <TierChip tier={tier} agentName={id} />
         {text}
       </button>

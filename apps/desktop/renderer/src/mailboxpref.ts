@@ -71,6 +71,34 @@ export const onChatRequest = (fn: ChatRequest): (() => void) => {
   return () => { chatSubs.delete(fn) }
 }
 
+/** AGENT LINKS OPEN THE CHAT (USER 2026-11-24 md9120179f714: "make clicking an agent link anywhere in
+ *  the app if they have an audience with you open a chat with them instead of focusing their desk on
+ *  the canvas / switching the active agent desk in attention view. otherwise just do those things").
+ *
+ *  `canChatWith`: a live agent that holds a user audience, its own or through its project (the tree's
+ *  `audiences_held` has both), while the chats are the mailbox. A project link goes to the project.
+ *  `agentLinkChat` is the plain click: true when the chat took it. It is false for the chat the Inbox
+ *  already shows, so the name in a chat's own header still goes to the agent's desk instead of doing
+ *  nothing. `openAgentChat` is the menu's entry. An empty `org` means this window's organization. */
+export const canChatWith = (node: { kind?: string | null; state?: string; audiences_held?: readonly string[] | null }): boolean =>
+  !classicMailbox() && node.kind !== 'project' && node.state === 'live' && !!node.audiences_held?.includes('@user')
+
+let shownChat: { org: string; peer: string } | null = null
+/** The chat the user's Inbox shows now (dm/DmPanel.tsx keeps it; null when it shows none or is closed). */
+export const setShownChat = (org: string, peer: string | null): void => {
+  if (peer) shownChat = { org, peer }
+  else if (shownChat?.org === org) shownChat = null
+}
+
+export const openAgentChat = (org: string, peer: string): boolean => {
+  if (!peer || !chatSubs.size) return false
+  for (const fn of [...chatSubs]) fn(org, peer)
+  return true
+}
+
+export const agentLinkChat = (org: string, node: { id: string; kind?: string | null; state?: string; audiences_held?: readonly string[] | null }): boolean =>
+  !!org && canChatWith(node) && !(shownChat?.org === org && shownChat.peer === node.id) && openAgentChat(org, node.id)
+
 /** A reply the user made on a presentation or a ticket was sent to `peer`.
  *  With the setting on (and the chats, not the classic mailbox), that agent's
  *  chat opens: the reply gave it an audience with the user, so the chat exists

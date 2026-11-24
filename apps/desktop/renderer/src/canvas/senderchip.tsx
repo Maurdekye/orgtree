@@ -3,7 +3,7 @@
 // the inbox (App.tsx) and the Attention view, which shows the same mail with
 // the same chip (user 2026-09-29: bodies identical to their own detail views).
 
-import { agentNavProps, agentTooltipProps } from './agentnav'
+import { agentNavProps, agentTooltipProps, useAgentLinkChat } from './agentnav'
 import { HubContactChip, isHubAddress } from './agentmentions'
 import { TierChip, nodeTierOf } from './identity'
 import { SYSTEM, tierLabel, USER } from './shared'
@@ -14,6 +14,8 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
   nodes: Map<string, TreeNode>
   onFocusAgent?: (agentId: string) => void
 }) {
+  // the user's chat with this agent takes the click when it has an audience (agentnav.tsx)
+  const chat = useAgentLinkChat()
   if (id === SYSTEM || id === 'system') return <b className="dim">system</b>
   if (id === USER) return <b>you</b>
   // an outside party is the shared Hub contact link, as in every other pane
@@ -41,7 +43,7 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
          rendered inside forms, where the default submit would be wrong. */
       <button type="button" {...agentNavProps(id)}
         className="cc-name cc-name-jump" title={`focus ${id}'s desk`}
-        onClick={(e) => { e.stopPropagation(); onFocusAgent(id) }}>
+        onClick={(e) => { e.stopPropagation(); if (!chat(id)) onFocusAgent(id) }}>
         {chip}
       </button>
     )

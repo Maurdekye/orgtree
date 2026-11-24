@@ -131,6 +131,7 @@ import { ProjectDesk, ProjectDeskModal, ProjectInboxModal } from './projectdesk'
 import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
+import { agentLinkChat } from '../mailboxpref'
 import type { AgentTooltipInfo } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
 import { ObjectNavProvider } from './objectnav'
@@ -512,7 +513,9 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, 
     MUSE_TIERS.includes(map.get(id)?.tier ?? '')
       ? museEffortLevels(map.get(id)?.tier ?? '', map.get(id)?.scope?.model_version ?? null,
         map.get(id)?.account ?? null)
-      : tierEffortLevels(slug, map.get(id)?.tier), tree, listenersLive(map)))
+      : tierEffortLevels(slug, map.get(id)?.tier), tree, listenersLive(map)),
+  // a plain click on an agent link: its chat, when it has an audience with the user
+  (id: string) => { const n = map.get(id); return !!n && agentLinkChat(slug, n) })
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking

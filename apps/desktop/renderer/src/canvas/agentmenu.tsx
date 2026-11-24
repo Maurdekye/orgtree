@@ -42,6 +42,7 @@ import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
 import { effectiveReports, fmtCredits, hireTierChoices, legacyMark, tierLabel, USER } from './shared'
 import { slotCount } from './slots'
+import { canChatWith, openAgentChat } from '../mailboxpref'
 import { eventListenersOn } from './listeners'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
@@ -175,6 +176,10 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       + 'agent, pinning it, or opening a window — closing puts everything back',
     onSelect: () => temporary(),
   })
+  // the user's chat with it, when it has an audience with the user (a plain click on its links opens
+  // the same chat: USER 2026-11-24 md9120179f714). "Open" is not repeated inside Open.
+  if (canChatWith(node)) openEntries.push({ label: 'Chat', title: `your chat with ${node.id}, in your Inbox`,
+    onSelect: () => { openAgentChat('', node.id) } })
   openEntries.push(
     { label: 'Mail', onSelect: () => h.onInbox() },
   )

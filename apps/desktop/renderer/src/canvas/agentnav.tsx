@@ -62,9 +62,17 @@ export interface AgentTooltipInfo {
 
 export type AgentTooltipLookup = (id: string) => AgentTooltipInfo | null
 
+/** THE PLAIN CLICK OF AN AGENT LINK, BEFORE ITS OWN ROUTE (USER 2026-11-24 md9120179f714): true when
+ *  the user's chat with that agent took the click, so the link does not also go to the desk. It is in
+ *  this registry for the reason the menu is: the links are scattered over surfaces that share no
+ *  parent, and the surface that knows the tree is one. A window that provides none (a popped-out or
+ *  pinned desk) keeps every link's own click. */
+export type AgentChatOpener = (id: string) => boolean
+
 interface Registry {
   current: AgentNavMenu | null
   tooltip: AgentTooltipLookup | null
+  chat: AgentChatOpener | null
 }
 
 const AgentNavCtx = createContext<Registry | null>(null)
@@ -81,7 +89,7 @@ const AgentNavCtx = createContext<Registry | null>(null)
  *  lose their menus. So an inner provider hands down the registry it found. */
 export function AgentNavProvider({ children }: { children: ReactNode }) {
   const inherited = useContext(AgentNavCtx)
-  const reg = useRef<Registry>({ current: null, tooltip: null })
+  const reg = useRef<Registry>({ current: null, tooltip: null, chat: null })
   // a stable identity: consumers read `reg.current` at open time, so a new
   // object here would churn every memo'd row for no change in behaviour
   const own = useMemo<Registry>(() => reg.current, [])
@@ -96,12 +104,21 @@ export function AgentNavProvider({ children }: { children: ReactNode }) {
  *  during render deliberately: registration must be in place for a right
  *  click that happens before effects flush on a slow first paint. */
 export function useProvideAgentNav(build: AgentNavMenu | null,
-                                   tooltip: AgentTooltipLookup | null = null): void {
+                                   tooltip: AgentTooltipLookup | null = null,
+                                   chat: AgentChatOpener | null = null): void {
   const reg = useContext(AgentNavCtx)
   if (reg) {
     reg.current = build
     reg.tooltip = tooltip
+    reg.chat = chat
   }
+}
+
+/** For the components an agent link is drawn with: call it in the click, before the link's own
+ *  route, and skip that route when it answers true. Read at click time, like the menu. */
+export function useAgentLinkChat(): AgentChatOpener {
+  const registry = useContext(AgentNavCtx)
+  return useMemo(() => (id: string) => registry?.chat?.(id) ?? false, [registry])
 }
 
 /** Spread onto every agent link, including links whose surface owns its own
