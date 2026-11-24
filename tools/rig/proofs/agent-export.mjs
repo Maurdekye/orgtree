@@ -31,6 +31,10 @@
 //      project's new name), and the org mailbox never does: not into the
 //      file, not onto an imported node, not onto a copy, and never off the
 //      node that holds it
+//  14. a watchdog's fire action that names a credentials file travels only in
+//      the user's own export that strips nothing; a transcript row that
+//      names a file in a carried folder names it where it lies after the
+//      import, and no other path changes
 // RED controls: counts are read before each step and compared after it; a
 // refusal is checked to have created nothing.
 import crypto from 'node:crypto'
@@ -731,6 +735,74 @@ export default async function (rig) {
       && dogsOf(crew.id).map(d => `${d.target}:${d.state}`).join(' ') === 'desk13:armed',
       { state: copy.state, error: copy.error, desk2: desk2?.name, crew2: crew2?.name, dogs: dogsOf(crew2?.id), original: dogsOf(crew.id), result: copy.result?.watchdogs })
     p.check('13. the original still holds the org mailbox, and the copy does not', holders(aId) === 'desk13', holders(aId))
+  })
+
+  // ---- 14. fire actions that hold credentials; paths in the transcript
+  // USER 2026-11-24 mf7c65a1b2403 "can watchdogs be shipped with those secrets if we choose to retain secrets in the export?
+  // can we do 2 only if the paths refer to locations in the saved scratch folders in the export?"
+  await section('14', async () => {
+    await runtime({ export_strip_secrets: false })
+    const carolDir = scratch(A, 'carol')
+    fs.mkdirSync(path.join(carolDir, 'ws'), { recursive: true })
+    fs.writeFileSync(path.join(carolDir, 'ws', 'feed.json'), '{"bearer":"proof-only-not-a-real-token"}\n')
+    fs.writeFileSync(path.join(carolDir, 'fired.log'), 'started\n')
+    const action = { tool: 'orgtree_watchdog', args: { action: 'create', kind: 'websocket', name: 'feed', target: 'ws://127.0.0.1:9/feed', credentials: 'ws/feed.json' } }
+    let r = await tool('carol', 'orgtree_watchdog', { action: 'create', kind: 'file', target: path.join(carolDir, 'fired.log'), name: 'on-fire', pattern: 'GO', fire_actions: [action] })
+    const carol = row(aId, 'carol')
+    const stored = id => rig.one(`SELECT state, memo->'fire_actions' AS actions, memo->>'template_needs_credentials' AS needs FROM ot.watchdogs
+      WHERE owner_agent_id=${id ?? 0} AND name='on-fire' AND state IN ('armed', 'paused')`)
+    p.check('14. an agent has a watchdog whose fire action names a credentials file', r.ok && stored(carol.id)?.actions?.[0]?.args?.credentials === 'ws/feed.json', { r: r.json ?? r.text, stored: stored(carol.id) })
+    // three paths in its transcript: in its own folder, in a folder that is not exported, and in one whose name only begins like its own
+    const own = path.join(carolDir, 'notes', 'plan.md')
+    const other = path.join(scratch(A, 'boss'), 'plan.md')
+    const alike = path.join(`${carolDir}-old`, 'plan.md')
+    const turns = turnsOf(carol.id).done
+    await rig.userMail('carol', `Path proof: read ${own} then ${other} then ${alike} and answer OK.`, { org: A })
+    await rig.waitFor(() => { const t = turnsOf(carol.id); return t.done > turns && t.open === 0 ? t : null }, { what: 'carol to finish a turn', timeout: 90000 })
+    const said = id => rig.sql(`SELECT body->>'text' AS text FROM ot.convo WHERE agent_id=${id ?? 0} AND body->>'text' LIKE '%Path proof: read%' ORDER BY seq`).map(c => c.text)
+    p.check('14. its transcript names the three paths', said(carol.id).length >= 1 && said(carol.id).every(t => t.includes(own) && t.includes(other) && t.includes(alike)), said(carol.id))
+
+    const linksOf = buf => JSON.parse(zipRead(buf, zipEntries(buf).get('links.json')).toString('utf8'))
+    // an agent's export: the fire action stays behind
+    r = await tool('boss', 'orgtree_export', { node: 'carol', path: 'carol-by-boss.zip' })
+    const byBoss = r.ok ? linksOf(fs.readFileSync(path.join(scratch(A, 'boss'), 'carol-by-boss.zip'))) : null
+    const dogBoss = byBoss?.watchdogs?.find(d => d.args?.name === 'on-fire')
+    p.check("14. an agent's export leaves the fire action out, and the watchdog says it needs credentials", r.ok && dogBoss && dogBoss.fire_actions === undefined
+      && dogBoss.args.fire_actions === undefined && dogBoss.needs_credentials === true, { r: r.json ?? r.text, dog: dogBoss })
+    // the user's own, nothing taken out: asked first, then carried
+    const started = await rig.api('POST', `/api/orgs/${A}/nodes/carol/export`, { subtree: false })
+    let job = await ended(A, 'exports', started.id)
+    const asked = job.state
+    if (job.state === 'confirm') job = await rig.api('POST', `/api/orgs/${A}/exports/${started.id}/confirm`)
+    const file = await raw('GET', `/api/orgs/${A}/exports/${started.id}/file`)
+    p.check("14. the user's export stops for the watchdog's credentials before it hands the file out", asked === 'confirm' && job.state === 'done' && file.ok
+      && job.result?.secrets?.watchdog_credentials === 1, { asked, state: job.state, error: job.error, secrets: job.result?.secrets })
+    if (!file.ok) return
+    const dogUser = linksOf(file.buf).watchdogs?.find(d => d.args?.name === 'on-fire')
+    p.check('14. and its file holds the fire action whole, beside the definition and not in it', JSON.stringify(dogUser?.fire_actions) === JSON.stringify([action])
+      && dogUser?.args?.fire_actions === undefined && dogUser?.needs_credentials === false, dogUser && { args: dogUser.args, fire_actions: dogUser.fire_actions, needs: dogUser.needs_credentials })
+
+    const up = await upload(file.buf, 'carol.orgtree.zip')
+    const plan = await rig.api('POST', `/api/orgs/${B}/imports/${up.id}/plan`, { dest: 'host' })
+    const done = await ended(B, 'imports', (await rig.api('POST', `/api/orgs/${B}/imports/${up.id}/apply`, { dest: 'host', expect: plan.digest })).id)
+    const carolB = row(bId, done.result?.root ?? 'no-such-node')
+    p.check('14. the imported watchdog has its fire action again, and arrives paused like any other', done.state === 'done' && done.result?.complete === true
+      && JSON.stringify(stored(carolB?.id)?.actions) === JSON.stringify([action]) && stored(carolB?.id)?.state === 'paused' && stored(carolB?.id)?.needs !== 'true',
+      { state: done.state, error: done.error, leftovers: done.result?.leftovers, notes: done.result?.watchdogs?.notes, stored: stored(carolB?.id) })
+    const ownB = path.join(scratch(B, carolB?.name ?? 'no-such-node'), 'notes', 'plan.md')
+    p.check('14. its transcript names the file in its own folder where that lies now, and the two other paths as they were written',
+      said(carolB?.id).length >= 1 && said(carolB?.id).every(t => t.includes(ownB) && !t.includes(own) && t.includes(other) && t.includes(alike)) && ownB !== own,
+      { here: ownB, rows: said(carolB?.id) })
+    p.check('14. the transcript where it was exported is untouched', said(carol.id).every(t => t.includes(own)), said(carol.id))
+
+    // a copy: the folder follows, the fire action does not
+    const copy = await ended(A, 'imports', (await rig.api('POST', `/api/orgs/${A}/nodes/carol/duplicate`, { subtree: false })).id)
+    const carol2 = row(aId, copy.result?.root ?? 'no-such-node')
+    const own2 = path.join(scratch(A, carol2?.name ?? 'no-such-node'), 'notes', 'plan.md')
+    p.check("14. a copy's watchdog has no fire action and says it needs credentials; its transcript names the copy's own folder", copy.state === 'done'
+      && (stored(carol2?.id)?.actions ?? null) === null && stored(carol2?.id)?.needs === 'true' && stored(carol2?.id)?.state === 'paused'
+      && said(carol2?.id).length >= 1 && said(carol2?.id).every(t => t.includes(own2) && !t.includes(`${own} `) && t.includes(other) && t.includes(alike)),
+      { state: copy.state, error: copy.error, stored: stored(carol2?.id), rows: said(carol2?.id), own2 })
   })
 
   p.keep(rig, { agents: ['alice', 'boss'], grep: /export|import|portable|duplicate|ported/i })
