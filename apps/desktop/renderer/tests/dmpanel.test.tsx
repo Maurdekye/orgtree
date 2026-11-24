@@ -7,6 +7,7 @@
 // Run:  node apps/desktop/renderer/tests/run.mjs dmpanel
 
 import './harness'
+import { mentionHighlightOf, resetSeenMentions } from '../src/canvas/agentmentions'
 import { fireResize, flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -1541,4 +1542,55 @@ test('alpha.1 point 17: the user\u2019s own message shows a clock while it waits
   }
   assert.deepEqual(state('wait'), ['dm-tick t-delivered', 'Delivered: worker has it', 'img'], 'the clock turned into the check, live')
   assert.deepEqual(state('held')?.[0], 'dm-tick t-queued', 'and only that one')
+})
+
+test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the agent\u2019s mail and for the user\u2019s delivered mail only; it asks that agent\u2019s desk for the row', async (t) => {
+  resetSeenMentions()
+  t.after(() => resetSeenMentions())
+  const world: World = {
+    audiences: [grant('worker')],
+    delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')],
+    sent: [
+      sent('old', 'worker', '2026-11-20T09:00:00Z'),                       // an older engine: not known to be delivered
+      sent('done', 'worker', '2026-11-20T11:00:00Z', { delivered: true }),
+      sent('wait', 'worker', '2026-11-20T13:00:00Z', { delivered: false }),
+    ],
+    byId: { in1: { ...mail('in1', 'worker', '2026-11-20T10:00:00Z'), to: USER }, done: sent('done', 'worker', '2026-11-20T11:00:00Z') },
+  }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  const menuOf = async (id: string) => {
+    const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.dm-bubble')
+    assert.ok(bubble, `the bubble of ${id}`)
+    await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(4) })
+    const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+    const items = menus.length ? [...menus[menus.length - 1]!.querySelectorAll<HTMLElement>('[role="menuitem"]')] : []
+    return { labels: items.map(i => i.textContent?.trim() ?? ''), item: (label: string) => items.find(i => i.textContent?.trim() === label) }
+  }
+  const closeMenu = async () => inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(3) })
+  // the agent's own mail: always
+  let menu = await menuOf('in1')
+  assert.equal(menu.labels.includes('View in transcript'), true, `the agent\u2019s mail has it (${menu.labels.join(' | ')})`)
+  assert.equal(menu.labels.indexOf('View in transcript'), menu.labels.findIndex(l => l.startsWith('View in @worker')) + 1, 'next to "View in @worker\u2019s inbox"')
+  await s.click(menu.item('View in transcript'), 'View in transcript')
+  assert.deepEqual([mentionHighlightOf('mine', 'worker')?.mailId, mentionHighlightOf('mine', 'worker')?.at], ['in1', '2026-11-20T10:00:00Z'], 'the desk of that agent is asked for that mail\u2019s row')
+  assert.deepEqual(s.state.focused, ['worker'], 'and its desk is shown')
+  // the user's own mail: only once it is delivered
+  menu = await menuOf('done')
+  assert.equal(menu.labels.includes('View in transcript'), true, 'a delivered message has it')
+  await closeMenu()
+  menu = await menuOf('wait')
+  assert.equal(menu.labels.includes('View in transcript'), false, `a waiting message has no such entry, not a greyed one (${menu.labels.join(' | ')})`)
+  assert.equal(menu.labels.some(l => l.startsWith('View in @worker')), true, 'POSITIVE CONTROL: its menu is the bubble menu')
+  await closeMenu()
+  menu = await menuOf('old')
+  assert.equal(menu.labels.includes('View in transcript'), false, 'nor one the engine says nothing about')
+  await closeMenu()
+  // it appears live when the mail is delivered
+  ;(world.sent as Record<string, unknown>[]).find(m => m.id === 'wait')!.delivered = true
+  for (let i = 0; i < 80 && !s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'wait')?.querySelector('.dm-tick.t-delivered'); i++) {
+    await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 100)); await flush(4) })
+  }
+  menu = await menuOf('wait')
+  assert.equal(menu.labels.includes('View in transcript'), true, 'the entry is there once the mail is delivered, with no reopening')
 })
