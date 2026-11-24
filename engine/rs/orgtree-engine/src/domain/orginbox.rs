@@ -459,6 +459,31 @@ pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
         &[&org_id, &projects]).await?.is_none())
 }
 
+/// The agents in charge of the org mailbox (last active, Mail hub 2.6.0;
+/// docket hubchat-last-seen-time-for-orgs-people-and-indep): the live agent
+/// holders, and for a project holder the live agents whose armed fair_queue
+/// listener targets it (the set `busy` reads), halted or frozen ones too;
+/// each with when its last finished turn ended (None: it never finished
+/// one). Agent ids, in id order.
+#[logged]
+pub async fn in_charge_turn_ends<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<(i64, Option<chrono::DateTime<chrono::Utc>>)>> {
+    let all = holder_rows(client, org_id, multi).await?;
+    let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
+    let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
+    let rows = client.query(
+        "WITH charge AS (
+           SELECT a.id FROM ot.agents a WHERE a.org_id = $1 AND a.name = ANY($2) AND a.state = 'live' AND a.kind = 'agent'
+           UNION
+           SELECT a.id FROM ot.watchdogs w
+             JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent'
+             JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($3) AND p.id = (w.memo->>'target_id')::bigint
+            WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed')
+         SELECT c.id, (SELECT t.ended_at FROM ot.turns t WHERE t.agent_id = c.id AND t.ended_at IS NOT NULL ORDER BY t.id DESC LIMIT 1)
+           FROM charge c ORDER BY c.id",
+        &[&org_id, &agents, &projects]).await?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
 #[cfg(test)]
 #[path = "orginbox_busy_tests.rs"]
 mod busy_tests;

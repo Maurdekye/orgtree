@@ -9864,6 +9864,8 @@ impl Actor {
         let v = self.runtime_value();
         let old=self.handle.view.swap(Arc::new(v.clone()));
         crate::runtime::watchdogs::events::runtime(&self.engine,self.org_id,self.id,&old,&v);
+        // a turn of an agent in charge of an org mailbox started or ended: its org says it (last active)
+        crate::net::presence::turn_edge(&self.engine,self.id,&old,&v);
         self.org.feed.runtime(self.id, v);
     }
 
@@ -9883,6 +9885,7 @@ impl Actor {
         let v = Value::Object(v);
         let old=self.handle.view.swap(Arc::new(v.clone()));
         crate::runtime::watchdogs::events::runtime(&self.engine,self.org_id,self.id,&old,&v);
+        crate::net::presence::turn_edge(&self.engine,self.id,&old,&v);
         self.org.feed.runtime(self.id, v);
     }
 
