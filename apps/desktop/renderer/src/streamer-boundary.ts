@@ -31,6 +31,9 @@ export const STREAMER_ZONES = {
     '.pinuser-t', '.mail-preview-text', '.turn-mail-preview-content', '.reply-preview-content', '.selection-excerpt', '.dead-preview', '.dead-summary',
     // the user's chats (dm/DmPanel.tsx): a chat row's preview of its last message, and the excerpt of a staged reply
     '.dm-row-text', '.dm-replybar-text',
+    // a chat bubble whole (its quote card names who is quoted and repeats their words; its time row is structured, below), and
+    // the line that says a sender cannot be written to, which names it
+    '.dm-bubble', '.dm-nowrite',
     // a tool call's argument (the line around it is structured)
     '.targ',
     '[data-streamer-freeform]'].join(','),
@@ -41,6 +44,7 @@ export const STREAMER_ZONES = {
   structured: ['.event-head', '.turn-mail-head', '.mailer-head', '.event-head-field', '.event-family', '.event-actor', '.event-row-kind', '.event-time',
     '.event-field-label', '.event-change-label', '.event-change-agent', '.event-change-sep', '.event-context', '.turn-mail-passive', '.urgentkind',
     '.reply-source-meta', '.answered-chip', '.answered-card > summary', '.resolved-label', '.resolved-verdict', '.resolved-mark', '.tline',
+    '.dm-meta', '.dm-labels',
     '[data-streamer-structured]'].join(','),
   always: { email: 'emails', path: 'paths', ip: 'ips', secret: 'secrets', external: 'externals', org: 'orgs' } as Record<string, StreamerType>,
 } as const
