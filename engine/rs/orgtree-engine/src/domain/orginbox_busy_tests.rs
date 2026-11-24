@@ -3,7 +3,9 @@
 //! its hubs while none of its org-mailbox holders can start a turn. One test
 //! per holder state: none, one that can run, halted, frozen, retired, a
 //! revoked grant, several holders, single-holder mode's newest grant, and
-//! the org's killswitch. Each builds its own disposable `ot` schema in the
+//! the org's killswitch. Last active (Mail hub 2.6.0): the agents in charge
+//! and their last finished turns' ends, with two holders' turns overlapping.
+//! Each builds its own disposable `ot` schema in the
 //! isolated `busy_presence_fixture` database (`ORGTREE_BUSY_TEST_URL`, user
 //! and database both `busy_presence_fixture`), so run them one at a time:
 //! `cargo test -p orgtree-engine --bin orgtree-engine -- --ignored --test-threads=1 domain::orginbox::busy_tests`.
@@ -176,5 +178,51 @@ async fn the_org_killswitch_makes_it_busy() {
     assert!(busy(&c, org, false).await.unwrap(), "stop all latched: busy");
     run(&c, "UPDATE ot.orgs SET killswitch = NULL WHERE id = $1", org).await;
     assert!(!busy(&c, org, false).await.unwrap(), "released: online again");
+    done(c, conn).await;
+}
+
+/// A turn of `agent` from `start` to `end` (None: still running), times as
+/// SQL literals.
+#[nolog]
+async fn turn(c: &tokio_postgres::Client, agent: i64, start: &str, end: Option<&str>) {
+    c.execute(
+        "INSERT INTO ot.turns (agent_id, started_at, ended_at) VALUES ($1, $2::text::timestamptz, $3::text::timestamptz)",
+        &[&agent, &start, &end],
+    )
+    .await
+    .unwrap();
+}
+
+#[nolog]
+fn at(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    Some(chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc))
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated busy_presence_fixture database (ORGTREE_BUSY_TEST_URL)"]
+#[nolog]
+async fn the_agents_in_charge_and_their_last_turn_ends() {
+    let (c, conn, org) = fixture().await;
+    let ann = agent(&c, org, "ann").await;
+    let bob = agent(&c, org, "bob").await;
+    let boss = agent(&c, org, "boss").await;
+    grant(&c, org, "ann").await;
+    grant(&c, org, "bob").await;
+    assert_eq!(in_charge_turn_ends(&c, org, true).await.unwrap(), vec![(ann, None), (bob, None)], "holders only, never-ran: no end");
+    // overlapping turns: ann 10:00-10:40 then a new one running; bob 10:20-10:30
+    turn(&c, ann, "2026-11-24T10:00:00Z", Some("2026-11-24T10:40:00Z")).await;
+    turn(&c, bob, "2026-11-24T10:20:00Z", Some("2026-11-24T10:30:00Z")).await;
+    turn(&c, ann, "2026-11-24T10:50:00Z", None).await;
+    turn(&c, boss, "2026-11-24T11:00:00Z", Some("2026-11-24T11:05:00Z")).await;
+    assert_eq!(
+        in_charge_turn_ends(&c, org, true).await.unwrap(),
+        vec![(ann, at("2026-11-24T10:40:00Z")), (bob, at("2026-11-24T10:30:00Z"))],
+        "each holder's last FINISHED turn (ann's running one doesn't hide her 10:40 end); boss holds nothing"
+    );
+    run(&c, "UPDATE ot.agents SET halt = '{\"by\":\"fixture\"}'::jsonb WHERE id = $1", bob).await;
+    assert_eq!(in_charge_turn_ends(&c, org, true).await.unwrap().len(), 2, "a halted holder still counts for the time");
+    assert_eq!(in_charge_turn_ends(&c, org, false).await.unwrap(), vec![(bob, at("2026-11-24T10:30:00Z"))], "single-holder mode: the newest grant only");
+    run(&c, "UPDATE ot.agents SET state = 'retired' WHERE id = $1", bob).await;
+    assert_eq!(in_charge_turn_ends(&c, org, true).await.unwrap(), vec![(ann, at("2026-11-24T10:40:00Z"))], "a retired holder is not in charge");
     done(c, conn).await;
 }
