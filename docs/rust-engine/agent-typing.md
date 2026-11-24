@@ -156,3 +156,24 @@ Evidence: `D:\orgtree-work\rig\hubchat-opus\typing\harness\results.md`.
   the last heartbeat came under a second ago by its own clock; the message
   ends it at once. Never a notification. Its users' own heartbeats: its
   `docs/typing.md`.
+
+## Writing to the user (4.7.0)
+
+The same watched call also tells the user's chats. When the `metadata` of an
+`orgtree_message` or `orgtree_send_notice` call names the user (alone or in a
+list; `@net:` and `@org:` addresses and agents do not count; notices count),
+the agent's runtime view carries `writing_to_user: true` until the call's
+block ends, the agent's turn or process ends, or 120 seconds have passed
+(`net::typing::ToUser`, held by the actor). It reaches the desktop as one
+field of the agent's tree node, published like any other change of the
+runtime view. Nothing is stored and no route was added: a new actor starts
+without it, so a killed process or an engine restart leaves none, and the idle
+view says `false`. Only Claude Code streams its tool calls, so no other
+harness ever sets it.
+
+The desktop shows it in the user's chats only (`dm/model.ts` `dmWriting`):
+"typing…" in the agent's row and three dots under the last message of its
+open chat, for at most 120 seconds without news. Tests: `net::typing` unit
+tests (the stale case too: a process killed while the call is written),
+`domain::tree::idle_runtime_tests`; rig proof
+`tools/rig/proofs/agent-typing-user.mjs`.

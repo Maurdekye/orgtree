@@ -32,7 +32,15 @@ are a second view over the same reads and calls.
   pages, `useMailboxHistory(…, 'chat', …, peer)` = `GET /inbox?folder=chat&peer=<name>`, 50 rows of that chat a
   page, merged into the mailbox's two windows by id (`ownPages`; an engine that refuses the folder is not asked
   again and the chat falls back). Measure a change to the chats with tests/dm-bench.mjs (5,000 messages, 250
-  agents: open, a keystroke, a tree change, scrolling back). `MailReplyPreview locateMail` lets a surface that shows the quoted mail
+  agents: open, a keystroke, a tree change, scrolling back). Only the engine's own refusal (a 4xx on the first
+  read) sends a chat back to the mailbox's pages; a failed read without one keeps the chat's own pages and offers
+  Retry (`useMailboxHistory` returns `errorStatus`). TYPING: `dmWriting` reads the node's `writing_to_user`
+  (engine `net::typing::ToUser`, Claude Code only) and caps it at 120 s; the row's preview and `.dm-typing-row`
+  are Hubchat's. RECEIPT: `dmReceipt` reads a sent row's `delivered` (true, false, or absent from an older engine:
+  no mark); the tick sits after the time and must not change the time row's height. VIEW IN TRANSCRIPT rides the
+  desk's mention jump: `requestTranscriptMail` (canvas/agentmentions.tsx) and desk.tsx `centerMentionRef`, which
+  finds the message whose tool chip carries the mail, else `data-reply-event="mail:<id>"`, pages older rows, and
+  falls back to the row nearest in time with a toast; do not build a second jump. `MailReplyPreview locateMail` lets a surface that shows the quoted mail
   find it by id (a quote's stored box is the sender's copy). New chat is a sweep inside `.dm-list`, never a
   PinFrame. The gear asks `openSettingsAt({ over: true })`; OrgCanvas draws that window in `ModalOverPins`.
   Captures: tests/dm-panel-visual.mjs and tests/dm-alpha1-visual.mjs.

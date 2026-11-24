@@ -45,7 +45,9 @@ request may name a `peer`:
 - `folder=sent&peer=<name>`: the user's mail to that recipient.
 - `folder=chat&peer=<name>`: both directions in one page under one cursor. Two
   folders paged side by side leave holes (fifty received rows may span two
-  days while fifty sent ones span ten), so the chats use this one.
+  days while fifty sent ones span ten), so the chats use this one. It is the
+  accepted way to page a conversation (coordinator 2026-11-24 m5eba9c2e1bf1);
+  `inbox` and `sent` with a peer stay for a reader that wants one direction.
 
 A peer page holds 50 rows (`mail_history::PEER_PAGE`) with the same `before`
 cursor, the same row projection and the same visibility gates. The peer is
@@ -88,3 +90,20 @@ not establish native mouse/touch scrolling or actual PostgreSQL query execution
 and query-plan timing. Backend queries were compiled and source-inspected.
 No live mailbox, device, hub or installed data was used. Phase 1 deliberately
 omits an independent review and broad rig/full-suite runs.
+
+## Delivered, on a row to an agent (4.7.0)
+
+A mail row whose recipient is an agent carries `delivered`: `true` once the
+agent's CLI has taken it (state `delivered` or `read`), `false` while it waits
+or is only claimed (`pending`, `delivering`), and nothing when it was
+retracted. Rows to the user never carry it. The user's chats draw one check
+or a clock from it and draw nothing when it is absent, which is how a row
+from an older engine reads (`feed::compute::mail_entry`).
+
+An agent taking mail changed only that agent's mailbox, so the user's sent
+list kept the old state until something else refreshed it. The
+acknowledgements that settle claimed mail (`domain::mail::acknowledge`,
+`acknowledge_turn`, and the OpenCode acknowledgement in the actor) now also
+publish the user's mail when a settled row is the user's own. Startup
+recovery (`settle_claimed`) does not: no reader is connected yet. Tests:
+`feed::compute::delivered_tests`, `domain::mail::delivered_tests` (database).
