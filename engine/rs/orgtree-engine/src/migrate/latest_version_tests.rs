@@ -8,7 +8,8 @@ use tokio_postgres::{Client, NoTls};
 fn latest_model_version_migration_is_registered_and_clears_only_the_newest_pins() {
     let at = |name: &str| super::MIGRATIONS.iter().position(|(n, _)| *n == name);
     let latest = at("0089_latest_model_version").expect("0089 registered");
-    assert_eq!(latest, super::MIGRATIONS.len() - 1, "the newest migration");
+    // 4.7.0 added 0090 (the import's undo entry) after it: it is no longer the last, and nothing depends on that
+    assert!(super::MIGRATIONS[latest + 1..].iter().all(|(name, _)| *name > "0089_latest_model_version"), "later migrations follow it in order");
     assert!(latest > at("0088_user_origin").unwrap(), "after 0088, the last of 4.6.2");
     let sql = super::MIGRATIONS[latest].1;
     for needle in ["UPDATE ot.agents SET scope = scope - 'model_version'", "(tier = 'fable' AND scope->>'model_version' = '5.2')",
@@ -86,7 +87,7 @@ async fn an_upgrade_from_4_6_2_unpins_only_the_automatic_pins_once() {
     assert_eq!(versions(&c).await[0], ("astra-auto".to_string(), Some("6.2".to_string())), "a pin chosen after the upgrade stays");
     // and the SQL itself changes nothing a second time
     c.batch_execute("UPDATE ot.agents SET scope = scope - 'model_version' WHERE name = 'astra-auto'").await.unwrap();
-    c.batch_execute(super::MIGRATIONS.last().unwrap().1).await.unwrap();
+    c.batch_execute(super::MIGRATIONS.iter().find(|(name, _)| *name == "0089_latest_model_version").unwrap().1).await.unwrap();
     assert_eq!(versions(&c).await, want);
     drop(c);
     task.await.unwrap();
