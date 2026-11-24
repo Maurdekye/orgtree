@@ -164,6 +164,16 @@ pub async fn preview_duplicate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, ask: 
     Ok(out)
 }
 
+/// Where a copy goes when nobody said: beside its original, which is under the node the
+/// original physically stands under (an agent or a project), or at the top level. This is
+/// placement in the tree only. Who may put a node there, and whose credits pay, is the
+/// import's own rule (`domain::ops::import`), which reads the reporting chain itself.
+#[nolog]
+pub async fn beside(client: &tokio_postgres::Client, placed_under: Option<i64>) -> Result<Option<String>> {
+    let Some(id) = placed_under else { return Ok(None) };
+    Ok(client.query_opt("SELECT name FROM ot.agents WHERE id = $1", &[&id]).await?.map(|row| row.get(0)))
+}
+
 /// Start a duplicate: the nodes are written to the job's own file as an export that leaves
 /// nothing out and strips nothing, and imported from it beside or under where they are.
 #[nolog]

@@ -203,10 +203,7 @@ pub async fn duplicate(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
     let t = target(&client, me.org_id, need_str(args, "node")?).await?;
     own(&client, &me, &t, "duplicate").await?;
     // beside the original unless it says where; where it may go is the import's own rule
-    let beside: Option<String> = match t.parent_id {
-        Some(parent) => client.query_opt("SELECT name FROM ot.agents WHERE id = $1", &[&parent]).await?.map(|r| r.get(0)),
-        None => None,
-    };
+    let beside = service::beside(&client, t.parent_id).await?;
     drop(client);
     let Some(org) = engine.orgs.by_id(caller.org_id) else { crate::refuse!(NotFound, "organization not open") };
     let ask = DuplicateAsk {

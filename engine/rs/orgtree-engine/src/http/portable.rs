@@ -32,16 +32,17 @@ use crate::portable::format::Include;
 use crate::portable::jobs::{self, Job};
 use crate::portable::service::{self, DuplicateAsk, ExportAsk, ImportAsk};
 
-/// A node of the organization by its name: its id, its name as stored, the name of the node above it.
+/// A node of the organization by its name: its id, its name as stored, and the name of the node it
+/// is placed under (`service::beside`: where a copy of it goes, never who it answers to).
 #[nolog]
 async fn node(engine: &Engine, org: &OrgHandle, name: &str) -> ApiResult<(i64, String, Option<String>)> {
     let client = engine.db.get().await?;
     let row = client
-        .query_opt("SELECT a.id, a.name, p.name FROM ot.agents a LEFT JOIN ot.agents p ON p.id = a.parent_id WHERE a.org_id = $1 AND a.name = $2 AND a.state <> 'deleted'",
-                   &[&org.id, &name.trim_start_matches('@')])
+        .query_opt("SELECT id, name, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org.id, &name.trim_start_matches('@')])
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no node named {name} in this organization")))?;
-    Ok((row.get(0), row.get(1), row.get(2)))
+    let above = service::beside(&client, row.get(2)).await?;
+    Ok((row.get(0), row.get(1), above))
 }
 
 #[nolog]
