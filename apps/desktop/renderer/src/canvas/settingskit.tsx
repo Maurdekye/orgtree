@@ -242,6 +242,10 @@ export interface SettingsAsk {
   /** the control to land on; without one the panel just opens (the chats'
    *  gear, dm/DmPanel.tsx) */
   target?: { tab: string; field: string }
+  /** the window opens OVER the surface that asked and that surface stays
+   *  open under it (the chats' gear: USER 2026-11-24 mc41ee4dc32de "make the
+   *  modal appear over top the chat, so when closed the chat is behind it") */
+  over?: boolean
 }
 export function openSettingsAt(ask: SettingsAsk): void {
   window.dispatchEvent(new window.CustomEvent(OPEN_SETTINGS_AT_EVENT, { detail: ask }))

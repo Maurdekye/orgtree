@@ -2294,13 +2294,10 @@ export default function App() {
                   jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq}
                   onAgentSettings={(id) => {
                     // the agent's settings window is the canvas's own (its
-                    // card's gear); a centred inbox gives way to it, as it
-                    // does on its way to the agent's desk below
-                    closeIfCentred('inbox', () => {
-                      setShowInbox(false)
-                      setInboxJump(null)
-                    }, slug)
-                    openSettingsAt({ scope: 'agent', org: slug, agentId: id })
+                    // card's gear), opened OVER the inbox: the chat, its
+                    // place and its draft are there again when it closes
+                    // (USER 2026-11-24 mc41ee4dc32de). The inbox is not closed.
+                    openSettingsAt({ scope: 'agent', org: slug, agentId: id, over: true })
                   }}
                   onFocusAgent={(id) => {
                     closeIfCentred('inbox', () => {

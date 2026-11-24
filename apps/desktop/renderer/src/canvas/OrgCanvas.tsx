@@ -473,8 +473,10 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   const hasDefault = (provider !== 'openrouter' && provider !== 'langserver'
     && !!providerInfo?.status?.installed) || accountRows.some(row => row.ambient)
   const accountCount = accountRows.filter(row => !row.ambient).length + (hasDefault ? 1 : 0)
+  // the default account says what it is: "default" alone read as a setting (USER 2026-11-24 m7270f18789ba)
+  const accountName = n.account_label?.trim() || n.account || 'default'
   const account = accountCount > 1
-    ? n.account_label?.trim() || n.account || 'default'
+    ? accountName === 'default' ? 'default account' : accountName
     : undefined
   const fast = n.scope?.fast_mode && fastModeSupported(n.tier, version, catalogTier) ? 'fast' : undefined
   const values = [model ? model + (retired ? ' (retired)' : '') : undefined, effort, account, fast]
@@ -1028,8 +1030,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const toggleConfig = useCallback((id: string, keepOpen = false) => {
     openConfig(id, { ensureOpen: keepOpen })
   }, [openConfig])
+  // a settings window asked for from another surface (the chats' gear) opens
+  // over that surface, in the band dialogs raised from a panel use
+  const [configOver, setConfigOver] = useState<ReadonlySet<string>>(() => new Set<string>())
   useSettingsAsk('agent', slug, (ask) => {
     if (!ask.agentId) return
+    const asked = ask.agentId
+    setConfigOver(old => old.has(asked) === !!ask.over ? old
+      : new Set(ask.over ? [...old, asked] : [...old].filter(id => id !== asked)))
     const target = ask.target
     if (target) setConfigTarget((t) => ({ id: ask.agentId!, tab: target.tab, field: target.field, seq: (t?.seq ?? 0) + 1 }))
     toggleConfig(ask.agentId, true)
@@ -5294,7 +5302,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       {configs.ids.map(configId => map.get(configId) && (
         /* §4.8: an archived seat arrives summarised and this panel needs its
            `scope`, so it waits for the detail fetch rather than throwing */
-        <MaybePortal key={`${slug}/${configId}`}><NodeDetailGate slug={slug} node={map.get(configId)!}>
+        <ConfigLayer key={`${slug}/${configId}`} over={configOver.has(configId)}><NodeDetailGate slug={slug} node={map.get(configId)!}>
           {(n) => (
         <NodeConfig node={n} map={map} tree={tree} slug={slug}
           op={op} toast={toast} claudeProvider={claudeProvider} codexProvider={codexProvider}
@@ -5305,8 +5313,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onTeamScratchFolder={scratchFolderAction(slug, n.id, toast, 'team')}
           refs={canvasRefs} onFocusAgent={centerOn}
           target={configTarget?.id === n.id ? configTarget : null}
-          close={() => { configs.close(configId); setConfigTarget((t) => t?.id === configId ? null : t) }} />)}
-        </NodeDetailGate></MaybePortal>
+          close={() => {
+            configs.close(configId); setConfigTarget((t) => t?.id === configId ? null : t)
+            setConfigOver(old => old.has(configId) ? new Set([...old].filter(id => id !== configId)) : old)
+          }} />)}
+        </NodeDetailGate></ConfigLayer>
       ))}
       {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}
       {dogViews.ids.map(id => <WatchdogInstance key={`${slug}/${id}`} slug={slug} id={id} toast={toast}
@@ -5828,4 +5839,11 @@ function PhoneCardAfterGuide({ slug, hidden }: { slug: string; hidden: boolean }
   const progress = useFirstUse(slug)
   if (hidden || (progress && progress.step !== 'done')) return null
   return <PhoneCard org={slug} where="org" />
+}
+
+/** Where an agent's settings window is drawn: in place, or over the surface
+ *  that asked for it (`ModalOverPins`, the band a dialog raised from a panel
+ *  uses), so that surface is still there under it when it closes. */
+function ConfigLayer({ over, children }: { over: boolean; children: ReactNode }) {
+  return over ? <ModalOverPins>{children}</ModalOverPins> : <MaybePortal>{children}</MaybePortal>
 }

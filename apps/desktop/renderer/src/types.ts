@@ -169,6 +169,8 @@ export interface AudienceGrant {
   grantor: string
   granted_at: string
   reason: string
+  /** kept but not in effect: its holder is retired */
+  paused?: boolean
 }
 
 // api.py node_message builds {name, path, bytes}; schema.py only proves

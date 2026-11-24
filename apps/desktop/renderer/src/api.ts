@@ -1794,10 +1794,13 @@ export const broadcastMessage = (slug: string, project: string, text: string, at
   })
 /** Object identity only; the server resolves authoritative reply context. */
 export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget | import('./replySelection').SelectionTarget | (ReplyTarget | import('./replySelection').SelectionTarget)[],
-  attachments?: string[], clientOp?: string, notice?: boolean): Promise<SendMessageResult> =>
+  attachments?: string[], clientOp?: string, notice?: boolean,
+  /** an agent in Do Not Disturb: the desk's urgent option, on a reply too (the route reads it for every message) */
+  urgency?: { urgent: true; urgent_reason?: string }): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, ...(Array.isArray(target) ? { targets: target } : { target }),
+      ...(urgency ?? {}),
       ...(attachments?.length ? { attachments } : {}),
       ...(clientOp ? { client_op: clientOp } : {}),
       ...(notice ? { notice: true } : {}) }),

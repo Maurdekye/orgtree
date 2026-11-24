@@ -174,6 +174,8 @@ export interface EventCardProps extends ContentProps {
   hideKind?: boolean
   embedded?: boolean
   foldKey?: string | readonly string[]
+  /** false: the body without its "Context" fold (the user's chats) */
+  context?: boolean
 }
 /** The owning message wrapper receives the family treatment; content never adds a panel. */
 export function eventSurface(row: unknown, profile: EventProfile) {
@@ -186,7 +188,7 @@ export function eventSurface(row: unknown, profile: EventProfile) {
 }
 /** A single presentation path for mailbox, pending/live and settled transcript rows.
  *  Envelope time, delivery badges, attachments and existing actions stay with callers. */
-export function EventCard({ row, profile, org, preview = false, actor, part, headerMeta, hideKind = false, embedded = false, foldKey, ...content }: EventCardProps) {
+export function EventCard({ row, profile, org, preview = false, actor, part, headerMeta, hideKind = false, embedded = false, foldKey, context: showContext = true, ...content }: EventCardProps) {
   const keys = foldKey ?? (row && typeof row === 'object' ? mailFoldKeys(row as MailFoldable) : undefined)
   const decoded = decodeEventRow(row, profile)
   if (decoded.kind !== 'known') {
@@ -271,7 +273,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     {change && change.length > 0 && <ChangeLine parts={change} actor={actor} />}
     {(body.length > 0 || fireFields.length > 0 || idleDocket || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
-    {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
+    {showContext && (context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>
       {objectDetails && <div className="event-object-details"><Value value={objectDetails} {...content} profile={profile} org={org} actor={actor} /></div>}
       <Fields fields={context} {...content} profile={profile} org={org} actor={actor} />

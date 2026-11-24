@@ -126,10 +126,23 @@ function buildMailReplyMenu(
   ]
 }
 
+/** A SURFACE THAT SHOWS THE QUOTED MAIL ITSELF finds it there (the user's
+ *  chats: USER 2026-11-24 m463138266d06 "when i click that reply it links to
+ *  your inbox, not jumping to the message i sent here in this chat", and
+ *  me65c2c6116dc "it says original unavailable when the message i replied to
+ *  is right there"). Given the quoted mail's id and sender it returns what a
+ *  click does, or null when the mail is not this surface's to show; `elsewhere`
+ *  is what the click would have done without it (absent when nothing).
+ *  ⚠ The id alone decides: a quote's stored mailbox (`box`) says where the
+ *  SENDER's copy lives, and an older snapshot has none at all, which is why
+ *  the reference could not be resolved while the mail was on screen. */
+export type LocateMail = (id: string, from: string, elsewhere?: () => void) => (() => void) | null
+
 /** One reply renderer for pending desk mail, settled mail and mailbox panes. */
-export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLocateReply }: {
+export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLocateReply, locateMail }: {
   row: ReplyRow; org: string; world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void
   replyAvailable?: (reply: ReplyContext) => boolean; onLocateReply?: (reply: ReplyContext) => void
+  locateMail?: LocateMail
 }) {
   const toast = useCopyFeedback()
   const nodeNav = useAgentNavRegistry()
@@ -139,7 +152,7 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     return <ReplyPreviewDisclosure count={replies.length}>{visible => <>
       {replies.slice(0, visible).map((reply, i) =>
         <MailReplyPreview key={i} row={{ reply_to: reply }} org={org} world={world} onOpen={onOpen}
-          replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} locateMail={locateMail} />)}
     </>}</ReplyPreviewDisclosure>
   }
   const chat = replyContext(row.reply_to)
@@ -149,6 +162,11 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     onLocate={() => onLocateReply?.(chat)} />
   if (!reply) return null
   const target = reply.ref ? resolveRef(reply.ref, world ?? { org, handles: new Set() }) : null
+  // the mail this quotes, when it quotes a mail: found on the surface itself first
+  const quotedMail = reply.ref ? (reply.ref.kind === 'mail' ? reply.ref.id : '')
+    : !reply.kind || reply.kind === 'mail' ? reply.id : ''
+  const here = quotedMail && locateMail
+    ? locateMail(quotedMail, reply.from, target?.outcome === 'ready' && onOpen ? () => onOpen(target) : undefined) : null
   const stored=record(row.reply_to)?row.reply_to:null
   const selection=stored&&record(stored.selection)&&stored.selection.version===1&&typeof stored.selection.excerpt==='string'&&record(stored.selection.selector)
     ? stored.selection as unknown as SelectionSnapshot : null
@@ -156,14 +174,14 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     const identity:SourceIdentity=reply.kind==='work_item'?{kind:'work_item',org:reply.ref?.org??org,slug:reply.id}
       :{kind:reply.kind as 'mail'|'document',org:reply.ref?.org??org,id:reply.id}
     return <SelectionReplyPreview target={identity} snapshot={selection}
-      onLocate={target?.outcome==='ready'&&onOpen?()=>onOpen(target):undefined} />
+      onLocate={here ?? (target?.outcome==='ready'&&onOpen?()=>onOpen(target):undefined)} />
   }
   if(target?.ref.kind==='doc')return <PresentationReply reply={reply} target={target} world={world??{org}} onOpen={onOpen}/>
-  const unavailable = target?.outcome === 'absent'
+  const unavailable = here ? undefined : target?.outcome === 'absent'
     ? 'Reply to a message or item that is no longer available; quoted context is retained.'
     : !target || target.outcome !== 'ready' || !onOpen
       ? 'Original unavailable here; quoted context is retained.' : undefined
-  const activate=target?.outcome==='ready'&&onOpen?()=>onOpen(target):undefined
+  const activate=here ?? (target?.outcome==='ready'&&onOpen?()=>onOpen(target):undefined)
   const onOpenMenu = (anchor: HTMLElement, opening: number, menu: ContextMenuHandle) => {
     const mailId = reply.ref?.kind === 'mail' ? reply.ref.id : (!reply.ref ? reply.id : '')
     if (!reply.from && mailId) {
@@ -180,13 +198,15 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
       }).catch(() => {})
     }
   }
-  return <ReplyPreviewFrame label="Reply context" unavailable={unavailable} onActivate={activate} actionTitle={activate?target!.why:unavailable}
+  return <ReplyPreviewFrame label="Reply context" unavailable={unavailable} onActivate={activate}
+    actionTitle={here ? 'Show the message this answers' : activate?target!.why:unavailable}
     menuEntries={anchor => buildMailReplyMenu(anchor, org, reply, target, activate, nodeNav, toast, objectNav?.openUserInbox)}
     onOpenMenu={onOpenMenu}
     action={<>
     <ReplyIcon fontSize="inherit" aria-hidden="true" />
     <span>In reply to{reply.from ? ` ${reply.from}` : ''}{reply.at ? ` · ${fmtFull(reply.at)}` : ''}</span>
-    {target && !reply.linked && <RefChip r={target} onOpen={onOpen} />}
+    {/* found on this surface, the quote itself is the way there: a chip that cannot open says nothing */}
+    {target && !reply.linked && (!here || target.outcome === 'ready') && <RefChip r={target} onOpen={here ? () => here() : onOpen} />}
   </>}>
     <blockquote>{reply.gist || 'Reply to a message that is no longer available.'}</blockquote>
   </ReplyPreviewFrame>

@@ -6,6 +6,11 @@ import type { SelectionDraft, SelectionTarget } from '../replySelection'
 import { MentionLanding } from './mentionlanding'
 import { hasMailAttention } from '../mailattention'
 import { focusComposerBackground } from '../composerfocus'
+import { resizeComposer } from '../composerautosize'
+import { readComposerDraft, writeComposerDraft } from '../composerdrafts'
+import { readHistory, recordSent } from '../composerhistory'
+import type { HistoryEntry } from '../composerhistory'
+import { useHistoryNav } from '../composerhistorynav'
 import { useReadOnLeave } from '../mailleave'
 import { useSurfaceDocument } from '../popout'
 import { beginOpen, useOpenCommit } from '../opentiming'
@@ -19,7 +24,7 @@ import { useStaging, StagingRows } from './staging'
 // function identically). Extracted verbatim from Canvas.tsx in the phase-3
 // split.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
@@ -32,12 +37,12 @@ import {
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { TransferPanel } from './transfers'
 import {
-  AttachIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
+  ArrowUpIcon, AttachIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
   audienceGrantTooltip, EXTERN, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
-  useHideRetired,
+  useEsc, useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
@@ -75,6 +80,7 @@ import { noticeSummary } from '../events/change'
 import type { EventView } from '../events/project'
 import { EventCard, eventSurface } from '../events/card'
 import { MailReplyPreview, recordedMailReply } from './mailreply'
+import type { LocateMail } from './mailreply'
 import { centerTranscriptTarget } from './deskscroll'
 import type { InboxSelectionRequest } from '../inboxselection'
 
@@ -1160,23 +1166,27 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  `standalone` draws a typed mail as its whole card, header included, and
  *  gives a plain notice its passive edge; without it only the body is drawn,
  *  for a host that shows the header itself. */
-export function MailMessageBody({ m, standalone = false, org, refs, mdBase, sender }: {
+export function MailMessageBody({ m, standalone = false, org, refs, mdBase, sender, locateMail, context = true }: {
   m: MailRow
   standalone?: boolean
   org?: string
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   mdBase?: (m: MailRow) => string
   sender: (id: string, m: MailRow) => ReactNode
+  /** the surface shows the quoted mail itself (the chats): see MailReplyPreview */
+  locateMail?: LocateMail
+  /** false: no "Context" fold under a typed mail (the chats, whose quote card already says what is answered) */
+  context?: boolean
 }) {
   const profile = 'operator'
   const decoded = decodeEventRow(m, profile)
   return <>
-    <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} />
+    <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} locateMail={locateMail} />
     <ReplySelectionSurface source={{org:org ?? refs?.world.org ?? '',target:{kind:'mail',org:org ?? refs?.world.org ?? '',id:m.id ?? ''},part:{part:'mail.body'},text:m.body}}>
     {decoded.kind === 'legacy'
     ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
         world={refs?.world} onOpen={refs?.onOpen} />
-    : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
+    : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile} context={context}
         org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
         world={refs?.world} onOpen={refs?.onOpen} actor={id => sender(id, m)} /></div>}
     </ReplySelectionSurface>
@@ -1237,7 +1247,7 @@ type FailedSelectionReply = {
 }
 
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
-  toast, broadcast, sendLabel = 'reply', sendTitle, below, controls }: {
+  toast, broadcast, sendLabel = 'reply', sendTitle, below, desk, draftKey, quietSent = false, history }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1261,11 +1271,33 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   sendTitle?: string
   /** a row under the box, right-aligned (the ack job's "Acknowledge without reply") */
   below?: ReactNode
-  /** the recipient's own controls, beside the send button (the chats: the
-   *  agent's fast mode and effort, as its desk's message box has them) */
-  controls?: ReactNode
+  /** THE DESK'S MESSAGE BOX, not a look-alike (USER 2026-11-24 m15c78be3a1db:
+   *  "the effort, send, fast, and other buttons should look the same as the
+   *  agent messagebox on the desk; be styled the same and laid out the same").
+   *  With `desk` the box is drawn with the desk composer's own classes and
+   *  order (canvas/desk.tsx: `.cc-composer` > `.cc-btnstack`, the text,
+   *  `.cc-controls` > `.cc-fast-row` over `.cc-primary-row` ending in the round
+   *  `.cc-send`), so every rule that styles the desk's box styles this one.
+   *  `fast` and `primary` are the recipient's own controls for the two rows
+   *  (the urgent option and fast mode; effort); `armed` is an extra state
+   *  class (`urgent-armed`). The text grows as the desk's does. */
+  desk?: { fast?: ReactNode; primary?: ReactNode; armed?: string }
+  /** keep the typed text and the attached files under this key for the app
+   *  session (composerdrafts.ts): they are there again when a box with the
+   *  same key mounts. Sending clears them. */
+  draftKey?: string
+  /** UP / DOWN RECALL, the desk composer's own (composerhistorynav.ts, USER
+   *  2026-11-24 m98937d56f70c): the history of what was sent to this agent,
+   *  the same store its desk's box walks and records into, with the desk's
+   *  rules (the top or bottom row only, the draft set aside and put back). */
+  history?: { slug: string; id: string }
+  /** nothing under the box: no "sending", "sent to …" or "not sent" line (the
+   *  chats, USER 2026-11-24 mafab49c9aaf0, m0afe266f60e9 "remove all the text
+   *  that appears down under the messagebox"). The host says a refused send
+   *  its own way (the chats: the app's toast); the text is back in the box. */
+  quietSent?: boolean
 }) {
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(() => (draftKey ? readComposerDraft(draftKey)?.text : '') ?? '')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const mentionCandidates = useOrgMentionCandidates(slug)
   const mentions = useAgentMentions({
@@ -1304,7 +1336,23 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const [sendState, setSendState] = useState<
     { state: 'sending' | 'sent'; key: string } | { state: 'failed'; key: string; error: string; retained?: boolean } | null>(null)
   const sendSeq = useRef(0)
-  const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
+  const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>(
+    () => (draftKey ? readComposerDraft(draftKey)?.attached : null) ?? [])
+  useEffect(() => { if (draftKey) writeComposerDraft(draftKey, { text: draft, attached }) }, [draftKey, draft, attached])
+  // (always called, as hooks are; with no `history` it has nothing to walk and writes nothing)
+  const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => history ? readHistory(history.slug, history.id) : [])
+  const hist = useHistoryNav({ slug: history?.slug ?? '', id: history?.id ?? '', history: sentHistory, text: draft,
+    setText: (value) => { currentDraft.current.draft = value; setDraft(value) }, field: () => taRef.current })
+  // ⚠ ESCAPE IS THE WALK'S WHILE A RECALLED MESSAGE IS IN THE BOX. A modal's
+  // frame hears Escape on the window before the text box does (useEsc), and
+  // would close the panel under a walk that only meant to return to its draft.
+  // On top of the Escape stack, this entry takes the key instead.
+  const restoreDraft = hist.restore
+  useEsc(useCallback(() => { restoreDraft() }, [restoreDraft]), !!history && hist.at !== null)
+  // the desk's box follows its text's height (composerautosize.ts), also when
+  // a draft is restored or a send empties it
+  const deskLayout = !!desk
+  useLayoutEffect(() => { if (deskLayout) resizeComposer(taRef.current) }, [deskLayout, draft])
   // PER-COMPOSER, never shared and never persisted (user 2026-09-17): opening
   // a ticket reply must not inherit whatever the mail composer was last set
   // to. Deliberately local state rather than the desk's `noticestore`
@@ -1357,6 +1405,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     const sentObjectReply = objectReply
     const sentSelections = selections
     const sentKey=composerKey
+    // sending appends to the history and returns the box to its newest end, as the desk's does
+    if (history) { if (recordSent(history.slug, history.id, t)) setSentHistory(readHistory(history.slug, history.id)); hist.reset() }
     currentDraft.current = { draft: '', attached: [], object: null, blocked: staging.blocked }
     selectionRef.current = []
     setSelections([])
@@ -1429,7 +1479,15 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         </div>
       )}
       <StagingRows staging={staging} />
-      <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '') + (broadcastArmed ? ' broadcast-armed' : '')}
+      {/* the desk composer's own two notes while a recalled message is in the box */}
+      {history && hist.entry && !hist.entry.delivered && <div className="dim composer-history-note" role="status">
+        recalled from history - this message was never sent
+      </div>}
+      {history && hist.stashed && <div className="dim composer-history-note" role="status">
+        press down / esc to return to your draft
+      </div>}
+      <div className={(desk ? 'cc-composer' + (desk.armed ? ' ' + desk.armed : '') : 'mail-reply')
+          + (noticeArmed ? ' notice-armed' : '') + (broadcastArmed ? ' broadcast-armed' : '')}
         onClick={focusComposerBackground}
         data-panel-draft={draft.length > 0 || attached.length > 0 || selections.length > 0 || staging.rows.length > 0
           || sendState?.state === 'sending' || failedSelectionDrafts.length > 0 || undefined}>
@@ -1505,6 +1563,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               if (!sendDisabled && broadcast.members > 0) setBroadcastArmed((v) => !v)
               return
             }
+            if (history && hist.onKeyDown(e)) return
             if (enterKey.sends(e) && (draft.trim() || attached.length) && !sendDisabled) {
               e.preventDefault()
               send()
@@ -1516,14 +1575,26 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             it that way; the new attach button ahead of it made that
             positional match silently pick the wrong element instead of
             failing loudly, which is worse */}
-        {controls && <div className="mail-reply-controls" onClick={(e) => e.stopPropagation()}>{controls}</div>}
-        <button className="mail-reply-send"
-          title={sendTitle ? `${sendTitle} (${enterKey.hint})` : enterKey.hint}
-          disabled={(!draft.trim() && !attached.length) || sendDisabled || staging.rows.length>0} onClick={send}>
-          {sendLabel}
-        </button>
+        {desk
+          ? <div className="cc-controls" onClick={(e) => e.stopPropagation()}>
+              <div className="cc-fast-row">{desk.fast}</div>
+              <div className="cc-primary-row">
+                {desk.primary}
+                {/* the desk's round send, with its glyph; the word is its name */}
+                <button className="cc-send mail-reply-send" aria-label={sendLabel}
+                  title={`${sendTitle ?? sendLabel} (${enterKey.hint})`}
+                  disabled={(!draft.trim() && !attached.length) || sendDisabled || staging.rows.length>0} onClick={send}>
+                  <ArrowUpIcon fontSize="inherit" />
+                </button>
+              </div>
+            </div>
+          : <button className="mail-reply-send"
+              title={sendTitle ? `${sendTitle} (${enterKey.hint})` : enterKey.hint}
+              disabled={(!draft.trim() && !attached.length) || sendDisabled || staging.rows.length>0} onClick={send}>
+              {sendLabel}
+            </button>}
       </div>
-      {sendState && sendState.key === composerKey && (
+      {sendState && sendState.key === composerKey && !quietSent && (
         <div className={'mail-reply-state dim' + (sendState.state === 'failed' ? ' failed' : '')}
           role={sendState.state === 'failed' ? 'alert' : 'status'}>
           {sendState.state === 'failed'

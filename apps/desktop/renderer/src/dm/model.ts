@@ -6,8 +6,12 @@
 // one counterparty of the user's mail (USER m1454e651500e):
 //
 //   • every top-level agent has one: it has a direct line to the user;
-//   • every holder of an audience with the user has one (an agent or a
-//     project), and closing it revokes that grant;
+//   • every LIVE holder of an audience with the user has one (an agent or a
+//     project), and closing it revokes that grant. A grant alone is not a
+//     chat: the audiences read keeps the grants of retired agents (paused)
+//     and of names this tree no longer holds, and none of those can be
+//     written to (USER 2026-11-24 m15c78be3a1db: "a bunch of agents that say
+//     not in this organization");
 //   • an agent whose audience comes through its project has one, listed
 //     under the project's; closing it closes the project's audience;
 //   • Orgtree's own mail (`@system`) is one chat, once it has written;
@@ -138,7 +142,8 @@ const isProject = (n: { kind?: string } | null | undefined) => n?.kind === 'proj
  *  each node's own record while that read is still on its way. */
 function grantedBy(nodes: ReadonlyMap<string, DmNode>, grants: readonly AudienceGrant[] | null): Set<string> {
   const granted = new Set<string>()
-  if (grants) { for (const g of grants) if (g.grantor === USER) granted.add(g.grantee) }
+  // a paused grant is not in effect (the engine pauses a retired agent's)
+  if (grants) { for (const g of grants) if (g.grantor === USER && !g.paused) granted.add(g.grantee) }
   else for (const n of nodes.values()) {
     if ((n.audiences_explicit ?? n.audiences_held ?? []).includes(USER)) granted.add(n.id)
   }
@@ -175,8 +180,6 @@ export interface DmInput {
   doneAsks: readonly AskInfo[]
   /** a mail this window has just read (mailread.ts) */
   isRead?: (id: string) => boolean
-  /** App settings > Display > Hide retired agents */
-  hideRetired?: boolean
   /** the chat on screen: listed whatever its state */
   selected?: string | null
   /** audience requests waiting on the user (the audiences read's `requests`
@@ -188,9 +191,10 @@ const byTime = (a: DmEntry, b: DmEntry) =>
   a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0
 
 /** The chats to list, newest message first; those nobody has written in come
- *  after, in tree order, and retired holders last. */
+ *  after, in tree order. A retired agent, or a sender this tree does not hold,
+ *  is listed (last) only while mail of its is unread or its chat is on screen. */
 export function dmChats(input: DmInput): DmChat[] {
-  const { nodes, grants, box, isRead, hideRetired, selected } = input
+  const { nodes, grants, box, isRead, selected } = input
   const entries = new Map<string, DmEntry[]>()
   const add = (peer: string, e: DmEntry) => {
     const list = entries.get(peer)
@@ -360,11 +364,9 @@ export function dmChats(input: DmInput): DmChat[] {
   for (const n of nodes.values()) {
     if (n.state === 'live' && topLevelAgent(nodes, n)) open(n.id)
   }
-  for (const peer of granted) {
-    const node = nodes.get(peer)
-    if (node && node.state !== 'live' && hideRetired) continue
-    open(peer)
-  }
+  // ⚠ ONLY A LIVE NODE OF THIS TREE. The grants list also names retired
+  // agents and agents of an earlier tree; each used to get an empty row.
+  for (const peer of granted) if (nodes.get(peer)?.state === 'live') open(peer)
   // every agent that reaches the user only through a project that holds the
   // audience, also one that has never written: it is listed under the project,
   // which folds (USER 2026-11-23 mb673f241b650)
@@ -373,7 +375,7 @@ export function dmChats(input: DmInput): DmChat[] {
     if (viaOf(n, grants, granted).some(p => chats.has(p))) open(n.id)
   }
   // whoever asks for an audience: the request is its chat
-  for (const peer of asking.keys()) open(peer)
+  for (const peer of asking.keys()) if (nodes.get(peer)?.state === 'live') open(peer)
   // …and whoever else has written
   for (const [peer, list] of entries) {
     if (chats.has(peer)) continue

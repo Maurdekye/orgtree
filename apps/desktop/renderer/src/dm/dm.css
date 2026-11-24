@@ -28,9 +28,14 @@
 .settings.dm-panel > .mailpane { flex: 1 1 0; height: auto; min-height: 0; }
 
 /* ------------------------------------------------------------ the chat list */
+/* the column holds the rows' scroller and, over it, the New chat sweep */
 .mailer-list.dm-list {
   width: 320px; max-width: 340px; display: flex; flex-direction: column;
-  background: var(--side); overflow-y: auto; padding-bottom: 6px;
+  background: var(--side); overflow: hidden; position: relative; padding: 0;
+}
+.dm-list-rows {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  overflow-y: auto; padding-bottom: 6px;
 }
 .dm-list-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 6px; flex: none; }
 .dm-panel .dm-list-head .dm-search {
@@ -45,6 +50,9 @@
 .dm-list-foot { margin-top: auto; padding: 8px 10px 2px; flex: none; }
 .dm-panel .dm-list-foot button { font-size: 12px; padding: 3px 10px; }
 
+/* anywhere on a row the hover is the agent link's (the row's own, `agentTooltipProps`): its picture's
+   model tooltip would be a second, different one, so the picture lets the pointer through */
+.dm-row > .dm-av { pointer-events: none; }
 .dm-row {
   display: flex; gap: 10px; align-items: center; flex: none;
   padding: 8px 10px; margin: 1px 6px; border-radius: 10px;
@@ -180,7 +188,8 @@
 
 .dm-timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 22px 16px; }
 .dm-timeline-inner { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; }
-.dm-panel .dm-older { align-self: center; margin: 8px 0; font-size: 12px; padding: 3px 12px; border-radius: 12px; color: var(--dim); }
+/* older messages load by themselves as the top comes near: this only says so while a page is on its way */
+.dm-panel .dm-older { align-self: center; margin: 8px 0; font-size: 12px; color: var(--dim); }
 .dm-history-error { align-self: center; font-size: 12.5px; color: var(--bad); margin: 6px 0; }
 .dm-day { display: flex; justify-content: center; margin: 14px 0 8px; pointer-events: none; }
 .dm-day span {
@@ -231,6 +240,13 @@
 
 /* the mail's own body and files, as the reading pane draws them, inside a bubble */
 .dm-bubble .mailer-body { font-size: inherit; line-height: inherit; }
+/* EVEN PADDING (USER 2026-11-24 m8577f7f7f96e: "the padding and spacing atop most of my messages is uneven").
+   A message typed in the app is a typed event, and its body brought the event card's own 8px above and
+   below the text into the bubble; the reading pane's rule took only its sides away. In a bubble the
+   bubble's padding is the only one. A whole card in a bubble (`.typed`) keeps its own. */
+.dm-bubble:not(.typed) .mailer-body .event-body { padding: 0; }
+/* the quote card sits as far from the top edge as from the sides (7px + 4px = the 11px beside it) */
+.dm-bubble > .reply-preview { margin: 4px 0 6px; }
 .dm-bubble .mailer-body > :first-child { margin-top: 0; }
 .dm-bubble .mailer-body > :last-child { margin-bottom: 0; }
 .dm-bubble .mailer-body p { margin: 0 0 6px; }
@@ -325,12 +341,10 @@
 .dm-panel .ask-message-foot .ask-skip-all:hover { color: var(--ink-strong); }
 
 /* ------------------------------------------------------------ the message box */
-.dm-compose { flex: none; padding: 8px 18px 12px; border-top: 1px solid var(--line-soft); background: var(--bg); }
+/* the page's own type size under the box, as a desk has it (`.desk-body`), not the settings window's */
+.dm-compose { flex: none; padding: 8px 18px 12px; border-top: 1px solid var(--line-soft); background: var(--bg); font: 13px/1.5 var(--sans); }
 .dm-compose > * { max-width: 880px; margin-left: auto; margin-right: auto; }
-.dm-compose .mail-reply { border-radius: var(--dm-radius); }
-/* the agent's fast mode and effort, beside the send button */
-.mail-reply-controls { display: flex; align-items: center; gap: 6px; flex: none; }
-.dm-compose .mail-reply-controls .cc-eff { height: 24px; box-sizing: border-box; justify-content: center; }
+/* the message box is the desk's own (`.cc-composer`, styles.css): nothing of it is restyled here */
 .dm-replybar {
   display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px;
   padding: 6px 6px 6px 12px; border-radius: 10px; background: var(--panel);
@@ -353,4 +367,45 @@
 .dm-panel .dm-none button { display: inline-flex; align-items: center; gap: 6px; }
 
 /* the New chat picker: the agents list, in a dialog */
-.dm-newchat-hint { font-size: 12.5px; padding: 0 4px 6px; }
+/* NEW CHAT: the canvas's agents list in its own panel box (`.tray-panel`),
+   swept out from the left over the chat list. It fills that column, so it is
+   never taller than the inbox; its rows scroll inside it. The page's own type
+   size, not the settings window's, so a row reads exactly as on the canvas. */
+.dm-list > .tray-panel.dm-newchat {
+  position: absolute; inset: 0; z-index: 3; box-sizing: border-box;
+  min-width: 0; max-width: none; max-height: none; border-radius: 0; border-width: 0 1px 0 0;
+  box-shadow: 8px 0 24px rgba(0, 0, 0, .35);
+  font: 13px/1.5 var(--sans);
+  animation: dm-sweep .18s ease-out;
+}
+.dm-list > .tray-panel.dm-newchat.closing { animation: dm-sweep-back .16s ease-in forwards; }
+@keyframes dm-sweep { from { transform: translateX(-100%); } }
+@keyframes dm-sweep-back { to { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .dm-list > .tray-panel.dm-newchat, .dm-list > .tray-panel.dm-newchat.closing { animation: none; }
+}
+.dm-newchat-bar { display: flex; align-items: center; gap: 8px; flex: none; padding: 2px 2px 4px 6px; }
+.dm-newchat-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-strong); }
+.dm-panel .dm-newchat-bar button.dm-newchat-close {
+  width: 22px; height: 22px; padding: 0; font-size: 14px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* THE CHATS FILL THEIR FRAME, in the app's own modal, pinned and popped out
+   (USER 2026-11-24 mf34770b849e9 "when popped out, remove the padding";
+   m779fd59ba17c "remove the same extra padding for the pinned version and
+   also for the normal modal version"): no margin around the two panes and no
+   frame inside the frame. The padding is the published pair the window's
+   title bar cancels (styles.css `.settings`), so a pinned or popped-out bar
+   stays flush. */
+.settings.dm-panel { --panel-pad-y: 0px; --panel-pad-x: 0px; padding: 0; gap: 0; overflow: hidden; }
+.dm-panel .mailer { border: 0; border-radius: 0; }
+/* the modal keeps its title and its controls (classic, pop out, pin, close): one row over the panes,
+   the controls placed in it as an agent's settings window places its own */
+.settings.dm-panel:not(.modalpin-win):not(.modalpin-detached) { position: relative; }
+.settings.dm-panel:not(.modalpin-win):not(.modalpin-detached) > h3 {
+  flex: none; margin: 0; padding: 9px 180px 9px 14px; font-size: 14px; border-bottom: 1px solid var(--line-soft);
+}
+.settings.dm-panel:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar { position: absolute; top: 8px; right: 10px; margin: 0; }
+/* a window of its own has the window's frame, not a panel's */
+.popout-mount .settings.dm-panel { border: 0; border-radius: 0; box-shadow: none; }

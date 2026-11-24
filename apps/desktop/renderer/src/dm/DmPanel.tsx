@@ -69,6 +69,11 @@ import { ConfirmModal } from '../canvas/modals'
 import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
 import { AgentEffortButton, TrayStatus } from '../canvas/desk'
 import { FastModeButton } from '../canvas/fastmodebutton'
+import { UrgentAgentOptions } from '../canvas/dnd'
+import type { UrgentAgentMail } from '../canvas/dnd'
+import type { LocateMail } from '../canvas/mailreply'
+import { resolveRef } from '../canvas/reflinks'
+import { readDraftList, writeDraftList } from '../composerdrafts'
 import { openSettingsAt } from '../canvas/settingskit'
 import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
@@ -83,7 +88,7 @@ import type { RefRoutes } from '../canvas/reflinks'
 import { JobAckPane, needsAck } from '../canvas/jobackpane'
 import { acknowledgeJob } from '../canvas/jobacks'
 import {
-  audienceGrantTooltip, isMailNotice, jumpKey, USER, useEsc, useHideRetired, usePolled,
+  audienceGrantTooltip, isMailNotice, jumpKey, USER, useEsc, usePolled,
 } from '../canvas/shared'
 import type { CanvasNode, MailRow } from '../canvas/shared'
 import { decodeEventRow } from '../events/decode'
@@ -107,6 +112,24 @@ const GROUP_GAP_MS = 5 * 60000
 /** How many resolved requests stay in the history: the classic mailbox's own
  *  number (App.tsx `askDone`, ledger ASK_HISTORY_KEEP). */
 const ASK_HISTORY_KEEP = 8
+/** A CHAT DRAWS A WINDOW OF ITS HISTORY (USER 2026-11-24 m46fce69c48c9: "needs
+ *  to load a maximum of X messages and dynamically load more as i scroll up").
+ *  Hubchat's numbers (its lib/store.ts PAGE, Conversation.tsx TRIM_AT and
+ *  TRIM_KEEP): the newest 50 when it opens, 50 more each time the top comes
+ *  near, and back at the newest message with more than 300 drawn it keeps 100. */
+export const DM_PAGE = 50
+export const DM_TRIM_AT = 300
+export const DM_TRIM_KEEP = 100
+/** how near the top (px) the next older page is asked for (Hubchat's 400) */
+const NEAR_TOP = 400
+/** The mailbox's history is one list for every chat, so a page may hold
+ *  nothing of this one. Without the reader's hand on it, a chat asks for at
+ *  most this many such pages in a row. */
+const IDLE_PAGES = 3
+/** the most pages a jump to a quoted message reads before it gives up */
+const SEEK_PAGES = 40
+/** the key a chat's unsent text, files and reply targets are kept under */
+export const dmDraftKey = (slug: string, peer: string) => `dm:${slug}/${peer}`
 
 export interface DmPanelProps {
   slug: string
@@ -209,7 +232,6 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   const outbox = useMailboxHistory(slug, rawBox, 'sent', true, readBump)
   const [audBump, setAudBump] = useState(0)
   const aud = usePolled(() => getAudiences(slug), [slug], 5000, audBump)
-  const hideRetired = useHideRetired()
   // a mail read here, and a request answered here, show so on the click
   const reads = useLocalReads()
   useSubmittedAsks()
@@ -281,9 +303,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
 
   const chats = useMemo(() => dmChats({
     nodes, grants, box, openAsks: open, doneAsks: [...done, ...answered],
-    isRead: id => readLocally(slug, id), hideRetired, selected: sel, requests,
+    isRead: id => readLocally(slug, id), selected: sel, requests,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [nodes, grants, box, askSig, reads, hideRetired, sel, slug, requests])
+  }), [nodes, grants, box, askSig, reads, sel, slug, requests])
   const current = sel ? chats.find(c => c.peer === sel) ?? null : null
 
   // WHICH CHAT IT OPENS ON, once per org: the one holding the oldest thing
@@ -406,9 +428,28 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     setLosing([target, ...dmAudienceLoss(nodes, grants, target)])
   }, [nodes, grants])
 
-  const [picking, setPicking] = useState(false)
+  // NEW CHAT SWEEPS OUT OVER THE CHAT LIST (USER 2026-11-24 m740c8cb361d0: "a
+  // sweep out from the left side of the panel covering the dms list"). It is
+  // part of this panel, in a window of its own too: never a second surface.
+  const [picking, setPicking] = useState<'open' | 'closing' | null>(null)
+  const mailer = useRef<HTMLDivElement | null>(null)
+  const openPicker = useCallback(() => {
+    setPicking('open')
+    // in a narrow panel the list is an overlay: bring it out, the sweep is in it
+    const el = mailer.current
+    if (el?.classList.contains('narrow-list') && !el.classList.contains('narrow-list-open')) {
+      el.querySelector<HTMLButtonElement>('.mailer-listtoggle')?.click()
+    }
+  }, [])
+  const closePicker = useCallback(() => setPicking(p => p ? 'closing' : null), [])
+  // under the sweep the rows are not reachable (set by hand: React 18 has no prop for `inert`)
+  const listRows = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (picking === 'open') listRows.current?.setAttribute('inert', '')
+    else listRows.current?.removeAttribute('inert')
+  }, [picking])
   const startChat = useCallback((id: string) => {
-    setPicking(false)
+    closePicker()
     const node = nodes.get(id)
     const has = chats.find(c => c.peer === id)
     // it can already write to the user, or cannot be written to: just open it
@@ -416,13 +457,13 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     audienceAction(slug, 'grant', id)
       .then(() => { setAudBump(n => n + 1); refresh?.(); select(id) })
       .catch((e: Error) => toast([`could not open a chat with ${id}: ${e.message}`]))
-  }, [nodes, chats, slug, select, refresh, toast])
+  }, [nodes, chats, slug, select, refresh, toast, closePicker])
 
   // approving a request is the existing grant; it rejects when the engine refuses
   const approve = useCallback((peer: string) =>
     audienceAction(slug, 'grant', peer).then(() => { setAudBump(n => n + 1); refresh?.() }),
   [slug, refresh])
-  const agentSettings = onAgentSettings ?? ((id: string) => openSettingsAt({ scope: 'agent', org: slug, agentId: id }))
+  const agentSettings = onAgentSettings ?? ((id: string) => openSettingsAt({ scope: 'agent', org: slug, agentId: id, over: true }))
 
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
@@ -448,12 +489,14 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   const focusAgent = onFocusAgent ? (id: string) => { close(); onFocusAgent(id) } : undefined
 
   const list = (
-    <div className="mailer-list dm-list" role="list" aria-label="Chats">
+    <div className="mailer-list dm-list">
+      {/* the rows scroll inside the column, so the sweep covers the column and stays put */}
+      <div className="dm-list-rows" role="list" aria-label="Chats" ref={listRows}>
       <div className="dm-list-head">
         <input className="mail-filter dm-search" placeholder="search chats…" aria-label="Search chats"
           value={query} onChange={e => setQuery(e.target.value)} />
         <button type="button" className="iconbtn dm-new" title="New chat" aria-label="New chat"
-          onClick={() => setPicking(true)}><NewChatIcon fontSize="inherit" /></button>
+          onClick={openPicker}><NewChatIcon fontSize="inherit" /></button>
       </div>
       {box == null ? <div className="dim pad">loading…</div>
         : !shown.length ? <div className="dim pad dm-empty-list">{q ? 'no chat matches' : 'no chats yet'}</div>
@@ -467,6 +510,9 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
           .then(() => { setReadBump(n => n + 1); refresh?.() })
           .catch((e: Error) => toast([`error: ${e.message}`]))}>Mark all read</button>
       </div>}
+      </div>
+      {picking && <DmNewChat tree={tree} nodes={nodes} refs={refs} open={chats} closing={picking === 'closing'}
+        close={closePicker} onClosed={() => setPicking(null)} onPick={startChat} />}
     </div>
   )
 
@@ -478,12 +524,14 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     <PinFrame kind="inbox" title="Your inbox" panel="settings wide dm-panel" close={close} headerActions={headerActions}>
       <h3><ChatBubbleIcon fontSize="inherit" /> Your inbox</h3>
       <div className="mailpane">
-        {/* a chat row, and New chat, step out of the narrow overlay: what they open is behind it */}
-        <CollapsibleMailer collapsible listLabel="chat list" list={list} className="dm" rowSelector=".dm-row, .dm-new">
+        {/* a chat row, and an agent picked in New chat, close the narrow overlay: the chat they open is behind it */}
+        <CollapsibleMailer collapsible listLabel="chat list" list={list} className="dm" rootRef={mailer}
+          rowSelector=".dm-row, .dm-newchat .tray-row">
           <div className="mailer-read dm-conv">
             {current
               ? <DmConversation key={current.peer} slug={slug} tree={tree} chat={current} nodes={nodes}
                   toast={toast} refs={refs} onFocusAgent={focusAgent} flash={flash}
+                  onFlash={key => setFlash({ key, seq: Date.now() })}
                   hasMore={inbox.hasMore || outbox.hasMore} loadingMore={inbox.loading || outbox.loading}
                   onLoadMore={() => { inbox.loadMore(); outbox.loadMore() }}
                   historyError={inbox.error ?? outbox.error}
@@ -507,7 +555,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                   <ChatBubbleIcon fontSize="inherit" />
                   <b>{box == null ? 'Loading your chats…' : chats.length ? 'Pick a chat' : 'No chats yet'}</b>
                   <span className="dim">Every top-level agent and every agent holding an audience with you has a chat here.</span>
-                  <button type="button" onClick={() => setPicking(true)}><NewChatIcon fontSize="inherit" /> New chat</button>
+                  <button type="button" onClick={openPicker}><NewChatIcon fontSize="inherit" /> New chat</button>
                 </div>}
           </div>
         </CollapsibleMailer>
@@ -515,8 +563,6 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       {asking && <ConfirmModal title={`Revoke project ${asking.target}'s audience with you?`}
         body={projectCloseBody(asking.lose)} confirmLabel="Revoke"
         onConfirm={() => revoke(asking.peer, asking.stays, asking.target)} close={() => setAsking(null)} />}
-      {picking && <DmNewChat tree={tree} nodes={nodes} refs={refs} open={chats}
-        close={() => setPicking(false)} onPick={startChat} />}
     </PinFrame>
   )
 }
@@ -613,8 +659,9 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, onOpen, onC
       <DmAvatar chat={chat} />
       <div className="dm-row-main">
         <div className="dm-row-l1">
+          {/* no tooltip of its own: the whole row shows the agent link's hover (USER 2026-11-24 mc6fd4b5153a7, m2840ae420194) */}
           <button type="button" className="dm-row-name" aria-current={selected || undefined}
-            title={`Open the chat with ${name}`}>{name}</button>
+            aria-label={`Open the chat with ${name}`}>{name}</button>
           {(chat.request?.at || last) && <ListAge at={chat.request?.at || last!.at} />}
         </div>
         <div className="dm-row-l2">
@@ -663,12 +710,14 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
   </>
 }
 
-function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, hasMore, loadingMore,
+function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, hasMore, loadingMore,
   onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
   onFocusAgent?: (id: string) => void
   flash: { key: string; seq: number } | null
+  /** show this entry of the chat: scroll it into view and mark it */
+  onFlash: (key: string) => void
   hasMore: boolean; loadingMore: boolean; onLoadMore: () => void
   historyError: string | null; onRetryHistory: () => void
   onClose: () => void
@@ -683,18 +732,28 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const peer = chat.peer
   const name = dmName(chat)
   const rule = dmClose(chat)
-  const entries = chat.entries
+  /** everything of this chat the mailbox has loaded, oldest first */
+  const all = chat.entries
   const active = useWindowActive()
 
   // WHERE THE UNREAD MAIL BEGAN when the chat opened: the "new messages" line
   // stays there while the chat is on screen, though the mail below it is read
   // as soon as it is seen.
-  const [newFrom] = useState(() => entries.find(e => e.unread && e.mail)?.key ?? null)
+  const [newFrom] = useState(() => all.find(e => e.unread && e.mail)?.key ?? null)
+
+  // ONLY A WINDOW OF IT IS DRAWN (DM_PAGE): the newest page when the chat
+  // opens, wide enough to hold where the unread mail begins. `older` widens it.
+  const [shown, setShown] = useState(() => {
+    const from = all.findIndex(e => e.unread)
+    return Math.max(DM_PAGE, from < 0 ? 0 : all.length - from + 5)
+  })
+  const start = Math.max(0, all.length - shown)
+  const entries = useMemo(() => (start ? all.slice(start) : all), [all, start])
 
   // Seeing a chat reads it: its unread mail is marked read while the window
   // has the user. A save that was refused is not tried again on its own.
   const tried = useRef(new Set<string>())
-  const unread = entries.filter(e => e.unread && e.mail && !tried.current.has(e.key)).map(e => e.mail as MailEntry)
+  const unread = all.filter(e => e.unread && e.mail && !tried.current.has(e.key)).map(e => e.mail as MailEntry)
   const unreadSig = unread.map(m => m.id).join('|')
   useEffect(() => {
     if (!active || !unread.length) return
@@ -704,8 +763,13 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }, [active, unreadSig])
 
   // the messages the next send answers (the bubbles' Reply), oldest first
-  const [replyIds, setReplyIds] = useState<string[]>([])
-  const replies = replyIds.map(id => entries.find(e => e.key === id)?.mail).filter((m): m is MailRow => !!m)
+  // (kept with the unsent text while the app runs: composerdrafts.ts)
+  const draftKey = dmDraftKey(slug, peer)
+  const [replyIds, setReplyIds] = useState<string[]>(() => readDraftList(draftKey))
+  useEffect(() => { writeDraftList(draftKey, replyIds) }, [draftKey, replyIds])
+  const replies = replyIds.map(id => all.find(e => e.key === id)?.mail).filter((m): m is MailRow => !!m)
+  // the desk's urgent option, for an agent in Do Not Disturb; one send, like a notice
+  const [urgent, setUrgent] = useState<UrgentAgentMail | undefined>()
   const [replyError, setReplyError] = useState('')
   const boxRef = useRef<HTMLDivElement>(null)
   const addReply = (m: MailRow) => {
@@ -713,7 +777,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (replyIds.length >= 50 && !replyIds.includes(m.id)) { setReplyError('A multi-reply can answer at most 50 messages.'); return }
     setReplyError('')
     setReplyIds(ids => ids.includes(m.id) ? ids : [...ids, m.id])
-    boxRef.current?.querySelector<HTMLTextAreaElement>('.mail-reply textarea')?.focus()
+    boxRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
   }
   useEsc(useCallback(() => setReplyIds([]), []), replyIds.length > 0)
 
@@ -739,11 +803,121 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     }
     if (pinned.current) el.scrollTop = el.scrollHeight
   }, [count, peer, newFrom, replies.length])
+  // OLDER MESSAGES COME BY THEMSELVES AS THE TOP COMES NEAR, a page at a time,
+  // and what is on screen stays where it is (USER 2026-11-24 m5004af1477b1:
+  // "clicking load older messages at the top makes it immediately jump ...
+  // instead of staying in place. also it should just load them automatically
+  // on scroll lazily"). Hubchat's way (its Conversation.tsx, 22202d7): the
+  // anchor is the first message in view and how far below the top it sits; it
+  // is put back there when the older rows are in, however the rest changed.
+  // First the loaded mail not drawn yet, then the mailbox's next page.
+  const anchor = useRef<{ key: string; off: number; page: boolean; seen: boolean; at: number } | null>(null)
+  const idle = useRef(0)
+  const before = useRef(0)
+  const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length })
+  state.current = { start, hasMore, loadingMore, historyError, count: all.length }
+  const older = useCallback((byHand: boolean) => {
+    const el = scroller.current, now = state.current
+    if (!el) return
+    if (byHand) idle.current = 0
+    if (anchor.current && Date.now() - anchor.current.at < 10000) return
+    const page = now.start === 0
+    // A VIEW THE CHAT DOES NOT FILL YET keeps asking until it overflows or the
+    // history ends (USER 2026-11-24 m97cb021011a2): `nearTop` holds for it
+    // too. ⚠ The mailbox's history is every chat's, so a chat with little
+    // mail of its own would otherwise read the whole mailbox just by being
+    // opened: after IDLE_PAGES pages in a row that held nothing of this chat
+    // it stops, until the reader scrolls (or wheels up at the top).
+    if (page && (!now.hasMore || now.loadingMore || now.historyError || idle.current >= IDLE_PAGES)) return
+    const top = el.getBoundingClientRect().top
+    // at the newest message the view stays there (the bottom pin below); anywhere else the row in view holds
+    const row = pinned.current ? undefined
+      : [...el.querySelectorAll<HTMLElement>('[data-dm-entry]')].find(r => r.getBoundingClientRect().bottom > top)
+    anchor.current = row ? { key: row.dataset.dmEntry!, off: row.getBoundingClientRect().top - top, page, seen: false, at: Date.now() } : null
+    if (!page) { setShown(n => n + DM_PAGE); return }
+    before.current = now.count
+    onLoadMore()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useLayoutEffect(() => {
+    const el = scroller.current, a = anchor.current
+    if (!el || !a) return
+    const row = [...el.querySelectorAll<HTMLElement>('[data-dm-entry]')].find(r => r.dataset.dmEntry === a.key)
+    if (row) {
+      const drift = row.getBoundingClientRect().top - el.getBoundingClientRect().top - a.off
+      if (drift) el.scrollTop += drift
+    }
+    // held until the older rows are in: the window widened in this commit, or the page has arrived
+    if (!a.page || (a.seen && !loadingMore)) anchor.current = null
+    else if (loadingMore) a.seen = true
+  })
+  const nearTop = useCallback((byHand: boolean) => {
+    const el = scroller.current
+    if (el && el.scrollTop < NEAR_TOP) older(byHand)
+  }, [older])
+  // when the chat opens, and each time older rows are in: go on while the top is near
+  useEffect(() => { nearTop(false) }, [nearTop, shown])
+  // a taller view (the window resized, the panel popped out) may not be full any more
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const watch = new ResizeObserver(() => nearTop(false))
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [nearTop])
+  const wasLoading = useRef(false)
+  useEffect(() => {
+    if (loadingMore) { wasLoading.current = true; return }
+    if (!wasLoading.current) return
+    wasLoading.current = false
+    idle.current = state.current.count > before.current ? 0 : idle.current + 1
+    nearTop(false)
+  }, [loadingMore, nearTop])
   const onScroll = () => {
     const el = scroller.current
     if (!el) return
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    nearTop(true)
+    // back at the newest message, a long scroll-back is let go again (Hubchat's trim)
+    if (pinned.current && shown > DM_TRIM_AT && !anchor.current && !seek) setShown(DM_TRIM_KEEP)
   }
+  // a mail outside the drawn window that must be shown (a jump, a quote): widen to it
+  useEffect(() => {
+    if (!flash) return
+    const at = all.findIndex(e => e.key === flash.key)
+    if (at >= 0 && at < start) setShown(all.length - at + 5)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flash])
+
+  // A QUOTE FINDS ITS ORIGINAL IN THIS CHAT (USER 2026-11-24 m463138266d06,
+  // me65c2c6116dc): the message is shown here, also one the mailbox has not
+  // loaded yet, which is read a page at a time until it is in. Only when the
+  // history ends without it does the click do what it does elsewhere.
+  const [seek, setSeek] = useState<{ id: string; pages: number; elsewhere?: () => void } | null>(null)
+  const holds = (id: string) => all.find(e => e.key === id || e.copies?.includes(id))
+  const locateMail: LocateMail = (id, from, elsewhere) => {
+    const hit = holds(id)
+    if (hit) return () => onFlash(hit.key)
+    // an older message of this conversation: the user's own, the agent's, or any in a project's thread
+    const ours = from === USER || from === 'user' || from === peer || chat.kind === 'project'
+    return ours && hasMore ? () => setSeek({ id, pages: 0, elsewhere }) : null
+  }
+  useEffect(() => {
+    if (!seek) return
+    const hit = holds(seek.id)
+    if (hit) { setSeek(null); onFlash(hit.key); return }
+    if (loadingMore) return
+    if (historyError || !hasMore || seek.pages >= SEEK_PAGES) {
+      setSeek(null)
+      if (seek.elsewhere && !historyError) seek.elsewhere()
+      else toast([historyError ? 'Could not load older mail to find that message.' : 'That message is not in this chat\u2019s history any more.'])
+      return
+    }
+    setSeek({ ...seek, pages: seek.pages + 1 })
+    onLoadMore()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seek, all, hasMore, loadingMore, historyError])
+
   // a reference jumped here: bring that bubble into view, once per request
   const flashed = useRef<number | null>(null)
   useLayoutEffect(() => {
@@ -760,6 +934,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const send = (text: string, attachments?: string[], notice?: boolean, _broadcast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
+    const urgency = chat.node?.dnd ? urgent : undefined
+    if (urgent) setUrgent(undefined)
     const mailTarget = (m: MailRow) => ({ kind: 'mail' as const, org: slug, box: 'user' as const, id: m.id })
     // WHO A REPLY IN A PROJECT'S CHAT GOES TO: the member whose bubble it
     // answers, directly; or the project, when it follows up on the user's own
@@ -790,13 +966,13 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       // A NEW MESSAGE TYPED IN THIS PANEL, not a reply: it says so to the agent
       // (USER 2026-11-23 m79c022311f95, m034b5c83b8f2), which then answers by
       // mail to the user, the only thing this panel shows.
-      return approved.then(() => sendPanelMessage(slug, peer, text, attachments, notice)).then(sent).catch(failed)
+      return approved.then(() => sendPanelMessage(slug, peer, text, attachments, notice, urgency)).then(sent).catch(failed)
     }
     // a reply: the classic mailbox's own call and target shapes
     const target = selections?.length
       ? [...(objectTarget ? [objectTarget] : []), ...targets.map(mailTarget), ...selections]
       : objectTarget ?? (targets.length > 1 ? targets.map(mailTarget) : mailTarget(targets[0]!))
-    return approved.then(() => sendLinkedReply(slug, recipient, text, target, attachments, notice))
+    return approved.then(() => sendLinkedReply(slug, recipient, text, target, attachments, notice, urgency))
       .then(async (receipt) => {
         setReplyIds([])
         sent(receipt)
@@ -819,6 +995,16 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }
   const senderChip = (id: string) => <SenderChip id={id} nodes={nodes} onFocusAgent={onFocusAgent} />
 
+  /** WHOSE MAILBOX HOLDS THIS MESSAGE TOO, and the way there (USER 2026-11-24
+   *  m107404c86d5a: "a context menu entry for view in @agent's inbox"): the
+   *  agent this bubble is from or to, through the panel's own route for a
+   *  mail of a node's box. Not for Orgtree's own mail or an outside sender. */
+  const inboxOf = (e: DmEntry, m: MailRow): { agent: string; open: () => void } | undefined => {
+    const agent = e.via ?? (chat.kind === 'agent' || chat.kind === 'project' ? peer : '')
+    if (!agent || !m.id || !nodes.has(agent)) return undefined
+    const target = resolveRef({ kind: 'mail', org: slug, box: 'node', node: agent, id: m.id }, refs.world)
+    return target.outcome === 'ready' ? { agent, open: () => refs.onOpen(target) } : undefined
+  }
   const rows: ReactNode[] = []
   let day = ''
   let prev: DmEntry | null = null
@@ -826,7 +1012,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const d = dayKey(e.at)
     if (d !== day) { rows.push(<div className="dm-day" key={'day' + d}><span>{dayLabel(e.at)}</span></div>); day = d; prev = null }
     if (newFrom && e.key === newFrom) {
-      const n = entries.filter(x => !x.out && x.mail && x.at >= e.at).length
+      const n = all.filter(x => !x.out && x.mail && x.at >= e.at).length
       rows.push(<div className="dm-newmark" key="new">{n} new message{n === 1 ? '' : 's'}</div>)
     }
     const first = !prev || prev.out !== e.out || !!e.ask || !!prev.ask
@@ -839,7 +1025,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       rows.push(<DmBubble key={e.key} entry={e} m={m} first={first} slug={slug} refs={refs} toast={toast}
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
-        sender={senderChip} fileHref={fileHref} mdBase={mdBase}
+        sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
+        inbox={inboxOf(e, m)}
         onReply={m.id && chat.live && (!e.out || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
         onDelete={!e.out && m.id ? () => onDelete(m as MailEntry) : undefined}
@@ -890,12 +1077,14 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           {...closeHoverProps(onCloseHover)}
           onClick={onClose}><CloseIcon fontSize="inherit" /></button>
       </div>
-      <div className="dm-timeline" ref={scroller} onScroll={onScroll} role="log" aria-label={`Messages with ${name}`}>
+      <div className="dm-timeline" ref={scroller} onScroll={onScroll} role="log" aria-label={`Messages with ${name}`}
+        data-dm-drawn={entries.length} data-dm-loaded={all.length}
+        onWheel={(e) => { if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
         <div className="dm-timeline-inner">
-          {hasMore && <button type="button" className="dm-older" disabled={loadingMore}
-            onClick={onLoadMore}>{loadingMore ? 'loading…' : 'Load older messages'}</button>}
+          {/* no button: older messages load as the top comes near (`older`) */}
+          {loadingMore && <div className="dm-older" role="status">loading older messages…</div>}
           {historyError && <div role="alert" className="dm-history-error">Could not load older mail. <button onClick={onRetryHistory}>Retry</button></div>}
-          {!entries.length && <div className="dm-start">
+          {!all.length && <div className="dm-start">
             <DmAvatar chat={chat} />
             <b>{name}</b>
             <span className="dim">{canWrite ? 'No messages yet. What you write here reaches it as mail from you.'
@@ -919,16 +1108,25 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         {replyError && <div role="alert" className="mail-reply-state failed">{replyError}</div>}
         {canWrite
           ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions
+              draftKey={draftKey} quietSent
+              /* Up and Down walk what was sent to this agent: its desk's own history */
+              history={chat.kind === 'agent' ? { slug, id: peer } : undefined}
               placeholder={!replies.length ? `message ${peer}…`
                 : chat.kind !== 'project' ? `reply to ${peer}…`
                 : replies[0]!.from === USER ? `follow up on your message to ${peer}…` : `reply to ${replies[0]!.from}…`}
               sendLabel={replies.length ? 'reply' : 'send'} onSend={send}
-              /* the agent's own fast mode and effort, the desk message box's
-                 controls and saves (USER 2026-11-23 mae2b1aa37a9b) */
-              controls={agent ? <>
-                <FastModeButton node={agent} slug={slug} toast={toast} />
-                <AgentEffortButton node={agent} slug={slug} toast={toast} />
-              </> : undefined} />
+              /* THE DESK'S MESSAGE BOX (USER 2026-11-24 m15c78be3a1db): its
+                 layout and classes (MailReplyBox `desk`), and for an agent its
+                 own controls with the desk's saves: the urgent option and fast
+                 mode over effort and send (USER 2026-11-23 mae2b1aa37a9b) */
+              desk={{
+                armed: agent?.dnd && urgent ? 'urgent-armed' : '',
+                fast: agent ? <>
+                  <UrgentAgentOptions active={agent.dnd} value={urgent} onChange={setUrgent} />
+                  <FastModeButton node={agent} slug={slug} toast={toast} />
+                </> : undefined,
+                primary: agent ? <AgentEffortButton node={agent} slug={slug} toast={toast} /> : undefined,
+              }} />
           : <div className="dm-nowrite dim">{chat.kind === 'system' ? 'Orgtree’s own mail cannot be answered.'
               : chat.node ? `${peer} is retired and cannot be written to.` : `${name} cannot be written to from here.`}</div>}
       </div>
@@ -937,8 +1135,11 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  onReply, onRead, onDelete, onAckJob }: {
+  locateMail, inbox, onReply, onRead, onDelete, onAckJob }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
+  locateMail: LocateMail
+  /** the agent whose mailbox holds this message too, and the way to it there */
+  inbox?: { agent: string; open: () => void }
   /** a message the system sent: tagged S (USER 2026-11-23 mf47548121ae5) */
   system?: boolean
   flash: number | null
@@ -982,6 +1183,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       ...(onReply ? [{ label: 'Reply', onSelect: onReply }] : []),
       ...(onRead ? [{ label: 'Mark as read', onSelect: onRead }] : []),
       ...(onDelete ? [{ label: 'Delete', onSelect: onDelete }] : []),
+      ...(inbox ? [{ label: `View in @${inbox.agent}\u2019s inbox`, onSelect: inbox.open }] : []),
     ],
     copy, canCopy: mailRowCopyText(m as CopyableMailRow, PROFILE).trim() !== '', reference,
     copyReference: () => { if (reference) void copyToClipboard(ref.current, reference).then(ok => toast([ok ? `copied the reference ${reference}` : 'could not copy the reference — clipboard unavailable'])) },
@@ -1010,7 +1212,9 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
               title={`a job project ${queued.name}'s mail queue handed to this mailbox`}>project job · {queued.name}</span>}
           </div>}
           {m.urgent && m.urgent_reason && <div className="urgent-why">{m.urgent_reason}</div>}
-          <MailMessageBody m={m} standalone={!ordinary} org={slug} refs={refs} mdBase={mdBase} sender={sender} />
+          {/* the quote card says what is answered, and finds it in this chat: no "Context" fold (USER 2026-11-24 m78cc5cf2c677) */}
+          <MailMessageBody m={m} standalone={!ordinary} org={slug} refs={refs} mdBase={mdBase} sender={sender}
+            locateMail={locateMail} context={false} />
           <MailAttachments m={m} fileHref={fileHref} />
           {onAckJob && needsAck(queued) && <JobAckPane job={queued} onAck={onAckJob} target={m.from} slug={slug} toast={toast} />}
           {job && <div className={'dm-job dm-job-' + job.state} title={jobTitle}>
@@ -1072,14 +1276,23 @@ function DmAsk({ entry, slug, tree, node, toast, refs, flash }: {
   )
 }
 
-/** NEW CHAT: a copy of the agents list, with everything it has anywhere else
- *  (USER m1454e651500e, ruling 3): the same rows, filter box, archived fold,
- *  active-only switch and agent menu. Picking an agent opens its chat, and
- *  gives it an audience with the user first when it has none. */
-function DmNewChat({ tree, nodes, refs, open, close, onPick }: {
+/** NEW CHAT: the canvas's agents list (USER m1454e651500e, ruling 3; 2026-11-24
+ *  m01b34826d073 "should be styled like the agents list on the canvas"): the
+ *  same component in the same panel box (`.tray-panel`), with its rows, filter
+ *  box, archived fold, active-only switch and agent menu. It sweeps out from
+ *  the left over the chat list and fills that column, so it is never taller
+ *  than the inbox, and the open chat stays in view beside it (USER
+ *  m740c8cb361d0). Picking an agent opens its chat, and gives it an audience
+ *  with the user first when it has none. Its close, Escape and a pick sweep it
+ *  back; none of them closes the inbox or the window it is in. */
+function DmNewChat({ tree, nodes, refs, open, closing, close, onClosed, onPick }: {
   tree: TreePayload; nodes: Map<string, DmNode>; refs: RefRoutes
   open: readonly DmChat[]
-  close: () => void; onPick: (id: string) => void
+  closing: boolean
+  close: () => void
+  /** the sweep is back: take it away */
+  onClosed: () => void
+  onPick: (id: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
@@ -1089,11 +1302,27 @@ function DmNewChat({ tree, nodes, refs, open, close, onPick }: {
   const registry = useAgentNavRegistry()
   const menu = useContextMenu()
   const has = new Set(open.filter(c => c.grant || c.topLevel || c.inherited).map(c => c.peer))
+  // Escape is the sweep's while it is out (the frame's own Escape is under it on the stack)
+  useEsc(close, !closing)
+  const el = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (!closing) el.current?.querySelector<HTMLInputElement>('.tray-filter')?.focus() }, [closing])
+  // it leaves when its slide back ends; where nothing slides (reduced motion), at once
+  useLayoutEffect(() => {
+    if (!closing) return
+    const node = el.current
+    const name = node ? (node.ownerDocument.defaultView ?? window).getComputedStyle(node).animationName : ''
+    if (!name || name === 'none') onClosed()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closing])
   return (
-    <PinFrame kind="dm-new-chat" title="New chat" panel="tray-panel team-panel dm-newchat" close={close}
-      pinnable={false} dialogLabel="New chat" titleInModal
-      headerActions={<ActiveAgentsFilter checked={active} onChange={setActive} />}>
-      <div className="dim dm-newchat-hint">Pick an agent to open its chat. One that cannot write to you yet is given an audience with you.</div>
+    <div ref={el} className={'tray-panel dm-newchat' + (closing ? ' closing' : '')} role="dialog" aria-label="New chat"
+      onAnimationEnd={(e) => { if (closing && e.target === e.currentTarget) onClosed() }}>
+      <div className="dm-newchat-bar">
+        <b className="dm-newchat-title" title="Pick an agent to open its chat. One that cannot write to you yet is given an audience with you.">New chat</b>
+        <ActiveAgentsFilter checked={active} onChange={setActive} />
+        <button type="button" className="iconbtn dm-newchat-close" title="Close" aria-label="Close New chat"
+          onClick={close}><CloseIcon fontSize="inherit" /></button>
+      </div>
       <AgentTray map={map} rows={rows} query={query} onQuery={setQuery}
         archived={archived} onArchived={setArchived} onPick={onPick}
         filterLabel="Filter agents" refs={refs} compactAt={tree.compact_at}
@@ -1102,6 +1331,6 @@ function DmNewChat({ tree, nodes, refs, open, close, onPick }: {
         onRowMenu={(e, n) => menu.open(e, () => registry?.current?.(n.id, e.currentTarget) ?? [])}
         empty={<div className="dim team-empty">no agents match these filters</div>} />
       {menu.node}
-    </PinFrame>
+    </div>
   )
 }

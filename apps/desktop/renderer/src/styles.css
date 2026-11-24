@@ -4845,13 +4845,19 @@ main.solo { width: 100%; }
 .settings .checkline input[type="checkbox"] { width: 16px; height: 16px; }
 .settings .chip { font-size: 13px; padding: 4px 11px; }
 .settings .badge { font-size: 13px; padding: 3px 10px; }
-.settings button { font-size: 14px; padding: 7px 15px; border-radius: 6px; }
+/* ⚠ NOT THE DESK'S MESSAGE BOX AND NOT THE AGENTS LIST, when a settings-sized
+   window holds one (the user's chats: dm/DmPanel.tsx). Both are the canvas's
+   own pieces and must look as they do there; these three rules used to
+   restyle their buttons and fields (square 14px buttons, a padded 70px text
+   box, 14px names). `:where()` keeps each rule's weight exactly what it was
+   for everything else (USER 2026-11-24 m15c78be3a1db, m01b34826d073). */
+.settings button:where(:not(.cc-composer *, .dm-newchat *)) { font-size: 14px; padding: 7px 15px; border-radius: 6px; }
 .settings .iconbtn { padding: 7px 11px; }
-.settings input, .settings select, .settings textarea {
+.settings input:where(:not(.cc-composer *, .dm-newchat *)), .settings select, .settings textarea:where(:not(.cc-composer *)) {
   font-size: 14.5px; padding: 8px 11px; border-radius: 6px;
   min-width: 0; max-width: 100%; box-sizing: border-box;
 }
-.settings textarea { line-height: 1.5; min-height: 70px; }
+.settings textarea:where(:not(.cc-composer *)) { line-height: 1.5; min-height: 70px; }
 .settings .dirrow input { font-size: 13.5px; }
 .settings .dirrow { gap: 8px; }
 .settings .modebtn { font-size: 12.5px; width: 50px; }

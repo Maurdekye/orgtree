@@ -9,11 +9,11 @@ import { addPending, bindPendingMail, dismissPending, mintClientOp } from '../co
  * durable copy retires the ghost by identity even before this call returns
  * (see PendingGhost.op). */
 export async function sendLinkedReply(org: string, node: string, text: string, target: ReplyTarget | SelectionTarget | (ReplyTarget | SelectionTarget)[],
-  attachments?: string[], notice?: boolean) {
+  attachments?: string[], notice?: boolean, urgency?: { urgent: true; urgent_reason?: string }) {
   const op = mintClientOp()
   const ghost = addPending(org, node, text, undefined, undefined, op, notice)
   try {
-    const response = await replyMessage(org, node, text, target, attachments, op, notice)
+    const response = await replyMessage(org, node, text, target, attachments, op, notice, urgency)
     bindPendingMail(org, node, ghost, response)
     return response
   } catch (error) {
@@ -31,12 +31,12 @@ export async function sendLinkedReply(org: string, node: string, text: string, t
  * user (USER 2026-11-23 m79c022311f95, m034b5c83b8f2). A notice expects no
  * reply and is not marked. */
 export async function sendPanelMessage(org: string, node: string, text: string,
-  attachments?: string[], notice?: boolean) {
+  attachments?: string[], notice?: boolean, urgency?: { urgent: true; urgent_reason?: string }) {
   const op = mintClientOp()
   const ghost = addPending(org, node, text, undefined, undefined, op, notice)
   try {
     const response = await sendMessage(org, node, text, attachments, undefined, op, notice,
-      undefined, undefined, undefined, notice ? undefined : 'dm')
+      undefined, undefined, urgency, notice ? undefined : 'dm')
     bindPendingMail(org, node, ghost, response)
     return response
   } catch (error) {
