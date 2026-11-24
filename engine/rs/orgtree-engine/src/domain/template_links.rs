@@ -66,6 +66,15 @@ fn secret(v: &Value) -> bool {
     }
 }
 
+/// A stored watchdog's fire actions, whole, when one of them holds credentials or names a
+/// credentials file: what `saved_dog` takes out. Only the user's own export that strips nothing
+/// carries them (docs/rust-engine/agent-export.md, "Secrets"); a template never does.
+#[nolog]
+pub(crate) fn secret_fire_actions(raw: &Value) -> Option<Value> {
+    let actions = raw["memo"]["fire_actions"].as_array()?;
+    actions.iter().any(secret).then(|| json!(actions))
+}
+
 /// Reject hand-edited documents that try to carry secret fields or runtime state.
 #[nolog]
 pub fn validate(d: &Dog) -> Result<(), String> {
@@ -257,6 +266,15 @@ mod tests {
         let mut av = Avail::default();
         av.tiers.insert("sol".into(), Offer { seat:2.0, provider:"openai".into(), accounts:vec![], default_ok:true, readings:HashMap::new() });
         templates::plan(t, ch, &av, &[]).unwrap().0
+    }
+
+    #[test]
+    fn the_fire_actions_a_saved_definition_loses_are_named_whole() {
+        let plain = json!({ "tool": "orgtree_send_notice", "args": { "to": "lead", "body": "It fired." } });
+        let with_file = json!({ "tool": "orgtree_watchdog", "args": { "action": "create", "kind": "websocket", "target": "ws://127.0.0.1:9/feed", "credentials": "ws/feed.json" } });
+        assert_eq!(secret_fire_actions(&json!({ "memo": { "fire_actions": [plain.clone()] } })), None);
+        assert_eq!(secret_fire_actions(&json!({ "memo": {} })), None);
+        assert_eq!(secret_fire_actions(&json!({ "memo": { "fire_actions": [plain.clone(), with_file.clone()] } })), Some(json!([plain, with_file])));
     }
 
     #[test]

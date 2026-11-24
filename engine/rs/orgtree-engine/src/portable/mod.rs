@@ -14,6 +14,7 @@ pub mod format;
 pub mod import;
 pub mod jobs;
 pub mod names;
+pub mod paths;
 pub mod plan;
 pub mod reader;
 pub mod seal;

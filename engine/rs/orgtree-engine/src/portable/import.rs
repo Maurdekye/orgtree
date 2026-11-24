@@ -157,7 +157,7 @@ pub async fn run(engine: Arc<Engine>, req: Request, progress: Arc<Progress>) -> 
         let retired: Vec<bool> = created.plan.nodes.iter().map(|p| p.retired).collect();
         tokio::task::spawn_blocking(move || {
             let mut cx = Content { handle, engine, org, export, ids, names, retired, duplicate, at, progress, leftovers: Vec::new(), done: Vec::new(), sessions: Vec::new(),
-                                   waiting: Vec::new(), archived: Vec::new() };
+                                   waiting: Vec::new(), archived: Vec::new(), follow: None };
             cx.all();
             cx
         })
@@ -211,6 +211,8 @@ struct Content {
     waiting: Vec<u64>,
     /// Whether each node has an `imported-history` folder.
     archived: Vec<bool>,
+    /// The carried folders, as the transcripts name them and where they lie here.
+    follow: Option<Arc<super::paths::Rewriter>>,
 }
 
 #[nolog]
@@ -261,6 +263,28 @@ impl Content {
     /// The folder of the team under the node.
     fn team(&self, at: usize) -> PathBuf {
         crate::domain::teams::workspace(&self.engine.cfg.teams_dir(&self.org.slug), self.ids[at])
+    }
+
+    /// The scratch and team folders this export carried, each with where it lies here, for the
+    /// transcripts that name files in them (USER 2026-11-24 mf7c65a1b2403). A folder that was
+    /// not exported is not among them, so a path into it stays as it was written.
+    fn follow(&mut self) -> Arc<super::paths::Rewriter> {
+        if let Some(follow) = &self.follow {
+            return follow.clone();
+        }
+        let include = &self.export.manifest.include;
+        let mut pairs = Vec::new();
+        for (at, node) in self.export.nodes.iter().enumerate() {
+            if include.scratch && !node.scratch_dir.is_empty() {
+                pairs.push((node.scratch_dir.clone(), self.scratch(at).to_string_lossy().to_string()));
+            }
+            if include.team && !node.team_dir.is_empty() {
+                pairs.push((node.team_dir.clone(), self.team(at).to_string_lossy().to_string()));
+            }
+        }
+        let follow = Arc::new(super::paths::Rewriter::new(&pairs));
+        self.follow = Some(follow.clone());
+        follow
     }
 
     /// Every node, then what lies between them. A node's failure is its own: the rest go on.
@@ -403,6 +427,7 @@ impl Content {
             return Ok(());
         }
         let name = self.export.of(at, format::CONVO);
+        let follow = self.follow();
         let (id, when, handle) = (self.ids[at], self.at, self.handle.clone());
         let client = self.client()?;
         // how it ends, before any row gets its place
@@ -440,7 +465,13 @@ impl Content {
                                 }
                             }
                         }
-                        let mut record = json!({ "seq": seq, "at": row["at"], "body": body, "tool_inputs": row["tool_inputs"], "tool_native_inputs": row["tool_native_inputs"] });
+                        // a file in a folder that came along is named where it lies now, in what the row says and
+                        // in what its tools were given; the row's own members above are set after, and hold no path
+                        let (mut inputs, mut native) = (row["tool_inputs"].take(), row["tool_native_inputs"].take());
+                        follow.json(&mut body);
+                        follow.json(&mut inputs);
+                        follow.json(&mut native);
+                        let mut record = json!({ "seq": seq, "at": row["at"], "body": body, "tool_inputs": inputs, "tool_native_inputs": native });
                         crate::util::pg_json_mut(&mut record);
                         batch.push(record);
                     }
@@ -976,6 +1007,10 @@ async fn watchdogs(engine: &Arc<Engine>, req: &Request, content: &Content, creat
             if let Some(text) = args[key].as_str() {
                 args[key] = json!(super::names::rewrite_mentions(text, &renamed));
             }
+        }
+        // carried only by the user's own export that strips nothing; a project's watchdog has none
+        if let Some(actions) = dog.fire_actions.as_ref().filter(|_| !owner.project) {
+            args["fire_actions"] = actions.clone();
         }
         let mut needs = dog.needs_credentials;
         let mut result = None;

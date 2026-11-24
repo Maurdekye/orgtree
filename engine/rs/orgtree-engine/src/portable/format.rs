@@ -231,6 +231,11 @@ pub struct Watchdog {
     pub needs_credentials: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credentials: Option<Value>,
+    /// Its fire actions, whole, when one of them holds credentials or names a credentials file.
+    /// `args` never holds those; they travel here, and only where `credentials` may
+    /// (USER 2026-11-24 mf7c65a1b2403), except that a duplicate drops them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fire_actions: Option<Value>,
 }
 
 impl std::fmt::Debug for Watchdog {
@@ -317,7 +322,7 @@ mod tests {
         let links = Links {
             audiences: vec![Audience { grantee: End::Node(1), grantor: End::User }, Audience { grantee: End::Node(0), grantor: End::Extern }],
             watchdogs: vec![Watchdog { owner: 1, args: serde_json::json!({ "kind": "mqtt" }), paused: false, needs_credentials: true,
-                                       credentials: Some(serde_json::json!({ "password": "do-not-print" })) }],
+                                       credentials: Some(serde_json::json!({ "password": "do-not-print" })), fire_actions: None }],
             ..Links::default()
         };
         let text = serde_json::to_string(&links).unwrap();
@@ -328,7 +333,7 @@ mod tests {
         assert_eq!(back.watchdogs[0].credentials, links.watchdogs[0].credentials);
         assert!(!format!("{:?}", links).contains("do-not-print"));
         // a definition without credentials writes no member for them
-        let plain = serde_json::to_string(&Watchdog { owner: 0, args: serde_json::json!({}), paused: true, needs_credentials: false, credentials: None }).unwrap();
+        let plain = serde_json::to_string(&Watchdog { owner: 0, args: serde_json::json!({}), paused: true, needs_credentials: false, credentials: None, fire_actions: None }).unwrap();
         assert!(!plain.contains("\"credentials\":"), "{plain}");
     }
 }

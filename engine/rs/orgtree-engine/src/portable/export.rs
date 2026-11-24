@@ -958,6 +958,22 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
         for dog in &owned {
             let raw: Value = dog.get(1);
             let sealed: bool = dog.get(2);
+            // fire actions that hold credentials, or name a credentials file, travel where sealed credentials do in
+            // a file: the user's own export that strips nothing (USER 2026-11-24 mf7c65a1b2403 "can watchdogs be
+            // shipped with those secrets if we choose to retain secrets in the export?"). Everywhere else the
+            // definition reader takes them out and the watchdog arrives needing them.
+            let secret_actions = crate::domain::template_links::secret_fire_actions(&raw);
+            if secret_actions.is_some() && pack.detector.is_some() {
+                pack.note(&format!("watchdogs of {}", row.name), Hits::from([(secrets::WATCHDOG, 1)]));
+            }
+            let kept_actions = secret_actions.filter(|_| request.manual && !request.strip && !request.duplicate);
+            let mut raw = raw;
+            if kept_actions.is_some() {
+                // read without them, so that what else the definition needs is still told
+                if let Some(memo) = raw["memo"].as_object_mut() {
+                    memo.remove("fire_actions");
+                }
+            }
             let Some(mut saved) = crate::domain::template_links::saved_dog(&raw, names, &dog_include, &mut dog_warnings) else { continue };
             if of_project {
                 saved.args["project_delivery"] = json!(crate::domain::watchdogs::project_delivery(&raw["memo"]));
@@ -971,7 +987,7 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
                 carried = handle.block_on(crate::runtime::watchdogs::export_credentials(engine, dog.get(0))).unwrap_or(None);
             }
             let needs_credentials = saved.needs_credentials || (sealed && carried.is_none());
-            links.watchdogs.push(Watchdog { owner: place_of[&row.id], args: saved.args, paused: saved.paused, needs_credentials, credentials: carried });
+            links.watchdogs.push(Watchdog { owner: place_of[&row.id], args: saved.args, paused: saved.paused, needs_credentials, credentials: carried, fire_actions: kept_actions });
         }
     }
     links.left_out.extend(dog_warnings);
@@ -985,7 +1001,7 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
                 role: if item.get::<_, Option<bool>>(2) == Some(true) { "reviewer" } else { "participant" }.to_string() });
         }
     }
-    let watchdog_credentials = links.watchdogs.iter().filter(|dog| dog.credentials.is_some()).count() as u64;
+    let watchdog_credentials = links.watchdogs.iter().filter(|dog| dog.credentials.is_some() || dog.fire_actions.is_some()).count() as u64;
     pack.part(format::LINKS, &serde_json::to_vec_pretty(&links)?)?;
 
     // the folders

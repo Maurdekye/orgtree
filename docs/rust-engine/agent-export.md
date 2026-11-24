@@ -101,8 +101,12 @@ as left behind. An import or a duplicate grants none, from any file: one found i
 by 4.7.0-alpha.1 is ignored and named in the result's notes. The canonical grant of the org
 mailbox takes it from its other holders, which is why no import may make it.
 
-Known gap, said in the export's report: a watchdog's fire actions that hold credentials are
-dropped, as templates drop them.
+A watchdog's fire actions that hold credentials, or name a credentials file, travel where its
+sealed credentials do in a file: only in the user's own export that strips nothing, after the
+user confirmed what was detected (USER 2026-11-24 mf7c65a1b2403). They are in the watchdog's
+`fire_actions` member of `links.json`, never in its `args`, and count as watchdog credentials
+in the manifest. An agent's export, a stripped export, a template and a duplicate drop them:
+the watchdog arrives without them, paused, and says it needs credentials.
 
 ### Secrets
 
@@ -230,8 +234,25 @@ a finished node: the import ends with the leftovers named.
 - **Release.** An agent whose own parts are in place is let go and warmed. One whose
   transcript could not be read stays held and is named in the result.
 
-Not built yet: a path in a transcript row that names a file under the old folder is not
-resolved to the new folder. The pairs are kept in `extra.ported.paths` for it.
+### Paths in the transcript
+
+A transcript row that names a file under a scratch or team folder the export carried is stored
+naming that file where it lies now (USER 2026-11-24 mf7c65a1b2403: "only if the paths refer to
+locations in the saved scratch folders in the export"). The stored text is rewritten once, at
+import: what the row says, and what its tools were given. Rules (`portable/paths.rs`):
+
+- Only the scratch and team folders of the nodes in the file, and only when the export held
+  them (`include.scratch`, `include.team`). Uploads folders, granted folders and every other
+  path stay as written.
+- A path follows only where the folder's own path ends: `...\foo\a.txt` follows `...\foo`,
+  and `...\foo-bar\a.txt`, `...\foo.bak` and `...\foo2` do not.
+- The way it was written is kept: forward slashes, or doubled backslashes inside quoted JSON.
+  Letter case is not told apart.
+- One pass, the longest folder first, so a folder that is both an old one and a new one (a
+  second import of the same file) is never rewritten twice.
+
+The pairs stay in `extra.ported.paths`. Not rewritten: the CLI's own session files, which the
+CLI resumes as they are, and text in mail history and documents.
 
 ## Duplicate
 
