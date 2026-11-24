@@ -300,9 +300,9 @@ mod tests {
         let engine = Engine::for_tests(root);
         crate::providers::set_agy_email(&engine, "sam@example.com");
         let json = || axum::Json(json!({ "accounts": [{ "id": "a", "label": "sam@example.com", "email": "x@y.zz", "bound": [1] }], "note": "ask sam@example.com" })).into_response();
-        // an app-wide answer: no address at all, nothing of where else
+        // an app-wide answer: no address at all, nothing of where else (the list of uses is sent empty, marked as not shown)
         let (length, body) = body_of(answer(&engine, "/api/accounts", json()).await).await;
-        assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), json!({ "accounts": [{ "id": "a", "label": "antigravity", "email": null }], "note": "ask sam@example.com" }));
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), json!({ "accounts": [{ "id": "a", "label": "antigravity", "email": null, "bound": [], "bound_hidden": true }], "note": "ask sam@example.com" }));
         assert!(length.as_ref().is_none_or(|length| *length == body.len().to_string()), "the length is the new body's: {length:?}");
         // an organization's answer: the owner's address where it is the whole text, and nothing else
         let (_, body) = body_of(answer(&engine, "/api/orgs/galaxy/staffing-options", json()).await).await;
