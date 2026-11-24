@@ -227,7 +227,16 @@ a finished node: the import ends with the leftovers named.
   in a store of its own, `profiles/opencode/<org id>/<agent id>/<generation>/` (`data` and
   `state`). Both parts travel whole and are placed in the new agent's own store, and the
   session keeps its id: the one exception to "a new id", allowed only because no two agents
-  read that store (`sessions::keeps_id`). Nothing inside the store is rewritten. The import
+  read that store (`sessions::keeps_id`). One value inside the store is rewritten: the CLI
+  refuses to load a session from another working folder than the one it was made in
+  ("session <id> does not belong to cwd"), and an imported agent always has a new one. So the
+  import sets `session_v2.directory` of that session, in `data/opencode/opencode.db` of the
+  placed store, to the agent's own folder, with one UPDATE in a transaction
+  (`sessions::opencode_rebind`). Proved 2026-11-24 with OpenCode 2.0.28 on a session without
+  messages: refused before the change, loaded after it. The store's own version is the
+  session's `version` value, which the engine logs when it rebinds. A store that does not hold
+  exactly one such row (another layout, a missing table or column) is left as it was, and the
+  failed load takes the fallback below. The import
   marks the session `extra.ported.carried_session`. When the CLI cannot load a session that
   still has the mark (`session/load` fails), the same start opens a new session and the agent
   gets the handoff note; the mark goes at the first start either way. A session of the agent's
@@ -343,6 +352,12 @@ creates, undo and redo, a project, retired agents, the strip setting, the strate
 agent: its CLI is started with `--resume <the new id>`, gets its new identity as a system
 prompt update, and writes from seq 1. The export zip opens in Python's `zipfile`, .NET's
 `ZipFile` and Windows `tar`.
+
+Known limits: the Antigravity CLI keeps at most 500 conversations per login and removes the
+oldest when a new one is added (inferred from one run with agy 1.5.14 on 2026-11-24, where a
+store of exactly 500 lost its three oldest as three were added; the CLI does not document
+it). An OpenCode session that holds messages was not tried with the real CLI in another
+folder: only an empty one.
 
 Not measured: a resume of a carried session by a real Claude Code or Codex CLI (the files are
 placed as the engine's own carry, `claude::ensure_session` and `codex::ensure_rollout`,

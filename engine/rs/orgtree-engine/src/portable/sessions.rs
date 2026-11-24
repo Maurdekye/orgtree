@@ -159,6 +159,54 @@ pub fn opencode_profile(engine: &Engine, org: i64, agent: i64, generation: i32) 
 /// The two parts of an OpenCode store that are carried.
 const OPENCODE_PARTS: [&str; 2] = ["data", "state"];
 
+/// The database of an OpenCode store that holds its sessions, by its parts under the store.
+const OPENCODE_DB: [&str; 3] = ["data", "opencode", "opencode.db"];
+
+/// Make a placed OpenCode session belong to the agent's own working folder.
+///
+/// The CLI refuses to load a session from another folder than the one it was made in
+/// ("session <id> does not belong to cwd"), and an import always gives the agent a new one.
+/// Measured 2026-11-24 on OpenCode 2.0.28: with `session_v2.directory` set to the new folder
+/// (forward slashes, as the CLI writes it) the load succeeds. So that one value of that one
+/// session is rewritten, in one transaction, in the agent's own store. Anything else than
+/// exactly one row (another layout, a missing table or column, an unknown session) leaves the
+/// store as it was: the CLI then refuses the load and the agent starts with the handoff note
+/// (coordinator 2026-11-24 m0173eb0ee6d6). Returns the CLI version the session was written by.
+#[nolog]
+fn opencode_rebind(home: &Path, session: &str, scratch: &Path) -> Option<String> {
+    let database = OPENCODE_DB.iter().fold(home.to_path_buf(), |path, part| path.join(part));
+    if !database.is_file() {
+        return None;
+    }
+    let folder = scratch.to_string_lossy().replace('\\', "/");
+    let done = (|| -> rusqlite::Result<Option<String>> {
+        let mut db = rusqlite::Connection::open_with_flags(&database, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let tx = db.transaction()?;
+        if tx.execute("UPDATE session_v2 SET directory = ?1 WHERE id = ?2", rusqlite::params![folder, session])? != 1 {
+            // dropped without a commit: nothing is changed
+            return Ok(None);
+        }
+        let version: String = tx.query_row("SELECT CAST(version AS TEXT) FROM session_v2 WHERE id = ?1", [session], |row| row.get::<_, Option<String>>(0))
+            .ok().flatten().unwrap_or_default();
+        tx.commit()?;
+        Ok(Some(version))
+    })();
+    match done {
+        Ok(Some(version)) => {
+            tracing::info!(session, written_by = %version, "a carried OpenCode session now belongs to its agent's folder");
+            Some(version)
+        }
+        Ok(None) => {
+            tracing::warn!(session, "a carried OpenCode store does not hold its session as expected; left as it was");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(session, error = %e, "a carried OpenCode store could not be read; left as it was");
+            None
+        }
+    }
+}
+
 /// Which agent it is, for a store that is kept under the engine's own numbers.
 #[derive(Clone, Copy)]
 pub struct Seat {
@@ -333,6 +381,10 @@ pub fn place(harness: &str, home: &Path, scratch: &Path, old: &str, new: &str, f
                 std::fs::copy(path, &to)?;
                 sessions += usize::from(*part == "data");
             }
+            if sessions > 0 {
+                // the session was made in another folder; when this does nothing, the failed load's fallback acts
+                opencode_rebind(home, new, scratch);
+            }
             Ok(sessions > 0)
         }
         _ => Ok(false),
@@ -350,6 +402,58 @@ pub fn plain_id(id: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A store with one session in the layout OpenCode 2.0.28 writes (the columns that matter).
+    fn opencode_store(sql: &str) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("orgtree-sessions-{}", uuid::Uuid::new_v4()));
+        let database = OPENCODE_DB.iter().fold(home.clone(), |path, part| path.join(part));
+        std::fs::create_dir_all(database.parent().unwrap()).unwrap();
+        rusqlite::Connection::open(&database).unwrap().execute_batch(sql).unwrap();
+        home
+    }
+
+    fn opencode_folders(home: &Path, table: &str) -> Vec<(String, String)> {
+        let database = OPENCODE_DB.iter().fold(home.to_path_buf(), |path, part| path.join(part));
+        let db = rusqlite::Connection::open(database).unwrap();
+        let mut rows = db.prepare(&format!("SELECT id, directory FROM {table} ORDER BY id, directory")).unwrap();
+        let all = rows.query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect();
+        all
+    }
+
+    #[test]
+    fn a_carried_opencode_session_is_made_to_belong_to_the_new_folder_and_nothing_else_is_touched() {
+        let home = opencode_store("CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT NOT NULL, version TEXT NOT NULL);
+            INSERT INTO session_v2 VALUES ('ses_carried', 'S:/old/folder', '2.0.28'), ('ses_other', 'S:/old/folder', '2.0.28');");
+        let scratch = Path::new("S:\\new\\folder of the agent");
+        assert_eq!(opencode_rebind(&home, "ses_carried", scratch).as_deref(), Some("2.0.28"));
+        assert_eq!(opencode_folders(&home, "session_v2"), vec![("ses_carried".to_string(), "S:/new/folder of the agent".to_string()),
+            ("ses_other".to_string(), "S:/old/folder".to_string())]);
+        // a session the store does not hold: nothing changes
+        assert_eq!(opencode_rebind(&home, "ses_unknown", scratch), None);
+        assert_eq!(opencode_folders(&home, "session_v2")[1].1, "S:/old/folder");
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn an_opencode_store_of_another_layout_is_left_as_it_was() {
+        // no such table
+        let home = opencode_store("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL); INSERT INTO session VALUES ('ses_carried', 'S:/old');");
+        assert_eq!(opencode_rebind(&home, "ses_carried", Path::new("S:/new")), None);
+        assert_eq!(opencode_folders(&home, "session"), vec![("ses_carried".to_string(), "S:/old".to_string())]);
+        let _ = std::fs::remove_dir_all(home);
+        // no such column
+        let home = opencode_store("CREATE TABLE session_v2 (id TEXT PRIMARY KEY, path TEXT NOT NULL); INSERT INTO session_v2 VALUES ('ses_carried', 'S:/old');");
+        assert_eq!(opencode_rebind(&home, "ses_carried", Path::new("S:/new")), None);
+        let _ = std::fs::remove_dir_all(home);
+        // more than one row would change (no key on the id): none does
+        let home = opencode_store("CREATE TABLE session_v2 (id TEXT, directory TEXT NOT NULL, version TEXT);
+            INSERT INTO session_v2 VALUES ('ses_carried', 'S:/old', '9'), ('ses_carried', 'S:/older', '9');");
+        assert_eq!(opencode_rebind(&home, "ses_carried", Path::new("S:/new")), None);
+        assert_eq!(opencode_folders(&home, "session_v2").iter().map(|(_, folder)| folder.as_str()).collect::<Vec<_>>(), vec!["S:/old", "S:/older"]);
+        let _ = std::fs::remove_dir_all(home);
+        // no database at all
+        assert_eq!(opencode_rebind(&std::env::temp_dir().join(format!("orgtree-sessions-none-{}", uuid::Uuid::new_v4())), "ses_carried", Path::new("S:/new")), None);
+    }
 
     #[test]
     fn a_seat_runs_on_its_stamp_or_its_providers_own_cli() {
