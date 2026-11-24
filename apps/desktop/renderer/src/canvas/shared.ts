@@ -1493,7 +1493,7 @@ export type MailRow = MailEntry & {
    *  reply UI. Never sent to markRead — it is not a real mail id. */
   _ask?: AskInfo
   /** F-06: @net: outbound delivery state (org-mailbox out rows) */
-  _state?: 'queued' | 'sent' | 'delivered' | 'read'
+  _state?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
   _state_at?: string
   /** §10: wire-failure note copied off the spool entry (queued rows only) */
   _tries?: number

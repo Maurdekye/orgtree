@@ -261,7 +261,7 @@ export interface OrgInboxEntry {
   at: string
   by?: string
   // F-06: @net: outbound delivery ladder (net.py _stamp_row, monotonic)
-  state?: 'queued' | 'sent' | 'delivered' | 'read'
+  state?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
   state_at?: string
   net_id?: string
   // §10: per-message delivery failure, copied off the spool entry when a
