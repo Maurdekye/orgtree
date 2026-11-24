@@ -63,6 +63,8 @@ interface World {
   refuse?: boolean
   /** an engine from before the chat folder: `folder=chat` is refused, as it refuses any unknown folder */
   noChatFolder?: boolean
+  /** what the engine's @ menu read answers (tickets and the rest), in the engine's own order */
+  candidates?: unknown[]
   /** the next this-many reads of the chat folder fail with a 503 (the engine is there, the read is not) */
   chatFails?: number
   /** older history, a page per entry: the first read says there is more, and
@@ -110,6 +112,7 @@ function engine(world: World) {
       windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
     if (/\/nodes\/[^/]+\/batch$/.test(path)) return json({ resolved: 'ok' })
     if (/\/nodes\/[^/]+\/scope$/.test(path)) return json({ ok: true })
+    if (/\/mention-candidates(\?|$)/.test(path)) return json({ items: world.candidates ?? [], next_cursor: null, nodes: [], outside: [] })
     if (/\/inbox(\?|$)/.test(path)) {
       const q = new URL(path, 'http://x').searchParams
       const older = world.older ?? []
@@ -1844,4 +1847,44 @@ test('alpha.1 point 24: in the chats a quote of the user\u2019s own message has 
   assert.equal(own.some(l => l.startsWith('Sender')), false, 'a quote of my own message: no Sender entry')
   const theirs = await quoteMenu('mine2')
   assert.equal(theirs.some(l => l.startsWith('Sender')), true, `a quote of the agent\u2019s message keeps it (${theirs.join(' | ')})`)
+})
+
+// USER 2026-11-24 mf13638fa83f8: "can mention ordering in the mentions menu be based off of mention order of
+// objects in the chat window in the chat inbox?" The chat's message box ranks what the open chat's loaded
+// messages mention first, newest mention first, exactly as a desk does with its transcript; the rest follow
+// in the engine's order (tickets by their latest status change, mbad08856cdb4).
+test('the @ menu of a chat\u2019s message box lists what that chat mentions first, newest mention first, then the rest in the engine\u2019s order', async (t) => {
+  const { resetMentionSearchForTests } = await import('../src/canvas/mentionsearch')
+  resetMentionSearchForTests()
+  t.after(() => resetMentionSearchForTests())
+  const item = (id: string, label: string, at: string) => ({ kind: 'item', id, label, at, status: 'open' })
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    // the chat mentions two tickets and one agent: alpha first, then beta, and the agent in the newest message
+    delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z', { body: 'Start with @item:mine/alpha-ticket please.' }),
+      mail('m3', 'worker', '2026-11-20T12:00:00Z', { body: 'Then @item:mine/beta-ticket.' })],
+    sent: [sent('m2', 'worker', '2026-11-20T11:00:00Z', { body: 'ok' }), sent('m4', 'worker', '2026-11-20T13:00:00Z', { body: 'Thanks @worker, go on.' })],
+    // the engine's order: three tickets by their status change, none of it knowing this chat
+    candidates: [item('gamma-ticket', 'Gamma ticket', '2026-11-19T10:00:00Z'), item('alpha-ticket', 'Alpha ticket', '2026-11-12T10:00:00Z'),
+      item('delta-ticket', 'Delta ticket', '2026-11-11T10:00:00Z'), item('beta-ticket', 'Beta ticket', '2026-11-10T10:00:00Z')],
+  }, { active: false })
+  await s.openChat('worker')
+  const box = document.querySelector<HTMLTextAreaElement>('.dm-compose textarea')!
+  await inAct(async () => {
+    Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, 'about @')
+    box.dispatchEvent(new W.Event('input', { bubbles: true }))
+    box.focus(); box.setSelectionRange(7, 7)
+    box.dispatchEvent(new W.Event('select', { bubbles: true }))
+    await flush(8)
+  })
+  for (let i = 0; i < 6; i++) await inAct(async () => { await flush(6) })
+  // best first (the list is drawn bottom-up, the best next to the box)
+  const ranked = [...document.querySelectorAll<HTMLElement>('.agent-mentions .agent-mention-item')].reverse()
+    .map(r => r.querySelector('.agent-mention-name')?.textContent ?? '')
+  const at = (name: string) => ranked.indexOf(name)
+  for (const name of ['Alpha ticket', 'Beta ticket', 'Gamma ticket', 'Delta ticket', '@worker'])
+    assert.equal(at(name) >= 0, true, `POSITIVE CONTROL: ${name} is offered (${ranked.join(' | ')})`)
+  assert.deepEqual(ranked.slice(0, 3), ['@worker', 'Beta ticket', 'Alpha ticket'], 'what the chat mentions, newest mention first: the agent, then the two tickets')
+  assert.equal(at('Gamma ticket') < at('Delta ticket'), true, 'the tickets it does not mention keep the engine\u2019s order')
+  assert.equal(at('Alpha ticket') < at('Gamma ticket'), true, 'under the ones it mentions')
 })

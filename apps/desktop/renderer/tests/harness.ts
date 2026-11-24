@@ -169,7 +169,8 @@ export class FakeServer {
     const when = (s?: string) => s ?? '2026-10-22T10:00:00Z'
     const rows: { kind: string; id: string; label: string; at: string; [k: string]: unknown }[] = []
     if (kinds.includes('item')) for (const r of [...this.workItems, ...this.workBacklogged] as any[]) {
-      if (!r.archived) rows.push({ kind: 'item', id: r.slug, label: r.title ?? r.slug, at: when(r.docket_at ?? r.updated_at), status: r.status })
+      // the engine ranks a ticket by its latest status change (4.7.0); a fixture without one keeps its old time
+      if (!r.archived) rows.push({ kind: 'item', id: r.slug, label: r.title ?? r.slug, at: when(r.status_at ?? r.docket_at ?? r.updated_at), status: r.status })
     }
     if (kinds.includes('doc')) for (const d of this.documents as any[]) {
       if (!d.dismissed) rows.push({ kind: 'doc', id: d.id, label: d.title ?? d.id, at: when(d.at), format: d.format })
