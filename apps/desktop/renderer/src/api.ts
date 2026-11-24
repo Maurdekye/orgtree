@@ -635,8 +635,10 @@ export const getFs = (path = ''): Promise<FsPayload> =>
 export const getInbox = (slug: string): Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/inbox`)
 /** Bounded retained history, independent of the pushed newest-mail windows. */
-export const getMailHistory = (slug: string, folder: 'inbox' | 'sent', before?: string, node?: string): Promise<InboxPayload> =>
-  req(`/api/orgs/${slug}/${node ? `nodes/${encodeURIComponent(node)}/` : ''}inbox?folder=${folder}${before ? `&before=${encodeURIComponent(before)}` : ''}`)
+/** `peer` (the user's mailbox only): one counterparty's mail, 50 rows a page; with it the folder may be
+ *  `chat`, both directions under one cursor (engine domain/mail_history.rs `user_page`). */
+export const getMailHistory = (slug: string, folder: 'inbox' | 'sent' | 'chat', before?: string, node?: string, peer?: string): Promise<InboxPayload> =>
+  req(`/api/orgs/${slug}/${node ? `nodes/${encodeURIComponent(node)}/` : ''}inbox?folder=${folder}${peer ? `&peer=${encodeURIComponent(peer)}` : ''}${before ? `&before=${encodeURIComponent(before)}` : ''}`)
 /** Reconcile at most 200 identities already loaded in this reader. */
 export const refreshMailHistory = (slug: string, folder: 'inbox' | 'sent', ids: string[], node?: string): Promise<InboxPayload & { refreshed_ids?: string[] }> =>
   req(`/api/orgs/${slug}/${node ? `nodes/${encodeURIComponent(node)}/` : ''}inbox?folder=${folder}&ids=${encodeURIComponent(JSON.stringify(ids))}`)

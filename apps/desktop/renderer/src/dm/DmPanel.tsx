@@ -45,7 +45,7 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import type { AskInfo, MailEntry, ToastFn, TreePayload } from '../types'
+import type { AskInfo, InboxPayload, MailEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
   markRead, runOp,
@@ -249,12 +249,6 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
 
   // a mail a reference named that the loaded window does not hold
   const [looked, setLooked] = useState<{ slug: string; mail: MailEntry }[]>([])
-  const box = useMemo(() => {
-    if (!inbox.box || !outbox.box) return null
-    const extra = looked.filter(l => l.slug === slug).map(l => l.mail)
-      .filter(m => !inbox.box!.pending.some(x => x.id === m.id) && !inbox.box!.delivered.some(x => x.id === m.id))
-    return { pending: inbox.box.pending, delivered: [...inbox.box.delivered, ...extra], sent: outbox.box.sent }
-  }, [inbox.box, outbox.box, looked, slug])
 
   // requests, exactly the classic mailbox's set: every open one, the eight
   // most recently resolved, and one just submitted until the tree lists it
@@ -305,6 +299,37 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       else window.sessionStorage.removeItem(rememberKey(slug))
     } catch { /* the chat still opens when session storage is unavailable */ }
   }, [slug])
+
+  // ⚠ THE OPEN CHAT PAGES ITS OWN HISTORY, AT THE ENGINE (USER 2026-11-24
+  // m46fce69c48c9; coordinator m7939b5e5f292: "page at the source"). The two
+  // mailbox readers above page the user's WHOLE mailbox, every chat mixed, so
+  // a chat's older mail could lie pages of other chats' mail away. An agent's
+  // chat and the System chat read `folder=chat&peer=<name>` instead: their
+  // newest 50 at once, then 50 more of that chat per page, both directions
+  // under one cursor. A project's chat is a thread of several senders and
+  // recipients and stays on the mailbox's pages. An engine that does not know
+  // the chat folder refuses it, and the chat falls back to the mailbox's pages.
+  // (refused once, this organization's engine is not asked again while the panel is open: a remote
+  // organization may run an older engine than this desktop)
+  const [refused, setRefused] = useState<string | null>(null)
+  const pagedPeer = sel && refused !== slug && nodes.get(sel)?.kind !== 'project' ? sel : null
+  const chatPages = useMailboxHistory(slug, rawBox, 'chat', !!pagedPeer, readBump, undefined, pagedPeer ?? undefined)
+  const chatRefused = !!pagedPeer && !!chatPages.error && !chatPages.ready
+  useEffect(() => { if (chatRefused) setRefused(slug) }, [chatRefused, slug])
+  const ownPages = !!pagedPeer && !chatRefused
+  const box = useMemo(() => {
+    if (!inbox.box || !outbox.box) return null
+    const own = ownPages ? chatPages.box : null
+    // unread first, wherever it was read from; a mail is in one list only
+    const pending = new Map<string, MailEntry>()
+    for (const m of [...inbox.box.pending, ...(own?.pending ?? [])]) pending.set(m.id, m)
+    const delivered = new Map<string, MailEntry>()
+    const extra = looked.filter(l => l.slug === slug).map(l => l.mail)
+    for (const m of [...extra, ...(own?.delivered ?? []), ...inbox.box.delivered]) if (!pending.has(m.id)) delivered.set(m.id, m)
+    const sent = new Map<string, InboxPayload['sent'][number]>()
+    for (const m of [...(own?.sent ?? []), ...outbox.box.sent]) sent.set(m.id, m)
+    return { pending: [...pending.values()], delivered: [...delivered.values()], sent: [...sent.values()] }
+  }, [inbox.box, outbox.box, chatPages.box, ownPages, looked, slug])
 
   const chats = useMemo(() => dmChats({
     nodes, grants, box, openAsks: open, doneAsks: [...done, ...answered],
@@ -374,10 +399,10 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     let save: Promise<unknown> | null = null
     const once = () => save ??= markRead(slug, fresh.map(m => m.id))
     return Promise.all(fresh.map(m => markReadNow(slug, m, once))).then(() => {
-      for (const m of fresh) inbox.acknowledge(m.id)
+      for (const m of fresh) { inbox.acknowledge(m.id); chatPages.acknowledge(m.id) }
       setReadBump(n => n + 1); refresh?.()
     })
-  }, [slug, inbox, refresh])
+  }, [slug, inbox, chatPages, refresh])
 
   // USER m1454e651500e, ruling 2: no confirmation. The existing revoke.
   const revoke = useCallback((peer: string, stays: boolean, target: string) => {
@@ -537,11 +562,15 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
               ? <DmConversation key={current.peer} slug={slug} tree={tree} chat={current} nodes={nodes}
                   toast={toast} refs={refs} onFocusAgent={focusAgent} flash={flash}
                   onFlash={key => setFlash({ key, seq: Date.now() })}
-                  hasMore={inbox.hasMore || outbox.hasMore} loadingMore={inbox.loading || outbox.loading}
-                  historyMark={`${inbox.cursor ?? ''}|${outbox.cursor ?? ''}`}
-                  onLoadMore={() => { inbox.loadMore(); outbox.loadMore() }}
-                  historyError={inbox.error ?? outbox.error}
-                  onRetryHistory={() => { if (inbox.error) inbox.retry(); if (outbox.error) outbox.retry() }}
+                  {...(ownPages ? {
+                    ownPages: true, hasMore: chatPages.hasMore, loadingMore: chatPages.loading, historyMark: `chat|${chatPages.cursor ?? ''}`,
+                    onLoadMore: () => chatPages.loadMore(), historyError: chatPages.error, onRetryHistory: () => chatPages.retry(),
+                  } : {
+                    ownPages: false, hasMore: inbox.hasMore || outbox.hasMore, loadingMore: inbox.loading || outbox.loading,
+                    historyMark: `${inbox.cursor ?? ''}|${outbox.cursor ?? ''}`,
+                    onLoadMore: () => { inbox.loadMore(); outbox.loadMore() }, historyError: inbox.error ?? outbox.error,
+                    onRetryHistory: () => { if (inbox.error) inbox.retry(); if (outbox.error) outbox.retry() },
+                  })}
                   onClose={() => closeChat(current)}
                   onCloseHover={on => closeHover(on ? current : null)}
                   onApprove={() => approve(current.peer)}
@@ -551,7 +580,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                     if (!m.id || !window.confirm(DELETE_USER_MAIL_CONFIRM)) return
                     deleteUserMail(slug, m.id)
                       .then(() => {
-                        inbox.remove(m.id); setLooked(old => old.filter(l => l.mail.id !== m.id))
+                        inbox.remove(m.id); chatPages.remove(m.id); setLooked(old => old.filter(l => l.mail.id !== m.id))
                         setReadBump(n => n + 1); refresh?.()
                       })
                       .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))
@@ -716,7 +745,7 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
   </>
 }
 
-function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, hasMore, loadingMore, historyMark,
+function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, ownPages, hasMore, loadingMore, historyMark,
   onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
@@ -724,6 +753,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   flash: { key: string; seq: number } | null
   /** where the mailbox's history stands (its next-page cursors): it changes when a page has arrived */
   historyMark: string
+  /** every page is this chat's own mail (paged at the engine); false: the mailbox's pages, every chat mixed */
+  ownPages: boolean
   /** show this entry of the chat: scroll it into view and mark it */
   onFlash: (key: string) => void
   hasMore: boolean; loadingMore: boolean; onLoadMore: () => void
@@ -827,8 +858,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
    *  seen to go true and false: React may draw a request and its answer in one
    *  render, and a chain that waited to see `true` stopped there (measured). */
   const asked = useRef<string | null>(null)
-  const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark })
-  state.current = { start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark }
+  const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark, ownPages })
+  state.current = { start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark, ownPages }
   const onLoadMoreRef = useRef(onLoadMore)
   onLoadMoreRef.current = onLoadMore
   const older = useCallback((byHand: boolean, slow = false) => {
@@ -844,7 +875,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     // being opened: after IDLE_PAGES pages in a row that held nothing of this
     // chat a full view waits for the reader, and one that does not scroll
     // goes on a page at a time (`slow`, the effect below), never stuck.
-    if (page && (!now.hasMore || now.loadingMore || now.historyError || (!slow && idle.current >= IDLE_PAGES))) return
+    // (a chat's own pages always hold its mail: a page that brought nothing new only repeated what the
+    // mailbox's first window already held, so it never counts against the chat)
+    if (page && (!now.hasMore || now.loadingMore || now.historyError || (!slow && !now.ownPages && idle.current >= IDLE_PAGES))) return
     const top = el.getBoundingClientRect().top
     // at the newest message the view stays there (the bottom pin below); anywhere else the row in view holds
     const row = pinned.current ? undefined
@@ -871,8 +904,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const el = scroller.current
     if (el && el.scrollTop < NEAR_TOP) older(byHand)
   }, [older])
-  // when the chat opens, and each time older rows are in: go on while the top is near
-  useEffect(() => { nearTop(false) }, [nearTop, shown])
+  // when the chat opens, each time older rows are in, and when its history turns out to have more (a
+  // chat's own first page answers after the chat is drawn): go on while the top is near
+  useEffect(() => { nearTop(false) }, [nearTop, shown, hasMore, ownPages])
   // a taller view (the window resized, the panel popped out) may not be full any more
   useEffect(() => {
     const el = scroller.current

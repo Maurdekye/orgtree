@@ -145,6 +145,16 @@ const server = createServer(async (req, res) => {
       const want = JSON.parse(ids), all = everyMail()
       return send({ pending: [], delivered: all.filter(m => m.from !== USER && want.includes(m.id)), sent: all.filter(m => m.from === USER && want.includes(m.id)), refreshed_ids: want })
     }
+    if (folder === 'chat') {
+      // one chat's own pages, as the engine cuts them: both directions of `peer`, newest first, 50 a page
+      const peer = url.searchParams.get('peer')
+      if (!peer) return send({ detail: 'the chat folder needs a peer' }, 'application/json', 400)
+      const rows = everyMail().filter(m => (m.from === USER ? m.to === peer : m.from === peer)).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+      const from = before ? Number(before) : 0
+      if (before) pages.push(`chat:${before}`)
+      const page = rows.slice(from, from + 50)
+      return send({ pending: [], delivered: page.filter(m => m.from !== USER), sent: page.filter(m => m.from === USER), next_cursor: from + 50 < rows.length ? String(from + 50) : null })
+    }
     if (before) {
       pages.push(`${folder}:${before}`)
       const page = older[Number(before) - 1] ?? { delivered: [], sent: [] }

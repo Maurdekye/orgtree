@@ -40,10 +40,15 @@ function merge(a: InboxPayload, b: InboxPayload): InboxPayload {
 }
 
 /** Bounded history pages plus exact retained-ID refresh on mail changes.
- * Never infer deletion from absence in a head page or accept old identity responses. */
-export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | undefined, folder: string, visible: boolean, refresh: unknown = 0, node?: string) {
+ * Never infer deletion from absence in a head page or accept old identity responses.
+ *
+ * `peer` (the user's mailbox, folder `chat`): ONE CHAT'S OWN PAGES, both
+ * directions under one cursor, filtered at the engine (the user's chats,
+ * dm/DmPanel.tsx). Its first read is that chat's newest page, and every later
+ * page holds that chat's mail only. */
+export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | undefined, folder: string, visible: boolean, refresh: unknown = 0, node?: string, peer?: string) {
   const base = useMemo(() => rawBase == null ? rawBase : mailbox(rawBase), [rawBase])
-  const identity = JSON.stringify([slug, node ?? null, folder])
+  const identity = JSON.stringify([slug, node ?? null, folder, peer ?? null])
   const [state, setState] = useState({ identity, box: empty(), cursor: null as string | null,
     paged: false, ready: false, loading: false, error: null as string | null, deleted: [] as string[], read: [] as string[] })
   const current = state.identity === identity ? state : { ...state, identity, box: empty(), cursor: null, paged: false, ready: false, loading: false, error: null, deleted: [], read: [] }
@@ -51,11 +56,12 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
   const generation = useRef(0), busy = useRef(false), retryCursor = useRef<string | undefined>(undefined)
   const revision = JSON.stringify([base?.mail_revision, base?.pending.map(m => m.id), base?.delivered.map(m => m.id), base?.sent.map(m => m.id)])
   const read = useCallback((before: string | undefined, request: number) => {
-    if (busy.current || (folder !== 'inbox' && folder !== 'sent')) return
+    const chat = folder === 'chat' && !!peer
+    if (busy.current || (folder !== 'inbox' && folder !== 'sent' && !chat)) return
     busy.current = true; retryCursor.current = before
     setState(old => ({ ...(old.identity === identity ? old : { ...current }), identity, loading: true, error: null }))
     const retained = latest.current.identity === identity ? latest.current.box : empty()
-    void getMailHistory(slug, folder, before, node).then(async value => {
+    void getMailHistory(slug, folder as 'inbox' | 'sent' | 'chat', before, node, peer).then(async value => {
       if (generation.current !== request) return
       const page = historyPage(value)
       let box = merge(retained, page)
@@ -67,13 +73,16 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
         let refreshed = empty()
         for (let offset = 0; offset < ids.length; offset += 200) {
           const batch = ids.slice(offset, offset + 200)
-          const result = await refreshMailHistory(slug, folder, batch, node)
-          if (generation.current !== request) return
-          const rows = historyPage(result)
-          if (!Array.isArray(result?.refreshed_ids) || result.refreshed_ids.length !== batch.length
-            || batch.some(id => !result.refreshed_ids!.includes(id))
-            || folders.some(field => rows[field].some(m => !batch.includes(m.id)))) throw Error('Invalid mail refresh coverage')
-          refreshed = merge(refreshed, rows)
+          // a chat's rows are of both folders: each is asked for the same ids, and answers for its own
+          for (const one of chat ? ['inbox', 'sent'] as const : [folder as 'inbox' | 'sent']) {
+            const result = await refreshMailHistory(slug, one, batch, node)
+            if (generation.current !== request) return
+            const rows = historyPage(result)
+            if (!Array.isArray(result?.refreshed_ids) || result.refreshed_ids.length !== batch.length
+              || batch.some(id => !result.refreshed_ids!.includes(id))
+              || folders.some(field => rows[field].some(m => !batch.includes(m.id)))) throw Error('Invalid mail refresh coverage')
+            refreshed = merge(refreshed, rows)
+          }
         }
         box = merge(refreshed, page)
       }
@@ -85,7 +94,7 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
     }).finally(() => { if (generation.current === request) busy.current = false })
   // The request's identity, not the current rows, owns the response.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, node, folder, identity])
+  }, [slug, node, folder, peer, identity])
   useEffect(() => {
     const request = ++generation.current; busy.current = false
     if (visible && base) read(undefined, request)
@@ -105,5 +114,7 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
   const acknowledge = (id: string) => setState(old => old.identity === identity ? { ...old, read: [...old.read, id] } : old)
   // `cursor` names the next page: it changes when a page has arrived, also when React drew the request and
   // its answer in one render (so `loading` was never seen true)
-  return { box, hasMore: !!current.cursor, cursor: current.cursor, loading: current.loading, error: current.error, loadMore, retry, remove, acknowledge }
+  return { box, hasMore: !!current.cursor, cursor: current.cursor, loading: current.loading, error: current.error,
+    /** the first read has answered: an error before that means the route itself was refused (an older engine) */
+    ready: current.ready, loadMore, retry, remove, acknowledge }
 }
