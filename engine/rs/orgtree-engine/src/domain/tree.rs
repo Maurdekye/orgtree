@@ -492,6 +492,7 @@ pub fn idle_runtime() -> Vec<(String, Value)> {
         ("bg_tasks".into(), json!(0)),
         ("helper_count".into(), json!(0)),
         ("activity".into(), json!({ "phase": "idle" })),
+        ("writing_to_user".into(), json!(false)),
         ("cache_forecast".into(), Value::Null),
         ("ran_as_label".into(), Value::Null),
     ]

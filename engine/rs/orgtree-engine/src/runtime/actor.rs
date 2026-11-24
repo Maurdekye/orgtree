@@ -1452,6 +1452,8 @@ struct Actor {
     /// the message tool call being written, watched for its `metadata`
     /// (typing in Hubchat, `net::typing`)
     typing_probe: Option<TypingProbe>,
+    /// the message call to the user being written now (`writing_to_user`, the user's chats)
+    to_user: crate::net::typing::ToUser,
 }
 
 /// A message tool call's arguments as they stream in, until its `metadata`
@@ -1595,6 +1597,7 @@ impl Actor {
             admit_refusals: 0,
             admit_retry: None,
             typing_probe: None,
+            to_user: Default::default(),
         })
     }
 
@@ -4991,6 +4994,8 @@ impl Actor {
             let delivered=crate::domain::mail::consumed(&self.engine,rows);
             super::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
             self.changed(vec![Change::Mailbox(self.id)]);
+            // the user's own mail among them: the user's sent list says so at once (the chats' check)
+            if rows.iter().any(|r| r.try_get::<_,bool>(8).unwrap_or(false)) { self.changed(vec![Change::UserMail]); }
             self.stream("steered",json!({"committed_row":committed}));
         }
     }
@@ -7926,8 +7931,14 @@ impl Actor {
                 // so its typing heartbeats stop (or never start)
                 let index = ev["index"].as_i64().unwrap_or(-1);
                 if self.typing_probe.as_ref().is_some_and(|p| p.index == index) {
-                    if let Some(p) = self.typing_probe.take().filter(|p| p.started) {
-                        crate::net::typing::stop(&self.engine, &p.call);
+                    if let Some(p) = self.typing_probe.take() {
+                        if p.started {
+                            crate::net::typing::stop(&self.engine, &p.call);
+                        }
+                        // the call to the user is written: the chats' dots go
+                        if self.to_user.end(&p.call) {
+                            self.publish();
+                        }
                     }
                 }
             }
@@ -7956,6 +7967,7 @@ impl Actor {
                         // the first argument, starts typing; anything else
                         // first (or too much) ends the watch, the send unaffected
                         let index = ev["index"].as_i64().unwrap_or(-1);
+                        let mut to_user = None;
                         if let Some(p) = self.typing_probe.as_mut().filter(|p| p.index == index && !p.done) {
                             p.buf.push_str(d["partial_json"].as_str().unwrap_or(""));
                             match crate::net::typing::leading_metadata(&p.buf) {
@@ -7965,11 +7977,20 @@ impl Actor {
                                     p.started = true;
                                     p.buf = String::new();
                                     crate::net::typing::begin(&self.engine, self.org_id, self.id, &self.name, &p.call, &meta);
+                                    if crate::net::typing::names_user(&meta) {
+                                        to_user = Some(p.call.clone());
+                                    }
                                 }
                                 _ => {
                                     p.done = true;
                                     p.buf = String::new();
                                 }
+                            }
+                        }
+                        // the call is to the user: the user's chats show the agent writing
+                        if let Some(call) = to_user {
+                            if self.to_user.begin(&call, Instant::now()) {
+                                self.publish();
                             }
                         }
                     }
@@ -8664,6 +8685,10 @@ impl Actor {
         // its message calls are not being written any more (typing in Hubchat)
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
+        // nor is one to the user, however the process ended (killed mid-call too)
+        if self.to_user.clear() {
+            self.publish();
+        }
         self.engine.credential_bridge.revoke(self.id);
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         let host = self.proc.as_ref().and_then(|p| p.host());
@@ -8830,6 +8855,9 @@ impl Actor {
         // the turn's message calls are over (typing in Hubchat)
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
+        if self.to_user.clear() {
+            self.publish();
+        }
         self.finish_queued_interrupt();
         if self.finish_acp_thinking().await.is_err() {tracing::warn!(agent=self.id,"unfinished ACP thought could not be saved at turn end");}
         if self.retain_incomplete().await.is_err() {tracing::warn!(agent=self.id,"unfinished response could not be saved at turn end");}
@@ -9817,6 +9845,8 @@ impl Actor {
             "helper_count": self.live_helpers.count(),
             "last_error": self.last_error,
             "activity": activity,
+            // a message call to the user is being written (Claude Code only; `net::typing::ToUser`)
+            "writing_to_user": self.to_user.active(Instant::now()),
             "cache_forecast": self.forecast,
         });
         if let Some(context)=self.turn.as_ref().and_then(|t|t.context_live.published) {

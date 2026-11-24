@@ -191,7 +191,7 @@ pub async fn acknowledge(client: &Client, agent: i64, session: &str, id: &str) -
         UPDATE ot.mail m SET state='delivered',delivered_at=coalesce(m.delivered_at,now())
         FROM held h WHERE m.recipient_agent_id=h.agent_id AND m.turn_id=h.turn_id
           AND m.id=ANY(h.mail_ids) AND m.state='delivering'
-        RETURNING m.uid,m.kind,m.org_id,m.net_id,m.net_hub
+        RETURNING m.uid,m.kind,m.org_id,m.net_id,m.net_hub,m.sender='@user' AS from_user
       ), counters AS (
         SELECT coalesce(max(seq),0)+1 AS seq,coalesce(max(ver),0)+1 AS ver FROM ot.convo WHERE agent_id=$1
       ), saved AS (
@@ -199,7 +199,7 @@ pub async fn acknowledge(client: &Client, agent: i64, session: &str, id: &str) -
         SELECT h.agent_id,c.seq,c.ver,h.transcript || jsonb_build_object('seq',c.seq,'row_id','r'||c.seq,
           'event_id','e'||c.seq,'convo_revision',c.ver),'{}'::jsonb FROM held h CROSS JOIN counters c
         WHERE EXISTS(SELECT 1 FROM delivered) RETURNING seq,ver,body
-      ) SELECT d.uid,d.kind,d.org_id,d.net_id,d.net_hub,s.seq,s.ver,s.body
+      ) SELECT d.uid,d.kind,d.org_id,d.net_id,d.net_hub,s.seq,s.ver,s.body,d.from_user
         FROM delivered d CROSS JOIN saved s",
         &[&agent,&session,&id]).await.map_err(private_error)
 }

@@ -38,9 +38,10 @@ pub async fn acknowledge(engine: &Engine, client: &tokio_postgres::Client, agent
     let rows = client.query(
         "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now()), extra = extra - 'context_retry_original'
           WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering'
-          RETURNING uid,kind,org_id,net_id,net_hub",
+          RETURNING uid,kind,org_id,net_id,net_hub,sender='@user'",
         &[&agent, &turn, &ids],
     ).await?;
+    tell_sender(engine, &rows);
     Ok(consumed(engine, &rows))
 }
 
@@ -51,9 +52,20 @@ pub async fn acknowledge_turn(engine: &Engine, client: &tokio_postgres::Client, 
         "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now()), extra = extra - 'context_retry_original'
           WHERE turn_id = $1 AND state = 'delivering'
             AND NOT EXISTS(SELECT 1 FROM ot.opencode_mail_batches b WHERE ot.mail.id=ANY(b.mail_ids))
-          RETURNING uid,kind,org_id,net_id,net_hub", &[&turn],
+          RETURNING uid,kind,org_id,net_id,net_hub,sender='@user'", &[&turn],
     ).await?;
+    tell_sender(engine, &rows);
     Ok(consumed(engine, &rows))
+}
+
+/// The user's own mail is among the rows a delivery just settled (their sixth column): the user's
+/// sent list is read again, so its row says `delivered` without a reload (the chats' check mark).
+/// An agent's mailbox change alone never refreshed the user's lists.
+#[nolog]
+fn tell_sender(engine: &Engine, rows: &[tokio_postgres::Row]) {
+    if let Some(row) = rows.iter().find(|r| r.try_get::<_, bool>(5).unwrap_or(false)) {
+        changes::notify_id(engine, row.get(2), vec![Change::UserMail]);
+    }
 }
 
 /// Only rows returned by a committed positive delivery transition get receipts.
@@ -279,6 +291,10 @@ fn wake_resets_fail_run(from: &From) -> bool {
 #[cfg(test)]
 #[path = "mail_stall_alert_tests.rs"]
 mod stall_alert_tests;
+
+#[cfg(test)]
+#[path = "mail_delivered_tests.rs"]
+mod delivered_tests;
 
 /// Store one message and wake its recipient.
 #[logged]

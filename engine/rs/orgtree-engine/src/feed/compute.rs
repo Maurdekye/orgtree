@@ -291,6 +291,10 @@ pub fn mail_entry(m: &Value) -> Value {
     if state == "delivering" {
         o.insert("delivering".into(), json!(true));
     }
+    // the agent's CLI has taken it (the one check mark of the user's chats)
+    if m["recipient_kind"] == "agent" && matches!(state, "delivered" | "read") {
+        o.insert("delivered".into(), json!(true));
+    }
     // a project mail's place in its queue (user 2026-10-18 08:01Z): who was
     // handed it and whether it is acked, released back to the queue, or an
     // ack record closing another mail

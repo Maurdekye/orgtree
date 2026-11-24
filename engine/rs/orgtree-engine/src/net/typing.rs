@@ -20,6 +20,14 @@
 //! answers 404 and is not asked again for `NO_FEATURE_RETRY`. Hubchat users'
 //! own heartbeats reach the org's address too; the engine's polls never ask
 //! for them, so it ignores them (user 2026-10-13 22:33Z).
+//!
+//! WRITING TO THE USER (4.7.0, the user's chats; USER 2026-11-24
+//! mbbb6c8289d47): the same watched call, when its `metadata` names the user,
+//! sets `writing_to_user` on the agent's runtime view (`ToUser`, held by the
+//! actor) until the call's block ends, the turn or the process ends, or
+//! `CAP`. It is a transient value of the running actor: nothing is stored and
+//! no route was added, so an engine restart or a killed process leaves none.
+//! Only Claude Code streams its tool calls; other harnesses never set it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -169,8 +177,11 @@ fn value_end(b: &[u8], start: usize) -> Option<usize> {
 /// not. Notices count: they land in the same chat.
 #[nolog]
 pub(crate) fn names_user(meta: &Value) -> bool {
-    let _ = meta;
-    false
+    let user = |v: &Value| v.as_str().is_some_and(|s| s.trim().trim_start_matches('@') == "user");
+    match &meta["to"] {
+        Value::Array(list) => list.iter().any(user),
+        one => user(one),
+    }
 }
 
 /// The message call to the user an agent is writing now, if any (the user's
@@ -186,25 +197,28 @@ impl ToUser {
     /// The call's `metadata` is whole and names the user. True when the flag changed.
     #[nolog]
     pub(crate) fn begin(&mut self, call: &str, now: Instant) -> bool {
-        let _ = (call, now, &self.call);
-        false
+        let was = self.active(now);
+        self.call = Some((call.to_string(), now));
+        !was
     }
     /// The call's block ended (the call is written). True when the flag changed.
     #[nolog]
     pub(crate) fn end(&mut self, call: &str) -> bool {
-        let _ = call;
+        if self.call.as_ref().is_some_and(|(c, _)| c == call) {
+            self.call = None;
+            return true;
+        }
         false
     }
     /// The agent's turn or process ended, however it ended. True when the flag changed.
     #[nolog]
     pub(crate) fn clear(&mut self) -> bool {
-        false
+        self.call.take().is_some()
     }
     /// Whether the agent is writing to the user at `now`: never longer than `CAP`.
     #[nolog]
     pub(crate) fn active(&self, now: Instant) -> bool {
-        let _ = now;
-        false
+        self.call.as_ref().is_some_and(|(_, since)| now.saturating_duration_since(*since) < CAP)
     }
 }
 
