@@ -286,7 +286,8 @@
 
 .dm-meta { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin-top: 3px; font-size: 11px; line-height: 1; color: var(--dim); user-select: none; }
 /* Hubchat's tick after the time (base.css .tick): a 16px check, a 14px clock while it waits */
-.dm-tick { display: inline-flex; font-size: 16px; line-height: 1; }
+.dm-tick { display: inline-flex; align-items: center; height: 11px; font-size: 16px; line-height: 1; }
+.dm-tick svg { flex: none; }
 .dm-tick.t-queued { font-size: 14px; }
 /* typing (Hubchat base.css .typing-prev, .typing-row, .typing-dots): the list's preview, and a row under
    the last message of the open chat */
