@@ -75,8 +75,9 @@ async fn the_menu_ranks_live_things_by_their_latest_mention_or_use_and_pages_the
         INSERT INTO ot.agents (org_id, name, tier, state, born) SELECT id, 'writer', 'sol', 'live', 'synthetic' FROM ot.orgs WHERE slug = 'menu-a';
         INSERT INTO ot.agents (org_id, name, tier, state, born) SELECT id, 'boss', 'sol', 'live', 'synthetic' FROM ot.orgs WHERE slug = 'menu-b';
         -- tickets: live ones, one done long ago (the docket's archive), one dropped, one archived
-        INSERT INTO ot.work_items (org_id, slug, title, status, created_by, updated_at)
-          SELECT o.id, t.slug, t.title, t.status, '{}'::jsonb, now() - make_interval(mins => t.ago) FROM ot.orgs o,
+        -- (a ticket ranks by its latest status change since 4.7.0: each one's is its `ago` too)
+        INSERT INTO ot.work_items (org_id, slug, title, status, created_by, updated_at, status_at)
+          SELECT o.id, t.slug, t.title, t.status, '{}'::jsonb, now() - make_interval(mins => t.ago), now() - make_interval(mins => t.ago) FROM ot.orgs o,
             (VALUES ('fix-login', 'Fix the login page', 'in_progress', 50), ('caption-review', 'Review the caption board', 'open', 30),
                     ('old-done', 'Done long ago', 'done', 600), ('gone', 'Dropped work', 'dropped', 5), ('weekly-plan', 'Weekly plan', 'backlogged', 400)) AS t(slug, title, status, ago)
            WHERE o.slug = 'menu-a';
