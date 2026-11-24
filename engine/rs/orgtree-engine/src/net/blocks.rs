@@ -121,7 +121,7 @@ async fn tell(engine: &Arc<Engine>, org_id: i64, agent: Option<(i64, i32)>, body
         None => {
             let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&org_id]).await?.get(0);
             let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
-            let names = crate::domain::orginbox::holder_agents(&tx, org_id, settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
+            let names = crate::domain::orginbox::holder_agents(&*tx, org_id, settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
             tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND name=ANY($2) ORDER BY id LIMIT 10000", &[&org_id, &names])
                 .await?
                 .iter()
