@@ -1572,3 +1572,7 @@ mod discovery_tests;
 #[cfg(test)]
 #[path = "net/stream_tests.rs"]
 mod stream_tests;
+
+#[cfg(test)]
+#[path = "net/blocks_tests.rs"]
+mod blocks_tests;
