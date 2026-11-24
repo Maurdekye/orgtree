@@ -27,6 +27,10 @@
 //   8. the user's duplicate: no file, no docket items, no cost, paused
 //      watchdogs, one undo entry
 //   9. a file that is cut short is refused before anything is created
+//  13. a project's own watchdogs travel with it (a relay follows its source
+//      project's new name), and the org mailbox never does: not into the
+//      file, not onto an imported node, not onto a copy, and never off the
+//      node that holds it
 // RED controls: counts are read before each step and compared after it; a
 // refusal is checked to have created nothing.
 import crypto from 'node:crypto'
@@ -666,6 +670,67 @@ export default async function (rig) {
     const made = row(bId, r.json?.result?.root ?? 'no-such-node')
     p.check('12. and imports it under itself', r.ok && r.json?.state === 'done' && made?.parent === holder && live(bId) === liveBefore + 1,
       { r: r.json ?? r.text, made: made && { name: made.name, parent: made.parent } })
+  })
+
+  // ---- 13. a project's own watchdogs come along; the org mailbox stays where it is
+  // USER 2026-11-24 m516cde3ebdef "the two sub-projects are missing watchdogs from the top inbox project";
+  // USER 2026-11-24 m63824e37d3d6 "the org inbox audience should never move / be saved with an import"
+  await section('13', async () => {
+    const holders = org => rig.sql(`SELECT grantee FROM ot.audiences WHERE org_id=${org} AND grantor='@extern' AND revoked_at IS NULL ORDER BY grantee`).map(a => a.grantee).join(' ')
+    const dogsOf = id => rig.sql(`SELECT name, kind, state, target, owner_kind, memo->>'project_delivery' AS delivery FROM ot.watchdogs
+      WHERE owner_agent_id=${id ?? 0} AND state IN ('armed', 'paused') ORDER BY id`)
+    let r = await api('POST', `/api/orgs/${A}/ops`, { op: 'create_project', name: 'desk13', parent: 'boss', description: 'The front desk.' })
+    p.check('13. a project', r.ok, r.json ?? r.text)
+    r = await api('POST', `/api/orgs/${A}/ops`, { op: 'create_project', name: 'crew13', parent: 'desk13', description: 'Takes its jobs from @desk13.' })
+    p.check('13. and a project under it', r.ok, r.json ?? r.text)
+    r = await tool('boss', 'orgtree_watchdog', { action: 'create', project: 'crew13', name: 'from-desk', kind: 'fair_queue', target: 'desk13' })
+    const crew = row(aId, 'crew13')
+    p.check('13. the lower project has its own watchdog on the upper one: a relay of its mail queue', r.ok && dogsOf(crew.id).map(d => `${d.name}:${d.kind}:${d.owner_kind}:${d.target}:${d.state}`).join(' ')
+      === 'from-desk:fair_queue:project:desk13:armed', { r: r.json ?? r.text, dogs: dogsOf(crew.id) })
+    r = await api('POST', `/api/orgs/${A}/audiences`, { action: 'grant', node: 'desk13', target: 'extern', reason: 'proof: the project queues the org mailbox' })
+    p.check('13. the upper project holds the org mailbox there', r.ok && holders(aId) === 'desk13', { r: r.json ?? r.text, holders: holders(aId) })
+    r = await api('POST', `/api/orgs/${B}/audiences`, { action: 'grant', node: 'host', target: 'extern', reason: 'proof: host holds the org mailbox here' })
+    p.check('13. and an agent holds it in the other organization', r.ok && holders(bId) === 'host', { r: r.json ?? r.text, holders: holders(bId) })
+
+    const started = await rig.api('POST', `/api/orgs/${A}/nodes/desk13/export`, { subtree: true })
+    let job = await ended(A, 'exports', started.id)
+    if (job.state === 'confirm') job = await rig.api('POST', `/api/orgs/${A}/exports/${started.id}/confirm`)
+    const file = await raw('GET', `/api/orgs/${A}/exports/${started.id}/file`)
+    p.check('13. the export of both', job.state === 'done' && file.ok && job.result?.counts?.projects === 2, { state: job.state, error: job.error, counts: job.result?.counts })
+    if (!file.ok) return
+    p.file('desk13-team.orgtree.zip', file.buf)
+    const names = zipEntries(file.buf)
+    const links = JSON.parse(zipRead(file.buf, names.get('links.json')).toString('utf8'))
+    const nodes = JSON.parse(zipRead(file.buf, names.get('nodes.json')).toString('utf8')).nodes
+    const dog = links.watchdogs?.[0]
+    p.check("13. the file holds the project's watchdog, with its owner and its delivery form", links.watchdogs?.length === 1 && nodes[dog?.owner]?.name === 'crew13'
+      && dog?.args?.kind === 'fair_queue' && dog?.args?.target === 'desk13' && dog?.args?.project_delivery === 'queue' && dog?.paused === false
+      && !JSON.stringify(links.left_out ?? []).includes('owned by a project'), { watchdogs: links.watchdogs?.map(d => ({ owner: d.owner, args: d.args })), left_out: links.left_out })
+    p.check('13. the file holds no audience with the org mailbox, and does not name one as left behind', !JSON.stringify(links.audiences ?? []).includes('extern')
+      && !/extern|org mailbox/i.test(JSON.stringify(links.left_out ?? [])), { audiences: links.audiences, left_out: links.left_out })
+
+    // into the other organization, where the names are free: armed because the importer asked
+    const up = await upload(file.buf, 'desk13-team.orgtree.zip')
+    const plan = await rig.api('POST', `/api/orgs/${B}/imports/${up.id}/plan`, { dest: 'host' })
+    p.check('13. the plan counts the watchdog', plan.ok === true && plan.file?.watchdogs === 1 && plan.nodes?.map(n => n.name).join(' ') === 'desk13 crew13',
+      { ok: plan.ok, refusal: plan.refusal, file: plan.file, nodes: plan.nodes?.map(n => n.name) })
+    const done = await ended(B, 'imports', (await rig.api('POST', `/api/orgs/${B}/imports/${up.id}/apply`, { dest: 'host', expect: plan.digest, resume_watchdogs: true })).id)
+    const crewB = row(bId, 'crew13')
+    p.check("13. the imported project has its watchdog, the project's own, on the imported upper project, armed as asked", done.state === 'done' && done.result?.complete === true
+      && dogsOf(crewB?.id).map(d => `${d.name}:${d.kind}:${d.owner_kind}:${d.target}:${d.delivery}:${d.state}`).join(' ') === 'from-desk:fair_queue:project:desk13:queue:armed'
+      && done.result?.watchdogs?.created === 1 && done.result?.watchdogs?.armed === 1,
+      { state: done.state, error: done.error, leftovers: done.result?.leftovers, dogs: dogsOf(crewB?.id), result: done.result?.watchdogs })
+    p.check('13. the import gave the org mailbox to nobody and took it from nobody', holders(bId) === 'host' && holders(aId) === 'desk13', { there: holders(aId), here: holders(bId) })
+
+    // a copy beside the original: numbered names, the relay follows its source, the original keeps the org mailbox
+    const copy = await ended(A, 'imports', (await rig.api('POST', `/api/orgs/${A}/nodes/desk13/duplicate`, { subtree: true })).id)
+    const desk2 = row(aId, copy.result?.root ?? 'no-such-node')
+    const crew2 = rig.one(`SELECT id, name FROM ot.agents WHERE parent_id=${desk2?.id ?? 0} AND kind='project' AND state='live'`)
+    p.check("13. the copy's lower project has the watchdog paused, on the copy of the upper project", copy.state === 'done' && desk2?.name === 'desk13-2' && crew2?.name === 'crew13-2'
+      && dogsOf(crew2?.id).map(d => `${d.name}:${d.kind}:${d.owner_kind}:${d.target}:${d.delivery}:${d.state}`).join(' ') === 'from-desk:fair_queue:project:desk13-2:queue:paused'
+      && dogsOf(crew.id).map(d => `${d.target}:${d.state}`).join(' ') === 'desk13:armed',
+      { state: copy.state, error: copy.error, desk2: desk2?.name, crew2: crew2?.name, dogs: dogsOf(crew2?.id), original: dogsOf(crew.id), result: copy.result?.watchdogs })
+    p.check('13. the original still holds the org mailbox, and the copy does not', holders(aId) === 'desk13', holders(aId))
   })
 
   p.keep(rig, { agents: ['alice', 'boss'], grep: /export|import|portable|duplicate|ported/i })
