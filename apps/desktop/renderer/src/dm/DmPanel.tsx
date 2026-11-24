@@ -78,6 +78,7 @@ import { openSettingsAt } from '../canvas/settingskit'
 import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
 import { HubContactChip, isHubAddress, requestTranscriptMail } from '../canvas/agentmentions'
+import { isCurrentOrgAddress } from '../canvas/netmentions'
 import { copyToClipboard, useContextMenu } from '../canvas/contextmenu'
 import type { MenuEntry } from '../canvas/contextmenu'
 import { mailMenuEntries } from '../canvas/mailidentity'
@@ -163,6 +164,11 @@ export interface DmPanelProps {
 /** The name a chat is listed and headed under. */
 export const dmName = (chat: Pick<DmChat, 'kind' | 'peer'>): string =>
   chat.kind === 'system' ? 'System' : chat.peer
+
+/** STREAM PRIVACY: an outside sender's name is hidden wherever the chats write it, as its chip is
+ *  (`HubContactChip`); an agent's or a project's name never is. Spread onto the element holding the name. */
+export const dmNameField = (peer: string): { 'data-streamer-field'?: 'external' } =>
+  isHubAddress(peer) && !isCurrentOrgAddress(peer) ? { 'data-streamer-field': 'external' } : {}
 
 /** A list row reads as plain words: the commonest markdown marks are dropped
  *  (bold, code, a link's address, a leading heading, quote or list mark). */
@@ -622,7 +628,7 @@ function DmAvatar({ chat }: { chat: DmChat }) {
   // chip is on its messages (`DmBubble`).
   if (chat.kind === 'system') return <span className="dm-av dm-av-system" aria-hidden="true"><ChipIcon fontSize="inherit" /></span>
   if (chat.node) return <span className="dm-av"><TierChip tier={nodeTierOf(chat.node as CanvasNode)} agentName={chat.peer} /></span>
-  return <span className="dm-av dm-av-other" aria-hidden="true">{chat.peer.replace(/^@/, '').slice(0, 1).toUpperCase() || '?'}</span>
+  return <span className="dm-av dm-av-other" aria-hidden="true" {...dmNameField(chat.peer)}>{chat.peer.replace(/^@/, '').slice(0, 1).toUpperCase() || '?'}</span>
 }
 
 /** What the one confirmation says under its title: who else loses the audience. */
@@ -731,7 +737,7 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, writing, on
       <div className="dm-row-main">
         <div className="dm-row-l1">
           {/* no tooltip of its own: the whole row shows the agent link's hover (USER 2026-11-24 mc6fd4b5153a7, m2840ae420194) */}
-          <button type="button" className="dm-row-name" aria-current={selected || undefined}
+          <button type="button" className="dm-row-name" aria-current={selected || undefined} {...dmNameField(chat.peer)}
             aria-label={`Open the chat with ${name}`}>{name}</button>
           {(chat.request?.at || last) && <ListAge at={chat.request?.at || last!.at} />}
         </div>
@@ -1296,7 +1302,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           {historyError && <div role="alert" className="dm-history-error">Could not load older mail. <button onClick={onRetryHistory}>Retry</button></div>}
           {!all.length && <div className="dm-start">
             <DmAvatar chat={chat} />
-            <b>{name}</b>
+            <b {...dmNameField(peer)}>{name}</b>
             <span className="dim">{canWrite ? 'No messages yet. What you write here reaches it as mail from you.'
               : 'No messages here.'}</span>
           </div>}
@@ -1483,7 +1489,7 @@ function DmAudienceRequest({ peer, name, request, canWrite, onApprove, onDeny }:
     <div className="dm-msg in first dm-audreq" data-dm-request={peer}>
       <div className="dm-bubble dm-request" role="group" aria-label={`Audience request from ${name}`}>
         <div className="dm-labels"><span className="dm-kind dm-kind-audience"><HearingIcon fontSize="inherit" /> Audience request</span></div>
-        <div className="dm-request-what"><b>{name}</b> asks for an audience with you{request.reason ? ':' : '.'}</div>
+        <div className="dm-request-what"><b {...dmNameField(peer)}>{name}</b> asks for an audience with you{request.reason ? ':' : '.'}</div>
         {request.reason && <div className="dm-request-why">{request.reason}</div>}
         <div className="dm-request-acts">
           <button type="button" className="primary" onClick={onApprove}>Approve</button>

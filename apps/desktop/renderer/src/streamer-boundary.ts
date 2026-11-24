@@ -29,6 +29,8 @@ export const STREAMER_ZONES = {
     '.tray-sum', '.progress-summary',
     // user/agent-written excerpts: the sticky user-message preview, mail and reply previews, selection excerpts, dead-desk previews
     '.pinuser-t', '.mail-preview-text', '.turn-mail-preview-content', '.reply-preview-content', '.selection-excerpt', '.dead-preview', '.dead-summary',
+    // the user's chats (dm/DmPanel.tsx): a chat row's preview of its last message, and the excerpt of a staged reply
+    '.dm-row-text', '.dm-replybar-text',
     // a tool call's argument (the line around it is structured)
     '.targ',
     '[data-streamer-freeform]'].join(','),
