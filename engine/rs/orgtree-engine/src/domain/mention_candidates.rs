@@ -173,12 +173,19 @@ pub fn words(text: &str) -> Vec<String> {
 
 /// Live things only: tickets the docket lists outside its archive (as the @
 /// menu always offered), presentations not dismissed, every app and saved
-/// panel. Each is ranked by the latest of its own time (a ticket's last
-/// change, a presentation's last presenting, an app's last change or its
-/// copies' last use, a panel's last use or change) and its last mention.
+/// panel. A presentation, an app and a panel are ranked by the latest of
+/// their own time (a presentation's last presenting, an app's last change or
+/// its copies' last use, a panel's last use or change) and their last mention.
+///
+/// A TICKET IS RANKED BY ITS LATEST STATUS CHANGE ALONE (USER 2026-11-24
+/// mbad08856cdb4; coordinator ma1bbf0c2c8d4): `status_at`, or its creation
+/// for a ticket from before that was recorded, as the docket's own status
+/// sort reads it. An edit and a mention in some other conversation do not
+/// move it; what the OPEN conversation mentions is lifted above this order
+/// by the window, which knows that conversation.
 const CANDIDATES_SQL: &str = "WITH cand AS (
     SELECT 'item'::text AS kind, w.slug AS id, w.title AS label,
-           greatest(w.updated_at, coalesce(w.docket_at, w.updated_at)) AS operated, jsonb_build_object('status', w.status) AS extra
+           coalesce(w.status_at, w.created_at) AS operated, jsonb_build_object('status', w.status) AS extra
       FROM ot.work_items w
      WHERE 'item' = ANY($2::text[]) AND w.org_id = $1 AND w.archived_at IS NULL
        AND NOT coalesce((w.extra->>'deleted')::boolean, false) AND w.status <> 'dropped'
@@ -198,7 +205,7 @@ const CANDIDATES_SQL: &str = "WITH cand AS (
   ), ranked AS (
     SELECT c.kind, c.id, c.label, c.extra, greatest(c.operated, r.at) AS at,
            floor(extract(epoch FROM greatest(c.operated, r.at)) * 1000)::bigint AS at_ms
-      FROM cand c LEFT JOIN ot.mention_recency r ON r.org_id = $1 AND r.kind = c.kind AND r.key = c.id
+      FROM cand c LEFT JOIN ot.mention_recency r ON r.org_id = $1 AND r.kind = c.kind AND r.key = c.id AND c.kind <> 'item'
      WHERE NOT EXISTS (SELECT 1 FROM unnest($3::text[]) t WHERE position(t IN lower(c.label || ' ' || c.id)) = 0)
   )
   SELECT kind, id, label, extra, at, at_ms, lower(label) FROM ranked
