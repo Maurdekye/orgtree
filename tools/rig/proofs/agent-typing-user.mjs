@@ -11,7 +11,9 @@ import { Proof } from '../proof.mjs'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 export function setup() {
-  return { fixture: { org: { name: 'Agent typing to the user' }, agents: [{ name: 'rhea', tier: 'haiku', grant: 4 }, { name: 'otto', tier: 'haiku', grant: 0 }],
+  // The rig has no sign-in helper: session0 '0' keeps the first turn from waiting 60 s for one
+  // (docs/rust-engine/test-rig.md, Traps).
+  return { session0: '0', fixture: { org: { name: 'Agent typing to the user' }, agents: [{ name: 'rhea', tier: 'haiku', grant: 4 }, { name: 'otto', tier: 'haiku', grant: 0 }],
     scenario: { default: { turns: [{ steps: [{ text: 'OK.' }] }] } } } }
 }
 
@@ -58,7 +60,9 @@ export default async function (rig) {
     return stop()
   }
 
-  p.check('an idle agent says it is not writing to the user', (await writing('rhea')) === false, await writing('rhea'))
+  // a read of the tree right after the fixture's hires can come before they show in it
+  await rig.waitFor(async () => (await node('rhea')) && (await node('otto')) ? true : null, { what: 'the hired agents in the tree', timeout: 30000, every: 250 })
+  p.check('an idle agent says it is not writing to the user', (await writing('rhea')) === false, { flag: (await writing('rhea')) ?? null, node: Object.keys((await node('rhea')) ?? {}).length })
 
   // 1
   let s = await run('user proof one')
