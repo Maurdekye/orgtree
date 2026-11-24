@@ -461,27 +461,65 @@ pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
 
 /// The agents in charge of the org mailbox (last active, Mail hub 2.6.0;
 /// docket hubchat-last-seen-time-for-orgs-people-and-indep): the live agent
-/// holders, and for a project holder the live agents whose armed fair_queue
-/// listener targets it (the set `busy` reads), halted or frozen ones too;
-/// each with when its last finished turn ended (None: it never finished
-/// one). Agent ids, in id order.
+/// holders, and for a project holder the live agents whose fair_queue
+/// listener targets it, armed or paused, and those holding one of its jobs
+/// not yet acked (a listener may be spent or paused while its owner works
+/// the job: the owner stays in charge exactly then). Halted or frozen ones
+/// count too. Agent ids, in id order.
 #[logged]
-pub async fn in_charge_turn_ends<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<(i64, Option<chrono::DateTime<chrono::Utc>>)>> {
+pub async fn in_charge<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<i64>> {
     let all = holder_rows(client, org_id, multi).await?;
     let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
     let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
     let rows = client.query(
-        "WITH charge AS (
-           SELECT a.id FROM ot.agents a WHERE a.org_id = $1 AND a.name = ANY($2) AND a.state = 'live' AND a.kind = 'agent'
-           UNION
-           SELECT a.id FROM ot.watchdogs w
-             JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent'
-             JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($3) AND p.id = (w.memo->>'target_id')::bigint
-            WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed')
-         SELECT c.id, (SELECT t.ended_at FROM ot.turns t WHERE t.agent_id = c.id AND t.ended_at IS NOT NULL ORDER BY t.id DESC LIMIT 1)
-           FROM charge c ORDER BY c.id",
+        "SELECT a.id FROM ot.agents a WHERE a.org_id = $1 AND a.name = ANY($2) AND a.state = 'live' AND a.kind = 'agent'
+         UNION
+         SELECT a.id FROM ot.watchdogs w
+           JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent'
+           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($3) AND p.id = (w.memo->>'target_id')::bigint
+          WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state IN ('armed', 'paused')
+         UNION
+         SELECT a.id FROM ot.mail m
+           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($3) AND p.id = m.recipient_agent_id
+           JOIN ot.agents a ON a.id = (m.extra->'claimed'->>'by_id')::bigint AND a.state = 'live' AND a.kind = 'agent'
+          WHERE m.state = 'read' AND m.extra->'claimed'->>'ack' = 'true' AND m.extra->'claimed'->>'acked_at' IS NULL
+            AND NOT (m.extra ? 'dead_letter')
+         ORDER BY 1",
         &[&org_id, &agents, &projects]).await?;
+    Ok(rows.iter().map(|r| r.get(0)).collect())
+}
+
+/// When each of these agents' last finished turn ended (None: it never
+/// finished one). A turn the engine's start-up recovery closed (`runtime::
+/// recover`: killed, with its error "the engine stopped during this turn")
+/// is no turn end: the engine stopped, the agent didn't finish anything
+/// (@last-seen-review-fable G2).
+#[logged]
+pub async fn last_turn_ends<C: tokio_postgres::GenericClient + Sync>(client: &C, ids: &[i64]) -> Result<Vec<(i64, Option<chrono::DateTime<chrono::Utc>>)>> {
+    let rows = client.query(
+        "SELECT a.id, (SELECT t.ended_at FROM ot.turns t
+                         WHERE t.agent_id = a.id AND t.ended_at IS NOT NULL
+                           AND NOT (t.killed AND t.error IS NOT DISTINCT FROM 'the engine stopped during this turn')
+                         ORDER BY t.id DESC LIMIT 1)
+           FROM unnest($1::bigint[]) AS a(id) ORDER BY a.id",
+        &[&ids]).await?;
     Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
+/// The org's last-active mark (`ot.orgs.net.last_active_at`): raised to
+/// `newest` when that is later, never lowered or cleared; the mark after.
+/// A sent time is never unsent (@coordinator-opus 2026-11-24 13:27Z).
+#[logged]
+pub async fn raise_last_active<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, newest: Option<chrono::DateTime<chrono::Utc>>) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let row = client.query_one(
+        "WITH up AS (
+           UPDATE ot.orgs SET net = jsonb_set(net, '{last_active_at}', to_jsonb($2::timestamptz))
+            WHERE id = $1 AND $2::timestamptz IS NOT NULL
+              AND (net->>'last_active_at' IS NULL OR (net->>'last_active_at')::timestamptz < $2::timestamptz)
+           RETURNING net)
+         SELECT (coalesce((SELECT net FROM up), (SELECT net FROM ot.orgs WHERE id = $1))->>'last_active_at')::timestamptz",
+        &[&org_id, &newest]).await?;
+    Ok(row.get(0))
 }
 
 #[cfg(test)]

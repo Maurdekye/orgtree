@@ -208,21 +208,91 @@ async fn the_agents_in_charge_and_their_last_turn_ends() {
     let boss = agent(&c, org, "boss").await;
     grant(&c, org, "ann").await;
     grant(&c, org, "bob").await;
-    assert_eq!(in_charge_turn_ends(&c, org, true).await.unwrap(), vec![(ann, None), (bob, None)], "holders only, never-ran: no end");
+    assert_eq!(in_charge(&c, org, true).await.unwrap(), vec![ann, bob], "holders only");
+    assert_eq!(last_turn_ends(&c, &[ann, bob]).await.unwrap(), vec![(ann, None), (bob, None)], "never ran: no end");
     // overlapping turns: ann 10:00-10:40 then a new one running; bob 10:20-10:30
     turn(&c, ann, "2026-11-24T10:00:00Z", Some("2026-11-24T10:40:00Z")).await;
     turn(&c, bob, "2026-11-24T10:20:00Z", Some("2026-11-24T10:30:00Z")).await;
     turn(&c, ann, "2026-11-24T10:50:00Z", None).await;
     turn(&c, boss, "2026-11-24T11:00:00Z", Some("2026-11-24T11:05:00Z")).await;
     assert_eq!(
-        in_charge_turn_ends(&c, org, true).await.unwrap(),
+        last_turn_ends(&c, &[ann, bob]).await.unwrap(),
         vec![(ann, at("2026-11-24T10:40:00Z")), (bob, at("2026-11-24T10:30:00Z"))],
-        "each holder's last FINISHED turn (ann's running one doesn't hide her 10:40 end); boss holds nothing"
+        "each one's last FINISHED turn (ann's running one doesn't hide her 10:40 end)"
     );
     run(&c, "UPDATE ot.agents SET halt = '{\"by\":\"fixture\"}'::jsonb WHERE id = $1", bob).await;
-    assert_eq!(in_charge_turn_ends(&c, org, true).await.unwrap().len(), 2, "a halted holder still counts for the time");
-    assert_eq!(in_charge_turn_ends(&c, org, false).await.unwrap(), vec![(bob, at("2026-11-24T10:30:00Z"))], "single-holder mode: the newest grant only");
+    assert_eq!(in_charge(&c, org, true).await.unwrap(), vec![ann, bob], "a halted holder still counts");
+    assert_eq!(in_charge(&c, org, false).await.unwrap(), vec![bob], "single-holder mode: the newest grant only");
     run(&c, "UPDATE ot.agents SET state = 'retired' WHERE id = $1", bob).await;
-    assert_eq!(in_charge_turn_ends(&c, org, true).await.unwrap(), vec![(ann, at("2026-11-24T10:40:00Z"))], "a retired holder is not in charge");
+    assert_eq!(in_charge(&c, org, true).await.unwrap(), vec![ann], "a retired holder is not in charge");
+    done(c, conn).await;
+}
+
+/// One pass of org_presence's last-active part: the newest finished turn end
+/// of those in charge raises the org's mark (single-holder mode).
+#[nolog]
+async fn pass(c: &tokio_postgres::Client, org: i64) -> Option<chrono::DateTime<chrono::Utc>> {
+    let ids = in_charge(c, org, false).await.unwrap();
+    let newest = last_turn_ends(c, &ids).await.unwrap().into_iter().filter_map(|e| e.1).max();
+    raise_last_active(c, org, newest).await.unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated busy_presence_fixture database (ORGTREE_BUSY_TEST_URL)"]
+#[nolog]
+async fn the_last_active_time_never_goes_back() {
+    let (c, conn, org) = fixture().await;
+    let ann = agent(&c, org, "ann").await;
+    let bob = agent(&c, org, "bob").await;
+    grant(&c, org, "ann").await;
+    turn(&c, ann, "2026-11-24T10:00:00Z", Some("2026-11-24T10:40:00Z")).await;
+    turn(&c, bob, "2026-11-24T10:20:00Z", Some("2026-11-24T10:30:00Z")).await;
+    // what org_presence does each pass: the newest end of those in charge raises the mark
+    assert_eq!(pass(&c, org).await, at("2026-11-24T10:40:00Z"), "ann's end");
+    // single-holder mode: the audience moves to bob, who last ran at 10:30
+    grant(&c, org, "bob").await;
+    assert_eq!(pass(&c, org).await, at("2026-11-24T10:40:00Z"), "a holder swap to an older-run agent keeps the time");
+    // bob retired, the mailbox given to a hire that never ran
+    run(&c, "UPDATE ot.agents SET state = 'retired' WHERE id = $1", bob).await;
+    agent(&c, org, "newbie").await;
+    grant(&c, org, "newbie").await;
+    assert_eq!(pass(&c, org).await, at("2026-11-24T10:40:00Z"), "a never-run hire keeps the time");
+    // every audience revoked: nobody in charge
+    run(&c, "UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantor = '@extern'", org).await;
+    assert_eq!(pass(&c, org).await, at("2026-11-24T10:40:00Z"), "a revoked audience keeps the time");
+    // the engine restarts: the mark is in the database
+    let mark: Option<String> = c.query_one("SELECT net->>'last_active_at' FROM ot.orgs WHERE id = $1", &[&org]).await.unwrap().get(0);
+    assert!(mark.is_some(), "kept in ot.orgs.net");
+    assert_eq!(raise_last_active(&c, org, None).await.unwrap(), at("2026-11-24T10:40:00Z"), "read back as it was");
+    // a newer end raises it
+    assert_eq!(raise_last_active(&c, org, at("2026-11-24T11:00:00Z")).await.unwrap(), at("2026-11-24T11:00:00Z"));
+    done(c, conn).await;
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated busy_presence_fixture database (ORGTREE_BUSY_TEST_URL)"]
+#[nolog]
+async fn a_turn_the_engine_start_closed_is_no_turn_end() {
+    let (c, conn, org) = fixture().await;
+    let ann = agent(&c, org, "ann").await;
+    grant(&c, org, "ann").await;
+    turn(&c, ann, "2026-11-24T10:00:00Z", Some("2026-11-24T10:40:00Z")).await;
+    // the PC went down mid-turn at 18:00; recover() closed it at the next start
+    c.execute(
+        "INSERT INTO ot.turns (agent_id, started_at, ended_at, killed, error)
+         VALUES ($1, '2026-11-24T17:55:00Z', '2026-11-27T09:00:00Z', true, 'the engine stopped during this turn')",
+        &[&ann],
+    )
+    .await
+    .unwrap();
+    assert_eq!(last_turn_ends(&c, &[ann]).await.unwrap(), vec![(ann, at("2026-11-24T10:40:00Z"))], "the recovered turn leaves the time as it was");
+    // an ordinary killed turn (the user stopped it) is a turn end
+    c.execute(
+        "INSERT INTO ot.turns (agent_id, started_at, ended_at, killed) VALUES ($1, '2026-11-27T09:10:00Z', '2026-11-27T09:12:00Z', true)",
+        &[&ann],
+    )
+    .await
+    .unwrap();
+    assert_eq!(last_turn_ends(&c, &[ann]).await.unwrap(), vec![(ann, at("2026-11-27T09:12:00Z"))]);
     done(c, conn).await;
 }

@@ -118,9 +118,129 @@ fn an_org_stays_active_while_any_agent_in_charge_is_mid_turn() {
 fn the_post_carries_active_and_the_last_turn_end() {
     let now = chrono::DateTime::from_timestamp_millis(1_764_000_060_000).unwrap();
     let says = Says { busy: false, dnd: false, active: false, active_at: Some(1_764_000_000_123) };
-    assert_eq!(body("acme.1a2b3c", says, now), json!({ "slug": "acme.1a2b3c", "busy": false, "dnd": false, "active": false,
+    assert_eq!(body("acme.1a2b3c", says, true, now), json!({ "slug": "acme.1a2b3c", "busy": false, "dnd": false, "active": false,
         "active_at": "2025-11-24T16:00:00.123Z", "now": "2025-11-24T16:01:00.000Z" }));
     let says = Says { busy: true, dnd: true, active: true, active_at: None };
-    assert_eq!(body("acme.1a2b3c", says, now), json!({ "slug": "acme.1a2b3c", "busy": true, "dnd": true, "active": true,
+    assert_eq!(body("acme.1a2b3c", says, true, now), json!({ "slug": "acme.1a2b3c", "busy": true, "dnd": true, "active": true,
         "active_at": null, "now": "2025-11-24T16:01:00.000Z" }));
+}
+
+#[test]
+#[nolog]
+fn an_older_hub_gets_busy_and_dnd_alone() {
+    let now = chrono::DateTime::from_timestamp_millis(1_764_000_060_000).unwrap();
+    let says = Says { busy: true, dnd: false, active: true, active_at: Some(1_764_000_000_123) };
+    assert_eq!(for_hub(says, false), Says { busy: true, dnd: false, active: false, active_at: None }, "a turn is no news to it");
+    assert_eq!(for_hub(says, true), says);
+    assert_eq!(body("acme.1a2b3c", says, false, now), json!({ "slug": "acme.1a2b3c", "busy": true, "dnd": false }), "today's body, byte for byte");
+    // so a turn edge alone is never due for it
+    let t = Instant::now();
+    let said = Said { says: for_hub(Says { active: false, ..says }, false), at: t, unsupported: false };
+    assert!(!due(Some(said), for_hub(says, false), t + Duration::from_secs(1)), "a turn started: an older hub hears nothing");
+}
+
+#[test]
+#[nolog]
+fn the_agents_in_charge_follow_each_pass() {
+    let state = State::default();
+    state.set_in_charge(1, &[10, 11]);
+    state.set_in_charge(2, &[20]);
+    assert!(state.is_in_charge(10) && state.is_in_charge(11) && state.is_in_charge(20));
+    state.set_in_charge(1, &[11, 12]);
+    assert!(!state.is_in_charge(10), "no longer in charge: its turns kick nothing");
+    assert!(state.is_in_charge(11) && state.is_in_charge(12) && state.is_in_charge(20), "the new one counts; another org's stays");
+    state.set_in_charge(1, &[]);
+    assert!(!state.is_in_charge(11) && !state.is_in_charge(12) && state.is_in_charge(20), "an org with no hub that lists last_active: none of its");
+}
+
+/// A hub that answers `/healthz` with these features and 200 to anything
+/// else, and records each POST body.
+async fn fake_hub(features: &'static [&'static str]) -> (String, tokio::sync::mpsc::UnboundedReceiver<serde_json::Value>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else { return };
+            let mut got = Vec::new();
+            loop {
+                let mut buf = vec![0u8; 8192];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                got.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&got).to_string();
+                let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                    if n == 0 { break } else { continue }
+                };
+                let want = head.to_ascii_lowercase().split("content-length:").nth(1).and_then(|v| v.trim().split_whitespace().next().and_then(|v| v.parse::<usize>().ok())).unwrap_or(0);
+                if body.len() >= want || n == 0 { break }
+            }
+            let text = String::from_utf8_lossy(&got).to_string();
+            let answer = if text.starts_with("GET /healthz") {
+                json!({ "ok": true, "features": features }).to_string()
+            } else {
+                if let Some((_, b)) = text.split_once("\r\n\r\n") {
+                    let _ = tx.send(serde_json::from_str::<serde_json::Value>(b).unwrap_or(serde_json::Value::Null));
+                }
+                "{\"ok\":true}".to_string()
+            };
+            let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}", answer.len());
+            let _ = socket.write_all(resp.as_bytes()).await;
+        }
+    });
+    (address, rx)
+}
+
+#[tokio::test]
+#[nolog]
+async fn a_turn_edge_of_an_agent_in_charge_kicks_the_pass_and_the_post_says_it() {
+    use std::sync::Arc;
+    let engine = crate::engine::Engine::for_tests(std::env::temp_dir().join("orgtree-presence-unused"));
+    let (ann, boss) = (101_i64, 102_i64);
+    let mut rx_keep = Vec::new();
+    for id in [ann, boss] {
+        let (tx, r) = tokio::sync::mpsc::unbounded_channel();
+        rx_keep.push(r);
+        engine.agents.map.pin().insert(id, Arc::new(crate::runtime::AgentHandle { id, org_id: 7, tx,
+            view: arc_swap::ArcSwap::from_pointee(json!({ "busy": false })),
+            helpers: arc_swap::ArcSwap::from_pointee(json!({ "count": 0, "items": [], "truncated": false })) }));
+    }
+    engine.net.presence.set_in_charge(7, &[ann]);
+    async fn kicked(engine: &crate::engine::Engine) -> bool {
+        tokio::time::timeout(Duration::from_millis(200), engine.net.kick.notified()).await.is_ok()
+    }
+
+    // boss holds nothing: its turns kick nothing
+    turn_edge(&engine, boss, &json!({ "busy": false }), &json!({ "busy": true }));
+    assert!(!kicked(&engine).await, "an agent not in charge: no kick");
+    // ann's turn starts: the pass runs at once
+    engine.agents.get(ann).unwrap().view.store(Arc::new(json!({ "busy": true })));
+    turn_edge(&engine, ann, &json!({ "busy": false }), &json!({ "busy": true }));
+    assert!(kicked(&engine).await, "a turn of an agent in charge kicks the pass");
+    turn_edge(&engine, ann, &json!({ "busy": true }), &json!({ "busy": true }));
+    assert!(!kicked(&engine).await, "no flip (another runtime change): no kick");
+
+    // the pass: mid-turn from the live view, and the post to each hub
+    assert!(running(&engine, ann) && !running(&engine, boss));
+    let (active, at) = last_active(&[(running(&engine, ann), Some(1_764_000_000_123)), (running(&engine, boss), None)]);
+    let says = Says { busy: false, dnd: false, active, active_at: at };
+    let (new_hub, mut new_rx) = fake_hub(&["busy", "dnd", "last_active"]).await;
+    let (old_hub, mut old_rx) = fake_hub(&["busy", "dnd"]).await;
+    assert!(hub_last_active(&engine, 7, "new", &new_hub).await, "a hub that lists last_active");
+    assert!(!hub_last_active(&engine, 7, "old", &old_hub).await, "a hub that doesn't");
+    let p = super::Part { org_id: 7, slug: "acme".into(), name: "Acme".into(), net_slug: "acme.user.abc123".into(), secret: "s3cret".into(),
+        hubs: vec![("new".into(), new_hub.clone()), ("old".into(), old_hub.clone())],
+        registered: ["new".to_string(), "old".to_string()].into_iter().collect() };
+    tell(&engine, &p, &[("new", new_hub.as_str(), true), ("old", old_hub.as_str(), false)], says).await;
+    let got = new_rx.try_recv().expect("the new hub is told");
+    assert_eq!((got["active"].clone(), got["active_at"].clone()), (json!(true), json!("2025-11-24T16:00:00.123Z")), "{got}");
+    assert!(got["now"].is_string(), "{got}");
+    assert_eq!(old_rx.try_recv().expect("the old hub is told too, as ever"), json!({ "slug": "acme.user.abc123", "busy": false, "dnd": false }));
+
+    // the turn ends: the new hub hears it, the old one nothing
+    let says = Says { active: false, active_at: Some(1_764_000_100_000), ..says };
+    tell(&engine, &p, &[("new", new_hub.as_str(), true), ("old", old_hub.as_str(), false)], says).await;
+    assert_eq!(new_rx.try_recv().expect("the turn end is said")["active_at"], json!("2025-11-24T16:01:40.000Z"));
+    assert!(old_rx.try_recv().is_err(), "an older hub's traffic stays as it was: a turn is no news to it");
+    drop(rx_keep);
 }
