@@ -257,6 +257,9 @@ Since 4.7.0 your Inbox opens as chats, the way Hubchat shows conversations: a li
 - **Drafts are kept.** What you typed in a chat, its attached files and the messages you chose to answer are still there when you come back to it, also after closing the Inbox, until you quit Orgtree.
 - **Long chats.** A chat shows its newest 50 messages. Scroll up and older ones load by themselves, without the view jumping.
 - **Messages and requests.** Your own messages are on the right. Notices have a thick dashed border, requests a small label, and files are chips. Questions and permission requests appear in the asking agent's chat with one bubble per question and one submit; answer them as anywhere else. Hover a message to reply to it or copy it. Click the quote on a reply to see the message it answers, in the same chat. Right-click a message for **View in @agent's inbox** or **View in transcript**, which opens the agent's desk at that message.
+- **Reply to yourself.** Your own message has **Reply** too; the reply goes to the chat's agent with your earlier message quoted.
+- **Keyboard.** Shift+Tab in the message box walks up through the messages and Tab back down; R replies to the highlighted one and Escape returns to the box. Escape also removes the last file you attached before it closes anything.
+- **Agent names open the chat.** Clicking the name of an agent that has an audience with you opens your chat with it, anywhere in the app. Right-click it for **Focus** to go to its desk.
 - **Delivered or waiting.** Your own message shows a clock after its time while it waits for the agent, and one check once the agent has taken it.
 - **Typing.** While a Claude Code agent is writing to you, its chat shows three dots and its row says **typing…**.
 - **Reading.** Mail in the chat you are looking at is marked read while its window is in front.

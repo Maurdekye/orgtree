@@ -40,7 +40,15 @@ are a second view over the same reads and calls.
   no mark); the tick sits after the time and must not change the time row's height. VIEW IN TRANSCRIPT rides the
   desk's mention jump: `requestTranscriptMail` (canvas/agentmentions.tsx) and desk.tsx `centerMentionRef`, which
   finds the message whose tool chip carries the mail, else `data-reply-event="mail:<id>"`, pages older rows, and
-  falls back to the row nearest in time with a toast; do not build a second jump. `MailReplyPreview locateMail` lets a surface that shows the quoted mail
+  falls back to the row nearest in time with a toast; do not build a second jump. AGENT LINKS: a plain click
+  on an agent link opens its chat when `mailboxpref.ts` `agentLinkChat` says so (a live agent with a user audience,
+  the chats on, not the chat already shown: `setShownChat`); the route is the third field of the agent-nav
+  registry (`useProvideAgentNav`, read with `useAgentLinkChat` in `NodeLink`, `AgentName`, `SenderChip`). A new
+  component that draws an agent link calls it before its own route. Desk jump cards are not agent links. KEYBOARD
+  WALK: `walk`/`walkKeys`/`boxKeys` in `DmConversation` are a port of Hubchat's Conversation.tsx `keys`; keep
+  them in step. `MailReplyBox escapeRemovesFile` is the chats' Escape for a file. A whole card in a bubble
+  (`.dm-bubble.typed`) is 8px from every edge. The shared status badge (`TrayStatus`) scopes the provider's colour
+  itself (`.tray-status.prov-*`), so no surface has to. `MailReplyPreview locateMail` lets a surface that shows the quoted mail
   find it by id (a quote's stored box is the sender's copy). New chat is a sweep inside `.dm-list`, never a
   PinFrame. The gear asks `openSettingsAt({ over: true })`; OrgCanvas draws that window in `ModalOverPins`.
   Captures: tests/dm-panel-visual.mjs and tests/dm-alpha1-visual.mjs.

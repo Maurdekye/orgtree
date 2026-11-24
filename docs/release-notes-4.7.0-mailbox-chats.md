@@ -8,6 +8,8 @@
 - **A reply's quote shows the original in the chat.** Right-click a message for **View in @agent's inbox** or **View in transcript**.
 - **Your messages show when the agent has them**: a clock while a message waits, one check once the agent has taken it.
 - **Typing dots** while a Claude Code agent is writing to you.
+- **Clicking an agent's name opens your chat with it** when it has an audience with you, anywhere in the app. Its desk is one right-click away (Focus).
+- **Reply to your own message**, walk the messages with Shift+Tab and Tab and reply with R, as in Hubchat, and press Escape to remove an attached file.
 - **Questions and requests appear in the chat** of the agent that asked, one bubble per question with one submit. Notices have a thick dashed border, requests a small label, and files are chips.
 - **An audience request is a new chat**, at the top of the list. Approve or deny it in the chat, or just write back, which approves it.
 - **A project's chat is one thread.** Your message to a project shows whether it waits in the queue or which agent holds it, and that agent's answer appears in the same chat under its name. Reply on an agent's bubble to write to that agent, or follow up on your own message to reach the agent holding it. A megaphone send shows in each member's chat and once in the project's chat, in teal.
