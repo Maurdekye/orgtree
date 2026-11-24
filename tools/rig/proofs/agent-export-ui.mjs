@@ -69,7 +69,7 @@ export default async function (rig) {
   const carol2 = row('carol-2')
   p.check('a duplicate with nothing to choose is made with no dialog, beside the original', carol2?.state === 'live' && carol2?.parent === 'boss' && carol2?.ported?.duplicate === true
     && said.copyDialogSeen === false && /Copied: carol-2\./.test(said.copied ?? ''), { carol2, said: said.copied, dialog: said.copyDialogSeen })
-  p.check('a duplicate of a team asks how much of it, in a sentence', /Only alice/.test(said.copyDialog ?? '') && /Creates alice-\d+/.test(said.copyDialog ?? '')
+  p.check('a duplicate of a team asks how much of it, in a sentence', /Only alice/.test(said.copyDialog ?? '') && /Creates alice-\d+ and 1 more beside alice\./.test(said.copyDialog ?? '')
     && !/docket items|not interrupted/.test(said.copyDialog ?? ''), said.copyDialog)
   const history = rig.sql(`SELECT kind, label FROM ot.undo_entries WHERE org_id=${orgId} AND kind='import' ORDER BY id`)
   p.check('both are entries of the undo history', history.length === 2 && /^Import alice-2/.test(history[0].label) && /^Duplicate carol-2/.test(history[1].label), history)

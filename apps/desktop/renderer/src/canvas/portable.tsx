@@ -188,10 +188,10 @@ function ExportDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
 
 // ---------------------------------------------------------------- the plan, shared by import and duplicate
 
-function PlanView({ plan, dest }: { plan: Plan; dest: string | null }) {
+function PlanView({ plan, dest, beside }: { plan: Plan; dest: string | null; beside?: string }) {
   const notes = planNotes(plan)
   return <div className="portable-plan">
-    <p role="status">{planText(plan, dest)}</p>
+    <p role="status">{planText(plan, dest, beside)}</p>
     {plan.refusal && <p className="ask-warn" role="alert">{plan.refusal}</p>}
     {notes.length > 0 && <details className="portable-notes"><summary>{notes.length} note{notes.length === 1 ? '' : 's'}</summary>
       <ul>{notes.map((line) => <li key={line}>{line}</li>)}</ul></details>}
@@ -336,7 +336,6 @@ function DuplicateDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
     // once, when the first plan is there
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plain])
-  const beside = plan?.nodes[0]?.parent ?? null
   if (!choice && !error && job?.state !== 'failed' && (!plan || plain)) return null
   return (
     <ProviderDialog title={`Duplicate ${name}`} busy={busy && !!job} close={closePortable}>
@@ -344,7 +343,7 @@ function DuplicateDialog({ ask, toast }: { ask: PortableAsk; toast: ToastFn }) {
         {!job && <>
           {(ask.hasTeam || ask.project) && <Scope name={name} subtree={subtree} set={setSubtree} disabled={busy} />}
           {!plan && !error && <p role="status">Working out what it takes…</p>}
-          {plan && <PlanView plan={plan} dest={beside} />}
+          {plan && <PlanView plan={plan} dest={null} beside={name} />}
         </>}
         {job?.state === 'running' && <Progress job={job} />}
         {job?.state === 'failed' && <p className="ask-warn" role="alert">{job.error}</p>}

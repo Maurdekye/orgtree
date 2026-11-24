@@ -196,9 +196,10 @@ export function secretPlaces(report: SecretsReport, most = 6): string[] {
 
 /** A plan in as few words as it takes (USER 2026-11-23 m84e35b23ed2e: "the import window has too much text in
  *  general, simplify it"; "if spare credits are taken, just explain how many are lost total, not in depth"):
- *  what is created and where, what it costs, and how many spare credits are lost in all. */
-export function planText(plan: Plan, dest: string | null): string {
-  const where = dest ? `under ${dest}` : 'at the top level'
+ *  what is created and where, what it costs, and how many spare credits are lost in all. `beside` is the
+ *  original of a copy, which stands next to it; an import goes under `dest`, or to the top level. */
+export function planText(plan: Plan, dest: string | null, beside?: string): string {
+  const where = beside ? `beside ${beside}` : dest ? `under ${dest}` : 'at the top level'
   const first = plan.nodes[0]?.name ?? 'nothing'
   const more = plan.nodes.length - 1
   const lines = [`Creates ${first}${more > 0 ? ` and ${more} more` : ''} ${where}.`]

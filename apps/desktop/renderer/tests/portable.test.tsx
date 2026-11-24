@@ -68,6 +68,8 @@ test('sizes, counts and credits in words', () => {
   assert.equal(planText(plan({ cost: 23, shrunk_by: 'even' }), 'boss'), 'Creates lead-2 and 1 more under boss. Costs 23 credits. 1 spare credit is taken away.')
   assert.equal(planText(plan({ cost: 0, retired: 2 }), 'boss'), 'Creates lead-2 and 1 more under boss. Costs no credits: everything arrives retired.')
   assert.equal(planText(plan({ cost: 1, retired: 1 }), 'boss'), 'Creates lead-2 and 1 more under boss. Costs 1 credit. 1 arrives retired.')
+  // a copy stands beside its original, wherever that is
+  assert.equal(planText(plan(), null, 'lead'), 'Creates lead-2 and 1 more beside lead. Costs 24 credits.')
   // what changes on the way in, for the folded notes: never the trimmed grants one by one
   assert.deepEqual(planNotes(plan({ nodes: [
     node('lead', 'lead-2', { grant: 10, warnings: ['grant shrunk from 20 to 10 to fit the credits there are', 'tools switched off, as boss does not hold them: bash'] }),
@@ -440,7 +442,7 @@ test('a duplicate says its plan in a sentence, copies what was shown, and goes s
   assert.deepEqual(calls[0], { method: 'POST', path: '/api/orgs/org/nodes/lead/duplicate', body: { subtree: true, preview: true } })
   // the title, how much of it, and one sentence: nothing else to read
   assert.equal(q('.portable-lead'), null)
-  assert.equal(q('.portable-plan')!.textContent, 'Creates lead-2 under boss. Costs 24 credits.')
+  assert.equal(q('.portable-plan')!.textContent, 'Creates lead-2 beside lead. Costs 24 credits.')
   assert.equal(q('.portable select'), null, 'the strategy is the app setting\'s')
   await click(all<HTMLInputElement>('.portable-scope input')[0])
   assert.deepEqual(calls.at(-1)!.body, { subtree: false, preview: true })
@@ -475,7 +477,7 @@ test('a duplicate that would lose credits, or cannot be made, is shown and asked
   await open({ kind: 'duplicate', org: 'org', node: 'lead' })
   await inAct(flush)
   assert.equal(calls.length, 1, 'only the plan was asked for')
-  assert.equal(q('.portable-plan')!.textContent, 'Creates lead-2 under boss. Costs 14 credits. 10 spare credits are taken away.')
+  assert.equal(q('.portable-plan')!.textContent, 'Creates lead-2 beside lead. Costs 14 credits. 10 spare credits are taken away.')
   assert.equal(button('Duplicate')!.disabled, false)
   await click(button('Cancel'))
   shown = plan({ ok: false, refusal: 'the seats alone cost 8 credits and 7 can be drawn under boss' })
