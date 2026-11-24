@@ -46,7 +46,7 @@ pub async fn selected_page(client: &Client, org: i64, agent: Option<i64>, folder
 /// Seek the existing mail_user_box/mail_user_sent indexes. One lookahead row
 /// says whether there is another page; neither OFFSET nor a total is needed.
 #[nolog]
-pub async fn user_page(client: &Client, org: i64, folder: &str, before: Option<i64>) -> Result<Value> {
+pub async fn user_page(client: &Client, org: i64, folder: &str, before: Option<i64>, _peer: Option<&str>) -> Result<Value> {
     let before = before_id(before)?;
     let sent = sent_folder(folder)?;
     let predicate = if sent { "m.sender = '@user'" }

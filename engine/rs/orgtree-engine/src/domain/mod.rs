@@ -49,6 +49,8 @@ pub mod templates;
 pub(crate) mod native_fixture;
 #[cfg(test)]
 mod take_back_tests;
+#[cfg(test)]
+mod mail_history_peer_tests;
 pub mod template_notes;
 pub mod template_links;
 pub(crate) mod template_wire;
