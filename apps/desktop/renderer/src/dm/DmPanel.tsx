@@ -77,7 +77,7 @@ import { readDraftList, writeDraftList } from '../composerdrafts'
 import { openSettingsAt } from '../canvas/settingskit'
 import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
-import { HubContactChip, isHubAddress } from '../canvas/agentmentions'
+import { HubContactChip, isHubAddress, requestTranscriptMail } from '../canvas/agentmentions'
 import { copyToClipboard, useContextMenu } from '../canvas/contextmenu'
 import type { MenuEntry } from '../canvas/contextmenu'
 import { mailMenuEntries } from '../canvas/mailidentity'
@@ -1100,6 +1100,17 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const target = resolveRef({ kind: 'mail', org: slug, box: 'node', node: agent, id: m.id }, refs.world)
     return target.outcome === 'ready' ? { agent, open: () => refs.onOpen(target) } : undefined
   }
+  /** "View in transcript" (USER 2026-11-24 m3c9cf622c450, m3a9dde56818f "but only if they've been
+   *  delivered and unqueued"): the agent's desk, at this mail's row. The agent's own mail always has
+   *  one; the user's mail has one once the agent's CLI has taken it (the check mark's state), and
+   *  the entry is absent, not greyed, until then. */
+  const transcriptOf = (e: DmEntry, m: MailRow): (() => void) | undefined => {
+    const agent = e.via ?? (chat.kind === 'agent' ? peer : '')
+    const there = nodes.get(agent)
+    if (!agent || !m.id || !onFocusAgent || !there || there.kind === 'project') return undefined
+    if (e.out && (m as MailEntry).delivered !== true) return undefined
+    return () => { requestTranscriptMail(slug, agent, m.id!, m.at ?? undefined); onFocusAgent(agent) }
+  }
   const rows: ReactNode[] = []
   let day = ''
   let prev: DmEntry | null = null
@@ -1121,7 +1132,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
-        inbox={inboxOf(e, m)}
+        inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)}
         onReply={m.id && chat.live && (!e.out || (chat.kind === 'project' && !!e.job)) ? () => addReply(m) : undefined}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
         onDelete={!e.out && m.id ? () => onDelete(m as MailEntry) : undefined}
@@ -1234,11 +1245,13 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onReply, onRead, onDelete, onAckJob }: {
+  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
   locateMail: LocateMail
   /** the agent whose mailbox holds this message too, and the way to it there */
   inbox?: { agent: string; open: () => void }
+  /** this message's row in the agent's transcript; absent while it has none (the user's mail not yet delivered) */
+  onTranscript?: () => void
   /** a message the system sent: tagged S (USER 2026-11-23 mf47548121ae5) */
   system?: boolean
   flash: number | null
@@ -1286,6 +1299,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       ...(onRead ? [{ label: 'Mark as read', onSelect: onRead }] : []),
       ...(onDelete ? [{ label: 'Delete', onSelect: onDelete }] : []),
       ...(inbox ? [{ label: `View in @${inbox.agent}\u2019s inbox`, onSelect: inbox.open }] : []),
+      ...(onTranscript ? [{ label: 'View in transcript', onSelect: onTranscript }] : []),
     ],
     copy, canCopy: mailRowCopyText(m as CopyableMailRow, PROFILE).trim() !== '', reference,
     copyReference: () => { if (reference) void copyToClipboard(ref.current, reference).then(ok => toast([ok ? `copied the reference ${reference}` : 'could not copy the reference — clipboard unavailable'])) },

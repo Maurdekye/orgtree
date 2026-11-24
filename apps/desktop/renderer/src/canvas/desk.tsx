@@ -2639,6 +2639,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const scrolledMentionRef = useRef<string | null>(null)
   const scrolledMentionSeqRef = useRef<number | null>(null)
   const mentionCenterHoldRef = useRef<string | null>(null)
+  /** the mail jump whose row was not found and was said so */
+  const mailMissSaid = useRef<string | null>(null)
   const cancelMentionScroll = () => {
     mentionCenterHoldRef.current = null
     if (mentionHighlight) {
@@ -3064,7 +3066,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       }
       return
     }
-    const evId = mentionHighlight.eventId
+    // ONE MAIL'S ROW ("View in transcript", agentmentions.tsx `requestTranscriptMail`): the message
+    // whose send call wrote it (its tool chip carries the mail), else its delivery row here
+    const mailId = mentionHighlight.mailId
+    const sentBy = mailId ? chat.messages.find(m => m.tools?.some(tool => tool.mail?.id === mailId))?.event_id : undefined
+    const evId = mentionHighlight.eventId ?? (mailId ? sentBy ?? `mail:${mailId}` : undefined)
     let target: HTMLElement | null = null
     if (evId) {
       const byReply = [...host.querySelectorAll<HTMLElement>('[data-reply-event]')]
@@ -3088,6 +3094,21 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       growAnchor.current = null
       stopSettle()
       return
+    }
+    // A mail whose row is in this transcript no more (every page that can come is in): the row
+    // nearest its time, and the desk says so, once for one request.
+    if (!target && mailId && scrolledMentionRef.current !== scrollKey) {
+      const want = Date.parse(mentionHighlight.at ?? '')
+      const near = Number.isFinite(want) ? chat.messages
+        .filter(m => m.event_id && m.ts && Number.isFinite(Date.parse(m.ts)))
+        .map(m => ({ id: m.event_id!, off: Math.abs(Date.parse(m.ts!) - want) }))
+        .sort((a, b) => a.off - b.off)[0] : undefined
+      target = near ? [...host.querySelectorAll<HTMLElement>('[data-reply-event]')].find(el => el.dataset.replyEvent === near.id) ?? null : null
+      if (mailMissSaid.current !== scrollKey) {
+        mailMissSaid.current = scrollKey
+        toast([`that message is not in ${node.id}\u2019s transcript any more${target ? ': showing the nearest time' : ''}`])
+      }
+      if (!target) scrolledMentionRef.current = scrollKey
     }
     // An explicit mention jump owns this event identity. Missing source or
     // exhausted history must never redirect an old click to a newer mention.

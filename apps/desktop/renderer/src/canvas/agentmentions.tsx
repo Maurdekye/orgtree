@@ -1071,7 +1071,9 @@ export function HubContactChip({ address, className }: { address: string; classN
 
 let mentionHighlightSeq = 0
 const mentionSeenLocally = new Map<string, Set<string>>()
-const mentionHighlights = new Map<string, { mentionId: string; eventId?: string; seq?: number }>()
+/** `mailId`: the jump is to ONE MAIL'S ROW in the agent's transcript (`requestTranscriptMail`), `at` its time */
+export interface MentionHighlight { mentionId: string; eventId?: string; seq?: number; mailId?: string; at?: string }
+const mentionHighlights = new Map<string, MentionHighlight>()
 const seenListeners = new Set<() => void>()
 
 function notifySeen() {
@@ -1138,13 +1140,30 @@ export function requestMentionHighlight(
   notifySeen()
 }
 
+/** Show one mail's row in an agent's transcript ("View in transcript" in the user's chats, USER
+ *  2026-11-24 m3c9cf622c450). It is the mention jump's own request, so the desk that shows the agent
+ *  switches to its transcript and pages older rows until the row is in (desk.tsx `centerMentionRef`):
+ *  the message whose send call wrote the mail, or the delivery row of a mail the agent received. A mail
+ *  that is in the transcript no more gets the row nearest `at`, and the desk says so. */
+export function requestTranscriptMail(slug: string, nodeId: string, mailId: string, at?: string): void {
+  const org = slug || lastActiveOrg
+  mentionHighlightSeq += 1
+  mentionHighlights.set(`${org}:${nodeId}`, { mentionId: `mail:${mailId}`, mailId, at, seq: mentionHighlightSeq })
+  notifySeen()
+}
+
+/** The jump a desk was last asked for (what `useMentionHighlight` reads). */
+export function mentionHighlightOf(slug: string, nodeId: string): MentionHighlight | null {
+  const org = slug || lastActiveOrg
+  return mentionHighlights.get(`${org}:${nodeId}`) ?? null
+}
+
 export function useMentionHighlight(
   slug: string,
   nodeId: string,
-): { mentionId: string; eventId?: string; seq?: number } | null {
+): MentionHighlight | null {
   useSeenMentions()
-  const org = slug || lastActiveOrg
-  return mentionHighlights.get(`${org}:${nodeId}`) ?? null
+  return mentionHighlightOf(slug, nodeId)
 }
 
 export function clearMentionHighlight(slug: string, nodeId: string): void {
