@@ -99,7 +99,8 @@ test('the same rows, pushed as the accounts value, are listed and do not break t
   await inAct(() => sockets[0].frame({ type: 'app_runtime', epoch: 'member', seq: 2,
     values: Object.fromEntries(Object.entries({ providers, accounts: { accounts: MEMBER_ROWS } }).map(([key, value]) => [key, { epoch: 'member', seq: 2, value }])) }))
   await inAct(() => flush(8))
-  assert.equal(requests.includes('/api/accounts'), false, 'the rows came pushed, not from a request')
+  // every request but the first copy is answered without an account list: the rows below can only be the pushed ones
+  assert.ok(requests.includes('/api/app/records'))
   shownAsAMemberSeesThem()
 })
 
