@@ -878,6 +878,26 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 13 (Mail hub
   2.4.0) replaced 12 as the step to name in release notes.
 
+## Org mailbox: weak links (4.7.0)
+
+- USER 2026-11-24 18:56:37Z m020bbd1926c3, answers m61f5367a61e7; docket weak-org-mailbox-links-several-agents-may-send-a.
+  A weak link is the audience grantor `@extern-weak` (`audiences::EXTERN_WEAK`), a separate sentinel so every
+  `'@extern'` check keeps meaning the primary link: a weak link never receives, pulls, counts for busy or last seen,
+  or is inherited (agents only; `grant_tx` refuses a project). `orginbox::weak_agents` lists them,
+  `orginbox::mailbox_link` answers primary/weak/none (blocking's permission check uses it).
+- Sending: `may_send_extern` and `route_tx` accept a weak holder without granting. A top-level sender with no link
+  takes a WEAK link while the mailbox has any holder (Q1), the primary otherwise. `send_extern` marks the out row
+  `org_inbox.via_weak` (migration 0091; `net::queue` writes it for `@net:`).
+- Replies: `orginbox_jobs::threaded` D13 already sends a reply to its sender; a `via_weak` row does so only while
+  `mailbox_link` still finds a link, else it falls through to the holders. DnD holds them like any arrival.
+- Grants: a top-level agent in its subtree; a holder, primary or weak, for its own reports (Q4). Becoming the
+  primary drops the weak row; a weak grant to the primary is refused. Export, duplicate and import never carry it.
+- Prompt: `Identity.extern_weak` adds `WEAK_LINK` after the org-mailbox section. Feed: `org_inbox.weak` (an array
+  means the engine knows weak links; the desktop offers none without it). Desktop: dotted `edge aud-line weak`
+  (`shared.orgInboxLines`), the drop choice (`shared.inboxDropChoice`, `InboxReplaceConfirm onWeak`), the panel's
+  "weak links" row and the "org mailbox (weak)" chip. Tests: `domain/orginbox_weak_tests.rs` (ignored, the
+  orginbox_queue_fixture database), `apps/desktop/renderer/tests/weaklinks.test.tsx`.
+
 ## Org mailbox: project holders, job replies, hub threading
 
 - A project may hold `@extern` like an agent (`audiences::grant_tx`); `orginbox::holder_rows` returns agents and projects, `holder_agents` is what acts as a holder (send, pull, read, notices), `holder_projects` gets jobs. Busy presence counts a project holder with an armed fair_queue listener owned by a runnable agent.

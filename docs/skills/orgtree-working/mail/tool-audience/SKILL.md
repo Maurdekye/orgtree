@@ -21,7 +21,7 @@ Ordinary [mail reach](../tool-message/SKILL.md) already includes the nearest age
 
 | Action | Required fields | Optional fields and result |
 | --- | --- | --- |
-| `request` | `target`: agent, project, `user`, or `extern`. | `reason`, default empty; `from` may name a project you manage. Named agent/user decides directly; a project’s manager decides for it; an extern request goes to your top-level agent. The answer arrives as mail. |
+| `request` | `target`: agent, project, `user`, `extern` or `extern-weak`. | `reason`, default empty; `from` may name a project you manage. Named agent/user decides directly; a project’s manager decides for it; an extern request goes to your top-level agent. The answer arrives as mail. |
 | `grant` | `from`: grantee. | `target` is the grantor when not yourself; `reason` defaults empty. For `target: extern`, omitting from selects yourself. Handler also accepts `grantee` as a from alias, but prefer the schema's from field. |
 | `deny` | `from`: pending requester. | Optional `target` selects a request; without it, the handler resolves pending requests from that requester that wait on you, or, as an agent above both, a request between two agents in your subtree. |
 | `revoke` | `grantee`: current holder. | Optional `target` names the grantor instead of you; from is accepted as a grantee alias. |
@@ -49,6 +49,8 @@ Requesting extern is refused if the org mailbox is disabled. A top-level agent r
 Grants to a waiting requester resolve its request and wake it with the answer. Access notices describe the new permission. Permission can still be paused/revoked later; do not infer a permanent grant from old mail.
 
 ## Holder selection and revocation
+
+A weak link (`target: extern-weak`; also spelled `weak-extern`, `org-mailbox-weak`) lets an agent send outside mail as the org without receiving new outside mail; see orgtree-org-mailbox (orgtree-working › mail). Only live agents hold one, never a project or the mailbox's holder. A top-level agent grants it in its subtree, and a holder, primary or weak, grants and revokes it for its own reports. Becoming a holder drops the agent's weak link. A weak-link agent may revoke its own.
 
 In the default single-holder org-mailbox mode, a new extern grant revokes previous holders. Multi-holder mode allows several. This consequence matters when assigning outside correspondence: an extern grant can replace someone else's routing role. Agents explain/suggest settings changes rather than changing the setting themselves.
 

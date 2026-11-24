@@ -2830,3 +2830,13 @@ still to come. See the current
     for it. The three are deferred cards. Every seat's tool list changes, so
     each starts a new prompt-cache prefix at its first start after the
     upgrade.
+
+### Weak links to the org mailbox (USER 2026-11-24, 4.7.0)
+
+USER m020bbd1926c3: one primary org-mailbox link; any number of weak links, drawn dotted; a weak link sends as the org,
+new arriving mail still goes to the primary, and a reply to a mail sent over a weak link goes back to its sender. The
+answers to the plan's questions (m61f5367a61e7) take the recommendations: a top-level agent's first outside send takes
+a weak link while the mailbox has a holder; only real replies (with a reference) go back over a weak link; a weak holder
+passes weak links to its own reports; a weak holder reads its own mail only. @coordinator-opus (mf75e8ed87480): a
+replaced primary is not demoted to weak; agents only. Stored as the separate grantor `@extern-weak`, never as a flag on
+`@extern`. Mechanics: [mail-and-hub](../agents/mail-and-hub.md#org-mailbox-weak-links-470).

@@ -14,7 +14,7 @@ The hub dot summarizes enabled, non-hidden connections: all connected, some conn
 
 The org's first outside mail also sparks: the tile appears just after that mail arrives, so the spark waits for the tile and then plays along the line between it and the other end. Later mail sparks at once, as described under mail sparks in [the organization canvas](../org-canvas/SKILL.md#mail-sparks).
 
-On desktop, dropping an agent on this tile grants the org-mailbox audience; it does not change the agent's parent. The action can be refused by policy and reports an error. For routing, holder selection and outside-sender authority see `orgtree-org-mailbox` (orgtree-working › mail) and `orgtree-external-mail` (orgtree-working › mail). Hiding/disabling the tile is not a way to clear an agent's individual pending mail.
+On desktop, dropping an agent on this tile grants the org-mailbox audience; it does not change the agent's parent. While the mailbox has a holder, the drop asks first: replace the holder (or, with several holders allowed, add one), or give the agent a weak link. A weak link lets the agent send mail as the org while new mail still goes to the holder; its line to the tile is dotted, and the org mailbox viewer lists weak links under the holders, each with ✕ to revoke. The action can be refused by policy and reports an error. For routing, holder selection and outside-sender authority see `orgtree-org-mailbox` (orgtree-working › mail) and `orgtree-external-mail` (orgtree-working › mail). Hiding/disabling the tile is not a way to clear an agent's individual pending mail.
 
 ## See also
 
