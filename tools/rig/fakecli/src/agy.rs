@@ -486,7 +486,10 @@ pub fn run(raw: &[String]) -> i32 {
         let _ = std::fs::create_dir_all(&p);
         std::fs::OpenOptions::new().create(true).append(true).open(p.join(format!("{agent}.jsonl"))).ok()
     });
-    let given = arg("--conversation");
+    // A proof models a conversation the CLI cannot resume with a file named
+    // `agy-forget-conversation` in the working folder: the CLI then answers on a new one, as a
+    // real one does whose store no longer holds the id it was given.
+    let given = arg("--conversation").filter(|_| !std::path::Path::new(&cwd).join("agy-forget-conversation").is_file());
     let agy = Agy {
         out: Mutex::new(std::io::stdout()),
         log: Mutex::new(log),
