@@ -85,11 +85,11 @@ module.exports = async (page) => {
       timeline: scroller ? { ...box(scroller), scrollTop: Math.round(scroller.scrollTop), scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight } : null,
       days: [...document.querySelectorAll('.dm-day')].map(text), newmark: text(document.querySelector('.dm-newmark')) || null,
       bubbles, asks: [...document.querySelectorAll('.dm-msg.dm-ask')].map(a => ({ key: a.dataset.dmEntry, open: a.classList.contains('open'), box: box(a) })),
-      composer: box(document.querySelector('.dm-compose .mail-reply textarea')), sendLabel: text(document.querySelector('.dm-compose .mail-reply-send')) || null,
-      controls: { effort: (() => { const e = document.querySelector('.dm-compose .mail-reply-controls .cc-eff'); return e ? { label: text(e), box: box(e) } : null })(),
-        fast: (() => { const f = document.querySelector('.dm-compose .mail-reply-controls .cc-fast'); return f ? { label: f.getAttribute('aria-label'), box: box(f) } : null })() },
+      composer: box(document.querySelector('.dm-compose textarea')), sendLabel: document.querySelector('.dm-compose .mail-reply-send')?.getAttribute('aria-label') ?? null,
+      controls: { effort: (() => { const e = document.querySelector('.dm-compose .cc-controls .cc-eff'); return e ? { label: text(e), box: box(e) } : null })(),
+        fast: (() => { const f = document.querySelector('.dm-compose .cc-controls .cc-fast'); return f ? { label: f.getAttribute('aria-label'), box: box(f) } : null })() },
       audreq: (() => { const c = document.querySelector('.dm-audreq'); return c ? { peer: c.dataset.dmRequest, text: text(c), buttons: [...c.querySelectorAll('button')].map(text), box: box(c.querySelector('.dm-bubble')) } : null })(),
-      placeholder: document.querySelector('.dm-compose .mail-reply textarea')?.getAttribute('placeholder') ?? null,
+      placeholder: document.querySelector('.dm-compose textarea')?.getAttribute('placeholder') ?? null,
       nowrite: text(document.querySelector('.dm-nowrite')) || null, none: text(document.querySelector('.dm-none b')) || null,
       start: text(document.querySelector('.dm-start')) || null,
       mailer: (() => { const m = document.querySelector('.mailer.dm'); return m ? { narrow: m.classList.contains('narrow-list'), open: m.classList.contains('narrow-list-open'), ...box(m) } : null })(),
@@ -191,7 +191,7 @@ module.exports = async (page) => {
   await page.hover({ selector: '[data-dm-entry="w3"] .dm-bubble', scroll: true })
   await page.click('[data-dm-entry="w3"] .dm-actions button[aria-label="Reply"]')
   await page.waitFor('.dm-replybar')
-  await page.click('.dm-compose .mail-reply textarea')
+  await page.click('.dm-compose textarea')
   await page.type('Tuesday 10:00 works.')
   const replying = await snap()
   v.reply = { bar: await page.eval(() => [...document.querySelectorAll('.dm-replybar-text')].map(e => e.textContent.trim())),
@@ -212,7 +212,7 @@ module.exports = async (page) => {
   v.reply.quote.opened = await page.eval(() => window.__dm.opened.slice())
   v.reply.quote.flashed = await page.eval(() => [...document.querySelectorAll('.dm-msg.flash')].map(m => m.dataset.dmEntry))
   await shot('09b-the-reply-quote-shows-the-original')
-  await page.click('.dm-compose .mail-reply textarea')
+  await page.click('.dm-compose textarea')
   await page.type('Also send me the list of addresses that bounced.')
   v.message = { sendLabel: (await snap()).sendLabel }
   await page.click('.dm-compose .mail-reply-send')
@@ -259,7 +259,7 @@ module.exports = async (page) => {
     const text = (e) => (e ? (e.textContent || '') : '').replace(/\s+/g, ' ').trim()
     const frame = document.querySelector('.dm-newchat')
     const active = frame.querySelector('input[aria-label="Only active agents"]')
-    return { title: text(frame.querySelector('.modalpin-name')) || null,
+    return { title: text(frame.querySelector('.dm-newchat-title')) || null,
       rows: [...frame.querySelectorAll('.tray-row')].map(r => r.dataset.dmPick), open: [...frame.querySelectorAll('.tray-row[data-dm-open="yes"]')].map(r => r.dataset.dmPick),
       off: [...frame.querySelectorAll('.tray-row.off')].map(r => r.dataset.dmPick),
       filter: !!frame.querySelector('input.tray-filter'), archivedToggle: text(frame.querySelector('.tray-arch')) || null,
@@ -285,6 +285,7 @@ module.exports = async (page) => {
   await until('the new chat to open', async () => (await snap()).head?.peer === 'helper')
   const helper = await snap()
   v.picker.opened = helper.head
+  await page.waitFor('.dm-newchat', { gone: true })
   v.picker.closedAfterPick = await page.eval(() => !document.querySelector('.dm-newchat'))
   v.picker.listed = helper.rows.map(r => r.peer)
   v.picker.start = helper.start
@@ -331,7 +332,7 @@ module.exports = async (page) => {
   v.audreq.denied = { rows: (await snap()).rows.map(r => r.peer), open: (await snap()).head?.peer ?? null }
   await shot('21c-request-denied-its-chat-is-gone')
   await openChat('scout')
-  await page.click('.dm-compose .mail-reply textarea')
+  await page.click('.dm-compose textarea')
   await page.type('Yes, report the nightly check to me here.')
   await shot('21d-writing-to-a-request-approves-it')
   await page.click('.dm-compose .mail-reply-send')
@@ -346,7 +347,7 @@ module.exports = async (page) => {
   await openChat('solo')
   const box = await snap()
   v.agentbox = { head: box.head, controls: box.controls, composer: box.composer }
-  await page.click('.dm-compose .mail-reply-controls .cc-eff')
+  await page.click('.dm-compose .cc-controls .cc-eff')
   await page.waitFor('.dm-compose .eff-pop')
   v.agentbox.effortTrack = await page.eval(() => { const t = document.querySelector('.dm-compose .eff-pop [role="slider"]'); const r = t?.getBoundingClientRect()
     return t ? { text: t.getAttribute('aria-valuetext'), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } : null })
@@ -376,7 +377,7 @@ module.exports = async (page) => {
   await page.click('[data-dm-entry="ca1"] .dm-actions button[aria-label="Reply"]')
   await page.waitFor('.dm-replybar')
   v.project.replyPlaceholder = (await snap()).placeholder
-  await page.click('.dm-compose .mail-reply textarea')
+  await page.click('.dm-compose textarea')
   await page.type('Thanks. Send the corrected report when it is ready.')
   await page.click('.dm-compose .mail-reply-send')
   await until('the reply to reach the member', async () => (await posted('/nodes/member/message$')).length === 1)
@@ -387,7 +388,7 @@ module.exports = async (page) => {
   await page.click('[data-dm-entry="cj1"] .dm-actions button[aria-label="Follow up on this message"]')
   await page.waitFor('.dm-replybar')
   v.project.followPlaceholder = (await snap()).placeholder
-  await page.click('.dm-compose .mail-reply textarea')
+  await page.click('.dm-compose textarea')
   await page.type('And the totals on page 2, please.')
   await page.click('.dm-compose .mail-reply-send')
   await until('the follow-up to reach the project', async () => (await posted('/nodes/crew/message$')).length === 1)

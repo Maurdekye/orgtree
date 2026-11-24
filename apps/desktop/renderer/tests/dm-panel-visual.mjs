@@ -317,7 +317,7 @@ if (flag === '--expect') {
   onScreen(v.agentbox.controls.effort.box, 'the effort control'); onScreen(v.agentbox.controls.fast.box, 'the fast mode control')
   assert.equal(v.agentbox.controls.fast.label, 'Fast mode'); onScreen(v.agentbox.effortTrack, 'the effort track')
   assert.ok(v.agentbox.controls.effort.box.x > v.agentbox.composer.x + v.agentbox.composer.w - 4, 'the controls sit after the text, beside send')
-  assert.equal(v.agentbox.head.gear, "Open solo's settings"); assert.deepEqual(v.agentbox.settings, [{ scope: 'agent', org: 'mine', agentId: 'solo' }])
+  assert.equal(v.agentbox.head.gear, "Open solo's settings"); assert.deepEqual(v.agentbox.settings, [{ scope: 'agent', org: 'mine', agentId: 'solo', over: true }])
   assert.equal(v.agentbox.head.link.tag, 'BUTTON'); assert.match(v.agentbox.head.link.cls, /ref-chip ref-agent ref-ready/); assert.equal(v.agentbox.head.link.agent, 'solo')
   assert.deepEqual(v.agentbox.focused, ['solo'])
   checked.push('header and message box')
