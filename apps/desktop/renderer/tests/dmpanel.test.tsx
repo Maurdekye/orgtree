@@ -1594,3 +1594,141 @@ test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the ag
   menu = await menuOf('wait')
   assert.equal(menu.labels.includes('View in transcript'), true, 'the entry is there once the mail is delivered, with no reopening')
 })
+
+test('alpha.1 point 20: the user\u2019s own message has Reply; the reply goes to the chat\u2019s agent with that message as its target, and its quote shows in the chat', async (t) => {
+  const world: World = {
+    audiences: [grant('worker')],
+    delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')],
+    sent: [sent('mine1', 'worker', '2026-11-20T11:00:00Z', { body: 'my first thought' })],
+  }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  const own = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'mine1')!
+  assert.equal(own.classList.contains('out'), true, 'POSITIVE CONTROL: it is the user\u2019s own bubble')
+  const reply = own.querySelector<HTMLButtonElement>('.dm-actions button[aria-label="Reply"]')
+  assert.ok(reply, 'the hover action is Reply, as on the agent\u2019s bubble')
+  // the menu has it too
+  await inAct(async () => { own.querySelector('.dm-bubble')!.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(4) })
+  const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+  assert.equal([...menus[menus.length - 1]!.querySelectorAll('[role="menuitem"]')].some(i => i.textContent?.trim() === 'Reply'), true, 'and the menu')
+  await inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(3) })
+  await s.click(reply, 'Reply on my own message')
+  assert.match(document.querySelector('.dm-replybar')?.textContent ?? '', /my first thought/, 'it is staged above the box')
+  // several can be staged: the agent's and my own together
+  await s.click(s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'in1')!.querySelector('.dm-actions button[aria-label="Reply"]'), 'Reply on the agent\u2019s')
+  assert.equal(s.all('.dm-replybar-row').length, 2)
+  await s.type('and one more thing')
+  await s.send()
+  const call = s.server.calls.find(c => /\/nodes\/worker\//.test(c.path) && c.method === 'POST' && JSON.stringify(c.body).includes('and one more thing'))
+  assert.ok(call, `the reply was sent to the chat\u2019s agent (${s.server.calls.map(c => c.path).join(' ')})`)
+  const body = JSON.stringify(call.body)
+  assert.match(body, /"id":"mine1"/, 'with my own message as a reply target')
+  assert.match(body, /"id":"in1"/, 'and the agent\u2019s')
+  assert.match(body, /"box":"user"/, 'named as mail of the user\u2019s mailbox, as every reply from the chats is')
+  // the sent reply renders its quote of my own message, and the quote finds it in this chat
+  ;(world.sent as unknown[]).push(sent('mine2', 'worker', '2026-11-20T12:00:00Z', { body: 'and one more thing',
+    reply_to: { id: 'mine1', kind: 'mail', from: USER, at: '2026-11-20T11:00:00Z', gist: 'my first thought' } }))
+  await s.remount()
+  await s.openChat('worker')
+  const quote = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'mine2')?.querySelector<HTMLElement>('.reply-preview')
+  assert.ok(quote, 'the reply shows what it answers')
+  assert.match(quote.textContent ?? '', /my first thought/)
+  assert.equal(/unavailable/i.test(quote.textContent ?? ''), false, 'and the original is not called unavailable')
+})
+
+test('alpha.1 point 20: in a project\u2019s chat the user\u2019s own message keeps "Follow up on this message"', async (t) => {
+  const s = await setup(t, { audiences: [grant('crew')], sent: [sent('job1', 'crew', '2026-11-20T11:00:00Z')] },
+    { active: false, tree: { ...tree(), roots: [node('lead', [projectNode('crew', [node('member')])]), node('solo')] } as unknown as TreePayload })
+  await s.openChat('crew')
+  const own = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'job1')
+  assert.ok(own, 'POSITIVE CONTROL: the job is in the project\u2019s chat')
+  assert.equal(!!own.querySelector('.dm-actions button[aria-label="Follow up on this message"]'), true)
+  assert.equal(!!own.querySelector('.dm-actions button[aria-label="Reply"]'), false)
+})
+
+test('alpha.1 point 27: Escape with a file in the message box removes the file added last, one a press, and never closes the chat or the inbox', async (t) => {
+  const { writeComposerDraft } = await import('../src/composerdrafts')
+  const { dmDraftKey } = await import('../src/dm/DmPanel')
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')] }, { active: false })
+  writeComposerDraft(dmDraftKey('mine', 'worker'), { text: 'two files', attached: [
+    { name: 'first.txt', path: 'uploads/first.txt', bytes: 12 }, { name: 'second.txt', path: 'uploads/second.txt', bytes: 34 }] })
+  await s.openChat('worker')
+  const chips = () => s.all<HTMLElement>('.dm-compose .attach-chip').map(c => (c.textContent ?? '').replace(/\s+/g, ' ').trim())
+  assert.equal(chips().length, 2, 'POSITIVE CONTROL: two files are in the box')
+  const esc = async () => inAct(async () => { window.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await flush(6) })
+  await esc()
+  assert.equal(chips().length, 1, 'one press, one file')
+  assert.match(chips()[0]!, /first\.txt/, 'the one added last went')
+  assert.equal(s.state.closed, 0, 'the inbox is still open')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker', 'and so is the chat')
+  await esc()
+  assert.equal(chips().length, 0)
+  assert.equal(s.state.closed, 0)
+  assert.equal(s.draft(), 'two files', 'the text stays')
+  // with no file left Escape is the panel's again
+  await esc()
+  assert.equal(s.state.closed, 1, 'POSITIVE CONTROL: without a file Escape closes the inbox, as before')
+})
+
+test('a chat\u2019s header shows the model icon once: beside the name there is no second chip', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker'), grant('crew')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z'), mail('sys1', '@system', '2026-11-20T09:00:00Z')] },
+    { active: false, tree: { ...tree(), roots: [node('lead', [node('worker'), projectNode('crew', [node('member')])]), node('solo')] } as unknown as TreePayload })
+  const icons = () => document.querySelectorAll('.dm-head .tier, .dm-head .project-mark, .dm-head .dm-av-system, .dm-head .dm-av-other').length
+  await s.openChat('worker')
+  assert.equal(document.querySelectorAll('.dm-head .dm-av .tier').length, 1, 'POSITIVE CONTROL: the large picture is the model\u2019s chip')
+  assert.equal(icons(), 1, 'an agent\u2019s header: one icon')
+  assert.equal(document.querySelector('.dm-head .dm-who-name button')?.textContent, 'worker', 'the name is still the agent link')
+  assert.equal(s.row('worker')!.querySelectorAll('.tier').length >= 1, true, 'the list row keeps its own')
+  await s.openChat('crew')
+  assert.equal(icons(), 1, 'a project\u2019s header keeps its one icon')
+  const system = s.rows().find(r => r.dataset.dmChat === '@system')
+  if (system) { await s.click(system, 'the System chat'); assert.equal(icons(), 1, 'the System chat keeps its icon') }
+})
+
+test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u2019s full menu from the shared builder, after "View in transcript"; the user\u2019s own bubble has none', async (t) => {
+  const { AgentNavProvider, useProvideAgentNav } = await import('../src/canvas/agentnav')
+  const { agentLinkMenuEntries } = await import('../src/canvas/contextmenu')
+  // the canonical menu, as the surface that owns the handlers registers it
+  const canonical = (id: string) => [{ label: 'Focus', onSelect() {} }, { label: 'Open', onSelect() {}, children: [{ label: 'Mail', onSelect() {} }] },
+    { label: 'Settings', onSelect() {} }, 'sep' as const, { label: `Retire ${id}…`, onSelect() {} }]
+  const built: string[] = []
+  function Provide() { useProvideAgentNav((id) => { built.push(id); return canonical(id) }); return null }
+  const oldFetch = globalThis.fetch
+  const server = engine({ audiences: [grant('worker')], delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')], sent: [sent('out1', 'worker', '2026-11-20T11:00:00Z')] })
+  globalThis.fetch = server.fetcher
+  resetLocalReads(); resetComposerDrafts(); window.sessionStorage.clear(); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
+  const view = await mountView(<CurrentOrg.Provider value="mine"><AgentNavProvider><Provide />
+    <UserMailbox slug="mine" tree={tree()} toast={() => {}} close={() => {}} jumpTo={null} jumpSeq={null} openChat={null}
+      onFocusAgent={() => {}} onOpenMail={() => {}} /></AgentNavProvider></CurrentOrg.Provider>, el => el)
+  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
+  await inAct(async () => { await flush(12) })
+  await inAct(async () => { [...document.querySelectorAll<HTMLElement>('.dm-row')].find(r => r.dataset.dmChat === 'worker')!.click(); await flush(8) })
+  const menuOf = async (id: string) => {
+    const bubble = [...document.querySelectorAll<HTMLElement>('.dm-msg')].find(m => m.dataset.dmEntry === id)!.querySelector<HTMLElement>('.dm-bubble')!
+    await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(4) })
+    const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+    const top = menus[0]!
+    return { bubble, labels: [...top.children].flatMap(c => c.matches('[role="separator"]') ? [] : [(c.querySelector('[role="menuitem"]') ?? c).textContent?.trim() ?? '']),
+      item: (label: string) => [...top.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(i => i.textContent?.trim().startsWith(label)) }
+  }
+  const esc = async () => inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(3) })
+  let m = await menuOf('in1')
+  const at = m.labels.findIndex(l => l.startsWith('Sender'))
+  assert.equal(at >= 0, true, `the agent\u2019s bubble has Sender… (${m.labels.join(' | ')})`)
+  assert.equal(m.labels[at - 1], 'View in transcript', 'after View in transcript')
+  assert.equal(m.labels.indexOf('Reply') < at && m.labels.findIndex(l => l.startsWith('View in @worker')) < at, true, 'the bubble\u2019s own entries stay at the top level, before it')
+  assert.deepEqual(built.at(-1), 'worker', 'built by the shared builder, for the bubble\u2019s author')
+  // its submenu is the agent link's menu: the same labels in the same order
+  const sender = m.item('Sender')!
+  await inAct(async () => { sender.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true, cancelable: true })); await flush(6) })
+  const branch = sender.closest('.ctxmenu-branch')!.querySelector<HTMLElement>('.ctxmenu-submenu')
+  assert.ok(branch, 'the submenu opened')
+  const sub = [...branch.children].flatMap(c => c.matches('[role="separator"]') ? ['-'] : c.matches('.ctxmenu-description') ? [] : [(c.querySelector('[role="menuitem"]') ?? c).textContent?.trim() ?? ''])
+  const want = agentLinkMenuEntries(m.bubble, 'worker', canonical('worker')).map(e => (e === 'sep' ? '-' : e.label))
+  // every menu draws its Open submenu second (contextmenu.tsx MenuEntries): the agent link's own menu does too
+  want.splice(1, 0, ...want.splice(want.indexOf('Open'), 1))
+  assert.deepEqual(sub.map(l => l.replace(/\s*[▸›]\s*$/, '')), want, 'the Sender submenu is the agent link\u2019s menu')
+  await esc(); await esc()
+  m = await menuOf('out1')
+  assert.equal(m.labels.some(l => l.startsWith('Sender')), false, `the user\u2019s own bubble has no Sender entry (${m.labels.join(' | ')})`)
+})
