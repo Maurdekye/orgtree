@@ -120,6 +120,8 @@ const hud = (host: HTMLElement, title: string) => {
 async function press(b: HTMLButtonElement) { await inAct(() => { b.click() }); await flush(); await advance(1600) }
 
 const FIT = 'Fit the whole org', SWB = 'Jump to the switchboard', LAST = 'Focus last desk'
+// 4.7.0 (USER 2026-11-23 mb05f4fda0d92): the empty canvas also offers the import of an export file, last
+const IMPORT = 'Import…'
 
 function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement,
   render: (ids: string[]) => Promise<void>, shortcut: (key: string) => Promise<void>) => Promise<void>) {
@@ -160,14 +162,14 @@ function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement,
 
 uiTest('right-click on empty canvas offers the two HUD moves and the last desk, in that order', async (host, viewport) => {
   await rightClick(viewport)
-  assert.deepEqual(labels(), [FIT, SWB, LAST], 'the three entries, labelled from the buttons')
+  assert.deepEqual(labels(), [FIT, SWB, LAST, IMPORT], 'the three entries, labelled from the buttons, and the import')
   assert.equal(items()[2]!.disabled, true, 'no desk focused yet: the last-desk entry is disabled')
   assert.equal(FIT.toLowerCase(), HUD_FIT, 'the fit entry reads the fit button\'s own words')
   assert.equal(SWB.toLowerCase(), HUD_SWITCHBOARD, 'and the switchboard entry the eye button\'s')
   await escape()
   // the world plane under the cards is background too
   await rightClick(host.querySelector('.space')!)
-  assert.deepEqual(labels(), [FIT, SWB, LAST])
+  assert.deepEqual(labels(), [FIT, SWB, LAST, IMPORT])
   await escape()
 })
 
@@ -270,7 +272,7 @@ uiTest('"Focus last desk" focuses the most recently focused agent desk, named in
   await press(hud(host, HUD_FIT))
   assert.equal(host.querySelector('.sq.desk:not(.user)') === null, true, 'no desk open before the menu')
   await rightClick(viewport)
-  assert.deepEqual(labels(), [FIT, SWB, `${LAST} (cto)`])
+  assert.deepEqual(labels(), [FIT, SWB, `${LAST} (cto)`, IMPORT])
   assert.equal(items()[2]!.disabled, false)
   await pick(`${LAST} (cto)`)
   assert.equal(openDesk(host), 'cto', 'the cto desk is open again')
@@ -321,7 +323,7 @@ uiTest('"Focus last desk" follows a pinned desk focused in its own window', asyn
   await inAct(() => { input[0]!.focus() })
   assert.equal(document.activeElement, input[0], 'focus is in the pinned desk')
   await rightClick(viewport)
-  assert.deepEqual(labels(), [FIT, SWB, `${LAST} (cto)`], 'the pinned desk is the last one focused')
+  assert.deepEqual(labels(), [FIT, SWB, `${LAST} (cto)`, IMPORT], 'the pinned desk is the last one focused')
   await pick(`${LAST} (cto)`)
   assert.notEqual(openDesk(host), 'ceo', 'and the entry does not open the older ceo desk')
 })

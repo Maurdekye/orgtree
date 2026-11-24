@@ -228,7 +228,9 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
       'Copy mention', 'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
       '· Mail', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
-      'Focus', 'Hire a subordinate ▸', 'New project…', 'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
+      // 4.7.0 (USER 2026-11-23 mb05f4fda0d92): Export…, Import here… and Duplicate… after the audience entry
+      'Focus', 'Hire a subordinate ▸', 'New project…', 'Settings', 'Acquire audience', 'Export…', 'Import here…', 'Duplicate…',
+      'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
   })
 
