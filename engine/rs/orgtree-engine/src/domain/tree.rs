@@ -648,4 +648,12 @@ mod idle_runtime_tests {
         assert_eq!(idle.get("fast_mode_current"), Some(&Value::Null));
         assert_eq!(idle.get("busy"), Some(&json!(false)));
     }
+
+    #[test]
+    fn an_idle_agent_is_not_writing_to_the_user() {
+        // the transient "writing to you" flag of the user's chats: an agent whose actor stopped
+        // (its process killed mid-call, the engine restarted) must read false, never a stale true
+        let idle: HashMap<String, Value> = idle_runtime().into_iter().collect();
+        assert_eq!(idle.get("writing_to_user"), Some(&json!(false)));
+    }
 }

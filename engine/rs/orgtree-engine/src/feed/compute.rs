@@ -521,6 +521,27 @@ pub async fn asks(client: &Client, org_id: i64) -> Result<Vec<Value>> {
 /// action says which computer it came through; a record without one reads
 /// exactly as it did before.
 #[cfg(test)]
+mod delivered_tests {
+    use super::*;
+    /// The one check mark of the user's chats (USER 2026-11-24 m0a5d2a5b266e): mail to an agent is
+    /// `delivered` once the agent's CLI has taken it, and not while it waits or is only claimed.
+    #[test]
+    fn mail_to_an_agent_says_when_the_agent_has_taken_it() {
+        let row = |state: &str| json!({"uid":"m1","sender":"@user","recipient_kind":"agent","recipient_name":"boss","body":"hello","state":state});
+        for state in ["delivered", "read"] {
+            assert_eq!(mail_entry(&row(state))["delivered"], true, "{state}");
+        }
+        for state in ["pending", "delivering", "retracted"] {
+            assert!(mail_entry(&row(state)).get("delivered").is_none(), "{state}: not taken yet (or taken back)");
+        }
+        assert_eq!(mail_entry(&row("delivering"))["delivering"], true, "the claim keeps its own mark");
+        // the user's own inbox rows are a different thing: "read" there is the user's reading
+        let mine = json!({"uid":"m2","sender":"boss","recipient_kind":"user","recipient_name":"user","body":"hi","state":"read"});
+        assert!(mail_entry(&mine).get("delivered").is_none());
+    }
+}
+
+#[cfg(test)]
 mod via_tests {
     use super::*;
 

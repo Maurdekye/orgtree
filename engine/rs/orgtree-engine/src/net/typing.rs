@@ -163,6 +163,51 @@ fn value_end(b: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+/// Whether a message call's `metadata` names the user among its recipients
+/// (the user's chats: "writing to you", USER 2026-11-24 mbbb6c8289d47). A list
+/// that includes the user counts; `@net:` and `@org:` addresses and agents do
+/// not. Notices count: they land in the same chat.
+#[nolog]
+pub(crate) fn names_user(meta: &Value) -> bool {
+    let _ = meta;
+    false
+}
+
+/// The message call to the user an agent is writing now, if any (the user's
+/// chats show three dots for it). Held by the agent's actor and never stored:
+/// a new actor starts without one, so nothing survives an engine restart.
+#[derive(Default)]
+pub(crate) struct ToUser {
+    call: Option<(String, Instant)>,
+}
+
+#[logged]
+impl ToUser {
+    /// The call's `metadata` is whole and names the user. True when the flag changed.
+    #[nolog]
+    pub(crate) fn begin(&mut self, call: &str, now: Instant) -> bool {
+        let _ = (call, now, &self.call);
+        false
+    }
+    /// The call's block ended (the call is written). True when the flag changed.
+    #[nolog]
+    pub(crate) fn end(&mut self, call: &str) -> bool {
+        let _ = call;
+        false
+    }
+    /// The agent's turn or process ended, however it ended. True when the flag changed.
+    #[nolog]
+    pub(crate) fn clear(&mut self) -> bool {
+        false
+    }
+    /// Whether the agent is writing to the user at `now`: never longer than `CAP`.
+    #[nolog]
+    pub(crate) fn active(&self, now: Instant) -> bool {
+        let _ = now;
+        false
+    }
+}
+
 /// A message tool call's `metadata` is whole: the org heartbeats to its
 /// `@net:` peers while the call is written, once the send's own checks
 /// pass. Runs off the stream.
@@ -395,6 +440,43 @@ mod tests {
         s.stop_agent(1);
         assert!(a.is_cancelled() && !b.is_cancelled());
         assert!(!s.live("x") && s.live("y"));
+    }
+
+    #[test]
+    fn a_call_names_the_user_alone_or_in_a_list_and_nobody_else_does() {
+        assert!(names_user(&json!({"to": "user"})));
+        assert!(names_user(&json!({"to": "@user", "notice": true})), "a notice counts: it lands in the same chat");
+        assert!(names_user(&json!({"to": [" boss ", "user"]})), "a list that includes the user counts");
+        assert!(names_user(&json!({"to": ["@net:alice.k3x9", "@user"]})));
+        for other in [json!({"to": "boss"}), json!({"to": "@net:user.k3x9"}), json!({"to": ["@org:user", "users"]}), json!({"to": 3}), json!({}), json!({"body": "user"})] {
+            assert!(!names_user(&other), "{other}");
+        }
+    }
+
+    #[test]
+    fn writing_to_the_user_ends_with_its_call_and_with_the_turn_or_process_however_they_end() {
+        let t0 = Instant::now();
+        let mut w = ToUser::default();
+        assert!(!w.active(t0), "a new actor (an engine restart too) starts with nothing");
+        assert!(w.begin("toolu_1", t0), "the flag changed");
+        assert!(w.active(t0));
+        assert!(!w.end("toolu_9"), "another call's end is not this one's");
+        assert!(w.active(t0));
+        assert!(w.end("toolu_1") && !w.active(t0), "the block ended: the call is written");
+        assert!(!w.end("toolu_1"), "and it ends once");
+        // THE STALE CASE: the process is killed while the call is being written. No block end ever
+        // comes; the process's exit clears it.
+        assert!(w.begin("toolu_2", t0) && w.active(t0));
+        assert!(w.clear(), "the exit changed the flag");
+        assert!(!w.active(t0) && !w.clear());
+        // a call that never ends (a stalled stream with the process alive) stops showing by itself
+        assert!(w.begin("toolu_3", t0));
+        assert!(w.active(t0 + CAP - Duration::from_secs(1)));
+        assert!(!w.active(t0 + CAP), "never longer than the cap");
+        // a second call while the first shows keeps the flag and restarts the cap
+        assert!(w.begin("toolu_4", t0 + CAP + Duration::from_secs(1)), "after the cap it shows again");
+        assert!(!w.begin("toolu_5", t0 + CAP + Duration::from_secs(2)), "already showing: nothing changed");
+        assert!(w.end("toolu_5") && !w.active(t0 + CAP + Duration::from_secs(2)));
     }
 
     #[test]
