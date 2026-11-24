@@ -3008,7 +3008,10 @@ engine read, `GET /api/orgs/{slug}/mention-candidates?kinds&q&after&limit`
 (`domain/mention_candidates.rs`, `http/mention_candidates.rs`): ranked, keyset
 paged by `[at_ms, lower(label), kind, id]`, at most 50 rows. `at_ms` is in
 milliseconds, the precision of every engine time, so the list's own sort agrees
-with the pages. The read first runs a bounded catch-up of mail mentions into
+with the pages. A TICKET's `at` is its latest status change alone
+(`coalesce(status_at, created_at)`, USER 2026-11-24 mbad08856cdb4): the join to
+`ot.mention_recency` leaves tickets out, so neither an edit nor a mention
+elsewhere moves one (`domain/mention_candidates_status_tests.rs`). The read first runs a bounded catch-up of mail mentions into
 `ot.mention_recency` (migration 0076; one cursor, 2,000 messages per read, 200
 read again behind it for late commits, `SKIP LOCKED` so readers never queue).
 Its first page carries `nodes`, the newest mail mention of each agent or project
@@ -3020,7 +3023,9 @@ name.
   `ticketmentions.ts` and `presentationmentions.ts`.
 - `canvas/agentmentions.tsx` `matchMentionQuery` reads a kind prefix (an
   unknown `@word:` opens nothing), and `filterMentionCandidates` ranks:
-  transcript mentions first (as before), then `max(at, node mail mention)`, then
+  transcript mentions first (as before; a box that is no desk hands its own
+  conversation in through `MailReplyBox transcriptTexts`, as the user's chats do
+  with the open chat's loaded messages, USER 2026-11-24 mf13638fa83f8), then `max(at, node mail mention)`, then
   name, kind and id. A tree node's `at` is `nodeActivity` (newest turn, status,
   turn in flight, else creation). The hook draws `MENU_STEP = 20` rows at a time, opens scrolled to the bottom (and stays at the bottom when the filter changes), keeps the active row in view on arrow keys, preserves `scrollTop` without jumping when upward scroll or `ArrowUp` at the top loaded row prepends older rows, and never wraps (`ArrowDown` at the bottom and `ArrowUp` at the very top are no-ops; USER 2026-10-30 m21f1fd661676, m3e70256cdcbc, m95ee007ff363); an
   IntersectionObserver marker at the far end draws more and asks for the next

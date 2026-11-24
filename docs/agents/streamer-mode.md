@@ -15,6 +15,11 @@ paths (default OFF), IP addresses, email addresses, secrets and keys, phone numb
 Agent, project, account and model names, timestamps, SHAs, branch names, relative paths and plain URLs are NEVER hidden.
 All types off is allowed; the indicator still shows. Changes apply live in every window through the preferences broadcast.
 
+- **The user's chats** (dm/DmPanel.tsx, 4.7.0) are zones too: a whole bubble (`.dm-bubble`, with its quote card; `.dm-meta` and
+  `.dm-labels` are structured), a chat row's preview (`.dm-row-text`), the reply bar's excerpt (`.dm-replybar-text`) and the
+  cannot-write line (`.dm-nowrite`). An outside sender's name is an always-field wherever the panel writes it
+  (`dmNameField`). A new place that shows a message's words or an outside name there needs one of the two; the capture
+  `tests/dm-alpha1-visual.mjs` counts every readable occurrence with privacy on.
 - **Free-form content** (transcripts, tool output, mail and message bodies, docket text, presentations, Hubchat, notes: the
   `STREAMER_ZONES.freeform` selector list in `streamer-boundary.ts`, centred on the `.md` markdown wrapper and `.msg`) is
   pattern-matched for the ENABLED types only; only the matching span blurs. `packages/contracts/streamer.ts` owns the
