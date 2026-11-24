@@ -844,18 +844,21 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   (a person and an org read the same bytes about an Invisible person as about one really offline).
 - Last active (Mail hub 2.6.0, 2026-11-24; docket hubchat-last-seen-time-for-orgs-people-and-indep, user 11:44Z
   me20294def375, 11:56Z med2518611a95 "the org sending a "last seen" event every time an agent with an org inbox
-  audience's turn ends"): the same `POST /api/presence` carries `active` (an agent in charge of the org mailbox is
-  mid-turn, read from its live runtime `busy`) and `active_at` (the newest end of those agents' last finished turns,
-  `ot.turns.ended_at`). In charge = `orginbox::in_charge_turn_ends`: live agent holders, plus for a project holder the
-  live agents whose armed fair_queue listener targets it; halted or frozen ones still count for the time. The org
-  stays active while any of them runs (`net/presence.rs` `last_active`). Event-driven: an in-charge agent's runtime
-  publish that flips `busy` kicks the network pass (`turn_edge`), so each turn start and end is said; ends between two
-  passes are said once with the newest end, and `due` says any change at once. Posts are serialized (one pass at a
-  time), a failed post is followed by the current state, the 5-minute refresh repeats the whole body, and the body
-  carries the engine's `now` so the hub corrects clock skew. An older hub ignores the three fields;
-  Hubchat shows "active now" / "last seen ...". Orgtree's own UI shows nothing new. Tests: `net/presence_tests.rs`
-  (two holders' overlapping turns), the ignored fixture test
-  `domain::orginbox::busy_tests::the_agents_in_charge_and_their_last_turn_ends`, the hub's `tests/last_active.rs`.
+  audience's turn ends"): to a hub that lists the feature `last_active` (read from `/healthz` once per connection),
+  `POST /api/presence` also carries `active` (an agent in charge of the org mailbox is mid-turn, from its live runtime
+  `busy`), `active_at` and `now` (the engine's clock, for the hub's skew correction). Older hubs get today's body and
+  traffic. In charge = `orginbox::in_charge`: live agent holders, plus for a project holder the live agents whose
+  fair_queue listener targets it (armed or paused) and those holding one of its unacked jobs; halted or frozen ones
+  count. `active_at` never goes back (coordinator 13:27Z): `orginbox::raise_last_active` keeps a per-org mark in
+  `ot.orgs.net.last_active_at`, raised by the newest end of those agents' last finished turns (`last_turn_ends`) and
+  never lowered or cleared by a holder change, retirement or revoked audience; turns the start-up recovery closed
+  ("the engine stopped during this turn") are no turn ends. The org stays active while any of them runs. Event-driven:
+  an in-charge agent's runtime publish that flips `busy` kicks the network pass (`turn_edge`; only orgs with a hub
+  that lists the feature); ends between two passes are said once with the newest end. Posts are serialized, `Said`
+  keeps what was sent (never the hub's echo), a failed post is followed by the current state, the 5-minute refresh
+  repeats the whole body. Orgtree's own UI shows nothing new. Tests: `net/presence_tests.rs` (incl. turn_edge -> kick
+  -> post against fake hubs with and without the feature), the ignored fixture tests in
+  `domain::orginbox::busy_tests` (in charge, never back, recovery), the hub's `tests/last_active.rs`.
 - Translation between people (Mail hub 2.4.0, 2026-11-01; docket mail-hub-hubchat-automatic-translation-between-u,
   user 12:15Z answers and 12:16Z "Build it"): a person reads in a language (Hubchat), and the hub translates mail to
   them from another language after delivering it, for them only (hub schema 13). Orgtree owns the bundled hub's
