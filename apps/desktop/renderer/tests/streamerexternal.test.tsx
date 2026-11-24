@@ -52,6 +52,17 @@ test('every renderer of an @net:/@org: chip is blurred by its resolved address, 
   t.after(async () => { stop(); host.remove(); await view.unmount(); resetNetMentions() })
   await inAct(async () => { await flush(10) })
   const md = (addr: string) => host.querySelector(`[data-hub-address="${addr}"]`)
+  // ⚠ THE PRIVACY SCAN PACES ITSELF (streamer-boundary.ts: a scan that cost 16 ms or more makes the next one
+  // wait four times that, up to a second, and hides the touched elements meanwhile). A fixed number of
+  // flushes ended before a paced scan on a busy machine: measured 2026-11-24, six runs at once failed 5 of
+  // 18 at 3a7ae1f and 7 of 18 at f4aba5d on this assertion. So the test waits for the scan's own result,
+  // bounded, and then reads everything else that scan decided.
+  const settled = async (what: string, done: () => boolean) => {
+    for (let i = 0; i < 240 && !done(); i++) await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 25)); await flush(2) })
+    assert.equal(done(), true, `${what} (waited up to 6 s)`)
+  }
+  await settled('the privacy scan marked both chips of the outside address', () =>
+    blurred(md('@net:maurdekye.77ded7')) && blurred(view.el.querySelector('#react-ext [data-hub-address]')))
   assert.ok(md('@net:maurdekye.77ded7')?.querySelector('[data-net-name="Maurdekye"]'), 'the markdown chip shows the display name')
   assert.equal(blurred(md('@net:maurdekye.77ded7')), true, 'markdown (tool row / message body) chip with a display name is blurred')
   assert.equal(blurred(view.el.querySelector('#react-ext [data-hub-address]')), true, 'React chip (row header sender) with a display name is blurred')
@@ -61,6 +72,8 @@ test('every renderer of an @net:/@org: chip is blurred by its resolved address, 
   assert.equal(blurred(host.querySelector('[data-agent-nav="worker-alpha"]')), false, 'agent chips stay visible')
   assert.equal(document.documentElement.classList.contains('streamer-on'), true)
   await inAct(async () => { bridge.set({ streamerMode: false }); await flush(10) })
+  await settled('switched off, both chips are shown again', () =>
+    !blurred(md('@net:maurdekye.77ded7')) && !blurred(view.el.querySelector('#react-ext [data-hub-address]')))
   assert.equal(blurred(md('@net:maurdekye.77ded7')), false, 'off: visible')
   assert.equal(blurred(view.el.querySelector('#react-ext [data-hub-address]')), false, 'off: visible')
 })
