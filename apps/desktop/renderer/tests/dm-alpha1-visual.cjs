@@ -172,6 +172,35 @@ module.exports = async (page) => {
   })
   await shot('05-bubble-padding-with-and-without-a-quote-and-files')
 
+  // ---------------------------------- 17. the one check mark; 5. typing
+  Object.assign(v, await page.eval(() => {
+    const px = n => Math.round(n * 10) / 10
+    const rows = [...document.querySelectorAll('.dm-msg[data-dm-entry]')]
+    const out = rows.filter(r => r.classList.contains('out'))
+    const tickBox = {}
+    for (const r of out) {
+      const tick = r.querySelector('.dm-meta .dm-tick'); if (!tick) continue
+      tickBox[r.dataset.dmEntry] = { afterTime: tick.previousElementSibling?.tagName === 'TIME', metaHeight: px(r.querySelector('.dm-meta').getBoundingClientRect().height) }
+    }
+    return { receipts: Object.fromEntries(out.map(r => [r.dataset.dmEntry, r.querySelector('.dm-meta .dm-tick')?.className ?? null])),
+      receiptsIn: document.querySelectorAll('.dm-msg.in .dm-tick').length, tickBox,
+      metaPlain: px(document.querySelector('.dm-msg.in .dm-meta').getBoundingClientRect().height) }
+  }))
+  v.typing = { before: await page.eval(() => document.querySelectorAll('.dm-typing-row, .dm-row-typing').length) }
+  await page.eval(() => window.__dm.typing('quoter'))
+  await until('the typing row to show', async () => page.eval(() => !!document.querySelector('.dm-timeline .dm-typing-row')))
+  await page.sleep(350)
+  Object.assign(v.typing, await page.eval(() => {
+    const row = document.querySelector('.dm-timeline .dm-typing-row'), view = document.querySelector('.dm-timeline').getBoundingClientRect(), r = row.getBoundingClientRect()
+    return { rows: [...document.querySelectorAll('.dm-row-typing')].map(el => el.closest('.dm-row').dataset.dmChat),
+      dots: row.querySelectorAll('.dm-typing-dots i').length, text: row.textContent,
+      underLast: !!row.previousElementSibling?.matches('.dm-msg') && r.bottom <= view.bottom + 1 && r.top >= view.top }
+  }))
+  await shot('05b-typing-dots-and-the-check-marks')
+  await page.eval(() => window.__dm.typing(null))
+  await page.sleep(250)
+  v.typing.after = await page.eval(() => document.querySelectorAll('.dm-typing-row, .dm-row-typing').length)
+
   // ---------------------------------- 9. a chat that does not fill its view when it opens
   await openChat('sparse')
   await page.sleep(1500)

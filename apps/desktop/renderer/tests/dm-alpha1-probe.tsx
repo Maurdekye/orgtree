@@ -14,7 +14,7 @@ import { DeskChat } from '../src/canvas/desk'
 import { AgentTray, trayRows } from '../src/canvas/agenttray'
 import { dmNodes } from '../src/dm/model'
 import type { CanvasNode } from '../src/canvas/shared'
-import type { TreePayload } from '../src/types'
+import type { TreeNode, TreePayload } from '../src/types'
 
 const node = (id: string, tier: string, children: unknown[] = [], extra: Record<string, unknown> = {}) => ({
   id, title: id, tier, model_id: tier, state: 'live', seat: 2, grant: 4, free: 2, ui_order: 0, cost_usd: 0,
@@ -56,6 +56,8 @@ declare global {
       deskBox(on: boolean): void
       /** show the canvas's agents list beside the panel */
       canvasList(on: boolean): void
+      /** the engine says this agent is writing a message to the user (null: nobody is) */
+      typing(id: string | null): void
       theme(id: string): void
     }
   }
@@ -64,8 +66,15 @@ declare global {
 function Probe() {
   const [desk, setDesk] = useState(false)
   const [list, setList] = useState(false)
-  const [t] = useState(tree)
-  useEffect(() => { window.__dm.deskBox = setDesk; window.__dm.canvasList = setList }, [])
+  const [t, setTree] = useState(tree)
+  useEffect(() => {
+    window.__dm.deskBox = setDesk; window.__dm.canvasList = setList
+    // a new tree, as the engine publishes one when an agent's runtime view changes
+    window.__dm.typing = (id) => {
+      const mark = (n: TreeNode): TreeNode => ({ ...n, writing_to_user: n.id === id, children: (n.children ?? []).map(mark) }) as TreeNode
+      setTree(old => ({ ...old, roots: old.roots.map(mark) }))
+    }
+  }, [])
   const map = dmNodes(t) as unknown as Map<string, CanvasNode>
   const quoter = map.get('quoter')!
   return (
@@ -92,7 +101,7 @@ function Probe() {
   )
 }
 
-window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, canvasList() {}, theme: id => applyContrast(id) }
+window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id) }
 syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }, { tier: 'sonnet', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
 window.confirm = () => { window.__dm.confirms++; return true }
 createRoot(document.getElementById('root')!).render(<Probe />)

@@ -59,7 +59,7 @@ const LINES = ['Done.', 'The second batch is in: 214 rows, 3 of them flagged for
 /** worker's long history, oldest first: 420 messages, both sides, of mixed height */
 const HISTORY = Array.from({ length: 420 }, (_, i) => {
   const id = `h${String(i).padStart(3, '0')}`, when = 2 * D + (420 - i) * 7 * M, body = `Note ${i}: ${LINES[i % LINES.length]}`
-  return i % 4 === 3 ? sent(id, 'worker', when, body) : mail(id, 'worker', when, body)
+  return i % 4 === 3 ? sent(id, 'worker', when, body, { delivered: true }) : mail(id, 'worker', when, body)
 })
 const PAGE = 60
 const head = HISTORY.slice(-PAGE), olderPages = []
@@ -84,13 +84,14 @@ const world = {
   pending: [],
   sent: [
     // the user's reply to q1: an older snapshot, which names no mailbox
-    sent('u1', 'quoter', 4.8 * H, 'The summary, please. Keep the table.', { reply_to: { id: 'q1', from: 'quoter', at: ago(5 * H), gist: 'The first draft of the notes is ready. Which section should I tighten first?' } }),
+    sent('u1', 'quoter', 4.8 * H, 'The summary, please. Keep the table.', { delivered: true, reply_to: { id: 'q1', from: 'quoter', at: ago(5 * H), gist: 'The first draft of the notes is ready. Which section should I tighten first?' } }),
     // a message typed in the chats: a typed event, the user's
-    sent('u2', 'quoter', 4 * H, 'also there is this context dropdown under every message', { ev: typed('ordinary.message', { kind: 'user', id: USER }, 'also there is this context dropdown under every message') }),
-    sent('u3', 'quoter', 3.5 * H, 'Here is the chart I meant.', { attachments: [{ name: 'chart.png', path: 'outbox/chart.png', bytes: 1532 }],
+    sent('u2', 'quoter', 4 * H, 'also there is this context dropdown under every message', { delivered: true, ev: typed('ordinary.message', { kind: 'user', id: USER }, 'also there is this context dropdown under every message') }),
+    sent('u3', 'quoter', 3.5 * H, 'Here is the chart I meant.', { delivered: true, attachments: [{ name: 'chart.png', path: 'outbox/chart.png', bytes: 1532 }],
       reply_to: { id: 'q2', kind: 'mail', from: 'quoter', at: ago(4.5 * H), gist: 'Shortening the summary now; the table stays as it is.', org: 'mine', box: 'user' } }),
-    sent('u4', 'quoter', 3.2 * H, 'And the raw numbers.', { attachments: [{ name: 'numbers.csv', path: 'outbox/numbers.csv', bytes: 48211 }] }),
-    sent('u5', 'quoter', 3 * H, 'ok'),
+    sent('u4', 'quoter', 3.2 * H, 'And the raw numbers.', { delivered: false, dnd_held: true, attachments: [{ name: 'numbers.csv', path: 'outbox/numbers.csv', bytes: 48211 }] }),
+    // the newest one waits: the agent has not taken it (the clock), the ones before it are delivered (one check)
+    sent('u5', 'quoter', 3 * H, 'ok', { delivered: false }),
     ...head.filter(m => m.from === USER),
   ],
 }
@@ -231,6 +232,21 @@ if (flag === '--expect') {
   }
   checked.push('8 padding')
 
+  // ---- 17: the one check mark; 5: typing
+  assert.deepEqual([v.receipts.u1, v.receipts.u2, v.receipts.u3], ['dm-tick t-delivered', 'dm-tick t-delivered', 'dm-tick t-delivered'], 'a delivered message has one check')
+  assert.deepEqual([v.receipts.u4, v.receipts.u5], ['dm-tick t-queued', 'dm-tick t-queued'], 'a waiting one has the clock')
+  assert.equal(v.receiptsIn, 0, 'the agent\'s messages have no mark')
+  for (const [id, r] of Object.entries(v.tickBox)) {
+    assert.ok(r.afterTime, `${id}: the mark comes after the time`)
+    assert.ok(Math.abs(r.metaHeight - v.metaPlain) <= 0.6, `${id}: the mark does not make the time row taller (${r.metaHeight} against ${v.metaPlain})`)
+  }
+  assert.equal(v.typing.before, 0, 'POSITIVE CONTROL: no dots before the agent writes')
+  assert.deepEqual(v.typing.rows, ['quoter'], 'the row of the agent that writes says typing')
+  assert.equal(v.typing.dots, 3, 'three dots under the last message'); assert.equal(v.typing.text, 'quoter is typing…')
+  assert.ok(v.typing.underLast, 'under the last message, inside the view')
+  assert.equal(v.typing.after, 0, 'gone when the call ends')
+  checked.push('17 receipt', '5 typing')
+
   // ---- 9, 14: the window, lazy pages, nothing moves
   assert.equal(v.older.button, false, 'no "Load older" button'); assert.equal(v.older.atOpen.drawn, 50, 'the newest 50 are drawn when the chat opens')
   assert.deepEqual(v.older.atOpen.pages, [], 'and no page is asked for at the newest message')
@@ -250,6 +266,11 @@ if (flag === '--expect') {
   // ---- 11: no "sent to" line
   assert.equal(v.sentLine.state, null, 'nothing under the box after a send'); assert.equal(v.sentLine.bubble, true)
   checked.push('11 sent line')
+
+  // ---- 15: both entries of the bubble's menu
+  assert.ok(v.menu.items.some(i => /^View in @worker.s inbox$/.test(i)), `the bubble's menu has the inbox entry (${v.menu.items.join(' | ')})`)
+  assert.equal(v.menu.items[v.menu.items.findIndex(i => /^View in @worker/.test(i)) + 1], 'View in transcript', 'and View in transcript next to it')
+  checked.push('15 transcript entry')
 
   // ---- 12, 13: the sweep
   for (const k of ['x', 'y', 'w', 'h']) near(v.sweep.box[k], v.sweep.column[k], `the sweep covers the chat list's column: ${k}`)
