@@ -762,6 +762,8 @@ export default async function (rig) {
     const said = id => rig.sql(`SELECT body->>'text' AS text FROM ot.convo WHERE agent_id=${id ?? 0} AND body->>'text' LIKE '%Path proof: read%' ORDER BY seq`).map(c => c.text)
     p.check('14. its transcript names the three paths', said(carol.id).length >= 1 && said(carol.id).every(t => t.includes(own) && t.includes(other) && t.includes(alike)), said(carol.id))
 
+    // the database stores a JSON object's members in its own order: compare what they hold
+    const canon = v => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x))
     const linksOf = buf => JSON.parse(zipRead(buf, zipEntries(buf).get('links.json')).toString('utf8'))
     // an agent's export: the fire action stays behind
     r = await tool('boss', 'orgtree_export', { node: 'carol', path: 'carol-by-boss.zip' })
@@ -779,7 +781,7 @@ export default async function (rig) {
       && job.result?.secrets?.watchdog_credentials === 1, { asked, state: job.state, error: job.error, secrets: job.result?.secrets })
     if (!file.ok) return
     const dogUser = linksOf(file.buf).watchdogs?.find(d => d.args?.name === 'on-fire')
-    p.check('14. and its file holds the fire action whole, beside the definition and not in it', JSON.stringify(dogUser?.fire_actions) === JSON.stringify([action])
+    p.check('14. and its file holds the fire action whole, beside the definition and not in it', canon(dogUser?.fire_actions) === canon([action])
       && dogUser?.args?.fire_actions === undefined && dogUser?.needs_credentials === false, dogUser && { args: dogUser.args, fire_actions: dogUser.fire_actions, needs: dogUser.needs_credentials })
 
     const up = await upload(file.buf, 'carol.orgtree.zip')
@@ -787,7 +789,7 @@ export default async function (rig) {
     const done = await ended(B, 'imports', (await rig.api('POST', `/api/orgs/${B}/imports/${up.id}/apply`, { dest: 'host', expect: plan.digest })).id)
     const carolB = row(bId, done.result?.root ?? 'no-such-node')
     p.check('14. the imported watchdog has its fire action again, and arrives paused like any other', done.state === 'done' && done.result?.complete === true
-      && JSON.stringify(stored(carolB?.id)?.actions) === JSON.stringify([action]) && stored(carolB?.id)?.state === 'paused' && stored(carolB?.id)?.needs !== 'true',
+      && canon(stored(carolB?.id)?.actions) === canon([action]) && stored(carolB?.id)?.state === 'paused' && stored(carolB?.id)?.needs !== 'true',
       { state: done.state, error: done.error, leftovers: done.result?.leftovers, notes: done.result?.watchdogs?.notes, stored: stored(carolB?.id) })
     const ownB = path.join(scratch(B, carolB?.name ?? 'no-such-node'), 'notes', 'plan.md')
     p.check('14. its transcript names the file in its own folder where that lies now, and the two other paths as they were written',
