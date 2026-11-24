@@ -836,7 +836,13 @@ Two rules (`remote_access/shown.rs`), and one place that applies each.
 - **An app-wide answer holds no address at all and names no other organization.** For a path that is
   not an organization's, every member called `email` is nulled whatever it holds, a text that has the
   shape of an address is replaced whether the engine knows it or not, and the members that say where
-  else an account is used (`bound`, `origin_org`, `host_identity`) are removed.
+  else an account is used (`bound`, `origin_org`, `host_identity`) are removed. `bound` is the one
+  an app reads of every account row, so a row that had it keeps it as an empty list, with
+  `bound_hidden: true` beside it: an app made before 4.7.0 reads `bound.length` unchecked and failed
+  on a row without the member (App settings of a 4.6.9 window on a hosting 4.7.0-alpha.1, report
+  2026-11-24; the member was removed since 4.6.0). The renderer makes every account row whole
+  before it reads it (`normalizeAccountRows`, both the request and the pushed value), shows such a
+  row's agents as "not shown", never as none, and does not offer its removal.
 
 This keeps addresses out of lists. It is not a wall: a computer that may run the organization's
 agents on the hosting computer can learn whose account they run under.

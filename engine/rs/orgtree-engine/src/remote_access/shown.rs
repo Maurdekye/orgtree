@@ -13,7 +13,8 @@
 //!   address at all.** For those (`app_wide`), every member called `email` is
 //!   nulled whatever it holds, a text that has the shape of an address is
 //!   replaced whether this engine knows it or not, and the members that say
-//!   where else an account is used are removed.
+//!   where else an account is used are removed. One of them, `bound`, is a
+//!   list every app reads: it is sent empty, with `bound_hidden: true`.
 //!
 //! This keeps addresses out of lists. It is not a wall: a computer that may
 //! run the organization's agents on the hosting computer can learn whose
@@ -25,6 +26,9 @@ use crate::engine::Engine;
 
 /// Members of an app-wide answer that say where else something of the owner's is used.
 const ELSEWHERE: &[&str] = &["bound", "origin_org", "host_identity"];
+/// The member that lists the agents an account is used by, and the one a member is sent with it emptied.
+const USES: &str = "bound";
+const USES_HIDDEN: &str = "bound_hidden";
 /// Members by which a row names the account it is about.
 const ACCOUNT_KEYS: &[&str] = &["id", "account", "account_id", "value"];
 
@@ -120,7 +124,13 @@ fn walk(value: &mut Value, owner: &Owner, app_wide: bool, near: Option<&str>) {
         Value::Object(map) => {
             if app_wide {
                 for key in ELSEWHERE {
-                    map.remove(*key);
+                    // the list of an account's uses stays a list, empty, beside the word that it is not
+                    // shown: an app made before 4.7.0 reads `bound.length` of every row and fails on a
+                    // row without it (report 2026-11-24), and an empty list alone would say "unused"
+                    if map.remove(*key).is_some() && *key == USES {
+                        map.insert(USES.to_string(), Value::Array(Vec::new()));
+                        map.insert(USES_HIDDEN.to_string(), Value::Bool(true));
+                    }
                 }
             }
             // the account a row is about stands in for its address, so two accounts stay two
