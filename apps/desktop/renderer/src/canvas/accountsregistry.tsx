@@ -23,7 +23,44 @@ type AccountRow = {
   identity: Record<string, string>; tint_ordinal: number; origin_org?: string
   standing: { auth: string; state?: string }
   bound: { org: string; node: string; state: string }[]
+  /** Which agents use the account is not shown to this computer: a hosting engine sends a remote
+   *  member `bound: []` with this (engine remote_access/shown.rs), and a row that came without
+   *  the list at all is read the same way. An empty `bound` then says nothing about its use. */
+  bound_hidden?: boolean
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+
+/** The rows of an account list, each made whole before anything reads it.
+ *
+ *  Both inputs of the registry pass here: GET /api/accounts and the pushed `accounts` value. A
+ *  row is not trusted to hold every member: a hosting engine takes some away before it answers a
+ *  remote member, and an engine of another version may know others. What has no id is no row; a
+ *  missing list is empty; a missing member reads as unknown. A row without its list of uses is
+ *  marked `bound_hidden`, so nothing takes it for an unused account (report 2026-11-24: a 4.6.9
+ *  window on a hosting 4.7.0-alpha.1 failed at `row.bound.length`). */
+export function normalizeAccountRows(input: unknown): AccountRow[] {
+  if (!Array.isArray(input)) return []
+  const rows: AccountRow[] = []
+  for (const item of input) {
+    if (!isRecord(item) || typeof item.id !== 'string' || !item.id) continue
+    const listed = Array.isArray(item.bound)
+    const row = { ...item,
+      provider: typeof item.provider === 'string' ? item.provider : '',
+      label: typeof item.label === 'string' ? item.label : item.id,
+      credential: isRecord(item.credential) && typeof item.credential.kind === 'string' ? item.credential : { kind: 'unknown' },
+      identity: isRecord(item.identity) ? item.identity : {},
+      tint_ordinal: typeof item.tint_ordinal === 'number' ? item.tint_ordinal : 0,
+      standing: isRecord(item.standing) && typeof item.standing.auth === 'string' ? item.standing : { auth: 'unknown' },
+      bound: listed ? (item.bound as unknown[]).filter(isRecord) : [],
+    } as unknown as AccountRow
+    if (!listed) row.bound_hidden = true
+    rows.push(row)
+  }
+  return rows
+}
+
+const BOUND_HIDDEN = 'Which agents use this account is not shown to this computer'
 
 /** One stored capacity mark, as GET /api/accounts/{id}/marks reports it.
  *  `account` and `source` are what a clear must name; `expected` is the
@@ -202,7 +239,7 @@ export function useAccountRegistry() {
   useEffect(() => {
     if (!pushed) return
     serial.current++
-    if (Array.isArray(pushed.accounts)) { setRows(pushed.accounts); setError(null) }
+    if (Array.isArray(pushed.accounts)) { setRows(normalizeAccountRows(pushed.accounts)); setError(null) }
     else setError('the backend answered without an account list')
   }, [pushed])
   const reload = useCallback(async () => {
@@ -210,7 +247,7 @@ export function useAccountRegistry() {
     try {
       const data = await req<{ accounts: AccountRow[] }>('/api/accounts')
       if (!Array.isArray(data?.accounts)) throw new Error('the backend answered without an account list')
-      if (request === serial.current) { setRows(data.accounts); setError(null) }
+      if (request === serial.current) { setRows(normalizeAccountRows(data.accounts)); setError(null) }
     } catch (e) {
       if (request === serial.current) setError(e instanceof Error ? e.message : 'request failed')
     }
@@ -344,7 +381,8 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
           : <ActiveBox active={active} disabled={busy !== null} who={who} onChange={v => { void setActive(row, v) }} />)}
         {active === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
         <div className="account-management">
-          {row.bound.length > 0 && <span className="dim" title={row.bound.map(b => `${b.org}/${b.node}`).join(', ')}>{row.bound.length} agent(s)</span>}
+          {row.bound_hidden === true ? <span className="dim" title={BOUND_HIDDEN}>Agents not shown</span>
+            : row.bound.length > 0 && <span className="dim" title={row.bound.map(b => `${b.org}/${b.node}`).join(', ')}>{row.bound.length} agent(s)</span>}
           {login && <ProviderSignIn provider={login} connected={row.standing.auth === 'authenticated'} toast={toast}
             profileDir={row.credential.default_config ? undefined : row.credential.path} accountId={row.id}
             onRefresh={() => { void refresh(row) }} />}
@@ -354,8 +392,11 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
               control unusable — the bindings to clear included archived
               agents no surface lists. The primary account itself stays
               unremovable: it is what everything else is moved back to. */}
-          <button disabled={busy !== null || !!row.ambient}
+          {/* A removal moves the account's agents, and says how many. Where they are not shown
+              (a remote member's view) there is nothing true to say, so it is not offered. */}
+          <button disabled={busy !== null || !!row.ambient || row.bound_hidden === true}
             title={row.ambient ? `The ${LABELS[provider]} default account cannot be removed`
+              : row.bound_hidden === true ? `${BOUND_HIDDEN}, so it cannot be removed from here`
               : row.bound.length > 0
                 ? provider === 'muse'
                   ? `Remove this account and move its ${row.bound.length} agent(s) to a Muse login that offers their model (the default account first); one no login can run waits frozen`
