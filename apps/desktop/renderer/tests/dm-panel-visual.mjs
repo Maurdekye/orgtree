@@ -281,6 +281,18 @@ if (flag === '--expect') {
   assert.deepEqual(posts(/\/nodes\/lead\/batch$/).map(c => c.body), [{ revs: { ask: 2, scope: 1 }, answers: ['Alpha', 'the classic switch'], scope: ['approve'] }])
   assert.equal(v.request.badgeAfterSubmit, null, 'nothing waits on the user any more')
   checked.push('requests')
+  // ---- the header's state badge (26) and its one model icon (29); a question's ticket (28)
+  assert.match(v.header.state ?? '', /Active/i, 'POSITIVE CONTROL: lead is in a turn, so its badge says Active')
+  assert.equal(v.header.accent, 'rgb(1, 128, 127)', 'POSITIVE CONTROL: the accent of the app was set apart for the measurement')
+  assert.notEqual(v.header.icon, v.header.accent, 'POSITIVE CONTROL: the arrows are the colour of the provider, not the accent of the app')
+  assert.equal(v.header.icon, v.header.word, 'the badge\'s arrows and its word are one colour')
+  assert.notEqual(v.header.word, v.header.dim, 'POSITIVE CONTROL: that colour is the state\'s, not the dim time\'s')
+  assert.equal(v.header.icons, 1, 'the header shows the model icon once')
+  assert.ok(v.ticket, 'POSITIVE CONTROL: the question has its ticket chip')
+  assert.ok(v.ticket.height <= v.ticket.line + 6, `the ticket is one line (${v.ticket.height}px against a ${v.ticket.line}px line)`)
+  assert.equal(v.ticket.cut, true, 'POSITIVE CONTROL: its name is longer than the card'); assert.equal(v.ticket.ellipsis, 'ellipsis'); assert.equal(v.ticket.nowrap, 'nowrap')
+  assert.ok(v.ticket.gap >= 4, `and the question starts under it, not in it (${v.ticket.gap}px below)`); assert.equal(v.ticket.inside, true)
+  checked.push('header badge', 'ticket chip')
 
   // ---- the send mark: a reply names its mail and says nothing; a new message says dm
   const messages = posts(/\/nodes\/worker\/message$/).map(c => c.body)

@@ -201,6 +201,26 @@ module.exports = async (page) => {
   await page.sleep(250)
   v.typing.after = await page.eval(() => document.querySelectorAll('.dm-typing-row, .dm-row-typing').length)
 
+  // ---------------------------------- 19. a whole card inside a bubble, in both bubble colours
+  await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight })
+  await page.sleep(250)
+  v.cards = await page.eval(() => {
+    const px = n => Math.round(n * 10) / 10, out = {}
+    for (const id of ['ans0', 'ans1']) {
+      const bubble = document.querySelector(`[data-dm-entry="${id}"] .dm-bubble`)
+      if (!bubble) { out[id] = null; continue }
+      const r = bubble.getBoundingClientRect(), border = parseFloat(getComputedStyle(bubble).borderTopWidth)
+      // the outermost thing the bubble holds that draws its own box: the card
+      const card = bubble.querySelector('.event-card, .answered-card, .event-body > *, .mailer-body > *')
+      const k = card?.getBoundingClientRect(), meta = bubble.querySelector('.dm-meta').getBoundingClientRect()
+      out[id] = { typed: bubble.classList.contains('typed'), card: card ? card.className : null,
+        top: k ? px(k.top - r.top - border) : null, left: k ? px(k.left - r.left - border) : null,
+        right: k ? px(r.right - border - k.right) : null, toTime: k ? px(meta.top - k.bottom) : null }
+    }
+    return out
+  })
+  await shot('05c-a-whole-card-in-each-bubble-colour')
+
   // ---------------------------------- 9. a chat that does not fill its view when it opens
   await openChat('sparse')
   await page.sleep(1500)

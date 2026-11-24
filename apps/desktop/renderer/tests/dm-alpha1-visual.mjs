@@ -53,6 +53,11 @@ const grant = (grantee, extra = {}) => ({ grantee, grantor: USER, granted_at: ag
 const mail = (id, from, when, body, extra = {}) => ({ id, from, at: ago(when), kind: 'message', body, ...extra })
 const sent = (id, to, when, body, extra = {}) => ({ id, from: USER, to, at: ago(when), kind: 'message', body, ...extra })
 const typed = (variant, actor, body, extra = {}) => ({ v: 1, variant, actor, object: null, engine_authored: false, body, ...extra })
+/** a resolved request's answers, the card the user's own answer is shown as */
+const answers = (actor) => ({ v: 1, variant: 'answer.batch', actor, object: { kind: 'batch', org: 'mine', id: 'ask-cards', node: 'quoter' }, engine_authored: false,
+  sections: [{ kind: 'ask', ask_id: 'ask-cards', questions: [
+    { label: 'Mid-turn', question: 'While an inbox agent is mid-turn, what should the contact line say?', answer: '"active now" (Rec.)' },
+    { label: 'Older hubs', question: 'On a mail hub older than 2.6.0, what should Hubchat show there?', answer: 'No time (Rec.)' }] }] })
 const LINES = ['Done.', 'The second batch is in: 214 rows, 3 of them flagged for a second look.',
   'One open point before I go on:\n\n- the March total\n- the returns\n\nBoth differ from last week.', 'Noted, continuing.',
   'The check passed on the first run and again after the rebase, so I am treating it as stable for now and moving to the next piece of the list.']
@@ -77,6 +82,8 @@ const world = {
       ev: typed('reply.mail', { kind: 'agent', id: 'quoter' }, 'Shortening the summary now; the table stays as it is.', {
         object: { kind: 'mail', org: 'mine', box: 'node', node: 'quoter', id: 'u1', sender: USER, at: ago(4.8 * H) },
         quote: { from: USER, at: ago(4.8 * H), gist: 'The summary, please. Keep the table.' } }) }),
+    // and the same card in the agent's bubble
+    mail('ans0', 'quoter', 2.8 * H, '[ANSWERS to your questions]', { ev: answers({ kind: 'agent', id: 'quoter' }) }),
     mail('sp1', 'sparse', 3 * H, 'Nothing new today.'),
     mail('sp2', 'sparse', 2 * H, 'Still nothing.'),
     ...head.filter(m => m.from !== USER),
@@ -92,6 +99,8 @@ const world = {
     sent('u4', 'quoter', 3.2 * H, 'And the raw numbers.', { delivered: false, dnd_held: true, attachments: [{ name: 'numbers.csv', path: 'outbox/numbers.csv', bytes: 48211 }] }),
     // the newest one waits: the agent has not taken it (the clock), the ones before it are delivered (one check)
     sent('u5', 'quoter', 3 * H, 'ok', { delivered: false }),
+    // a whole card in the user's bubble: the answers to a request, as the engine records them (point 19)
+    sent('ans1', 'quoter', 2.6 * H, '[ANSWERS to your questions]', { delivered: true, ev: answers({ kind: 'user', id: USER }) }),
     ...head.filter(m => m.from === USER),
   ],
 }
@@ -246,6 +255,17 @@ if (flag === '--expect') {
   assert.ok(v.typing.underLast, 'under the last message, inside the view')
   assert.equal(v.typing.after, 0, 'gone when the call ends')
   checked.push('17 receipt', '5 typing')
+
+  // ---- 19: a whole card in a bubble is as far from the bubble's edge on every side, in both colours
+  for (const id of ['ans0', 'ans1']) {
+    const k = v.cards[id]
+    assert.ok(k && k.typed && k.card, `POSITIVE CONTROL: ${id} is a whole card in a bubble`)
+    near(k.left, k.top, `${id}: as far from the left edge as from the top`, 0.6); near(k.right, k.top, `${id}: and from the right`, 0.6)
+    near(k.toTime, k.top, `${id}: and down to the time`, 0.6)
+    assert.ok(k.top >= 6, `${id}: with room (${k.top}px)`)
+  }
+  near(v.cards.ans0.top, v.cards.ans1.top, 'the same in the agent\'s bubble and the user\'s', 0.1)
+  checked.push('19 cards')
 
   // ---- 9, 14: the window, lazy pages, nothing moves
   assert.equal(v.older.button, false, 'no "Load older" button'); assert.equal(v.older.atOpen.drawn, 50, 'the newest 50 are drawn when the chat opens')

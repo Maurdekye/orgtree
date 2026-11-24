@@ -163,6 +163,31 @@ module.exports = async (page) => {
       cards: [...document.querySelectorAll('.dm-ask')].map(a => ({ open: a.classList.contains('open'), text: text(a).slice(0, 260) })) }
   })
   v.request = await askState()
+  // 26: the header's state badge, icon and word in one colour; 29: one model icon in the header;
+  // 28: the question's ticket on one line above the question
+  v.header = await page.eval(() => {
+    const head = document.querySelector('.dm-head'), spin = head.querySelector('.tray-status .cc-spin'), label = head.querySelector('.tray-status-label')
+    // the app's accent is set apart from every provider's colour for the measurement, as it is in a
+    // theme whose accent is not the agent's provider's: the word used to take it, the arrows never did
+    const root = document.documentElement, was = root.style.getPropertyValue('--accent')
+    root.style.setProperty('--accent', 'rgb(1, 128, 127)')
+    const probe = document.createElement('span'); probe.style.color = 'var(--accent)'; head.appendChild(probe)
+    const accent = getComputedStyle(probe).color; probe.remove()
+    const out = { accent, icon: spin ? getComputedStyle(spin).color : null, word: label ? getComputedStyle(label).color : null }
+    if (was) root.style.setProperty('--accent', was); else root.style.removeProperty('--accent')
+    return { ...out, icons: head.querySelectorAll('.tier, .project-mark, .dm-av-system, .dm-av-other').length,
+      state: label ? label.textContent : null, dim: getComputedStyle(head.querySelector('.tray-status-time')).color }
+  })
+  v.ticket = await page.eval(() => {
+    const px = n => Math.round(n * 10) / 10
+    const head = document.querySelector('.dm-ask .ask-q-head'), chip = head?.querySelector('.ref-chip')
+    if (!head || !chip) return null
+    const question = head.parentElement.querySelector('.ask-q') ?? head.nextElementSibling
+    const c = chip.getBoundingClientRect(), q = question.getBoundingClientRect(), cs = getComputedStyle(chip)
+    return { height: px(c.height), line: parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5, cut: chip.scrollWidth > chip.clientWidth,
+      nowrap: cs.whiteSpace, ellipsis: cs.textOverflow, gap: px(q.top - c.bottom), inside: c.right <= head.parentElement.getBoundingClientRect().right + 0.5,
+      title: chip.getAttribute('title') }
+  })
   await shot('04-top-level-chat-cannot-close-request-one-bubble-per-tab')
   // each control is brought into the pane before its click, as a reader scrolls to it
   await page.click({ selector: '.dm-ask .ask-message[data-ask-tab="0"] .ask-row-pick', index: 0, scroll: true })

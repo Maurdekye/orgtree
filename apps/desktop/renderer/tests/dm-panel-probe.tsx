@@ -24,7 +24,9 @@ const node = (id: string, tier: string, children: unknown[] = [], extra: Record<
 })
 
 const QUESTIONS = [
+  // its ticket has a long name: the chip keeps to one line above the question (USER 2026-11-24 m63824e37d3d6)
   { kind: 'question', header: 'Channel', question: 'Which channel should the **4.7.0** build go to first?',
+    work_item: 'agent-team-project-export-import-and-duplication-zip-of-full-context-ui-and-agent-tools',
     options: [{ label: 'Alpha', description: 'this computer only' }, { label: 'Beta', description: 'everyone who opted in' }] },
   { kind: 'question', header: 'Notes', question: 'Anything the release notes must mention?' },
 ]
