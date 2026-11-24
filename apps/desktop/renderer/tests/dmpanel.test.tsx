@@ -1732,3 +1732,91 @@ test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u201
   m = await menuOf('out1')
   assert.equal(m.labels.some(l => l.startsWith('Sender')), false, `the user\u2019s own bubble has no Sender entry (${m.labels.join(' | ')})`)
 })
+
+// USER 2026-11-24 m3018ae8d050f: "tab + shift-tab to scroll up and down through messages to highlight them
+// and send replies with r like hubchat". Hubchat's rules (its Conversation.tsx `keys`): from the message box
+// the first Shift+Tab highlights the newest message and the focus moves to the timeline; Shift+Tab goes
+// older, Tab newer, Tab past the newest and Escape go back to the box, R replies. Only bubbles count.
+const pressOn = async (el: Element, key: string, init: Record<string, unknown> = {}) => inAct(async () => {
+  el.dispatchEvent(new W.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })); await flush(4)
+})
+const hlOf = () => [...document.querySelectorAll<HTMLElement>('.dm-msg.hl')].map(m => m.dataset.dmEntry)
+
+test('alpha.1 point 23: Shift+Tab from the message box walks the bubbles, Tab comes back, R replies to the highlighted one, Escape returns to the box', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')],
+    delivered: [mail('a', 'worker', '2026-11-20T10:00:00Z'), mail('c', 'worker', '2026-11-20T12:00:00Z')],
+    sent: [sent('b', 'worker', '2026-11-20T11:00:00Z')] }, { active: false })
+  await s.openChat('worker')
+  const box = () => document.querySelector<HTMLTextAreaElement>('.dm-compose textarea')!
+  const timeline = () => document.querySelector<HTMLElement>('.dm-timeline')!
+  box().focus()
+  assert.deepEqual(hlOf(), [], 'POSITIVE CONTROL: nothing is highlighted')
+  // a plain Tab in the box is not ours
+  await pressOn(box(), 'Tab')
+  assert.deepEqual(hlOf(), [])
+  await pressOn(box(), 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), ['c'], 'the newest message is highlighted')
+  assert.equal(document.activeElement, timeline(), 'and the focus is on the timeline, so the keys do not type into the box')
+  assert.match(document.querySelector('.dm-walk-said')?.textContent ?? '', /worker: body of c/, 'a screen reader is told what the highlight is on')
+  await pressOn(timeline(), 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), ['b'], 'Shift+Tab goes older')
+  assert.match(document.querySelector('.dm-walk-said')?.textContent ?? '', /You: body of b/)
+  await pressOn(timeline(), 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), ['a'])
+  await pressOn(timeline(), 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), ['a'], 'at the oldest one, with no older mail, it stays')
+  await pressOn(timeline(), 'Tab')
+  assert.deepEqual(hlOf(), ['b'], 'Tab goes newer')
+  // R replies to the highlighted message (my own, point 20) and returns to the box
+  await pressOn(timeline(), 'r')
+  assert.deepEqual(hlOf(), [], 'the highlight is gone')
+  assert.equal(document.activeElement, box(), 'the focus is back in the message box')
+  assert.match(document.querySelector('.dm-replybar')?.textContent ?? '', /body of b/, 'and that message is staged for a reply')
+  assert.equal(s.draft(), '', 'the R was not typed')
+  // Tab past the newest goes back to the box
+  await pressOn(box(), 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), ['c'])
+  await pressOn(timeline(), 'Tab')
+  assert.deepEqual(hlOf(), [])
+  assert.equal(document.activeElement, box())
+  // Escape takes the highlight only: the inbox stays open (the staged reply is cleared by the next one)
+  await pressOn(box(), 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), ['c'])
+  await inAct(async () => { window.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await flush(6) })
+  assert.deepEqual(hlOf(), [], 'Escape takes the highlight')
+  assert.equal(document.activeElement, box())
+  assert.equal(s.state.closed, 0, 'and not the inbox')
+  assert.equal(s.all('.dm-replybar-row').length, 1, 'nor the staged reply')
+  // a modifier chord is never ours, and an r typed in the box is text
+  await pressOn(box(), 'Tab', { shiftKey: true, ctrlKey: true })
+  assert.deepEqual(hlOf(), [])
+  // a click in the timeline ends the walk
+  await pressOn(box(), 'Tab', { shiftKey: true })
+  await inAct(async () => { timeline().dispatchEvent(new W.MouseEvent('mousedown', { bubbles: true })); await flush(3) })
+  assert.deepEqual(hlOf(), [], 'a click ends it')
+})
+
+test('alpha.1 point 23: the walk steps onto older messages as they come in: first the loaded ones not drawn yet, then the chat\u2019s next page', async (t) => {
+  layOut(t, { scroll: 50000, client: 600 })
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(60, 200), older: [{ delivered: many(30, 0) }] }, { active: false })
+  await s.openChat('worker')
+  await scrollTo(49400)
+  const box = document.querySelector<HTMLTextAreaElement>('.dm-compose textarea')!
+  const timeline = document.querySelector<HTMLElement>('.dm-timeline')!
+  box.focus()
+  await pressOn(box, 'Tab', { shiftKey: true })
+  const drawn = () => s.all<HTMLElement>('.dm-msg').length
+  const first = () => s.all<HTMLElement>('.dm-msg')[0]!.dataset.dmEntry
+  assert.equal(drawn(), 50, 'POSITIVE CONTROL: the window of fifty')
+  for (let i = 0; i < 49; i++) await pressOn(timeline, 'Tab', { shiftKey: true })
+  assert.deepEqual(hlOf(), [first()], 'the highlight reached the oldest drawn message')
+  const was = first()
+  // one more: the older messages come in, and the highlight steps onto the one before
+  for (let i = 0; i < 40 && hlOf()[0] === was; i++) {
+    await pressOn(timeline, 'Tab', { shiftKey: true })
+    await inAct(async () => { await flush(20) })
+  }
+  assert.equal(drawn() > 50, true, `older messages were drawn (${drawn()})`)
+  const order = s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry)
+  assert.equal(order.indexOf(hlOf()[0]!), order.indexOf(was) - 1, 'the highlight is on the message just before the one it stood on')
+})
