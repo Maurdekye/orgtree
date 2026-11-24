@@ -12,14 +12,25 @@
 //!   transcripts, large tool results).
 //! - Codex: `<home>/sessions/<year>/<month>/<day>/rollout-...-<thread>.jsonl`.
 //!
-//! The other harnesses keep sessions inside the login's own store
-//! (Antigravity, Muse) or under the numeric ids of the organization and the
-//! agent (OpenCode). Their agents start on a fresh session with the standing
-//! handoff note and their whole earlier conversation saved in their folder,
-//! as any agent does whose session could not be resumed.
+//! - OpenCode (USER 2026-11-24 m4778ba0aed9e): a store of the agent's own,
+//!   `profiles/opencode/<org id>/<agent id>/<generation>/` with its `data`
+//!   and `state` parts. Both are carried whole into the new agent's own
+//!   store.
+//! - Antigravity: one database per conversation in the login's home,
+//!   `.gemini/antigravity-cli/conversations/<id>.db`. Carrying it is written
+//!   and OFF (`agy_carry`): whether the CLI resumes a copy under another id
+//!   is not known from this source, and is switched on only when a check with
+//!   the real CLI has shown it.
+//!
+//! Muse keeps sessions inside the login's own store, shared by its agents.
+//! Its agents start on a fresh session with the standing handoff note and
+//! their whole earlier conversation saved in their folder, as any agent does
+//! whose session could not be resumed.
 //!
 //! An imported session gets a NEW id: two agents of one computer must never
 //! share a session (a duplicate and its original would write the same file).
+//! OpenCode is the one exception, and only because its store is private to
+//! each agent: the id stays, and no two agents read the same file.
 
 use std::path::{Path, PathBuf};
 
@@ -30,6 +41,8 @@ use crate::providers::catalog;
 
 pub const CLAUDE: &str = "claude-code";
 pub const CODEX: &str = "codex-cli";
+pub const OPENCODE: &str = "opencode";
+pub const AGY: &str = "antigravity";
 /// The shortest session id that is carried (the CLIs' own are 36 characters).
 const MIN_ID: usize = 8;
 
@@ -50,7 +63,7 @@ pub fn harness_of(tier: &str, extra: &Value) -> String {
     match catalog::provider_of(tier) {
         catalog::CLAUDE => CLAUDE,
         catalog::OPENAI => CODEX,
-        catalog::GOOGLE => "antigravity",
+        catalog::GOOGLE => AGY,
         catalog::MUSE => "muse",
         _ => "",
     }
@@ -134,12 +147,64 @@ fn files_under(folder: &Path) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// Where an OpenCode seat keeps what outlives a launch: its sessions (`data`) and its state.
+/// The one place that names it, for the actor that starts the CLI and for an import.
+#[nolog]
+pub fn opencode_profile(engine: &Engine, org: i64, agent: i64, generation: i32) -> PathBuf {
+    engine.cfg.path("profiles").join(OPENCODE).join(org.to_string()).join(agent.to_string()).join(generation.to_string())
+}
+
+/// The two parts of an OpenCode store that are carried.
+const OPENCODE_PARTS: [&str; 2] = ["data", "state"];
+
+/// Whether an Antigravity conversation is carried. Off: see the module's note.
+#[nolog]
+pub fn agy_carry() -> bool {
+    std::env::var("ORGTREE_AGY_SESSION_CARRY").is_ok_and(|value| value == "1")
+}
+
+/// Where the Antigravity CLI of a login keeps its conversations.
+#[nolog]
+fn agy_conversations(engine: &Engine, account: Option<&str>) -> Option<PathBuf> {
+    let home = match crate::providers::agy_auth::login_of(&engine.accounts.view(), account) {
+        crate::providers::agy_auth::Login::Primary => crate::rig::home_dir()?,
+        crate::providers::agy_auth::Login::Profile { home, .. } => home,
+    };
+    Some(home.join(".gemini").join("antigravity-cli").join("conversations"))
+}
+
+/// What lies beside a conversation's database while it is open, by what follows its name.
+const AGY_FILES: [&str; 3] = [".db", ".db-wal", ".db-shm"];
+
+/// Which agent it is, for a store that is kept under the engine's own numbers.
+#[derive(Clone, Copy)]
+pub struct Seat {
+    pub org: i64,
+    pub agent: i64,
+    pub generation: i32,
+}
+
 /// The current session's files of an agent, when its harness keeps them as files that can
 /// be carried and they are there.
 #[nolog]
-pub fn find(engine: &Engine, _agent: i64, tier: &str, _account: Option<&str>, session: Option<&str>, extra: &Value, scratch: &Path) -> Option<Found> {
+pub fn find(engine: &Engine, seat: Seat, tier: &str, account: Option<&str>, session: Option<&str>, extra: &Value, scratch: &Path) -> Option<Found> {
     let session = session.filter(|s| plain_id(s))?;
     match harness_of(tier, extra).as_str() {
+        OPENCODE => {
+            let profile = opencode_profile(engine, seat.org, seat.agent, seat.generation);
+            let mut files = Vec::new();
+            for part in OPENCODE_PARTS {
+                files.extend(files_under(&profile.join(part)).into_iter().map(|(inner, path)| (format!("{part}/{inner}"), path)));
+            }
+            // a session is in `data`: a store with only state holds none
+            files.iter().any(|(inner, _)| inner.starts_with("data/")).then_some(Found { harness: OPENCODE, files })
+        }
+        AGY if agy_carry() => {
+            let folder = agy_conversations(engine, account)?;
+            let files: Vec<(String, PathBuf)> = AGY_FILES.iter().map(|end| format!("{session}{end}")).map(|name| (name.clone(), folder.join(name)))
+                .filter(|(_, path)| path.is_file()).collect();
+            files.iter().any(|(name, _)| name.ends_with(".db")).then_some(Found { harness: AGY, files })
+        }
         CLAUDE => {
             let file = format!("{session}.jsonl");
             let own = crate::runtime::claude::project_dir(scratch);
@@ -176,15 +241,25 @@ pub fn find(engine: &Engine, _agent: i64, tier: &str, _account: Option<&str>, se
 }
 
 /// The folder the CLI of an agent on `account` keeps its sessions under: a Claude config
-/// folder, a Codex home. `None` for a harness whose sessions cannot be carried.
+/// folder, a Codex home, the agent's own OpenCode store, the conversations of an Antigravity
+/// login. `None` for a harness whose sessions cannot be carried.
 #[nolog]
-pub fn home(engine: &Engine, harness: &str, account: Option<&str>) -> Option<PathBuf> {
+pub fn home(engine: &Engine, harness: &str, account: Option<&str>, seat: Seat) -> Option<PathBuf> {
     let own = account.and_then(|id| engine.accounts.view().get(id).and_then(|a| a.config_dir.clone())).map(PathBuf::from);
     match harness {
         CLAUDE => Some(own.unwrap_or_else(crate::runtime::claude::default_config_dir)),
         CODEX => Some(own.unwrap_or_else(crate::runtime::codex::default_home)),
+        OPENCODE => Some(opencode_profile(engine, seat.org, seat.agent, seat.generation)),
+        AGY if agy_carry() => agy_conversations(engine, account),
         _ => None,
     }
+}
+
+/// Whether a carried session of this harness keeps its id. Only a store that is private to
+/// the agent may: under any shared one, a duplicate and its original would be one session.
+#[nolog]
+pub fn keeps_id(harness: &str) -> bool {
+    harness == OPENCODE
 }
 
 /// `line` with every `old` in it replaced by `new`.
@@ -265,6 +340,43 @@ pub fn place(harness: &str, home: &Path, scratch: &Path, old: &str, new: &str, f
             renamed_copy(rollout, &folder.join(name), old, new)?;
             Ok(true)
         }
+        OPENCODE => {
+            // the agent's own store, as it was, under the id it had; never over a store that holds something
+            if old != new || OPENCODE_PARTS.iter().any(|part| !files_under(&home.join(part)).is_empty()) {
+                return Ok(false);
+            }
+            let mut sessions = 0;
+            for (inner, path) in files {
+                let Some(part) = OPENCODE_PARTS.iter().find(|part| inner.starts_with(&format!("{part}/"))) else { continue };
+                let Some(parts) = super::names::safe_parts(inner) else { continue };
+                let mut to = home.to_path_buf();
+                to.extend(parts);
+                if let Some(parent) = to.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(path, &to)?;
+                sessions += usize::from(*part == "data");
+            }
+            Ok(sessions > 0)
+        }
+        AGY if agy_carry() => {
+            // the CLI's own ids are canonical UUIDs, and so is the one an import makes
+            if old == new || uuid::Uuid::parse_str(new).is_err() {
+                return Ok(false);
+            }
+            let Some((_, database)) = files.iter().find(|(inner, _)| *inner == format!("{old}.db")) else { return Ok(false) };
+            if home.join(format!("{new}.db")).exists() {
+                return Ok(false);
+            }
+            std::fs::create_dir_all(home)?;
+            std::fs::copy(database, home.join(format!("{new}.db")))?;
+            for end in &AGY_FILES[1..] {
+                if let Some((_, beside)) = files.iter().find(|(inner, _)| *inner == format!("{old}{end}")) {
+                    std::fs::copy(beside, home.join(format!("{new}{end}")))?;
+                }
+            }
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }
@@ -331,10 +443,44 @@ mod tests {
         assert!(!place(CODEX, &home, &scratch, old, new, &[]).unwrap());
         assert!(!place(CLAUDE, &home, &scratch, "../x", new, &files).unwrap());
         assert!(!place("antigravity", &home, &scratch, old, new, &files).unwrap());
+        assert!(!place("muse", &home, &scratch, old, new, &files).unwrap());
         // an id too short to be a CLI's own is a word, and every mention of it would be rewritten
         let short = vec![("s-1.jsonl".to_string(), from.join("old-session-1.jsonl"))];
         assert!(!place(CLAUDE, &home, &scratch, "s-1", new, &short).unwrap());
         assert_eq!(replaced(b"aXbXX", b"X", b"yz"), b"ayzbyzyz".to_vec());
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with("orgtree-sessions-"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn an_opencode_store_is_placed_whole_under_the_id_it_had() {
+        let root = std::env::temp_dir().join(format!("orgtree-sessions-{}", uuid::Uuid::new_v4()));
+        let (from, profile) = (root.join("unpacked"), root.join("profiles").join("opencode").join("2").join("31").join("1"));
+        std::fs::create_dir_all(from.join("data").join("opencode").join("storage")).unwrap();
+        std::fs::create_dir_all(from.join("state")).unwrap();
+        std::fs::write(from.join("data").join("opencode").join("storage").join("ses_0123456789.json"), b"{\"id\":\"ses_0123456789\"}").unwrap();
+        std::fs::write(from.join("state").join("kv.json"), b"{}").unwrap();
+        std::fs::write(from.join("stray.txt"), b"not a part of the store").unwrap();
+        let files = vec![
+            ("data/opencode/storage/ses_0123456789.json".to_string(), from.join("data").join("opencode").join("storage").join("ses_0123456789.json")),
+            ("state/kv.json".to_string(), from.join("state").join("kv.json")),
+            ("stray.txt".to_string(), from.join("stray.txt")),
+            ("data/../../outside.json".to_string(), from.join("stray.txt")),
+        ];
+        let id = "ses_0123456789";
+        assert!(keeps_id(OPENCODE) && !keeps_id(CLAUDE) && !keeps_id(CODEX) && !keeps_id(AGY));
+        // never under another id: nothing in the store's own format is rewritten
+        assert!(!place(OPENCODE, &profile, &root, id, "ses_another_id", &files).unwrap());
+        assert!(!profile.exists());
+        assert!(place(OPENCODE, &profile, &root, id, id, &files).unwrap());
+        assert_eq!(std::fs::read(profile.join("data").join("opencode").join("storage").join("ses_0123456789.json")).unwrap(), b"{\"id\":\"ses_0123456789\"}".to_vec());
+        assert!(profile.join("state").join("kv.json").is_file());
+        assert!(!profile.join("stray.txt").exists() && !root.join("profiles").join("opencode").join("2").join("outside.json").exists());
+        // and never over a store that already holds something
+        assert!(!place(OPENCODE, &profile, &root, id, id, &files).unwrap());
+        // state alone is no session
+        let other = root.join("profiles").join("opencode").join("2").join("32").join("1");
+        assert!(!place(OPENCODE, &other, &root, id, id, &files[1..2]).unwrap());
         assert!(root.file_name().unwrap().to_string_lossy().starts_with("orgtree-sessions-"));
         std::fs::remove_dir_all(&root).unwrap();
     }

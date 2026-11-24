@@ -27,6 +27,8 @@ pub struct OpenCodeProc {
     pub process: uuid::Uuid,
     pub pid: u32,
     pub session_id: String,
+    /// The session it was asked to go on with could not be loaded, and it is on a new one.
+    pub lost_session: bool,
     pub model: String,
     pub mcp_observed: bool,
     pub mail_owner: uuid::Uuid,
@@ -43,7 +45,7 @@ pub struct OpenCodeProc {
 #[nolog]
 impl OpenCodeProc {
     pub async fn spawn(mut spec: Spec, engine: Arc<crate::engine::Engine>, caller: super::Caller,
-                       resume: Option<String>, emit: Arc<dyn Fn(uuid::Uuid, SessionEvent) + Send + Sync>) -> Result<Self> {
+                       resume: Option<String>, carried: bool, emit: Arc<dyn Fn(uuid::Uuid, SessionEvent) + Send + Sync>) -> Result<Self> {
         let pipe = CancellationToken::new();
         // Every startup error (including config conversion) must close the
         // listener. Successful construction transfers that duty to the process.
@@ -73,6 +75,7 @@ impl OpenCodeProc {
         let spawned = acp::Process::spawn(acp_spec).await;
         let (mut inner, mut events) = match spawned { Ok(v) => v, Err(e) => { pipe.cancel(); return Err(e); } };
         let mut mail_supported=false;
+        let mut lost_session=false;
         let opened: Result<String> = async {
             let init = inner.client.request("initialize", json!({"protocolVersion":1,
                 "clientCapabilities":{},"clientInfo":{"name":"Orgtree","version":env!("CARGO_PKG_VERSION")}}), Duration::from_secs(30)).await?;
@@ -81,8 +84,19 @@ impl OpenCodeProc {
             let session = if let Some(session) = resume {
                 // Failure is explicit, not a silently fresh session. The actor
                 // can retain mail and offer a deliberate fresh-session action.
-                inner.client.request("session/load", json!({"sessionId":session,"cwd":cwd,"mcpServers":[]}), Duration::from_secs(30)).await?;
-                session
+                // The one exception is a session an import placed here and that was never gone on with
+                // (`carried`): its agent has nothing here to lose, so it starts a new one in this process
+                // and the actor writes the handoff note (USER 2026-11-24 m4778ba0aed9e).
+                match inner.client.request("session/load", json!({"sessionId":session,"cwd":cwd,"mcpServers":[]}), Duration::from_secs(30)).await {
+                    Ok(_) => session,
+                    Err(e) if carried => {
+                        tracing::warn!(error = %e, "a carried OpenCode session could not be loaded; starting a new one");
+                        lost_session=true;
+                        let opened = inner.client.request("session/new", json!({"cwd":cwd,"mcpServers":[]}), Duration::from_secs(30)).await?;
+                        opened["sessionId"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("OpenCode returned no session id"))?.to_string()
+                    },
+                    Err(e) => return Err(e),
+                }
             } else {
                 let opened = inner.client.request("session/new", json!({"cwd":cwd,"mcpServers":[]}), Duration::from_secs(30)).await?;
                 opened["sessionId"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("OpenCode returned no session id"))?.to_string()
@@ -139,7 +153,7 @@ impl OpenCodeProc {
             active_worker.store(false, Ordering::Release);
         });
         startup_pipe.disarm();
-        Ok(Self { process:inner.process,pid:inner.pid,session_id,model:launch.model.clone(),mcp_observed,
+        Ok(Self { process:inner.process,pid:inner.pid,session_id,lost_session,model:launch.model.clone(),mcp_observed,
             mail_owner,mail_supported,mail_ready,inner,launch:Some(launch),pipe,active,commands,worker:Some(worker) })
     }
 

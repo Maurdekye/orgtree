@@ -693,15 +693,17 @@ impl Content {
             return Ok(false);
         }
         let client = self.client()?;
-        let row = self.handle.block_on(client.query_one("SELECT tier, account, extra FROM ot.agents WHERE id = $1", &[&self.ids[at]]))?;
-        let (tier, account, extra): (String, Option<String>, Value) = (row.get(0), row.get(1), row.get(2));
+        let row = self.handle.block_on(client.query_one("SELECT tier, account, extra, generation FROM ot.agents WHERE id = $1", &[&self.ids[at]]))?;
+        let (tier, account, extra, generation): (String, Option<String>, Value, i32) = (row.get(0), row.get(1), row.get(2), row.get(3));
         // only onto the harness that wrote it
         if super::sessions::harness_of(&tier, &extra) != session.harness {
             return Ok(false);
         }
-        let new = uuid::Uuid::new_v4().to_string();
-        let Some(home) = super::sessions::home(&self.engine, &session.harness, account.as_deref()) else { return Ok(false) };
-        let staged = scratch.join(format!(".orgtree-session-{new}"));
+        // a new id, except in a store that is the agent's own (`sessions::keeps_id`)
+        let new = if super::sessions::keeps_id(&session.harness) { session.id.clone() } else { uuid::Uuid::new_v4().to_string() };
+        let seat = super::sessions::Seat { org: self.org.id, agent: self.ids[at], generation };
+        let Some(home) = super::sessions::home(&self.engine, &session.harness, account.as_deref(), seat) else { return Ok(false) };
+        let staged = scratch.join(format!(".orgtree-session-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&staged)?;
         let _swept = Sweep(staged.clone());
         let mut unpacked: Vec<(String, PathBuf)> = Vec::new();
@@ -721,7 +723,10 @@ impl Content {
         // the seat's own, so a session without it would never be gone on with.
         let provider = crate::providers::catalog::provider_of(&tier).to_string();
         let taken = self.handle.block_on(client.execute(
-            "WITH put AS (UPDATE ot.agents SET session_id = $2::text, provider = $3::text, occupancy = NULL, occupancy_est = true, row_version = row_version + 1
+            // `ported.carried_session`: this session was placed by an import and has not been gone on with here yet.
+            // The actor reads it when the CLI cannot open the session, and takes it away at the first start.
+            "WITH put AS (UPDATE ot.agents SET session_id = $2::text, provider = $3::text, occupancy = NULL, occupancy_est = true, row_version = row_version + 1,
+                                              extra = CASE WHEN extra ? 'ported' THEN jsonb_set(extra, '{ported,carried_session}', to_jsonb($2::text)) ELSE extra END
                            WHERE id = $1::bigint AND session_id IS NULL RETURNING id, generation)
              INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) SELECT id, generation, $3::text, $2::text FROM put",
             &[&self.ids[at], &new, &provider]))?;

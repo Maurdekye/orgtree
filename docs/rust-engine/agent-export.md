@@ -223,6 +223,25 @@ a finished node: the import ends with the leftovers named.
   characters (none of a real CLI's) is not carried. Any other harness, or a session that did
   not come along, starts fresh with the standing handoff note, which is set only where there
   was a conversation. A resume that fails falls back the same way (the actor's own rule).
+- **OpenCode's session** (USER 2026-11-24 m4778ba0aed9e). An OpenCode seat keeps its sessions
+  in a store of its own, `profiles/opencode/<org id>/<agent id>/<generation>/` (`data` and
+  `state`). Both parts travel whole and are placed in the new agent's own store, and the
+  session keeps its id: the one exception to "a new id", allowed only because no two agents
+  read that store (`sessions::keeps_id`). Nothing inside the store is rewritten. The import
+  marks the session `extra.ported.carried_session`. When the CLI cannot load a session that
+  still has the mark (`session/load` fails), the same start opens a new session and the agent
+  gets the handoff note; the mark goes at the first start either way. A session of the agent's
+  own that later cannot be loaded is still an explicit failure, as before
+  (`runtime/opencode.rs`).
+- **Antigravity's conversation.** One database per conversation in the login's home
+  (`.gemini/antigravity-cli/conversations/<id>.db`). Carrying a copy under a new id is written
+  and off (`sessions::agy_carry`, `ORGTREE_AGY_SESSION_CARRY=1`): the CLI's own format is not
+  visible here, so it is switched on only when a check with the real CLI has shown that a
+  renamed copy resumes. In any case, a conversation the CLI does not resume (it answers
+  `--conversation <id>` with another id) now leaves the handoff note due, as on the other
+  harnesses.
+- **Muse** keeps sessions inside the login's own store, shared by its agents: not carried. Its
+  agents start with the handoff note.
 - **Watchdogs** arrive paused under their new owners; a node target follows the node's new
   name, and a watchdog whose target did not come along is dropped. A watched file inside the
   folder of a node that came along (its own folder or its team's) is that file in the folder

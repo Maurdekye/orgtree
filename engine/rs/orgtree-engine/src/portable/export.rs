@@ -758,7 +758,7 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
     let include = request.include;
     // which CLI session files will be in the file is known before the list is written
     let natives: Vec<Option<super::sessions::Found>> = rows.iter().map(|row| {
-        (include.native_sessions && row.state == "live" && row.kind == "agent").then(|| super::sessions::find(engine, row.id, &row.tier, row.account.as_deref(), row.session.as_deref(), &row.extra, Path::new(&nodes[place_of[&row.id]].scratch_dir))).flatten()
+        (include.native_sessions && row.state == "live" && row.kind == "agent").then(|| super::sessions::find(engine, super::sessions::Seat { org: org.id, agent: row.id, generation: row.generation }, &row.tier, row.account.as_deref(), row.session.as_deref(), &row.extra, Path::new(&nodes[place_of[&row.id]].scratch_dir))).flatten()
     }).collect();
     for (at, found) in natives.iter().enumerate() {
         if let (Some(found), Some(session)) = (found, nodes[at].session.as_mut()) {

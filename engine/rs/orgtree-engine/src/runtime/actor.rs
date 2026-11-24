@@ -3611,6 +3611,25 @@ impl Actor {
         }
     }
 
+    /// The session an import placed for this agent, while it has not been gone on with here.
+    #[nolog]
+    async fn carried_session(&self) -> Option<String> {
+        let client = self.engine.db.get().await.ok()?;
+        client.query_opt("SELECT extra->'ported'->>'carried_session' FROM ot.agents WHERE id = $1", &[&self.id]).await.ok().flatten().and_then(|row| row.get(0))
+    }
+
+    /// The carried session was gone on with, or (`lost`) could not be: either way it is no
+    /// longer one that was never tried, and a lost one leaves the handoff note due.
+    #[nolog]
+    async fn settle_carried_session(&self, lost: Option<&str>) {
+        if let Ok(client) = self.engine.db.get().await {
+            let _ = client.execute("UPDATE ot.agents SET extra = extra #- '{ported,carried_session}' WHERE id = $1 AND extra->'ported' ? 'carried_session'", &[&self.id]).await;
+        }
+        if let Some(why) = lost {
+            self.flag_handoff(why).await;
+        }
+    }
+
     /// The earlier session is gone: the next turn starts with a handoff note.
     async fn flag_handoff(&self, why: &str) {
         if let Ok(client) = self.engine.db.get().await {
@@ -4543,7 +4562,7 @@ impl Actor {
         let spec = opencodert::Spec { exe,cwd:ctx.scratch.clone(),
             skills_roots: vec![skills_root],
             skill_names: plan.skills.names(),
-            profile:self.engine.cfg.path("profiles").join("opencode").join(self.org_id.to_string()).join(self.id.to_string()).join(ctx.generation.to_string()),
+            profile:crate::portable::sessions::opencode_profile(&self.engine,self.org_id,self.id,ctx.generation),
             base_url:route.local.as_ref().map(|r| r.base_url.clone()).unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
             key:route.key.clone(),model:ctx.model.clone(),context,output:(context/4).min(8192),
             identity:plan.identity.clone(),policy,servers:granted,who:format!("{} / {}",ctx.org_slug,ctx.name),host:want };
@@ -4563,7 +4582,13 @@ impl Actor {
             }
         });
         let caller = Caller {org_id:self.org_id,org_slug:ctx.org_slug.clone(),agent_id:self.id,name:ctx.name.clone()};
-        let mut proc = OpenCodeProc::spawn(spec,self.engine.clone(),caller,resume.clone(),emit).await?;
+        // a session an import placed here, not gone on with yet: the one whose failed load starts a new one
+        let carried = match &resume {
+            Some(id) => self.carried_session().await.as_deref()==Some(id.as_str()),
+            None => false,
+        };
+        let mut proc = OpenCodeProc::spawn(spec,self.engine.clone(),caller,resume.clone(),carried,emit).await?;
+        if carried { self.settle_carried_session(proc.lost_session.then_some("its carried OpenCode session could not be loaded here")).await; }
         if resume.as_deref()!=Some(proc.session_id.as_str()) {
             let recorded: Result<()> = async {
                 let client = self.engine.db.get().await?;
@@ -7103,6 +7128,12 @@ impl Actor {
                     return Ok(());
                 }
                 if !cid.is_empty() {
+                    // asked to go on with one conversation and answered with another: the CLI could not resume it
+                    // and is on a new one. The agent is told with the handoff note, as on every other harness.
+                    let asked = match self.proc.as_ref() { Some(Proc::Agy(p)) => p.conversation.clone(), _ => None };
+                    if asked.as_deref().is_some_and(|asked| asked != cid) {
+                        self.flag_handoff("its previous Antigravity conversation could not be resumed").await;
+                    }
                     if let Some(Proc::Agy(p)) = self.proc.as_mut() { p.conversation = Some(cid.clone()); }
                     let client = self.engine.db.get().await?;
                     let generation: i32 = client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&self.id]).await?.get(0);
