@@ -32,7 +32,7 @@ export interface MentionCandidate {
 }
 
 /** What completing a candidate inserts: `@<name>` for an agent or project,
- *  else the thing's reference: `@item:<org>/<slug>`, `@doc:<org>/<slug>`,
+ *  else the thing's reference: `@ticket:<org>/<slug>`, `@doc:<org>/<slug>`,
  *  `@app:<org>/<slug>` or `@panel:<org>/<slug>` (the forms Copy reference
  *  copies). */
 export function mentionText(c: MentionCandidate): string {
@@ -55,6 +55,8 @@ const mentionKey = (c: MentionCandidate): string => c.kind + ':' + c.id
 export const MENTION_PREFIXES: Readonly<Record<string, { kind: MentionCandidate['kind']; search?: SearchKind }>> = {
   agent: { kind: 'agent' },
   project: { kind: 'project' },
+  // a ticket's two prefixes list the same tickets (USER 2026-11-24 mb9bc017ee96e); picking writes @ticket:
+  ticket: { kind: 'ticket', search: 'item' },
   item: { kind: 'ticket', search: 'item' },
   doc: { kind: 'presentation', search: 'doc' },
   app: { kind: 'app', search: 'app' },
@@ -198,7 +200,7 @@ export function matchMentionQuery(value: string, caret: number): MentionQueryMat
   return { query, start, end: pos }
 }
 
-const TRANSCRIPT_MENTION_RE = /@(?:(agent|project|item|doc|app|panel):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
+const TRANSCRIPT_MENTION_RE = /@(?:(agent|project|item|ticket|doc|app|panel):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
 
 function isLeftBoundary(s: string, atIndex: number, lastEnd: number): boolean {
   if (atIndex <= 0 || atIndex === lastEnd) return true
@@ -209,7 +211,7 @@ function isRightBoundary(s: string, endIndex: number): boolean {
   if (endIndex >= s.length) return true
   const next = s[endIndex]!
   if (/[0-9A-Za-z_/-]/.test(next)) return false
-  if (next === '@' && !/^@(?:item|doc|agent|project|app|panel|mail):/i.test(s.slice(endIndex))) return false
+  if (next === '@' && !/^@(?:item|ticket|doc|agent|project|app|panel|mail):/i.test(s.slice(endIndex))) return false
   if (next === '.' && endIndex + 1 < s.length && /[0-9A-Za-z]/.test(s[endIndex + 1]!)) return false
   return true
 }
@@ -235,7 +237,8 @@ export function extractMentionRecency(texts: Iterable<string>): ReadonlyMap<stri
       }
       lastEnd = end
       if (m[1]) {
-        const kind = m[1].toLowerCase()
+        // a ticket's two forms are one thing, under the key the engine's rows carry
+        const kind = m[1].toLowerCase() === 'ticket' ? 'item' : m[1].toLowerCase()
         const org = m[2]!.toLowerCase()
         const id = m[3]!.toLowerCase()
         seq += 1

@@ -42,7 +42,7 @@ const world = (org: string): RefWorld => ({ org, items: new Map([['fix-login', '
 test('a local window reads and writes references as written', async t => {
   await windowOf(t, false)
   assert.equal(parseRef('@item:acme/fix-login')?.org, 'acme')
-  assert.equal(refToken({ kind: 'item', org: 'acme-galaxy', id: 'fix-login' }), '@item:acme-galaxy/fix-login')
+  assert.equal(refToken({ kind: 'item', org: 'acme-galaxy', id: 'fix-login' }), '@ticket:acme-galaxy/fix-login')
   assert.equal(resolveRef(parseRef('@item:acme/fix-login')!, world('acme-galaxy')).outcome, 'foreign')
 })
 
@@ -52,7 +52,7 @@ test('in a remote window a reference to the organization’s own name there is t
   assert.equal(ref.org, 'acme-galaxy', 'held under the name this computer lists it by')
   const resolved = resolveRef(ref, world('acme-galaxy'))
   assert.equal(resolved.outcome, 'ready', 'it is this window’s own item, not another organization’s')
-  assert.equal(resolved.token, '@item:acme/fix-login', 'shown and copied as it was written')
+  assert.equal(resolved.token, '@ticket:acme/fix-login', 'written from the reference alone it takes the ticket form, in the organization\u2019s own name; a token in text stays as written (the hits below)')
   // every form of token, and several in one text
   const hits = scanRefs('see @item:acme/fix-login, @doc:tools/d1, @mail:acme/node/lead/m1, @project:acme/web and @item:elsewhere/x')
   assert.deepEqual(hits.map(h => h.ref.org), ['acme-galaxy', 'tools', 'acme-galaxy', 'acme-galaxy', 'elsewhere'])
@@ -66,13 +66,13 @@ test('in a remote window a reference to the organization’s own name there is t
 
 test('in a remote window a reference is written with the name the organization has on its own engine', async t => {
   await windowOf(t, true)
-  assert.equal(refToken({ kind: 'item', org: 'acme-galaxy', id: 'fix-login' }), '@item:acme/fix-login')
+  assert.equal(refToken({ kind: 'item', org: 'acme-galaxy', id: 'fix-login' }), '@ticket:acme/fix-login')
   assert.equal(refToken({ kind: 'doc', org: 'acme-galaxy', id: 'd1' }), '@doc:acme/d1')
   assert.equal(refToken({ kind: 'mail', org: 'acme-galaxy', box: 'user', id: 'm1' }), '@mail:acme/user/m1')
   assert.equal(refToken({ kind: 'mail', org: 'acme-galaxy', box: 'node', node: 'lead', id: 'm1' }), '@mail:acme/node/lead/m1')
   assert.equal(refToken({ kind: 'agent', org: 'acme-galaxy', id: 'web', as: 'project' }), '@project:acme/web')
   assert.equal(refToken({ kind: 'app', org: 'tools', id: 'board' }), '@app:tools/board', 'a name that is the same on both sides is unchanged')
-  assert.equal(refToken({ kind: 'item', org: 'elsewhere', id: 'x' }), '@item:elsewhere/x')
+  assert.equal(refToken({ kind: 'item', org: 'elsewhere', id: 'x' }), '@ticket:elsewhere/x')
   // reading what was written gives the same reference back
   assert.deepEqual(parseRef(refToken({ kind: 'item', org: 'acme-galaxy', id: 'fix-login' })), { kind: 'item', org: 'acme-galaxy', id: 'fix-login' })
 })

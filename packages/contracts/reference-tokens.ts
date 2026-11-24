@@ -16,6 +16,11 @@
 // id. A token whose org is not the one on screen must NEVER be resolved
 // locally — it is reported as belonging elsewhere.
 
+// ⚠ A TICKET HAS TWO WRITTEN FORMS AND ONE KIND (USER 2026-11-24 mc6e8d9a7dab7: "make that the canonical way to
+// mention a ticket now … but keep @item: as working"). `@ticket:<org>/<slug>` is what the app writes;
+// `@item:<org>/<slug>` is the older form and is read for ever. Both parse to the kind `item`, so nothing
+// downstream can treat them as two things. Text is never rewritten from one form to the other: a scan hit
+// keeps the token as written (`RefHit.token`).
 export type RefKind = 'item' | 'doc' | 'agent' | 'mail' | 'app' | 'panel'
 export type MailBox = 'user' | 'org' | 'node'
 
@@ -55,12 +60,12 @@ const NODE = '[a-z0-9-]+(?:@[0-9]+)?'
  *  (so a match cannot be the prefix of a longer name), and a bare `@` — except
  *  when it opens another canonical token, because `…/alpha@item:org/beta` is
  *  two adjacent references and both must survive. */
-const END = '(?![A-Za-z0-9_/-])(?!@(?!(?:item|doc|agent|project|mail|app|panel):))'
+const END = '(?![A-Za-z0-9_/-])(?!@(?!(?:item|ticket|doc|agent|project|mail|app|panel):))'
 
 /** the family, for scanning prose. Only the node positions admit `@`, and
  *  only as `@<digits>`, so a following `@item:…` is never swallowed. */
 export const REF_TOKEN_RE = new RegExp(
-  `@(?:(item|doc|app|panel):(${SEG}/${SEG})`
+  `@(?:(item|ticket|doc|app|panel):(${SEG}/${SEG})`
   + `|(agent|project):(${SEG}/${NODE})`
   + `|(mail):(${SEG}/(?:user|org)/${SEG}|${SEG}/node/${NODE}/${SEG}))`
   + END, 'g')
@@ -131,7 +136,8 @@ export function parseRef(token: string): TypedRef | null {
   const seg = String(m[2] ?? m[4] ?? m[6]).split('/')
   // a project's long form is a node reference that must name a project
   if (written === 'project') return { kind: 'agent', org: seg[0] as string, id: seg[1] as string, as: 'project' }
-  const kind = written as RefKind
+  // a ticket's two forms are one kind
+  const kind = (written === 'ticket' ? 'item' : written) as RefKind
   if (kind !== 'mail') {
     return { kind, org: seg[0] as string, id: seg[1] as string }
   }

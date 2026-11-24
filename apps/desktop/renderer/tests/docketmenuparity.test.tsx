@@ -120,7 +120,7 @@ test('Open details selects once and never toggles closed; primary click still to
 test('copy entries target full title, slug and reference; fold toggles at the bottom',async t=>{
   const f=await fixture(t,make(),{kids:1,folded:true})
   for(const label of ['Copy ticket title','Copy slug','Copy reference']){await right(f.row);await choose(label)}
-  assert.deepEqual(f.writes,['Full ticket title, not the slug','parity-ticket','@item:org/parity-ticket'])
+  assert.deepEqual(f.writes,['Full ticket title, not the slug','parity-ticket','@ticket:org/parity-ticket'])
   assert.equal(Boolean(f.row.querySelector('.docket-copied')),true,'slug copy keeps its success bubble')
   assert.deepEqual(f.calls,[])
   await right(f.row);assert.equal(entries(top()!).at(-1),'Show 1 sub-item');await choose('Show 1 sub-item')

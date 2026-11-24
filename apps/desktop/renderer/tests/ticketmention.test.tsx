@@ -1,7 +1,7 @@
 // tests/ticketmention.test.tsx — docket mention-entry-on-ticket-cards-in-transcripts-ins.
 // USER 2026-10-21 19:12:54Z + 2026-10-22 18:15:39Z: a "Mention" entry in the shared ticket context menu, on every ticket
 // card and chip, inserts the ticket's reference into the message box. USER 2026-10-22 18:16:44Z: the composer's
-// @-mention tab-completion list offers tickets alongside agents and projects. Both insert @item:<org>/<slug>.
+// @-mention tab-completion list offers tickets alongside agents and projects. Both insert @ticket:<org>/<slug>.
 // Each test uses its own org slug: the completion's ticket answers are cached per org and query.
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test, { type TestContext } from 'node:test'
@@ -168,7 +168,7 @@ async function surfaceFixture(t: TestContext, org: string, item: WorkItem) {
 
 const SURFACES = ['chip', 'prose', 'tool', 'card', 'row'] as const
 
-test('inside a desk, every ticket chip, card and docket row offers Mention first; it inserts @item:<org>/<slug> into the message box without sending', async t => {
+test('inside a desk, every ticket chip, card and docket row offers Mention first; it inserts @ticket:<org>/<slug> into the message box without sending', async t => {
   const org = 'tm-surfaces'
   const item = ticket('parity-ticket')
   const f = await surfaceFixture(t, org, item)
@@ -181,16 +181,16 @@ test('inside a desk, every ticket chip, card and docket row offers Mention first
     assert.equal(menu[1], 'Open details', `${kind}: the shared ticket actions follow unchanged (${JSON.stringify(menu)})`)
     assert.equal(menu.filter(label => label === 'Mention').length, 1, `${kind}: one Mention entry`)
     await choose('Mention')
-    assert.equal(f.box.value, '@item:tm-surfaces/parity-ticket ', `${kind}: Mention inserts the ticket reference`)
+    assert.equal(f.box.value, '@ticket:tm-surfaces/parity-ticket ', `${kind}: Mention inserts the ticket reference`)
     assert.equal(document.activeElement === f.box, true, `${kind}: Mention focuses the message box`)
-    assert.equal(f.box.selectionStart, '@item:tm-surfaces/parity-ticket '.length, `${kind}: caret after the reference`)
+    assert.equal(f.box.selectionStart, '@ticket:tm-surfaces/parity-ticket '.length, `${kind}: caret after the reference`)
     assert.equal(top(), null, `${kind}: the menu closes`)
   }
   // an unfocused box with text gets the reference appended after a space
   await fill(f.box, 'Please look at')
   await rightClick(f.surface('inside', 'chip'))
   await choose('Mention')
-  assert.equal(f.box.value, 'Please look at @item:tm-surfaces/parity-ticket ')
+  assert.equal(f.box.value, 'Please look at @ticket:tm-surfaces/parity-ticket ')
   assert.deepEqual(f.posts, [], 'Mention never sends or writes anything')
 })
 
@@ -213,8 +213,8 @@ test('a focused message box gets the ticket reference at its caret, and the Owne
   assert.equal(document.activeElement === f.box, true, 'precondition: the box is focused')
   await rightClick(f.surface('inside', 'chip'))
   await choose('Mention')
-  assert.equal(f.box.value, 'Hello @item:tm-caret/caret-ticket world')
-  assert.equal(f.box.selectionStart, 'Hello @item:tm-caret/caret-ticket '.length)
+  assert.equal(f.box.value, 'Hello @ticket:tm-caret/caret-ticket world')
+  assert.equal(f.box.selectionStart, 'Hello @ticket:tm-caret/caret-ticket '.length)
   // one right-click captures the caret for the ticket AND for its Owner… submenu's own Mention, which the
   // chip's menu builds only after the ticket has loaded, when the open menu already holds the focus
   await fill(f.box, 'Ask now', 4)
@@ -269,7 +269,7 @@ test('the agent desk: its transcript ticket chip and its Docket tab row offer Me
   await rightClick(chip!)
   assert.deepEqual(labels().slice(0, 3), ['Mention', 'Reply', 'Open details'], `transcript chip menu: ${JSON.stringify(labels())}`)
   await choose('Mention')
-  assert.equal(box.value, '@item:tm-desk/desk-ticket ')
+  assert.equal(box.value, '@ticket:tm-desk/desk-ticket ')
   assert.equal(document.activeElement === box, true)
 
   const tab = desk.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="docket"]')!
@@ -281,10 +281,10 @@ test('the agent desk: its transcript ticket chip and its Docket tab row offer Me
   await rightClick(row!)
   assert.deepEqual(labels().slice(0, 3), ['Mention', 'Reply', 'Open details'], `docket tab row menu: ${JSON.stringify(labels())}`)
   await choose('Mention')
-  assert.equal(box.value, '@item:tm-desk/desk-ticket ')
+  assert.equal(box.value, '@ticket:tm-desk/desk-ticket ')
 })
 
-test('the agent desk @-completion offers current and backlogged tickets, newest first among agents; Tab inserts @item:<org>/<slug>', async t => {
+test('the agent desk @-completion offers current and backlogged tickets, newest first among agents; Tab inserts @ticket:<org>/<slug>', async t => {
   localStorage.clear(); resetConvos()
   const org = 'tm-complete'
   const alpha = mkNode('worker-alpha'), beta = mkNode('worker-beta', 'haiku')
@@ -317,7 +317,7 @@ test('the agent desk @-completion offers current and backlogged tickets, newest 
   assert.equal(row.getAttribute('data-object-tooltip-org'), org)
   assert.equal(rowNames().at(-1), 'Composer completes tickets', 'the most recently updated current ticket sits nearest the box')
   await press(box, 'Tab')
-  assert.equal(box.value, 'Ask @item:tm-complete/parity-ticket ', 'Tab inserts the ticket reference')
+  assert.equal(box.value, 'Ask @ticket:tm-complete/parity-ticket ', 'Tab inserts the ticket reference')
   assert.equal(document.querySelector('.agent-mentions'), null, 'the list closes on completion')
 
   // a title word finds the ticket too
@@ -329,7 +329,7 @@ test('the agent desk @-completion offers current and backlogged tickets, newest 
   await typeInto(box, 'Ask @worker-')
   assert.deepEqual(rowNames(), ['@worker-beta', '@worker-alpha', 'Title of worker-guide'], `newest first, then by name (${JSON.stringify(rowNames())})`)
   await press(box, 'Tab')
-  assert.equal(box.value, 'Ask @item:tm-complete/worker-guide ', 'Tab completes the newest')
+  assert.equal(box.value, 'Ask @ticket:tm-complete/worker-guide ', 'Tab completes the newest')
 })
 
 test('a ticket mentioned in the open transcript is offered first, like a recently mentioned agent', async t => {
@@ -353,7 +353,7 @@ test('a ticket mentioned in the open transcript is offered first, like a recentl
   await typeInto(box, '@parity')
   assert.equal(rowNames().at(-1), 'Title of parity-backlog', `the transcript's ticket sits nearest the box (${JSON.stringify(rowNames())})`)
   await press(box, 'Enter')
-  assert.equal(box.value, '@item:tm-recent/parity-backlog ')
+  assert.equal(box.value, '@ticket:tm-recent/parity-backlog ')
 })
 
 test('the project desk composer offers tickets in its @-completion', async t => {
@@ -381,7 +381,7 @@ test('the project desk composer offers tickets in its @-completion', async t => 
   await typeInto(box, 'Team, see @project-t')
   assert.deepEqual(ticketRows(), ['Title of project-ticket'], `project composer lists the ticket (${JSON.stringify(rowNames())})`)
   await press(box, 'Tab')
-  assert.equal(box.value, 'Team, see @item:tm-project/project-ticket ')
+  assert.equal(box.value, 'Team, see @ticket:tm-project/project-ticket ')
 })
 
 test('Quick chat offers tickets in its @-completion from the engine\'s read of live things, never the archive', async t => {
@@ -411,5 +411,5 @@ test('Quick chat offers tickets in its @-completion from the engine\'s read of l
   assert.deepEqual(ticketRows().sort(), ['Title of quick-backlog', 'Title of quick-ticket'], `quick chat lists tickets (${JSON.stringify(rowNames())})`)
   assert.ok(requests.length && requests.every(k => k === 'item,doc,app,panel'), `one read for every kind the engine offers (${requests})`)
   await press(box, 'Tab')
-  assert.equal(box.value, 'ping @item:tm-quick/quick-ticket ', 'the newest ticket completes first')
+  assert.equal(box.value, 'ping @ticket:tm-quick/quick-ticket ', 'the newest ticket completes first')
 })

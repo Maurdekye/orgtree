@@ -400,7 +400,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
       let r: ResolvedRef | null = null
       const parsed = parseRef(tok)
       if (parsed) {
-        r = resolveRef(parsed, world)
+        r = { ...resolveRef(parsed, world), token: tok }
       } else if (tok.startsWith('@') && !tok.includes(':')) {
         const id = tok.slice(1).toLowerCase()
         if (id === 'user') {
@@ -493,7 +493,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     // that can miss one of them.
     for (const hit of scanRefs(s)) {
       if (hit.index > last) plain(s.slice(last, hit.index))
-      const r = resolveRef(hit.ref, world)
+      const r = { ...resolveRef(hit.ref, world), token: hit.token }
       // a project's long form naming no live project stays as written
       if (projectFormPlain(r)) parts.push(doc.createTextNode(hit.token))
       else {
@@ -558,7 +558,7 @@ export function refClickHandler(worldOf: () => RefWorld | null | undefined,
     const parsed = parseRef(tok)
     let r: ResolvedRef | null = null
     if (parsed) {
-      r = resolveRef(parsed, world)
+      r = { ...resolveRef(parsed, world), token: tok }
     } else if (tok.startsWith('@') && !tok.includes(':')) {
       const id = tok.slice(1).toLowerCase()
       if (id === 'user') {

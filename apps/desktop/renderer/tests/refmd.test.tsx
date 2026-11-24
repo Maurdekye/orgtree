@@ -204,7 +204,8 @@ test('§9 CONTROL — the DOM chip and the React chip agree, outcome for outcome
       const el = body(`x ${token} y`)
       linkifyRefs(el, w)
       const dom = chips(el)[0]!
-      const r = resolveRef(parseRef(token)!, w)
+      // the React scanner keeps the token as written, as the DOM one does (splitTypedRefs)
+      const r = { ...resolveRef(parseRef(token)!, w), token }
       const view = await mountView(<RefChip r={r} onOpen={() => {}} />,
         (host) => host)
       try {

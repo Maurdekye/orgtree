@@ -861,11 +861,11 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
   assert.equal(ownerItem.title, 'agent1\nClaude Haiku 5.5 · high',
     'Owner menu entry shows the owner name before its shared native tooltip')
   await pick('Copy reference'); await flush(3)
-  assert.deepEqual(clip.writes, ['@item:org1/parent-item'])
+  assert.deepEqual(clip.writes, ['@ticket:org1/parent-item'])
   await rightClick(parent)
   await pick('Copy slug')
   await flush(3)
-  assert.deepEqual(clip.writes, ['@item:org1/parent-item', 'parent-item'])
+  assert.deepEqual(clip.writes, ['@ticket:org1/parent-item', 'parent-item'])
   assert.ok(parent.querySelector('.docket-copied'), 'the double-click\'s Copied! bubble')
   await rightClick(parent)
   await pick('Hide 1 sub-item')
@@ -932,7 +932,7 @@ uiTest('§B4b ticket row: the mention-copy double-click leaves no selection behi
   // its mention") it copies the mention token, exactly as agents write it. The
   // bubble still appears only once the write resolved, and the menu's own
   // "Copy slug" below still copies the slug.
-  assert.deepEqual(clip.writes, ['@item:org1/parent-item'], 'the double-click copies the mention of the item')
+  assert.deepEqual(clip.writes, ['@ticket:org1/parent-item'], 'the double-click copies the mention of the item')
   assert.ok(row.querySelector('.docket-copied'), 'and still reports it with the Copied! bubble')
   assert.ok(sel.isCollapsed || sel.rangeCount === 0,
     'the gesture the app took no longer leaves the browser\'s selection behind')
@@ -946,7 +946,7 @@ uiTest('§B4b ticket row: the mention-copy double-click leaves no selection behi
   assert.equal(await rightClick(row), true,
     'the row\'s own menu takes the right-click that follows a slug copy')
   assert.ok(labels().includes('Copy slug'), JSON.stringify(labels()))
-  assert.deepEqual(clip.writes, ['@item:org1/parent-item'],
+  assert.deepEqual(clip.writes, ['@ticket:org1/parent-item'],
     'and the right-click itself copies nothing — Copy slug is an entry, not a side effect')
 
   // …AND THE RULE IT MUST NOT BREAK (§A2): a selection the READER made is

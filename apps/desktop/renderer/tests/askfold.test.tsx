@@ -224,7 +224,7 @@ test('§4 the whole header row folds and unfolds; its ticket chip opens the tick
   assert.equal(folded(el), true, 'a click on the header row folds the card')
   const ticket = el.querySelector('.ask-fold-line .ref-item') as HTMLElement
   await inAct(() => { ticket.click() })
-  assert.deepEqual(opened.map((r) => r.token), ['@item:orgtree/ship-it'], 'the chip opened its ticket')
+  assert.deepEqual(opened.map((r) => r.token), ['@ticket:orgtree/ship-it'], 'the chip opened its ticket')
   assert.equal(folded(el), true, 'and did not unfold the card')
   await inAct(() => { (el.querySelector('.ask-tab-label') as HTMLElement).click() })
   assert.equal(folded(el), false, 'a click elsewhere on the row unfolds it')
@@ -452,7 +452,7 @@ test('§14 unfolded and resolved request cards show each question\'s linked tick
   const oneChip = bodyOf(oneTicket.el)?.querySelector('.ask-q-head .ref-item') as HTMLElement | null
   assert.ok(oneChip, 'unfolded single-question card renders its ticket RefChip in the body')
   await inAct(() => { oneChip!.click() })
-  assert.deepEqual(single.opened.map((r) => r.token), ['@item:orgtree/ship-it'],
+  assert.deepEqual(single.opened.map((r) => r.token), ['@ticket:orgtree/ship-it'],
     'clicking the unfolded ticket chip opens the ticket')
 
   // Legacy single-question form also renders its ticket RefChip when unfolded

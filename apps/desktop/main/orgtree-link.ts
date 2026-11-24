@@ -25,7 +25,8 @@ const PREFIX = 'orgtree://'
 const LINK_MAX = 400
 const SHAPE = /^orgtree:\/\/[a-z0-9@/-]+$/
 const SEG = /^[a-z0-9-]+$/
-const KINDS = new Set(['item', 'doc', 'app', 'panel', 'agent', 'project', 'mail'])
+// `ticket` and `item` are one ticket's two forms (packages/contracts/reference-tokens.ts)
+const KINDS = new Set(['item', 'ticket', 'doc', 'app', 'panel', 'agent', 'project', 'mail'])
 
 /** Counted case-insensitively so that `ORGTREE://…` is refused rather than
  *  passed over: a command line holding a link names that link's destination. */

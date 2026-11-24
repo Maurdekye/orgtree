@@ -273,6 +273,8 @@ export function refToken(ref: TypedRef): string {
   // text names an organization as its own engine knows it (remotehere.ts, "names")
   const org = contentOrg(ref.org)
   if (ref.kind === 'agent' && ref.as === 'project') return `@project:${org}/${ref.id}`
+  // a ticket is written in its ticket form (4.7.0); the older @item: form is still read (reference-tokens.ts)
+  if (ref.kind === 'item') return `@ticket:${org}/${ref.id}`
   if (ref.kind !== 'mail') return `@${ref.kind}:${org}/${ref.id}`
   if (ref.box === 'node') {
     return `@mail:${org}/node/${ref.node}/${ref.id}`
@@ -605,7 +607,8 @@ function splitTypedRefsSegment(s: string, world: RefWorld, out: RefRun[]): void 
   // and a renderer with its own loop is a renderer that can miss one of them.
   for (const hit of scanRefs(s)) {
     if (hit.index > last) appendPlainWithMentions(s.slice(last, hit.index), world, out)
-    const r = resolveRef(hit.ref, world)
+    // the token as written: a chip that cannot open shows it, and an old @item: is never shown rewritten
+    const r = { ...resolveRef(hit.ref, world), token: hit.token }
     if (projectFormPlain(r)) pushPlainRun(out, hit.token)
     else out.push({ text: hit.token, ref: r })
     last = hit.index + hit.token.length
