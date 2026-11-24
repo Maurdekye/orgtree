@@ -1247,7 +1247,8 @@ type FailedSelectionReply = {
 }
 
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
-  toast, broadcast, sendLabel = 'reply', sendTitle, below, desk, draftKey, quietSent = false, history, escapeRemovesFile = false }: {
+  toast, broadcast, sendLabel = 'reply', sendTitle, below, desk, draftKey, quietSent = false, history, escapeRemovesFile = false,
+  transcriptTexts }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1300,6 +1301,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
    *  the surface around the box (the user's chats: USER 2026-11-24 m63824e37d3d6 "esc while an
    *  attachment is in the messagebox should remove it rather than close the chat window") */
   escapeRemovesFile?: boolean
+  /** the conversation this box writes into, oldest text first: what it mentions ranks first in the @
+   *  menu, newest mention first, as a desk's transcript does (the user's chats, USER 2026-11-24
+   *  mf13638fa83f8). Read when the menu opens. */
+  transcriptTexts?: () => Iterable<string>
 }) {
   const [draft, setDraft] = useState(() => (draftKey ? readComposerDraft(draftKey)?.text : '') ?? '')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1310,6 +1315,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     inputRef: taRef,
     candidates: mentionCandidates,
     disabled: sendDisabled,
+    transcriptTexts,
     org: slug,
   })
   const [selections, setSelections] = useState<SelectionDraft[]>([])

@@ -1109,6 +1109,17 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const walked = hl ? walk.find(x => x.key === hl) : undefined
   const walkSaid = walked?.mail ? `${walked.out ? 'You' : walked.via ?? name}: ${mailBrief(walked.mail).slice(0, 200)}` : ''
 
+  // what this chat's loaded messages say, oldest first: its @ menu ranks what they mention first (the
+  // messages in the view, never a fetch for it)
+  const chatTexts = useCallback((): string[] => {
+    const out: string[] = []
+    for (const e of all) {
+      const text = e.mail ? mailRowCopyText(e.mail as CopyableMailRow, PROFILE) : ''
+      if (text) out.push(text)
+    }
+    return out
+  }, [all])
+
   const send = (text: string, attachments?: string[], notice?: boolean, _broadcast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
@@ -1312,7 +1323,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         {replyError && <div role="alert" className="mail-reply-state failed">{replyError}</div>}
         {canWrite
           ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions
-              draftKey={draftKey} quietSent escapeRemovesFile
+              draftKey={draftKey} quietSent escapeRemovesFile transcriptTexts={chatTexts}
               /* Up and Down walk what was sent to this agent: its desk's own history */
               history={chat.kind === 'agent' ? { slug, id: peer } : undefined}
               placeholder={!replies.length ? `message ${peer}…`
