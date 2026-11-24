@@ -25,6 +25,8 @@ const reference = (org, token) => ({ kind: 'reference', org, token })
 test('each kind has exactly one link shape, and it names the canonical token', () => {
   for (const [url, expected] of [
     ['orgtree://item/alpha/git-review-workspace', reference('alpha', '@item:alpha/git-review-workspace')],
+    // the ticket form (4.7.0): the same ticket; the old link above keeps working
+    ['orgtree://ticket/alpha/git-review-workspace', reference('alpha', '@ticket:alpha/git-review-workspace')],
     ['orgtree://doc/alpha/d1a2b3c4', reference('alpha', '@doc:alpha/d1a2b3c4')],
     ['orgtree://app/alpha/caption-app', reference('alpha', '@app:alpha/caption-app')],
     ['orgtree://panel/alpha/p1234', reference('alpha', '@panel:alpha/p1234')],

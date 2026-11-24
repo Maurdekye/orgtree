@@ -225,3 +225,34 @@ test('§6 outside addresses (contacts and orgs) rank by recency: the latest of m
   await typeInto(box, 'see @net:')
   assert.deepEqual(ranked(), ['Acme Labs (@net:acme.12ab34)', 'Alice (@net:alice.77ded7)'], '@net: keeps the same order')
 })
+
+// USER 2026-11-24 mb9bc017ee96e, mc6e8d9a7dab7: @ticket: lists tickets as @item: does, and it is what picking a
+// ticket writes.
+test('§7 @ticket: lists every ticket as @item: does, and picking a ticket writes @ticket:', async t => {
+  const { asked } = engine(t, s => {
+    s.workItems = [ticket('fix-login', 'Fix the login page', '2026-10-27T10:05:00Z')]
+    s.workBacklogged = [ticket('weekly-plan', 'Weekly plan', '2026-10-27T09:00:00Z')]
+    s.documents = [doc('weekly-status', 'Weekly status', '2026-10-27T10:00:00Z')]
+  })
+  const box = await mount(t, 'acme', [agent('boss', '2026-10-27T10:20:00Z')])
+  const kinds = () => [...new Set(rows().map(kindOf))]
+  await typeInto(box, 'see @item:')
+  const old = ranked()
+  assert.deepEqual([kinds(), old], [['ticket'], ['Fix the login page', 'Weekly plan']], 'POSITIVE CONTROL: @item: lists the tickets')
+  await typeInto(box, 'see @ticket:')
+  assert.deepEqual([kinds(), ranked()], [['ticket'], old], '@ticket: lists the same tickets in the same order')
+  assert.equal(asked.at(-1)?.get('kinds'), 'item', 'from the same engine read')
+  await typeInto(box, 'see @ticket:week')
+  assert.deepEqual(ranked(), ['Weekly plan'], 'text after the colon filters')
+  await typeInto(box, 'see @ticket:acme/fix')
+  assert.deepEqual(ranked(), ['Fix the login page'], 'a long form being typed filters by what follows its org')
+  await press(box, 'Tab')
+  assert.equal(box.value, 'see @ticket:acme/fix-login ', 'picking writes the ticket form')
+  await typeInto(box, 'and @item:acme/week')
+  await press(box, 'Tab')
+  assert.equal(box.value, 'and @ticket:acme/weekly-plan ', 'also when the old prefix was typed')
+  await typeInto(box, 'or @login')
+  assert.deepEqual(ranked(), ['Fix the login page'])
+  await press(box, 'Tab')
+  assert.equal(box.value, 'or @ticket:acme/fix-login ', 'and from the plain @ list')
+})
