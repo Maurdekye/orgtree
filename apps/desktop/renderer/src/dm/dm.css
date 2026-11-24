@@ -257,7 +257,13 @@
 .dm-bubble .mailer-body p:last-child { margin-bottom: 0; }
 /* a file chip beside a picture keeps its own height */
 .dm-bubble .attach-row { margin: 6px 0 2px; align-items: flex-start; }
-.dm-bubble.typed { min-width: 260px; }
+/* A WHOLE CARD IN A BUBBLE IS AS FAR FROM THE BUBBLE'S EDGE ON EVERY SIDE (USER 2026-11-24 m801fb347bce8:
+   "padding on these formatted message blocks is a bit off, needs some extra in places"): 8px above it,
+   beside it and down to the time. The card keeps the inner padding it has on a desk: the reading pane's
+   rule takes a card's sides away (its cards are flush with the pane), and in a bubble the card is a box. */
+.dm-bubble.typed { min-width: 260px; padding: 8px 8px 6px; }
+.dm-bubble.typed .dm-meta { margin-top: 8px; }
+.dm-bubble.typed .mailer-body .event-body { padding: 8px 10px; }
 .dm-bubble .urgent-why { margin: 0 0 4px; }
 
 /* the small label a request, a question or a decision wears (ruling 5) */

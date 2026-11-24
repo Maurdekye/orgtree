@@ -3117,8 +3117,17 @@ html.mobile .askcard button.ask-fold { min-width: 28px; min-height: 28px; }
 }
 .ask-fold-line:has(> .ref-chip) > .ask-fold-text { flex: none; max-width: 55%; }
 .ask-fold-text p { display: inline; margin: 0; }
-.ask-q-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.ask-q-head > .answered-chip { margin-right: 0; }
+/* THE TICKET OF A QUESTION KEEPS TO ONE LINE ABOVE IT (USER 2026-11-24 m63824e37d3d6: "the ticket in the
+   question header here is poorly formatted and the text is squished"): a long ticket name wrapped over
+   two lines and into the question. Cut with an ellipsis, as a folded card's ticket is (.ask-fold-line
+   below); the chip's own hover has the whole name. Shared by every request card: the desks' and the
+   chats'. */
+.ask-q-head { display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; min-width: 0; margin: 2px 0 6px; }
+.ask-q-head > .answered-chip { margin-right: 0; flex: none; }
+.ask-q-head > .ref-chip.ref-chip,
+.wrap-object-mentions .ask-q-head > .ref-chip.ref-chip {
+  display: block; flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
 .ask-fold-changed {
   flex: none; font-size: 10px; padding: 0 6px; border-radius: 8px; font-family: var(--mono);
   border: 1px solid var(--accent); color: var(--accent);
