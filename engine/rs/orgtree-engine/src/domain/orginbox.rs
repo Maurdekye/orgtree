@@ -1096,7 +1096,7 @@ mod delivered_to_stays_inside_the_org {
     #[test] fn only_the_delivery_and_the_local_views_name_the_column() {
         let (named, scanned) = files_naming_the_column();
         assert!(scanned > 100, "an empty scan is not a pass ({scanned} files)");
-        let allowed: BTreeSet<String> = ["domain/orginbox.rs", "domain/orginbox_jobs.rs", "domain/orginbox_queue_tests.rs", "migrate.rs", "tools/org_inbox.rs", "tools/treetools.rs"]
+        let allowed: BTreeSet<String> = ["domain/orginbox.rs", "domain/orginbox_jobs.rs", "domain/orginbox_queue_tests.rs", "domain/orginbox_weak_tests.rs", "migrate.rs", "tools/org_inbox.rs", "tools/treetools.rs"]
             .iter().map(|s| s.to_string()).collect();
         assert_eq!(named, allowed, "a new file naming `delivered_to` needs checking against USER 2026-10-30 mc1739129bbfa (opaque to outside listeners); treetools.rs has a watchdog result of the same name");
         for f in &named {
