@@ -1406,3 +1406,23 @@ test('alpha.1 point 1: a retired agent that held an audience is not listed; its 
   assert.equal(s.row('gone'), undefined, 'the row is gone as soon as another chat is selected')
   assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'and nothing was revoked')
 })
+
+test('alpha.1 point 9: a short chat whose older mail lies beyond pages of other chats\' mail still gets it by itself: no button, nothing to scroll', async (t) => {
+  const { dmTiming } = await import('../src/dm/DmPanel')
+  const was = dmTiming.slowPageMs
+  dmTiming.slowPageMs = 5
+  t.after(() => { dmTiming.slowPageMs = was })
+  // five pages of lead's mail, then the page that holds worker's older message
+  const others = Array.from({ length: 5 }, (_, i) => ({ delivered: [mail(`x${i}`, 'lead', `2026-10-${String(20 - i).padStart(2, '0')}T10:00:00Z`)] }))
+  const s = await setup(t, {
+    audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')],
+    older: [...others, { delivered: [mail('m0', 'worker', '2026-10-01T10:00:00Z')] }],
+  }, { active: false })
+  await s.openChat('worker')
+  for (let i = 0; i < 200 && !s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'm0'); i++) {
+    await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 20)); await flush(6) })
+  }
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['m0', 'm1'], `the older message came in (pages read: ${s.server.pages.join(' ')})`)
+  assert.equal(document.querySelector('button.dm-older') === null, true, 'with no button')
+  assert.equal(s.server.pages.includes('inbox:6'), true, 'the history was read to its end')
+})
